@@ -21,6 +21,7 @@ public actor ExtractionOrchestrator {
     /// 文档分类（打分阶段）由调用方完成（`DocumentTypeClassifierFallback.classify`），
     /// 本类只做「候选收敛 + 抽取编排」——单一职责（P2）。
     public func analyze(lines: [String],
+                        layout: PageLayout? = nil,
                         pageIndex: Int = 0,
                         documentTypeKey: String,
                         pageConfidence: Double,
@@ -28,7 +29,10 @@ public actor ExtractionOrchestrator {
                         pageBudget: Duration? = nil) async throws -> [ExtractedCard] {
         let specs = ExtractionSpecRegistry.candidates(documentTypeKeys: [documentTypeKey])
         guard !specs.isEmpty else { return [] }
-        let layout = PageLayout.linesOnly(lines)
+        // 几何回管线（框级锚定三纪律：测量来源 / fail-closed / 归一化坐标）：
+        // 传入实测版面（Vision bbox）则用之；nil（语音侧/旧调用方）退化
+        // linesOnly——绝不伪造几何。
+        let layout = layout ?? PageLayout.linesOnly(lines)
         let request = ExtractionRequest(
             pageIndex: pageIndex,
             lines: lines,

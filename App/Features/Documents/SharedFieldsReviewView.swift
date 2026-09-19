@@ -93,7 +93,13 @@ struct SharedFieldsReviewView: View {
                         isRequired: rows[index].required,
                         allowsReject: false,
                         sourceLine: sourceLine(rows[index]),
-                        onViewSource: { _ in viewSource(rows[index]) })
+                        onViewSource: { _ in viewSource(rows[index]) },
+                        // 审查修复（2026-09-17 业主裁定「原值为空的手填即确认」）：
+                        // 本页此前不注入 onRevise——手填走纯 revise 滞留 D 级，
+                        // 与裁定相悖（原值空 = 无机器值可核对，再点 [确认] 是纯
+                        // 摩擦）。fillByUser 自含判据：原值空升 C、机器值仍
+                        // 「改动即失效、需重新确认」，两态语义同卡确认面。
+                        onRevise: { value in _ = rows[index].field.fillByUser(value) })
     }
 
     @ViewBuilder

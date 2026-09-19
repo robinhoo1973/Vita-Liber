@@ -316,8 +316,13 @@ extension EngineRegistry {
         install(ImagePreprocessingFactory.self)
         install(ImageDecodingFactory.self)
         install(ImageCompressingFactory.self)
+        // 顺序纪律（审查修复，E7）：CardExtractionFactory 必须先于
+        // TextUnderstandingFactory——后者的 make() 在构造期解析抽取注册表
+        // （NLTextUnderstanding 持 orchestrator），注册表缺席时永久捕获
+        // 纯规则轨（T1/T2 生成轨被静默剥离，其注释承诺的「三轨注册表经
+        // EAL 装配」落空）。if-absent 语义保证重排对已注册测试桩无副作用。
+        install(CardExtractionFactory.self)
         install(TextUnderstandingFactory.self)
         install(TextRefinerFactory.self)
-        install(CardExtractionFactory.self)
     }
 }

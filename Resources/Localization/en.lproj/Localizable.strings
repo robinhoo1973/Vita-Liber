@@ -18,6 +18,8 @@
 "voice.confirm.title" = "Confirm voice input";
 "voice.confirm.pending" = "Unconfirmed · saved after you confirm";
 "voice.confirm.lowConfidence" = "Low confidence — please check";
+"voice.confirm.fieldConfirmed" = "Confirmed";
+"voice.confirm.lowPendingFmt" = "%d low-confidence item(s) not yet checked — confirm each one or edit before saving";
 "voice.confirm.save" = "Confirm and save";
 "voice.confirm.retry" = "Say again";
 "voice.confirm.cancel" = "Cancel";
@@ -1056,9 +1058,7 @@
 "gradebadge.pending" = "Pending";
 "settings.gateGrace" = "Security";
 "settings.autoLock" = "Auto-lock grace after leaving app";
-"settings.grace0" = "Immediately";
-"settings.grace15" = "15 seconds";
-"settings.grace60" = "60 seconds";
+"settings.graceSecondsFmt" = "%d seconds";
 "ai.quickGlucose" = "Recent glucose";
 "ai.quickNext" = "Next visit";
 "voicenote.detailBody" = "Content";
@@ -1112,6 +1112,9 @@
 "sharedFields.carriersFmt" = "Applies to: %@";
 "entityCard.sourceLineTitle" = "Source line";
 "entityCard.sourceLineHint" = "This field was read from the highlighted line below";
+"entityCard.sourceLineQuoteHint" = "Tap a line to quote it into the field (still needs confirmation); long-press to copy text";
+"entityCard.sourceLineQuote" = "Quote this line";
+"entityCard.fieldViewScan" = "View scan";
 "entityCard.rowSkipped" = "Row is missing a required field — finish it later from To-do";
 "entityCard.sharedSection" = "Shared details";
 "entityCard.rowsSection" = "Items";
@@ -1701,6 +1704,7 @@
 "voicePanel.editHint" = "Transcript appears here — tap to edit directly; tap the mic to append more recordings";
 "voicenote.tapHint" = "Tap to start recording, tap again to stop; or press and hold";
 "voicenote.dictationDenied" = "Speech input permission not granted. Enable it in Settings.";
+"voicenote.dictationEngineUnavailable" = "Speech engine unavailable (model missing or failed to load) — you can type instead";
 "voicePanel.confirm" = "Confirm";
 "voicePanel.clearTitle" = "Clear Recording";
 "voicePanel.clear" = "Clear";

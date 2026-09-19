@@ -91,6 +91,12 @@ struct VoiceConfirmSheet: View {
     @State private var routeToastTask: Task<Void, Never>?
     /// TestFlight 实测修复：字段可编辑——未识别/识别错的字段由用户在卡上直接补全
     @State private var edits: [UUID: String] = [:]
+    /// 低置信字段的逐项确认（审查修复，BR-003 <0.5 复核闸；Domain
+    /// `OcrConfirmationSet.hasUnconfirmedLowConfidence` 同判据）：旧实现
+    /// 保存一键升 C **全部**字段——置信 0.2 的转写（如听错的数值）一次
+    /// 轻点进事实流，Domain 闸门零消费方。低置信字段必须逐项 [确认]
+    /// （或编辑——编辑即核对，FR6.9 ④「手填即确认」同语义）。
+    @State private var individuallyConfirmed: Set<UUID> = []
 
     /// 回读脚本 = 已确认字段（BR-003：未确认内容不得被当作事实播报）。
     /// 确认卡呈现时字段尚未确认，故按「即将保存的取值」构造预览脚本：
@@ -113,6 +119,10 @@ struct VoiceConfirmSheet: View {
     /// 审查修复（清空即删除）：用户清空的字段从确认集中移除——此前清空
     /// 被静默丢弃、原机器识别值照样保存，纠正错误识别的唯一手段反而
     /// 失效（BR-003 修正语义落空）
+    /// 审查修复（BR-003 低置信闸）：低置信字段只在「已编辑（编辑即核对，
+    /// FR6.9 ④ 手填即确认同语义）或已逐项确认」时升 C；未核对的低置信
+    /// 字段保持 D 级原样返回——保存闸门（saveDisabledReason）在卡上
+    /// 如实说明还剩几项，而不是旧实现的一键升 C 全部。
     private func applyingEdits() -> OcrConfirmationSet {
         var applied = set
         applied.fields = applied.fields.filter { field in
@@ -121,12 +131,27 @@ struct VoiceConfirmSheet: View {
         }
         for i in applied.fields.indices {
             let id = applied.fields[i].id
+            let lowConfidence = ConfidenceTier.tier(applied.fields[i].confidence) == .low
             if let edited = edits[id] {
                 _ = applied.fields[i].revise(to: edited)
+                if lowConfidence { _ = applied.fields[i].confirm() }
             }
-            _ = applied.fields[i].confirm()
+            if !lowConfidence || individuallyConfirmed.contains(id) {
+                _ = applied.fields[i].confirm()
+            }
         }
         return applied
+    }
+
+    /// 尚未核对（未编辑且未逐项确认）的低置信字段数——保存闸门判据。
+    /// 注：`set` 是属性名（OcrConfirmationSet）——计算属性 getter 内须
+    /// 以 `self.set` 限定，裸 `set` 被解析为 setter 关键字（编译错误）。
+    private var unconfirmedLowCount: Int {
+        self.set.fields.filter { field in
+            ConfidenceTier.tier(field.confidence) == .low
+                && !individuallyConfirmed.contains(field.id)
+                && edits[field.id] == nil
+        }.count
     }
 
     private var showsAsk: Bool {
@@ -239,17 +264,31 @@ struct VoiceConfirmSheet: View {
                                   text: binding(for: field), axis: .vertical)
                             .textFieldStyle(.roundedBorder)
                             .font(.body)
-                            .accessibilityIdentifier("FR17.13.confirm.field.edit")
+                            .accessibilityIdentifier("FR17.13.confirm.field.edit.\(field.key)")
                         HStack(spacing: 6) {
                             // D 级「待确认」态经 GradeBadge 唯一渲染出口
                             // （审查修复：此前此处内联 grade-d 文案，与设计系统
                             // D/E 视觉契约双实现，徽章改版时本卡被落下）
                             GradeBadge(grade: "D")
-                            if ConfidenceTier.tier(field.confidence) == .low {
+                            let low = ConfidenceTier.tier(field.confidence) == .low
+                            if low {
                                 Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
                                     .font(.caption2)
                                     .foregroundStyle(Color("grade-d", bundle: .main))
                                     .labelStyle(.titleAndIcon)
+                                // 低置信逐项确认（BR-003 <0.5 复核闸；与 OCR
+                                // 逐项 [确认] 同语义——保存不再一键升 C 低置信）
+                                Button {
+                                    individuallyConfirmed.insert(field.id)
+                                } label: {
+                                    Label(individuallyConfirmed.contains(field.id)
+                                          ? L10n.voiceConfirmFieldConfirmed : L10n.commonConfirm,
+                                          systemImage: "checkmark.circle")
+                                        .font(.caption2)
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(individuallyConfirmed.contains(field.id))
+                                .accessibilityIdentifier("FR17.13.confirm.field.confirm.\(field.key)")
                             }
                         }
                     }
@@ -260,8 +299,8 @@ struct VoiceConfirmSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 12)
                         .strokeBorder(Color("grade-d", bundle: .main),
                                       style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("FR17.13.confirm.field")
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("FR17.13.confirm.field.\(field.key)")
                 }
 
                 if bystanderWarning {
@@ -304,6 +343,13 @@ struct VoiceConfirmSheet: View {
                     }
                 }
 
+                // 低置信闸门提示（BR-003：保存前如实说明还剩几项未核对）
+                if unconfirmedLowCount > 0 {
+                    Label(L10n.voiceConfirmLowPending(unconfirmedLowCount), systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        .accessibilityIdentifier("FR17.13.confirm.lowPending")
+                }
                 HStack(spacing: 12) {
                     Button(L10n.voiceConfirmCancel, action: onCancel)
                         .frame(minHeight: 44)
@@ -317,6 +363,7 @@ struct VoiceConfirmSheet: View {
                         onConfirm(applyingEdits())
                     }
                     .buttonStyle(.borderedProminent)
+                    .disabled(unconfirmedLowCount > 0)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("FR17.13.confirm")
                 }

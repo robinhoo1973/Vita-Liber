@@ -116,7 +116,7 @@ struct ProfileSuggestionSheet: View {
                 }
                 .frame(minHeight: 44)
                 if rowState == .failed {
-                    Text(L10n.profileSuggestionFailed).font(.caption).foregroundStyle(.red)
+                    Text(L10n.profileSuggestionFailed).font(.caption).foregroundStyle(Color("semantic-danger", bundle: .main))
                 }
             }
         }

@@ -14,6 +14,9 @@ extension DocumentsState {
         var confidence: Double = 0
         var qualityTags: [String] = []
         var typeConfidence: Double?
+        /// 识别层实测版面（框级锚定三纪律：测量来源/fail-closed/归一化坐标）。
+        /// nil = 几何不可用（引擎不给版面或续办往返），消费方不画高亮。
+        var layout: PageLayout? = nil
         var text: String { lines.joined(separator: "\n") }
     }
 
@@ -202,6 +205,11 @@ extension DocumentsState {
                 guard let scheduler else { throw ImportError.storeUnavailable }
                 try await scheduler.schedule(dose: "pending-\(id)", at: Date().addingTimeInterval(3600), route: .pendingCard(id))
             } catch {
+                // 审查修复（E6，提交/通知非对称）：通知排程失败时**回滚**
+                // 已落库的待办卡——旧实现返回失败但卡已持久化：卡同时存在
+                // 于导入队列与待办表，重试再 upsert 一份，队列与待办双计。
+                // 回滚 = markResolved（软删）；通知没排上就没有触达损失。
+                try? await pendingCardStore.markResolved(id: id, by: "system", note: "rollback-defer")   // try?-ok: 回滚尽力而为，失败留待办行（不再双计——卡未出队，重试走同一 upsert 键）
                 session.notificationError = L10n.ocrReviewNotificationFailed
                 return false
             }

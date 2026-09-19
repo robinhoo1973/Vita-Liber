@@ -11,12 +11,19 @@ final class VoiceDictationModel {
     /// 失败原因（FR17.1 / ui-ux §5.54「麦克风拒绝→手输兜底提示」）：
     /// 此前一切失败都渲染「未识别到语音，可继续手动输入」——权限被拒时用户
     /// 反复对着麦克风说话，永远得不到「去系统设置开启」的提示（2026-09-16 评审）。
-    enum FailureReason: Equatable { case noSpeech, unauthorized }
+    /// 审查修复（分型补全）：引擎不可用（模型缺件/下载失败/加载失败）与
+    /// 「没听到声音」是两回事——旧实现除 unauthorized 外全部映射 noSpeech，
+    /// 引擎起不来的用户对着麦克风反复说，永远得不到「引擎不可用」的提示。
+    enum FailureReason: Equatable { case noSpeech, unauthorized, engineUnavailable }
     private(set) var phase: Phase = .idle
     private(set) var failureReason: FailureReason?
     /// 失败态文案（两个挂载点共用一处映射，避免各自三元判断漂移）
     var failureMessage: String {
-        failureReason == .unauthorized ? L10n.voicenoteDictationDenied : L10n.voicenoteDictationFailed
+        switch failureReason {
+        case .unauthorized: return L10n.voicenoteDictationDenied
+        case .engineUnavailable: return L10n.voicenoteDictationEngineUnavailable
+        case .noSpeech, .none: return L10n.voicenoteDictationFailed
+        }
     }
     /// 连续会话显示文本 = 已提交段 + 当前部分（引擎 onPartial 已合并，V3.61）
     private(set) var partial = ""
@@ -57,8 +64,6 @@ final class VoiceDictationModel {
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var deliveryOrder: [UUID] = []
     private var completed: [UUID: Result<TranscriptionResult, Error>] = [:]
-    /// 已废弃会话（视图销毁/切页）：其迟到结果不得再触碰 UI 状态
-    private var abandoned: Set<UUID> = []
     /// A new press waits only for preceding capture shutdown, never for its final transcript.
     private var controlTask: Task<Void, Never>?
 
@@ -158,7 +163,6 @@ final class VoiceDictationModel {
         tasks.removeAll()
         completed.removeAll()
         deliveryOrder.removeAll()
-        abandoned.formUnion(ids)
         currentID = nil
         recordingID = nil
         phase = .idle
@@ -181,8 +185,6 @@ final class VoiceDictationModel {
                 await engine.cancel(sessionID: id)
                 await engine.discardSession(sessionID: id)
             }
-            // 废弃集随会话全部结清后清空（新按键的 UUID 不可能与废弃集重叠）
-            abandoned.removeAll()
         }
         onActivityChange?(false)
     }
@@ -230,7 +232,6 @@ final class VoiceDictationModel {
         applyOutcome(outcome, sessionID: id, lifetime: lifetime)
         deliverCompleted(lifetime: lifetime)
         if lifetime == epoch, contexts.isEmpty {
-            abandoned.removeAll()
             onActivityChange?(false)
         }
     }
@@ -243,7 +244,7 @@ final class VoiceDictationModel {
     /// 松手后的识别失败/未完成永不提示（口述内容静默丢失无告警）。
     private func applyOutcome(_ outcome: Result<TranscriptionResult, Error>, sessionID: UUID, lifetime: UInt64) {
         guard lifetime == epoch, contexts[sessionID] != nil else { return }
-        if currentID == sessionID, !abandoned.contains(sessionID) {
+        if currentID == sessionID {
             isPreparing = false
             recordingID = nil
             switch outcome {
@@ -262,8 +263,14 @@ final class VoiceDictationModel {
                     failureReason = nil
                 } else {
                     phase = .failed
-                    // 权限拒绝与「没听到声音」是两回事（此前一律说成后者）
-                    failureReason = (error as? TranscriptionError) == .unauthorized ? .unauthorized : .noSpeech
+                    // 权限拒绝 / 引擎不可用 /「没听到声音」是三回事（此前
+                    // 后两者一律说成 noSpeech——引擎起不来的用户对着麦克风
+                    // 反复说，永远得不到「引擎不可用」的提示）
+                    switch error as? TranscriptionError {
+                    case .unauthorized: failureReason = .unauthorized
+                    case .engineUnavailable: failureReason = .engineUnavailable
+                    default: failureReason = .noSpeech
+                    }
                     Haptics.notice(.warning)
                 }
             }

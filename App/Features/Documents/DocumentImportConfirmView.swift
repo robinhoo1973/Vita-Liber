@@ -27,7 +27,7 @@ struct DocumentImportConfirmView: View {
                         ForEach(typeOptions, id: \.self) { Text($0).tag($0) }
                     }
                     if !draft.docTypeResolved {
-                        Text(L10n.docConfirmDocTypeUnresolved).foregroundStyle(.orange)
+                        Text(L10n.docConfirmDocTypeUnresolved).foregroundStyle(Color("semantic-warning", bundle: .main))
                         ScrollView(.horizontal) {
                             HStack {
                                 ForEach(typeOptions, id: \.self) { type in
@@ -68,7 +68,7 @@ struct DocumentImportConfirmView: View {
                         }.buttonStyle(.borderless).frame(minHeight: 44)
                         if draft.pages[pageIndex].status == "failed" {
                             Label(L10n.docPDFImportFailed, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
                         } else if draft.pages[pageIndex].status == "skipped" {
                             Text(L10n.ocrReviewPageSkipped).foregroundStyle(.secondary)
                         } else if draft.pages[pageIndex].fields.isEmpty {
@@ -161,16 +161,26 @@ struct FieldConfirmRow: View {
     /// 属于「缺证据被当成有证据」（BR-003 同族）。
     var sourceLine: Int?
     var onViewSource: ((Int) -> Void)?
+    /// 字段旁 [看图] 入口（业主 2026-09-19 第 1 项）：打开扫描原件核对证据。
+    /// nil = 无原件可看（如待办续办模式的旧数据）→ 不渲染。
+    var onViewScan: (() -> Void)?
     var onRevise: ((String) -> Void)?
     @FocusState private var focused: Bool
 
     private var tier: ConfidenceTier { ConfidenceTier.tier(field.confidence) }
+    private var rejected: Bool { field.grade == .rejected }
     private var confidenceLabel: String {
         switch tier {
         case .high: return L10n.docConfirmConfidenceHigh
         case .mid: return L10n.docConfirmConfidenceMid
         case .low: return L10n.docConfirmConfidenceLow
         }
+    }
+    /// 编辑/枚举两分支共用的值绑定（单一出口：改 revise 语义只此一处）
+    private var valueBinding: Binding<String> {
+        Binding(get: { field.value }, set: { value in
+            if let onRevise { onRevise(value) } else { field.revise(to: value) }
+        })
     }
 
     var body: some View {
@@ -179,23 +189,21 @@ struct FieldConfirmRow: View {
                 HStack {
                     Text(label).font(.caption).foregroundStyle(.secondary)
                     Spacer()
-                    if field.grade == .rejected { Text(L10n.docConfirmReject).font(.caption) }
+                    if rejected { Text(L10n.docConfirmReject).font(.caption) }
                     else { GradeBadge(grade: field.isConfirmed ? "C" : "D") }
                 }
-                if !field.isConfirmed && field.grade != .rejected {
+                if !field.isConfirmed && !rejected {
                     Text(confidenceLabel).font(.caption)
                         .foregroundStyle(tier == .low ? Color("semantic-danger", bundle: .main) : Color.secondary)
                 }
-                if readOnly || field.grade == .rejected {
+                if readOnly || rejected {
                     Text(DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: field.value))
-                        .strikethrough(field.grade == .rejected)
+                        .strikethrough(rejected)
                 } else if let options = DocumentsDisplay.enumOptions(forKey: field.key) {
                     // 枚举槽位（kind/item_type/unit_kind/currency/prescription_type）：Picker 绑 canonical raw、
                     // 标签走展示层映射——编辑框直出 raw（实测「outpatient」上屏）在此收口；数据真值仍是 raw。
                     // 非 canonical 现值（OCR 原文/空值）保留为首项，用户改选即回写 canonical（再经校验升 C）。
-                    Picker(label, selection: Binding(get: { field.value }, set: { value in
-                        if let onRevise { onRevise(value) } else { field.revise(to: value) }
-                    })) {
+                    Picker(label, selection: valueBinding) {
                         if !options.contains(field.value) {
                             Text(field.value.isEmpty ? L10n.entityCardPickValue : field.value).tag(field.value)
                         }
@@ -210,9 +218,7 @@ struct FieldConfirmRow: View {
                     // 永不写回数据）——把展示文案映射进编辑框会令半程编辑
                     // （退格/追加一字符）把本地化片段写进 raw 槽位、污染审计
                     // 历史（round10 max 审查结论：与「编辑态仍回写 raw」设计一致）。
-                    TextField(label, text: Binding(get: { field.value }, set: { value in
-                        if let onRevise { onRevise(value) } else { field.revise(to: value) }
-                    }), axis: .vertical)
+                    TextField(label, text: valueBinding, axis: .vertical)
                     .lineLimit(1...6)
                     .textFieldStyle(.roundedBorder)
                     .focused($focused)
@@ -225,7 +231,7 @@ struct FieldConfirmRow: View {
                 }
                 if !readOnly {
                     HStack(spacing: 12) {
-                        if field.grade == .rejected {
+                        if rejected {
                             Button(L10n.docConfirmReenable) { field.reenable() }
                         } else if !allowsReject {
                             // 公用信息页：只留 [确认]（见 allowsReject 注释）
@@ -233,7 +239,13 @@ struct FieldConfirmRow: View {
                                 .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                 .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
                         } else {
-                            if !cardLevelConfirmation || tier == .low || isRequired {
+                            // 逐项 [确认] 入口的渲染判据收敛 Domain 资格谓词
+                            // `CardConfirmationRules.confirmable(_:isRequired:)`——
+                            // 卡级批量不覆盖的字段（必填 / 置信 <0.6 / 歧义未选）
+                            // 必须有逐项入口（审查修复：旧判据 `tier == .low`
+                            // 用展示分档 <0.5 冒充资格门槛 0.6，0.5–0.6 黄档
+                            // 无入口且不参与批量 = 该字段永远无法确认）。
+                            if !cardLevelConfirmation || !CardConfirmationRules.confirmable(field, isRequired: isRequired) {
                                 Button(L10n.commonConfirm) { _ = field.confirm(); focused = false }
                                     .disabled(field.isConfirmed || field.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                                     .accessibilityIdentifier("OCR.field.confirm.\(field.key)")
@@ -246,6 +258,16 @@ struct FieldConfirmRow: View {
                                 }
                                 .accessibilityLabel(L10n.entityCardReviewSource)
                                 .accessibilityIdentifier("OCR.field.source.\(field.key)")
+                            }
+                            // 字段 → 扫描原件（业主 2026-09-19 第 1 项）：
+                            // 有原件路径才出入口，与 [原文] 同诚实纪律
+                            if let onViewScan {
+                                Button { onViewScan() } label: {
+                                    Label(L10n.entityCardFieldViewScan, systemImage: "doc.viewfinder")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .accessibilityLabel(L10n.entityCardFieldViewScan)
+                                .accessibilityIdentifier("OCR.field.scan.\(field.key)")
                             }
                             // 审查修复：单条目 Menu 只徒增一次点按——卡级模式下
                             // 「拒绝」以纯按钮直出（行为与页面级完全一致）。

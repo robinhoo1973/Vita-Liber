@@ -390,11 +390,8 @@ extension L10n {
 
     static var settings_autoLock: String { t("settings.autoLock") }
 
-    static var settings_grace0: String { t("settings.grace0") }
-
-    static var settings_grace15: String { t("settings.grace15") }
-
-    static var settings_grace60: String { t("settings.grace60") }
+    /// FR1.4 门禁宽限档位标签（值由 Domain `SettingsRules.gateGraceSecondsLegalValues` 单一事实源驱动）
+    static func settings_graceSeconds(_ value: Int) -> String { String(format: t("settings.graceSecondsFmt"), value) }
 
     static var helpcardPreviewTitle: String { t("helpcard.previewTitle") }
 

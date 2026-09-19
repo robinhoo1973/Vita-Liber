@@ -26,11 +26,36 @@ struct TranscriptRefinerTests {
         #expect(ProtectedTokenValidator.validate(original: pair.0, suggested: pair.1) == .rejected)
     }
 
-    /// 原名：插入血压斜杠和内部分句不能视为安全格式调整
-    @Test func insertedSlashAndInnerSplitAreNotSafeFormatting() {
+    /// 斜杠与**句内逗号**仍非安全格式调整（业主 2026-09-19 只放行句末
+    /// 标点插入：逗号会改写否定辖域与数值形式，斜杠会改数值语义）
+    @Test func insertedSlashAndInteriorCommaAreNotSafeFormatting() {
         let original = "今天头疼吃了两片布洛芬血压130 80"
         let suggested = "今天头疼，吃了两片布洛芬。血压 130/80。"
         #expect(ProtectedTokenValidator.validate(original: original, suggested: suggested, drugNames: ["布洛芬"]) == .rejected)
+    }
+
+    /// 业主 2026-09-19：句末标点**插入**是唯一放行的新格式变换——
+    /// 逐字节可验证（剥除句末标点 = 原文空白归并序列）。
+    @Test(arguments: [
+        ("今天头疼吃了两片布洛芬", "今天头疼吃了两片布洛芬。"),
+        ("体温正常没有咳嗽", "体温正常。没有咳嗽。"),
+        ("血压一百二八十", "血压一百二八十。"),
+        ("No cough", "No cough."),
+        ("没有发烧", "没有发烧。"),
+    ])
+    func sentenceTerminalPunctuationInsertionAccepted(_ pair: (String, String)) {
+        #expect(ProtectedTokenValidator.validate(original: pair.0, suggested: pair.1) == .accepted)
+    }
+
+    /// 数字相邻禁插（含行尾）：314 不能变 3.14、「值5」不能读作小数
+    @Test(arguments: [
+        ("314", "3.14"),
+        ("值5", "值5."),
+        ("值5", "值5。"),
+        ("3 50", "3. 50"),
+    ])
+    func punctuationAdjacentToDigitsRejected(_ pair: (String, String)) {
+        #expect(ProtectedTokenValidator.validate(original: pair.0, suggested: pair.1) == .rejected)
     }
 
     @Test(arguments: [
@@ -55,7 +80,8 @@ struct TranscriptRefinerTests {
         ("没有发热、咳嗽", "没有发热。咳嗽"),
         ("没有发热咳嗽", "没有发热，咳嗽"),
         ("No cough?", "No cough."),
-        ("No cough?", "No cough?."),
+        // （"No cough?", "No cough?." 已移出拒绝表——句末标点**插入**自
+        // 2026-09-19 起是放行的格式变换：追加「.」不改写任何原字符）
         ("No cough...", "No cough."),
         ("No cough.", "No cough"),
         ("No cough", "Nocough"),

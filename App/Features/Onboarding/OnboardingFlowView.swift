@@ -69,12 +69,22 @@ struct LockOverlayView: View {
     @State private var showEmergency = false
     /// 认证失败提示（自动尝试失败或手动按钮失败后显示；下次尝试前清空）
     @State private var failedOnce = false
-    /// 是否经历过真退后台（.background）——Face ID 系统浮层只到 .inactive，
+    /// 自动尝试状态机（替换原 sawBackground × didAutoAttempt 双布尔——
+    /// 四态含一非法态，每次扩展重试策略都要重推两张旗的交互）：
+    /// pending = 尚未自动尝试 / attempted = 本生命周期已自动尝试过
+    /// （防「取消 → .inactive→.active → 再弹」死循环）/ backgrounded =
+    /// 经历过真退后台（.background）——Face ID 系统浮层只到 .inactive，
     /// 以此区分「用户离开应用」与「认证浮层自身的场景波动」
-    @State private var sawBackground = false
-    /// 本次遮罩生命周期内已自动尝试过认证（防「取消 → .inactive→.active → 再弹」
-    /// 死循环）；冷启动首个 .active 的首次尝试除外
-    @State private var didAutoAttempt = false
+    @State private var autoGate: AutoGate = .pending
+    /// 认证在途守卫（审查修复，E5 同族）：手动按钮与自动尝试、连点都会
+    /// 并发 LAContext 求值——复用旧 context 或双弹认证层导致第二个必败
+    /// 且可能双弹（LocalAuthGateUnlocker 注记），与敏感媒体容器的
+    /// `unlocking` 守卫同纪律。
+    @State private var attemptInFlight = false
+
+    private enum AutoGate {
+        case pending, attempted, backgrounded
+    }
 
     var body: some View {
         WithPerceptionTracking {
@@ -134,7 +144,7 @@ struct LockOverlayView: View {
                 // 重跑——回前台自动重试由下方 onChange(scenePhase) 驱动。
                 // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
                 guard app.gateAutoAttempts, scenePhase == .active else { return }
-                didAutoAttempt = true
+                autoGate = .attempted
                 await attempt()
             }
             .onChangeCompat(of: scenePhase) { _, phase in
@@ -142,23 +152,25 @@ struct LockOverlayView: View {
                 // 自动重试。审查修复：原实现每次 .active 都重试——自身 Face ID
                 // 浮层取消/消失也令场景 inactive→active，形成「取消 → 立即再弹」
                 // 死循环，锁屏 SOS（BR-012 免门禁路径）永不可达
-                // 审查修复（冷启动回归）：sawBackground 恒 false 的冷启动首个
+                // 审查修复（冷启动回归）：autoGate 恒 pending 的冷启动首个
                 // .active 必须补一次自动尝试（遮罩挂载于 .inactive、.task 守卫
-                // 已跳过且不重跑）；didAutoAttempt 防止浮层取消引发的
+                // 已跳过且不重跑）；attempted 防止浮层取消引发的
                 // inactive→active 再次触发——每次遮罩生命周期最多自动一次。
                 switch phase {
                 case .background:
-                    sawBackground = true
+                    autoGate = .backgrounded
                 case .active:
                     guard app.gateAutoAttempts else { return }
-                    if sawBackground {
-                        sawBackground = false
+                    switch autoGate {
+                    case .backgrounded:
+                        autoGate = .attempted
                         failedOnce = false
-                        didAutoAttempt = true
                         Task { await attempt() }
-                    } else if !didAutoAttempt {
-                        didAutoAttempt = true
+                    case .pending:
+                        autoGate = .attempted
                         Task { await attempt() }
+                    case .attempted:
+                        break
                     }
                 case .inactive:
                     break
@@ -176,9 +188,14 @@ struct LockOverlayView: View {
     }
 
     private func attempt() async {
+        // 在途守卫：手动连点/手动+自动并发 → 只取第一次（并发二次求值
+        // 必败且可能双弹认证层，与敏感媒体容器同纪律）
+        guard !attemptInFlight else { return }
+        attemptInFlight = true
         // 成功 → lastUnlockedAt 置位 → onChange 解除遮罩并销毁本视图；
         // 失败/取消 → 返回 false → 显示重试提示（遮罩留存可手动重试）
         let ok = await app.requestUnlock(reason: L10n.security_unlockReason)
         failedOnce = !ok
+        attemptInFlight = false
     }
 }

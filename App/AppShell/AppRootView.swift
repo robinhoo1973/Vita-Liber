@@ -200,66 +200,30 @@ struct AppRootView: View {
         let wasActive = previousPhase == .active
         previousPhase = phase
         switch phase {
-        case .inactive, .background:
-            // FR1.4 + FR1.7：退后台即锁。用 .inactive 而非 .background——
-            // 任务切换器快照在 inactive 时刻截取（遮罩必须此时已挂载），
-            // 且 XCUITest 的 press(.home) 场景下 .background 送达不可靠。
+        case .inactive:
+            // FR1.4 + FR1.7：用 .inactive 而非 .background——任务切换器快照
+            // 在 inactive 时刻截取（遮罩必须此时已挂载），且 XCUITest 的
+            // press(.home) 场景下 .background 送达不可靠。
             // 审查修复：应用自身的系统认证浮层（Face ID）同样令场景短暂
             // inactive——豁免在途认证，否则导出向导/备份等动作被锁屏覆盖
-            // 层销毁状态并二次弹认证
+            // 层销毁状态并二次弹认证（宽限 ≥5s 后此豁免即使竞态漏判也只
+            // 晚锁 5 秒，不构成循环）。
             // 审查修复（回前台重锚）：返回路径同样经过 .inactive
             // （background→inactive→active）——此前该分支在返回路径重跑、
             // 以返回时刻重锚宽限（60 秒宽限永不过期）并覆盖旧计时任务。
             // 宽限只允许在「离开应用」的首个 inactive 锚定，返回路径跳过。
             guard wasActive else { break }
-            if appState.onboardingFinished && !appState.authPromptInFlight {
-                // 宽限值域钳制：合法域 0/15/60（SettingsRules.
-                // gateGraceSecondsLegalValues 单一事实源，设置页 Picker 同域），
-                // 但值经可编辑 JSON 备份往返，脏数据可注入任意字符串——
-                // 超界天文值下 UInt64(grace × 1e9) 是运行时 trap（切
-                // 任务器即崩）；超大但未越界的值（如 1e10 秒 ≈ 317 年）
-                // 则永不锁定；范围判定（0...3600）会让 "300" 等非法档
-                // 通过并制造规格外宽限窗（FR1.4 退后台即锁静默失效）——
-                // 一律按合法集成员判定，非法值按 0 处理。
-                let rawGrace = Double(Int(SettingsRules.resolved(settingsStore.values[.gateGraceSeconds],
-                                                                 key: .gateGraceSeconds)) ?? 0)
-                let grace = SettingsRules.gateGraceSecondsLegalValues.contains(rawGrace) ? rawGrace : 0
-                if grace > 0 {
-                    // 宽限窗口内回前台即取消（宽限只影响正式锁定时刻）
-                    // 第七轮全仓审查修复：回前台同样经过 .inactive（active→
-                    // inactive→background→inactive→active），本分支会再跑一次
-                    // 并**覆盖** graceLockTask——旧任务未取消，其宽限期满后
-                    // 在用户正使用中置 backgroundLocked，使用中突然被锁屏
-                    // （FR1.4 语义破坏）。覆盖前必须先取消旧任务。
-                    // 审查修复（回前台竞态）：仅靠「先 cancel 再让旧任务
-                    // 醒来」判定过期——后台挂起超时后返回，cancel 先于旧
-                    // 任务续体执行时 isCancelled 吞掉锁定（2 分钟后返回
-                    // 直接进入未锁病历，FR1.4 唯一防线失效）。锚定
-                    // graceDeadline 死线，回前台按墙钟判定，与任务竞态解耦。
-                    graceLockTask?.cancel()
-                    graceDeadline = Date().addingTimeInterval(grace)
-                    graceLockTask = Task {
-                        try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))   // try?-ok: 宽限计时取消即停
-                        guard !Task.isCancelled else { return }
-                        backgroundLocked = true
-                        graceDeadline = nil
-                    }
-                } else {
-                    graceLockTask?.cancel()
-                    graceLockTask = nil
-                    backgroundLocked = true
-                }
-            }
+            guard appState.onboardingFinished, !appState.authPromptInFlight else { break }
+            armBackgroundLock()
+        case .background:
+            // 审查修复（2026-09-19，FR1.4 直锁漏洞）：认证浮层只令场景
+            // inactive——到达 .background 即真离开，**绝不豁免**：此前的
+            // `case .inactive, .background:` 合流让「浮层期间按 Home」的
+            // .background 被 wasActive 边界吞掉，回前台直接进未锁病历。
+            guard appState.onboardingFinished else { break }
+            armBackgroundLock()
         case .active:
-            graceLockTask?.cancel()
-            graceLockTask = nil
-            // 审查修复（回前台竞态兜底）：后台挂起期间宽限已过且取消抢先
-            // 吞掉任务续体时，按死线墙钟补锁——绝不把「任务竞态」当作
-            // 「宽限放行」
-            if let deadline = graceDeadline, deadline <= Date() {
-                backgroundLocked = true
-            }
-            graceDeadline = nil
+            cancelGraceLock()
             // 四层补偿第 2 层：每次回前台轻量对账
             if appState.onboardingFinished {
                 Task {
@@ -282,6 +246,48 @@ struct AppRootView: View {
         default:
             break
         }
+    }
+
+    /// 宽限锁武装（FR1.4/FR1.7）：宽限值解析收敛 Domain
+    /// `SettingsRules.gateGraceResolved`（合法档 5/15/60；备份注入的脏值
+    /// 与旧 "0" 一律回落最小档 5 秒——业主 2026-09-19「最低认证要求至少
+    /// 5 秒」，回落 0 会保留人脸识别循环）。宽限 >0 走墙钟死线任务：
+    /// 窗口内回前台即取消（宽限只影响正式锁定时刻）；覆盖前必须先取消
+    /// 旧任务——第七轮审查修复：回前台同样经过 .inactive，本分支会再跑
+    /// 一次并覆盖 graceLockTask，旧任务未取消会在使用中突然置位锁屏。
+    private func armBackgroundLock() {
+        let grace = SettingsRules.gateGraceResolved(settingsStore.values[.gateGraceSeconds],
+                                                    key: .gateGraceSeconds)
+        graceLockTask?.cancel()
+        graceLockTask = nil
+        guard grace > 0 else {
+            backgroundLocked = true
+            return
+        }
+        // 审查修复（回前台竞态）：仅靠「先 cancel 再让旧任务醒来」判定
+        // 过期——后台挂起超时后返回，cancel 先于旧任务续体执行时
+        // isCancelled 吞掉锁定（2 分钟后返回直接进入未锁病历，FR1.4
+        // 唯一防线失效）。锚定 graceDeadline 死线，回前台按墙钟判定，
+        // 与任务竞态解耦。
+        graceDeadline = Date().addingTimeInterval(grace)
+        graceLockTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(grace * 1_000_000_000))   // try?-ok: 宽限计时取消即停；grace 已钳制合法域，无溢出
+            guard !Task.isCancelled else { return }
+            backgroundLocked = true
+            graceDeadline = nil
+        }
+    }
+
+    private func cancelGraceLock() {
+        graceLockTask?.cancel()
+        graceLockTask = nil
+        // 审查修复（回前台竞态兜底）：后台挂起期间宽限已过且取消抢先
+        // 吞掉任务续体时，按死线墙钟补锁——绝不把「任务竞态」当作
+        // 「宽限放行」
+        if let deadline = graceDeadline, deadline <= Date() {
+            backgroundLocked = true
+        }
+        graceDeadline = nil
     }
 
     /// F16 信源播种失败隔离（失败隔离纪律的单一落点）：seedBundled 是启动链

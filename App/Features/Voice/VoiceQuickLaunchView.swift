@@ -36,8 +36,12 @@ struct VoiceQuickLaunchView: View {
     /// 理解层判定意图（FR17.19 目录 key；D 级，确认卡判定结果行呈现/可改）
     @State private var judgedIntent: String?
     @State private var judgedConfidence: Double = 0
-    /// Latest recognition confidence; full native text belongs to transcript, not this tuple.
-    @State private var lastTranscript: (text: String, confidence: Double)?
+    /// 各转写分段的**最低**置信度（审查修复，BR-003 <0.5 复核闸）：
+    /// 整段文本的可靠性 = 最弱分段的可靠性——旧实现只留**最后一个**
+    /// 分段的置信度，前段低置信（0.2）被后段高置信（0.9）覆盖后，
+    /// 全文按高置信分类、低置信黄标永不出现（闸门可绕过）。
+    /// VoiceReminderDraftView/VoiceGuidedViews 已用 min 口径，此处对齐。
+    @State private var minSegmentConfidence: Double?
     @State private var transcript = TranscriptRefinementState()
     @State private var confirmationSource: TranscriptSourceSnapshot?
     @State private var confirmationPatientID: UUID?
@@ -291,7 +295,7 @@ struct VoiceQuickLaunchView: View {
                     judgedConfidence = 0.9
                     let key = VoiceIntentKey(rawValue: newKey) ?? .unknown
                     let drafts = VoiceIntentCatalog.extract(for: key, text: source.selectedText,
-                                                            confidence: lastTranscript?.confidence ?? 0.9)
+                                                            confidence: minSegmentConfidence ?? 0.9)
                     // A new confirmation identity rejects callbacks from the previous target's sheet.
                     confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
                 }) { confirmed in
@@ -375,7 +379,7 @@ struct VoiceQuickLaunchView: View {
         stopRefinement()
         invalidateConfirmation()
         transcript.edit(text)
-        lastTranscript = nil
+        minSegmentConfidence = nil
         if transcriptVersion == .refined { refineCurrentText() }
     }
 
@@ -384,7 +388,7 @@ struct VoiceQuickLaunchView: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         stopRefinement()
         invalidateConfirmation()
-        lastTranscript = (text, confidence)
+        minSegmentConfidence = minSegmentConfidence.map { min($0, confidence) } ?? confidence
         transcript.append(text)
         if transcriptVersion == .refined { refineCurrentText() }
     }
@@ -405,7 +409,7 @@ struct VoiceQuickLaunchView: View {
         stopRefinement()
         invalidateConfirmation()
         transcript.clearAll()
-        lastTranscript = nil
+        minSegmentConfidence = nil
     }
 
     /// Freeze one selected source; confirming native text never awaits inference.
@@ -429,7 +433,7 @@ struct VoiceQuickLaunchView: View {
         confirmationSource = source
         confirmationPatientID = patientID
         isUnderstanding = true
-        let confidence = lastTranscript?.confidence ?? 0.9
+        let confidence = minSegmentConfidence ?? 0.9
         understandingTask = Task {
             await understand(source: source, confidence: confidence, patientID: patientID)
             guard !Task.isCancelled, confirmationSource == source else { return }
@@ -559,7 +563,7 @@ struct VoiceQuickLaunchView: View {
               transcript.finishCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
                                       succeeded: true) else { return }
         invalidateConfirmation()
-        lastTranscript = nil
+        minSegmentConfidence = nil
         if target == .anyText {
             savedNote = true
         } else {

@@ -159,9 +159,9 @@ final class SherpaASRRuntime {
             if !final, SherpaOnnxOnlineStreamIsEndpoint(online, stream) != 0 {
                 if !text.isEmpty { committed.append(text) }
                 SherpaOnnxOnlineStreamReset(online, stream)
-                return committed.joined(separator: " ")
+                return TranscriptJoiner.join(committed)
             }
-            return (committed + (text.isEmpty ? [] : [text])).joined(separator: " ")
+            return TranscriptJoiner.join(committed + (text.isEmpty ? [] : [text]))
         }
         guard let vad else { throw TranscriptionError.engineUnavailable }
         guard recent.count + samples.count <= 30 * 16_000 else { throw TranscriptionError.audioBufferOverflow }
@@ -204,7 +204,7 @@ final class SherpaASRRuntime {
             recent.removeFirst(discard); recentStart += discard
         }
         guard !cancelled() else { throw CancellationError() }
-        return (committed + (final || preview.isEmpty ? [] : [preview])).joined(separator: " ")
+        return TranscriptJoiner.join(committed + (final || preview.isEmpty ? [] : [preview]))
     }
 
     private func decode(_ samples: [Float]) throws -> String {

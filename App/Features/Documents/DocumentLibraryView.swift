@@ -533,6 +533,9 @@ final class DocumentsState {
                     byIndex[index] ?? PageAnalysis(index: index, lines: [],
                         status: !ocrAuthorized() || index >= limit ? "skipped" : "failed", fields: [])
                 }
+                // 审查修复（A8）：PDF 逐页质量标签此前被丢弃——`tags` 只在
+                // 单图分支赋值，多页 PDF 的模糊/反光页提示（FR5.3）永不呈现。
+                tags = recognized.flatMap(\.qualityTags)
             } else {
                 let page = await analyze(imageData: input.processedData, index: 0, hint: input.docType)
                 pages = [page]
@@ -556,9 +559,17 @@ final class DocumentsState {
         guard ocrAuthorized() else { return .init(index: index, lines: [], status: "skipped", fields: []) }
         do {
             let result = try await pipeline.run(imageData: imageData)
+            // 审查修复（E3，FR6 边界「纯影像页无有效文字 → 提示未识别到文字」）：
+            // hasText 此前零消费方——无文字页被当「ok 空字段」静默入库，与
+            // 引擎失败（failed）不可区分。无文字页保留行数组（空）但以
+            // no_text 状态显式标记，确认页如实提示。
             guard !result.failed else { return .init(index: index, lines: result.lines, status: "failed", fields: []) }
+            if !result.hasText {
+                return .init(index: index, lines: [], status: "no_text", fields: [], layout: result.layout)
+            }
             let authorization = aiAuthorization()
             let input = TextUnderstandingInput(text: result.lines.joined(separator: "\n"), lines: result.lines,
+                layout: result.layout,
                 source: .ocr(documentTypeHint: hint), allowsGenerativeProcessing: authorization.allowed)
             var understanding = try await understandingEngine.understand(input)
             let confidence = result.confidence.isFinite ? min(1, max(0, result.confidence)) : 0
@@ -583,7 +594,12 @@ final class DocumentsState {
             guard ocrAuthorized(), !Task.isCancelled else { return .init(index: index, lines: result.lines, status: "skipped", fields: []) }
             return .init(index: index, lines: result.lines, fields: fields,
                          documentTypeKey: understanding.suggestedTarget, confidence: confidence,
-                         qualityTags: result.qualityTags, typeConfidence: understanding.targetConfidence)
+                         qualityTags: result.qualityTags, typeConfidence: understanding.targetConfidence,
+                         layout: result.layout)
+        } catch is CancellationError {
+            // 审查修复（E2，取消透明性）：用户取消必须可区分——旧实现把
+            // 取消当引擎失败（status "failed" 走 FR6.6 引擎崩溃 UI）。
+            return .init(index: index, lines: [], status: "skipped", fields: [])
         } catch {
             return .init(index: index, lines: [], status: "failed", fields: [])
         }

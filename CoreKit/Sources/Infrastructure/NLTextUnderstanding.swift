@@ -69,6 +69,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
             // 形状转换。授权门：本层为兜底轨理解层，恒不触发生成轨（T1/T2 由 App
             // 导入流程显式授权后经同一编排器调用）。
             let cards = try await orchestrator.analyze(lines: lines,
+                                                       layout: input.layout,
                                                        documentTypeKey: target,
                                                        pageConfidence: classification.confidence,
                                                        allowsGenerativeProcessing: false)
@@ -219,6 +220,10 @@ public actor FallbackTextUnderstanding: TextUnderstanding {
                 return result
             }
         }
-        return UnderstandingResult(suggestedTarget: nil, targetConfidence: 0, fields: [])
+        // 审查修复（E8）：链末兜底结果必须诚实标记 engineUnavailable——
+        // 旧实现返回与「理解出零字段」不可区分的裸空结果，调用方无从
+        // 区分「页面无内容」与「全部引擎不可用」（FR6.6 可见反馈缺位）。
+        return UnderstandingResult(suggestedTarget: nil, targetConfidence: 0, fields: [],
+                                   engineUnavailable: true)
     }
 }

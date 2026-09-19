@@ -26,6 +26,15 @@ struct EntityCardConfirmView: View {
         var id: String { switch self { case .scan: return "scan"; case .line(let index): return "line-\(index)" } }
     }
     @State private var sourcePresentation: SourcePresentation?
+    /// [看图] 入口携带的框级高亮（归一化 bbox；nil = 无高亮，fail-closed）
+    @State private var scanHighlight: LayoutRect?
+    /// 原文行点选引用的目标字段（key + 行身份）——从字段/清单入口打开
+    /// 原文面板时登记，点行即回填该字段
+    @State private var quoteTarget: QuoteTarget?
+    private struct QuoteTarget {
+        let key: String
+        let rowId: UUID?
+    }
     @State private var showLater = false
     @State private var showDiscard = false
     @State private var partialCount: Int?
@@ -54,25 +63,80 @@ struct EntityCardConfirmView: View {
     /// 内联时它处在 List→ForEach→WithPerceptionTracking 三层嵌套中，类型检查器会放弃
     /// （CI 35166937683：unable to type-check this expression in reasonable time）。
     @ViewBuilder
-    private func fieldRow(_ field: FieldDraft, index: Int, rowId: UUID?, required: Bool) -> some View {
+    private func fieldRow(_ field: FieldDraft, index: Int, rowId: UUID?, required: Bool,
+                          lines: [String]) -> some View {
         FieldConfirmRow(field: fieldBinding(index: index, rowID: rowId),
                         label: DocumentsDisplay.fieldLabel(forKey: field.key),
                         showUnit: false,
                         readOnly: rowId == nil ? sharedCommitted : false,
                         cardLevelConfirmation: true,
                         isRequired: required,
-                        sourceLine: sourceLine(forKey: field.key, rowId: rowId),
-                        onViewSource: { sourcePresentation = .line($0) },
+                        sourceLine: sourceLine(forKey: field.key, rowId: rowId, lines: lines),
+                        onViewSource: { line in
+                            quoteTarget = QuoteTarget(key: field.key, rowId: rowId)
+                            scanHighlight = highlightRect(forLine: line, lines: lines)
+                            sourcePresentation = .line(line)
+                        },
+                        // 字段旁 [看图]（业主 2026-09-19 第 1 项）：原件有路径
+                        // 才出（同 [原文] 诚实纪律——续办模式无原件不冒充）
+                        onViewScan: canViewScan ? { openScanSheet(lines: lines, field: field, rowId: rowId) } : nil,
                         onRevise: { revise(index: index, rowID: rowId, value: $0) })
             .id(CardConfirmationRules.anchorId(key: field.key, rowId: rowId))
     }
 
+    /// 打开扫描原件面板并携带该字段锚定行的框级高亮（实测 bbox，fail-closed）
+    private func openScanSheet(lines: [String], field: FieldDraft, rowId: UUID?) {
+        if let line = sourceLine(forKey: field.key, rowId: rowId, lines: lines) {
+            scanHighlight = highlightRect(forLine: line, lines: lines)
+        } else {
+            scanHighlight = nil
+        }
+        sourcePresentation = .scan
+    }
+
+    /// 队列模式（原件在导入会话内）才提供 [看图]；续办模式 pending 载荷
+    /// 不携带原件 → 无入口（诚实纪律）。
+    private var canViewScan: Bool {
+        if case .queue = mode { return true }
+        return false
+    }
+
+    /// 锚定行的框级高亮区（归一化坐标；越界/无实测版面 → nil 不画）
+    private func highlightRect(forLine index: Int, lines: [String]) -> LayoutRect? {
+        guard lines.indices.contains(index),
+              case .queue = mode,
+              let page = docs.activeImport?.source?.pages.first(where: { $0.index == card.pageIndex }),
+              let blocks = page.layout?.blocks, blocks.indices.contains(index) else { return nil }
+        let rect = blocks[index].bbox
+        guard rect.x >= 0, rect.y >= 0, rect.width >= 0, rect.height >= 0,
+              rect.x + rect.width <= 1, rect.y + rect.height <= 1 else { return nil }
+        return rect
+    }
+
+    /// 原文行点选 → 回填目标字段（引用语义 = revise 留痕、D 级待确认——
+    /// 引用是机器原文的搬运，不是用户手输，不借 fillByUser 升 C；BR-003）
+    private func quoteLine(_ text: String) {
+        guard let target = quoteTarget else { return }
+        quoteTarget = nil
+        let fieldIndex: Int?
+        if let rowId = target.rowId {
+            guard let r = card.rows.firstIndex(where: { $0.id == rowId }),
+                  let i = card.rows[r].fields.firstIndex(where: { $0.key == target.key }) else { return }
+            fieldIndex = i
+        } else {
+            fieldIndex = card.shared.firstIndex { $0.key == target.key }
+        }
+        guard let index = fieldIndex else { return }
+        revise(index: index, rowID: target.rowId, value: text)
+    }
+
     /// 复核清单段——同样从 List 体里拆出来（同一族类型检查压力）。
     @ViewBuilder
-    private func reviewSection(_ items: [CardConfirmationRules.ReviewItem], proxy: ScrollViewProxy) -> some View {
+    private func reviewSection(_ items: [CardConfirmationRules.ReviewItem], proxy: ScrollViewProxy,
+                               lines: [String]) -> some View {
         if !items.isEmpty {
             Section {
-                ForEach(items) { item in reviewQueueRow(item, proxy: proxy) }
+                ForEach(items) { item in reviewQueueRow(item, proxy: proxy, lines: lines) }
             } header: {
                 Text(L10n.entityCardReviewQueue(count: items.count,
                                                 labels: ListFormatter.localizedString(byJoining: uniqueLabels(items))))
@@ -92,11 +156,13 @@ struct EntityCardConfirmView: View {
     }
 
     /// 该字段的原文行（**没有锚定就返回 nil**——入口随之消失，绝不用整页原文冒充锚定）。
-    private func sourceLine(forKey key: String, rowId: UUID?) -> Int? {
+    /// 审查修复（每帧纪律）：行数组由 body 每帧拆一次传入——旧实现每行渲染
+    /// 重拆整页 rawText / 重扫 pages 数组（击键热路径 N 次全文拆分）。
+    private func sourceLine(forKey key: String, rowId: UUID?, lines: [String]) -> Int? {
         let field: FieldDraft? = rowId == nil
             ? card.shared.first { $0.key == key }
             : card.rows.first { $0.id == rowId }?.fields.first { $0.key == key }
-        guard let line = field?.sourceLineIndex, pageLines.indices.contains(line) else { return nil }
+        guard let line = field?.sourceLineIndex, lines.indices.contains(line) else { return nil }
         return line
     }
 
@@ -110,7 +176,8 @@ struct EntityCardConfirmView: View {
 
     /// 清单一项：就地处置（确认 / 补填），不要求用户先找到它。
     @ViewBuilder
-    private func reviewQueueRow(_ item: CardConfirmationRules.ReviewItem, proxy: ScrollViewProxy) -> some View {
+    private func reviewQueueRow(_ item: CardConfirmationRules.ReviewItem, proxy: ScrollViewProxy,
+                                lines: [String]) -> some View {
         let label = DocumentsDisplay.fieldLabel(forKey: item.key)
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -144,10 +211,14 @@ struct EntityCardConfirmView: View {
                 Button(L10n.commonConfirm) { confirmField(item) }
                     .buttonStyle(.borderless)
                     .accessibilityIdentifier("SP-12.review.confirm.\(item.id)")
-                if let line = sourceLine(forKey: item.key, rowId: item.rowId) {
-                    Button(L10n.entityCardReviewSource) { sourcePresentation = .line(line) }
-                        .buttonStyle(.borderless)
-                        .accessibilityIdentifier("SP-12.review.source.\(item.id)")
+                if let line = sourceLine(forKey: item.key, rowId: item.rowId, lines: lines) {
+                    Button(L10n.entityCardReviewSource) {
+                        quoteTarget = QuoteTarget(key: item.key, rowId: item.rowId)
+                        scanHighlight = highlightRect(forLine: line, lines: lines)
+                        sourcePresentation = .line(line)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("SP-12.review.source.\(item.id)")
                 }
             }
         }
@@ -181,17 +252,22 @@ struct EntityCardConfirmView: View {
             !rowKeys.contains(key) && key != "card_kind" && !card.shared.contains { $0.key == key }
         }.sorted()
     }
-    private func canSave(reviewed: MatchedCard) -> Bool {
-        guard !saving, card.rows.contains(where: { invalid($0, reviewed: reviewed).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }) else {
+    private func canSave(reviewed: MatchedCard, validation: [UUID: [String]]) -> Bool {
+        // 审查修复（每帧纪律）：旧实现 save 闸门再跑一遍 invalid()（每帧第四遍
+        // 全卡投影）——直接消费 body 已算的 validation 字典。
+        guard !saving, card.rows.allSatisfy({ (validation[$0.id] ?? []).isEmpty || EntityCardProjection.isDiscarded($0, in: card) }) else {
             return false
         }
         // v27 §0.4：主卡草稿随卡同事务落库——草稿须字段全部已确认（卡级确认后仍缺的 = 必填/低置信未逐项确认）且日期可解析，
         // 与 store `HubDraft.isComplete` 同口径；否则保存按钮禁用（草稿区显示补填/未确认提示，用户不致只见灰按钮）。
         if case .newHub(let draft) = reviewed.encounterAssociation {
-            return draft.isComplete(calendar: Calendar(identifier: .gregorian))
+            return draft.isComplete(calendar: Self.gregorianCalendar)
         }
         return true
     }
+
+    /// Calendar 静态复用（旧实现每行每帧新建一个实例）
+    private static let gregorianCalendar = Calendar(identifier: .gregorian)
 
     /// 卡级确认延伸到主卡草稿——规则主体在 `CardConfirmationRules.confirmingDraft`
     /// （Domain 单一事实源，结构轮 2026-09-15：BR-003 D→C 谓词此前在模型两处 + 本视图
@@ -234,6 +310,12 @@ struct EntityCardConfirmView: View {
             // 不按文档顺序——业界复核台的通行做法（用户从最挡路的一项开始，处置完一项清单短一项，
             // 这就是「确认并下一个」，不需要焦点态）。渲染顺序（文档顺序）不受影响。
             let reviewItems = CardConfirmationRules.reviewQueue(card)
+            // 每帧一次的派生值（审查修复，击键热路径）：页行数组 / 缺失共享键 /
+            // 失效共享键集合——旧实现每行渲染各重算一遍（N 次全文拆分 +
+            // N 次全卡投影扫描 + O(N²) 成员判定）。
+            let lines = pageLines
+            let missingSharedKeys = missingShared(reviewed: reviewed)
+            let invalidSharedKeys = Set(validation.values.flatMap { $0 })
             ScrollViewReader { proxy in
                 // 跳转锚点（复核清单 → 字段）：行 id 与清单项 id 同一构造（Domain `anchorId`）。
                 List {
@@ -245,14 +327,22 @@ struct EntityCardConfirmView: View {
                             Spacer()
                             GradeBadge(grade: "D")
                         }.font(.caption)
-                        Button { sourcePresentation = .scan } label: {
+                        Button {
+                            scanHighlight = nil
+                            sourcePresentation = .scan
+                        } label: {
                             Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass").frame(minHeight: 44)
                         }.buttonStyle(.borderless)
                     } footer: { Text(L10n.docConfirmHint) }
 
                     // v27 §0.4 改判：主卡草稿区**先于**关联区呈现（无可挂接主卡时随本卡新建；D 级、逐字段确认、同事务落库）
                     ParentDraftSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
-                                   onViewSource: { sourcePresentation = .line($0) })
+                                   lines: lines,
+                                   onViewSource: { line in
+                                       // 范围校验已在草稿区完成；此处只负责呈现
+                                       scanHighlight = nil
+                                       sourcePresentation = .line(line)
+                                   })
                     EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
                                                 documentTypeKey: sessionDocumentTypeKey)
 
@@ -265,13 +355,14 @@ struct EntityCardConfirmView: View {
                                 // List→ForEach→WithPerceptionTracking 三层嵌套里把类型检查器压垮
                                 // （CI 35166937683 实证：unable to type-check in reasonable time）。
                                 fieldRow(card.shared[index], index: index, rowId: nil,
-                                         required: sharedRequired.contains(card.shared[index].key))
-                                if card.shared[index].isConfirmed, validation.values.contains(where: { $0.contains(card.shared[index].key) }) {
-                                    Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
+                                         required: sharedRequired.contains(card.shared[index].key), lines: lines)
+                                if card.shared[index].isConfirmed, invalidSharedKeys.contains(card.shared[index].key) {
+                                    Text(L10n.ocrReviewInvalidField).font(.caption)
+                                        .foregroundStyle(Color("semantic-danger", bundle: .main))
                                 }
                             }
                         }
-                        ForEach(missingShared(reviewed: reviewed), id: \.self) { key in missingButton(key: key, rowID: nil) }
+                        ForEach(missingSharedKeys, id: \.self) { key in missingButton(key: key, rowID: nil) }
                         addFieldMenu(rowID: nil, present: Set(card.shared.map(\.key)))
                     }
 
@@ -280,9 +371,10 @@ struct EntityCardConfirmView: View {
                             Section {
                                 ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
                                     fieldRow(row.fields[index], index: index, rowId: row.id,
-                                             required: rowRequired(row).contains(row.fields[index].key))
+                                             required: rowRequired(row).contains(row.fields[index].key), lines: lines)
                                     if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
-                                        Text(L10n.ocrReviewInvalidField).font(.caption).foregroundStyle(.red)
+                                        Text(L10n.ocrReviewInvalidField).font(.caption)
+                                            .foregroundStyle(Color("semantic-danger", bundle: .main))
                                     }
                                 }
                                 ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
@@ -292,10 +384,10 @@ struct EntityCardConfirmView: View {
                             } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
                         }
                     }
-                    if !missingShared(reviewed: reviewed).isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
+                    if !missingSharedKeys.isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
                         Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
                     }
-                    reviewSection(reviewItems, proxy: proxy)
+                    reviewSection(reviewItems, proxy: proxy, lines: lines)
                     Section {
                         Button { showLater = true } label: {
                             Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark").frame(minHeight: 44)
@@ -325,7 +417,8 @@ struct EntityCardConfirmView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.entityCardConfirmSave) { save(reviewed: reviewed) }.disabled(!canSave(reviewed: reviewed))
+                    Button(L10n.entityCardConfirmSave) { save(reviewed: reviewed) }
+                        .disabled(!canSave(reviewed: reviewed, validation: validation))
                         .accessibilityIdentifier("SP-12.entity.confirm")
                 }
                 ToolbarItemGroup(placement: .keyboard) { OCRKeyboardDismissButton() }
@@ -334,9 +427,10 @@ struct EntityCardConfirmView: View {
             .sheet(item: $sourcePresentation) { presentation in
                 switch presentation {
                 case .scan:
-                    DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: card.pageIndex)
+                    DocumentSourcePageView(documentId: documentId, patientId: patientId,
+                                           pageIndex: card.pageIndex, highlight: scanHighlight)
                 case .line(let index):
-                    SourceLineSheet(lines: pageLines, highlight: index)
+                    SourceLineSheet(lines: lines, highlight: index, onPick: quoteLine)
                 }
             }
             .confirmationDialog(L10n.entityCardLater, isPresented: $showLater, titleVisibility: .visible) {
@@ -437,7 +531,9 @@ struct EntityCardConfirmView: View {
     }
 
     private func save(reviewed: MatchedCard) {
-        guard canSave(reviewed: reviewed) else { return }
+        guard canSave(reviewed: reviewed, validation: Dictionary(uniqueKeysWithValues: card.rows.map {
+            ($0.id, invalid($0, reviewed: reviewed))
+        })) else { return }
         // FR6.9 卡级确认：保存即批量确认合格字段（非拒绝 ∧ 有值 ∧ ≥0.6 ∧ 无歧义 ∧ 非必填，
         // 单一事实源 `CardConfirmationRules`）；**必填与低置信均须逐项确认**（2026-09-17 业主裁定），
         // 缺必填行原样进待办/剩余卡。

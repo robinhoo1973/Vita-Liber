@@ -626,6 +626,19 @@ struct MediaUnlockPolicyTests {
     @Test func relockImmediatelyOnBackground() {
         #expect(MediaUnlockPolicy.shouldRelockOnBackground())
     }
+
+    /// 认证后 inactive 重锁宽限（业主 2026-09-19「最低认证要求至少 5 秒」）：
+    /// 系统认证浮层收起瞬态 inactive 不得重锁（否则认证完成即锁回 = 循环）；
+    /// 窗口只豁免 inactive，background 恒重锁（BR-007/008）。
+    @Test func inactiveRelockHonorsPostUnlockGrace() {
+        let unlockedAt = Date(timeIntervalSince1970: 1_000_000)
+        #expect(!MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                          now: unlockedAt.addingTimeInterval(4)))
+        #expect(MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                         now: unlockedAt.addingTimeInterval(5)))
+        #expect(MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                         now: unlockedAt.addingTimeInterval(30)))
+    }
 }
 
 // binds: SU-M15-TREND — 无障碍与可见文本的医学数字必须一致

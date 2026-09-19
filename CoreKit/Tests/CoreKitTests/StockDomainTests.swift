@@ -468,8 +468,16 @@ struct ChannelDeliveryRulesTests {
     }
 
     /// 原名：宽限合法域单一事实源
+    /// 业主 2026-09-19：最低宽限 5 秒（0 档与系统认证浮层的 transient
+    /// inactive 叠加形成人脸识别循环，退出合法域）
     @Test func graceSecondsLegalValuesSingleSource() {
-        #expect(SettingsRules.gateGraceSecondsLegalValues == [0, 15, 60])
+        #expect(SettingsRules.gateGraceSecondsLegalValues == [5, 15, 60])
+    }
+
+    /// 宽限解析回落最小档（BR 规则：非法注入/旧 "0" 一律 5 秒，绝不回落 0）
+    @Test(arguments: [("0", 5.0), ("15", 15.0), ("60", 60.0), ("300", 5.0), ("abc", 5.0), (nil as String?, 5.0)])
+    func gateGraceResolvedFallsBackToMinimum(_ pair: (String?, Double)) {
+        #expect(SettingsRules.gateGraceResolved(pair.0, key: .gateGraceSeconds) == pair.1)
     }
 }
 

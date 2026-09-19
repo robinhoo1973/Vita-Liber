@@ -4,10 +4,9 @@ import Domain
 import Perception
 
 /// §5.10 敏感媒体原始视图：ImageIO 降采样渲染，避免大图 OOM。
-/// 通过 MediaUnlockSession 共享解锁状态——从缩略图进入时
-/// 若会话已解锁则直接展示，否则先走认证流程。
 /// FR1.9 逐次解锁（V3.72）：解锁态为本视图私有——每次查看原图都是一次
-/// 独立系统认证，不再经全局会话顺带解锁（与 SensitiveMediaContainer 同纪律）。
+/// 独立系统认证，无会话级顺带解锁（与 SensitiveMediaContainer 同纪律；
+/// MediaUnlockSession 会话令牌仅保留给 DoctorShowcase 300s 专场景）。
 struct SensitiveMediaOriginalView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
@@ -37,6 +36,11 @@ struct SensitiveMediaOriginalView: View {
     /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（二次并发
     /// LAContext 求值必败且可能双弹认证层）
     @State private var unlocking = false
+    /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
+    @State private var unlockedAt: Date?
+    /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）：
+    /// 缩放/拖动事件 60–120Hz 送达，逐事件重启计时任务 = 每帧 Task 分配/取消
+    @State private var lastActivity: Date?
 
     var body: some View {
         WithPerceptionTracking {
@@ -64,8 +68,15 @@ struct SensitiveMediaOriginalView: View {
             // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
             // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
             // 仍展示已解锁原图（AppRootView 遮罩提交与系统快照竞态）。
+            // 审查修复（2026-09-19，业主「认证后立即被自己的浮层重锁」）：
+            // background = 真离开恒立即重锁；inactive 可能是认证浮层收起
+            // 瞬态——解锁后 5 秒内不重锁（MediaUnlockPolicy.
+            // shouldRelockOnInactive，最低认证要求 ≥5 秒），浮层期间重锁
+            // 会形成「认证完成即锁回 → 再点再认证」循环。
             .onChangeCompat(of: scenePhase) { _, phase in
-                if phase != .active, unlocked {
+                if phase == .background { relock() }
+                else if phase != .active, unlocked,
+                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(), now: Date()) {
                     relock()
                 }
             }
@@ -171,6 +182,8 @@ struct SensitiveMediaOriginalView: View {
             if imageData == nil { loadFailed = true }
         }
         unlocked = true
+        unlockedAt = Date()
+        lastActivity = Date()
         if !loadFailed, image == nil { loadDownsampled() }   // 预传 imageData 路径的解码（认证后）
         scheduleRelock()
         // FR14.2 审计：敏感原图查看留痕（评审修正——原视图零审计锚点）
@@ -179,6 +192,13 @@ struct SensitiveMediaOriginalView: View {
     }
 
     private func scheduleRelock() {
+        // 活跃信号合并：缩放/拖动 60–120Hz 事件流只落 1 秒窗口内的首个
+        // 信号（MediaUnlockPolicy.activityCoalescingWindow），避免逐帧
+        // 取消/重建计时任务。解锁完成路径已预置 lastActivity，首个
+        // 手势信号仍按窗口判定（解锁后 1 秒内的手势与解锁同一窗口）。
+        let now = Date()
+        if let lastActivity, !MediaUnlockPolicy.shouldRecordActivity(lastInteraction: lastActivity, now: now) { return }
+        self.lastActivity = now
         // 值捕获（View 结构体，与原先 Task 闭包同语义）：@State 写入经共享存储
         // 落真实状态，捕获的视图副本过时不影响。
         relockTimer.schedule(onExpiry: { relock() })
@@ -190,6 +210,8 @@ struct SensitiveMediaOriginalView: View {
         relockTimer.cancelAll()
         unlocking = false      // 立即释放守卫：被取消任务的复位有调度延迟，置位可避免回场首击被吞
         unlocked = false
+        unlockedAt = nil
+        lastActivity = nil
         // 第六轮全仓审查修复：重锁必须把已解码的降采样字节一并清出——
         // 原实现只翻转 unlocked，解码图仍驻留内存（下次解锁直接从内存
         // 渲染），「重锁 = 回到认证前内存态」的 BR-007 快照防护语义

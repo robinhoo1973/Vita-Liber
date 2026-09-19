@@ -63,22 +63,34 @@ struct DocumentSourcePageView: View {
     @State private var unlocking = false
     @State private var scale: CGFloat = 1
     @State private var operation: Task<Void, Never>?
-    @State private var relockTask: Task<Void, Never>?
+    /// 空闲重锁计时器（审查修复：第四份手写 relockTask 脚手架收敛进共享
+    /// MediaRelockTimer——改 TTL 语义/取消纪律只此一处机制）
+    @State private var relockTimer = MediaRelockTimer()
+    /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
+    @State private var unlockedAt: Date?
+    /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）
+    @State private var lastActivity: Date?
+    /// 原文行高亮区（归一化 0…1，来自识别层实测 bbox；nil = 不画）。
+    /// 框级锚定三纪律：测量来源 / fail-closed（匹配不上不画）/
+    /// 归一化坐标——越界即不画，绝不伪造。
+    private let highlight: LayoutRect?
     @Environment(DocumentsState.self) private var docs
     @Environment(AppState.self) private var app
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
-    init(documentId: UUID, patientId: UUID, pageIndex: Int) {
+    init(documentId: UUID, patientId: UUID, pageIndex: Int, highlight: LayoutRect? = nil) {
         source = .document(documentId, patientId)
         _patientId = State(initialValue: patientId)
         _pageIndex = State(initialValue: pageIndex)
+        self.highlight = highlight
     }
 
-    init(draft: DocumentsState.ImportDraft, pageIndex: Int) {
+    init(draft: DocumentsState.ImportDraft, pageIndex: Int, highlight: LayoutRect? = nil) {
         source = .draft(draft)
         _patientId = State(initialValue: draft.patientId)
         _pageIndex = State(initialValue: pageIndex)
+        self.highlight = highlight
     }
 
     var body: some View {
@@ -101,6 +113,24 @@ struct DocumentSourcePageView: View {
                             ScrollView([.horizontal, .vertical]) {
                                 Image(uiImage: image).resizable().scaledToFit()
                                     .frame(width: geometry.size.width * scale)
+                                    .overlay {
+                                        // 框级锚定高亮：归一化 bbox → 适配帧内
+                                        // 描边矩形（fail-closed：越界不画）
+                                        if let highlight, highlight.x >= 0, highlight.y >= 0,
+                                           highlight.x + highlight.width <= 1,
+                                           highlight.y + highlight.height <= 1 {
+                                            GeometryReader { inner in
+                                                let fittedHeight = inner.size.width
+                                                    * (image.size.height / max(image.size.width, 1))
+                                                Rectangle()
+                                                    .stroke(Color("semantic-warning", bundle: .main), lineWidth: 2)
+                                                    .frame(width: max(0, inner.size.width * highlight.width),
+                                                           height: max(0, fittedHeight * highlight.height))
+                                                    .position(x: inner.size.width * (highlight.x + highlight.width / 2),
+                                                              y: fittedHeight * (highlight.y + highlight.height / 2))
+                                            }
+                                        }
+                                    }
                                     .accessibilityIdentifier("OCR.source.page.\(pageIndex)")
                             }
                             .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)); scheduleRelock() })
@@ -120,7 +150,16 @@ struct DocumentSourcePageView: View {
             .privacySensitive(scenePhase != .active)
             .task { await prepareMetadata() }
             .onChangeCompat(of: pageIndex) { _, _ in renderPage(); scheduleRelock() }
-            .onChangeCompat(of: scenePhase) { _, phase in if phase != .active && unlocked { relock() } }
+            .onChangeCompat(of: scenePhase) { _, phase in
+                // background = 真离开恒立即重锁；inactive 可能是认证浮层
+                // 收起瞬态——解锁后 5 秒内不重锁（MediaUnlockPolicy，
+                // 业主「最低认证要求至少 5 秒」，同 SensitiveMedia 族）
+                if phase == .background { relock() }
+                else if phase != .active, unlocked,
+                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(), now: Date()) {
+                    relock()
+                }
+            }
             .onDisappear { operation?.cancel(); relock() }
         }
     }
@@ -156,17 +195,21 @@ struct DocumentSourcePageView: View {
     private func unlock() {
         guard !unlocking else { return }
         unlocking = true
-        operation = Task {
+        let task = Task {
             let allowed = await app.requestUnlock(reason: L10n.sensitive_unlockReason)
             guard !Task.isCancelled else { return }
             unlocking = false
             guard allowed else { return }
             unlocked = true
+            unlockedAt = Date()
+            lastActivity = Date()
             await loadMedia()
             guard !Task.isCancelled, !failed else { return }
             if case .document(let id, _) = source { app.auditViewSensitiveOriginal(documentId: id, title: "") }
             scheduleRelock()
         }
+        operation = task
+        relockTimer.trackUnlock(task)
     }
 
     private func loadMedia() async {
@@ -205,19 +248,23 @@ struct DocumentSourcePageView: View {
 
     private func scheduleRelock() {
         guard sensitive && unlocked else { return }
-        relockTask?.cancel()
-        relockTask = Task {
-            do { try await Task.sleep(for: .seconds(MediaUnlockPolicy.idleTTL)) }
-            catch { return }
-            guard !Task.isCancelled else { return }
-            relock()
-        }
+        // 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）
+        let now = Date()
+        if let lastActivity, !MediaUnlockPolicy.shouldRecordActivity(lastInteraction: lastActivity, now: now) { return }
+        self.lastActivity = now
+        relockTimer.schedule(onExpiry: { relock() })
     }
 
     private func relock() {
+        relockTimer.cancelAll()
         operation?.cancel(); operation = nil
-        relockTask?.cancel(); relockTask = nil
         unlocked = false; unlocking = false; data = nil; image = nil
+        // 审查修复（缩放跨解锁周期泄漏）：重锁必须回到初始适配视图——
+        // 下一位认证用户不得看到上一人的取景位置（SensitiveMediaOriginalView
+        // 同族修复，本视图此前漏修）。
+        scale = 1
+        unlockedAt = nil
+        lastActivity = nil
         loading = false
     }
 }

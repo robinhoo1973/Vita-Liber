@@ -21,15 +21,21 @@ public struct TextUnderstandingInput: Sendable, Equatable {
     public var text: String
     /// OCR 专用：保留行结构（语音为 nil）
     public var lines: [String]?
+    /// OCR 专用：识别层实测版面（块 bbox/表格/段落；语音为 nil）。
+    /// 框级锚定纪律（tech V3.134）：框来自测量（Vision）而非模型生成、
+    /// fail-closed（匹配不上不画）、归一化坐标。nil = 几何不可用，
+    /// 消费方以 `PageLayout.linesOnly` 退化，绝不伪造。
+    public var layout: PageLayout?
     public var source: Source
     /// zh-Hans / zh-Hant / en …（显式传入，不靠自动检测——<20 字符不可靠，§8.7）
     public var locale: Locale.LanguageCode
     public var allowsGenerativeProcessing: Bool
 
-    public init(text: String, lines: [String]? = nil, source: Source,
+    public init(text: String, lines: [String]? = nil, layout: PageLayout? = nil, source: Source,
                  locale: Locale.LanguageCode = .chinese, allowsGenerativeProcessing: Bool = false) {
         self.text = text
         self.lines = lines
+        self.layout = layout
         self.source = source
         self.locale = locale
         self.allowsGenerativeProcessing = allowsGenerativeProcessing

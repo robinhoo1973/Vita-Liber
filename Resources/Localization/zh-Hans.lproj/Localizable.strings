@@ -18,6 +18,8 @@
 "voice.confirm.title" = "确认语音录入内容";
 "voice.confirm.pending" = "待确认 · 确认后保存";
 "voice.confirm.lowConfidence" = "识别把握较低，请核对";
+"voice.confirm.fieldConfirmed" = "已确认";
+"voice.confirm.lowPendingFmt" = "还有 %d 项低置信内容未核对，逐项确认或编辑后可保存";
 "voice.confirm.save" = "确认保存";
 "voice.confirm.retry" = "重新说";
 "voice.confirm.cancel" = "取消";
@@ -1056,9 +1058,7 @@
 "gradebadge.pending" = "待确认";
 "settings.gateGrace" = "安全";
 "settings.autoLock" = "退后台自动锁定宽限";
-"settings.grace0" = "立即";
-"settings.grace15" = "15 秒";
-"settings.grace60" = "60 秒";
+"settings.graceSecondsFmt" = "%d 秒";
 "ai.quickGlucose" = "最近血糖";
 "ai.quickNext" = "下次复诊";
 "voicenote.detailBody" = "正文";
@@ -1112,6 +1112,9 @@
 "sharedFields.carriersFmt" = "适用：%@";
 "entityCard.sourceLineTitle" = "原文行";
 "entityCard.sourceLineHint" = "此字段识别自下面高亮的那一行";
+"entityCard.sourceLineQuoteHint" = "点选一行，将原文引用到字段（引用后仍需确认）；长按可复制文字";
+"entityCard.sourceLineQuote" = "引用此行";
+"entityCard.fieldViewScan" = "看图";
 "entityCard.rowSkipped" = "本行缺必填，稍后可在待办补充";
 "entityCard.sharedSection" = "共同信息";
 "entityCard.rowsSection" = "逐项内容";
@@ -1701,6 +1704,7 @@
 "voicePanel.editHint" = "转写文本显示于此，可直接点击编辑；轻点麦克风可续录追加";
 "voicenote.tapHint" = "轻点开始录音，再点结束；也可按住说话";
 "voicenote.dictationDenied" = "未获得语音输入权限，可在系统设置中开启";
+"voicenote.dictationEngineUnavailable" = "语音引擎不可用（模型缺失或加载失败），可继续手动输入";
 "voicePanel.confirm" = "确认";
 "voicePanel.clearTitle" = "清除录音";
 "voicePanel.clear" = "清除";

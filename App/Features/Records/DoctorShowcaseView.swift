@@ -165,6 +165,16 @@ struct DoctorShowcaseView: View {
                     }
                 }
                 .tabViewStyle(.page(indexDisplayMode: .automatic))
+                // 审查修复（2026-09-19）：展示模式 300s 是「无操作」TTL
+                // 而非绝对超时——咨询中医生翻页/拖动即活跃，会话令牌与
+                // 倒计时环同步重置（recordActivity 此前零调用方：活跃刷新
+                // 语义在 MediaUnlockPolicy 文档承诺但从未接线，医生会在
+                // 咨询中途被重锁）。两钟同源重置，不会互相追秒。
+                .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
+                    guard authenticated else { return }
+                    session.recordActivity()
+                    remaining = MediaUnlockPolicy.showcaseTTL
+                })
             }
         }
     }

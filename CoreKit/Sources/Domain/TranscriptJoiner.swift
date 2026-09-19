@@ -8,14 +8,24 @@ import Foundation
 /// 相邻两侧都是拉丁字母/数字时补一个空格（英文短语边界可读性）。
 public enum TranscriptJoiner {
 
+    /// 全仓唯一 CJK 边界定义（`TextLineMerger` 同源复用）。审查修复：
+    /// 旧区间只覆盖基本区（0x4E00...0x9FFF）——扩展 A（U+3400–4DBF）
+    /// 与扩展 B+（U+20000+）的罕见姓氏/生僻字在段边界被判「非 CJK」，
+    /// 中文句中被插空格。
+    public static func isCJK(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value)
+                || (0x4E00...0x9FFF).contains(scalar.value)
+                || (0x20000...0x2FA1F).contains(scalar.value)
+        }
+    }
+
     public static func join(_ segments: [String]) -> String {
         var output = ""
         for segment in segments where !segment.isEmpty {
             if let last = output.last, let first = segment.first,
                last.isLetter || last.isNumber, first.isLetter || first.isNumber {
-                let lastIsCJK = last.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
-                let firstIsCJK = first.unicodeScalars.contains { (0x4E00...0x9FFF).contains($0.value) }
-                if !lastIsCJK && !firstIsCJK { output.append(" ") }
+                if !isCJK(last) && !isCJK(first) { output.append(" ") }
             }
             output.append(segment)
         }

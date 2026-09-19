@@ -53,15 +53,18 @@ struct SettingsView: View {
                 } footer: {
                     Text(L10n.settings_highContrastFooter)
                 }
-                // §5.12 安全（自动锁定）组（V3.72 接线：FR1.4 宽限 0/15/60 秒）
+                // §5.12 安全（自动锁定）组（FR1.4 宽限 5/15/60 秒；选项由
+                // Domain 合法集单一事实源生成——业主 2026-09-19：最低宽限 5 秒，
+                // 0 档（立即锁）与系统认证浮层的 transient inactive 叠加形成
+                // 人脸识别循环，退出合法域）
                 Section(L10n.settings_gateGrace) {
                     Picker(selection: Binding(
-                        get: { settings.values[.gateGraceSeconds] ?? "0" },
+                        get: { SettingsRules.resolved(settings.values[.gateGraceSeconds], key: .gateGraceSeconds) },
                         set: { v in Task { await settings.set(v, for: .gateGraceSeconds) } }
                     )) {
-                        Text(L10n.settings_grace0).tag("0")
-                        Text(L10n.settings_grace15).tag("15")
-                        Text(L10n.settings_grace60).tag("60")
+                        ForEach(SettingsRules.gateGraceSecondsLegalValues.map(Int.init), id: \.self) { value in
+                            Text(L10n.settings_graceSeconds(value)).tag("\(value)")
+                        }
                     } label: {
                         Text(L10n.settings_autoLock)
                     }

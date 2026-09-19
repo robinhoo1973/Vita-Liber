@@ -66,7 +66,7 @@ struct EncounterAssociationSection: View {
                     }
                 }
                 .accessibilityIdentifier("SP-12.entity.encounter")
-                if case .suggested = card.encounterAssociation { Text(L10n.ocrAssociationSuggestion).font(.caption).foregroundStyle(.orange) }
+                if case .suggested = card.encounterAssociation { Text(L10n.ocrAssociationSuggestion).font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main)) }
                 if loading { ProgressView() }
                 if failed {
                     Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(.secondary)

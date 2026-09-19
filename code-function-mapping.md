@@ -205,7 +205,8 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `func voiceLocales(_:)` (173) — 语音语言列表解析（保序去重）
   - `func preferredVoiceLocale(_:)` (182) — 主语言 = 列表首位
   - `func resolved(_:key:)` (186) — 未设置 → 默认值
-  - `static let gateGraceSecondsLegalValues` (194) — FR1.4 合法值域 0/15/60
+  - `static let gateGraceSecondsLegalValues` (197) — FR1.4 合法值域 5/15/60（最低 5 秒，业主 2026-09-19）
+  - `gateGraceResolved(_:key:)` (203) — 宽限解析 BR 规则：合法档取原值、非法注入/旧 "0" 回落最小档 5 秒
   - `func dateFormatTag(of:) / dateFormatValue(of:)` (198/206) — 日期格式 tag ↔ 存储值映射
   - `func appliesToExisting(_:)` (220) — 追溯语义（默认类设置仅影响新建）
 
@@ -1070,8 +1071,13 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 
+## CoreKit/Sources/Domain/TextLineMerger.swift
+- `TextLineMerger` (22) — FR6.1 换行拆词归并纯函数（fail-safe 宁可漏合不可错合：边界字符均字母/CJK ∧ 上行无 ASCII 数字 ∧ 下行非剂量/用法引导词 ∧ 无冒号；拼接走 TranscriptJoiner CJK 策略；`merge` 产出 sourceIndices 供布局块重建；OCR Pipeline 出口单点调用）
+
 ## CoreKit/Sources/Domain/MediaUnlockPolicy.swift
 - `MediaUnlockPolicy` (14) — 敏感媒体解锁/重锁策略（BR-007/008 · FR8.4，Domain 纯函数）
+- `postUnlockInactiveGrace` (32) — 认证后 inactive 重锁宽限 5 秒（业主 2026-09-19「最低认证要求至少 5 秒」；宽限只豁免 inactive，background 恒重锁）
+- `shouldRelockOnInactive(lastUnlockAt:now:)` (40) — inactive 重锁纯谓词（三媒体视图消费）
   - `static let idleTTL/showcaseTTL/activityCoalescingWindow` (16-26) — 30s 无操作重锁 / 医生展示 300s / 活跃信号 1s 合并窗
   - `static func shouldRelock(lastInteraction:now:)` (29) — 按最后一次交互计时判定重锁
   - `static func shouldRecordActivity(lastInteraction:now:)` (34) — 合并窗口内的重复活跃信号丢弃
@@ -1655,7 +1661,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 - `TranscriptRevision` (12) — 修订结果（构造时 accepted 即过受保护 token 校验）
   - `var effective: String` (24) — 生效文本：仅 accepted 用建议
   - `static func unavailable(_:)/timedOut(_:)` (25-30) — 降级构造
-- `ProtectedTokenValidator.validate(original:suggested:drugNames:personNames:)` (37) — 只许 ASCII 空格归一与句尾句号；字典不是安全边界（每源字节受保护）
+- `ProtectedTokenValidator.validate(original:suggested:drugNames:personNames:)` (37) — 句末标点**插入**放行（。！？/./!/?；剥除可插入标点 = 原文空白归并序列，逐字节可验证）；句内逗号仍禁插（否定辖域）、数字相邻禁插；字典不是安全边界
   - `private static func normalizedSpaces(_:)` (49) — 连续空格归一为字节序列
 
 
@@ -2398,6 +2404,10 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `func authenticate(reason:) -> Bool` (18) — deviceOwnerAuthentication 认证
 
 
+
+## CoreKit/Sources/Infrastructure/LlamaCppTranscriptRefiner.swift
+- `LlamaCppTranscriptRefiner` (24) — T2 本机 LLM 润色轨（复用 LlamaRuntime + 随包 Qwen2.5-0.5B；自由文本 GBNF 文法；5s 超时；HeavyModelLease 互斥；输出 trim 只删模型加帧）
+- `ChainedTextRefiner` (100) — 润色轨链：FM → llama 按序取可用、**共享同一 RefinementDeadline**（FR17.18 单飞跨轨）
 
 ## CoreKit/Sources/Infrastructure/LocalTranscriptRefiner.swift
 - `LocalTranscriptRefiner` (15) — FR17.9/17.18 端侧润色（format-only，永不覆盖原文）
@@ -3410,7 +3420,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `seedBundled / backfillDocumentTypeKeys` (23–27) — F16 信源库种子 / v27 doc_type_key 回填（VitaLiberApp 注入）
   - `body` (43) — 三分支（锁屏/向导/外壳）+ 主题/对比度/字号注入 + 生命周期修饰器
   - `startTasks()` (148) — 启动任务链（body 提取）：设置加载→语言对账→bootstrap→四链并行（失败隔离纪律）
-  - `handlePhaseChange(_:)` (197) — scenePhase 状态机（body 提取）：FR1.4 退后台即锁 + 宽限锁 + 回前台对账
+  - `handlePhaseChange(_:)` (199) — scenePhase 状态机（`armBackgroundLock` 258 / `cancelGraceLock` 281）（body 提取）：`.inactive` 首个离开锚定宽限、`.background` 恒立即武装（认证浮层豁免只覆盖 inactive）；`armBackgroundLock()`/`cancelGraceLock()` 提取（宽限解析走 Domain `gateGraceResolved`）
   - `seedBundledOrLog()` (289) — 信源播种失败隔离单一落点（错误不外传、不触发 async let 兄弟隐式取消）
   - `effectiveDynamicTypeSize` (303) — 关怀模式在系统字号基础上再放大一档
   - `currentTheme` (312) — FR14.4 主题（AppTheme 枚举映射）
@@ -3640,7 +3650,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 ## App/DesignSystem/SensitiveMediaContainer.swift
-- `MediaRelockTimer` (16) — 空闲重锁计时器（SensitiveMediaContainer/OriginalView/MediaUnlockSession 共用；策略常量仍在 Domain MediaUnlockPolicy）
+- `MediaRelockTimer` (16) — 空闲重锁计时器（SensitiveMediaContainer/OriginalView/MediaUnlockSession/DocumentSourcePageView 共用；schedule 增 TTL 域钳制——非有限/非正回落 idleTTL，UInt64 溢出 trap 纵深防御；策略常量仍在 Domain MediaUnlockPolicy）
   - `relockTask / unlockTask` (18–21) — 计时句柄 / 在途解锁句柄
   - `schedule(ttl:onExpiry:)` (24) — 武装空闲重锁计时（先取消旧计时；Task 显式 @MainActor）
   - `trackUnlock(_:)` (35) — 登记在途解锁任务
@@ -3877,7 +3887,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 ## App/Features/Confirm/SourceLineSheet.swift
-- `SourceLineSheet` (10) — 字段 → 原文行锚定面板（行级高亮、非框级）
+- `SourceLineSheet` (10) — 字段 → 原文行锚定面板（行级高亮 + **点行引用** `onPick`：回填目标字段 = revise 留痕、D 级待确认；无 onPick 只读；框级高亮归 DocumentSourcePageView(highlight:)）
   - `highlighted` (15) — 行号合法性守卫
   - `var body` (20) — 逐行渲染 + 高亮行滚动定位
 

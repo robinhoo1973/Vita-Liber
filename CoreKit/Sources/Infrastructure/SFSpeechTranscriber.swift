@@ -274,6 +274,8 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
     private var drainTimer: DispatchWorkItem?
     private var restartTimer: DispatchWorkItem?
     private var recoveryAttempts = 0
+    /// 连续静默端点重启计数（审查修复，E4：noSpeech 无限重启循环上限）
+    private var noSpeechRestarts = 0
     private var completion: TranscriptionCompletion = .final
     private var confidences: [Double] = []
     private var lastPublished = ""
@@ -472,8 +474,19 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             switch failure {
             case .noSpeech:
                 // Silence is an endpoint, not a fatal retry. Rate-limit new requests while keeping capture alive.
-                completeSegment(text: event.isFinal ? event.text : nil, confidence: nil,
-                                restartDelay: limits.restartDelay)
+                // 审查修复（E4，无界重启循环）：旧实现静默端点无限重启识别请求
+                // ——用户长按不放且不说话时，每 0.25s 取消旧任务、新建请求、
+                // 重武装 55s 轮换计时，零上限零回退地空转 CPU/耗电。
+                // 连续静默重启达上限（maximumRecoveryAttempts）→ 定案
+                // noSpeechDetected（已有已提交段则按中断交付保留文本，见 settle）。
+                noSpeechRestarts += 1
+                if noSpeechRestarts > limits.maximumRecoveryAttempts {
+                    completion = .interrupted
+                    settle(error: TranscriptionError.noSpeechDetected)
+                } else {
+                    completeSegment(text: event.isFinal ? event.text : nil, confidence: nil,
+                                    restartDelay: limits.restartDelay)
+                }
             case .unauthorized, .unavailable:
                 completion = .interrupted
                 settle(error: failure == .unauthorized ? TranscriptionError.unauthorized : .engineUnavailable)
@@ -488,6 +501,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         } else {
             if let text = event.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 recoveryAttempts = 0
+                noSpeechRestarts = 0   // 有真实内容到达 = 不再连续静默
             }
             publish()
         }
@@ -501,6 +515,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         } else if let confidence {
             confidences.append(confidence)
             recoveryAttempts = 0
+            noSpeechRestarts = 0
         }
         accumulator.commit(final)
         rotationTimer?.cancel()

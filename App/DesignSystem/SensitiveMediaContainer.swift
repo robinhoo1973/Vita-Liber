@@ -24,8 +24,13 @@ struct MediaRelockTimer {
     mutating func schedule(ttl: TimeInterval = MediaUnlockPolicy.idleTTL,
                            onExpiry: @escaping () -> Void) {
         relockTask?.cancel()
+        // 域钳制（审查修复）：UInt64(ttl × 1e9) 对负数/NaN/天文值运行时
+        // trap。当前调用方恒传 MediaUnlockPolicy 常量（30/300），但任何
+        // 未来注入存储/备份恢复值（门禁宽限同族脏数据，AppRootView 已
+        // 为此钳制）都会崩——钳制进本机制而非依赖调用方自律。
+        let clamped = ttl.isFinite && ttl > 0 ? ttl : MediaUnlockPolicy.idleTTL
         relockTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: UInt64(ttl * 1_000_000_000))   // try?-ok: 空闲重锁计时被取消即停，sleep 失败无副作用
+            try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))   // try?-ok: 空闲重锁计时被取消即停，sleep 失败无副作用；clamped 已钳制，无溢出
             guard !Task.isCancelled else { return }
             onExpiry()
         }
@@ -73,6 +78,11 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     /// await 完成后翻转，双 Task 并发 requestUnlock 会产生两个并发
     /// LAContext 求值：第二个必败且可能双弹认证层）
     @State private var unlocking = false
+    /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
+    @State private var unlockedAt: Date?
+    /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）：
+    /// 触摸事件 60–120Hz 送达，逐事件重启计时任务 = 每帧 Task 分配/取消
+    @State private var lastActivity: Date?
 
     init(@ViewBuilder placeholder: @escaping (Bool) -> Placeholder,
          @ViewBuilder content: @escaping (Bool) -> Content) {
@@ -100,20 +110,36 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
                     }
                     if ok {
                         unlocked = true
+                        unlockedAt = Date()
+                        lastActivity = Date()
                         scheduleRelock()
                     }
                     unlocking = false
                 }
                 relockTimer.trackUnlock(task)
             }
-            // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口
+            // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口；
+            // 1 秒合并窗口（MediaUnlockPolicy.activityCoalescingWindow）
+            // 滤掉 60–120Hz 触摸流的逐帧任务重启
             .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in
                 guard unlocked else { return }
+                let now = Date()
+                guard MediaUnlockPolicy.shouldRecordActivity(lastInteraction: lastActivity, now: now) else { return }
+                lastActivity = now
                 scheduleRelock()
             })
             .onChangeCompat(of: scenePhase) { _, phase in
-                guard phase != .active, unlocked else { return }
-                relock()
+                // 审查修复（2026-09-19，业主「认证后立即被自己的浮层重锁」）：
+                // background = 真离开，恒立即重锁（BR-007/008 内存态纪律）；
+                // inactive 可能是系统认证浮层收起瞬态——解锁后 5 秒内
+                // 不重锁（MediaUnlockPolicy.shouldRelockOnInactive，
+                // 「最低认证要求至少 5 秒」），浮层期间重锁会导致
+                // 认证完成即锁回 → 再点再认证 = 循环。
+                if phase == .background { relock() }
+                else if phase != .active, unlocked,
+                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(), now: Date()) {
+                    relock()
+                }
             }
             .onDisappear { relock() }
         }
@@ -131,6 +157,11 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
         // （BR-007「重锁 = 回到认证前内存态」违反；SensitiveMediaOriginalView
         // 已修同族缺陷，本容器漏修）。
         relockTimer.cancelAll()
+        // 同步复位在途守卫（与 SensitiveMediaOriginalView 同族修复）：
+        // 被取消任务的复位有调度延迟，置位可避免回场首击被吞
+        unlocking = false
         unlocked = false
+        unlockedAt = nil
+        lastActivity = nil
     }
 }

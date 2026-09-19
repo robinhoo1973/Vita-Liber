@@ -9,6 +9,8 @@ extension L10n {
     static var voiceConfirmPending: String { t("voice.confirm.pending") }
 
     static var voiceConfirmLowConfidence: String { t("voice.confirm.lowConfidence") }
+    static var voiceConfirmFieldConfirmed: String { t("voice.confirm.fieldConfirmed") }
+    static func voiceConfirmLowPending(_ count: Int) -> String { String(format: t("voice.confirm.lowPendingFmt"), count) }
 
     static var voiceConfirmSave: String { t("voice.confirm.save") }
 
@@ -179,6 +181,7 @@ extension L10n {
     static var voicenoteTapHint: String { t("voicenote.tapHint") }
 
     static var voicenoteDictationDenied: String { t("voicenote.dictationDenied") }
+    static var voicenoteDictationEngineUnavailable: String { t("voicenote.dictationEngineUnavailable") }
 
     static var voicePrimaryLanguage: String { t("voice.primaryLanguage") }
 

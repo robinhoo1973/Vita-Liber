@@ -26,6 +26,9 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
         //
         // iOS 26 结构化路径先行：抛错 / 无文档 / 零文本行 → 一律回落 VN 路径
         // （design §7：RecognizeDocumentsRequest 仅 iOS 26+，退化 = 几何聚行）。
+        // 例外（审查修复，取消透明性）：CancellationError 不是「结构化路径
+        // 失败」——吞掉回落 VN 会让取消的识别再跑一遍全分辨率 .accurate
+        // 识别，且下游把取消当引擎失败。取消必须原样抛还。
         if #available(iOS 26, macOS 26, *) {
             do {
                 if let structured = try await Task.detached(priority: .userInitiated, operation: {
@@ -33,6 +36,8 @@ public final class VisionImageRecognizer: ImageTextRecognizing, @unchecked Senda
                 }).value {
                     return structured
                 }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 // 结构化路径任何失败都不是终态——VN 路径是 iOS 16 起的参考行为。
             }

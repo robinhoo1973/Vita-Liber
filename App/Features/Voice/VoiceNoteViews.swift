@@ -182,6 +182,11 @@ struct VoiceNotePanelView: View {
                     if await state.create(patientId: currentPatientId, body: body, tags: nil) {
                         draft = ""
                     } else {
+                        // 审查修复（口述路径不可重试）：手输路径写失败时 draft
+                        // 仍在输入框、可直接重试；口述路径的文本只存在于
+                        // confirmSet——旧实现失败后文本彻底消失、只能重说。
+                        // 失败时把口述文本放回输入框，与手输路径同权可重试。
+                        if draft.trimmingCharacters(in: .whitespaces).isEmpty { draft = body }
                         writeFailed = true
                     }
                 }

@@ -94,7 +94,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .inAppBannerEnabled: return "true"
         case .voiceMixedInput: return "true"
         case .voiceEngine: return VoiceEngineChoice.auto.rawValue
-        case .gateGraceSeconds: return "0"
+        case .gateGraceSeconds: return "5"
         case .speechRate: return "normal"
         case .healthAutoImport: return "true"
         case .healthWriteBack: return "false"
@@ -187,11 +187,23 @@ public enum SettingsRules {
         stored ?? key.defaultValue
     }
 
-    /// FR1.4 退后台自动锁定宽限的合法值域（秒）：0/15/60——设置页 Picker
+    /// FR1.4 退后台自动锁定宽限的合法值域（秒）：5/15/60——设置页 Picker
     /// 与消费侧钳制同源（第十一轮审查：钳制曾用 0...3600 范围判定，备份
     /// 注入的 "300" 等非合法档可通过并制造规格外宽限窗，FR1.4「退后台
     /// 即锁」静默失效；另见 AppRootView 消费侧成员判定）。
-    public static let gateGraceSecondsLegalValues: [Double] = [0, 15, 60]
+    /// 业主 2026-09-19：「最低认证要求应该至少 5 秒而不是 0 秒」——系统
+    /// 认证浮层（Face ID）自身令场景短暂 inactive，0 秒档在浮层收起瞬态
+    /// 重锁门禁 → 再次认证 = 循环。5 秒 = 全档位最小宽限（含旧数据回落）。
+    public static let gateGraceSecondsLegalValues: [Double] = [5, 15, 60]
+
+    /// 门禁宽限解析（BR 规则，Domain 单一事实源）：合法档取原值；备份
+    /// 往返/旧版本注入的非法档与 0 一律回落**最小合法档**（5 秒）——
+    /// 不得回落 0：0 已退出合法域（业主 2026-09-19），回落 0 会让存量
+    /// 用户（旧默认 "0"）继续瞬时重锁、保留人脸识别循环。
+    public static func gateGraceResolved(_ stored: String?, key: AppSettingKey) -> Double {
+        let raw = Double(resolved(stored, key: key)) ?? gateGraceSecondsLegalValues[0]
+        return gateGraceSecondsLegalValues.contains(raw) ? raw : gateGraceSecondsLegalValues[0]
+    }
 
     /// 日期格式 tag ↔ 存储值（FR14.7/§5.19）：tag 供 UI 选择器（无本地化格式串
     /// 进入视图层），值存 app_settings；单一映射维护（V3.72）
