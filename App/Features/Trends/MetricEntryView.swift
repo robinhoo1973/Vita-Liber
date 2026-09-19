@@ -9,7 +9,7 @@ import Perception
 /// （NumberNormalizer / MetricEntryRules）——返回可落库的值对或失败原因
 /// （响亮拒绝纪律：绝不静默丢弃读数；失败文案由调用侧呈现）。
 private enum MetricEntryValidation {
-    enum Failure { case invalidValue, outOfRange }
+    enum Failure: Error { case invalidValue, outOfRange }
 
     static func validate(primaryText: String, secondaryText: String,
                          metric: MetricType) -> Result<(value: Double, secondary: Double?), Failure> {
