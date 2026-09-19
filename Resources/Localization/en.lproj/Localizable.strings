@@ -1866,6 +1866,7 @@
 "health.requestIncomplete" = "The system authorization flow did not complete. Try connecting again.";
 "health.importedEmpty" = "No imported data yet. The first sync imports the most recent year first.";
 "health.sparseWindowsFmt" = "%d hours had too few samples to form hourly statistics.";
+"health.backgroundSyncFailed" = "Background auto-import registration failed — new data will arrive only on manual sync (reconnect to repair).";
 "health.backfillProgressFmt" = "Importing %@; %d statistical windows remaining.";
 "health.backfillLane.recent" = "the most recent year";
 "health.backfillLane.history" = "earlier history";

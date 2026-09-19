@@ -58,6 +58,8 @@ struct ASREngineSettingsSection: View {
         /// 该档位的资产字节数（`ASRModelAssets.byteCount`：读 manifest + 逐文件 stat
         /// + `isRevoked` 取锁），渲染路径只读结果
         var bytes: Int64?
+        /// 已激活指针的档位键（2026-09-19 审查修复：同版本换档判定输入）。
+        var installedVariant: String?
         /// 该档位在索引中的变体清单（小/中/大，业主 2026-09-18 定）：同 id 多条目
         /// 且带 variant 键；单档/历史条目为空（UI 保持旧形态）。在重算预算内
         /// 一并算出——渲染路径不得再取锁。
@@ -99,6 +101,7 @@ struct ASREngineSettingsSection: View {
             for choice in VoiceEngineChoice.allCases {
                 next[choice.rawValue] = ChoiceAvailability(
                     installed: choice.isBundledModel ? ASRModelDownloadService.installedVersion(for: choice) : nil,
+                    installedVariant: choice.isBundledModel ? ASRModelDownloadService.installedVariant(for: choice) : nil,
                     latest: choice.isBundledModel ? availableIndex.flatMap {
                         ASRModelDownloadService.latest(for: choice, in: $0, appVersion: version)
                     } : nil,
@@ -269,9 +272,15 @@ struct ASREngineSettingsSection: View {
                 }
                 if let chosenVariant {
                     // 多档家族：下载/更新以所选档为目标（各档可共存下载、同一时刻
-                    // 一档生效——ASRInstallLayout 语义；已装版本不提示重复下载）
+                    // 一档生效——ASRInstallLayout 语义；已装版本不提示重复下载）。
+                    // 2026-09-19 审查修复：此前仅按版本判定——同版本换档（small→large）
+                    // 恒无下载按钮（isNewer 只比版本号），尺寸选择形同虚设。
+                    let installedVariant = row.installedVariant
                     let needsInstall = installed == nil
                         || (installed.map { chosenVariant.isNewer(than: $0) } ?? true)
+                        || (chosenVariant.variant != nil
+                            && chosenVariant.version == installed
+                            && chosenVariant.variant != installedVariant)
                     if needsInstall {
                         Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
                             .buttonStyle(.bordered).frame(minHeight: 44)

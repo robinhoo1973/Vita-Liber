@@ -143,7 +143,7 @@ public enum ExtractionSpecRegistry {
         f("prescription_type", .enumerated(domain: ["general", "emergency", "pediatric", "narcotic", "psychotropic", "tcm"]),
           aliases: ["处方类型", "處方類型"], hint: "印刷处方类型"),
     ], row: [
-        f("drug_name", .text(maxChars: 40), .row, req: true, aliases: ["药品名称", "藥品名稱", "药名", "藥名", "名称", "名稱", "Drug"], hint: "药名逐字"),
+        f("drug_name", .text(maxChars: 40), .row, req: true, aliases: ["药品名称", "藥品名稱", "药名", "藥名", "药品", "藥品", "名称", "名稱", "Drug"], hint: "药名逐字"),
         f("spec", .quantityWithUnit, .row, aliases: ["规格", "規格", "Spec"], hint: "规格原文如 0.25g×24"),
         f("dosage", .quantityWithUnit, .row, aliases: ["用量", "单次剂量", "單次劑量", "每次", "Dose"], hint: "单次量原文"),
         f("frequency", .text(maxChars: 20), .row, aliases: ["频次", "頻次", "用法", "Freq", "Sig"], hint: "频次原文不换算"),

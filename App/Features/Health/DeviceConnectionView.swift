@@ -12,6 +12,10 @@ final class F16DeviceState {
     private(set) var connected = false
     private(set) var report: SyncReport?
     private(set) var dashboard: HealthImportDashboard?
+    /// 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：类型 → 排空进度 0…1。
+    /// 基线 = 本轮同步第一次观察到的剩余窗口数（会话内单调收敛）。
+    private(set) var kindProgress: [String: Double] = [:]
+    private var kindBaseline: [String: Int] = [:]
     private(set) var available = false
     /// 2026-09-15 审查修复：设备能力**是否已探测**（`available == false` 有两种含义：
     /// 不支持 / 还没问过）。`HealthImportPageState` 没有加载态，消费方把未探测当
@@ -22,6 +26,9 @@ final class F16DeviceState {
     /// 不是「同步失败」——旧实现把 missingOwner 与真实读库失败同路降级，用户看到的是错误提示
     /// 而非「先建本人档案」的引导。
     private(set) var ownerMissing = false
+    /// 2026-09-19 审查修复：后台观察注册失败标志此前**只写不读**（全仓零消费）——
+    /// 自动导入静默死亡而界面仍显示「自动导入已开启」。探测时如实回填，SP-29 呈现。
+    private(set) var backgroundSyncBroken = false
     private let syncService: HealthKitSyncService
     private let dataChange: AppDataChangeCenter
     /// 特征型候选与写回的裁决输入（业主 2026-09-17 定）：
@@ -92,9 +99,27 @@ final class F16DeviceState {
         phase = .degraded(L10n.f16AuthDisabled)
     }
 
+    /// 2026-09-19 审查修复：中间/终态报告统一入口——更新回显报告与按类型排空进度。
+    /// 基线 = 每类型第一次观察到的剩余窗口数；随后剩余单调收敛 → 进度 0…1。
+    /// 道切换（recent 排空 → 探 history）时剩余数跃过基线——基线重置为新道
+    /// 窗口数、进度从头计（不会出现 100% 塌回 0 的伪回落）。
+    private func applyLiveReport(_ live: SyncReport) {
+        report = live
+        guard let perKind = live.perKindRemaining else { return }
+        for (kind, remaining) in perKind {
+            if let base = kindBaseline[kind], remaining <= base {
+                kindProgress[kind] = base == 0 ? 1 : min(1, max(0, 1 - Double(remaining) / Double(base)))
+            } else {
+                kindBaseline[kind] = remaining
+                kindProgress[kind] = remaining == 0 ? 1 : 0
+            }
+        }
+    }
+
     func currentAuthorization() async -> Bool {
         available = await syncService.isAvailable()
         availabilityProbed = true
+        backgroundSyncBroken = await syncService.backgroundRegistrationFailed
         await refreshDashboard()
         // 审查修正（F16）：健康 Tab 每次重入都会走本探测——此前无条件把 phase 覆盖
         // 为 .done，手动同步失败的 .degraded 提示被静默清除、页面回显旧报告
@@ -114,11 +139,26 @@ final class F16DeviceState {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
         phase = .syncing
+        kindBaseline = [:]
+        kindProgress = [:]
+        // 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：performSyncAll 单次终态等待
+        // 期间轮询服务每类落库的中间报告回填 UI——此前 30s+ 的首次回填只见无定进度条，
+        // 「剩余 N 窗口」文案只在结束后出现一次。中间报告由 saveReport 逐轮持久化。
+        let poller = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))   // try?-ok: 取消由 sleep 抛出即结束轮询
+                guard let self else { return }
+                if let live = await self.syncService.latestReport {
+                    self.applyLiveReport(live)
+                }
+            }
+        }
+        defer { poller.cancel() }
         do {
             // I2 审查修复：轮询与聚合下沉 HealthKitSyncService.performSyncAll
             // （服务语义不进视图状态对象），本层只消费一次终态报告。
             let total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
-            report = total
+            applyLiveReport(total)
             if total.persistedRows > 0 { dataChange.metricsChanged() }
             dataChange.alertsChanged()
             // 审查修复（效率）：仪表盘六查询聚合只在轮次结束后算一次——
@@ -350,6 +390,12 @@ struct DeviceConnectionView: View {
                         // token-only（审查修复）：语义令牌替代硬编码 .orange
                         Label(message, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    }
+                    if deviceState.backgroundSyncBroken {
+                        Label(L10n.healthBackgroundSyncFailed(), systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .accessibilityIdentifier("SP-29.health.backgroundSyncFailed")
                     }
                     if let report = deviceState.report {
                         Text(L10n.f16SyncedRows(report.persistedRows))

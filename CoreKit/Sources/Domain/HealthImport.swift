@@ -191,6 +191,9 @@ public struct SyncReport: Sendable, Equatable, Codable {
     public var remainingWindows: Int? = nil
     /// H-N1：本轮推进的道；nil = 无在途工作
     public var backfillLane: HealthFetchLane? = nil
+    /// 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：按类型细分剩余窗口数；
+    /// Optional——旧 report_json 无此键必须可解码。
+    public var perKindRemaining: [String: Int]? = nil
 
     /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
     /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
@@ -201,7 +204,8 @@ public struct SyncReport: Sendable, Equatable, Codable {
                 hasMore: Bool = false, notificationFailures: Int = 0,
                 bindingId: UUID? = nil, patientId: UUID? = nil,
                 sparseWindows: Int? = nil, remainingWindows: Int? = nil,
-                backfillLane: HealthFetchLane? = nil) {
+                backfillLane: HealthFetchLane? = nil,
+                perKindRemaining: [String: Int]? = nil) {
         self.elevated = elevated; self.noRangeCount = noRangeCount
         self.persistedRows = persistedRows; self.preservedRows = preservedRows
         self.deferredWindows = deferredWindows; self.receivedChanges = receivedChanges
@@ -210,6 +214,7 @@ public struct SyncReport: Sendable, Equatable, Codable {
         self.lastSyncAt = lastSyncAt; self.bindingId = bindingId; self.patientId = patientId
         self.sparseWindows = sparseWindows; self.remainingWindows = remainingWindows
         self.backfillLane = backfillLane
+        self.perKindRemaining = perKindRemaining
     }
 }
 

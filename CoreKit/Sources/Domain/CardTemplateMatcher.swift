@@ -188,6 +188,10 @@ public enum CardTemplateMatcher {
         // v25 处方「表头 + 行」（§C.6）：表头七键共享；行级键与 prescription_line 列一一对应（键集见 CardKindRegistry）。
         CardTemplate(kind: "prescription", rowKey: "drug_name",
                      mapping: ["drug_name": "drug_name", "prescribed_at": "prescribed_at",
+                               // 2026-09-19 审查修复：通用「日期」键桥接进处方日期——他轨
+                               // （NL/fallback）产出 report_date 草稿时此前被 buildShared 静默丢弃，
+                               // prescribed_at 为空 → requiredCoverage 0.5 < 0.8 整卡可被拒。
+                               "report_date": "prescribed_at",
                                "hospital": "hospital", "doctor": "doctor", "advice_text": "advice_text",
                                "dept": "department", "prescription_no": "prescription_no", "prescription_type": "prescription_type",
                                "fee_type": "fee_type", "clinical_diagnosis": "clinical_diagnosis",
@@ -258,6 +262,11 @@ public enum CardTemplateMatcher {
     /// 同键多段并入（换行拼接）的共享叙事键；其余共享键同键首个非空值胜出。
     private static let narrativeSharedKeys: Set<String> = [
         "advice_text", "present_illness", "visit_summary", "past_history", "physical_exam", "allergy_history",
+        // 2026-09-19 审查修复：诊断系键（诊断/临床诊断/主诉）此前不在并入集——多行诊断
+        // 只保留首行、后续行静默丢弃（BR-002 内容丢失）。并入与 fallback 轨 narrativeFieldKeys
+        // 的「刻意不含 diagnosis/treatment」不同——此处是逐字锚定的同键草稿合并，不存在
+        // 吞并后续结构化行的风险（吸收边界由 fallback 轨负责），故三键入集。
+        "diagnosis_text", "clinical_diagnosis", "chief_complaint",
         // v26 住院/检查叙事列（§C.2/§C.4）
         "admit_diagnosis", "discharge_diagnosis", "admit_condition", "treatment_course", "discharge_condition", "discharge_orders", "take_home_drugs",
         "findings", "impression",

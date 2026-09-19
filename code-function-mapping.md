@@ -458,7 +458,7 @@
 
 ## CoreKit/Sources/Domain/DocumentTypeClassifierFallback.swift
 - `DocumentTypeEvidence` (12) — 类型证据（键 + 证据词表）
-- `DocumentTypeClassifierFallback` (22) — FR5.5/FR6.2 兜底轨分类器
+- `DocumentTypeClassifierFallback` (279) — FR5.5/FR6.2 兜底轨分类器
   - `static let evidenceTable` (24) — 16 类稳定类型键证据词表（机械表）
   - `func classify(lines:)` (82) — 按命中行数计分，主类 + 次候选 + 置信度
   - `static let specializations` (120) — 上位类型 → 亚型覆盖表
@@ -930,7 +930,7 @@
 
 
 ## CoreKit/Sources/Domain/HealthImport.swift
-- `HealthDataKind` (4) — HealthKit 数据类别枚举（6 类）
+- `HealthDataKind` (38) — HealthKit 数据类别枚举（6 类）
   - `var primaryMetric: MetricType` (39) — 类别 → 趋势指标键（extension）
   - `var isAggregated: Bool` (50) — 聚合类（心率/步数/睡眠）每窗一行；离散类每读数一行
   - `static func forMetricKey(_:)` (55) — metric_key 反查数据类别（设备行路由数据列表页）
@@ -1432,7 +1432,7 @@
   - `static func classify(_ text:kind:)` (221) — cell → (键, 原文子串) 列表（处方/检验/费用三类规则族）
   - `static func trailingFlag(_:)` (294) — 行尾异常标志（↑↓/H/L）只取原文不解释（BR-004/012）
   - `Patterns` (302) — 编译期静态文法（rx 一次性编译；drugWithSpec/drugName/labValue/labQualitative/referenceRange/unit/flag/labelText/amount/itemWithAmount/date/spec/dosage/frequency/route/days/quantity 17 条，锚点 302-326）
-- `ContinuationRules` (331) — 续页建议（round2 O-N4）：多页表格续页只产 continuationHint（E5 低置信草稿，BR-003）
+- `ContinuationRules` (335) — 续页建议（round2 O-N4）：多页表格续页只产 continuationHint（E5 低置信草稿，BR-003）
   - `static let carried` (332) — 可延续键（hospital/department/doctor）
   - `static func apply(_ cards:specs:)` (334) — 缺失必填/延续键从上页同卡借值入 hint
 
@@ -1468,8 +1468,8 @@
 
 
 ## CoreKit/Sources/Domain/SharedFieldPool.swift
-- `SharedFieldPool.Carrier` (25) — 承载方：哪张卡的哪个面（shared/row/hubDraft）持键
-- `SharedFieldPool.Row` (37) — 共用信息行（键值 + 待确认草稿 + 承载方集合 + 入池原因）
+- `SharedFieldPool.Carrier` (38) — 承载方：哪张卡的哪个面（shared/row/hubDraft）持键
+- `SharedFieldPool.Row` (50) — 共用信息行（键值 + 待确认草稿 + 承载方集合 + 入池原因）
   - `var id: String` (50) — 稳定行身份 = 键 + 首个承载方（不含值，改值不漂移）
 - `SharedFieldPool` (22) — 跨卡共用信息汇集与回填（业主 2026-09-17 定：确认两步——先共用信息再逐卡行级）
   - `static func rows(cards:floor:)` (59) — 汇集入口：collectSlots → 键/值+单位归并 → 三条析取入池
@@ -5207,7 +5207,7 @@
   - `func requestWriteBack()` (215) — 请求写回授权并回传获准状态
   - `func writeBackSample(patientId:metric:value:secondaryValue:unit:measuredAt:)` (232) — 指标写回（开关∧本人∧单位一致才写）
   - `func updateAutomation()` (255) / `func importedRows(kind:before:)` (256) — 后台观察注册/分页行
-- `DeviceConnectionView` (263) — SP-29 设置与展示唯一宿主（ADR-021；授权/同步/报告/候选/写回/展示区）
+- `DeviceConnectionView` (297) — SP-29 设置与展示唯一宿主（ADR-021；授权/同步/报告/候选/写回/展示区）
   - `var body` (271)
   - `var healthEnabled` (492) — 读取开关解析
   - `var pageState` (496) — 页面三态（Domain 纯函数）
@@ -5218,7 +5218,7 @@
   - `func adopt(_:)` (536) — 采用候选（AppState.updateMember 单一写门）
   - `var writeBackOn` (558) — 写回开关解析
   - `var writeBackPreference` (564) — 写回开关绑定（开启先拿授权，未获准回退关闭）
-- `HealthImportedDataView` (582) — SP-29 已导入数据详情：趋势入口+同日折叠日卡+翻页
+- `HealthImportedDataView` (616) — SP-29 已导入数据详情：趋势入口+同日折叠日卡+翻页
   - `var healthEnabled` (598) / `var gateOpen` (602) — 开关/门状态（与宿主同判定）
   - `var trendAllowed` (613) — 趋势链接实时判定（行集非空即放宽）
   - `func statisticsLine(_:)` (621) — 设备统计行（与 SP-13 同款构成）

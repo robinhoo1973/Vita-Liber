@@ -240,6 +240,15 @@ final class LlamaRuntime: @unchecked Sendable {
             llama_model_free(loadedModel)
             throw ExtractionEngineError.unavailable
         }
+        // 2026-09-19 审查修复：URL 变更（覆盖位出现/测试换模型）时先释放旧上下文与模型——
+        // 原实现直接覆写指针，491MB 模型 + 上下文泄漏。
+        if loadedURL != nil, loadedURL != url {
+            if let context { llama_free(context) }
+            if let model { llama_model_free(model) }
+            vocab = nil
+            context = nil
+            model = nil
+        }
         model = loadedModel
         vocab = loadedVocab
         context = loadedContext

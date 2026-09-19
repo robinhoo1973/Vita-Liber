@@ -160,6 +160,13 @@ struct HealthTabView: View {
                                         Text(latest.formatted(date: .abbreviated, time: .shortened))
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
+                                    // 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：同步进行中
+                                    // 该类别卡显示确定性排空进度（基线 = 本轮同步首见剩余窗口数）。
+                                    if deviceState.isSyncing,
+                                       let fraction = deviceState.kindProgress[type.kind.rawValue] {
+                                        ProgressView(value: fraction)
+                                            .accessibilityIdentifier("SP-29.health.home.progress.\(type.kind.rawValue)")
+                                    }
                                 }
                                 .frame(minHeight: 44)
                             }

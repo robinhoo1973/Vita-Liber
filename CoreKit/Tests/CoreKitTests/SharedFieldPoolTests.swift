@@ -158,7 +158,11 @@ struct SharedFieldPoolTests {
         #expect(claimMissing.isSuperset(of: ["amount", "currency", "item_type"]),
                 "票据卡的三个必填缺失键都上公用页；实得 \(rows.filter { $0.value.isEmpty }.map(\.key))")
         #expect(!SharedFieldPool.isSettled(rows), "未补齐 → 未处理完")
-        for i in rows.indices where rows[i].value.isEmpty { _ = rows[i].field.fillByUser("占位值") }
+        // 2026-09-19 日期概念归并：claim.date 与 prescription.prescribed_at 同值合并为
+        // 跨卡重复行（规则①），须显式确认（非空行确认、空行手填即确认）。
+        for i in rows.indices {
+            if rows[i].value.isEmpty { _ = rows[i].field.fillByUser("占位值") } else { _ = rows[i].field.confirm() }
+        }
         #expect(SharedFieldPool.isSettled(rows), "逐项补齐后可离场")
     }
 
@@ -172,11 +176,16 @@ struct SharedFieldPoolTests {
                                                         field("kind", "outpatient", confidence: 1)])
         let rows = SharedFieldPool.rows(cards: [lab, draft])
         #expect(rows.contains { $0.key == "value" && $0.carriers.first?.face != nil }, "低置信行级必填值入池")
+        // 2026-09-19 日期概念归并：lab.measured_at / 处方 prescribed_at / 草稿 date 同值
+        // 合并为一行（行键 = 首个承载方的实际键），草稿以承载方身份入该行。
         let draftRows = rows.filter { $0.carriers.contains { $0.face == .hubDraft } }
-        #expect(draftRows.map(\.key) == ["date"], "草稿的必填低置信日期入池；实得 \(draftRows.map(\.key))")
+        #expect(draftRows.count == 1 && draftRows.first?.value == "2026-09-16",
+                "草稿的必填低置信日期以承载方入池；实得 \(draftRows.map(\.key))")
 
         var mutableRows = rows
-        for index in mutableRows.indices where mutableRows[index].key == "date" { _ = mutableRows[index].field.confirm() }
+        for index in mutableRows.indices where mutableRows[index].carriers.contains(where: { $0.face == .hubDraft }) {
+            _ = mutableRows[index].field.confirm()
+        }
         let projected = SharedFieldPool.project(mutableRows, into: [lab, draft])
         guard case .newHub(let outDraft) = projected[1].encounterAssociation else {
             Issue.record("草稿应保留"); return

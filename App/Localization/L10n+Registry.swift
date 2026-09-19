@@ -132,6 +132,8 @@ extension L10n {
     "health.backfillProgressFmt",
     "health.backfillLane.recent",
     "health.backfillLane.history",
+    // 2026-09-19 审查修复：后台自动导入注册失败如实呈现（SP-29）
+    "health.backgroundSyncFailed",
     "trend.window.week",
     "trend.window.month",
     "trend.window.quarter",

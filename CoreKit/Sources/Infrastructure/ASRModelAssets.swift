@@ -33,7 +33,13 @@ public struct ASRModelAssets: Sendable {
         if let packageSHA256, trust.isRevoked(packageSHA256) { throw TranscriptionError.engineUnavailable }
     }
     /// 下载版使用不可变内容目录；根路径＋安装代次同时进入委托与 native runtime 缓存键。
-    public var identity: String { "\(root?.standardizedFileURL.path ?? "missing")|\(Self.generation.value)" }
+    /// 2026-09-19 审查修复：代次曾为**进程全局**计数器——任一模型安装/检查更新
+    /// 后所有档位的 identity 一起变，未变文件的模型也全部重载+重哈希（下载后
+    /// 按压冻结主因之一）。改为按根路径分代：只推进被安装/失效的那棵目录。
+    public var identity: String {
+        let path = root?.standardizedFileURL.path ?? "missing"
+        return "\(path)|\(Self.generation.value(for: path))"
+    }
     private static let generation = Generation()
     private static let leases = Leases()
     final class Lease: @unchecked Sendable {
@@ -63,9 +69,18 @@ public struct ASRModelAssets: Sendable {
     static func removeIfUnused(_ url: URL) throws { try leases.removeIfUnused(url) }
     private final class Generation: @unchecked Sendable {
         private let lock = NSLock()
-        private var counter: UInt64 = 0
-        var value: UInt64 { lock.lock(); defer { lock.unlock() }; return counter }
-        func advance() { lock.lock(); counter &+= 1; lock.unlock() }
+        private var counters: [String: UInt64] = [:]
+        func value(for root: String) -> UInt64 {
+            lock.lock(); defer { lock.unlock() }
+            return counters[root, default: 0]
+        }
+        /// 推进指定根；root 为 nil 时推进全部根（仅保留给全量失效的显式入口）。
+        func advance(for root: String? = nil) {
+            lock.lock()
+            if let root { counters[root, default: 0] &+= 1 }
+            else { for key in counters.keys { counters[key, default: 0] &+= 1 } }
+            lock.unlock()
+        }
     }
 
     /// FR17.15（业主 2026-09-12 决定）：**资产双路径解析**——优先使用运行时下载并校验过的版本
@@ -100,10 +115,22 @@ public struct ASRModelAssets: Sendable {
             values[key] = computed
             return computed
         }
+        func peek(key: String) -> Value? {
+            lock.lock(); defer { lock.unlock() }
+            return values[key]
+        }
+        func set(key: String, value: Value) {
+            lock.lock(); values[key] = value; lock.unlock()
+        }
         func removeAll() {
             lock.lock(); values.removeAll(); lock.unlock()
         }
     }
+    /// 2026-09-19 审查修复：逐文件 SHA-256 流式哈希的进程级备忘（键=文件路径）。
+    /// 此前每次 warmUp/按压/池重载都全量重哈希（下载后按压冻结主因之二）——
+    /// 目录内容在代次内不可变（安装替换目录并推进分代 → 本缓存随 invalidateCaches 清空），
+    /// 哈希结论在代次内恒定，备忘不削弱防篡改链（文件变更必然伴随分代推进）。
+    private static let validatedCache = LockedCache<String>()
 
     public func isPresent(_ choice: VoiceEngineChoice) -> Bool {
         if let packageSHA256, trust.isRevoked(packageSHA256) { return false }
@@ -114,12 +141,24 @@ public struct ASRModelAssets: Sendable {
         }
     }
 
-    /// 安装/指针切换后失效进程级缓存（presence/manifest）：同版本重装或指针切换后，
+    /// 安装/指针切换后失效进程级缓存（presence/manifest/validated）：同版本重装或指针切换后，
     /// 旧判定（如曾因缺件缓存 false）不得继续遮蔽新目录（安全审查 2026-09-12 发现）。
-    public static func invalidateCaches() {
+    /// 2026-09-19 审查修复：新增 per-root 分代参数——安装只推进被安装目录的代次，
+    /// 其他档位的 identity 不变，其已加载引擎与哈希结果继续有效（不再全部重载）。
+    public static func invalidateCaches(forRoot root: URL? = nil) {
         presenceCache.removeAll()
         manifestCache.removeAll()
-        generation.advance()
+        validatedCache.removeAll()
+        generation.advance(for: root?.standardizedFileURL.path)
+    }
+
+    /// 2026-09-19 审查修复：只清缓存、不推分代——目录索引刷新（检查更新）用。
+    /// 索引变化不影响已装文件的身份（撤销走 trust 每调用检查），此前 fetchIndex
+    /// 走全量 invalidateCaches 会把所有档位 identity 一起推进 → 未变文件全重载。
+    public static func clearCaches() {
+        presenceCache.removeAll()
+        manifestCache.removeAll()
+        validatedCache.removeAll()
     }
 
     public func byteCount(_ choice: VoiceEngineChoice) -> Int64? {
@@ -172,11 +211,18 @@ public struct ASRModelAssets: Sendable {
             guard attributes[.type] as? FileAttributeType == .typeRegular,
                   (attributes[.size] as? NSNumber)?.int64Value == file.bytes else { throw TranscriptionError.engineUnavailable }
             if hash {
-                let handle = try FileHandle(forReadingFrom: url)
-                defer { do { try handle.close() } catch { /* 只读描述符关闭失败不覆盖hash结果 */ } }
-                var digest = CryptoKit.SHA256()
-                while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty { digest.update(data: chunk) }
-                let actual = digest.finalize().map { String(format: "%02x", $0) }.joined()
+                let actual: String
+                if let cachedHash = Self.validatedCache.peek(key: url.path) {
+                    actual = cachedHash
+                } else {
+                    let handle = try FileHandle(forReadingFrom: url)
+                    defer { do { try handle.close() } catch { /* 只读描述符关闭失败不覆盖hash结果 */ } }
+                    var digest = CryptoKit.SHA256()
+                    while let chunk = try handle.read(upToCount: 1_048_576), !chunk.isEmpty { digest.update(data: chunk) }
+                    let computed = digest.finalize().map { String(format: "%02x", $0) }.joined()
+                    Self.validatedCache.set(key: url.path, value: computed)
+                    actual = computed
+                }
                 guard actual == file.sha256 else { throw TranscriptionError.engineUnavailable }
             }
             paths[role] = url.path

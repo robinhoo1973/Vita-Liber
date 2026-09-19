@@ -96,8 +96,16 @@ public enum OCRGrounding {
             if numericKeys.contains(item.key) || value.first?.isNumber == true || value.last?.isNumber == true {
                 // 数值边界：值须在行内**某一处**以独立数字出现（E3 修正：合体行「0.3g×20 … 3天」中 `3` 首次命中落在
                 // 0.3 内会被误拒——逐个出现位置检查，任一处边界合法即通过；仍拒绝只嵌在其他数字里的碎片）。
+                // 2026-09-19 审查修复：日期形值改用**不含 ./，**的边界集——日期被标点
+                // 邻接（「2026-09-12,」）不再整字段被丢，但「独立数字出现」的锚定
+                // 语义保留（值仍须逐字在行内出现，不整体豁免边界检查）。
+                let isDateShaped = EntityCardProjection.parseDate(value, calendar: Calendar(identifier: .gregorian)) != nil
+                let boundaries = isDateShaped
+                    ? CharacterSet(charactersIn: "0123456789+-−<>≤≥")
+                    : CharacterSet(charactersIn: "0123456789.,+-−<>≤≥")
                 guard Self.hasBoundedNumericOccurrence(of: value, in: line, strictLeading: numericKeys.contains(item.key) || value.first?.isNumber == true,
-                                                       strictTrailing: numericKeys.contains(item.key) || value.last?.isNumber == true) else { return nil }
+                                                       strictTrailing: numericKeys.contains(item.key) || value.last?.isNumber == true,
+                                                       boundaries: boundaries) else { return nil }
             }
             if ["drug_name", "generic_name"].contains(item.key),
                negationGuards.contains(where: { line.localizedCaseInsensitiveContains($0) }) { return nil }
@@ -119,8 +127,8 @@ public enum OCRGrounding {
     }
 
     /// 值在行内的全部出现位置中，是否至少有一处两侧不紧邻数字/小数点/比较符（独立数字 token）。
-    static func hasBoundedNumericOccurrence(of value: String, in line: String, strictLeading: Bool, strictTrailing: Bool) -> Bool {
-        let boundaries = CharacterSet(charactersIn: "0123456789.,+-−<>≤≥")
+    static func hasBoundedNumericOccurrence(of value: String, in line: String, strictLeading: Bool, strictTrailing: Bool,
+                                            boundaries: CharacterSet = CharacterSet(charactersIn: "0123456789.,+-−<>≤≥")) -> Bool {
         var search = line.startIndex
         while search < line.endIndex, let range = line.range(of: value, range: search..<line.endIndex) {
             var ok = true

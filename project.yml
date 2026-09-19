@@ -25,7 +25,12 @@ targets:
     sources:
       - path: App
       - path: Resources
-        excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**"]
+        # 2026-09-19 审查修复（业主实测 IPA 膨胀 >1GB）：LLMModels 此前未列入 excludes——
+        # GGUF/catalog.json 被 group 条目逐文件拷贝到 bundle 根，又被下方文件夹引用
+        # 拷进 LLMModels/ 子目录，同一 491MB 模型进包两次（≈982MB）。文件夹引用是
+        # LlamaModelManager 的唯一下载面，group 条目必须排除。
+        excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**",
+                   "LLMModels", "LLMModels/**"]
       - path: Resources/ASRModels
         type: folder
         buildPhase: resources

@@ -188,19 +188,32 @@ struct VoiceEngineLabView: View {
     private func rebuild() {
         model?.stopForDisappear()
         let selected = choice
-        let built = TranscriptionEngineBuilder.make(choice: choice)
-        let created = VoiceDictationModel(engine: built, preferredLocale: testLocale)
-        created.setAuthorization(settings.values[.authVoiceDictation] != "false")
-        created.applyLanguageSettings(settings: settings, recentDrugNames: [])
-        created.onTranscript = { [weak created] text, _ in
-            guard let created, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-            results.insert(LabResult(text: text,
-                                     locale: created.resolvedLocale ?? testLocale,
-                                      engine: created.resolvedEngineID.flatMap(VoiceEngineChoice.init(rawValue:)) ?? selected,
-                                     at: Date()), at: 0)
+        let gen = generation
+        // 2026-09-19 审查修复：引擎构造（资产解析/租约获取/清单读盘）此前在主 actor
+        // 同步执行——安装收尾剪枝持租约锁删旧目录（GB 级，秒级）时进入本页，
+        // 主线程阻塞在 retain 上（整机假死实测）。构造经 Task.detached 移出主 actor
+        // （本视图是 struct，不可 weak 捕获——detached 闭包只捕获 Sendable 的
+        // `selected`，装配回到主 actor 上下文后按 live 状态守卫回填）。
+        let authorized = settings.values[.authVoiceDictation] != "false"
+        Task {
+            let built = await Task.detached(priority: .userInitiated) {
+                TranscriptionEngineBuilder.make(choice: selected)
+            }.value
+            guard choice == selected, generation == gen else { return }
+            let created = VoiceDictationModel(engine: built, preferredLocale: testLocale)
+            created.setAuthorization(authorized)
+            created.applyLanguageSettings(settings: settings, recentDrugNames: [])
+            created.onTranscript = { [weak created] text, _ in
+                guard let created, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                results.insert(LabResult(text: text,
+                                         locale: created.resolvedLocale ?? testLocale,
+                                         engine: created.resolvedEngineID.flatMap(VoiceEngineChoice.init(rawValue:)) ?? selected,
+                                         at: Date()), at: 0)
+            }
+            engine = built
+            model = created
+            await refreshAssetStatus()
         }
-        engine = built
-        model = created
     }
 
     private func refreshAssetStatus() async {

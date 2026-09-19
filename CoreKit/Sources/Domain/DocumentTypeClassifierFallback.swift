@@ -136,7 +136,12 @@ public enum DocumentTypeClassifierFallback {
             ("reference_range", #"(?:参考范围|參考範圍|参考值|參考值|正常范围|正常範圍|参考区间|參考區間)[:：]?\s*(.+)"#),
             // 主诉/诊断/处理（病历）
             ("chief_complaint", #"(?:主诉|主訴)[:：]?\s*(.+)"#),
-            ("diagnosis", #"(?:诊断|診斷)[:：]?\s*(.+)"#),
+            // 2026-09-19 审查修复：行首锚 + 已知前缀组——原无锚正则在正文行内命中
+            // （「现病史：患者既往诊断高血压」在「诊断」处命中并把「高血压」收成
+            // diagnosis、现病史整行丢失；guessFields 首命中即定）。isLabelPosition
+            // 纪律（ExtractionPatterns）同款；前缀组保住 入院诊断：/出院诊断：/
+            // 初步诊断： 等印刷形态（裸 ^ 会把它们打进 line_N）。
+            ("diagnosis", #"^(?:入院|出院|门诊|門診|初步|中医|中醫|主要|次要|主|次)?\s*(?:诊断|診斷)[:：]?\s*(.+)"#),
             ("treatment", #"(?:处理|處理|医嘱|醫囑)[:：]?\s*(.+)"#),
             // 叙事字段补全（审查修复 2026-09-18 业主实测）：此前病历只认
             // 主诉/诊断/处理三标签，现病史/既往史/家族史/过敏史整段落
@@ -171,12 +176,14 @@ public enum DocumentTypeClassifierFallback {
     /// 叙事字段键（多行并入判据，2026-09-18 业主实测）：这些角色的值
     /// 天然多行（主诉/现病史/既往史段落），标签行后的无标签行并入而非
     /// 落 line_N。单一事实源：本表与 fieldPatterns 叙事键逐条对齐。
-    /// 刻意**不含** diagnosis/treatment：诊断/医嘱是结构化短字段，其后
-    /// 常跟报告标题/医生/检验行——吸收会吞掉后续结构化行（标签直配
-    /// 三语测试实测回归）。
+    /// 2026-09-19 审查修复（业主实测「诊断只取当前行」）：诊断/医嘱入集——
+    /// 原「刻意不含」的担忧（吞并后续结构化行）由吸收边界行承担：
+    /// 命中任何标签行/日期开头行即止；编号续行（「2.高血压病」是诊断列表
+    /// 本体而非结构行）在诊断/医嘱吸收时不再作为边界（见 absorbNarrativeLines）。
     public static let narrativeFieldKeys: Set<String> = [
         "chief_complaint", "present_illness", "past_history",
         "family_history", "allergy_history",
+        "diagnosis", "treatment",
     ]
 
     /// 叙事续行并入（纯函数，可单测）：lines[startIndex..<n] 逐行并入，
@@ -275,7 +282,10 @@ public extension DocumentTypeClassifierFallback {
 
     /// 药品/用法直配词表与医生标签（每行现算 → 常量复用）。
     private static let drugLabelPrefixes = ["药品名称", "藥品名稱", "药名", "藥名", "药品：", "藥品："]
-    private static let directionsPrefixes = ["用法", "用量", "每次", "每日", "口服", "外用"]
+    // 2026-09-19 审查修复：用药指导/服药说明类行加入医嘱前缀——此前
+    // 「用药指导：本药为缓释片，不可掰开服用」因含剂型词被整行判成 drug_name。
+    private static let directionsPrefixes = ["用法", "用量", "每次", "每日", "口服", "外用",
+                                             "用药指导", "用藥指導", "服药说明", "服藥說明", "用药注意", "用藥注意"]
     private static let namedFormTokens = ["胶囊", "膠囊", "颗粒", "顆粒", "注射液", "缓释片", "緩釋片"]
     private static let doctorTokens = ["医生", "醫生", "医师", "醫師"]
 
@@ -303,9 +313,13 @@ public extension DocumentTypeClassifierFallback {
         pattern: #"(?:合计|合計|总额|總額|金额|金額|(?i:total|amount))\s*[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9.])"#)
     private static let amountNumberPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
         pattern: #"[0-9]+(?:\.[0-9]{1,2})?"#)
-    /// 叙事并入的边界行记号（日期开头 / 编号列表）。
-    private static let narrativeBoundaryPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
-        pattern: #"^\d{4}\s*[-/年.]|^\d+[.、)]"#)
+    /// 叙事并入的边界行记号（日期开头）。
+    private static let dateBoundaryPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"^\d{4}\s*[-/年.]"#)
+    /// 叙事并入的边界行记号（编号列表）。诊断/医嘱吸收时豁免——「1.支气管炎
+    /// 2.高血压」是诊断列表本体，不是后续结构行（2026-09-19 审查修复）。
+    private static let numberedBoundaryPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
+        pattern: #"^\d+[.、)]"#)
 
     /// Page-local extraction does not discard another card kind because the primary label differs.
     static func pageFields(lines: [String], understood: [FieldDraft], confidence: Double) -> [FieldDraft] {
@@ -354,6 +368,13 @@ public extension DocumentTypeClassifierFallback {
             // `parseDate` 内部是 `firstMatch`（行内任意位置命中即真），原实现据此把**整行**当值。
             if EntityCardProjection.parseDate(text, calendar: Calendar(identifier: .gregorian)) != nil,
                let dateSpan = ExtractionPatterns.dateToken(in: text) {
+                // 2026-09-19 审查修复：报告日期标签显式命中时顶掉先前任何日期草稿——
+                // buildShared 同键首个非空胜出，「采样时间」先行的页会把真正的
+                // 报告日期静默遮蔽。
+                if ["报告日期", "報告日期", "检查日期", "檢查日期", "出具日期"].contains(where: text.contains),
+                   let existing = output.firstIndex(where: { $0.key == "report_date" }) {
+                    output.remove(at: existing)
+                }
                 appendIfAbsent("report_date", dateSpan, rawLine: line, index: index, confidence: heuristicConfidence, to: &fields)
             }
             appendDrugAndLabelFields(text: text, suffix: suffix, line: line, index: index,
@@ -369,11 +390,15 @@ public extension DocumentTypeClassifierFallback {
             if fields.isEmpty {
                 fields = [FieldDraft(key: "line_\(index)", value: line, confidence: measuredConfidence, rawText: line)]
             }
+            // 2026-09-19 审查修复：行锚钉在**本行**——旧实现用吸收后的下标重钉全部
+            // 字段，叙事吸收时同行直配字段（如 discharge_orders）的行锚漂移到吸收
+            // 末行，SP-63 原文行锚定高亮错行。
+            let lineIndex = index
             if let next = absorbNarrativeLines(lines: lines, understood: understood, fields: &fields, from: index) {
                 index = next
             }
             for var field in fields {
-                field.sourceLineIndex = index
+                field.sourceLineIndex = lineIndex
                 field.confidence = min(measuredConfidence, field.confidence.isFinite ? max(0, field.confidence) : 0)
                 output.append(field)
             }
@@ -424,8 +449,27 @@ public extension DocumentTypeClassifierFallback {
         let namedForm = namedFormTokens.contains(where: text.contains)
         let strengthLine = prescriptionPage && drugStrengthPattern?.firstMatch(
             in: text, range: NSRange(text.startIndex..., in: text)) != nil
-        if explicitDrug || ((namedForm || strengthLine) && !directions) {
-            appendIfAbsent("drug_name", explicitDrug ? suffix : text, rawLine: line, index: index, confidence: confidence, to: &fields)
+        // 2026-09-19 审查修复（业主实测「药品二字成药名」）：无冒号的「药品名称」
+        // 标签行（表头「药品名称 规格 数量 用法用量」）此前整行成为 drug_name——
+        // 冒号缺失时 suffix = 整行，且无 colon 守卫。剥标签后校验余值：
+        // 含其他表头词/超长 = 表头行，跳过；余值非空且短 = 药名本体。
+        if explicitDrug {
+            if text.contains(":") || text.contains("：") {
+                appendIfAbsent("drug_name", suffix, rawLine: line, index: index, confidence: confidence, to: &fields)
+            } else {
+                let stripped = drugLabelPrefixes.reduce(text) { partial, prefix in
+                    partial.hasPrefix(prefix)
+                        ? String(partial.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                        : partial
+                }
+                let headerLike = ["规格", "規格", "数量", "數量", "用法", "用量", "剂量", "劑量", "单位", "單位",
+                                  "厂家", "廠家", "批号", "批號", "单价", "單價", "金额", "金額"].contains(where: stripped.contains)
+                if !stripped.isEmpty, !headerLike, stripped.count <= 40 {
+                    appendIfAbsent("drug_name", stripped, rawLine: line, index: index, confidence: confidence, to: &fields)
+                }
+            }
+        } else if (namedForm || strengthLine) && !directions {
+            appendIfAbsent("drug_name", text, rawLine: line, index: index, confidence: confidence, to: &fields)
         }
         if directions {
             appendIfAbsent("advice_text", suffix, rawLine: line, index: index, confidence: confidence, to: &fields)
@@ -509,7 +553,10 @@ public extension DocumentTypeClassifierFallback {
             let candidate = lines[cursor].trimmingCharacters(in: .whitespacesAndNewlines)
             guard !candidate.isEmpty else { cursor += 1; continue }
             if !guessFields(line: lines[cursor]).isEmpty { break }
-            if narrativeBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil { break }
+            if Self.isDirectLabelLine(candidate) { break }
+            if dateBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil { break }
+            if numberedBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil,
+               !["diagnosis", "treatment"].contains(fields[narrativeIndex].key) { break }
             if understood.contains(where: { ($0.sourceLineIndex ?? -1) == cursor }) { break }
             absorbed.append(lines[cursor])
             cursor += 1
@@ -517,6 +564,19 @@ public extension DocumentTypeClassifierFallback {
         guard !absorbed.isEmpty else { return nil }
         fields[narrativeIndex].value += "\n" + absorbed.joined(separator: "\n")
         return cursor - 1
+    }
+
+    /// 2026-09-19 审查修复：标签直配行也是叙事吸收边界——V1.16 把 diagnosis/treatment
+    /// 纳入吸收后，「出院医嘱」行会吞并后续 报告标题/医生/检验 等**直配标签行**
+    /// （这些行不产 guessFields 草稿，旧边界看不见它们）。直配来源与产出面一致：
+    /// ClinicalFieldLabels 前缀别名 / 药品标签 / 医嘱前缀 / 金额信号 / 报告标题词表。
+    private static func isDirectLabelLine(_ text: String) -> Bool {
+        if ClinicalFieldLabels.prefixAliases.contains(where: { $0.1.contains(where: text.hasPrefix) }) { return true }
+        if drugLabelPrefixes.contains(where: text.hasPrefix) { return true }
+        if directionsPrefixes.contains(where: text.hasPrefix) { return true }
+        if amountPattern?.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil { return true }
+        if ClinicalFieldLabels.reportType(inTitle: text) != nil { return true }
+        return false
     }
 
     static func hasVisitEvidence(in fields: [FieldDraft]) -> Bool {

@@ -21,6 +21,19 @@ import Foundation
 /// `originalValue`/`rawText`（来源与锚定是承载方的，不能被合并行覆盖）。
 public enum SharedFieldPool {
 
+    /// 2026-09-19 审查修复（业主诉求「日期未纳入公共字段」）：各卡日期键名不同
+    /// （date/prescribed_at/measured_at/exam_at/exam_date/treated_at/diagnosed_at/
+    /// surgery_at/administered_at），规则①「≥2 张卡携带**同键**」逐字比较恒不成立——
+    /// 同页处方日期与收费日期永不合并入池。日期键归并为单一概念键参与
+    /// 汇集/回填（行键仍取首个承载方的实际键，回填按承载方各自的键）。
+    static func conceptKey(_ key: String) -> String {
+        dateConceptKeys.contains(key) ? "shared_date" : key
+    }
+    private static let dateConceptKeys: Set<String> = [
+        "date", "prescribed_at", "measured_at", "exam_at", "exam_date",
+        "treated_at", "diagnosed_at", "surgery_at", "administered_at",
+    ]
+
     /// 承载方：哪张卡的哪个面持有该键。
     public struct Carrier: Hashable, Sendable {
         public enum Face: Hashable, Sendable {
@@ -41,6 +54,9 @@ public enum SharedFieldPool {
         /// 本行的待确认草稿（用户在本页的编辑落在它上面，出池时回填给全部承载方）。
         public var field: FieldDraft
         public let carriers: [Carrier]
+        /// 承载方 → 该方自己的键（日期概念合并时各卡键名不同；回填用）。
+        /// 2026-09-19 审查修复新增。
+        public let keysByCarrier: [Carrier: String]
         /// 入池原因（UI 如实呈现，不自造理由）。
         public let repeatedAcrossCards: Bool
         public let criticalLowConfidence: Bool
@@ -61,16 +77,17 @@ public enum SharedFieldPool {
         let slots = collectSlots(cards: cards)
         let multiCard = cards.count >= 2
 
-        // 归并：键 → 值+单位 → 承载方集合；同时累计每键的携带卡数
-        // （此前每键全量重扫 slots 求 cardCount，O(n·k)——归并一趟顺带累计）
+        // 归并：概念键 → 值+单位 → 承载方集合；同时累计每概念键的携带卡数
+        // （此前每键全量重扫 slots 求 cardCount，O(n·k)——归并一趟顺带累计；
+        // 2026-09-19 日期键经 conceptKey 归一，跨卡同名不同键的日期合并）。
         var order: [String] = []
         var byKey: [String: [String: [Slot]]] = [:]
         var cardCounts: [String: Set<UUID>] = [:]
         for slot in slots {
             let valueKey = "\(slot.value)\u{1}\(slot.unit ?? "")"
-            if byKey[slot.key] == nil { byKey[slot.key] = [:]; order.append(slot.key) }
-            byKey[slot.key]?[valueKey, default: []].append(slot)
-            cardCounts[slot.key, default: []].insert(slot.carrier.cardId)
+            if byKey[slot.poolKey] == nil { byKey[slot.poolKey] = [:]; order.append(slot.poolKey) }
+            byKey[slot.poolKey]?[valueKey, default: []].append(slot)
+            cardCounts[slot.poolKey, default: []].insert(slot.carrier.cardId)
         }
 
         var out: [Row] = []
@@ -97,8 +114,15 @@ public enum SharedFieldPool {
                 // ③ 必填 ∧ 缺失 ∧ **多卡**——单卡的缺失/空值留在卡内（业主：「单卡的卡内操作」）
                 let critical = required && (lowConfidence || (missing && multiCard))
                 guard repeated || critical else { continue }
-                out.append(Row(key: key, value: head.value, unit: head.unit, field: head.field,
+                // 行键 = 首个承载方的实际键（UI/L10n 沿用它）；回填按承载方各自的键（keysByCarrier）。
+                // 同一承载方同面出现多个日期概念键时首个胜出（值已同值合并，实践无差）。
+                var keysByCarrier: [Carrier: String] = [:]
+                for slot in group where keysByCarrier[slot.carrier] == nil {
+                    keysByCarrier[slot.carrier] = slot.key
+                }
+                out.append(Row(key: head.key, value: head.value, unit: head.unit, field: head.field,
                                carriers: group.map(\.carrier).sorted { "\($0.face)" < "\($1.face)" },
+                               keysByCarrier: keysByCarrier,
                                repeatedAcrossCards: repeated, criticalLowConfidence: critical, required: required))
             }
         }
@@ -115,6 +139,7 @@ public enum SharedFieldPool {
             for field in card.shared where field.grade != .rejected && field.key != "card_kind" {
                 slots.append(Slot(key: field.key, value: field.value, unit: field.unit, field: field,
                                   carrier: Carrier(cardId: card.id, face: .shared),
+                                  poolKey: Self.conceptKey(field.key),
                                   required: sharedRequired.contains(field.key)))
             }
             // 共享面**缺席**的必填键：按空值入池，供本页补填（业主 2026-09-17：
@@ -125,7 +150,8 @@ public enum SharedFieldPool {
                 for key in sharedRequired where !presentShared.contains(key) {
                     let empty = FieldDraft(key: key, value: "", confidence: 1)
                     slots.append(Slot(key: key, value: "", unit: nil, field: empty,
-                                      carrier: Carrier(cardId: card.id, face: .shared), required: true))
+                                      carrier: Carrier(cardId: card.id, face: .shared),
+                                      poolKey: Self.conceptKey(key), required: true))
                 }
             }
 
@@ -134,6 +160,7 @@ public enum SharedFieldPool {
                 for field in row.fields where field.grade != .rejected && field.key != "metric_key" {
                     slots.append(Slot(key: field.key, value: field.value, unit: field.unit, field: field,
                                       carrier: Carrier(cardId: card.id, face: .row(row.id)),
+                                      poolKey: Self.conceptKey(field.key),
                                       required: rowRequired.contains(field.key)))
                 }
             }
@@ -143,6 +170,7 @@ public enum SharedFieldPool {
                 for field in draft.fields where field.grade != .rejected {
                     slots.append(Slot(key: field.key, value: field.value, unit: field.unit, field: field,
                                       carrier: Carrier(cardId: card.id, face: .hubDraft),
+                                      poolKey: Self.conceptKey(field.key),
                                       required: hubRequired.contains(field.key)))
                 }
             }
@@ -157,6 +185,8 @@ public enum SharedFieldPool {
         let unit: String?
         let field: FieldDraft
         let carrier: Carrier
+        /// 汇集用概念键（日期键归一；非日期键 = key 本身）。
+        let poolKey: String
         let required: Bool
     }
 
@@ -183,15 +213,18 @@ public enum SharedFieldPool {
             var updated = card
             for row in cardRows {
                 for carrier in row.carriers where carrier.cardId == card.id {
+                    // 2026-09-19 审查修复：回填键取承载方自己的键（日期概念合并后
+                    // 处方卡 = prescribed_at、收费卡 = date——各行写回各自的键）。
+                    let carrierKey = row.keysByCarrier[carrier] ?? row.key
                     switch carrier.face {
                     case .shared:
-                        apply(row, to: &updated.shared, key: row.key)
+                        apply(row, to: &updated.shared, key: carrierKey)
                     case .row(let rowId):
                         guard let index = updated.rows.firstIndex(where: { $0.id == rowId }) else { continue }
-                        apply(row, to: &updated.rows[index].fields, key: row.key)
+                        apply(row, to: &updated.rows[index].fields, key: carrierKey)
                     case .hubDraft:
                         guard case .newHub(var draft) = updated.encounterAssociation else { continue }
-                        apply(row, to: &draft.fields, key: row.key)
+                        apply(row, to: &draft.fields, key: carrierKey)
                         updated.encounterAssociation = .newHub(draft)
                     }
                 }

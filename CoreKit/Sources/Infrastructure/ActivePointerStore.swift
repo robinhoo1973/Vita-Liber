@@ -27,6 +27,12 @@ enum ActivePointerStore {
         activePointer(for: choice)?.version
     }
 
+    /// 2026-09-19 审查修复（同版本换档死路）：已激活指针的档位键——单档家族为 nil。
+    /// 旧指针 JSON 缺 variant 键解码为 nil（向后兼容）。
+    static func installedVariant(for choice: VoiceEngineChoice) -> String? {
+        activePointer(for: choice)?.variant
+    }
+
     static func activeAssets(for choice: VoiceEngineChoice) -> ASRModelAssets? {
         guard let pointer = activePointer(for: choice), let hash = pointer.packageSHA256 else { return nil }
         return ASRModelAssets(root: versionRoot(for: choice, pointer: pointer), packageSHA256: hash)

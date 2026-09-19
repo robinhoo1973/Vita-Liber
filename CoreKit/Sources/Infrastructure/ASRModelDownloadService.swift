@@ -123,6 +123,8 @@ public actor ASRModelDownloadService {
     public nonisolated static func activeRoot(for choice: VoiceEngineChoice) -> URL? { ActivePointerStore.activeRoot(for: choice) }
 
     public nonisolated static func installedVersion(for choice: VoiceEngineChoice) -> String? { ActivePointerStore.installedVersion(for: choice) }
+    /// 2026-09-19 审查修复：已激活指针的档位键（同版本换档判定数据源）。
+    public nonisolated static func installedVariant(for choice: VoiceEngineChoice) -> String? { ActivePointerStore.installedVariant(for: choice) }
 
     nonisolated static func activeAssets(for choice: VoiceEngineChoice) -> ASRModelAssets? { ActivePointerStore.activeAssets(for: choice) }
 
@@ -149,7 +151,9 @@ public actor ASRModelDownloadService {
         }
         let data = try await metadata(from: url)
         let index = try trust.acceptCatalog(data)
-        ASRModelAssets.invalidateCaches()
+        // 2026-09-19 审查修复：索引刷新只清缓存不推分代——旧全量推进使所有档位
+        // identity 变化，检查一次更新即触发全引擎重载+全文件重哈希。
+        ASRModelAssets.clearCaches()
         return index
     }
 
@@ -274,19 +278,33 @@ public actor ASRModelDownloadService {
         // UI 据此二选文案（下载 = 「已下载 X/Y」，校验解压 = 只出条不出数字）。
         // series 换代（审查修复）：校验从 0 重计且 totalBytes 与下载相同——
         // 消费侧单调守卫须跨系列放行（series: 2 = 校验系列）。
-        let digest = try StreamingFileHasher.sha256(of: zipURL) { processed, total in
-            progress?(.init(receivedBytes: processed, totalBytes: total, series: 2))
-        }
+        // 2026-09-19 审查修复：GB 级压缩包的同步 SHA-256 + 解压此前在本 actor
+        // 内联执行——占满协作池线程数秒（同一池还跑 URLSession 回调与全 App
+        // 任务），下载完成后全 App 卡顿（语音速记假死主因之三）。重活移到
+        // detached 任务，actor 只等结果（progress/onPhase 均 @Sendable）。
+        let zipPath = zipURL
+        let hashProgress = progress
+        let expectedSHA = release.sha256
+        let digest = try await Task.detached(priority: .userInitiated) { () throws -> String in
+            try StreamingFileHasher.sha256(of: zipPath) { processed, total in
+                hashProgress?(.init(receivedBytes: processed, totalBytes: total, series: 2))
+            }
+        }.value
         // release 的整份描述已匹配受信任授权。
-        guard digest.caseInsensitiveCompare(release.sha256) == .orderedSame else {
+        guard digest.caseInsensitiveCompare(expectedSHA) == .orderedSame else {
             throw Failure.checksumMismatch
         }
 
         let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
         onPhase?(.unpacking)
-        try ModelPackageUnpacker.unzip(zipURL, to: unpacked, maximumBytes: expanded) { processed, total in
-            progress?(.init(receivedBytes: processed, totalBytes: total, series: 3))
-        }
+        let unzipProgress = progress
+        let unzipTarget = unpacked
+        let unzipMaxBytes = expanded
+        try await Task.detached(priority: .userInitiated) {
+            try ModelPackageUnpacker.unzip(zipPath, to: unzipTarget, maximumBytes: unzipMaxBytes) { processed, total in
+                unzipProgress?(.init(receivedBytes: processed, totalBytes: total, series: 3))
+            }
+        }.value
         do {
             _ = try ASRModelAssets(root: unpacked).validate(choice)
         } catch {
@@ -323,7 +341,9 @@ public actor ASRModelDownloadService {
             throw error
         }
         ActivePointerStore.invalidatePointerCache()
-        ASRModelAssets.invalidateCaches()
+        // 2026-09-19 审查修复：安装只推进**本安装目录**的分代——其他档位 identity
+        // 不变（引擎/哈希缓存继续有效），不再引发全局重载风暴。
+        ASRModelAssets.invalidateCaches(forRoot: versionDir)
 
         onPhase?(.pruning)
         pruneOldVersions(modelRoot: modelRoot, newlyInstalled: directoryName, previousRoot: previousRoot)

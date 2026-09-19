@@ -264,7 +264,12 @@ public actor HealthKitSyncService {
         if let after = pending.reconcileAfter {
             remaining = remaining.filter { $0.start > after } + remaining.filter { $0.start <= after }
         }
-        let attempted = Array(remaining.prefix(Self.windowsPerRound))
+        // 2026-09-19 审查修复（业主实测「睡眠最新差一年」）：recent 道窗序改为**最新优先**——
+        // HKAnchoredObjectQuery 行序最旧优先 + 升序排窗 + 每轮 32 窗预算的组合曾让最新一晚
+        // 最后到达：半排空状态下仪表盘 MAX(measured_at) 呈现近一年前的旧夜。
+        // history 道维持最旧优先（锚点推进语义不变）。
+        let ordered = scope.lane == .recent ? remaining.sorted { $0.start > $1.start } : remaining
+        let attempted = Array(ordered.prefix(Self.windowsPerRound))
         var snapshots: [HealthWindowSnapshot] = []
         var queryFailed = false
         for window in attempted {
@@ -283,6 +288,9 @@ public actor HealthKitSyncService {
         // round2 H-N2：稀疏窗计数上送（统计事实）；H-N1：排空进度 = 未尝试窗口 + 本轮推迟窗口
         report.sparseWindows = (report.sparseWindows ?? 0) + snapshots.reduce(0) { $0 + $1.sparseWindows }
         report.remainingWindows = (report.remainingWindows ?? 0) + (remaining.count - attempted.count) + committed.deferredWindows
+        // 2026-09-19 审查修复：按类型细分剩余窗口（健康 Tab 类别卡进度条数据源）。
+        report.perKindRemaining = report.perKindRemaining ?? [:]
+        report.perKindRemaining?[kind.rawValue] = remaining.count - attempted.count + committed.deferredWindows
         if queryFailed || committed.deferredWindows > 0 { report.failedTypes.append(kind) }
         let hadWork = existing != nil || !page.added.isEmpty || !page.deleted.isEmpty || page.hasMore
         if hadWork { report.backfillLane = scope.lane }

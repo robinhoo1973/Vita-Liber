@@ -341,6 +341,10 @@ extension L10n {
 
     static func healthSparseWindows(_ count: Int) -> String { String(format: t("health.sparseWindowsFmt"), count) }
 
+    /// 2026-09-19 审查修复：后台观察注册失败如实呈现（此前标志只写不读——自动导入
+    /// 静默死亡而界面显示「自动导入已开启」）。
+    static func healthBackgroundSyncFailed() -> String { t("health.backgroundSyncFailed") }
+
     static func healthBackfillProgress(_ lane: String, _ remaining: Int) -> String {
         String(format: t("health.backfillProgressFmt"), lane, remaining)
     }
