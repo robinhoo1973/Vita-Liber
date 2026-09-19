@@ -1,4 +1,5 @@
 #if os(iOS) || os(macOS)
+// linux-blind: CryptoKit 哈希（Apple 专属模块，Linux 不可用） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import CryptoKit
 import GRDB

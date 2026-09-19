@@ -1,4 +1,4 @@
-#if os(iOS) || os(macOS)
+// [linux-unguard] 双平台纯逻辑文件：守卫解除使 Linux 型检可见（2026-09-19 CI 对等性轮）
 import Foundation
 import Domain
 import Protocols
@@ -59,4 +59,4 @@ public struct OCRPipeline: Sendable {
         }
     }
 }
-#endif
+// [linux-unguard] end

@@ -1,4 +1,5 @@
 #if os(iOS) || os(macOS)
+// linux-blind: （平台守卫：内容未在 Linux 编译，盲区） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import Domain
 import ZIPFoundation

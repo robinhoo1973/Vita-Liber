@@ -1,4 +1,5 @@
 #if os(iOS) || os(macOS)
+// linux-blind: CoreImage 图像处理 / LocalAuthentication 门禁解锁 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import CoreImage
 import ImageIO

@@ -1,4 +1,5 @@
 #if os(iOS) || os(macOS)
+// linux-blind: （平台守卫：内容未在 Linux 编译，盲区） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import GRDB
 import Domain
@@ -1636,7 +1637,7 @@ private struct ImportSession {
         self.db = db
         self.envelope = envelope
         self.resolutions = resolutions
-        self.legacyEnvelope = envelope.schemaVersion < Envelope.currentSchemaVersion
+        self.legacyEnvelope = envelope.schemaVersion < ExportService.Envelope.currentSchemaVersion
         self.memberProfiles = envelope.members ?? []
         self.prescriptionLineRows = envelope.prescriptionLines ?? []
         self.claimLineRows = envelope.claimLines ?? []
@@ -1753,7 +1754,7 @@ private struct ImportSession {
     /// 冲突 id 必带显式裁决：检测循环已对每个冲突 id 强制存在性
     /// （缺失即抛 .conflict），此处强制解包是类型级承诺——ADR-019
     /// 绝不静默默认，不再保留隐藏的 ?? .keep 兜底。
-    func resolution(_ id: UUID) -> ConflictResolution {
+    func resolution(_ id: UUID) -> ExportService.ConflictResolution {
         resolutions[id]!
     }
 
