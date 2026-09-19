@@ -371,7 +371,10 @@ def main():
                 if exempted(raw_lines, i + k):
                     continue
                 for tname in sorted(mainactor_names):
-                    for mm in re.finditer(r"\b" + re.escape(tname) + r"\.(\w+)\s*\(", code):
+                    # 调用形态 `T.member(` 与下标形态 `T.member[` 同族隔离违规
+                    # （CI 35413799823：非隔离工厂枚举经 settings.values[key] 读
+                    # @MainActor 状态——原判据只匹配 `member(` 漏检）。
+                    for mm in re.finditer(r"\b" + re.escape(tname) + r"\.(\w+)\s*[\(\[]", code):
                         if (tname, mm.group(1)) in nonisolated_safe:
                             continue
                         fails.append(

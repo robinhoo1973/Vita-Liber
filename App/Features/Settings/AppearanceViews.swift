@@ -27,6 +27,9 @@ enum AppearanceRules {
 
 /// 设置绑定统一工厂（ThemeSettingsView / SettingsView 共用）：
 /// 三处同款「DB 值 → 绑定」复制收敛一处，避免布尔口径与主题回落逻辑漂移。
+/// @MainActor：引用 AppSettingsStore.values（@MainActor 状态）——非隔离枚举下
+/// 闭包失去视图上下文的 MainActor 继承（CI 35413799823 实证）。
+@MainActor
 enum AppSettingsBindings {
     /// 布尔读口径统一（审查修复沉淀）：一律 `(values[key] ?? key.defaultValue) == "true"`
     /// ——values 未装载（load 完成前）与装载后显示一致，不得用 `!= "false"`。
