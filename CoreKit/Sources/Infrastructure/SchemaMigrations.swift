@@ -836,6 +836,46 @@ public enum SchemaMigrations {
              -- 历史行 NULL = 未登记（列表按原样呈现，不猜测）。executeIdempotent 判 ADD COLUMN。
              ALTER TABLE allergy_event ADD COLUMN allergen_kind TEXT;
              """),
+        // v31：document_page.status CHECK 扩枚举（+no_text——2026-09-19 四问轮引入的
+        // 「纯影像页无有效文字」内存态入库化）。被引用表的 RENAME 会改写子表
+        // （ocr_card_commit 复合 FK）的指向，故本步双表重建（先建新 document_page，
+        // 再重建 ocr_card_commit 使 FK 指向新表名——v23/v27 同形态）。
+        Step(version: 31, name: "document-page-no-text-status",
+             sql: """
+             ALTER TABLE document_page RENAME TO document_page_v30;
+             CREATE TABLE document_page (
+               id TEXT PRIMARY KEY,
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL,
+               ocr_text TEXT,
+               status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped','no_text')),
+               created_at REAL NOT NULL,
+               UNIQUE(document_file_id, page_index));
+             INSERT INTO document_page (id, document_file_id, page_index, ocr_text, status, created_at)
+               SELECT id, document_file_id, page_index, ocr_text, status, created_at FROM document_page_v30;
+             DROP TABLE document_page_v30;
+             CREATE INDEX idx_document_page_doc ON document_page(document_file_id, page_index);
+             ALTER TABLE ocr_card_commit RENAME TO ocr_card_commit_v30;
+             CREATE TABLE ocr_card_commit (
+               card_id TEXT NOT NULL,
+               row_id TEXT NOT NULL,
+               patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+               document_file_id TEXT NOT NULL REFERENCES document_file(id),
+               page_index INTEGER NOT NULL CHECK(page_index >= 0),
+               card_kind TEXT NOT NULL CHECK(card_kind IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record','health_exam','clinical_conclusion')),
+               entity_table TEXT NOT NULL CHECK(entity_table IN ('metric_sample','encounter','prescription','claim_item','medication','immunization','hospitalization','diagnosis','exam_report','surgery','treatment_record','prescription_line','claim_line','lab_report','lab_result','health_exam','clinical_conclusion')),
+               entity_id TEXT NOT NULL,
+               encounter_id TEXT REFERENCES encounter(id),
+               created_at REAL NOT NULL,
+               PRIMARY KEY(card_id, row_id),
+               FOREIGN KEY(document_file_id, page_index) REFERENCES document_page(document_file_id, page_index));
+             INSERT INTO ocr_card_commit (card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, encounter_id, created_at)
+               SELECT card_id, row_id, patient_id, document_file_id, page_index, card_kind, entity_table, entity_id, encounter_id, created_at FROM ocr_card_commit_v30;
+             DROP TABLE ocr_card_commit_v30;
+             CREATE INDEX idx_ocr_card_commit_source ON ocr_card_commit(document_file_id, page_index, card_kind);
+             CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
+             CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
+             """, transactional: true, fkCheckTable: "ocr_card_commit"),
     ]
 
     /// 全新库建库后应落到的版本号

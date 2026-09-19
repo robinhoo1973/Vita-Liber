@@ -361,7 +361,15 @@ public actor HealthImportStore {
             case .heartRate:
                 guard deletedSources.contains(String(identity.dropFirst(window.prefix.count))) else { return nil }
             case .steps, .sleep:
-                guard !deletedIDs.isEmpty else { return nil }
+                // 2026-09-20 业主真机复测修复（「睡眠最近数据仍缺失」）：窗口派生
+                // 聚合行（identity = window.prefix + key）的**重算即权威**——watch
+                // 迟到样本并入后（如 unspecified 段被归并进 staged 段），旧键行在
+                // 新快照中归零消失：既无 HealthKit 墓碑（样本未删、只是合并语义），
+                // 也不在 kept 中——旧判据「无删除证据不可删」→ complete=false 永久
+                // 冻结 → 锚点不推进 → 该类型此后再无新数据（业主症状的直接机制）。
+                // 样本覆盖完整性已由 refs 级检查单独保证（known ⊆ visible 逐项验证），
+                // 归零行删除不构成事实丢失——合并后的总量行才是该窗口的真相。
+                break
             case .restingHeartRate, .bloodOxygen, .respiratoryRate:
                 guard let id = HealthImportWindow.sampleID(fromIdentity: identity, kind: kind),
                       deletedIDs.contains(id) else { return nil }

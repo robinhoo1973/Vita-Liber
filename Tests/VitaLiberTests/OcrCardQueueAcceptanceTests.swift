@@ -225,7 +225,7 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         let documentID = try XCTUnwrap(f.docs.entityQueueDocumentId)
         let storedPages = try await f.documents.pages(documentId: documentID)
         XCTAssertEqual(storedPages.map(\.index), [0, 1, 2, 3])
-        XCTAssertEqual(storedPages.map(\.status), ["ok", "failed", "ok", "ok"])
+        XCTAssertEqual(storedPages.map(\.status), ["ok", "failed", "no_text", "ok"])
     }
 
     func test_pdfNeverBorrowsRequiredFieldsFromAnotherPage() async throws {

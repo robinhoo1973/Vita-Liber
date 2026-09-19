@@ -26,7 +26,7 @@ public actor DocumentStore {
     /// 页清单形态校验（save/updateReview 共用）：页号唯一、非负、状态合法。
     private static func validatePages(_ pages: [Page]) throws {
         guard Set(pages.map(\.index)).count == pages.count,
-              pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped"].contains($0.status) }) else {
+              pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped", "no_text"].contains($0.status) }) else {
             throw StoreError.invalidPage
         }
     }
@@ -44,7 +44,7 @@ public actor DocumentStore {
             throw StoreError.invalidSource
         }
         let status: String = row["page_status"]
-        guard ["ok", "failed", "skipped"].contains(status), !requireRecognizedPage || status == "ok" else {
+        guard ["ok", "failed", "skipped", "no_text"].contains(status), !requireRecognizedPage || status == "ok" else {
             throw StoreError.invalidPage
         }
     }
@@ -88,7 +88,7 @@ public actor DocumentStore {
     public struct Page: Sendable, Equatable {
         public let index: Int
         public let text: String?
-        public let status: String   // ok / failed / skipped
+        public let status: String   // ok / failed / skipped / no_text（纯影像页，v31 入库）
         public init(index: Int, text: String?, status: String = "ok") {
             self.index = index; self.text = text; self.status = status
         }
@@ -297,7 +297,7 @@ public actor DocumentStore {
         try await writer.write { db in
             guard !docType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   ["C", "D"].contains(grade), Set(pages.map(\.index)).count == pages.count,
-                  pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped"].contains($0.status) }),
+                  pages.allSatisfy({ $0.index >= 0 && ["ok", "failed", "skipped", "no_text"].contains($0.status) }),
                   let document = try Row.fetchOne(db, sql: """
                     SELECT d.* FROM document_file d JOIN patient_profile p ON p.id = d.patient_id
                     WHERE d.id = ? AND d.patient_id = ? AND p.deleted_at IS NULL

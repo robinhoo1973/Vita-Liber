@@ -344,7 +344,7 @@ struct StandardizationTests {
         #expect(v21?.sql.contains("ALTER TABLE pending_card ADD COLUMN source_page INTEGER") == true)
         #expect(ddl.contains("CREATE TABLE document_page"))
         #expect(ddl.contains("source_page INTEGER"))
-        #expect(ddl.contains("status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped'))"))
+        #expect(ddl.contains("status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped','no_text'))"))
         let v20 = SchemaMigrations.steps.first { $0.version == 20 }
         #expect(v20?.name == "health-import-checkpoints")
         #expect(v20?.sql.contains("CREATE TABLE IF NOT EXISTS hk_import_binding") == true)

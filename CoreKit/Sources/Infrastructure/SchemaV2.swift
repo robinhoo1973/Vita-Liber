@@ -168,7 +168,7 @@ public enum SchemaV2 {
       document_file_id TEXT NOT NULL REFERENCES document_file(id),
       page_index INTEGER NOT NULL,
       ocr_text TEXT,
-      status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped')),
+      status TEXT NOT NULL DEFAULT 'ok' CHECK(status IN ('ok','failed','skipped','no_text')),
       created_at REAL NOT NULL,
       UNIQUE(document_file_id, page_index));
     CREATE INDEX idx_document_page_doc ON document_page(document_file_id, page_index);
