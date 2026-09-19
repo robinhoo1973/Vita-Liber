@@ -16,7 +16,8 @@
       "sha256": "c6c3092ca0dc95e0eacd1e22be77ebb511acf15a0d328bbd17ccf77a2f0ebc49",
       "upstreamRevision": "98590b7ed6443e77b714204da2757d75e1a642f4",
       "url": "zipformer-2023-02-20-20260912-r2.zip",
-      "version": "2023-02-20"
+      "version": "2023-02-20",
+      "variant": "large"
     },
     {
       "artifactRevision": 2,
@@ -31,7 +32,8 @@
       "sha256": "f9852b0b469dd448c64db995a2e2905fddb9f6fd33400049b14d6f836ae94c1b",
       "upstreamRevision": "0.6B-int8-2026-03-25",
       "url": "qwen3-0.6b-int8-v2026.03.25-20260912-r2.zip",
-      "version": "0.6b-int8-v2026.03.25"
+      "version": "0.6b-int8-v2026.03.25",
+      "variant": "medium"
     },
     {
       "artifactRevision": 2,
@@ -46,7 +48,8 @@
       "sha256": "63e196a2a7d763f7acf2ec62ebb76cadbd69b1ff2ec519327755a6a4fd2f1819",
       "upstreamRevision": "c8b6689509acfcd744c04e5e169164f9ac4cae32",
       "url": "dolphin-small-ctc-int8-2025-04-02-20260912-r2.zip",
-      "version": "small-ctc-int8-2025-04-02"
+      "version": "small-ctc-int8-2025-04-02",
+      "variant": "small"
     },
     {
       "artifactRevision": 2,
@@ -61,7 +64,8 @@
       "sha256": "f0b9e197c9141e012991c97ce269b8a759912d200518171d67f8b306be512442",
       "upstreamRevision": "8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
       "url": "whisper-small-int8-2024-07-13-20260912-r2.zip",
-      "version": "small-int8-2024-07-13"
+      "version": "small-int8-2024-07-13",
+      "variant": "small"
     }
   ],
   "packagingProfile": "zip-deflate9-v2",
