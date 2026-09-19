@@ -20,7 +20,8 @@ struct ModelPackageDownloader {
     func download(url: URL,
                           expectedBytes: Int64,
                           to destination: URL,
-                          progress: (@Sendable (ASRModelDownloadService.DownloadProgress) -> Void)?) async throws {
+                          progress: (@Sendable (ASRModelDownloadService.DownloadProgress) -> Void)?,
+                          resumeOffset: Int64 = 0) async throws {
         // 纵深防御（安全审查 2026-09-12）：下载目标必须 https——Domain `resolvedURL`
         // 已限相对路径 + https baseUrl，此处兜底任何直构 URL 的调用点。
         guard ModelResourcePolicy.allowedURL(url), expectedBytes > 0,
@@ -47,21 +48,28 @@ struct ModelPackageDownloader {
         let total = expectedBytes
         let supportsRanges = headSupported && (headHTTP.value(forHTTPHeaderField: "Accept-Ranges")?.lowercased().contains("bytes") ?? false)
 
-        fileManager.createFile(atPath: destination.path, contents: nil)
+        // 断点续传（2026-09-20 llama 首启下载稳定性）：resumeOffset > 0 时目标文件
+        // 已是有效部分文件（调用方保证大小 == resumeOffset），不重建不截断。
+        // 非续传路径保持原语义（新建 + 清零）。
+        if resumeOffset == 0 {
+            fileManager.createFile(atPath: destination.path, contents: nil)
+        }
         let writer = try FileHandle(forWritingTo: destination)
         defer { try? writer.close() }   // try?-ok: 句柄关闭失败由系统回收，无静默降级风险
-        try writer.truncate(atOffset: 0)
+        if resumeOffset == 0 { try writer.truncate(atOffset: 0) }
 
         // 传输形态对本函数**所有**出口可见（含分段退化与单流回退），供上层判定「慢」。
         var mode: ASRModelDownloadService.DownloadMode = .singleStream
-        if supportsRanges, total >= Int64(segmentCount) {
+        if supportsRanges, total - resumeOffset >= Int64(segmentCount) {
             mode = .segmented(segments: segmentCount)
-            let chunk = total / Int64(segmentCount)
+            let remaining = total - resumeOffset
+            let chunk = remaining / Int64(segmentCount)
             let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
+            counter.add(resumeOffset)
             do {
                 try await withThrowingTaskGroup(of: Void.self) { group in
                     for index in 0..<segmentCount {
-                        let start = Int64(index) * chunk
+                        let start = resumeOffset + Int64(index) * chunk
                         let end = index == segmentCount - 1 ? total - 1 : start + chunk - 1
                         group.addTask {
                             try await Self.downloadSegment(session: self.session, url: url,
@@ -87,7 +95,8 @@ struct ModelPackageDownloader {
             }
         } else {
             let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
-            try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
+            counter.add(resumeOffset)
+            try await Self.downloadSegment(session: session, url: url, start: resumeOffset, end: nil, total: total,
                                            destination: destination, counter: counter)
         }
 

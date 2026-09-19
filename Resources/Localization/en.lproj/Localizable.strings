@@ -2178,3 +2178,14 @@
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
 
+"llm.section" = "On-device AI Model";
+"llm.section.hint" = "Offline extraction and transcript refinement. One-time ~491MB download, then fully offline.";
+"llm.download" = "Download On-device AI Model (~491MB)";
+"llm.downloading" = "Downloading";
+"llm.verifying" = "Verifying";
+"llm.activating" = "Activating";
+"llm.ready" = "On-device AI ready (fully offline)";
+"llm.failed" = "Model download failed";
+"llm.retry" = "Retry";
+"llm.cancel" = "Cancel";
+"llm.progressFmt" = "%@ / %@";

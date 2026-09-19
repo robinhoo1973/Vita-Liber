@@ -13,17 +13,22 @@ public enum LlamaModelManager {
     public static let bundleSubdirectory = "LLMModels"
     /// 模型体积（q4_k_m 实测字节数，随 catalog.json 钉版）。
     public static let expectedModelBytes: Int64 = 491_400_032
+    /// 下载安装目录（首启下载落位，2026-09-20 业主裁决项 4：模型不再随包）。
+    public static var installDirectory: URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("llm-models", isDirectory: true)
+    }
 
-    /// 模型文件路径：沙盒覆盖位优先（存在**且通过体积钉版**才用），否则随包资源。
+    /// 模型文件路径：下载位（Documents/llm-models，体积钉版校验）优先；
+    /// 随包资源回落（历史版本过渡期兼容——新构建不再内置，见 catalog.json）。
     /// 2026-09-19 审查修复：覆盖位此前仅凭存在即生效——截断/损坏的同名文件会
-    /// 遮蔽签名随包模型，冷载失败后整轨静默降级 T3 且无诊断。
+    /// 遮蔽钉版模型，冷载失败后整轨静默降级 T3 且无诊断。
     public static func modelURL(for fileName: String = modelFileName) -> URL? {
-        let override = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("llm-models/\(fileName)")
-        if FileManager.default.fileExists(atPath: override.path),
-           let attrs = try? FileManager.default.attributesOfItem(atPath: override.path),   // try?-ok: 属性读取失败按不存在处理，回落随包
+        let downloaded = installDirectory.appendingPathComponent(fileName)
+        if FileManager.default.fileExists(atPath: downloaded.path),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: downloaded.path),   // try?-ok: 属性读取失败按不存在处理，回落随包
            (attrs[.size] as? NSNumber)?.int64Value == expectedModelBytes {
-            return override
+            return downloaded
         }
         return Bundle.main.url(forResource: fileName, withExtension: nil, subdirectory: bundleSubdirectory)
     }

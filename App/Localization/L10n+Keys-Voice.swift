@@ -366,4 +366,20 @@ extension L10n {
     static var asrSelectionHint: String { t("asr.selectionHint") }
 
     static var voiceReadAloudA11y: String { t("voice.readAloudA11y") }
+    // ── 本机 AI 模型（llama）首启下载卡（2026-09-20 业主裁决项 4）──
+    static var llmSection: String { t("llm.section") }
+    static var llmSectionHint: String { t("llm.section.hint") }
+    static var llmDownload: String { t("llm.download") }
+    static var llmDownloading: String { t("llm.downloading") }
+    static var llmVerifying: String { t("llm.verifying") }
+    static var llmActivating: String { t("llm.activating") }
+    static var llmReady: String { t("llm.ready") }
+    static var llmFailed: String { t("llm.failed") }
+    static var llmRetry: String { t("llm.retry") }
+    static var llmCancel: String { t("llm.cancel") }
+    static func llmProgressText(_ received: Int64, _ total: Int64) -> String {
+        String(format: t("llm.progressFmt"), ByteCountFormatter.string(fromByteCount: received, countStyle: .file),
+               ByteCountFormatter.string(fromByteCount: total, countStyle: .file))
+    }
 }
+

@@ -898,7 +898,7 @@ extension L10n {
         "voiceLab.title", "voiceLab.engine.section", "voiceLab.engine.footer",
         "voiceLab.engine.auto", "voiceLab.engine.auto.hint",
         "voiceLab.engine.advanced", "voiceLab.engine.advanced.hint",
-        "voiceLab.engine.dictation", "voiceLab.engine.dictation.hint",
+        "llm.section", "llm.section.hint", "llm.download", "llm.downloading", "llm.verifying", "llm.activating", "llm.ready", "llm.failed", "llm.retry", "llm.cancel", "llm.progressFmt", "voiceLab.engine.dictation", "voiceLab.engine.dictation.hint",
         "voiceLab.engine.classic", "voiceLab.engine.classic.hint",
         "voiceLab.requiresNewerOS", "voiceLab.unsupported",
         "voiceLab.asset.section", "voiceLab.asset.locale", "voiceLab.asset.label",

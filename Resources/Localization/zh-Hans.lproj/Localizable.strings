@@ -2178,3 +2178,14 @@
 "health.connectDevice" = "连接设备以查看健康数据";
 "health.connectButton" = "连接设备";
 
+"llm.section" = "本机 AI 模型";
+"llm.section.hint" = "离线识别与转写润色。首次下载约 491MB，之后完全离线可用。";
+"llm.download" = "下载本机 AI 模型（约 491MB）";
+"llm.downloading" = "下载中";
+"llm.verifying" = "校验中";
+"llm.activating" = "激活中";
+"llm.ready" = "本机 AI 已就绪（完全离线可用）";
+"llm.failed" = "模型下载失败";
+"llm.retry" = "重试";
+"llm.cancel" = "取消";
+"llm.progressFmt" = "%@ / %@";
