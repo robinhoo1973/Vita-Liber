@@ -2,6 +2,7 @@ import Foundation
 import Domain
 import Protocols
 #if os(iOS)
+// linux-blind: UIKit —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import UIKit
 #endif
 

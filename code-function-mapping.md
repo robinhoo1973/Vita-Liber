@@ -4,11 +4,13 @@
 3. 中文一行摘要为索引用途；行为细节、审查注释以源码为准。
 
 
+
 ## 符号说明
 - 机械表（L10n 键表 1,610 键、迁移 DDL、金样、词表、图标目录）按「结构 + 锚点 + 计数」记录，不逐项枚举。
 - **linux-blind 盲区约定（2026-09-19）**：Infrastructure 守卫文件（第 2 行 `// linux-blind:`）在 Linux 型检中编译为空单元，其改动必须经 macOS CI 验证；守卫文件须带该注释。
 - 私有助手一行一条；SwiftUI `body` 只记渲染职责；枚举 case 合并一行。
 - 本索引不替代 grep：定位到文件后，用 `grep -n '符号名' 文件` 快速跳到实现。
+
 
 
 ## 分区
@@ -20,6 +22,7 @@
 | f1 | Features A：Capture/Confirm/Documents/Members/Onboarding/Records/Voice |
 | f2 | Features B：Settings/Reminders/Trends/Medications/Home/Observations/Emergency/Health/Appointments/Search/Notifications/Caregiving |
 | t1 | Tests/ + UITests/（42 文件，SU/FR 编号索引） |
+
 
 
 ## CoreKit/Sources/Domain/AILocal.swift
@@ -85,6 +88,7 @@
   - `func answer(_:scope:)` (390) — 三条不变量执法
 
 
+
 ## CoreKit/Sources/Domain/AlertEngine.swift
 - `AlertSeverity` (6) — 四级观察提示级别
   - `case L0 / L1 / L2 / L3` (7)
@@ -119,6 +123,7 @@
   - `func evidenceCard(for:severity:guideline:)` (431) — 五段证据卡组装（无生成式解读）
 
 
+
 ## CoreKit/Sources/Domain/AllergyRules.swift
 - `SevereReactionRules` (7) — FR23.3 严重反应判定
   - `static let canonicalSeverities` (11) — DDL CHECK 词汇（mild/moderate/severe）
@@ -128,6 +133,7 @@
   - `func canonicalSeverity(_:)` (45) — 展示词 → 落库规范值
   - `func severityLevel(of:)` (59) — 严重度等级 0/1/2（配色/排序单一事实源）
   - `func displaySeverity(_:)` (69) — 规范值 → 展示词（回显）
+
 
 
 ## CoreKit/Sources/Domain/AppRoute.swift
@@ -161,6 +167,7 @@
   - `func tab(of:)` (136) — 路由 → Tab 映射（通知点击切换 selection）
 
 
+
 ## CoreKit/Sources/Domain/AppSettings.swift
 - `AppSettingKey` (6) — 设置键枚举（单一事实源；~50 case，每个必声明 defaultValue）
   - `var defaultValue: String` (61) — 键默认值 switch
@@ -181,6 +188,7 @@
   - `func appliesToExisting(_:)` (220) — 追溯语义（默认类设置仅影响新建）
 
 
+
 ## CoreKit/Sources/Domain/ASRInstallLayout.swift
 - `ASRInstallLayout` (16) — 模型安装目录布局与保留规则（三条正交语义）
   - `static let variantSeparator / shortHashLength` (17/19) — 目录名分隔符与 sha 前缀长度
@@ -188,6 +196,7 @@
   - `func parseDirectory(_:)` (37) — 从末尾定长解析（不按 `-` 切分）
   - `func keepingForPrune(candidates:newlyInstalled:activeName:)` (68) — 每变体保留最新 + 新装 + 激活
   - `func isDeletable(directoryName:activeName:)` (93) — 生效档不可删
+
 
 
 ## CoreKit/Sources/Domain/ASRModelCatalog.swift
@@ -202,6 +211,7 @@
   - `func qwenHotwords(_:)` (71) — 热词串裁剪（24 词 / 512 字节窗）
   - `func qwenLanguageName(forCode:)` (84) — Qwen3 官方语言名称表（30 语种字典）
   - `func automaticChoice(locale:)` (97) — 按覆盖优先级选引擎（qwen3→zipformer→dolphin→whisper→classic）
+
 
 
 ## CoreKit/Sources/Domain/ASRModelRelease.swift
@@ -224,6 +234,7 @@
   - `func variantIndex(ramBytes:variantCount:)` (166) — ≥6GB 最大档 / ≥4GB 中档 / 其余最小档
 
 
+
 ## CoreKit/Sources/Domain/CaptureQuality.swift
 - `GrayscaleImage` (19) — 灰度位图（解码产物纯数据）
 - `GrayscaleDecoding` (30) — 图像解码端口（实现在 Infrastructure）
@@ -241,6 +252,7 @@
   - `func perceptualHash(from:)` (224) — 32x32 → 低频 8x8 二值化 64 位指纹
 
 
+
 ## CoreKit/Sources/Domain/CardConfirmationRules.swift
 - `CardConfirmationRules` (7) — 卡级确认与字段编辑业务规则（BR-003 D→C 单一事实源）
   - `static let confirmAllConfidenceFloor` (14) — 批量确认置信下限 0.6
@@ -256,6 +268,7 @@
   - `func revise(_:at:rowId:to:)` (205) — 字段编辑入口（关联/编码失效纪律）
 
 
+
 ## CoreKit/Sources/Domain/CardKindRegistry.swift
 - `CardKindEntry` (9) — 卡类注册表条目（事实表 + 必填/可选键集）
   - `var sharedAllowed / rowAllowed` (24-25) — 放行面并集
@@ -268,6 +281,7 @@
   - `static let entries` (73) — 15 个卡类条目（机械表：metric_sample/encounter/hospitalization/diagnosis/exam_report/prescription/claim_item/medication/immunization/health_exam/clinical_conclusion/surgery/treatment_record）
   - `func entry(for:)` (168) — 按 kind 查条目
   - `func optionalCatalog(kind:present:rowLevel:)` (174) — 「添加字段」目录（稳定排序）
+
 
 
 ## CoreKit/Sources/Domain/CardTemplateMatcher.swift
@@ -298,6 +312,7 @@
   - `func encounterKind(for:)` (523) — 文档类型 → 就诊类型（DocumentTypeKey 同源）
 
 
+
 ## CoreKit/Sources/Domain/CareMode.swift
 - `CareModeMetrics` (5) — 关怀模式交互参数（环境化呈现，非平行代码库）
   - `static let standard / care` (28-29) — 常规/关怀两套参数预设
@@ -317,6 +332,7 @@
   - `func fuzzyLink(for:in:)` (106) — 双向包含模糊降级
 
 
+
 ## CoreKit/Sources/Domain/ClinicalEpisodes.swift
 - `FactSource` (15) — 事实来源 CHECK 枚举（ocr/manual）
 - `FactPlaceholder` (20) — 父键/时间戳占位常量
@@ -329,6 +345,7 @@
   - `var reportSource / healthExamId` (149-150) — v27 报告来源与体检枢纽回指
 - `LabReport` (169) — 检验报告表头（§C.5；sourceCardId 幂等键）
 - `LabResult` (216) — 非数值/半定量检验项（原文保存、不进趋势）
+
 
 
 ## CoreKit/Sources/Domain/ClinicalFieldLabels.swift
@@ -358,6 +375,7 @@
   - `func contains(_:token:)` (273) — ASCII 整词 / 其余子串匹配
 
 
+
 ## CoreKit/Sources/Domain/CodeResolver.swift
 - `CodingSystem` (13) — 编码体系（SQL CHECK 词汇）
 - `CodeKind` (21) — 码表类别
@@ -380,6 +398,7 @@
 - `StandardizationNoGoScene` (281) — FR25.12 不引码场景负清单（4 case）
 
 
+
 ## CoreKit/Sources/Domain/CodeSetSeeds.swift
 - `CodeSetSeeds` (18) — P0.5 内置码表种子（编译期常量）
   - `static let bundleVersion` (20) — 种子包版本
@@ -397,6 +416,7 @@
   - `static let bridges` (164) — 6 条（机械表）
 
 
+
 ## CoreKit/Sources/Domain/CompletenessEvaluator.swift
 - `CompletenessLevel` (10) — 四级完整度
 - `CompletenessFieldRule` (18) — 单字段规则（key/isRequired/weight）
@@ -407,6 +427,7 @@
   - `func assess(fields:cardKind:)` (275) — 加权评分 + 四级判定
   - `static let prescriptionDatePattern` (327) — 预编译日期正则（本批新增）
   - `func prescriptionFieldDrafts(fields:labels:)` (335) — 处方 OCR 路径键归一
+
 
 
 ## CoreKit/Sources/Domain/CSVWriter.swift
@@ -420,8 +441,10 @@
   - `func split(baseName:headers:rows:maxRows:)` (40) — 分包（maxRows≤0 回落单文件）
 
 
+
 ## CoreKit/Sources/Domain/DataSource.swift
 - `DataSource` (3) — 数据来源枚举（manual/ocr/asr/hisImport/healthKit/wearable/unknown）
+
 
 
 ## CoreKit/Sources/Domain/DocumentNaming.swift
@@ -430,6 +453,7 @@
   - `func displayName(forKind:)` (35) — 卡类型 → 中文名
   - `func displayName(forDocType:)` (47) — 文档类型键 → 中文名
   - `func dictionary(_:)` (60) — 字段 → 首个非空值字典
+
 
 
 ## CoreKit/Sources/Domain/DocumentTypeClassifierFallback.swift
@@ -457,6 +481,7 @@
   - `func hasVisitEvidence(in:)` (522) — 就诊证据判定
 
 
+
 ## CoreKit/Sources/Domain/DocumentTypeKey.swift
 - `DocumentTypeKey` (7) — 文档类型稳定键（27 case 分类学）
   - `var attachmentOnly: Bool` (17) — 仅附件五类（不出抽取）
@@ -464,6 +489,7 @@
   - `var encounterKindHint: EncounterKind?` (50) — 就诊场景提示
   - `static let legacyLabelKeys` (62) — 旧 15 标签键 → 稳定键
   - `init?(legacyLabelKey:)` (70) — 旧键/稳定键归一入口
+
 
 
 ## CoreKit/Sources/Domain/DoseSlot.swift
@@ -500,6 +526,7 @@
   - `func preferredExactMatches(_:name:query:)` (398) — 精确名优先匹配
 
 
+
 ## CoreKit/Sources/Domain/EmergencyCard.swift
 - `EmergencyCardItem` (6) — 紧急卡条目（四类 + 结构化字段）
   - `var contactPhone: String?` (32) — 拨号号码（结构化优先，展示串回退）
@@ -518,6 +545,7 @@
   - `Header` (141) — 六列表头
   - `Row` (145) — 行值对象
   - `func csv(rows:headers:)` (162) — CSV 组装（表头由调用方 L10n 传入）
+
 
 
 ## CoreKit/Sources/Domain/EncounterAssociation.swift
@@ -544,9 +572,11 @@
   - `func normalize(_:) / hospitalScore(_:_:)` (210/214) — 归一化与相似度打分
 
 
+
 ## CoreKit/Sources/Domain/Encounter.swift
 - `EncounterDraft` (5) — F4 就诊草稿（FR4.1 字段全集）
 - `EncounterKind` (44) — 就诊类型枚举（7 case，L10n 键随 rawValue）
+
 
 
 ## CoreKit/Sources/Domain/EngineCapabilityProfile.swift
@@ -557,6 +587,7 @@
   - `func inputLanguageOptions(choice:)` (81) — 输入语言选项 = 六语种 + 随包模型额外语种
 
 
+
 ## CoreKit/Sources/Domain/Entities2.swift
 - `DocumentFile` (3) — 文档文件轻量实体
 - `MedicationPlan` (12) — 用药计划轻量实体
@@ -565,11 +596,13 @@
   - `func patient / document / plan` (25/28/31) — 三工厂方法
 
 
+
 ## CoreKit/Sources/Domain/Entities.swift
 - `PatientProfile` (3) — 成员档案实体（含软删时间戳）
 - `FieldConfirmation` (36) — 字段确认状态机
   - `func confirm()` (38) — 状态迁移
   - `var isUsableInTimeline` (39) — BR-003 最小验证
+
 
 
 ## CoreKit/Sources/Domain/EntityCardProjection+ClinicalEpisodes.swift
@@ -590,6 +623,7 @@
   - `func examReportIntent(from:calendar:)` (217) — 检查卡 → 意图
 
 
+
 ## CoreKit/Sources/Domain/EntityCardProjection+HealthExam.swift
 - `extension EntityCardProjection` (10) — v27 体检/结论/手术/治疗意图
   - `HealthExamIntent` (14) — 体检首页意图（exam + generalSamples）
@@ -601,6 +635,7 @@
   - `func clinicalConclusionIntents(from:calendar:)` (84) — 结论卡 → 逐行意图
   - `func surgeryIntent(from:calendar:)` (103) — 手术卡 → 意图
   - `func treatmentRecordIntent(from:calendar:)` (124) — 治疗卡 → 意图
+
 
 
 ## CoreKit/Sources/Domain/EntityCardProjection.swift
@@ -631,6 +666,7 @@
   - `func dictionary(_:)` (380) — 首个已确认非空值字典
 
 
+
 ## CoreKit/Sources/Domain/ExtractedCard.swift
 - `ExtractionTrack` (8) — 产出轨（T1/T2/T3）
 - `DegradedReason` (13) — 降级原因 10 case
@@ -651,11 +687,13 @@
   - `func extractionRegions(pageIndex:)` (132) — 表格/表头/段落几何聚行
 
 
+
 ## CoreKit/Sources/Domain/ExtractionGrounding.swift
 - `ExtractionGrounding` (7) — 轨道无关的第二道防线（定位原文）
   - `func validate(_:spec:lines:)` (10) — 整卡校验（行锚未锚定整行不出）
   - `func validate(_:key:type:allowed:lines:extraLabels:)` (40) — 单值校验（分段/定位/复用 OCRGrounding）
   - `func locate(_:in:)` (75) — NFKC+空白折叠后字符映射回原文范围
+
 
 
 ## CoreKit/Sources/Domain/ExtractionPatterns.swift
@@ -673,6 +711,7 @@
   - `static let institutionNamePattern / dateTokenPattern / referenceBoundsPattern` (175/177/179) — 预编译正则（本批新增）
 
 
+
 ## CoreKit/Sources/Domain/ExtractionPromptBuilder.swift
 - `ExtractionPromptBuilder` (25) — 抽取提示词单一出口（T1+T2 同源）
   - `func systemPrompt(for:)` (28) — 系统指令（安全边界 + 逐字段目录）
@@ -680,6 +719,7 @@
   - `func catalogue(_:)` (61) — 逐字段目录
   - `func line(for:)` (65) — 单字段行（键/类型/必填/别名/提示）
   - `func describe(_:)` (80) — 类型描述（只述格式）
+
 
 
 ## CoreKit/Sources/Domain/ExtractionSpec.swift
@@ -706,11 +746,13 @@
   - `func candidates(documentTypeKeys:)` (376) — 文档键 → 候选 spec（保序去重）
 
 
+
 ## CoreKit/Sources/Domain/FieldDraftAdapter.swift
 - `FieldDraftAdapter` (6) — GroundedValue → FieldDraft（三轨产物统一入口）
   - `func source(_:)` (8) — 轨 → UnderstandingSource
   - `func draft(key:_:lines:pageConfidence:track:)` (16) — 单草稿（恒 D 级、置信 min(页,0.6)）
   - `func drafts(_:spec:lines:pageConfidence:)` (24) — 整卡 → 共享/逐行草稿（spec 字段序 + 键名尾随）
+
 
 
 ## CoreKit/Sources/Domain/FieldDraft.swift
@@ -737,16 +779,19 @@
   - `func encode(to:)` (192) — 编码（非空/已消歧才写出新键）
 
 
+
 ## CoreKit/Sources/Domain/FieldGroupRules.swift
 - `FieldGroupRules` (7) — FR17.18 信息卡分组路由
   - `func category(ofKey:)` (8) — 字段键 → 类别键（rx/lab/visit/generic）
   - `static let categoryOrder` (17) — 卡序固定顺序
 
 
+
 ## CoreKit/Sources/Domain/GateUnlock.swift
 - `GateUnlocking` (7) — 门禁解锁端口协议（FR1.1 系统设备所有者认证）
   - `var isAvailable: Bool` (9) — 预检可用性
   - `func authenticate(reason:)` (11) — 触发系统认证浮层
+
 
 
 ## CoreKit/Sources/Domain/GBNFGrammarGenerator.swift
@@ -758,15 +803,18 @@
   - `func generateAll()` (86) — 全注册 spec 批量生成
 
 
+
 ## CoreKit/Sources/Domain/Geometry.swift
 - `Size` (9) — 尺寸
 - `Point` (19) — 点
 - `Rect` (29) — 矩形（两种构造器）
 
 
+
 ## CoreKit/Sources/Domain/HealthCardComposer.swift
 - `HealthCardComposer` (7) — 健康读数后处理填卡
   - `func compose(row:kind:guideline:patientId:)` (12) — 附 B 级参考区间 + 引用式级别（BR-006 非诊断）
+
 
 
 ## CoreKit/Sources/Domain/HealthCharacteristicImport.swift
@@ -780,10 +828,12 @@
   - `func normalized(_:) / matchesYearOnlyPrecision(_:) / year(of:)` (75/82/88) — 私有助手
 
 
+
 ## CoreKit/Sources/Domain/Cards/AppointmentRecord.swift
 - `AppointmentRecord` (10) — P9 信封储备：预约信息卡（InformationCard 族）
 - `AppointmentType` (35) — 预约类型（visit/healthExam/revisit）
 - `AppointmentStatus` (41) — 预约状态 7 case
+
 
 
 ## CoreKit/Sources/Domain/Cards/ClinicalReport.swift
@@ -794,8 +844,10 @@
 - `ClinicalReportConclusion` (88) — 报告结论
 
 
+
 ## CoreKit/Sources/Domain/Cards/EncounterRecord.swift
 - `EncounterRecord` (10) — P9 信封储备：就诊记录信息卡
+
 
 
 ## CoreKit/Sources/Domain/Cards/HealthMetricCard.swift
@@ -803,8 +855,10 @@
   - `func make(from:kind:patientId:)` (83) — DeviceMetricRow → 卡
 
 
+
 ## CoreKit/Sources/Domain/Cards/MedicationGuide.swift
 - `MedicationGuide` (10) — P9 信封储备：药品说明书信息卡
+
 
 
 ## CoreKit/Sources/Domain/Cards/MedicationScheduleCard.swift
@@ -813,8 +867,10 @@
 - `MedicationPlanDrug` (41) — 计划药品行
 
 
+
 ## CoreKit/Sources/Domain/Cards/PatientRecord.swift
 - `PatientRecord` (10) — P9 信封储备：患者档案信息卡
+
 
 
 ## CoreKit/Sources/Domain/Cards/PrescriptionRecord.swift
@@ -822,8 +878,10 @@
 - `PrescriptionItem` (33) — 处方条目
 
 
+
 ## CoreKit/Sources/Domain/Cards/VisitType.swift
 - `VisitType` (10) — 就诊类型（初诊/复诊/急诊）
+
 
 
 ## CoreKit/Sources/Domain/HealthExam.swift
@@ -852,6 +910,7 @@
   - `var hub: RecordHub?` (266) — 来源为主卡时的枢纽（预约不是枢纽 → nil）
 
 
+
 ## CoreKit/Sources/Domain/HealthFetchScope.swift
 - `HealthFetchLane` (5) — 首次回填两道（recent = end ≥ cutoff / history = end < cutoff）
 - `HealthFetchScope` (10) — 一道回填范围（lane + 固定 cutoff，不随 now 漂移）
@@ -862,10 +921,12 @@
   - `func matches(_ sample:)` (36) — 样本 end 相对 cutoff 的道归属判定（与 HealthKit 谓词同边界）
 
 
+
 ## CoreKit/Sources/Domain/HealthImportPresentation.swift
 - `HealthTypeSummary` (9) — 单类健康数据的表现层读模型（kind + 行数 + 最新时刻）
   - `var kind/rowCount/latestAt` (10-12) — 摘要字段；`id` = kind
 - `HealthImportDashboard` (17) — Apple 健康导入仪表盘读模型（绑定态 + 类型摘要 + 最近报告）
+
 
 
 ## CoreKit/Sources/Domain/HealthImport.swift
@@ -892,6 +953,7 @@
   - `init(lastSyncAt:…)` (197) — 跨模块构造出口（合成 memberwise init 为 internal）
 
 
+
 ## CoreKit/Sources/Domain/HealthImportVisibility.swift
 - `HealthImportPageState` (7) — Apple 健康页面可见性六态（优先级固定：关闭 > 不可用 > 缺档案 > 未连接 > 空 > 可见）
 - `HealthImportVisibility` (22) — 可见性判定纯函数
@@ -900,12 +962,14 @@
   - `static func allowsTrendLink(_:patientId:)` (38) — 趋势链接 = 有数据 ∧ 身份已知（BR-001 不回落 currentPatientId）
 
 
+
 ## CoreKit/Sources/Domain/HealthProblemDerivation.swift
 - `HealthProblemDerivation` (9) — FR11.4 懒创建候选健康问题名派生（诊断字段优先截断 40 字，无诊断回落「类型+日期」）
   - `private static let dayFormatter: DateFormatter` (12) — yyyy-MM-dd 静态缓存
   - `static func candidateName(fields:docTypeLabel:now:)` (18) — 候选名派生（D 级建议，用户确认才落库）
 - `HealthProblemCandidate` (30) — 诊断行 → D 级健康问题候选（名称/编码/日期均为原文，不猜码不猜日期）
   - `static func from(diagnoses:)` (45) — 每行一候选；同名去空白只留首见、空名跳过
+
 
 
 ## CoreKit/Sources/Domain/HealthWriteBack.swift
@@ -917,6 +981,7 @@
   - `static func writeScale(for metric:)` (72) — 写回数值尺度（血氧 ×0.01 分数制；其余 1:1——有定义的映射不是猜测）
 
 
+
 ## CoreKit/Sources/Domain/HourWindowAggregator.swift
 - `HourWindowSample` (10) — 小时窗输入样本（值 + 时刻）
 - `HourWindow` (19) — 小时统计行（窗起点 + 均值/min/max/样本数）
@@ -926,11 +991,13 @@
   - `static func aggregate(_ samples:calendar:)` (54) — 本地日历整点分桶聚合；非有限剔除计数、稀疏计数上送
 
 
+
 ## CoreKit/Sources/Domain/ImageCompress.swift
 - `ThumbnailSpec` (6) — 缩略图规格（最大边长/模糊半径/质量）
 - `SensitiveMediaPolicy` (20) — 敏感媒体策略（敏感标记/原图二次认证/缩略图强制模糊，BR-007/008）
 - `CompressError` (38) — 压缩错误（encodeFailed/decodeFailed/authRequiredForOriginal）
 - `ImageCompressing` (45) — 压缩/缩略图跨平台协议（generateThumbnail + authorizeOriginalAccess）
+
 
 
 ## CoreKit/Sources/Domain/ImageInputRules.swift
@@ -946,9 +1013,11 @@
   - `static func fileExtension(for mimeType:)` (101) — MIME → 落盘扩展名（BR-002 原件扩展名与内容一致）
 
 
+
 ## CoreKit/Sources/Domain/InformationCard.swift
 - `InformationCard` (3) — 信息卡通用协议（cardType/schemaVersion/cardId/patientId/source/confidence/fieldConfidence/rawText/时间戳）
   - `extension` (16) — schemaVersion 默认 1；`id` = cardId
+
 
 
 ## CoreKit/Sources/Domain/LabItemRules.swift
@@ -956,6 +1025,7 @@
 - `LabItemRules` (15) — 检验项名称分类纯规则（酶类 > 检查项 > 常规）
   - `static let examKeywords` (19) — 检查项关键词表（内镜族逐类列名，不用裸「镜」）
   - `static func classify(label:)` (26) — 名称分类
+
 
 
 ## CoreKit/Sources/Domain/LegacyV1.swift
@@ -968,11 +1038,13 @@
   - `static func classify(recordType:assets:)` (28) — §5.2 路由序：doc_type 优先，类型缺失/other 时按含非空 OCR 块兜底 ocrBlock
 
 
+
 ## CoreKit/Sources/Domain/LoadGate.swift
 - `LoadGate` (4) — R0-1 启动期一次性加载闸门（actor：首个调用者执行 load，并发挂起，幂等）
   - `State` (5) — idle/loading/ready
   - `func enter(_ load:)` (17) — 进入闸门；失败回到 idle 并 rethrow 给等待者（失败绝不置 ready）
   - `var currentState: State` (40) — 当前状态
+
 
 
 ## CoreKit/Sources/Domain/MediaUnlockPolicy.swift
@@ -983,10 +1055,12 @@
   - `static func shouldRelockOnBackground()` (41) — 退后台立即重锁（敏感内容不跨生命周期存活）
 
 
+
 ## CoreKit/Sources/Domain/MedicalNumberFormat.swift
 - `MedicalNumberFormat` (11) — 医学数值显示形态单一出口（可见文本与无障碍标签同源，防「3.7000000000000002」念出）
   - `static func oneDecimal(_:)` (13) — 保留 1 位小数（趋势/参考带口径）
   - `static func quantity(_:)` (23) — `%g` 形态（整数不带小数点；库存件数口径，量级不触发 %g 边界）
+
 
 
 ## CoreKit/Sources/Domain/MedicationHelpCard.swift
@@ -1000,6 +1074,7 @@
 - `SentMessage` (96) — 已发送消息记录（kind/recipient/status/sentAt）
 - `MessageStatusRules` (109) — 状态迁移白名单（回退与旁路跳变一律拒绝）
   - `static func canTransition(from:to:)` (112) — 合法迁移判定
+
 
 
 ## CoreKit/Sources/Domain/MedicationSchedule.swift
@@ -1020,10 +1095,12 @@
   - `private static func hourMinute(_:)` (237) — "HH:mm" 解析（isValidTime 与 date 共用）
 
 
+
 ## CoreKit/Sources/Domain/MemberProfileCompleteness.swift
 - `MemberProfileCompleteness` (7) — 档案完善进度规则（首页进度卡；Domain 纯函数可单测）
   - `static let voiceInterviewKeys` (10) — 语音访谈四段完成步骤键
   - `static func progress(profile:interviewCompleted:total:)` (15) — 血型/证件/医保/生日 4 字段（trim 后判空）+ 访谈四段计数；档案 nil/已删 → nil
+
 
 
 ## CoreKit/Sources/Domain/MemberRelation.swift
@@ -1035,10 +1112,12 @@
   - `var isSelf: Bool` (52) — 本人哨兵（身份判定本身走 selfPatientId）
 
 
+
 ## CoreKit/Sources/Domain/MetricSampleProjection.swift
 - `HospitalSample` (8) — 确认后检验项目 → metric_sample 医院来源行（A 级参考范围随行、原始名保真、编码确认后回填）
   - `var metricKey/rawLabel/value/unit/measuredAt/refLow/refHigh/refSourceLabel/codeConceptId/abnormalFlag/healthExamId` (9-22) — 投影字段（abnormalFlag 打印原文不解释 BR-004/012）
   - `static func sourceRef(documentId:pageIndex:)` (33) — 文档页回链 `doc:<uuid>#p<index>`
+
 
 
 ## CoreKit/Sources/Domain/NotificationItemKey.swift
@@ -1048,6 +1127,7 @@
   - `static func snoozedUntilTomorrowKey(_:now:calendar:)` (21) — 稍后（次日键）= 基键 + 自然日后缀
   - `static func hideKeys(for:now:calendar:)` (27) — 读侧可隐藏键集（dose_slot/逾期 OCR/profile_progress 空 = 不可隐藏）
   - `static func writeKey(for:disposition:now:calendar:)` (40) — 写侧：归档=基键、稍后=次日键、其余不写
+
 
 
 ## CoreKit/Sources/Domain/ObservationService.swift
@@ -1061,6 +1141,7 @@
   - `func isActive(at:)` (107) — 会话过期判定（下次进入重新解锁）
   - `func includes(_ event:)` (112) — scope 过滤（成员一致 ∧ 类别在 scope 内）
 - `DoctorShowcaseRules.visibleEvents(_:session:now:)` (119) — 会话内可见事件（超时即空 = 自动重锁语义）
+
 
 
 ## CoreKit/Sources/Domain/OcrConfirmation.swift
@@ -1083,6 +1164,7 @@
   - `mutating func confirmAllRemaining()` (134) — 批量确认（调用方须先查 allConfirmAllowed）
 
 
+
 ## CoreKit/Sources/Domain/OCRExtraction.swift
 - `OCRExtractedSpan` (4) — 模型定位的原文字段片段（key/value/unit/lineIndex）
 - `OCRGrounding` (14) — 输出校验防线（独立于提示词：错行/编造/数字子串/否定删除不得进确认卡）
@@ -1091,6 +1173,7 @@
   - `static func hasBoundedNumericOccurrence(of:in:strictLeading:strictTrailing:)` (122) — 值在行内是否至少一处独立数字 token
   - `static func normalized(_ value:key:)` (137) — 词表归一（币种/票据类型/单位/处方类型/报告类型等 → canonical raw；severity 刻意不归一）
   - `static func labeledValue(_ line:extraLabels:)` (169) — 「已知标签：值」剥离；标签不在已知集则原行返回
+
 
 
 ## CoreKit/Sources/Domain/OwnerFlow.swift
@@ -1104,6 +1187,7 @@
 - `DisclosureRegistry` (75) — 四层须知注册表（l1Cards/l2Disclosures/l3Disclosures/l4Disclosures 机械目录）
   - `static func isConfirmed(scene:consents:)` (147) — 场景是否已确认（版本无关）
   - `static func isConfirmed(scene:version:consents:)` (151) — 版本感知判定（注册表反查 key 精确匹配；未注册场景回落包含匹配）
+
 
 
 ## CoreKit/Sources/Domain/PageLayout.swift
@@ -1125,6 +1209,7 @@
   - `static func assignColumns(_:tolerance:)` (140) — 左边界一维聚类 → columnIndex
 
 
+
 ## CoreKit/Sources/Domain/Paywall.swift
 - `ProductID` (12) — 商业化产品（现仅 proBase；云同步等死 case 已清除）
 - `PaywallTrigger` (17) — 弹墙时机（仅价值触发点：第 5 成员/Pro 首击/AI 额度尽）
@@ -1140,12 +1225,14 @@
   - `func quotaExceeded(_:)` (109) — 额度判定 → 触发点
 
 
+
 ## CoreKit/Sources/Domain/PDFDecode.swift
 - `DecodedPage` (6) — 解码页面位图（PNG，已降采样）
 - `DecodedImage` (23) — 单图解码结果
 - `DecodeError` (39) — 解码错误（corruptData/unsupportedFormat/renderFailed/pageIndexOutOfBounds）
 - `ImageDecoding` (47) — 解码协议（decodeImage/decodePDF/decodePDFPages 流式）
   - `extension` (61) — decodePDFPages 默认实现回落 decodePDF 逐页派发
+
 
 
 ## CoreKit/Sources/Domain/PendingCardPayload.swift
@@ -1159,10 +1246,12 @@
   - `init(from decoder:)` (104) / `encode(to:)` (123) — schemaVersion 分派编解码 + validate 防线
 
 
+
 ## CoreKit/Sources/Domain/PendingOcrRules.swift
 - `PendingOcrRules` (11) — FR2.3/FR6.8 待确认 OCR 队列窗口规则（日历日出口，DST 纪律）
   - `static func isOverdue(createdAt:now:)` (15) — 超过 72 小时未处理（严格大于）
   - `static func isWithinLastDays(_:createdAt:now:)` (20) — 最近 N 个日历天筛选窗
+
 
 
 ## CoreKit/Sources/Domain/PhoneNumberRules.swift
@@ -1171,10 +1260,12 @@
   - `static let separators` (27) — 允许的分隔符集合
 
 
+
 ## CoreKit/Sources/Domain/PrescriptionLine.swift
 - `PrescriptionLine` (7) — v25 处方行实体 DDL 镜像（剂量/数量/频次一律原文不解析，BR-006/007；单价/金额可 Double）
   - `static let unassignedId` (9) — 父键占位（store 落库时填写）
   - `var id/prescriptionId/patientId/ordinal/printedName/…/updatedAt` (11-43) — DDL 同名同序字段（29 个；confirmed 默认 false = D 级 BR-003）
+
 
 
 ## CoreKit/Sources/Domain/PrescriptionPlan.swift
@@ -1195,6 +1286,7 @@
 - `PlanEndReason` (199) — FR9.15 结束原因（用户显式操作，系统不自动停药）
 
 
+
 ## CoreKit/Sources/Domain/ProfileSuggestion.swift
 - `ProfileSuggestion` (9) — 子项目 D4-1：识别内容 → 个人资料 D 级建议（只从已确认卡原文逐项搬运）
   - `Kind` (10) — bloodType/chronicCondition/allergy/pastHistory
@@ -1210,6 +1302,7 @@
   - `static func fold(_ value:kind:)` (255) — 去重折叠（小写去空白；血型另去型/括号）
   - `static func dedupeScope(_:)` (246) — 去重域 = 落库目标表
   - (私有) `stripTrailingPunctuation/foldLabel/isBloodTypeLabel/normalizedBloodType/foldBloodValue` (173-241) — 字符归一与判定私有助手
+
 
 
 ## CoreKit/Sources/Domain/RecordHierarchy.swift
@@ -1230,6 +1323,7 @@
   - `static func expanded(_:filter:remembered:)` (127) — 展开集：筛选态命中即展开；无筛选 = 记忆值 ?? 全折叠
 
 
+
 ## CoreKit/Sources/Domain/RegistrationPrefill.swift
 - `RegistrationPrefill.Defaults` (11) — 注册表单预填默认值（性别/出生年月日/血型；isEmpty 判定）
 - `RegistrationPrefill` (7) — 首启注册 Health 特征型预填（绝不阻断注册）
@@ -1238,6 +1332,7 @@
 - `EmergencyContactDraft` (53) — 首位紧急联系人草稿（phone 必填 DDL NOT NULL）
   - `var isValid: Bool` (64) — 三字段 trim 非空 ∧ 手机号基本形态
   - `static func validPhone(_:)` (70) — 号码形态校验（数字 5-20 位，允许 + - 空格括号）
+
 
 
 ## CoreKit/Sources/Domain/ReminderAggregationCenter.swift
@@ -1255,6 +1350,7 @@
   - `static func pendingCardItem(cardId:cardKind:patientId:createdAt:status:)` (186) — 待办卡投影（非敏感摘要，dueDate = +24h）
 
 
+
 ## CoreKit/Sources/Domain/ReminderDisposition.swift
 - `SwipeSide` (4) — 滑动侧别（leading/trailing，Domain 自有不引 SwiftUI）
 - `ReminderDisposition` (8) — FR2.1⑦ 首页行处置动作（无 case 删除医疗事实；用药动作只写 dose_log BR-004）
@@ -1264,6 +1360,7 @@
 - `extension ReminderAggregationCenter` (26) — 按源动作表派发处置
   - `static func dispositions(for:)` (28) — 源 → 可用动作序列（按钮顺序）
   - `static func allowsFullSwipe(for:side:)` (40) — 全滑仅对纯信息行的稍后/归档开放
+
 
 
 ## CoreKit/Sources/Domain/ReminderReconcile.swift
@@ -1294,6 +1391,7 @@
 - `ForegroundDelivery` (252) — 前台呈现策略中性枚举（App 层再映射 UNNotificationPresentationOptions）
 
 
+
 ## CoreKit/Sources/Domain/ReminderRules.swift
 - `BatchExpiryTier` (5) — FR9.11 批次到期三级（t30/t7/t0）
 - `BatchExpiryRules` (12) — 效期分类与触发点（日历日 + 固定秒兜底，误差偏向更早告警 ADR-009）
@@ -1317,6 +1415,7 @@
 - `VoiceGrammarDefaults` (210) — M1.5 文法子集唯一事实源（生产与测试共用；metricRules/reminderRules/profileRules 机械目录，各 7/2/6 条）
 
 
+
 ## CoreKit/Sources/Domain/RuleExtractor.swift
 - `RuleExtractor` (15) — 子项目 E3 T3 规则轨（确定性、纯函数、零网络：版面区域 + 卡 spec → 带 TextAnchor 的 GroundedValue）
   - `static func extract(region:spec:lines:)` (16) — 入口：共享字段 + 行级字段
@@ -1338,6 +1437,7 @@
   - `static func apply(_ cards:specs:)` (334) — 缺失必填/延续键从上页同卡借值入 hint
 
 
+
 ## CoreKit/Sources/Domain/ScanPreprocess.swift
 - `PreprocessParams` (9) — §5.1 预处理参数（透视矫正/色彩模式/旋转/重置，确定性）
   - `ColorMode` (29) — color/grayscale/binary
@@ -1347,6 +1447,7 @@
 - `QuadCorners` (76) — 四角选区（交互裁剪与透视矫正共用契约）
   - `static let fullImageInset` (92) — 5% 内缩整图四角（自动检测失败回落）
 - `ImagePreprocessing` (100) — 预处理协议（preprocess/detectQuad/correctPerspective；原始帧不可变 BR-002）
+
 
 
 ## CoreKit/Sources/Domain/SearchService.swift
@@ -1365,6 +1466,7 @@
   - `static func stripHighlight(_:)` (142) — 去标记纯文本（AI 摘录/无障碍朗读/导出）
 
 
+
 ## CoreKit/Sources/Domain/SharedFieldPool.swift
 - `SharedFieldPool.Carrier` (25) — 承载方：哪张卡的哪个面（shared/row/hubDraft）持键
 - `SharedFieldPool.Row` (37) — 共用信息行（键值 + 待确认草稿 + 承载方集合 + 入池原因）
@@ -1379,6 +1481,7 @@
   - `private static func apply(_ row:to fields:key:)` (197) — 单承载方回填（缺席补条/改值 revise/确认 confirm）
 
 
+
 ## CoreKit/Sources/Domain/SignedModelCatalog.swift
 - `SignedModelEnvelope` (4) — ADR-030 签名覆盖 payload 原始字节的信封（keyId + signature）
 - `ModelTrustRoot` (13) — 模型信任根（schemaVersion/role/app/assetKind/keys/rootKeyIDs/catalogKeyIDs/阈值/allowedHosts）
@@ -1387,6 +1490,7 @@
   - `static func isSHA256(_:)` (55) — 64 位十六进制校验
   - `static func isSlug(_:)` (58) — 资源 slug 校验（字母数字起始 + [-._]）
   - `static func allowedURL(_:)` (65) — https + 无 user/password + 主机白名单
+
 
 
 ## CoreKit/Sources/Domain/SleepMerge.swift
@@ -1402,6 +1506,7 @@
   - `private static func segmentCount(of:)` (156) — ⑥分段计数（gap 按前段结束→后段开始计）
   - `static func union(_ intervals:)` (169) — 区间并集（缺口不计时长）
   - `static func sourceRank(_:)` (183) — 来源优先（watch>phone>other → version 高者优先）
+
 
 
 ## CoreKit/Sources/Domain/SleepTrend.swift
@@ -1422,10 +1527,12 @@
   - `static func gridRows(_:metric:value:)` (188) — 宫格折叠：睡眠族六键只占一块瓦片（sleep_total 恒胜否则最大值）
 
 
+
 ## CoreKit/Sources/Domain/SpeechFallback.swift
 - `SpeechOutcome` (8) — 发声结果（实际 locale + 是否回退）
 - `SpeechFallback` (19) — FR17.16 发声语言回退链（纯函数，两端实现共用）
   - `static func resolve(requested:availableVoices:)` (29) — 请求命中直用 → 普通话回退（须真实可用）→ 字典序首中文 → 首可用；outcome 如实报告
+
 
 
 ## CoreKit/Sources/Domain/TextUnderstanding.swift
@@ -1441,6 +1548,7 @@
   - `static func splitReading(_:)` (157) — 「名称 数值」合体载荷拆分（尾段可 Double 即数值）
 
 
+
 ## CoreKit/Sources/Domain/TimelineProjection.swift
 - `TimelineDocumentEntry` (5) — F11 M1a 最小投影（文档；BR-003 未确认只存在于待确认队列）
   - `State` (6) — pending/confirmed
@@ -1448,6 +1556,7 @@
   - `static func entries(from:patientId:occurredAt:originalPaths:)` (44) — 确认集 → 投影（保字段序与历史新→旧）
   - `static func officialTimeline(from:)` (65) — 正式区查询（未确认绝不出现 BR-003）
   - `static func pendingQueue(from:)` (69) — 待确认队列
+
 
 
 ## CoreKit/Sources/Domain/TimelineService.swift
@@ -1464,6 +1573,7 @@
   - `static func scoped(_:member:)` (95) — 成员隔离（BR-001）
 
 
+
 ## CoreKit/Sources/Domain/TodayStore.swift
 - `TodaySnapshot` (5) — F2 首页今日聚合（八源合并单一快照，视图零逻辑；BR-001 成员隔离）
   - `static let empty` (29) — 空快照
@@ -1473,11 +1583,13 @@
 - `TodayAggregator.snapshot(member:todos:pendingOCRCount:expiring:refills:alerts:observations:)` (101) — 聚合入口（成员隔离 → 待办时间升序合并 → 七卡组装；L0 告警不入首页）
 
 
+
 ## CoreKit/Sources/Domain/TranscriptionSegmentation.swift
 - `TranscriptionSegmentation.Window` (12) — 切窗（startSeconds/lengthSeconds）
 - `TranscriptionSegmentation` (8) — 长音频分段策略（基线轨 60s 截断切窗续接；升级轨单窗）
   - `static let fallbackLocale` (10) — 方言无独立引擎时的回落 locale（识别与发声回退链共用）
   - `static func plan(durationSeconds:capability:overlapSeconds:)` (24) — 切窗规划（留 5s 安全余量防竞态；窗口间重叠防丢字）
+
 
 
 ## CoreKit/Sources/Domain/Transcription.swift
@@ -1494,8 +1606,10 @@
 - `TranscriptionError` (142) — FR17.6 转写不可用降级错误（不可用即手输，不是崩溃）
 
 
+
 ## CoreKit/Sources/Domain/TranscriptJoiner.swift
 - `TranscriptJoiner.join(_ segments:)` (11) — 转写显示文本统一拼接（CJK 直接相接；拉丁/数字相邻补空格——两轨共用单一实现）
+
 
 
 ## CoreKit/Sources/Domain/TranscriptRefinementState.swift
@@ -1512,6 +1626,7 @@
   - `private mutating func invalidate()` (147) — 代次递增 + 清修订/授权/润色态
 
 
+
 ## CoreKit/Sources/Domain/TranscriptRefinement.swift
 - `RefinementSafety` (5) — 润色安全级（accepted/rejected/unavailable/timedOut；只允许格式修正 BR-003/006）
 - `TranscriptRevision` (12) — 修订结果（构造时 accepted 即过受保护 token 校验）
@@ -1519,6 +1634,7 @@
   - `static func unavailable(_:)/timedOut(_:)` (25-30) — 降级构造
 - `ProtectedTokenValidator.validate(original:suggested:drugNames:personNames:)` (37) — 只许 ASCII 空格归一与句尾句号；字典不是安全边界（每源字节受保护）
   - `private static func normalizedSpaces(_:)` (49) — 连续空格归一为字节序列
+
 
 
 ## CoreKit/Sources/Domain/TranscriptSession.swift
@@ -1530,6 +1646,7 @@
 - `MixedSpeechVocabulary` (56) — FR17.15 混说词表（≤100 条：已确认药名 → 医疗单位 → 英文医学词）
   - `static let limit/units/englishMedical` (58-66) — 上限与词表（识别偏置，非医学结论）
   - `static func terms(primaryLocale:otherLocales:recentDrugNames:limit:)` (68) — 词表组装（去重截断）
+
 
 
 ## CoreKit/Sources/Domain/TrendModels.swift
@@ -1549,6 +1666,7 @@
   - `func convert(_:)` (176) — value × factor + offset
 
 
+
 ## CoreKit/Sources/Domain/TrendRules.swift
 - `TrendRules` (6) — 趋势业务规则（结构轮自 TrendService 拆分）
   - `static func visible(_:)` (8) — 软删排除（默认 WHERE excluded=0）
@@ -1556,6 +1674,7 @@
   - `static func converted(_:using:)` (49) — 换算留痕（点 + 排除点 + 参考带同步换算，防止跨量纲读出假「超标」）
   - `static func sorted(_:)` (73) — 时间升序稳定排序
   - `static func aggregationKey(metricKey:codeConceptId:)` (81) — F25 聚合键（编码优先、无编码回落 metric_key；BR-003 未确认行为空）
+
 
 
 ## CoreKit/Sources/Domain/TrendVisualization.swift
@@ -1573,12 +1692,14 @@
   - `static func gapThreshold(range:pointCount:samplingInterval:maxBuckets:)` (145) — 断线阈值（降采样过 = max(步长×1.5, 桶宽×2)；未降采样不得用桶宽）
 
 
+
 ## CoreKit/Sources/Domain/TrustedModelHashes.swift
 - `TrustedModelHashes.Entry` (18) — 单个发布条目（id/version/bytes/sha256）
 - `TrustedModelHashes` (17) — FR17.15 构建期生成的下载哈希信任锚（运行时索引可被替换，本表随包签名）
   - `static let supportedSchemaVersion/empty` (43-45) — 支持版本与空表（空表 = 禁止一切运行时下载）
   - `func entry(id:version:)` (49) — 条目查询
   - `func isTrusted(_ release:)` (54) — 安装判定：命中信任锚且哈希一致（fail closed；未登记版本/不一致一律拒绝）
+
 
 
 ## CoreKit/Sources/Domain/VoiceCalibration.swift
@@ -1594,6 +1715,7 @@
   - `static var voiceStructuringEnabled: Bool` (125) — 语音结构化 = 定标通过（不可手工打开）
   - `nonisolated(unsafe) static var voiceCalibrationPassed` (131) — 定标结果置位（显式并发语义声明）
   - `static func applyCalibration(_:)` (134) — CI 跑完金样后回写
+
 
 
 ## CoreKit/Sources/Domain/VoiceConversation.swift
@@ -1625,6 +1747,7 @@
   - `private static func extractPayload(_:)` (555) — 搜索类载荷剥离（与 patterns 同一词表）
 
 
+
 ## CoreKit/Sources/Domain/VoiceEngineChoice.swift
 - `VoiceEngineChoice` (11) — FR17.15 V3.66 识别引擎档位（auto/qwen3/dolphin/zipformer/whisper/advanced/dictation/classic）
   - `static func resolve(_:)` (22) — 持久化值 → 档位；非法/缺省回落 auto
@@ -1633,6 +1756,7 @@
   - `var isBundledModel: Bool` (38) — 随包模型档位
 - `VoiceEngineAvailability` (42) — 档位可用性五态（available/requiresNewerOS/unsupportedDevice/missingModelAssets/downloadable）
 - `VoiceLocaleAssetStatus` (59) — locale 端侧资源状态（installed/downloadable/unavailable）
+
 
 
 ## CoreKit/Sources/Domain/VoiceGrammar.swift
@@ -1656,6 +1780,7 @@
   - `static func fallbackDraft(key:value:confidence:)` (277) — unknown 回落草稿（键/置信度只此一处）
 
 
+
 ## CoreKit/Sources/Domain/VoiceIntentCatalog.swift
 - `VoiceIntentKey` (13) — FR17.19 意图目录键（9 类 + unknown；askAssistant 已退役）
 - `VoiceIntentEntry` (28) — 目录条目（key/确认标签键/期一可否自动分类）
@@ -1667,6 +1792,7 @@
   - `static func extract(for:text:confidence:)` (105) — 显式改类后的槽位抽取（期一无文法的意图回落纯文本草稿）
 
 
+
 ## CoreKit/Sources/Domain/VoiceModificationGuard.swift
 - `VoiceModificationGuard.Category` (10) — dosage/frequency/discontinue
 - `VoiceModificationGuard.Rejection` (16) — 拒绝记录（类别 + 命中短语；文案由 L10n 组装）
@@ -1676,6 +1802,7 @@
 - `VoiceModificationGuard` (8) — FR17.11/BR-003/006：语音通道对既有计划的剂量/频次/停用修改一律拒绝
   - `static let phrases` (27) — 触发词表（命中即拒，宁可误拒不可误改）
   - `static func evaluate(_:isExistingPlanContext:)` (37) — 判定（仅修改既有计划语境；频次优先于剂量归因）
+
 
 
 ## CoreKit/Sources/Domain/VoiceReadback.swift
@@ -1691,6 +1818,7 @@
   - `static func readbackParts(_:)` (100) — 回读字段 = 已确认结构化字段（BR-003 未确认过滤；绝不含音频原文）
 
 
+
 ## CoreKit/Sources/Infrastructure/ActivePointerStore.swift
 - `ActivePointerStore` (10) — ASR 模型活动指针与安装目录生命周期（active.json 读写 + 进程级指针缓存 + 崩溃残留回收）
   - `static func applicationSupportRoot() -> URL` (14) — 运行时资产根目录 Application Support/ASRModels
@@ -1703,6 +1831,7 @@
   - `private static func computeActivePointer(for:) -> ActivePointer?` (71) — 读盘解析校验 active.json（hash 格式/撤销/choice/version/directory/manifest 存在性）
   - `static func invalidatePointerCache()` (86) — 安装落盘后失效缓存
   - `static func removeStaleStaging(in:fileManager:)` (93) — 回收 .staging- 崩溃残留暂存目录
+
 
 
 ## CoreKit/Sources/Infrastructure/AppointmentStore.swift
@@ -1724,27 +1853,29 @@
 - `AppointmentRow` (309) — 预约行投影（含 v27 encounterId/purpose）
 
 
+
 ## CoreKit/Sources/Infrastructure/ASRModelAssets.swift
-- `ASRModelAssets` (10) — 随包/下载版 ASR 模型资产验证（manifest/文件字节/SHA/授权）
-  - `struct Manifest / Model / Archive / Part / File` (11-15) — manifest.json 解码形态
-  - `struct Validated` (16) — 校验通过后的 role→路径映射
-  - `func checkPackageAuthorization()` (31) — 包哈希撤销检查
-  - `var identity: String` (35) — root+代次的缓存键身份
-  - `final class Lease` (38) — 目录租约（引用计数，deinit 释放）
-  - `private final class Leases` (46) — 目录租约计数表
-  - `func acquireLease() -> Lease` (61) — 取租约
-  - `static func removeIfUnused(_:)` (62) — 无租约才删除
-  - `private final class Generation` (63) — 安装代次计数器（identity 缓存键组成）
-  - `static func resolve(for:) -> ASRModelAssets` (75) — 双路径解析：运行时下载版优先，回落随包
-  - `private static let presenceCache = LockedCache<Bool>()` (86) — 进程级存在性缓存
-  - `private static let manifestCache = LockedCache<Manifest?>()` (88) — 进程级清单解码缓存
-  - `private final class LockedCache<Value>` (92) — 锁保护键值缓存泛型（两缓存共用形态）
-  - `func isPresent(_:) -> Bool` (107) — 模型文件存在性（缓存 + 撤销检查）
-  - `static func invalidateCaches()` (118) — 安装/指针切换后失效 presence/manifest 缓存
-  - `func byteCount(_:) -> Int64?` (124) — 模型体积（files 求和，archive 形态回落 archive.bytes）
-  - `func validate(_:) throws -> Validated` (145) — 全量校验入口（流式哈希）
-  - `private func files(_:hash:) throws -> Validated` (147) — manifest/逐文件字节/SHA 校验核心
-  - `private func readManifest(_:) throws -> Manifest` (186) — 读 manifest（resolved 形态验 sourceDigest）
+- `ASRModelAssets` (11) — 随包/下载版 ASR 模型资产验证（manifest/文件字节/SHA/授权）
+  - `struct Manifest / Model / Archive / Part / File` (12-16) — manifest.json 解码形态
+  - `struct Validated` (17) — 校验通过后的 role→路径映射
+  - `func checkPackageAuthorization()` (32) — 包哈希撤销检查
+  - `var identity: String` (36) — root+代次的缓存键身份
+  - `final class Lease` (39) — 目录租约（引用计数，deinit 释放）
+  - `private final class Leases` (47) — 目录租约计数表
+  - `func acquireLease() -> Lease` (62) — 取租约
+  - `static func removeIfUnused(_:)` (63) — 无租约才删除
+  - `private final class Generation` (64) — 安装代次计数器（identity 缓存键组成）
+  - `static func resolve(for:) -> ASRModelAssets` (76) — 双路径解析：运行时下载版优先，回落随包
+  - `private static let presenceCache = LockedCache<Bool>()` (87) — 进程级存在性缓存
+  - `private static let manifestCache = LockedCache<Manifest?>()` (89) — 进程级清单解码缓存
+  - `private final class LockedCache<Value>` (93) — 锁保护键值缓存泛型（两缓存共用形态）
+  - `func isPresent(_:) -> Bool` (108) — 模型文件存在性（缓存 + 撤销检查）
+  - `static func invalidateCaches()` (119) — 安装/指针切换后失效 presence/manifest 缓存
+  - `func byteCount(_:) -> Int64?` (125) — 模型体积（files 求和，archive 形态回落 archive.bytes）
+  - `func validate(_:) throws -> Validated` (146) — 全量校验入口（流式哈希）
+  - `private func files(_:hash:) throws -> Validated` (148) — manifest/逐文件字节/SHA 校验核心
+  - `private func readManifest(_:) throws -> Manifest` (187) — 读 manifest（resolved 形态验 sourceDigest）
+
 
 
 ## CoreKit/Sources/Infrastructure/ASRModelDownloadService.swift
@@ -1762,6 +1893,7 @@
   - static 转发（applicationSupportRoot/activeRoot/installedVersion/activeAssets/sha256/removeStaleStaging 120-135）→ ActivePointerStore/StreamingFileHasher；`latest/updateAvailable` 187/203 目录条目选择
 
 
+
 ## CoreKit/Sources/Infrastructure/AudioCaptureController.swift
 - `AudioCaptureController` (20) — 三轨共用音频采集控制器（会话快照对称/引擎 tap/PCM 拷贝/观察者）
   - `struct Configuration` (21) — bufferSize + 单块字节上限（standard 与 SpeechSessionLimits 同源）
@@ -1771,13 +1903,15 @@
   - `static func copy(_:maximumBytes:) -> (buffer:byteCount:)?` (120) — memcpy 逐平面拷贝 + 字节上限校验
 
 
+
 ## CoreKit/Sources/Infrastructure/AudioSessionTeardown.swift
 - （2026-09-18：原空枚举 `AudioSessionTeardown` 已删除，拆除契约以文件头注释承载）
-- `AudioSessionCapture` (37) — 采集会话激活单一出口（与拆除契约对称）
-  - `struct State` (39) — 采集前会话状态快照（类别/mode/options）
-  - `static func remember() -> State` (52) — 记录当前共享会话状态
-  - `static func activateRecordSession() throws` (60) — .record+测量+duck 并激活
-  - `static func restore(_:)` (67) — 先类别后停用还原快照（失败不阻断主流程）
+- `AudioSessionCapture` (38) — 采集会话激活单一出口（与拆除契约对称）
+  - `struct State` (40) — 采集前会话状态快照（类别/mode/options）
+  - `static func remember() -> State` (53) — 记录当前共享会话状态
+  - `static func activateRecordSession() throws` (61) — .record+测量+duck 并激活
+  - `static func restore(_:)` (68) — 先类别后停用还原快照（失败不阻断主流程）
+
 
 
 ## CoreKit/Sources/Infrastructure/AuditLogWriter.swift
@@ -1789,11 +1923,13 @@
   - `enum AuditError` (68) — actionNotAllowed
 
 
+
 ## CoreKit/Sources/Infrastructure/AVSpeechAdapter.swift
-- `AVSpeechAdapter` (13) — 生产 TTS（回退链在 SpeechFallback，本类只解析 + 播报）
-  - `var availableVoices` (23) — 平台可发声 locale（每次现取，语音包可后装）
-  - `func speak(_:localeIdentifier:) -> SpeechOutcome` (28) — 按回退链解析并播报
-  - `func stop()` (40) — 立即停止
+- `AVSpeechAdapter` (14) — 生产 TTS（回退链在 SpeechFallback，本类只解析 + 播报）
+  - `var availableVoices` (24) — 平台可发声 locale（每次现取，语音包可后装）
+  - `func speak(_:localeIdentifier:) -> SpeechOutcome` (29) — 按回退链解析并播报
+  - `func stop()` (41) — 立即停止
+
 
 
 ## CoreKit/Sources/Infrastructure/BackupService.swift
@@ -1811,6 +1947,7 @@
   - `static func sha256(_:) -> String` (149) — 收敛 ContentHashing 单实现
 
 
+
 ## CoreKit/Sources/Infrastructure/CardExtractionRegistry.swift
 - `CardExtractionRegistry` (19) — 按卡抽取三轨注册表：有序轨道链/逐区域失败切换/缩范围重试/并集
   - `static let groundingThreshold` (25) — 必填倾向字段锚定率门槛 0.5
@@ -1822,13 +1959,15 @@
   - `private func union(_:_:anchor:) -> RegionExtraction` (185) — 两轨 (row,key) 并集
 
 
+
 ## CoreKit/Sources/Infrastructure/ClaimStore.swift
-- `ClaimStore` (9) — FR13.7 报销票据仓储（纯事实聚合，不做报销建议）
-  - `struct ClaimRow` (14) — 票据行投影
-  - `func create(...)` (31) — 录入发票/费用/收据
-  - `func list(patientId:) -> [ClaimRow]` (50) — 按日期倒序列出
-  - `struct Totals` (72) — 汇总（总额/条数/币种）
-  - `func totals(patientId:) -> Totals` (81) — 纯事实求和（分位四舍五入归整）
+- `ClaimStore` (10) — FR13.7 报销票据仓储（纯事实聚合，不做报销建议）
+  - `struct ClaimRow` (15) — 票据行投影
+  - `func create(...)` (32) — 录入发票/费用/收据
+  - `func list(patientId:) -> [ClaimRow]` (51) — 按日期倒序列出
+  - `struct Totals` (73) — 汇总（总额/条数/币种）
+  - `func totals(patientId:) -> Totals` (82) — 纯事实求和（分位四舍五入归整）
+
 
 
 ## CoreKit/Sources/Infrastructure/CoreImageCompressor.swift
@@ -1837,9 +1976,11 @@
   - `func authorizeOriginalAccess(_:policy:reason:) -> Data` (51) — 敏感原图生物识别门禁
 
 
+
 ## CoreKit/Sources/Infrastructure/CryptoKitContentHasher.swift
-- `CryptoKitContentHasher` (10) — ContentHashing 生产实现（CryptoKit SHA-256）
-  - `func sha256Hex(_:) -> String` (13) — 十六进制小写摘要
+- `CryptoKitContentHasher` (11) — ContentHashing 生产实现（CryptoKit SHA-256）
+  - `func sha256Hex(_:) -> String` (14) — 十六进制小写摘要
+
 
 
 ## CoreKit/Sources/Infrastructure/DocumentStore.swift
@@ -1867,14 +2008,16 @@
   - `private static func row(_:) -> DocumentRow` (467) — 行映射单实现
 
 
+
 ## CoreKit/Sources/Infrastructure/EmergencyCardStore.swift
-- `EmergencyCardStore` (20) — F15 急救卡：逐项选择（FR15.1）+ 已选聚合
-  - `func select(patientId:itemId:kind:)` (27) — 选中条目入卡
-  - `func deselect(patientId:itemId:)` (38) — 移除条目
-  - `func candidates(patientId:) -> EmergencyCard` (49) — 全部候选（不含选择态）
-  - `func selected(patientId:) -> EmergencyCard` (61) — 已选集合（同事务取齐快照一致）
+- `EmergencyCardStore` (21) — F15 急救卡：逐项选择（FR15.1）+ 已选聚合
+  - `func select(patientId:itemId:kind:)` (28) — 选中条目入卡
+  - `func deselect(patientId:itemId:)` (39) — 移除条目
+  - `func candidates(patientId:) -> EmergencyCard` (50) — 全部候选（不含选择态）
+  - `func selected(patientId:) -> EmergencyCard` (62) — 已选集合（同事务取齐快照一致）
   - `private static func allergyCandidates / medicationCandidates / healthProblemCandidates / contactCandidates` (88/105/121/134) — 四候选查询（confirmed 语义逐源定义）
-  - `func bloodType(patientId:) -> String?` (150) — 血型随卡带出（软删成员排除）
+  - `func bloodType(patientId:) -> String?` (151) — 血型随卡带出（软删成员排除）
+
 
 
 ## CoreKit/Sources/Infrastructure/EncounterStore.swift
@@ -1898,6 +2041,7 @@
   - `private static func rows(...)` (377) — 批量行映射（单次 GROUP 取关联防 N+1）
 
 
+
 ## CoreKit/Sources/Infrastructure/EngineFactories.swift
 - `OCRRecognizerFactory` (7) — OCR 引擎工厂（Vision / Linux 契约桩）
 - `SpeechSynthesisFactory` (22) — TTS 工厂（AVSpeechAdapter；`currentSpeechRate` 46 读冻结键）
@@ -1917,6 +2061,7 @@
 - `extension EngineRegistry.registerDefaultEngines()` (300/307) — 默认引擎 if-absent 批量注册
 
 
+
 ## CoreKit/Sources/Infrastructure/EntitlementStore.swift
 - `StorefrontProviding` (13) — StoreKit 交易源端口（生产=StoreKit 2，测试=桩）
 - `EntitlementStore` (21) — 权益持久化 + AI 月度配额计数
@@ -1926,6 +2071,7 @@
   - `func purchase(_:) -> Bool` (63) / `func restore()` (67) — 购买/恢复转发
   - `func recordAIUse()` (71) — 月度计数 +1（单键 upsert）
   - `actor InMemoryStorefront` (90) — 测试桩（内存已购集合）
+
 
 
 ## CoreKit/Sources/Infrastructure/ExportService.swift
@@ -1940,6 +2086,7 @@
   - `enum ExportError` (1132) — conflict/invalidOCRBackup
   - `static func reviewCardIDs / remapReviewMetadata / documentReference / validateOCRBackup / ocrPages / restoreOCRPages / validateOCRGraph / decodeMediaIds / encodeMediaIds` (1137-1586) — 校验与回执元数据工具
   - `func encode / decode` (1587/1591) — 包序列化；`func csv(headers:rows:)` (1597) — CSV 复用 Domain CSVWriter
+
 
 
 ## CoreKit/Sources/Infrastructure/ExportService.swift（ImportSession 恢复会话）
@@ -1961,9 +2108,11 @@
   - 冲突集只读出口 `profileConflicts … reminderConflicts`（尾段）— 23 张表冲突集
 
 
+
 ## CoreKit/Sources/Infrastructure/ExtractionOrchestrator.swift
 - `ExtractionOrchestrator` (13) — 识别文本→信息卡编排（候选收敛→版面→注册表→续页）
   - `func analyze(lines:pageIndex:documentTypeKey:pageConfidence:allowsGenerativeProcessing:pageBudget:)` (23) — 一页 → [ExtractedCard]
+
 
 
 ## CoreKit/Sources/Infrastructure/FoundationModelsExtractionEngine.swift
@@ -1971,6 +2120,7 @@
 - `FoundationModelsExtractionEngine` (44) — T1 Foundation Models 轨引擎
   - `func availability(for:)` (49) — 授权/系统可用/互斥锁三闸
   - `func extract(region:spec:request:)` (67) — 生成抽取 + span 装配（出口 await 释放租约）
+
 
 
 ## CoreKit/Sources/Infrastructure/FoundationModelsUnderstanding.swift
@@ -1981,9 +2131,11 @@
   - `func understand(_:) -> UnderstandingResult` (53) — 生成→拆分→grounding→结果（1500ms deadline）
 
 
+
 ## CoreKit/Sources/Infrastructure/GrayscaleImageDecoder.swift
 - `GrayscaleImageDecoder` (14) — GrayscaleDecoding Apple 实现
   - `func decode(_:maxDimension:) throws -> GrayscaleImage` (19) — ImageIO 降采样 + CGContext 灰度位图
+
 
 
 ## CoreKit/Sources/Infrastructure/GRDBCodeIndex.swift
@@ -1994,6 +2146,7 @@
   - `func overrideHit(_:)` (153) / `func resolveAlias(_:locale:)` (165) — 覆盖/别名命中
   - `func concept(_:)` (184) / `func unitSpecificConcept(conceptId:unit:)` (196) — 概念读取（单 JOIN 防嵌套读）
   - `func unit(_:)` (212) / `func molarBridge(from:to:conceptId:)` (223) — UCUM 单位/摩尔桥
+
 
 
 ## CoreKit/Sources/Infrastructure/GRDBPatientPersistor.swift
@@ -2009,6 +2162,7 @@
   - `func reset()` (152) — UI 测试清态（FK 拓扑序删除清单 50+ 表）
 
 
+
 ## CoreKit/Sources/Infrastructure/GRDBSearchService.swift
 - `GRDBSearchService` (11) — F12 全文搜索（长度路由 trigram/2gram/LIKE）
   - `static let searchableDocPredicate` (16) — BR-003 检索公共谓词（三条路由共用）
@@ -2019,28 +2173,31 @@
   - `private static func hit(_:)` (164) — 命中映射（BR-007/008 敏感行只出标题）
 
 
+
 ## CoreKit/Sources/Infrastructure/GRDBStore.swift
-- `GRDBStore` (17) — M0 装配：连接配置/建库/增量迁移/patient_profile 写
-  - `static func configuration()` (27) — FK 开启 + bigrams SQL 函数注册
-  - `static func pool(at:)` (40) / `static func inMemory()` (45) — 生产 WAL 池 / 测试内存库
-  - `init(writer:)` (59) — 建库（v0 全量 DDL 直达 latest）或增量迁移
-  - `private func migrateIncremental(writer:)` (96) — 事务外 FK OFF 迁移 runner（v13/v15 代码步、v25 回填、表重建步）
-  - `static func executeIdempotent(_:_:)` (152) — 逐语句执行 + ADD COLUMN 列存在守卫（测试同源）
-  - `private static func applyTransactional(_:then:)` (166) — 表重建步：DDL+FK 校验+回填+版本推进同事务
-  - `private static func rebuildDoseLogWithFK(_:)` (190) — v13 rename-first 可恢复重建
-  - `private static func recomputeLogicalDoseIds(_:)` (241) — v15 逻辑剂量 id 原地重算
+- `GRDBStore` (18) — M0 装配：连接配置/建库/增量迁移/patient_profile 写
+  - `static func configuration()` (28) — FK 开启 + bigrams SQL 函数注册
+  - `static func pool(at:)` (41) / `static func inMemory()` (46) — 生产 WAL 池 / 测试内存库
+  - `init(writer:)` (60) — 建库（v0 全量 DDL 直达 latest）或增量迁移
+  - `private func migrateIncremental(writer:)` (97) — 事务外 FK OFF 迁移 runner（v13/v15 代码步、v25 回填、表重建步）
+  - `static func executeIdempotent(_:_:)` (153) — 逐语句执行 + ADD COLUMN 列存在守卫（测试同源）
+  - `private static func applyTransactional(_:then:)` (167) — 表重建步：DDL+FK 校验+回填+版本推进同事务
+  - `private static func rebuildDoseLogWithFK(_:)` (191) — v13 rename-first 可恢复重建
+  - `private static func recomputeLogicalDoseIds(_:)` (242) — v15 逻辑剂量 id 原地重算
   - `private static func moveDoseEvidence / deleteDoseEvidence / deleteEvidenceOfUnresolvedLegacyRows` (369/380/391) — 引用行同步助手
-  - `private static func tableExists(_:_:)` (408) — sqlite_master 表存在判定
-  - `enum MigrationError` (414) — schemaTooNew / foreignKeysNotReenabled
-  - `func insert(profile:)` (430) — patient_profile 全列显式 INSERT
-  - `static func profileRow(_:) -> PatientProfile` (452) — 行→档案唯一映射（成员/备份共用）
-  - `var foreignKeysOn: Bool` (471) — 运行时 FK 断言
+  - `private static func tableExists(_:_:)` (409) — sqlite_master 表存在判定
+  - `enum MigrationError` (415) — schemaTooNew / foreignKeysNotReenabled
+  - `func insert(profile:)` (431) — patient_profile 全列显式 INSERT
+  - `static func profileRow(_:) -> PatientProfile` (453) — 行→档案唯一映射（成员/备份共用）
+  - `var foreignKeysOn: Bool` (472) — 运行时 FK 断言
+
 
 
 ## CoreKit/Sources/Infrastructure/GRDBStore+V25Backfill.swift
-- `extension GRDBStore.backfillRecognitionFactLines(_:)` (24) — v25 回执确定性回填（处方行/就诊叙事/票据金额，幂等）
-  - `private static func confirmedUnit(_:key:)` (92) — 回执单位原文（无默认，BR-006）
-  - `private static func finiteAmount(_:)` (97) — 金额严格解析（NULL 不猜）
+- `extension GRDBStore.backfillRecognitionFactLines(_:)` (25) — v25 回执确定性回填（处方行/就诊叙事/票据金额，幂等）
+  - `private static func confirmedUnit(_:key:)` (93) — 回执单位原文（无默认，BR-006）
+  - `private static func finiteAmount(_:)` (98) — 金额严格解析（NULL 不猜）
+
 
 
 ## CoreKit/Sources/Infrastructure/GuidelineSource.swift
@@ -2048,6 +2205,7 @@
   - `static let bundledSeeds` (19) — 内置信源条目（4 条：血糖/血压/血氧/心率，B 级缺省）
   - `static let thresholdsAwaitMedicalReview` (56) — 发布前评审闸门标志
   - `struct Thresholds` (61) — 阈值 JSON 形态（from 75 / applying 80）
+
 
 
 ## CoreKit/Sources/Infrastructure/GuidelineStore.swift
@@ -2065,6 +2223,7 @@
   - `struct AlertEvent` (180) — 事件投影；`enum StoreError` (196)
 
 
+
 ## CoreKit/Sources/Infrastructure/HealthExamStore.swift
 - `HealthExamStore` (11) — v27 体检枢纽只读读面
   - `struct HealthExamDetail` (12) — 表头+子报告+结论+一般检查投影+原件
@@ -2074,6 +2233,7 @@
   - `func children(ofHealthExam:patientId:)` (60) — 子卡（检验/检查/结论）
   - `func detail(id:patientId:)` (76) — 详情读面（视图 + 投影点）
   - `private static func exam(id:patientId:db:)` (92) / `private static func conclusions(...)` (98) — 表头/结论查询助手
+
 
 
 ## CoreKit/Sources/Infrastructure/HealthImportStore.swift
@@ -2098,12 +2258,14 @@
   - `static func deletedReferences / decodeReference / validatedReferences / pending / savePending / validateRow / writeProjection / requireBinding / anchorKey / anchor / requireEnabled` (451-614) — 引用解码与校验工具、载荷读写、绑定守卫
 
 
+
 ## CoreKit/Sources/Infrastructure/HealthImportStore+Presentation.swift
 - `extension HealthImportStore` (10) — 读面扩展
   - `func dashboard()` (13) — 仪表盘（类型摘要 + 最近报告）
   - `func importedRows(kind:before:limit:)` (39) — 导入行分页（游标）
   - `func saveReport(_:)` (78) — 同步报告落盘（绑定守卫）
   - `func automaticImportEnabled()` (90) — 自动同步开关
+
 
 
 ## CoreKit/Sources/Infrastructure/HealthKitReader.swift
@@ -2130,6 +2292,7 @@
   - `private static func reference(_:kind:)` (556) — 样本→引用
 
 
+
 ## CoreKit/Sources/Infrastructure/HealthKitSyncService.swift
 - `HealthKitSyncService` (13) — 前/后台/手动导入协调者（inFlight 合并）
   - `func connect()` (34) — 连接（授权+绑定+后台观察）
@@ -2146,6 +2309,7 @@
   - 后台任务组 (293-336)：bgTaskIdentifier / startBackgroundObservation / scheduleBackgroundRefresh / registerBackgroundTask
 
 
+
 ## CoreKit/Sources/Infrastructure/HealthProblemStore.swift
 - `HealthProblemStore` (11) — F11.4 健康问题管理
   - `struct HealthProblemRow` (16) — 问题行
@@ -2156,6 +2320,7 @@
   - `enum StoreError` (94) — notFound / sameProblem
 
 
+
 ## CoreKit/Sources/Infrastructure/HeavyModelLease.swift
 - `HeavyModelLease` (14) — T1/T2 共用模型互斥锁（单飞保证）
   - `static let shared` (15) — 全局单例
@@ -2163,12 +2328,14 @@
   - `var isOccupied: Bool` (32) — 占用查询
 
 
+
 ## CoreKit/Sources/Infrastructure/ImmunizationStore.swift
-- `ImmunizationStore` (14) — FR4.5/4.6 疫苗接种记录仓储
-  - `struct Record` (19) — 接种记录（来源/确认态）
-  - `func create(...)` (37) — 录入（手动=C 级，OCR=D 级）
-  - `func list(patientId:)` (55) — 按时间倒序列出
-  - `func nextDoseNumber(patientId:vaccineName:)` (77) — 下一剂次序号（只建议不判定）
+- `ImmunizationStore` (15) — FR4.5/4.6 疫苗接种记录仓储
+  - `struct Record` (20) — 接种记录（来源/确认态）
+  - `func create(...)` (38) — 录入（手动=C 级，OCR=D 级）
+  - `func list(patientId:)` (56) — 按时间倒序列出
+  - `func nextDoseNumber(patientId:vaccineName:)` (78) — 下一剂次序号（只建议不判定）
+
 
 
 ## CoreKit/Sources/Infrastructure/LlamaCppExtractionEngine.swift
@@ -2184,6 +2351,7 @@
   - `private func loadIfNeeded(url:cancelFlag:)` (216) — 惰性加载（URL 未变复用）
 
 
+
 ## CoreKit/Sources/Infrastructure/LlamaModelManager.swift
 - `LlamaModelManager` (9) — Qwen GGUF 模型路径查找/就绪判定/文件校验
   - `modelFileName / bundleSubdirectory / expectedModelBytes` (11/13/15) — 模型常量
@@ -2192,10 +2360,12 @@
   - `static func modelSize(fileName:)` (32) — 文件大小（不可寻址=0）
 
 
+
 ## CoreKit/Sources/Infrastructure/LocalAuthGateUnlocker.swift
 - `LocalAuthGateUnlocker` (10) — 门禁系统适配器（每调用新 LAContext）
   - `var isAvailable: Bool` (13) — canEvaluatePolicy 探测
   - `func authenticate(reason:) -> Bool` (18) — deviceOwnerAuthentication 认证
+
 
 
 ## CoreKit/Sources/Infrastructure/LocalTranscriptRefiner.swift
@@ -2206,6 +2376,7 @@
   - `static func makePrompt(original:localeIdentifier:)` (58) — JSON 载荷 prompt 构造
   - `static let instructions` (70) — 润色系统指令（数据非指令通道）
 - `TextRefinerFactory` (86) — EAL 第 9 工厂（非 Apple 平台不可用替身）
+
 
 
 ## CoreKit/Sources/Infrastructure/MedicationPlanComposer.swift
@@ -2219,6 +2390,7 @@
   - `func editPlanSchedule(planId:schedule:now:)` (198) — 编辑剂量频次
   - `private func setPlanStatus(...)` (216) — 状态迁移共享实现（active↔paused 白名单 + 事件）
   - `func lifecycleEvents(planId:)` (248) — 计划历史时间轴
+
 
 
 ## CoreKit/Sources/Infrastructure/MedicationStore.swift
@@ -2247,11 +2419,13 @@
   - `func recordDelivery` (1074) / `func familyPendingDoses` (1094) — 送达记录/家庭待服聚合
 
 
+
 ## CoreKit/Sources/Infrastructure/RefinementDeadline.swift
 - `RefinementDeadline` (8) — 端侧润色单飞 + 超时护栏并发原语（2026-09-19 自 Protocols 迁入：协议层只留纯接口；唯一生产消费方 LocalTranscriptRefiner 同在本层）
   - `func run(original:timeout:operation:)` (14) — 单飞执行 + 截止投递（取消/超时/占用 → unavailable/timedOut）
   - `func reserve / release` (29/37) — 槽位保留/释放（工作线程与取消投递双退出才释放——FR17.18 单飞保证）
   - `final class Request` (43) — 单请求状态机（outcome/work/timer/continuation 锁内交接）
+
 
 
 ## CoreKit/Sources/Protocols/Transcribing.swift
@@ -2263,9 +2437,11 @@
 - `StubTranscriptionEngine` (78) — 测试/预览脚本化 actor 桩
 
 
+
 ## CoreKit/Sources/Protocols/TextUnderstanding.swift
 - `TextUnderstanding` (9) — FR17.18 共享文本理解端口（识别后文本→D 级草稿+去向；取消沿链抛）
   - 需求：`understand(_:)`(16) / `isAvailable(for:)`(17)；extension 默认 isAvailable=true (20)
+
 
 
 ## CoreKit/Sources/Protocols/TextRefining.swift
@@ -2276,10 +2452,12 @@
 - （2026-09-19：`RefinementDeadline` 并发原语迁至 Infrastructure/RefinementDeadline.swift——协议层只留纯接口）
 
 
+
 ## CoreKit/Sources/Protocols/SpeechSynthesizing.swift
 - `SpeechSynthesizing` (11) — TTS 端口（发声回退链单一实现点）
   - 需求：`speak(_:localeIdentifier:) -> SpeechOutcome`(14) / `stop()`(15)
 - `RecordingSpeechSynthesizer` (19) — 记录桩（锁保护 spoken 数组）
+
 
 
 ## CoreKit/Sources/Protocols/SensitiveAssetStoring.swift
@@ -2287,11 +2465,13 @@
   - 需求：`savePhoto(_:memberId:)`(13) / `blurData(for:memberId:)`(15) / `originalData(for:memberId:)`(19) / `removePhoto(_:memberId:)`(21) / `reconcileUnreferenced(validAssetIds:)`(24) / `wipeAllFiles()`(28)
 
 
+
 ## CoreKit/Sources/Protocols/ReminderScheduling.swift
 - `ReminderScheduling` (7) — 通知调度端口（注入桩验证；route 深链 Codable）
   - 需求：`schedule(dose:at:route:)`(11) / `scheduleRepeating(...)`(14，默认回落一次性) / `cancel(_:)`(16) / `pending()`(18) / `delivered()`(20) / `removeDelivered(_:)`(23) / `reloadLocalizedContent()`(26)；extension 默认实现 (29)
 - `DoseSource` (39) — 剂量事实源（对账输入）：`deliveryFacts(from:to:)`(40) / `markAwaitingUser(_:)`(41)
 - `InMemoryReminderScheduler` (45) — 内存桩（routeMap 测试可查 + simulateDelivery/simulateRestart）
+
 
 
 ## CoreKit/Sources/Protocols/PatientPersisting.swift
@@ -2304,13 +2484,16 @@
 - （2026-09-19：ImageTextRecognizing 及其替身已拆至 ImageTextRecognizing.swift）
 
 
+
 ## CoreKit/Sources/Protocols/ImageTextRecognizing.swift
 - `ImageTextRecognizing` (6) — FR12.11 图片文字识别端口（结果一律 D 级待确认，BR-003；零落盘）
 - `StubImageTextRecognizer` (12) — 测试/Preview 替身（脚本化识别结果）
 
 
+
 ## CoreKit/Sources/Protocols/AuditLogging.swift
 - `AuditLogging` (6) — 审计日志写入（§5.6 append-only；七类埋点由 Infrastructure AuditLogWriter 实现）
+
 
 
 ## CoreKit/Sources/Protocols/InventoryScanner.swift
@@ -2319,8 +2502,10 @@
 - `StubInventoryScanner` (20) — 替身（脚本化计数）
 
 
+
 ## CoreKit/Sources/Protocols/ProtocolsOverview.swift
 - （本层用途说明：一文件一协议域；原 Persistence.swift 混置域已拆，2026-09-19）
+
 
 
 ## CoreKit/Sources/Protocols/HealthWritingProvider.swift
@@ -2330,9 +2515,11 @@
 - `HealthWriteError` (29) — unavailable/requestIncomplete/failed
 
 
+
 ## CoreKit/Sources/Protocols/HealthReadingProvider.swift
 - `HealthReadingProvider` (4) — 只读健康端口（读取权限不可观察纪律）
   - 需求：`isAvailable()`(5) / `requestAuthorization()`(6) / `changes(for:scope:anchor:limit:)`(8) / `snapshot(for:calendar:)`(9) / `characteristics()`(13) / `requestCharacteristicAuthorization()`(16)；extension 默认实现 (19)
+
 
 
 ## CoreKit/Sources/Protocols/EngineAbstraction.swift
@@ -2342,8 +2529,10 @@
 - `EngineRegistry` (65) — 中央引擎注册表（NSLock 保护；register/registerIfAbsent/resolve/isRegistered/assertOfflineOnly 82-135）
 
 
+
 ## CoreKit/Sources/Protocols/ContentHashing.swift
 - `ContentHashing` (10) — 内容哈希端口（ADR-025 CryptoKit 迁移）：`sha256Hex(_:)`(12)
+
 
 
 ## CoreKit/Sources/Protocols/CardExtraction.swift
@@ -2351,6 +2540,7 @@
 - `ExtractionEngineError` (13) — unavailable/modelBusy/schemaMismatch
 - `CardExtractionEngine` (16) — 三轨同一端口：`track`(17) / `regionTimeout`(18) / `availability(for:)`(19) / `extract(region:spec:request:)`(20)
 - `StubCardExtractionEngine` (24) — 契约桩（脚本化区域结果，恒可用）
+
 
 
 ## CoreKit/Sources/Infrastructure/OCRCardStore.swift
@@ -2407,6 +2597,7 @@
   - `exportCommits(_:)` (1091) — 回执 + 审计 JSON 对照导出（备份表示，逐键校验）
 
 
+
 ## CoreKit/Sources/Infrastructure/OCRCardStore+ClinicalEpisodes.swift
 - `OCRCardStore` 扩展 (9) — v26 临床事件（住院/诊断/检查/检验）写入助手与行解码
   - `HospitalizationOutcome` (10) — 住院落库产物：实体 id + 就诊 id
@@ -2426,6 +2617,7 @@
   - `labRowsMatch(_:receipts:patientId:db:)` (292) — 已提交检验行逐列比对（provenance 列不比）
   - `diagnosesMatch(_:patientId:db:)` (317) — 已提交诊断行比对
   - `dateString(_:)` (332) — REAL 日期列 → yyyy-MM-dd（详情读面，App 层再本地化）
+
 
 
 ## CoreKit/Sources/Infrastructure/OCRCardStore+HealthExam.swift
@@ -2448,6 +2640,7 @@
   - `conclusionsMatch(_:patientId:db:)` (270) — 已提交结论行比对
 
 
+
 ## CoreKit/Sources/Infrastructure/OCRCardStore+Links.swift
 - `OCRCardStore` 扩展 (7) — 详情读面 / 行详情 / 反查 / 改挂就诊
   - `SourcePage` (8) — 来源页标识（documentId#pageIndex）
@@ -2468,6 +2661,7 @@
   - `cards(documentId:patientId:)` (281) — 原件全部已确认实体卡反向导航（行回执折叠表头）
   - `associatedEncounters(documentId:patientId:)` (318) — 原件关联的全部就诊
   - `associate(kind:entityId:patientId:encounterId:)` (348) — 改挂就诊（事实表 + 全部回执同事务）
+
 
 
 ## CoreKit/Sources/Infrastructure/TrendQueryStore.swift
@@ -2497,6 +2691,7 @@
   - `latestPerMetric(patientId:)` (480) — 每键一行最新点（窗口函数一次扫描；BR-001 设备行过滤）
 
 
+
 ## CoreKit/Sources/Infrastructure/TimelineQueryStore.swift
 - `TimelineQueryStore` (12) — F11 时间轴联合查询 actor：八类事件投影，游标分页 d DESC/id DESC
   - `entries(for:filter:cursor:limit:)` (17) — 平铺时间轴（单条 UNION ALL 全局排序 + LIMIT 精确取页）
@@ -2511,6 +2706,7 @@
   - `childSources(encounterIds:examIds:member:)` (313) — 子卡源：FK 直连 ∪ 回执关系投影（按 id 生成 IN 列表）
 
 
+
 ## CoreKit/Sources/Infrastructure/SchemaMigrations.swift
 - `SchemaMigrations` (20) — 迁移版本序列（user_version 单一账本，只许末尾追加）
   - `Step` (22) — 迁移步：目标版本/名称/幂等 SQL/事务性/FK 校验表
@@ -2523,9 +2719,11 @@
   - `statements(_:)` (886) — 多语句 SQL 切分：字符扫描、字符串/注释内分号不作边界、触发器 BEGIN…END 配对
 
 
+
 ## CoreKit/Sources/Infrastructure/SchemaV2.swift
 - `SchemaV2` (25) — v2 全量建表基线（tech-spec §4.3 DDL 摘录）
   - `ddl` (26) — 全量建表 SQL 常量（~50 表 + 索引 + FTS 虚表与触发器 + v_clinical_report 视图，带 § 锚注释）
+
 
 
 ## CoreKit/Sources/Infrastructure/MigrationEngine.swift
@@ -2534,6 +2732,7 @@
 - `MigrationEngine` (10) — v1(flutter JSON) → v2 迁移引擎
   - `migrate(recordsJSON:)` (11) — LegacyRecord 数组解码计数
   - `schemaV1` (22) — 旧名兼容引用（语义 = SchemaV2.ddl）
+
 
 
 ## CoreKit/Sources/Infrastructure/PendingCardStore.swift
@@ -2552,6 +2751,7 @@
   - `aggregationItems(patientId:)` (305) — 聚合中心轻投影（只取五列，非敏感摘要）
   - `StoreError` (325) — inactive / useOCRCardStore
   - `decode(_:)` (327) — 行 → PendingCard（损坏 JSON 抛 corrupt）
+
 
 
 ## CoreKit/Sources/Infrastructure/ProfileSuggestionStore.swift
@@ -2576,10 +2776,12 @@
   - `auditMeta(_:)` (278) — 审计 meta JSON 编码
 
 
+
 ## CoreKit/Sources/Infrastructure/PrescriptionStore.swift
 - `PrescriptionStore` (14) — F9 处方数据仓（确认后落库，confirmed 恒 true）
   - `create(patientId:documentFileId:hospital:doctor:adviceText:prescribedAt:source:now:)` (22) — 最小可行入库（成员/文档校验）
   - `StoreError` (49) — invalidDate
+
 
 
 ## CoreKit/Sources/Infrastructure/QuestionStore.swift
@@ -2590,6 +2792,7 @@
   - `markAsked(id:now:)` (67) — 标记已问（回填 asked_at）
   - `drop(id:now:)` (76) — 放弃（status=dropped，记录保留）
   - `openQuestions(patientId:limit:)` (85) — 准备包数据源：未问问题最近 N 条
+
 
 
 ## CoreKit/Sources/Infrastructure/ReminderLinkStore.swift
@@ -2606,6 +2809,7 @@
   - `reminderRow(_:)` (115) — 行 → 读面（来源经 validating 构造）
 
 
+
 ## CoreKit/Sources/Infrastructure/NotificationStateStore.swift
 - `NotificationItemState` (13) — 通知处理状态
   - `case unread / read / archived` (14) — 未读 / 已读 / 已归档
@@ -2616,12 +2820,14 @@
   - `states(for:)` (51) — 批量读处理状态（未登记 = unread）
 
 
+
 ## CoreKit/Sources/Infrastructure/MessageDeliveryStore.swift
-- `MessageDeliveryStore` (13) — FR24.2 发送状态仓（不存原文）
-  - `StoreError` (18) — illegalTransition / notFound
-  - `recordSent(patientId:kind:recipient:at:)` (24) — 落一条 sent 记录
-  - `updateStatus(id:to:at:)` (39) — 状态迁移（Domain MessageStatusRules 白名单）
-  - `list(patientId:)` (57) — 按成员时间倒序列表
+- `MessageDeliveryStore` (14) — FR24.2 发送状态仓（不存原文）
+  - `StoreError` (19) — illegalTransition / notFound
+  - `recordSent(patientId:kind:recipient:at:)` (25) — 落一条 sent 记录
+  - `updateStatus(id:to:at:)` (40) — 状态迁移（Domain MessageStatusRules 白名单）
+  - `list(patientId:)` (58) — 按成员时间倒序列表
+
 
 
 ## CoreKit/Sources/Infrastructure/SettingsStore.swift
@@ -2635,6 +2841,7 @@
   - `auditEntries(limit:)` (79) — 审计列表（append-only 只读投影）
 
 
+
 ## CoreKit/Sources/Infrastructure/VoiceNoteStore.swift
 - `VoiceNoteStore` (10) — FR17.14 语音速记仓（音频即用即弃，只存文本）
   - `create(id:patientId:body:tags:encounterId:inTimeline:now:)` (15) — 新建速记（默认不入轴）
@@ -2643,6 +2850,7 @@
   - `list(patientId:limit:)` (49) — 成员速记列表
   - `update(id:patientId:body:tags:inTimeline:)` (71) — 编辑（正文/标签/入轴）
   - `delete(id:patientId:)` (87) — 删除（成员隔离）
+
 
 
 ## CoreKit/Sources/Infrastructure/ObservationStore.swift
@@ -2664,6 +2872,7 @@
   - `delete(id:)` (226) — 删除
 
 
+
 ## CoreKit/Sources/Infrastructure/MemberDeletionService.swift
 - `MemberDeletionService` (15) — FR3.4 删除成员（单事务：影响清单 → 拓扑清理 → 软删 → 系统通知取消）
   - `Impact` (27) — 影响清单（资料/观察/计划/预约/过敏计数）
@@ -2674,6 +2883,7 @@
   - `reattributeDocument(documentId:from:to:now:)` (159) — FR3.5 重新归属（保留 OCR 链拒绝）
   - `hasRetainedOCRLinks(documentId:db:)` (177) — 是否存在保留的 OCR 事实/草稿链
   - `StoreError` (188) — memberNotFound/cannotDeleteSelf 等（LocalizedError 文案）
+
 
 
 ## CoreKit/Sources/Infrastructure/ReminderReconciler.swift
@@ -2689,10 +2899,12 @@
 - `PrintLogger` (211) — 打印日志实现（CoreKit 平台无关）
 
 
+
 ## CoreKit/Sources/Infrastructure/ReminderIDNames.swift
 - `ReminderIDNames` (7) — 通知 ID 命名空间（改前缀只动这里）
   - `appointmentPrefix(_:)` (8) — apt-<id> 前缀构造
   - `staleAppointments(in:ids:)` (19) — 待删预约的全部通知形态取回（分级/错过跟进/复诊）
+
 
 
 ## CoreKit/Sources/Infrastructure/SensitiveAssetStore.swift
@@ -2707,6 +2919,7 @@
   - `memberDir(_:)` (208) — 成员媒体目录
   - `orphanFileURL(_:)` (217) — relative_path → 注入 baseDir 下绝对 URL（防 ".." 逃逸）
 - `CacheBox` (233) — NSCache 的 Sendable 载体（观察者闭包捕获）
+
 
 
 ## CoreKit/Sources/Infrastructure/ModelCatalogTrustStore.swift
@@ -2739,6 +2952,7 @@
   - `catalog(_:root:checkTime:)` (269) — 目录校验（rootVersion/有效期/模型清单）
 
 
+
 ## CoreKit/Sources/Infrastructure/ModelPackageDownloader.swift
 - `ModelPackageDownloader` (10) — ASR 模型包下载（HEAD 探测 → 分段并行 → Range 吞掉退单流 → 终态校验）
   - `session/segmentCount/fileManager` (11-13) — 会话/段数/文件管理
@@ -2748,10 +2962,12 @@
   - `add(_:)` (166) — 累加字节并节流发射
 
 
+
 ## CoreKit/Sources/Infrastructure/ModelPackageUnpacker.swift
 - `ModelPackageUnpacker` (10) — ASR 模型包安全解压（单一职责：zip → 目录）
   - `fileManager` (11) — 文件管理
   - `unzip(_:to:maximumBytes:onProgress:)` (18) — 解压：路径穿越防御/条目与展开量上限/扩展名白名单/CRC 校验/失败自清
+
 
 
 ## CoreKit/Sources/Infrastructure/ModelResourceTransfer.swift
@@ -2766,9 +2982,11 @@
   - `urlSession(_:downloadTask:didFinishDownloadingTo:)` (66) — 空实现（落盘由调用方）
 
 
+
 ## CoreKit/Sources/Infrastructure/StreamingFileHasher.swift
 - `StreamingFileHasher` (10) — 流式 SHA-256（1 MiB 分块，不整包进内存）
   - `sha256(of:onProgress:)` (17) — 流式哈希（按百分比变化发进度，最多 101 次）
+
 
 
 ## CoreKit/Sources/Infrastructure/ModelSpanAssembler.swift
@@ -2780,11 +2998,13 @@
   - `numbered(lines:)` (65) — 转发编号行
 
 
+
 ## CoreKit/Sources/Infrastructure/RuleExtractionEngine.swift
 - `RuleExtractionEngine` (8) — T3 规则轨引擎（Domain RuleExtractor 端口包装；确定性零资产）
   - `track/regionTimeout` (9-10) — 轨标识 / 不限时
   - `availability(for:)` (12) — 恒可用
   - `extract(region:spec:request:)` (13) — 规则抽取转发
+
 
 
 ## CoreKit/Sources/Infrastructure/NLTextUnderstanding.swift
@@ -2803,6 +3023,7 @@
   - `understand(_:)` (205) — 按序尝试，首个非空产出者胜；单轨非取消异常降级
 
 
+
 ## CoreKit/Sources/Infrastructure/UnderstandingDeadline.swift
 - `UnderstandingDeadline` (8) — 单飞期限执行器（超时返回但不提前释放原生生成槽）
   - `acquire()/release()` (11-12) — 单飞闸
@@ -2810,11 +3031,13 @@
   - `Delivery` (42) — 一次性结果投递（先到者胜；锁保护）
 
 
+
 ## CoreKit/Sources/Infrastructure/OCRPipeline.swift
 - `OCRPipeline` (11) — ADR-026 编排层：解码（灰度）→ 质量评估 → 识别 → 归一化
   - `recognizer/grayscaleDecoder` (12-13) — 识别/灰度解码端口（EAL 注入）
   - `Result` (20) — 管线产物（lines/hasText/confidence/qualityTags/failed/layout）
   - `run(imageData:)` (44) — 单图管线（质量评估失败不阻断识别；引擎失败 failed=true）
+
 
 
 ## CoreKit/Sources/Infrastructure/PDFExportService.swift
@@ -2830,6 +3053,7 @@
   - `drawWatermark(_:request:)` (257) — 斜置低透明度水印（开关生效）
 
 
+
 ## CoreKit/Sources/Infrastructure/PDFKitDecoder.swift
 - `PageAccumulator` (12) — @Sendable 逐页回调串行累加器（Swift 6 收敛）
 - `PDFKitDecoder` (21) — M-DECODE 生产轨：PDFKit 多页渲染 + ImageIO 降采样
@@ -2840,12 +3064,14 @@
   - `encodeToPNGFromData(_:width:height:)` (112) — 位图 Data → CGImage → PNG
 
 
+
 ## CoreKit/Sources/Infrastructure/VisionImageRecognizer.swift
-- `VisionImageRecognizer` (17) — FR12.11 生产实现：VNRecognizeTextRequest（iOS 16）+ iOS 26 结构化路径
-  - `recognize(_:)` (20) — 识别入口（iOS 26 结构化先行，失败回落 VN；detached 跳出主线程）
-  - `performRecognition(_:)` (45) — iOS 16 路径：准确级三语识别，行级 bbox（左下→左上原点）
-  - `RecognizeError` (85) — engineFailed（LocalizedError）
-- `DocumentLayoutBridge` (98) — iOS 26 RecognizeDocumentsRequest 适配（行/表格/段落 → Domain 版面）
+- `VisionImageRecognizer` (18) — FR12.11 生产实现：VNRecognizeTextRequest（iOS 16）+ iOS 26 结构化路径
+  - `recognize(_:)` (21) — 识别入口（iOS 26 结构化先行，失败回落 VN；detached 跳出主线程）
+  - `performRecognition(_:)` (46) — iOS 16 路径：准确级三语识别，行级 bbox（左下→左上原点）
+  - `RecognizeError` (86) — engineFailed（LocalizedError）
+- `DocumentLayoutBridge` (99) — iOS 26 RecognizeDocumentsRequest 适配（行/表格/段落 → Domain 版面）
+
 
 
 ## CoreKit/Sources/Infrastructure/VisionImagePreprocessor.swift
@@ -2863,6 +3089,7 @@
   - `sharedContext` (193) — 共享 GPU 上下文
   - `detectQuad(_:)` (197) — 交互式选区检测入口（未检出回落整图四角）
   - `correctPerspective(_:corners:)` (208) — 手动裁剪矫正入口
+
 
 
 ## CoreKit/Sources/Infrastructure/SFSpeechTranscriber.swift
@@ -2919,75 +3146,78 @@
   - `cancelRecognition(id:)` (738) — 识别取消清理
 
 
+
 ## CoreKit/Sources/Infrastructure/SpeechAnalyzerTranscriber.swift
-- `SpeechAnalyzerFlavor` (13) — 平台升级轨档位（standard/dictation）
-- `SpeechAnalyzerSupport` (22) — 能力探测与语言资源管理（生产零隐式联网）
-  - `availability(of:)` (24) — 档位可用性（系统版本 + 设备能力）
-  - `supportedLocales(of:)` (39) — 系统支持 locale 集（async）
-  - `installedLocales(of:)` (48) — 已安装 locale 集
-  - `assetStatus(of:locale:)` (57) — 某 locale 资源状态
-  - `install(locale:flavor:)` (65) — 显式下载安装入口
-  - `supportedLocale(of:requested:)` (80) — 请求 locale → 系统等价 locale
-  - `makeModule(flavor:locale:)` (89) — 档位 → SpeechModule 构造
-- `SpeechAnalyzerTranscriber` (112) — FR17.1/FR17.15 平台升级轨引擎（资源缺失整会话回落基线轨）
-  - `sessions/intents/baseline/delegated` (115-122) — 会话表/停止意图/基线委托/委托集
-  - `currentCapability()` (132) — 实时探测已安装 locale
-  - `probe(flavor:)` (134) — 探测实现
-  - `transcribe(_:onPartial:)` (141) — 转写入口
-  - `transcribe(_:onPartial:onCaptureStarted:)` (146) — 转写主入口（engineID 能力诚实回填）
-  - `finish/cancel/discardSession` (160-183) — 控制路由（委托按 id 精确转发）
-  - `endAudio()` (185) — 全会话停采集
-  - `localeAssetStatus(_:)` (195) — 实验室资产状态
-  - `prepareLocale(_:)` (199) — 显式安装
-  - `warmUp(_:)` (207) — 零联网预热（绝不触发下载）
-  - `mark(_:for:)` (213) — 停止意图推进（cancel 恒胜）
-  - `AnalyzerResolution` (221) — analyzer(locale) / delegate 裁决
-  - `resolve(locale:)` (226) — 每会话裁决（版本/设备/locale/资产未装 → 委托）
-  - `run(request:onPartial:onCaptureStarted:)` (239) — 会话执行（委托窗内重查意图）
-  - `baselineEngine()` (272) — 基线引擎惰性单例
-  - `runAnalyzer(request:locale:onPartial:onCaptureStarted:)` (279) — 分析会话主循环（授权→采集→泵→等待→定稿）
-  - `ensureAuthorized()` (349) — 语音+麦克风授权
-- `AnalyzerStopIntent` (368) — 停止意图（running/finish/cancel）
-- `AnalyzerSession` (375) — 单次会话（采集 + 分析 + 结果拼装）
-  - `Piece` (376) — 结果片段（区间/文本/是否终稿）
-  - `analyzer/stream/builder/standardModule/dictationModule/onPartial/lock` (386-392) — 分析器与流
-  - `pieces/failure/lastPublished/resultsTask` (395-398) — 结果状态
-  - `capture` (404) — 采集封装（AnalyzerCapture）
-  - `init(id:locale:module:analyzerFormat:onPartial:)` (406) — 装配（双模块探测 + 流创建）
-  - `startCapture()/stopCapture()` (425-429) — 采集转发
-  - `finishInput()` (433) — 输入流收尾
-  - `analyze()` (437) — 分析序列
-  - `finalize(through:)` (441) — 按最后样本定稿
-  - `finalizeThroughEndOfInput()` (445) — 按输入尾定稿
-  - `abort()` (449) — 中止（取消分析 + 结果泵）
-  - `startResultPump()` (456) — 结果泵（取消非故障；重叠区间替换语义）
-  - `awaitResultsEnd()` (482) — 等待结果泵退出
-  - `handle(text:isFinal:range:)` (488) — 片段合并（区间去重幂等）
-  - `publish()` (504) — 部分文本去重发布
-  - `displayText` (516) — 拼接文本（TranscriptJoiner 单点）
-  - `captureFailure` (522) — 采集/分析失败读取
-  - `noteFailure(_:)` (528) — 失败记录（首个优先）
-  - `makeResult(localeIdentifier:)` (536) — 结果拼装（volatile → partial）
-- `AnalyzerCapture` (553) — 采集侧封装（引擎/tap/观察者/会话快照；失败经 onFailure 回报）
-  - `start()` (568) — 开麦（会话快照对称 + tap + 配置/中断观察者）
-  - `stop()` (612) — 拆麦（幂等；快照还原）
-- `AnalyzerFeeder` (645) — 音频线程转换器（采集格式 → 分析器格式）
-  - `feed(_:)` (663) — 转换/拷贝后投喂（失败记标）
-  - `copy(of:)` (700) — 缓冲深拷贝
+- `SpeechAnalyzerFlavor` (14) — 平台升级轨档位（standard/dictation）
+- `SpeechAnalyzerSupport` (23) — 能力探测与语言资源管理（生产零隐式联网）
+  - `availability(of:)` (25) — 档位可用性（系统版本 + 设备能力）
+  - `supportedLocales(of:)` (40) — 系统支持 locale 集（async）
+  - `installedLocales(of:)` (49) — 已安装 locale 集
+  - `assetStatus(of:locale:)` (58) — 某 locale 资源状态
+  - `install(locale:flavor:)` (66) — 显式下载安装入口
+  - `supportedLocale(of:requested:)` (81) — 请求 locale → 系统等价 locale
+  - `makeModule(flavor:locale:)` (90) — 档位 → SpeechModule 构造
+- `SpeechAnalyzerTranscriber` (113) — FR17.1/FR17.15 平台升级轨引擎（资源缺失整会话回落基线轨）
+  - `sessions/intents/baseline/delegated` (116-123) — 会话表/停止意图/基线委托/委托集
+  - `currentCapability()` (133) — 实时探测已安装 locale
+  - `probe(flavor:)` (135) — 探测实现
+  - `transcribe(_:onPartial:)` (142) — 转写入口
+  - `transcribe(_:onPartial:onCaptureStarted:)` (147) — 转写主入口（engineID 能力诚实回填）
+  - `finish/cancel/discardSession` (161-184) — 控制路由（委托按 id 精确转发）
+  - `endAudio()` (186) — 全会话停采集
+  - `localeAssetStatus(_:)` (196) — 实验室资产状态
+  - `prepareLocale(_:)` (200) — 显式安装
+  - `warmUp(_:)` (208) — 零联网预热（绝不触发下载）
+  - `mark(_:for:)` (214) — 停止意图推进（cancel 恒胜）
+  - `AnalyzerResolution` (222) — analyzer(locale) / delegate 裁决
+  - `resolve(locale:)` (227) — 每会话裁决（版本/设备/locale/资产未装 → 委托）
+  - `run(request:onPartial:onCaptureStarted:)` (240) — 会话执行（委托窗内重查意图）
+  - `baselineEngine()` (273) — 基线引擎惰性单例
+  - `runAnalyzer(request:locale:onPartial:onCaptureStarted:)` (280) — 分析会话主循环（授权→采集→泵→等待→定稿）
+  - `ensureAuthorized()` (350) — 语音+麦克风授权
+- `AnalyzerStopIntent` (369) — 停止意图（running/finish/cancel）
+- `AnalyzerSession` (376) — 单次会话（采集 + 分析 + 结果拼装）
+  - `Piece` (377) — 结果片段（区间/文本/是否终稿）
+  - `analyzer/stream/builder/standardModule/dictationModule/onPartial/lock` (387-393) — 分析器与流
+  - `pieces/failure/lastPublished/resultsTask` (396-399) — 结果状态
+  - `capture` (405) — 采集封装（AnalyzerCapture）
+  - `init(id:locale:module:analyzerFormat:onPartial:)` (407) — 装配（双模块探测 + 流创建）
+  - `startCapture()/stopCapture()` (426-430) — 采集转发
+  - `finishInput()` (434) — 输入流收尾
+  - `analyze()` (438) — 分析序列
+  - `finalize(through:)` (442) — 按最后样本定稿
+  - `finalizeThroughEndOfInput()` (446) — 按输入尾定稿
+  - `abort()` (450) — 中止（取消分析 + 结果泵）
+  - `startResultPump()` (457) — 结果泵（取消非故障；重叠区间替换语义）
+  - `awaitResultsEnd()` (483) — 等待结果泵退出
+  - `handle(text:isFinal:range:)` (489) — 片段合并（区间去重幂等）
+  - `publish()` (505) — 部分文本去重发布
+  - `displayText` (517) — 拼接文本（TranscriptJoiner 单点）
+  - `captureFailure` (523) — 采集/分析失败读取
+  - `noteFailure(_:)` (529) — 失败记录（首个优先）
+  - `makeResult(localeIdentifier:)` (537) — 结果拼装（volatile → partial）
+- `AnalyzerCapture` (554) — 采集侧封装（引擎/tap/观察者/会话快照；失败经 onFailure 回报）
+  - `start()` (569) — 开麦（会话快照对称 + tap + 配置/中断观察者）
+  - `stop()` (613) — 拆麦（幂等；快照还原）
+- `AnalyzerFeeder` (646) — 音频线程转换器（采集格式 → 分析器格式）
+  - `feed(_:)` (664) — 转换/拷贝后投喂（失败记标）
+  - `copy(of:)` (701) — 缓冲深拷贝
+
 
 
 ## CoreKit/Sources/Infrastructure/SherpaOnnxTranscriber.swift
-- `SherpaOnnxTranscriber` (10) — ADR-023 随包开源权重生产端口（初始化不加载模型、能力查询不启动麦克风）
-  - `choice/assets/assetLease/memoryObserver/coordinator` (11-16) — 档位/资产租约/内存观察/会话协调器
-  - `init(choice:assets:)` (19) — 装配（双路径资产解析；20s 收尾预算）
-  - `unloadWhenIdle()` (43) — 内存警告/空闲卸载入口
-  - `capability` (49) — 能力面（资产在位才算；30s 分段语义）
-  - `transcribe(_:onPartial:)` (59) — 转写入口
-  - `transcribe(_:onPartial:onCaptureStarted:)` (63) — 转写主入口（包授权校验；engineID 如实回填）
-  - `localeAssetStatus(_:)` (80) — 资产状态（不返回 .downloadable）
-  - `prepareLocale(_:)` (92) — 预热（同 warmUp）
-  - `warmUp(_:)` (97) — 本机预加载零联网
-  - `finish/cancel/discardSession/endAudio` (108-127) — 控制路由
+- `SherpaOnnxTranscriber` (11) — ADR-023 随包开源权重生产端口（初始化不加载模型、能力查询不启动麦克风）
+  - `choice/assets/assetLease/memoryObserver/coordinator` (12-17) — 档位/资产租约/内存观察/会话协调器
+  - `init(choice:assets:)` (20) — 装配（双路径资产解析；20s 收尾预算）
+  - `unloadWhenIdle()` (44) — 内存警告/空闲卸载入口
+  - `capability` (50) — 能力面（资产在位才算；30s 分段语义）
+  - `transcribe(_:onPartial:)` (60) — 转写入口
+  - `transcribe(_:onPartial:onCaptureStarted:)` (64) — 转写主入口（包授权校验；engineID 如实回填）
+  - `localeAssetStatus(_:)` (81) — 资产状态（不返回 .downloadable）
+  - `prepareLocale(_:)` (93) — 预热（同 warmUp）
+  - `warmUp(_:)` (98) — 本机预加载零联网
+  - `finish/cancel/discardSession/endAudio` (109-128) — 控制路由
+
 
 
 ## CoreKit/Sources/Infrastructure/SherpaSpeechSessionDriver.swift
@@ -3024,6 +3254,7 @@
     - `cancel()` (314) — 取消清空
 
 
+
 ## CoreKit/Sources/Infrastructure/SherpaASRRuntime.swift
 - `SherpaASRRuntime` (8) — 钉版 C API 有限适配层（空句柄抛可恢复错误）
   - `sessionLanguage/sessionHotwords` (15-18) — qwen3 per-stream 语言提示/热词 CSV
@@ -3039,17 +3270,19 @@
 - `CStringStorage` (233) — C 字符串生命周期保管（strdup/free）
 
 
+
 ## CoreKit/Sources/Infrastructure/SherpaOnnxSpeechSynthesizer.swift
-- `SherpaOnnxSpeechSynthesizer` (20) — Supertonic-3 ONNX 端侧离线 TTS（P1 多语种扩展候选，未接生产链）
-  - `tts/voiceMap/defaultVoiceLocale` (21-27) — 合成器/voice.json 音色表/sid 0 真实音色
-  - `audioPlayer/lock/generation/synthQueue` (28-36) — 播放器/代次作废/合成串行队列
-  - `init?()` (38) — 资产预检七件套 + 配置构造（全程类型推断）
-  - `speak(_:localeIdentifier:)` (73) — 回退链解析 + 后台合成播放（代次双重校验）
-  - `stop()` (125) — 停止（作废在途/排队合成）
-  - `loadVoiceMap()` (137) — voices.json 侧载读取（sid 不依赖下标）
-  - `createWavData(samples:sampleRate:)` (157) — WAV 编码（单次 Int16 分配）
-  - `assetPaths()` (205) — 七件套预检（缺件/空文件一律回落）
-- `SherpaOnnxSpeechSynthesizer`（非 iOS 占位）(227) — macOS/Linux 编译占位（恒不可用）
+- `SherpaOnnxSpeechSynthesizer` (21) — Supertonic-3 ONNX 端侧离线 TTS（P1 多语种扩展候选，未接生产链）
+  - `tts/voiceMap/defaultVoiceLocale` (22-28) — 合成器/voice.json 音色表/sid 0 真实音色
+  - `audioPlayer/lock/generation/synthQueue` (29-37) — 播放器/代次作废/合成串行队列
+  - `init?()` (39) — 资产预检七件套 + 配置构造（全程类型推断）
+  - `speak(_:localeIdentifier:)` (74) — 回退链解析 + 后台合成播放（代次双重校验）
+  - `stop()` (126) — 停止（作废在途/排队合成）
+  - `loadVoiceMap()` (138) — voices.json 侧载读取（sid 不依赖下标）
+  - `createWavData(samples:sampleRate:)` (158) — WAV 编码（单次 Int16 分配）
+  - `assetPaths()` (206) — 七件套预检（缺件/空文件一律回落）
+- `SherpaOnnxSpeechSynthesizer`（非 iOS 占位）(228) — macOS/Linux 编译占位（恒不可用）
+
 
 
 ## CoreKit/Sources/Infrastructure/SwitchableTranscriptionEngine.swift
@@ -3073,10 +3306,12 @@
   - `retire(_:)` (171) — 退役登记（256 上限）
 
 
+
 ## CoreKit/Sources/Infrastructure/StubGateUnlocker.swift
 - `StubGateUnlocker` (7) — Linux 构建桩：恒可用恒成功（行为断言由 App 层 FakeGateUnlocker）
   - `isAvailable` (10) — 恒 true
   - `authenticate(reason:)` (12) — 恒 true
+
 
 
 ## CoreKit/Sources/Infrastructure/StubImageCompressor.swift
@@ -3086,6 +3321,7 @@
   - `transparentPNG()` (29) — 1x1 透明 PNG 常量
 
 
+
 ## CoreKit/Sources/Infrastructure/StubImagePreprocessor.swift
 - `StubImagePreprocessor` (9) — M-PREPROC Linux/dev 兜底（原样返回 + 版本号）
   - `preprocess(_:params:baseVersion:)` (12) — 占位（矫正标记置 false）
@@ -3093,11 +3329,13 @@
   - `correctPerspective(_:corners:)` (32) — 原样返回
 
 
+
 ## CoreKit/Sources/Infrastructure/StubPDFDecoder.swift
 - `StubPDFDecoder` (9) — M-DECODE Linux/dev 兜底（占位 PNG/空白页）
   - `decodeImage(_:maxDimension:)` (12) — 1x1 占位
   - `decodePDF(_:scale:maxPages:)` (18) — 1 页空白占位
   - `transparentPNG()` (26) — 1x1 透明 PNG 常量
+
 
 
 ## App/AppShell/AppContainer.swift
@@ -3123,6 +3361,7 @@
   - `defaultOriginalsDir()` (293) — BR-002 原件专用目录 `<Documents>/MedicalNotes/originals/`
 
 
+
 ## App/AppShell/AppDataChangeCenter.swift
 - `AppDataChangeCenter` (15) — 类型化数据变更信号（版本计数即 UI 失效标记，数据库即事件总线）
   - `documentsVersion / metricsVersion / alertsVersion / assetsVersion` (16–23) — 四失效槽（文档/指标/预警/ASR 资产）
@@ -3131,6 +3370,7 @@
   - `alertsChanged()` (39) — 预警变化 +1
   - `assetsChanged()` (42) — ASR 模型安装完成后 +1
   - `dataWiped()` (48) — 清空全部后四槽齐拍全量失效
+
 
 
 ## App/AppShell/AppRootView.swift
@@ -3144,6 +3384,7 @@
   - `currentTheme` (301) — FR14.4 主题（AppTheme 枚举映射）
   - `currentLanguage` (308) — 当前显示语言（body 顶层读值注册 @Observable 观察）
   - `highContrastOn` (313) — FR18.16 高对比度（手动 OR 关怀模式，Domain AppearanceRules 判定）
+
 
 
 ## App/AppShell/AppRouter.swift
@@ -3177,6 +3418,7 @@
   - `presentation(for:)` (412) — ForegroundDelivery → UNNotificationPresentationOptions 映射
 
 
+
 ## App/AppShell/AppState.swift
 - `AppState` (20) — M1a 纵向切片应用状态仓（@Observable @MainActor，注入环境）：门禁/向导/成员/偏好单源
   - `OnboardingStage` (23) — FR21.9 向导状态机（disclosure/ownerName/addFamily，无 done 态）
@@ -3208,9 +3450,11 @@
   - `persist(_:)` (678) — 统一异步持久化出口（§7 错误经 Logger）
 
 
+
 ## App/AppShell/FakeGateUnlocker.swift
 - `FakeGateUnlocker` (7) — 门禁测试替身（XCUITest 无法自动化 Face ID，启动参数注入确定性结果）
   - `result / isAvailable / authenticate(reason:)` (8–11) — 确定性认证结果
+
 
 
 ## App/AppShell/MediaUnlockSession.swift
@@ -3223,6 +3467,7 @@
   - `recordActivity()` (38) — 活跃信号刷新 idle 时钟（合并窗口由 Domain MediaUnlockPolicy 控制）
   - `onBackground()` (48) — 退后台重锁钩子
   - `startIdleTimer()` (53) — showcaseTTL 计时武装
+
 
 
 ## App/AppShell/RootAdaptiveView.swift
@@ -3240,6 +3485,7 @@
 - `PreviewRoot` (224) — 预览装配容器（与 VitaLiberApp 同构注入；预览禁触生产目录）
 
 
+
 ## App/AppShell/RouteDestinationView.swift
 - `RouteDestinationView` (13) — §5.45 AppRoute → 具体视图唯一分发表（switch 穷尽，未登记 case 编译期不可达）
   - `body` (17) — 全量路由 case → 视图（含 .symptom 旧路由兼容重定向、.memberDetail 查无降级）
@@ -3251,6 +3497,7 @@
   - `loadDocument()` (354) — 按 pendingVersion 重载文档行（失败可见 + §7 日志上报）
 
 
+
 ## App/AppShell/VitaLiberApp.swift
 - `VitaLiberApp` (9) — @main 应用入口：组装根装配 + 通知 delegate 强引用 + 环境逐一下发
   - `container / router / notificationDelegate` (10–16) — 组装根 / 路由器 / 通知代理（delegate 被系统弱引用，必须 App 持有）
@@ -3258,10 +3505,12 @@
   - `mainRoot` (231) — AppRootView + 21 项环境注入（种子/回填闭包装配层唯一调用点）
 
 
+
 ## App/Compat/ChartsCompat.swift
 - `ChartsCompat` (4) — iOS 17 滚动可见域能力探测
   - `supportsScrollableAxes` (6) — iOS 17+ 才支持横向滚动
 - `View.chartWindowCompat(visibleLength:domainEnd:selection:)` (11) — 图表时间窗兼容：iOS 17 滚动+选点；iOS 16 钉轴域+Gesture 反解
+
 
 
 ## App/Compat/LayoutCompat.swift
@@ -3271,9 +3520,11 @@
 - `ContentMarginPlacementCompat / ListSectionSpacingCompat` (15–16) — 不能直接暴露 iOS 17 类型的枚举垫片
 
 
+
 ## App/Compat/OnChangeCompat.swift
 - `View.onChangeCompat(of:initial:_:)` (6) — iOS 17 双参 onChange 兼容；iOS 16 以上一值回放
 - `OnChangeCompatModifier` (12) — iOS 16 路径实现（@State 存上一值，onAppear 处理 initial）
+
 
 
 ## App/Compat/UnavailableViewCompat.swift
@@ -3282,11 +3533,13 @@
 - 六组 convenience init 扩展 (32–46) — 与 ContentUnavailableView 同组重载
 
 
+
 ## App/DesignSystem/CameraPicker.swift
 - `CameraPicker` (7) — UIImagePickerController 薄包装（SP-14 步骤2；F5 资料库复用）
   - `onCapture` (8) — 拍摄回调
   - `makeUIViewController / makeCoordinator` (11–20) — 平台桥接件（视图文件不得内联 Representable）
   - `Coordinator` (22) — 代理回调（originalImage 缺失/取消 → dismiss）
+
 
 
 ## App/DesignSystem/CardKindIcon.swift
@@ -3306,6 +3559,7 @@
   - 便捷出口 symbol/tint 八组 (227–236) — 实参标签按枚举区分防二义
 
 
+
 ## App/DesignSystem/GradeBadge.swift
 - `GradeBadge` (7) — BR-003 来源徽章唯一渲染出口（A 医院原文/B 知识库/C 用户确认/D 识别未确认/E AI 解释；D/E/未知虚线+待确认角标）
   - `grade` (8) — 来源等级原始字符串
@@ -3318,6 +3572,7 @@
   - `accessibilityText` (90) — 朗读文本（A/B 朗读字母+短文案；D/E/未知朗读「未确认」）
 
 
+
 ## App/DesignSystem/Haptics.swift
 - `Haptics` (21) — tech-spec §5.15 触觉反馈单出口（UIKit 生成器，模型层可发、iOS 13+ 成熟实现）
   - `Impact / Notice` (22–23) — 冲击/通知分级枚举
@@ -3326,12 +3581,14 @@
   - `uiStyle / uiType` (46–56) — UIKit 样式映射（canImport 守卫）
 
 
+
 ## App/DesignSystem/MediaImport.swift
 - `MediaImport` (13) — 媒体导入共用件：ImageIO 下采样（原图不整图解码）+ PhotosPicker 并发加载
   - `downsample(_:maxPixel:)` (15) — 目标尺寸下采样为 UIImage（仅 MainActor 即时预览）
   - `thumbnailData(_:maxPixel:)` (21) — 下采样并编码 JPEG Data（非隔离上下文可用）
   - `loadWithThumbnails(_:)` (40) — 有界并发（在途上限 4）加载+缩略图，保持选择顺序，单张失败跳过
   - `downsampledCGImage(_:maxPixel:)` (74) — ImageIO 下采样核心（EXIF 方向自动矫正）
+
 
 
 ## App/DesignSystem/PagingStepper.swift
@@ -3343,9 +3600,11 @@
   - `button(icon:enabled:accessibilityLabel:identifier:action:)` (49) — 步进按钮（圆形可点区域）
 
 
+
 ## App/DesignSystem/SaveFailedAlert.swift
 - `SaveFailedAlert` (6) — 保存失败错误态统一出口（四态纪律：失败绝不静默呈现为已保存）
 - `View.saveFailedAlert(title:hint:isPresented:)` (22) — 统一修饰器（各表单不再各自复制 alert 三元组）
+
 
 
 ## App/DesignSystem/SensitiveMediaContainer.swift
@@ -3362,6 +3621,7 @@
   - `relock()` (128) — 重锁（取消在途解锁，认证结果不得复活）
 
 
+
 ## App/DesignSystem/SensitiveMediaOriginalView.swift
 - `SensitiveMediaOriginalView` (11) — §5.10 敏感媒体原始视图（ImageIO 降采样防 OOM；FR1.9 逐次解锁；认证通过后才落内存）
   - `imageData / caption / assetId / originalLoader` (20–25) — 预传数据/标题/审计锚点/认证后按需加载器
@@ -3374,11 +3634,13 @@
   - `downsample(data:maxDimension:)` (224) — 按 UIScreen.scale 计算的目标尺寸降采样
 
 
+
 ## App/DesignSystem/SnippetText.swift
 - `SnippetText` (10) — 检索片段渲染单一出口（FTS snippet()/SearchRules.highlight 的 <b> 标记拆段加粗，标记不渗出）
   - `snippet` (11) — 原始片段（带标记）
   - `body` (15) — 拆段拼接 + 无障碍朗读去标记纯文本
   - `composed` (21) — Text 拼接（命中段 .bold()+主色）
+
 
 
 ## App/DesignSystem/SystemLinks.swift
@@ -3388,17 +3650,21 @@
   - `openSettings()` (29) — 打开本 App 系统设置页
 
 
+
 ## App/DesignSystem/VLFont.swift
 - `VLFont` (8) — 排版/图标尺寸令牌表（超标度字号收敛出口，ui-ux §3.2）
   - `levelDisplay / homeActionIcon / disclosureIcon / exportIcon / metricTileValue` (10–18) — 44/40/48/56/28pt 五令牌
+
 
 
 ## App/DesignSystem/VLIcon.swift
 - `VLIcon` (7) — 精选图标唯一出口（AUTO-GENERATED 勿手改；重新生成 sync_best_selection.py）。图标表见 8 起，共 218 个 `static let`（tab/通用/业务/医疗设备/器官/空态插画）
 
 
+
 ## App/DesignSystem/VLIcon+ObservationKind.swift
 - `ObservationKind.icon` (7) — 观察类型 → VLIcon 映射（Domain 不持 Image；八类穷尽）
+
 
 
 ## App/Localization/L10n.swift
@@ -3419,14 +3685,17 @@
   - `currentBundle` (489) — 当前语言包（缓存）
 
 
+
 ## App/Localization/L10n+Registry.swift
 - `L10n.registeredKeys` (7) — 全部已键化 key 登记表（SU-M15-L10N 遍历断言输入；L0 双向判定）。键值表见 8 起，共 990 键。新增 key 必须同步登记
+
 
 
 ## App/Localization/L10n+Mapping.swift
 - `L10n` 映射扩展 (6) — 参数化文案组装层（String(format:) 模板 + 枚举→文案映射），共 153 个 `static func`
   - 代表性映射：`voicePromptText(_:)` (39) SpeechPrompt 会话提示、`observationKindName(_:)` (160) 观察类型名、`memberRelationDisplayName(_:)` (287) 关系显示名单一出口、`observationMarkName(_:)` (279) 自述标记三值、`exportKindName(_:)` (399) PDF 类型名（F8 复用）、`voiceEngineName/Hint(_:)` (518–542) 识别引擎实验室、`asrModelVariantName(_:)` (491) 模型档位名、`timelineHubCount(_: _:)` (555) 主卡计数徽章、`encounterSummaryDocFields(_:)` (260) 就诊总结未确认行
   - `careParametersSOSValue(seconds:)` (31) — 关怀模式 SOS 生效参数（2026-09-18 已改名对齐 camelCase）
+
 
 
 ## App/Localization/L10n+Keys-*.swift（16 个键表文件）
@@ -3449,6 +3718,7 @@
 - L10n+Keys-Voice.swift — F17/F19 语音与附表执行（175 键；`sleepStage` 六阶段、`voicePromptText` 会话提示）
 
 
+
 ## App/Features/Capture/DocumentSourcePageView.swift
 - `DocumentSourcePageReference` (8) — 原文页引用解析值（"doc:<id>#p<n>" → 结构）
   - `init?(sourceRef:)` (13) — 解析引用串，非法返回 nil
@@ -3468,6 +3738,7 @@
   - `relock()` (217) — 清内存态并取消在途任务
 
 
+
 ## App/Features/Capture/OcclusionEditorView.swift
 - `OcclusionEditorView` (11) — FR5.4 入库前遮挡工具壳（跳过/完成工具栏）
 - `OcclusionCanvas` (53) — PencilKit 叠层（原图铺底 + 透明画布）
@@ -3475,6 +3746,7 @@
   - `Coordinator` (105) — 涂写变更回写共享状态
   - `render(image:drawing:)` (119) — 像素级合成（涂写按显示矩形映射回图像坐标）
 - `CanvasContainerView` (137) — 原图+画布同坐标系容器；`layoutSubviews` (141) 回写显示矩形
+
 
 
 ## App/Features/Capture/QuickCaptureView.swift
@@ -3488,6 +3760,7 @@
   - `title` (323) / `docTypeHint` (333) / `allowedTypes` (342) — 按 CaptureKind 的派生文案与文件类型
 
 
+
 ## App/Features/Capture/ScanRegionEditorView.swift
 - `ScanRegionEditorView` (11) — FR5.2 四角选区 + 透视矫正
   - `var body` (25) — 图片 + QuadOverlay + 错误浮层
@@ -3499,6 +3772,7 @@
   - `handle(_:id:)` (156) — 单手柄（44pt 命中区 + 拖拽钳制）
 
 
+
 ## App/Features/Confirm/EncounterAssociationSection.swift
 - `EncounterAssociationSection` (11) — 卡片 → 就诊/体检主卡关联 Picker 区
   - `hub` (24) — 卡类的枢纽类型（Domain 判定）
@@ -3506,6 +3780,7 @@
   - `var body` (48) — 渲染 Picker + 建议/加载/失败态
   - `select(_:)` (36) — 用户改选（草稿/不关联/既有）
   - `load()` (81) — 候选加载 + 未选择时裁决默认（ParentCardDraftRules）
+
 
 
 ## App/Features/Confirm/EntityCardConfirmView.swift
@@ -3537,6 +3812,7 @@
   - `load()` (554) — 加载待办卡并准备续办投影
 
 
+
 ## App/Features/Confirm/ParentDraftSection.swift
 - `ParentDraftSection` (11) — SP-12 主卡草稿区（D 级、逐字段确认）
   - `var body` (19) — 渲染草稿字段 + 日期补填 + 必填/低置信提示
@@ -3549,6 +3825,7 @@
   - `hasUnconfirmedLowConfidence(_:)` (127) — 低置信未确认判定
   - `dateBinding(_:)` (132) — 内联日期选择（yyyy-MM-dd、显式选择=确认）
   - `dateText(_:)` (152) — 日期 → yyyy-MM-dd（可逆解析口径）
+
 
 
 ## App/Features/Confirm/ProfileSuggestionSheet.swift
@@ -3566,10 +3843,12 @@
 - `View` 扩展 `profileSuggestionHost(presenterKey:enabled:)` (211) — 宿主挂载入口
 
 
+
 ## App/Features/Confirm/SourceLineSheet.swift
 - `SourceLineSheet` (10) — 字段 → 原文行锚定面板（行级高亮、非框级）
   - `highlighted` (15) — 行号合法性守卫
   - `var body` (20) — 逐行渲染 + 高亮行滚动定位
+
 
 
 ## App/Features/Documents/DocumentImportConfirmView.swift
@@ -3590,6 +3869,7 @@
 - `View` 扩展 `ocrImportReviewHost(...)` (505) — 宿主挂载入口
 - `DocumentReviewRouteView` (511) — 存量文档复核路由
   - `prepare()` (540) — 复用既有会话或重建
+
 
 
 ## App/Features/Documents/DocumentLibraryView.swift
@@ -3642,12 +3922,14 @@
 - `ReportIssueSheet` (1159) — 识别问题报告表单
 
 
+
 ## App/Features/Documents/DocumentsState+DisplayMappers.swift
 - `DocumentsDisplay` (10) — 文档字段展示映射命名空间（2026-09-18 自 DocumentLibraryView 拆出；2026-09-19 自 DocumentsState 静态成员改为独立类型——展示映射与状态仓解耦）
   - `static func fieldLabel(forKey:)` (11) — 模板键 → 本地化字段名
   - `static func timelineEntryTitle(_:)` (45) — 时间轴行标题展示出口（同一 kind raw 单一实现）
   - `static func fieldValueDisplay(forKey:value:)` (83) — 字段值展示层映射（canonical raw → 本地化；severity 不映射不着色 BR-004/012）
   - `static func enumOptions(forKey:)` (125) — 枚举槽位 Picker 目录（Domain 拼写目录单一事实源）
+
 
 
 ## App/Features/Documents/DocumentsState+EntityCards.swift
@@ -3677,6 +3959,7 @@
   - `dismissProfileSuggestions(_:)` (419) / `clearProfileSuggestions(presenterKey:)` (426) — 忽略/清批
 
 
+
 ## App/Features/Documents/DocumentTypeKeyBackfill.swift
 - `DocumentTypeKeyBackfill` (17) — doc_type_key 首启一次性回填
   - `doneKey` (19) — 完成标记键
@@ -3684,6 +3967,7 @@
   - `resolve(label:)` (38) — 标签 → 稳定键（未命中 custom）
   - `runIfNeeded(defaults:batchLimit:pending:apply:)` (52) — 幂等分批编排（注入闭包测试形态）
   - `runIfNeeded(store:defaults:batchLimit:)` (86) — 真实仓绑定
+
 
 
 ## App/Features/Documents/PendingCardCenterState.swift
@@ -3694,12 +3978,14 @@
   - `resolve(patientId:id:)` (54) — 用户补全完结后刷新
 
 
+
 ## App/Features/Documents/PendingOcrQueueView.swift
 - `PendingOcrQueueView` (14) — FR6.8 待确认聚合队列（SP-53）
   - `pendingRows` (30) — 过滤+逾期旗标+排序（旗标一次预计算）
   - `var body` (42) — 列表/空态/错误 + 成员与时间窗筛选条
   - `load()` (147) — 跨成员加载
   - `windowMatch(_:)` (153) — 时间窗判定（Domain 出口）
+
 
 
 ## App/Features/Documents/SharedFieldsReviewView.swift
@@ -3717,6 +4003,7 @@
   - `deferAll()` (181) — 整批落待办
 
 
+
 ## App/Features/Members/MemberViews.swift
 - `MemberManagementView` (11) — F3 成员管理（列表/切换/添加家人 + 配额弹墙）
   - `var body` (20) — 渲染成员行/添加按钮 + 配额与失败警报
@@ -3730,6 +4017,7 @@
   - `memberIconLabel(_:)` (391) — 图标无障碍标签
 
 
+
 ## App/Features/Onboarding/OnboardingFlowView.swift
 - `OnboardingFlowView` (9) — M1a 首启流程编排（三卡→建档→家人）
   - `var body` (12) — 三步进度条 + 按 stage 分派步骤视图
@@ -3737,6 +4025,7 @@
 - `LockOverlayView` (64) — 门禁遮罩（回前台必见、自动认证、SOS 豁免）
   - `var body` (79) — 锁占位 + 解锁按钮 + 失败提示 + SOS
   - `attempt()` (172) — 设备所有者认证
+
 
 
 ## App/Features/Onboarding/OnboardingViews.swift
@@ -3754,6 +4043,7 @@
   - `create()` (358) — 建档提交（写库失败响亮呈现）
 
 
+
 ## App/Features/Records/AllergyViews.swift
 - `AllergyListView` (10) — F23 过敏列表（严重度色条 + C 级徽章 + 删除确认）
   - `var body` (17) — 列表/空态 + 删除确认对话框
@@ -3764,11 +4054,13 @@
   - `save()` (226) — 保存 + 重度急救引导卡（BR-012）
 
 
+
 ## App/Features/Records/ClaimViews.swift
 - `ClaimListView` (7) — FR13.7 报销票据（汇总 + 列表 + 录入）
   - `var body` (13) — 汇总卡/行列表
   - `typeLabel(_:)` (77) — 票据类型 → 本地化名
 - `ClaimCreateSheet` (86) — 录入表单
+
 
 
 ## App/Features/Records/DoctorShowcaseView.swift
@@ -3779,6 +4071,7 @@
   - `showcaseContent` (156) — 观察组轮播
   - `exit()` (172) — 退出重锁（BR-007/008）
 - `ShowcasePage` (179) — 单组观察展示页（时间/类型/描述/自述标记/敏感媒体条）
+
 
 
 ## App/Features/Records/EncounterViews.swift
@@ -3804,6 +4097,7 @@
 - `EncounterDetailRouteView` (716) — 路由式就诊详情（深链投影 + 降级）
 
 
+
 ## App/Features/Records/HealthExamDetailView.swift
 - `HealthExamViewState` (11) — 体检读面门面（actor store 的 @Perceptible 包装）
   - `detail(id:patientId:)` (17) — 体检详情读取
@@ -3817,11 +4111,13 @@
   - `load()` (236) — 详情加载（invalidCard → 查无）
 
 
+
 ## App/Features/Records/ImmunizationViews.swift
 - `ImmunizationListView` (8) — FR4.5 疫苗接种（按疫苗分组 + 剂次进度）
   - `groupedRecords` (15) — 按疫苗名保序分组
   - `var body` (25) — 分组列表 + 边界微文案
 - `ImmunizationCreateSheet` (95) — 录入表单
+
 
 
 ## App/Features/Records/MedicalCardDetailView.swift
@@ -3842,6 +4138,7 @@
 - `DocumentRelationsSection` (476) — 原件关联卡/就诊读投影；`load()` (508)
 
 
+
 ## App/Features/Records/PrescriptionLineDetailView.swift
 - `PrescriptionLinePresentation` (9) — 处方行展示字段目录（行详情/列表摘要共用）
   - `fields(_:)` (11) — 全列展示字段
@@ -3853,6 +4150,7 @@
   - `content(_:)` (96) — 详情分段
   - `headerSummary(_:)` (147) — 表头摘要（医院·医生·开方日期）
   - `load()` (157) — 详情加载（invalidCard → 查无）
+
 
 
 ## App/Features/Records/RecordsHubStore.swift
@@ -3871,11 +4169,13 @@
   - `auditHelpCardSent(recipient:)` (299) — 求助卡外发审计
 
 
+
 ## App/Features/Records/RecordsHubViews.swift
 - `SentStatusHubView` (184) — FR24.2 发送状态挂载壳（加载数据 → 透传纯渲染视图）
 - `SentStatusListView` (204) — 发送状态纯渲染视图（2026-09-19：直读 M2HubStore 改为 onMarkDelivered 回调——与「挂载壳 vs 纯渲染视图」纪律一致）
   - `let messages` (205) / `let onMarkDelivered` (206) — 发送记录列表 / 标记已送达回调
   - `var body` (209) — 类型/收件人/状态/时间列表（不存不显原文）+ 空态
+
 
 
 ## App/Features/Records/TimelineExpansionStore.swift
@@ -3887,6 +4187,7 @@
   - `rememberedCount` (56) — 已记忆键数（测试/诊断）
 
 
+
 ## App/Features/Records/TimelineHubViews.swift
 - `TimelineHubRowView` (10) — 主卡行（图标/胶囊/标题/子卡计数 + 独立详情触点）
   - `spec` (15) / `headline` (20) / `subline` (31) / `accessibilityText` (42) — 派生展示
@@ -3894,6 +4195,7 @@
 - `TimelineChildRowView` (127) — 子卡行（图标/类型/标题/来源徽章）
   - `title` (138) — 行标题（DocumentsState 单一出口）
   - `summary` (140) — 摘要（处方计数/文档类型/其余原文）
+
 
 
 ## App/Features/Records/TimelineViews.swift
@@ -3924,10 +4226,12 @@
 - `QuestionListView` (829) — 问诊问题列表（记录 + 标记已问）
 
 
+
 ## App/Features/Voice/AppState+VoiceProfile.swift
 - `extension AppState` (4)
   - `commitVoiceProfileField(_:value:patientId:)` (7) — FR17.11 访谈答案写入（结构化字段直写、其余追加 note 段落）
   - `voiceProfileSectionTitle(_:)` (27) — 访谈键 → 段落节标题
+
 
 
 ## App/Features/Voice/ASREngineSettingsSection.swift
@@ -3947,6 +4251,7 @@
   - `startInstall(_:)` (399) — 发起安装（经安装中心）
 
 
+
 ## App/Features/Voice/ASRInstallCenter.swift
 - `ASRInstallCenter` (21) — ASR 模型安装中心（App 层全局进行态 + 后台窗口 + 广播）
   - `Install` (37) — 单安装可观察对象（观察域分离：进度高频/列表低频）
@@ -3958,12 +4263,14 @@
   - `run(_:choice:install:baseURL:)` (125) — 安装执行（后台任务 + 资产广播 + 失败登记）
 
 
+
 ## App/Features/Voice/DictationPressState.swift
 - `DictationPressState` (8) — 触摸按压状态机（点击开关 vs 按住说话，可单测）
   - `EndAction` (9) — 抬手动作（none/toggle/stop）
   - `holdThreshold` (24) — 识别阈值（CareModeMetrics 单一事实源）
   - `holdThresholdNanoseconds` (27) — 纳秒形式（Task.sleep 出口）
   - `begin()` (34) / `recognize(_:)` (41) / `end(cancelled:)` (47) — 状态机三步
+
 
 
 ## App/Features/Voice/PressToTalkMicButton.swift
@@ -3975,6 +4282,7 @@
   - `prepareAuthorization()` (190) — 授权同步
   - `toggle()` (194) — 点击开关
   - `endPress(cancelled:)` (200) — 抬手动作分派
+
 
 
 ## App/Features/Voice/VoiceDictationModel.swift
@@ -4004,6 +4312,7 @@
   - `onEmergency` (422) — BR-012 横切动作（默认跳急救卡配置）
 
 
+
 ## App/Features/Voice/VoiceEngineLabView.swift
 - `VoiceEngineLabView` (18) — FR17.15 识别引擎实验室（SP-62）
   - `LabResult` (21) — 对照测试结果行
@@ -4018,6 +4327,7 @@
   - `rebuildAvailability()` (273) — 可用性一次算好（主 actor 外）
   - `assetLabel` (289) — 资产状态文案
   - `metaLine(_:)` (297) — 结果元信息行
+
 
 
 ## App/Features/Voice/VoiceGuidedViews.swift
@@ -4035,6 +4345,7 @@
   - `interviewDoneView` (344) — 完成态（按写入/跳过数如实报告）
   - `buildDraft()` (369) — 步骤草稿（计划语境修改拒绝 BR-003/006）
 - `RejectionBox` (389) — 拒绝对象 sheet 包装（Identifiable）
+
 
 
 ## App/Features/Voice/VoiceInputTemplateView.swift
@@ -4058,6 +4369,7 @@
   - `candidateKeys` (522) — 候选去向行（可分发 ∩ 可自动分类）
 
 
+
 ## App/Features/Voice/VoiceLevelCheckView.swift
 - `VoiceLevelCheck` (17) — 语音访谈前置音量自检（测试句朗读 + 实时音量条）
   - `tooLow` (26) — 音量过低派生（阈值单点）
@@ -4067,6 +4379,7 @@
   - `lowThreshold` (98) — 判定阈值
   - `start()` (108) — 会话激活 + tap 安装（10Hz 节流）
   - `stop()` (141) — 拆除（对称还原会话状态）
+
 
 
 ## App/Features/Voice/VoiceNoteViews.swift
@@ -4079,6 +4392,7 @@
   - `var body` (96) — 列表/输入区 + 确认卡 + 详情 sheet
   - `currentPatientId` (213) — 当前成员
 - `VoiceNoteDetailSheet` (218) — 速记详情/编辑（正文/标签/入轴/删除）
+
 
 
 ## App/Features/Voice/VoiceQuickLaunchView.swift
@@ -4102,10 +4416,12 @@
   - `open(_:)` (571) — 目标页导航
 
 
+
 ## App/Features/Voice/VoiceRouteAdapters.swift
 - `VoiceReminderDraftRouteView` (9) — FR17.10 挂载适配（调度通道注入）
 - `VoiceNotePanelRouteView` (28) — FR17.14 面板路由
 - `VoiceGuidedProfileRouteView` (45) — FR17.11 访谈挂载适配（字段提交注入 + 换人重建）
+
 
 
 ## App/Features/Voice/VoiceSessionView.swift
@@ -4153,6 +4469,7 @@
   - `endSession()` (892) — 结束会话
 
 
+
 ## App/Features/Settings/AppSettingsStore.swift
 - `AppSettingsStore` (12) — F14 设置状态仓：桥接 Infrastructure SettingsStore actor，同步 UserDefaults 冻结键镜像（分裂脑防护全在此层）
   - `var values: [AppSettingKey: String]` (13) — 全部设置键值缓存（读侧口径一律按键默认值解析）
@@ -4170,6 +4487,7 @@
   - `func loadAudit()` (282) — 装载审计列表
 
 
+
 ## App/Features/Settings/AppEntitlementStore.swift
 - `AppEntitlementStore` (14) — SP-61 权益状态仓：桥接 EntitlementStore，五时机弹墙调度+24h 频控持久化
   - `var owned / aiMonthlyUsed / lastShownAt` (15) — 已购产品集 / AI 月度用量 / 各触发点最近展示时刻
@@ -4184,6 +4502,7 @@
   - `func evaluateTrigger(_:now:)` (117) — 五时机标准入口：判定+标记+置 pendingPaywallTrigger
   - `var pendingPaywallTrigger` (125) — 待展示弹墙触发器（PaywallHost 观察）
   - `func clearPendingPaywall()` (126) — 清待展示触发器
+
 
 
 ## App/Features/Settings/AppearanceViews.swift
@@ -4208,6 +4527,7 @@
   - `func swatch(background:bar:)` (170) — 单色预览色块绘制
 
 
+
 ## App/Features/Settings/SettingsViews.swift
 - `SettingsView` (7) — F14 设置中心：授权开关/外观/安全/通知/习惯/数据/Pro/隐私/关于分组
   - `var body` (13) — 渲染设置表单全部分组
@@ -4218,6 +4538,7 @@
   - `func label(for:)` (236) — 开关键→L10n 标签
 - `AuditLogView` (255) — FR14.2 审计记录页（append-only 事实列表）
   - `var body` (257) — 渲染审计行列表
+
 
 
 ## App/Features/Settings/BackupViews.swift
@@ -4241,6 +4562,7 @@
   - `func conflictChoice(_:)` (348) — 冲突裁决绑定
 
 
+
 ## App/Features/Settings/DisclosureViews.swift
 - `L2DisclosureSheet` (7) — FR20.3 L2 首用须知半屏 Sheet（我知道了+落 ConsentRecord）
   - `var body` (12)
@@ -4254,6 +4576,7 @@
   - `func sceneDisclosure(scene:level:)` (161)
 
 
+
 ## App/Features/Settings/ExportWizardView.swift
 - `ExportWizardState` (13) — FR13.2 导出向导状态机：四态+代际守卫防取消后旧任务覆盖
   - `enum Phase` (14) — idle/working(processed,total)/finished/degraded
@@ -4265,10 +4588,12 @@
   - `var body` (87) — 按 phase 分支渲染（idle 表单/进度/完成/失败）
 
 
+
 ## App/Features/Settings/FeedbackView.swift
 - `FeedbackView` (9) — FR22.5 反馈页：六类分类+附件逐项勾选（默认只附脱敏日志）
   - `var categories` (19) — 六类反馈名称（L10n 三文件）
   - `var body` (21)
+
 
 
 ## App/Features/Settings/HelpViews.swift
@@ -4296,6 +4621,7 @@
   - `var body` (334)
 
 
+
 ## App/Features/Settings/LanguageSettingsView.swift
 - `LanguageSettingsView` (10) — FR14.5 显示语言选择器（zh-Hans/zh-Hant，切换即时生效）
   - `var current` (14) — 当前语言码
@@ -4313,6 +4639,7 @@
   - `var body` (282)
 
 
+
 ## App/Features/Settings/PaywallView.swift
 - `PaywallHost` (8) — 弹墙宿主：观察 pendingPaywallTrigger 在根层级弹 SP-61（防双弹/漏关）
   - `func body(content:)` (11)
@@ -4328,6 +4655,7 @@
   - `var body` (128)
 
 
+
 ## App/Features/Settings/PreferencesViews.swift
 - `PreferencesView` (9) — FR14.7 常用习惯设置：回读/日期格式/语速（只保留真实生效项）
   - `var body` (19)
@@ -4335,6 +4663,7 @@
   - `func save()` (112) — 离页保存（loaded 守卫+ReadbackPolicy 校验）
 - `DataLifecycleView` (128) — FR14.3 数据生命周期页：四级删除语义+影响清单确认
   - `var body` (137)
+
 
 
 ## App/Features/Settings/PrivacyAuthorizationView.swift
@@ -4346,10 +4675,12 @@
   - `static func subtitle(_:)` (92) — 键→面板副标题
 
 
+
 ## App/Features/Settings/ProOutputViews.swift
 - `ProOutputHubView` (11) — Pro 产出包入口：六产出预览+五时机 proOutputFirstTap 触发
   - `var products` (18) — 产出表（计算属性：语言切换即时）
   - `var body` (29)
+
 
 
 ## App/Features/Reminders/ChannelGatedScheduler.swift
@@ -4362,6 +4693,7 @@
   - `func reloadLocalizedContent()` (83) / `func pending()` (87) / `func delivered()` (91) — 透传
 
 
+
 ## App/Features/Reminders/InAppBanner.swift
 - `InAppBannerHost` (9) — §4.22 前台到期用药横幅：确认/稍后 15 分+5 秒自动收起（跨 Tab 顶层 overlay）
   - `var body` (28) — 渲染横幅+自动收起计时任务
@@ -4369,10 +4701,12 @@
   - `func hide()` (116) — 取消计时任务
 
 
+
 ## App/Features/Reminders/ReminderChannelSettingsView.swift
 - `ReminderChannelSettingsView` (15) — §5.58 提醒触达设置：六类三选一+应用内横幅总开关
   - `var categories` (19) — 六类提醒键/名称表
   - `var body` (28)
+
 
 
 ## App/Features/Reminders/ReminderHubLoader.swift
@@ -4387,6 +4721,7 @@
   - `static func planId(fromNotifyId:)` (138) — dose-{planId}-{epoch}→planId 解析
 
 
+
 ## App/Features/Reminders/UNReminderScheduler.swift
 - `UNReminderScheduler` (11) — 生产通知适配器：锁屏隐私文案+AppRoute 深链+滚动预排窗口
   - `func schedule(dose:at:route:)` (16) — 一次性触发的排程
@@ -4399,6 +4734,7 @@
   - `static func isAppOwned(_:)` (164) — 本仓前缀判定（Domain categoryKey 单一事实源）
   - `func pending()` (168) — 待投递 id→触发时刻
   - `func delivered()` (179) — 已送达 id 集
+
 
 
 ## App/Features/Reminders/ReminderStore.swift
@@ -4457,6 +4793,7 @@
   - `func register(notifyId:fireAt:repeatRule:)` (829) — 登记并落盘
 
 
+
 ## App/Features/Reminders/RemindersViews.swift
 - `RemindersView` (7) — 提醒模块主视图：今日时段聚合卡+服药动作+预约列表
   - `var body` (19) — 渲染今日时段/预约/照护入口+新建 sheet+失败告警
@@ -4479,6 +4816,7 @@
   - `var body` (494)
 
 
+
 ## App/Features/Trends/MetricEntryView.swift
 - `MetricEntryValidation` (11) — FR7.5 录入校验纯函数（解析/合理性界限全在 Domain）
   - `enum Failure` (12) — invalidValue / outOfRange
@@ -4496,6 +4834,7 @@
   - `func toggleExcluded(_:patientId:metricKey:)` (304) — FR7.4 排除/恢复（软删+审计+详情刷新）
 
 
+
 ## App/Features/Trends/MetricOverviewView.swift
 - `MetricOverviewView` (12) — §5.45 指标总览宫格：双列 MetricTile+快速录入/按住说话入口
   - `var columns` (20) — 双列宫格布局
@@ -4503,6 +4842,7 @@
 - `MetricTile` (107) — 宫格瓦片：大数字+单位+来源点+30 天迷你趋势线
   - `var body` (115)
   - `var metricName` (184) — 指标键→L10n 名（未知键空串）
+
 
 
 ## App/Features/Trends/TrendEntryView.swift
@@ -4532,6 +4872,7 @@
   - `static func gridRows(_:)` (452) — 宫格行过滤+睡眠族折叠单一出口
   - `func refreshDetailIfCurrent(patientId:metricKey:)` (462) — 写后详情刷新（沿用身份）
   - `func setExcluded(night:excluded:patientId:metricKey:)` (483) — 睡眠夜整夜排除（单事务+单审计）
+
 
 
 ## App/Features/Trends/TrendViews.swift
@@ -4573,6 +4914,7 @@
   - `var body` (705)
 
 
+
 ## App/Features/Medications/InventoryViews.swift
 - `InventoryListView` (16) — F9.8 药箱总览：批次卡列表+配药清单导出入口
   - `var body` (21)
@@ -4594,6 +4936,7 @@
   - `var body` (259)
 
 
+
 ## App/Features/Medications/MedicationHelpCardView.swift
 - `MedicationHelpCardSheet` (10) — FR9.13a 药品求助卡：多选批次→生成分享（位置照片显式勾选）
   - `var body` (19)
@@ -4602,6 +4945,7 @@
   - `func updateUIViewController(...)` (118)
 - `HelpCardRecipientSheet` (124) — FR24.1 收件人选择（预览+候选/手输+完成回调携收件人）
   - `var body` (134)
+
 
 
 ## App/Features/Medications/MedicationPlanViews.swift
@@ -4639,6 +4983,7 @@
   - `var statusLabel` (762) / `var color` (770) — 状态→文案/色
 
 
+
 ## App/Features/Medications/StockLotViews.swift
 - `StockLotDetailView` (9) — SP-17 批次详情：双轨卡/档案卡/编辑/盘点/废弃（过期零用药建议）
   - `enum Phase` (16) — loading/loaded/failed
@@ -4663,12 +5008,14 @@
   - `static func normalizedEndOfDay(_:)` (395) — 效期日期归一（三处同款收敛）
 
 
+
 ## App/Features/Home/HomeDispositions.swift
 - `extension ReminderDisposition` (8) — FR2.1⑦ 滑动处置→文案/图标/色纯呈现映射（语义全在 Domain）
   - `var title` (9) / `var systemImage` (23) / `var tint` (35) — 动作→L10n/SF Symbol/色
 - `HomeActionToast` (50) — 首页底部条载荷：撤销（写成功）/重试（写失败），id 为动作代次
   - `enum Kind` (51) — undo(key) / failed(retry)
   - `var autoDismissSeconds` (59) — 失败条 8s / 撤销 5s
+
 
 
 ## App/Features/Home/HomeView.swift
@@ -4722,6 +5069,7 @@
   - `func pendingField(_:)` (1261) — 草稿字段行（rejected 删除线）
 
 
+
 ## App/Features/Observations/ObservationDetailViews.swift
 - `ObservationDetailView` (10) — FR8.11 观察详情页（SP-14）：敏感媒体链+行内补充编辑+随访+删除三问
   - `var body` (41) — 四态分支+确认弹窗群+随访 sheet
@@ -4738,6 +5086,7 @@
   - `static func markName(_:)` (338) — 自述标记→展示名（L10n 转发）
 - `SameGroupSheet` (344) — FR8.5 同组观察条目列表
   - `var body` (348)
+
 
 
 ## App/Features/Observations/ObservationViews.swift
@@ -4776,6 +5125,7 @@
   - `func appendCamera(_:)` (817) — 相机照片追加（跨源上限钳制）
 
 
+
 ## App/Features/Emergency/AlertViews.swift
 - `LegacyWordingVeto` (22) — BR-006 旧行文案否决（负清单判定收敛一处）
   - `static func isBanned(_:)` (24) — 命中措辞负清单判定
@@ -4807,6 +5157,7 @@
   - `var permitted` (461) — 本人或成员资格
 
 
+
 ## App/Features/Emergency/EmergencyCareViews.swift
 - `EmergencyCardView` (14) — F15 急救卡：四节内容+系统医疗急救卡引导+SOS（两步可达）
   - `var body` (25)
@@ -4834,6 +5185,7 @@
 - `CareModeSettingsView` (508) — 关怀模式开关与展示参数
   - `var body` (512)
 - `extension EmergencyCardItem` (549) — `var displayDetail` (553) — 展示 detail L10n 组装（存储层零中文拼串）
+
 
 
 ## App/Features/Health/DeviceConnectionView.swift
@@ -4878,6 +5230,7 @@
   - `func load()` (781) — 分页加载（重入守卫+代次校验+BR-001 身份过滤）
 
 
+
 ## App/Features/Health/HealthTabView.swift
 - `HealthTabView` (22) — SP-29 健康 Tab 根：Apple 健康数据展示面（六类行+检索/总览入口）
   - `var body` (27)
@@ -4888,10 +5241,12 @@
   - `var entrySection` (193) — 搜索/指标总览入口
 
 
+
 ## App/Features/Appointments/AppointmentDeepLinkView.swift
 - `AppointmentDeepLinkCard` (9) — FR10.6「去挂号」深链卡（本地映射表匹配，无网可用）
   - `var entry` (16) — 精确→模糊匹配条目
   - `var body` (23) — 跳转按钮/未找到文案/预约编号补录
+
 
 
 ## App/Features/Appointments/AppointmentViews.swift
@@ -4912,6 +5267,7 @@
   - `var body` (402)
   - `func load()` (465) — 历史中查目标（失败保留旧值）
 - `extension View` (475) — `func apptRowButton(prominent:)` (476) — 预约行按钮统一样式（≥44pt）
+
 
 
 ## App/Features/Search/GlobalSearchView.swift
@@ -4935,6 +5291,7 @@
   - `var body` (375)
 
 
+
 ## App/Features/Notifications/NotificationCenterState.swift
 - `NotificationCenterState` (23) — 通知中心可观察门面：已读/归档语义+写代次守卫（两阶段悲观归档）
   - `var itemStates` (24) — 键→状态
@@ -4946,6 +5303,7 @@
   - `func persistArchive(_:)` (62) / `func persistUnarchive(_:)` (63) — 落库
   - `func applyArchived(_:)` (64) / `func applyUnarchived(_:)` (65) — 改可观察态
   - `func archive(_:)` (69) / `func unarchive(_:)` (71) — 悲观两阶段路径
+
 
 
 ## App/Features/Notifications/NotificationCenterView.swift
@@ -4969,6 +5327,7 @@
   - `var body` (265)
 
 
+
 ## App/Features/Caregiving/CaregiverViews.swift
 - `CaregiverViews` (14) — FR24.5 同机照护者视图：跨成员代确认入口（BR-001 落回所属成员）
   - `var body` (27) — 禁用说明态/待办列表+分钟级墙钟推进
@@ -4978,10 +5337,12 @@
 定位口诀：套件声明带 `// binds: SU-xxx`（gate-suites.tsv 的 token 来源）；SU 编号 → 阶段（M0/M1a/M1b/M1c/M15/M2），FR 编号 → function-spec 功能需求。fixture 建造器统一收敛在 TestStoreFixtures.swift / HealthImportTestSupport.swift / MatchedCardTestSupport.swift。
 
 
+
 ## Tests/VitaLiberTests/AuthorizationReloadTests.swift
 - `AuthorizationReloadTests` (10) — SU-M1c-FR14（BR-010）：授权重载不得撤销在途的「拒绝」写
   - `test_failedDenialStaysClosedUntilAnExplicitGrant()` (11) — 注入写入失败触发器 → 拒绝落库失败仍保持关闭态，显式授权后 revision 前进
   - `test_WALReloadCannotReplaceAnOutstandingDenial()` (29) — WAL 库 + 阻塞写并发：load() 不得用旧读覆盖在途拒绝；持久层终态与内存一致
+
 
 
 ## Tests/VitaLiberTests/CardKindIconTests.swift
@@ -4992,12 +5353,14 @@
   - `test_documentStableKey_structuredTargetPrimaryIcon_attachmentOnlyFallsBack()` (60) — 文档稳定键 → 结构化目标首卡类图标；仅附件文档键回落
 
 
+
 ## Tests/VitaLiberTests/ClaimAcceptanceTests.swift
 - `ClaimAcceptanceTests` (11) — SU-M2-CARE（FR13.7 报销票据落库纯事实）
   - `test_entryAndSummaryPureFacts()` (19) — 录入 + totals 纯事实汇总（数量/金额/币种），组装句不含建议
   - `test_summarySentencesAvoidReimbursementAdviceWords()` (38) — 汇总句过报销判断词黑名单（可报销/建议/应该）
   - `test_memberIsolation()` (53) — BR-001 跨成员票据隔离
 - `makeStore()` (13) — 夹具：内存库 + 报销测试成员（经 TestStoreFixtures.inMemoryWithPatient）
+
 
 
 ## Tests/VitaLiberTests/DeviceStateTests.swift
@@ -5009,12 +5372,14 @@
 - `F16StubProvider` (76) — HealthReadingProvider 桩：设备可用、任何道空页、快照抛错
 
 
+
 ## Tests/VitaLiberTests/DictationPressStateTests.swift
 - `DictationPressStateTests` (5) — SU-M15-VOICE（FR17.1 按住说话按压状态机）
   - `test_shortPressTogglesExactlyOnce()` (6) — 轻点 = 开关；cancel 后无动作
   - `test_recognizedHoldStopsInsteadOfTogglingOnRelease()` (13) — 识别过的长按抬手 = stop 而非 toggle；重复识别拒绝
   - `test_cancelledPressCannotBeStartedByItsLateTimer()` (22) — 迟到的旧计时器不得启动已取消按压
   - `test_holdThresholdIsLongerThanANormalTap()` (35) — 阈值 0.4–1.0s 长于普通点击；纳秒出口与秒值同源
+
 
 
 ## Tests/VitaLiberTests/DocumentsFieldDisplayTests.swift
@@ -5029,6 +5394,7 @@
 - `display(_:_:)` (13) — fieldValueDisplay 简写
 
 
+
 ## Tests/VitaLiberTests/DocumentTypeKeyBackfillTests.swift
 - `DocumentTypeKeyBackfillTests` (13) — SU-M2-PENDINGCARD（FR5.5 文档稳定键首启回填 · 原 D3-2）
   - `test_legacyLabelLookup_threeLanguages_missBecomesCustom_existingKeyPassesThrough()` (42) — 旧标签三语反查；未命中 custom；已键者直通
@@ -5038,6 +5404,7 @@
 - `defaults()` (14) — 独立 UserDefaults suite；`storeFixture()` (22) — 两成员 + 文档仓；`legacySave(_:patient:label:sha:)` (36) — 旧标签形态入库
 
 
+
 ## Tests/VitaLiberTests/EmergencyCardAcceptanceTests.swift
 - `M2EmergCardAcceptanceTests` (14) — SU-M2-EMERG / SU-M2-CARE（FR15.1 逐项选择；BR-003；迁移 v4）
   - `test_unselectedExcluded_selectedIncluded()` (23) — 数据存在 ≠ 入卡；退选只删选择行不删数据源
@@ -5045,6 +5412,7 @@
   - `test_emptyCardGuidesAndDoesNotWrite()` (68) — 空卡触发系统医疗急救卡引导；无静默写入面
   - `test_bloodTypeCarriedIntoCard()` (79) — 血型随卡带出
   - `test_migrationV4SelectionTableUsable()` (87) — 迁移 v4 emergency_card_selection 建表可写
+
 
 
 ## Tests/VitaLiberTests/HealthAlertAcceptanceTests.swift
@@ -5058,6 +5426,7 @@
   - `test_migrationV3BackfillsSourceThresholdColumns()` (131) — 迁移 v3 补齐阈值列（只应用 v3 步）
 
 
+
 ## Tests/VitaLiberTests/HealthBackupAcceptanceTests.swift
 - `HealthBackupAcceptanceTests` (9) — SU-M1c-EXPORT / SU-M15-TREND / SU-M2-F16（FR13.5/FR7.9/FR16.2 备份往返）
   - `test_backupRoundTripsFullMetricsWithoutPortableHealthKitConnection()` (79) — 指标全列往返；授权/游标/样本索引不可携带；恢复不建立连接
@@ -5068,6 +5437,7 @@
   - `test_alertHistoryRoundTripsButIsNotEligibleForNotificationRetry()` (330) — 预警历史往返、恢复态不复活提醒、旧证据键保留
   - `test_alertConflictsRequireResolutionAndKeepAdoptCoexistRemapSafely()` (377) — 预警冲突必须裁决；keep/adopt/coexist 组合态
 - `makeStore()` (10) — Owner+家人两成员 + local_owner；`makeMetricStore()` (27) — 11 类指标样本 + 血压/血糖成员样本；`makeAlertStore()` (294) — 7 条预警事件（含 legacy evidence）
+
 
 
 ## Tests/VitaLiberTests/HealthImportAcceptanceTests.swift
@@ -5100,15 +5470,18 @@
 - `makeStore()` (10) — 夹具：Owner 绑定库（经 TestStoreFixtures.inMemoryWithOwner）；`checkpoint(_:binding:kind:previousAnchor:batch:snapshots:)` (15) — stage+commit 两步简写
 
 
+
 ## Tests/VitaLiberTests/HealthImportTestSupport.swift
 - `extension HealthImportStore` (18) — history 道默认便捷（`anchor(binding:kind:)` 19 / `stage(binding:kind:previousAnchor:page:)` 23）：两份逐字重复的私有扩展收敛的单一出口
 - `extension XCTestCase` (31) — `shanghaiCalendar` (32)：时区固定 Asia/Shanghai 的日历（Stock 三套件对账/物化/补录共用）
+
 
 
 ## Tests/VitaLiberTests/HealthKitReaderPredicateTests.swift
 - `HealthKitReaderPredicateTests` (9) — SU-M2-F16：HealthKit 读取谓词边界（#if os(iOS) 编译守卫）
   - `test_stepStatisticsExcludeSamplesArrivingAfterIdentityEnumeration()` (10) — 步数统计谓词排除枚举后迟到的贡献样本
   - `test_changePredicatesPartitionSamplesOnEndDateAtCutoff()` (29) — recent/history 两道谓词以样本 end 在 cutoff 处互补，与 Domain matches 一致
+
 
 
 ## Tests/VitaLiberTests/HealthKitSyncServiceTests.swift
@@ -5130,6 +5503,7 @@
 - `HealthSyncTestGate` (325) — 续延门（wait/open）；`HealthSyncFixtureProvider` (342) — 分道分页 fixture 提供者（请求记录/失败注入/oversized 校验）
 
 
+
 ## Tests/VitaLiberTests/HealthPresentationTests.swift
 - `HealthPresentationTests` (8) — SU-M2-F16 / SU-M15-L10N：健康指标展示本地化三语一致性
   - `test_sixHealthTypesAndEverySleepStageHaveVisibleMetricNames()` (9) — 六类 + 睡眠六阶段的 metric.name.* 三语非空、互异、L10n 出口同源
@@ -5141,12 +5515,14 @@
 - `forEachLanguage(_:)` (173) — 三语循环（切换 L10n + 恢复原语言/原存储）
 
 
+
 ## Tests/VitaLiberTests/HomeDoseDispositionTests.swift
 - `HomeDoseDispositionTests` (10) — SU-M1c-REGRESSION（TC-M1c-09 / BR-004）：时段级动作逐剂落 dose_log
   - `test_timeSlotSkipWritesSkippedPerDoseAndReturnsCount()` (33) — 时段跳过逐剂写 skipped 并返回条数、pending 归零
   - `test_timeSlotSnoozeSchedulesThenRecordsSnoozed()` (44) — 时段稍后：先调度后记 snoozed
   - `test_emptyDoseSetReturnsZero()` (53) — 空剂量集返回 0
 - `makeStore()` (11) — 夹具：药品库 + ReminderStore 装配（经 TestStoreFixtures.inMemoryWithMedication）；`pendingDoses(_:_:_:_:)` (21) — 今日 +5 分钟固定时刻未决剂量（临近日界跳过）
+
 
 
 ## Tests/VitaLiberTests/HomeProfileProgressTests.swift
@@ -5166,6 +5542,7 @@
 - `HomeProfilePersistor` (201) — PatientPersisting 端口替身（计数与观察走生产 AppState，可注入拒绝更新）
 
 
+
 ## Tests/VitaLiberTests/ImmunizationAcceptanceTests.swift
 - `ImmunizationAcceptanceTests` (12) — SU-M2-CARE（FR4.5/FR4.6 疫苗记录落库）
   - `test_provenanceAndConfirmationStatus()` (21) — 手动 = C 级已确认；OCR 派生 = D 级待确认（BR-003）
@@ -5173,8 +5550,10 @@
   - `test_memberIsolation()` (54) — BR-001 跨成员隔离
 
 
+
 ## Tests/VitaLiberTests/MatchedCardTestSupport.swift
 - `extension MatchedCard` (5) — `fullyConfirmed()` (18)：两步确认编排（批量可选字段 + 逐项必填字段），与 UI 确认流程同构；与 CoreKitTests 同名扩展刻意重复（两个 test target 无法共享）
+
 
 
 ## Tests/VitaLiberTests/MemberAcceptanceTests.swift
@@ -5183,12 +5562,14 @@
   - `test_quotaBoundaryMatchesPersistedState()` (38) — 配额边界与落库计数一致（3 人加 1 不弹、4 人加 1 弹）
 
 
+
 ## Tests/VitaLiberTests/NotificationCenterStateTests.swift
 - `NotificationCenterStateTests` (9) — SU-M1c-REGRESSION（TC-M1c-09 / FR14.8 归档状态合并）
   - `test_loadMergesOnlyRequestedKeys_emptyKeySetDoesNotClear()` (16) — load 只合并请求键；空键集不清空
   - `test_staleLoadDoesNotOverwriteNewerLocalWrites()` (27) — 快照之后的本地写赢过陈旧读
   - `test_archivePersistenceFailureKeepsObservableState()` (37) — 落库失败不得假归档（关库注入 SQLITE_MISUSE）
   - `test_undoMarksReadAndClearsArchivedAt()` (45) — 撤销后为已读且持久层 archived_at 为空
+
 
 
 ## Tests/VitaLiberTests/OcrCardQueueAcceptanceTests.swift
@@ -5213,6 +5594,7 @@
   - `test_failedOriginalWriteKeepsDraftAndCreatesNoDocument()` (472) — 原件写失败保留草稿、零文档
   - `test_documentLaterRetainsOriginalAndEditedSourceBackedCard()` (484) — 稍后处理保留原件路径与编辑卡
 - `Fixture` (23) — 夹具聚合（库/待办/调度/状态/目录）；`fixture(pages:confidence:scheduler:)` (71) — 完整活管线装配；`PageRecognizer` (33) — 按页脚本识别桩（PDF 字节拒绝）；`FailingScheduler` (54) — 恒失败调度桩；`imageDraft` (89) / `pdfURL` (97) / `reviewed` (110) — 草稿/PDF/确认卡便捷
+
 
 
 ## Tests/VitaLiberTests/OcrCardStoreTests.swift
@@ -5255,6 +5637,7 @@
 - `fixture()` (11) — 成员 + 双页文档夹具（经 TestStoreFixtures.inMemoryWithPatient）；`fixtureDocument(_:patient:)` (1711) — 第二份体检文档
 
 
+
 ## Tests/VitaLiberTests/ProfileSuggestionStoreTests.swift
 - `ProfileSuggestionStoreTests` (13) — SU-M2-PENDINGCARD（FR3/FR11.4/FR23/BR-001/BR-003 · 子项目 D D4-2）：资料建议接受流
   - `test_collectReadsConfirmedReceiptsAndWritesNothing()` (54) — collect 只读已确认回执、零写入、来源元数据齐全；他人卡零建议
@@ -5269,12 +5652,14 @@
 - `fixture()` (14) — 成员 + 文档 + 双页夹具；`encounterCard(past:allergy:page:)` (23) / `labCard(_:page:)` (31) / `diagnosisCard(_:page:)` (38) — 卡建造器（经 fullyConfirmed）；`count(_:_:_:)` (48) — 单表行数
 
 
+
 ## Tests/VitaLiberTests/ReminderStoreTests.swift
 - `ReminderStoreTests` (13) — SU-M1b-REMINDER（App 层 ReminderStore 补覆盖）
   - `test_dueReminderDeliveredNotRescheduled()` (20) — 到期提醒已送达不再重排（delivered 守卫）
   - `test_followUpReminderCarriesObservationDetailDeepLink()` (60) — 随访提醒携带观察详情深链（缺路由降级不 crash）
   - `test_SOS_longPressContract_regularMode06Seconds()` (74) — BR-012 SOS 长按契约 ≥0.6s（常规/关怀模式）
 - `makeStore()` (87) — 夹具：成员 + 完整 ReminderStore 装配（经 TestStoreFixtures.inMemoryWithPatient）
+
 
 
 ## Tests/VitaLiberTests/SchemaRuntimeTests.swift
@@ -5284,6 +5669,7 @@
   - `test_validForeignKeyWritable()` (42) — 合法外键可写（防「什么都写不进」假象）
   - `test_auditTablesAndIndexesBuildable()` (63) — 审计表与 idx_audit_time 索引可建
   - `test_M0_fullSchemaIncludesFiveDualTrackStockTables()` (85) — §4.3 全量表清单逐一断言（防部分清单假绿）+ 双轨索引
+
 
 
 ## Tests/VitaLiberTests/SecurityGateAcceptanceTests.swift
@@ -5298,6 +5684,7 @@
 - `makeApp(defaults:gateResult:)` (42) / `makeDocs(container:lines:)` (50) / `ensureOwner(app:container:)` (116) — App 装配、活管线状态仓（每用例独立原件目录 + tearDown 清理）、建档等待；`freshDefaults()` (35) / `tinyPNG` (63, lazy) — 独立 defaults / 32×32 白图
 
 
+
 ## Tests/VitaLiberTests/SentStatusAcceptanceTests.swift
 - `SentStatusAcceptanceTests` (11) — SU-M2-CARE（FR24.2 发送状态落库只记状态不存原文）
   - `test_recordsAndList()` (20) — 记录发送 + 列表可查；表结构无原文列
@@ -5306,11 +5693,13 @@
 - `makeStore()` (13) — 夹具（经 TestStoreFixtures.inMemoryWithPatient）；`messagesCols()` (63) — sent_message 列名清单
 
 
+
 ## Tests/VitaLiberTests/SmokeTests.swift
 - `SmokeTests` (7) — SU-M0-SMOKE（TC-M0-09 启动冒烟）
   - `test_SU_M0_SMOKE_MainModuleFiveCasesComplete()` (9) — MainModule 五枚举完整
   - `test_MainModule_keysMatchSpec()` (17) — 模块键与 ui-ux §9 一致；SF Symbol 名运行时可解析（拦空 Tab 图标）
   - `test_ObservationKind_eightKindsCompleteWithNonEmptyNames()` (29) — F8 八类观察类型齐全且名称非空
+
 
 
 ## Tests/VitaLiberTests/StockAcceptanceTests.swift
@@ -5324,6 +5713,7 @@
 - `makeStore()` (18) — 夹具（经 TestStoreFixtures.inMemoryWithMedication）
 
 
+
 ## Tests/VitaLiberTests/StockAppointmentAcceptanceTests.swift
 - `StockAppointmentAcceptanceTests` (12) — SU-M1b-STOCK / SU-M1b-APPT（TC-M1b-06/07）：双轨扣减矩阵 + 预约闭环
   - `test_dualTrackDeductionMatrixPersists()` (43) — taken → 两线各扣 + FEFO 分配行；重复确认拒绝；deliveryFacts 可见已服
@@ -5333,6 +5723,7 @@
   - `test_markMissedCancelsTieredRemindersKeepsFollowUp()` (195) — 标记错过取消分级提醒只留跟进（幽灵提醒回归）
   - `test_futureAppointmentMarkMissedRejected()` (213) — 未来预约标错过被商店层拒绝
 - `makeStore()` (17) — 夹具（经 TestStoreFixtures.inMemoryWithMedication）+ 调度/预约；`materializedDose(store:meds:patient:med:times:)` (39) — 建计划 + 物化今日窗口取首个剂量 id
+
 
 
 ## Tests/VitaLiberTests/StockRegressionTests.swift
@@ -5348,6 +5739,7 @@
 - `makeStore()` (15) — 夹具（经 TestStoreFixtures.inMemoryWithMedication）；`seedMissedDose(store:meds:planId:patient:med:lot:)` (34) — 昨日未决议行 + 补账为 missed；`documentFixture()` (243) — 两成员文档仓
 
 
+
 ## Tests/VitaLiberTests/TestStoreFixtures.swift
 - `extension GRDBStore` (12) — 测试仓夹具单一出口（2026-09-18 收敛十余份逐字重复的 makeStore 种子）
   - `inMemoryWithPatient(_:relation:bloodType:)` (14) — 单成员库（外键目标 ERR#35 前置）
@@ -5355,6 +5747,7 @@
   - `inMemoryWithMedication(patientName:relation:medName:spec:unitKind:)` (31) — 药品库（stock_lot 外键目标）
   - `insertPatient(_:relation:bloodType:)` (39) / `insertLocalOwner(_:selfPatient:)` (56) / `insertMedication(patient:name:spec:unitKind:)` (65) — 单行种子
 - `tableCounts(_:_:)` (78) — 表行数向量（事务回滚/幂等断言共用）
+
 
 
 ## Tests/VitaLiberTests/TimelineExpansionStoreTests.swift
@@ -5366,6 +5759,7 @@
 - `defaults()` (13) — 独立 UserDefaults；`makeStore()` (49) / `seedEncounter(_:patient:at:withPrescription:)` (53) / `makeState(_:defaults:)` (64) — 库/就诊/视图模型装配
 
 
+
 ## Tests/VitaLiberTests/TimelineHubQueryTests.swift
 - `TimelineHubQueryTests` (13) — SU-M1c-REGRESSION（FR11.1/FR11.2/BR-001/BR-003 · 子项目 J round1 V4/V5）：主卡分页 + 子卡批取（hubPage）
   - `test_hubPage_groupsChildrenUnderEncounterAndKeepsLeaves()` (23) — 子卡归组主卡、观察叶子独立、D 级不入子卡、旧平铺查询不变
@@ -5375,6 +5769,7 @@
 - `makeStore()` (15) — 成员库（经 TestStoreFixtures.inMemoryWithPatient）；`encounter(_:patient:at:kind:hospital:)` (19) — 就诊种子
 
 
+
 ## Tests/VitaLiberTests/TimelineSearchAcceptanceTests.swift
 - `TimelineSearchAcceptanceTests` (12) — SU-M1c-REGRESSION / SU-M1c-EXPORT / SU-M1c-SEC（TC-M1c-01/04）：时间轴投影 + 往返 + 搜索双路由
   - `test_SU_M1c_REGRESSION_timelineUnionProjectionAndIsolation()` (37) — F11 联合投影同轴时间倒序、成员隔离
@@ -5382,6 +5777,7 @@
   - `test_searchDualRouteHits()` (138) — F12 搜索：trigram/2-gram/1 字 LIKE 三路由命中（FTS 触发器同步）
 - `makeStore()` (14) — 成员 + 就诊 + 观察种子（经 insertPatient）
 - `AppearanceThemeTests` (172) — SU-M1c-FR14：AppTheme 三态映射 + FR18.16 高对比叠加/关怀回落（与时间轴搜索同文件，两套件共文件）
+
 
 
 ## Tests/VitaLiberTests/TrendAcceptanceTests.swift
@@ -5403,6 +5799,7 @@
   - `test_templateSentencesPassBR006WordingNegativeList()` (754) — BR-006：AI 七段句/语音提示/证据卡模板全过措辞负清单
 
 
+
 ## Tests/VitaLiberTests/TrendEntryStateTests.swift
 - `TrendEntryStateTests` (13) — SU-M15-TREND（子项目 C7 round2 H2/H4）：趋势详情查询身份守卫
   - `test_detailSeriesAlwaysMatchesRequestedIdentity()` (32) — 晚到的旧身份结果绝不落槽（身份 = patientId/metric/origin/range）
@@ -5414,6 +5811,7 @@
 - `Seed` (14) / `makeSeed()` (20) — 库 + 趋势仓 + owner + 两种子样本（经 TestStoreFixtures.inMemoryWithOwner）
 
 
+
 ## Tests/VitaLiberTests/TrendQueryIdentityTests.swift
 - `TrendQueryIdentityTests` (12) — SU-M15-TREND / SU-M2-F16（round2 H2 + BR-001）：查询身份回传与来源过滤
   - `test_deviceOriginQueryRequiresSelfBindingAndForeignDeviceRowsAreHidden()` (39) — 设备来源只可能归属本人绑定；非本人全来源查询过滤 device 行
@@ -5422,6 +5820,7 @@
   - `test_legacySignatureForwardsAsAllOriginsWithIdentity()` (96) — 兼容包装 = 全来源查询且身份回传
   - `test_excludedForeignDeviceRowsAreHiddenToo()` (105) — 排除点集同样按成员过滤
 - `Seed` (13) / `makeSeed()` (23) — Owner + Family 两成员（经 TestStoreFixtures.inMemoryWithOwner）；`insertDeviceHeartRate(_:patient:value:at:)` (38) — device 心率行直插
+
 
 
 ## Tests/VitaLiberTests/VoiceDictationModelTests.swift
@@ -5438,6 +5837,7 @@
 - `ControlledEngine` (11) — TranscriptionEngine 受控桩（请求序列/完成/失败/partial 注入）；`eventually(_:file:line:)` (65) — 有界轮询断言（10s）
 
 
+
 ## UITests/VitaLiberUITests/CaptureFlowE2ETests.swift
 - `CaptureFlowE2ETests` (12) — SU-M1a-E2E / SU-M1a-SEC（TC-M1a-01/02 · test-plan §4.2 端到端切片）：三卡→建档→家人→首页
   - `test_SU_M1a_E2E_endToEndSliceStory_threeCardsFamilyCompleteToHome()` (70) — 三卡→本人建档→跳过家人→首页空态引导卡 + 进度入口；大标题空白区 ≤48pt；无强制拍摄步
@@ -5447,9 +5847,11 @@
 - `launchFresh()` (14) — 启动参数 [-uitest-reset, -uitest-gate-bypass]；`launchAtFamilyStep()` (21) — 三卡确认 + 本人建档（性别/出生年/血型/紧急联系人）到家人步
 
 
+
 ## UITests/VitaLiberUITests/LaunchUITests.swift
 - `LaunchUITests` (4) — SU-M0-SMOKE：冷启五 Tab 可见
   - `test_coldLaunchFiveTabsVisible()` (6) — 五 Tab 本地化标题逐一存在（首页/健康档案/提醒/健康数据/我的）；独立启动参数隔离持久化状态
+
 
 
 ## UITests/VitaLiberUITests/PerformanceScreeningTests.swift

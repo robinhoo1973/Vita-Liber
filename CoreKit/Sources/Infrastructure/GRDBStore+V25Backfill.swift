@@ -1,5 +1,6 @@
 // 平台守卫与 GRDBStore.swift 严格镜像（GRDB 仅 iOS/macOS 链接，ERR#8）。
 #if os(iOS) || os(macOS)
+// linux-blind: （平台守卫：内容未在 Linux 编译，盲区） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import GRDB
 import Domain

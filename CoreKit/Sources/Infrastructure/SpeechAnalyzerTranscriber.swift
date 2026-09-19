@@ -3,6 +3,7 @@
 // 此前升级轨由 sherpa-onnx 承担，因 ITMS-90208 打包缺陷临时退出构建，生产回落基线轨）。
 // 本文件只在 Apple 平台编译；Linux 测试宿主不涉语音硬件。
 #if os(iOS) || os(macOS)
+// linux-blind: Speech 框架（iOS 26+ 升级轨） / AVFoundation 音频 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import AVFoundation
 import Speech

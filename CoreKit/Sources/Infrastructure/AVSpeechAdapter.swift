@@ -1,5 +1,6 @@
 // 平台守卫镜像 Package.swift 的平台条件（ERR#8 纪律）：AVFoundation 仅 Apple 平台可用。
 #if os(iOS) || os(macOS)
+// linux-blind: AVFoundation 音频 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import AVFoundation
 import Domain

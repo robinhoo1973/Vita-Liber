@@ -1,5 +1,6 @@
 // 平台守卫镜像 Package.swift（ERR#8 纪律）：Vision 仅 Apple 平台可用。
 #if os(iOS) || os(macOS)
+// linux-blind: Vision OCR —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import Vision
 import Domain

@@ -391,6 +391,29 @@ else
   else
     pass "${p_total} 个 Swift 文件语法解析通过"
   fi
+  # 守卫盲区登记（2026-09-19 CI 35407401414 五层根因）：`#if os(...)` 全文件守卫使
+  # Linux 型检编译空单元（假安全——构建日志照样打印 Compiling X.swift），改动只有
+  # macOS CI 看得见。每份守卫文件必须紧随守卫行登记 `// linux-blind: <原因>`，
+  # 新守卫文件未登记即红——强制「失明」显式化，不许无声新增盲区。
+  blind_total=0; blind_missing=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    # 守卫行允许在文件头注释之后（前 6 行内），登记注释必须紧随其后
+    guard_line=$(grep -n '^#if os(' "$f" 2>/dev/null | head -1 | cut -d: -f1 || true)
+    [ -n "$guard_line" ] || continue
+    [ "$guard_line" -le 6 ] 2>/dev/null || continue   # 非文件级守卫（内层条件块）不查
+    blind_total=$((blind_total + 1))
+    next=$((guard_line + 1))
+    if ! sed -n "${next}p" "$f" | grep -q '^// linux-blind:'; then
+      blind_missing=$((blind_missing + 1))
+      printf '    守卫未登记盲区: %s（须在守卫行后加 // linux-blind: 原因）\n' "$f"
+    fi
+  done < <(find "$APP/CoreKit/Sources/Infrastructure" -name '*.swift' 2>/dev/null)
+  if [ "$blind_total" -gt 0 ] && [ "$blind_missing" -gt 0 ]; then
+    fail "平台守卫盲区未登记 ${blind_missing}/${blind_total} 份——守卫文件在 Linux 型检中编译为空单元，改动须经 macOS CI 验证；须显式登记"
+  elif [ "$blind_total" -gt 0 ]; then
+    pass "${blind_total} 份平台守卫文件均登记 linux-blind 盲区注释"
+  fi
 fi
 
 # ---------- [8] 阶段门禁套件存在性 ----------

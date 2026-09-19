@@ -3,6 +3,7 @@
 // 随后却因 GRDB 自身的 CSQLite 子模块无法构建而报 "missing required module 'CSQLite'"
 // —— canImport 探测的是模块可见性，不是可链接性。
 #if os(iOS) || os(macOS)
+// linux-blind: （平台守卫：内容未在 Linux 编译，盲区） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import GRDB
 import Domain

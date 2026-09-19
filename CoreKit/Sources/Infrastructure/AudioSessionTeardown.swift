@@ -3,6 +3,7 @@
 // macOS 侧引用方（SFSpeechTranscriber 的音频会话逻辑）以 #if os(iOS) 自行
 // 守卫，macOS 测试宿主走无会话路径（AVAudioEngine 直连不涉会话路由）。
 #if os(iOS)
+// linux-blind: AVFoundation 音频 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import AVFoundation
 
 // 拆除契约说明（2026-09-18 清理轮：原 `public enum AudioSessionTeardown {}` 空壳命名空间
