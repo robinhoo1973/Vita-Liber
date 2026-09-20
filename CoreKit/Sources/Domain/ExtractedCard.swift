@@ -131,10 +131,8 @@ extension PageLayout {
     /// 连续 ≥2 列行段 → 合成 `.table`；其余 → `.paragraph`。按首行号排序。
     public func extractionRegions(pageIndex: Int) -> [ExtractionRegion] {
         var regions: [ExtractionRegion] = []
-        // 拆子表达式（2026-09-20 告警清除）：单式 863ms 超类型检查预算（500ms）。
-        let bodyLineIndices: [Int] = tables.flatMap { $0.rows.flatMap { $0.cells.flatMap(\.lineIndices) } }
-        let headerLineIndices: [Int] = tables.flatMap { $0.header?.cells.flatMap(\.lineIndices) ?? [] }
-        var covered = Set(bodyLineIndices + headerLineIndices)
+        // 表格占用行单源 `PageLayout.tableLineIndices`（round4 P-3：与 OCRPipeline 归并禁合集合同源）。
+        var covered = tableLineIndices
         for table in tables {
             regions.append(ExtractionRegion(
                 pageIndex: pageIndex, id: table.id, kind: .table, columnHeader: table.header?.cells.sorted { $0.columnIndex < $1.columnIndex }.map(\.text),

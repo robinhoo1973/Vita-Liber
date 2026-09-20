@@ -26,6 +26,11 @@ public struct LayoutRect: Codable, Sendable, Equatable {
     public func contains(x px: Double, y py: Double) -> Bool {
         px >= x && px <= maxX && py >= y && py <= maxY
     }
+    /// 一组矩形的最小外接矩形；空集 → nil（round4 P-2：三处 `dropFirst().reduce(union)` 收敛）。
+    public static func union(of rects: [LayoutRect]) -> LayoutRect? {
+        guard let first = rects.first else { return nil }
+        return rects.dropFirst().reduce(first) { $0.union($1) }
+    }
 }
 
 /// 识别出的一行文本块：`id = "b<lineIndex>"`，`lineIndex` 与 `Recognition.lines` 下标一一对应。
@@ -75,6 +80,15 @@ public struct PageLayout: Codable, Sendable, Equatable {
     public init(blocks: [TextBlock], tables: [TableRegion] = [], paragraphs: [Paragraph] = []) {
         self.blocks = blocks; self.tables = tables; self.paragraphs = paragraphs
     }
+    /// 表格占用的行号集（正文格 + 表头格）。round4 P-3：此前 `OCRPipeline` 与 `extractionRegions` 各自定义，
+    /// 归并与抽取对「哪些行属表格」若不同源，表格行会被一边禁合、另一边当段落——单点定义。
+    /// 拆子表达式（2026-09-20 告警清除）：单式超类型检查预算。
+    public var tableLineIndices: Set<Int> {
+        let body: [Int] = tables.flatMap { $0.rows.flatMap { $0.cells.flatMap(\.lineIndices) } }
+        let header: [Int] = tables.flatMap { $0.header?.cells.flatMap(\.lineIndices) ?? [] }
+        return Set(body + header)
+    }
+
     /// 兼容退化（design §4.4「都不可用时」）：每行一块、竖直等分——引擎仍可工作，只是行身份弱。
     public static func linesOnly(_ lines: [String]) -> PageLayout {
         let h = 1.0 / Double(max(lines.count, 1))
@@ -129,7 +143,8 @@ public enum LayoutRowBuilder {
             let cells = group
                 .sorted { ($0.bbox.x, $0.lineIndex) < ($1.bbox.x, $1.lineIndex) }
                 .map { LayoutCell(blockId: $0.id, text: $0.text, lineIndex: $0.lineIndex, columnIndex: 0, bbox: $0.bbox) }
-            let bbox = cells.dropFirst().reduce(cells[0].bbox) { $0.union($1.bbox) }
+            // group 非空（每组至少一块），union(of:) 非 nil；`?? cells[0].bbox` 仅为类型闭合。
+            let bbox = LayoutRect.union(of: cells.map(\.bbox)) ?? cells[0].bbox
             return LayoutRow(id: "r\(index)", cells: cells, bbox: bbox)
         }
         assignColumns(&rows, tolerance: max(0.02, median))

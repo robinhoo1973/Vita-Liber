@@ -74,12 +74,10 @@ public enum TextLineMerger {
         guard isWordCharacter(lastChar), isWordCharacter(firstChar) else { return false }
         // 3. 上行不含 ASCII 数字。
         guard !previousBody.unicodeScalars.contains(where: { (0x30...0x39).contains($0.value) }) else { return false }
-        // 4. 下行不以剂量/用法引导词开头（**前缀**判定：「每日三次」须被
-        // 「每日」拦下——整词相等判定会让复合用法行漏网）。
-        let leadingToken = String(nextBody.prefix { !$0.isWhitespace && !$0.isPunctuation })
-        if DocumentTypeClassifierFallback.directionsPrefixes.contains(where: { leadingToken.hasPrefix($0) }) { return false }
+        // 4. 下行不以剂量/用法引导词开头（前缀判定，见 `startsWithDirectionsPrefix`）。
+        if startsWithDirectionsPrefix(nextBody) { return false }
         // 5. 下行不含冒号（标签行）。
-        if nextBody.contains(":") || nextBody.contains("：") { return false }
+        if containsColon(nextBody) { return false }
         // 6. 上行长度 ≥ 8 字符（折行是长行被视觉行宽截断的结果；短行粘连
         // 几乎必是错合——fail-safe 宁可漏合）。
         guard previousBody.count >= 8 else { return false }
@@ -99,13 +97,9 @@ public enum TextLineMerger {
                              tableLineIndices: Set<Int> = []) -> [MergedLine] {
         let ordered = blocks.sorted { $0.lineIndex < $1.lineIndex }
         guard !ordered.isEmpty else { return [] }
-        let heights = ordered.map(\.bbox.height).sorted()
-        let medianHeight = max(heights[heights.count / 2], 0.005)
-        let rights = ordered.map(\.bbox.maxX).sorted()
-        // 90 分位右缘（小 n 防退化：n=2 时取较大者而非较小者——round3 测试委员复核）。
-        let tenth = max(1, Int(Double(rights.count) * 0.1))
-        let rightEdge = rights[rights.count - tenth]
-        let multiColumn = Set(LayoutRowBuilder.rows(from: ordered).filter { $0.cells.count >= 2 }.flatMap(\.lineIndices))
+        // 版面度量单点（round4 P-1/P-4）：中位行高 / 90 分位右缘 / 多列行集由 `LayoutMetrics` 一次计算。
+        let metrics = LayoutMetrics(blocks: ordered)
+        let multiColumn = metrics.multiColumnLineIndices
         var paragraphOf: [Int: Int] = [:]
         for (p, paragraph) in paragraphs.enumerated() { for li in paragraph.lineIndices { paragraphOf[li] = p } }
 
@@ -123,8 +117,7 @@ public enum TextLineMerger {
                 continue
             }
             let textual = shouldJoin(previous: last.text, next: block.text)
-            let geometric = geometricWrapEvidence(previous: previous.bbox, next: block.bbox,
-                                                  medianHeight: medianHeight, rightEdge: rightEdge)
+            let geometric = geometricWrapEvidence(previous: previous.bbox, next: block.bbox, metrics: metrics)
                 && relaxedTextualGuard(previous: last.text, next: block.text)
             if textual || geometric {
                 result[result.count - 1] = MergedLine(text: TranscriptJoiner.join([last.text, block.text]),
@@ -136,29 +129,47 @@ public enum TextLineMerger {
         return result
     }
 
-    /// 折行的四条几何证据（全部成立才算）。
-    /// 绝对宽度下限（round3 开发委员反例）：全窄列收据的 rightEdge 90 分位退化时
-    /// 「上行写满」恒真——`previous.maxX` 还须覆盖半页宽，否则窄列相邻行错合。
-    static func geometricWrapEvidence(previous: LayoutRect, next: LayoutRect,
-                                      medianHeight: Double, rightEdge: Double) -> Bool {
-        let sameColumn = abs(next.x - previous.x) <= 1.5 * medianHeight
-        let gap = next.y - previous.maxY
-        let adjacent = gap >= -0.25 * medianHeight && gap <= 0.8 * medianHeight && next.midY > previous.midY
-        let previousFillsWidth = previous.maxX >= max(rightEdge - 2.0 * medianHeight, 0.5)
-        let nextNotLonger = next.width <= previous.width + 0.5 * medianHeight
-        return sameColumn && adjacent && previousFillsWidth && nextNotLonger
+    /// 折行的四条几何证据（全部成立才算）：同列 ∧ 纵向相邻 ∧ 上行写满 ∧ 下行不更长。
+    /// 阈值全部由 `LayoutMetrics` 以中位行高为单位给出（含 round3 开发委员的半页宽绝对下限——
+    /// 全窄列收据 rightEdge 退化时「上行写满」恒真，须再覆盖半页宽）。
+    static func geometricWrapEvidence(previous: LayoutRect, next: LayoutRect, metrics: LayoutMetrics) -> Bool {
+        metrics.isSameColumn(previous, next)
+            && metrics.isVerticallyAdjacent(previous, next)
+            && metrics.fillsLineWidth(previous)
+            && metrics.isNotLonger(next, than: previous)
     }
 
     /// 几何路径的文本护栏（比 `shouldJoin` 宽：允许上行含数字、短于 8 字、以逗号/顿号结尾）。
+    /// 与 `shouldJoin` 共用「冒号行 / 引导词行」两谓词（round4 P-5：此前重写一份，规则分叉温床）。
     static func relaxedTextualGuard(previous: String, next: String) -> Bool {
         let p = previous.trimmingCharacters(in: .whitespacesAndNewlines)
         let n = next.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let lastChar = p.last, let firstChar = n.first else { return false }
-        if "。！？!?".contains(lastChar) { return false }
-        if n.contains(":") || n.contains("：") { return false }
-        let leadingToken = String(n.prefix { !$0.isWhitespace && !$0.isPunctuation })
-        if DocumentTypeClassifierFallback.directionsPrefixes.contains(where: { leadingToken.hasPrefix($0) }) { return false }
-        if (lastChar == ":" || lastChar == "：") && firstChar.isNumber { return false }
+        if endsWithSentenceTerminal(p) { return false }
+        if containsColon(n) { return false }
+        if startsWithDirectionsPrefix(n) { return false }
+        if isColon(lastChar) && firstChar.isNumber { return false }
         return true
+    }
+
+    // MARK: - 行文本谓词（细粒度，供两条归并路径共用）
+
+    /// 句末标点（中英）：上行以此结尾即完整句，不续。
+    static let sentenceTerminals: Set<Character> = ["。", "！", "？", "!", "?"]
+
+    static func endsWithSentenceTerminal(_ body: String) -> Bool {
+        body.last.map { sentenceTerminals.contains($0) } ?? false
+    }
+
+    static func isColon(_ character: Character) -> Bool { character == ":" || character == "：" }
+
+    /// 下行含冒号 ⇒ 标签行（「用法：…」），不并入上行。
+    static func containsColon(_ body: String) -> Bool { body.contains(where: isColon) }
+
+    /// 下行以剂量/用法引导词开头（**前缀**判定：「每日三次」须被「每日」拦下；整词相等会让复合用法行漏网）。
+    /// 词表单源 `DocumentTypeClassifierFallback.directionsPrefixes`。
+    static func startsWithDirectionsPrefix(_ body: String) -> Bool {
+        let leadingToken = String(body.prefix { !$0.isWhitespace && !$0.isPunctuation })
+        return DocumentTypeClassifierFallback.directionsPrefixes.contains { leadingToken.hasPrefix($0) }
     }
 }

@@ -8,25 +8,23 @@ public enum ParagraphBuilder {
     public static func paragraphs(from blocks: [TextBlock], excluding excluded: Set<Int> = []) -> [Paragraph] {
         let usable = blocks.filter { !excluded.contains($0.lineIndex) }
         guard !usable.isEmpty else { return [] }
-        let heights = usable.map(\.bbox.height).sorted()
-        let median = max(heights[heights.count / 2], 0.005)
-        let rows = LayoutRowBuilder.rows(from: usable).sorted { $0.bbox.midY < $1.bbox.midY }
+        // 版面度量单点（round4 P-1/P-4）：中位行高与聚行由 `LayoutMetrics` 一次计算，阈值与归并同源。
+        let metrics = LayoutMetrics(blocks: usable)
+        let rows = metrics.rows.sorted { $0.bbox.midY < $1.bbox.midY }
 
         var out: [Paragraph] = []
         var current: [LayoutRow] = []
         func flush() {
-            guard !current.isEmpty else { return }
-            let indices = current.flatMap(\.lineIndices)
-            let bbox = current.dropFirst().reduce(current[0].bbox) { $0.union($1.bbox) }
-            out.append(Paragraph(text: current.map(\.text).joined(separator: "\n"), bbox: bbox, lineIndices: indices))
+            guard let bbox = LayoutRect.union(of: current.map(\.bbox)) else { return }
+            out.append(Paragraph(text: current.map(\.text).joined(separator: "\n"), bbox: bbox,
+                                 lineIndices: current.flatMap(\.lineIndices)))
             current = []
         }
         for row in rows {
             guard row.cells.count == 1 else { flush(); continue }     // 多列行：分隔且不入段
-            if let last = current.last {
-                let sameColumn = abs(row.bbox.x - last.bbox.x) <= 1.5 * median
-                let close = row.bbox.y - last.bbox.maxY <= 1.0 * median
-                if !(sameColumn && close) { flush() }
+            if let last = current.last,
+               !(metrics.isSameColumn(last.bbox, row.bbox) && metrics.isWithinParagraphGap(last.bbox, row.bbox)) {
+                flush()
             }
             current.append(row)
         }

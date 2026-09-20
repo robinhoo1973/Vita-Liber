@@ -90,7 +90,7 @@ public struct OCRPipeline: Sendable {
             guard merged.count != lines.count else { return (lines, degraded) }
             return (merged.map(\.text), rebuildBlocks(merged: merged, original: degraded))
         }
-        let tableLines = Self.tableLineIndices(in: layout)
+        let tableLines = layout.tableLineIndices   // 单源 PageLayout.tableLineIndices（round4 P-3）
         let paragraphs = Self.effectiveParagraphs(for: layout, excluding: tableLines)
         let merged = TextLineMerger.merge(blocks: layout.blocks, paragraphs: paragraphs, tableLineIndices: tableLines)
         let withParagraphs = PageLayout(blocks: layout.blocks, tables: layout.tables, paragraphs: paragraphs)
@@ -98,14 +98,7 @@ public struct OCRPipeline: Sendable {
         return (merged.map(\.text), rebuildLayout(merged: merged, original: withParagraphs))
     }
 
-    /// 表格占用的行号集（拆子表达式，2026-09-20 告警清除：单式超类型检查预算）。
-    private static func tableLineIndices(in layout: PageLayout) -> Set<Int> {
-        let bodyLineIndices: [Int] = layout.tables.flatMap { $0.rows.flatMap { $0.cells.flatMap(\.lineIndices) } }
-        let headerLineIndices: [Int] = layout.tables.flatMap { $0.header?.cells.flatMap(\.lineIndices) ?? [] }
-        return Set(bodyLineIndices + headerLineIndices)
-    }
-
-    /// iOS 26 段落 ∥ ParagraphBuilder 几何派生（同上拆出）。
+    /// iOS 26 段落 ∥ ParagraphBuilder 几何派生。
     private static func effectiveParagraphs(for layout: PageLayout, excluding tableLines: Set<Int>) -> [Paragraph] {
         layout.paragraphs.isEmpty
             ? ParagraphBuilder.paragraphs(from: layout.blocks, excluding: tableLines)
