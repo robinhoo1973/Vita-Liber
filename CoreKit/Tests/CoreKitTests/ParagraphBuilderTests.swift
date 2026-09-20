@@ -42,3 +42,18 @@ struct ParagraphBuilderTests {
         #expect(ParagraphBuilder.paragraphs(from: blocks, excluding: [1]).map(\.lineIndices) == [[0], [2]])
     }
 }
+
+extension ParagraphBuilderTests {
+    @Test func extractionRegionsUseRealParagraphs() {
+        let b0 = TextBlock(text: "现病史：患儿发热", bbox: LayoutRect(x: 0.05, y: 0.10, width: 0.8, height: 0.03), lineIndex: 0, confidence: 0.9)
+        let b1 = TextBlock(text: "诊断：上感", bbox: LayoutRect(x: 0.05, y: 0.30, width: 0.4, height: 0.03), lineIndex: 1, confidence: 0.9)
+        let layout = PageLayout(blocks: [b0, b1], paragraphs: [
+            Paragraph(text: b0.text, bbox: b0.bbox, lineIndices: [0]),
+            Paragraph(text: b1.text, bbox: b1.bbox, lineIndices: [1]),
+        ])
+        let regions = layout.extractionRegions(pageIndex: 0)
+        #expect(regions.map(\.kind) == [.paragraph, .paragraph])
+        #expect(regions.map(\.id) == ["p0", "p1"])
+        #expect(regions[0].rows.first?.cells.first?.lineIndices == [0])
+    }
+}

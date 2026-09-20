@@ -134,7 +134,7 @@ extension PageLayout {
         // 拆子表达式（2026-09-20 告警清除）：单式 863ms 超类型检查预算（500ms）。
         let bodyLineIndices: [Int] = tables.flatMap { $0.rows.flatMap { $0.cells.flatMap(\.lineIndices) } }
         let headerLineIndices: [Int] = tables.flatMap { $0.header?.cells.flatMap(\.lineIndices) ?? [] }
-        let covered = Set(bodyLineIndices + headerLineIndices)
+        var covered = Set(bodyLineIndices + headerLineIndices)
         for table in tables {
             regions.append(ExtractionRegion(
                 pageIndex: pageIndex, id: table.id, kind: .table, columnHeader: table.header?.cells.sorted { $0.columnIndex < $1.columnIndex }.map(\.text),
@@ -142,6 +142,17 @@ extension PageLayout {
                     ExtractionRow(id: "\(table.id)r\(i)", cells: row.cells.sorted { $0.columnIndex < $1.columnIndex }
                         .map { ExtractionCell(text: $0.text, lineIndices: $0.lineIndices, columnIndex: $0.columnIndex) })
                 }))
+        }
+        // 真实段落（iOS 26 paragraphs ∥ ParagraphBuilder 几何派生）直接成 `.paragraph` 区域——
+        // 不再走「表后单列行」几何猜（R2 下半）；表格格已覆盖的行跳过（防重叠双抽取）。
+        for (index, paragraph) in paragraphs.enumerated() where !paragraph.lineIndices.isEmpty {
+            let rows = paragraph.lineIndices.compactMap { li -> ExtractionRow? in
+                guard !covered.contains(li), let block = blocks.first(where: { $0.lineIndex == li }) else { return nil }
+                return ExtractionRow(id: "p\(index)r\(li)", cells: [ExtractionCell(text: block.text, lineIndices: [li], columnIndex: 0)])
+            }
+            guard !rows.isEmpty else { continue }
+            regions.append(ExtractionRegion(pageIndex: pageIndex, id: "p\(index)", kind: .paragraph, columnHeader: nil, rows: rows))
+            covered.formUnion(paragraph.lineIndices)
         }
         var current: [ExtractionRow] = [], kind: RegionKind = .header, seenTable = false, geometric = 0
         func flush() {
