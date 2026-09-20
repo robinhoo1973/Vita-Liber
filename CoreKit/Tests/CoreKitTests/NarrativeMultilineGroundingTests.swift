@@ -63,6 +63,18 @@ struct NarrativeMultilineGroundingTests {
         #expect(validated.dropped == 1)
     }
 
+    /// round4 P-7：续行校验单点——T2/T3 共用 `MultilineSpan`，直接钉住四条边界。
+    @Test func multilineSpanSegmentsAndContinuation() {
+        #expect(MultilineSpan.segments(of: "单行") == nil)
+        #expect(MultilineSpan.segments(of: "a\n\nb") == nil)              // 空段拒
+        #expect(MultilineSpan.segments(of: " a \n b ") == ["a", "b"])       // trim
+        let segs = ["患儿3天前受凉后出现发热，无抽搐，精神尚可，食欲", "减退，大小便正常。"]
+        #expect(MultilineSpan.continuationLineIndices(segments: segs, start: 0, lines: lines) == [1])
+        #expect(MultilineSpan.continuationLineIndices(segments: ["x", "减退"], start: 0, lines: lines) == nil)   // 半截拒
+        #expect(MultilineSpan.continuationLineIndices(segments: ["x", "减退，大小便正常。"], start: 1, lines: lines) == nil) // 不相邻拒
+        #expect(MultilineSpan.continuationLineIndices(segments: ["x", "y"], start: 2, lines: lines) == nil)      // 越界拒
+    }
+
     /// round4 D-1 对照：同结构叙事键仍放行（守卫只针对类型，不误伤）。
     @Test func groundingKeepsMultilineValueForNarrativeType() throws {
         let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))

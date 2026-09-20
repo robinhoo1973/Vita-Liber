@@ -28,14 +28,17 @@ public enum ModelSpanAssembler {
             let start = line.distance(from: line.startIndex, to: range.lowerBound)
             let end = line.distance(from: line.startIndex, to: range.upperBound)
             let anchor = TextAnchor(pageIndex: pageIndex, lineIndex: span.lineIndex, blockId: nil, rowId: nil, utf16Range: start..<end)
-            // R3（2026-09-20）：多段值（叙事折行）逐段整行 verbatim，产 continuation 锚点（与 RuleExtractor 同形）。
+            // R3（2026-09-20）：多段值（叙事折行）续段整行 verbatim 相邻——校验单点 `MultilineSpan`（round4 P-7，
+            // 与 T3 `OCRGrounding.multilineNarrativeDraft` 同一实现）；产 continuation 锚点（与 RuleExtractor 同形）。
+            // 类型门控（非叙事键拒多段）在轨道无关的 `ExtractionGrounding.validate`（round4 D-1），本处只建锚。
             var continuation: [TextAnchor] = []
-            for (offset, segment) in segments.dropFirst().enumerated() {
-                let li = span.lineIndex + offset + 1
-                guard lines.indices.contains(li),
-                      lines[li].trimmingCharacters(in: .whitespacesAndNewlines) == segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            if segments.count > 1 {
+                guard let trimmed = MultilineSpan.segments(of: span.value),
+                      let indices = MultilineSpan.continuationLineIndices(segments: trimmed, start: span.lineIndex, lines: lines)
                 else { return nil }
-                continuation.append(TextAnchor(pageIndex: pageIndex, lineIndex: li, blockId: nil, rowId: nil, utf16Range: 0..<lines[li].utf16.count))
+                continuation = indices.map {
+                    TextAnchor(pageIndex: pageIndex, lineIndex: $0, blockId: nil, rowId: nil, utf16Range: 0..<lines[$0].utf16.count)
+                }
             }
             return GroundedValue(value: span.value, unit: span.unit, anchor: anchor, continuation: continuation, confidence: 0.6)
         }

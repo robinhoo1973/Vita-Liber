@@ -89,25 +89,13 @@ public enum OCRGrounding {
         var seen = Set<String>()
         return candidates.prefix(128).compactMap { item in
             guard allowedKeys.contains(item.key), lines.indices.contains(item.lineIndex) else { return nil }
-            // R3（2026-09-20）：叙事键允许**连续整行**多段值（`\n` 分段），第 i 段 == lines[lineIndex+i]
-            // （首段亦可为标签剥离值）。非叙事键仍单行；任一段不整行/不相邻 → 整个 span 丢弃（不摘要不截断）。
+            // R3（2026-09-20）：叙事键允许**连续整行**多段值（`\n` 分段）；非叙事键仍单行。
             if item.value.contains("\n") {
-                guard narrativeKeys.contains(item.key) else { return nil }
-                let segments = item.value.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                guard segments.count >= 2, segments.allSatisfy({ !$0.isEmpty }),
-                      lines.indices.contains(item.lineIndex + segments.count - 1) else { return nil }
-                var rawSegments: [String] = []
-                for (i, segment) in segments.enumerated() {
-                    let line = lines[item.lineIndex + i].trimmingCharacters(in: .whitespacesAndNewlines)
-                    let acceptable = segment == line || (i == 0 && segment == labeledValue(line, extraLabels: extraLabels))
-                    guard acceptable else { return nil }
-                    rawSegments.append(line)
-                }
+                guard narrativeKeys.contains(item.key),
+                      let draft = multilineNarrativeDraft(item, lines: lines, extraLabels: extraLabels) else { return nil }
                 let identity = "\(item.lineIndex)|\(item.key)|\(item.value)"
                 guard seen.insert(identity).inserted else { return nil }
-                return FieldDraft(key: item.key, value: segments.joined(separator: "\n"), unit: nil,
-                                  confidence: 0.6, rawText: rawSegments.joined(separator: "\n"),
-                                  source: .foundationModels, sourceLineIndex: item.lineIndex)
+                return draft
             }
             let line = lines[item.lineIndex].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -191,6 +179,21 @@ public enum OCRGrounding {
         if key == "conclusion_type", let type = ClinicalFieldLabels.conclusionType(forLabel: value) { return type }
         if key == "treatment_type", let type = ClinicalFieldLabels.treatmentType(forValue: value) { return type }
         return value
+    }
+
+    /// 叙事多段值 → 草稿（R3；round4 P-8 自 `fields` 闭包抽出）：首段 == 首行整行 **或** 首行标签剥离值；
+    /// 续段经 `MultilineSpan.continuationLineIndices` 整行 verbatim 相邻对齐（与 T2 assembler 同一实现）。
+    /// 任一段不成立 → nil（不摘要不截断）。`rawText` = 全部对应原行（出处完整，BR-002）。
+    static func multilineNarrativeDraft(_ item: OCRExtractedSpan, lines: [String], extraLabels: Set<String>) -> FieldDraft? {
+        guard let segments = MultilineSpan.segments(of: item.value), lines.indices.contains(item.lineIndex) else { return nil }
+        let firstLine = lines[item.lineIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard segments[0] == firstLine || segments[0] == labeledValue(firstLine, extraLabels: extraLabels),
+              let continuation = MultilineSpan.continuationLineIndices(segments: segments, start: item.lineIndex, lines: lines)
+        else { return nil }
+        let rawText = ([item.lineIndex] + continuation).map { lines[$0].trimmingCharacters(in: .whitespacesAndNewlines) }
+        return FieldDraft(key: item.key, value: segments.joined(separator: "\n"), unit: nil,
+                          confidence: 0.6, rawText: rawText.joined(separator: "\n"),
+                          source: .foundationModels, sourceLineIndex: item.lineIndex)
     }
 
     /// 「已知标签：值」→ 值；标签不在已知集（内置 ∪ `ClinicalFieldLabels.narrativeLabels` ∪ `extraLabels`）则原行返回。
