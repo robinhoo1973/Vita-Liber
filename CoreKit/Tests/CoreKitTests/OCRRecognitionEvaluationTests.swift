@@ -44,8 +44,8 @@ struct OCRRecognitionEvaluationTests {
     /// 金样 lines → PNG（CoreText 渲染，字体/字号/行高钉版：PingFang SC 24pt / 32pt 行高 / 20pt 边距）。
     static func renderPNG(lines: [String]) -> Data? {
         guard !lines.isEmpty else { return nil }
-        let requested = CTFontCreateWithName("PingFang SC" as CFString, 24, nil)
-        let font = requested ?? CTFontCreateWithName("Helvetica" as CFString, 24, nil)
+        // CTFontCreateWithName 返回非可选（缺字体时 CoreText 自行回退系统字体）。
+        let font = CTFontCreateWithName("PingFang SC" as CFString, 24, nil)
         let attrs = [kCTFontAttributeName: font] as CFDictionary
         let drawn: [(line: CTLine, width: CGFloat)] = lines.map { text in
             let attributed = CFAttributedStringCreate(nil, text as CFString, attrs)!
