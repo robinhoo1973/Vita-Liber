@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Domain
 
-@Suite("版面段落聚合（iOS 16–25 几何路径）")
+@Suite("SU-OCRA-LAYOUT · 版面段落聚合（iOS 16–25 几何路径）")
 struct ParagraphBuilderTests {
     private func block(_ text: String, line: Int, x: Double = 0.05, y: Double, width: Double = 0.8) -> TextBlock {
         TextBlock(text: text, bbox: LayoutRect(x: x, y: y, width: width, height: 0.03), lineIndex: line, confidence: 0.9)

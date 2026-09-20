@@ -3,7 +3,7 @@ import Testing
 @testable import Domain
 
 // binds: FR6.1 换行归并几何证据（业主 2026-09-20 Q1「无法理解分段/换行」）
-@Suite("FR6.1 几何折行归并")
+@Suite("SU-OCRA-LAYOUT · FR6.1 几何折行归并")
 struct TextLineMergerGeometryTests {
     /// 造块：同列左缘 x=0.05，行高 0.03，行距 0.035；width 按给定
     private func block(_ text: String, line: Int, x: Double = 0.05, width: Double, y: Double? = nil) -> TextBlock {

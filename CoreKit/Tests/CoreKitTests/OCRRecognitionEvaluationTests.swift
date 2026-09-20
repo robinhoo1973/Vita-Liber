@@ -16,7 +16,7 @@ import UniformTypeIdentifiers
 /// - **真实轨**：`Fixtures/ocr/real/`（gitignore，业主脱敏单据）在场才跑，
 ///   `@Test(.enabled(if:))` 真跳过（不伪绿）；成对完整性（有图无 .lines.txt）无论跳过与否都硬红。
 /// 行级 CER 按行号对齐；多出/缺失整行按 max(reference, hypothesis) 行长计错（round3 修正计权）。
-@Suite(.serialized)
+@Suite("SU-OCR0-EVAL · 识别层基线（macOS Vision 双轨）", .serialized)
 struct OCRRecognitionEvaluationTests {
 
     // MARK: - 合成轨：金样渲染

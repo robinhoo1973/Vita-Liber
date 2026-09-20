@@ -4,7 +4,7 @@ import Testing
 
 /// round4 P-6：`rebuildLayout` 是纯 Domain 规则却落在 Infrastructure `OCRPipeline`——只能经管线间接测。
 /// 迁为 `LayoutRemapper` 后直接钉住：块并集/置信均值、表格格与段落行号旧→新重写、成员对不上 fail-closed 退 linesOnly。
-@Suite("LayoutRemapper 归并后版面重映射")
+@Suite("SU-OCRA-LAYOUT · LayoutRemapper 归并后版面重映射")
 struct LayoutRemapperTests {
     private func block(_ text: String, line: Int, y: Double, width: Double, confidence: Double = 0.8) -> TextBlock {
         TextBlock(text: text, bbox: LayoutRect(x: 0.05, y: y, width: width, height: 0.03), lineIndex: line, confidence: confidence)

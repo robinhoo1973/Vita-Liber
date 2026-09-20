@@ -4,7 +4,7 @@ import Testing
 @testable import Protocols
 @testable import Infrastructure
 
-@Suite("R3 叙事值多行放行")
+@Suite("SU-OCRA-LAYOUT · R3 叙事值多行放行")
 struct NarrativeMultilineGroundingTests {
     let lines = ["现病史：患儿3天前受凉后出现发热，无抽搐，精神尚可，食欲", "减退，大小便正常。", "诊断：急性上呼吸道感染"]
 

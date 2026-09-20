@@ -6,6 +6,7 @@ import Testing
 /// 基线要求：T3 规则轨 field_precision ≥ 0.7 / field_recall ≥ 0.6（多卡种加权）。
 /// 金样格式：`{ "kind", "lines": [...真实源行], "shared": {key: {value}}, "rows": [{key: {value}}] }`——
 /// `lines` 是 harness 唯一输入；期望值必须逐字出现在源行中（`goldenLinesAreVerbatimSources` 钉住）。
+@Suite("SU-OCR0-EVAL · 抽取金样 P/R")
 struct ExtractionEvaluationTests {
 
     struct GoldenCard: Codable, Sendable {

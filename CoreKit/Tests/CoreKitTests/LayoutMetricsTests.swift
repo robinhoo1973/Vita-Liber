@@ -4,7 +4,7 @@ import Testing
 
 /// round4 P-1…P-4：中位行高 ×3、bbox 并集 ×3、表格行集 ×2、`LayoutRowBuilder.rows` 同管线双算——
 /// 几何度量收敛为 `LayoutMetrics` 单点计算；本套件钉住其与既有内联算法**逐值等价**（重构零行为变化）。
-@Suite("LayoutMetrics 版面度量单点")
+@Suite("SU-OCRA-LAYOUT · LayoutMetrics 版面度量单点")
 struct LayoutMetricsTests {
     private func block(_ text: String, line: Int, x: Double = 0.05, y: Double, width: Double, height: Double = 0.03) -> TextBlock {
         TextBlock(text: text, bbox: LayoutRect(x: x, y: y, width: width, height: height), lineIndex: line, confidence: 0.9)

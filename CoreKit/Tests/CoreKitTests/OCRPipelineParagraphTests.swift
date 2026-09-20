@@ -5,7 +5,7 @@ import Testing
 @testable import Infrastructure
 
 /// R2：iOS 26 段落曾只用于关闭归并；本测试钉住「段内几何归并 + 段间不合 + 版面重映射」。
-@Suite("OCRPipeline 段落边界归并")
+@Suite("SU-OCRA-LAYOUT · OCRPipeline 段落边界归并")
 struct OCRPipelineParagraphTests {
     struct Decoder: GrayscaleDecoding {
         func decode(_ data: Data, maxDimension: Int) throws -> GrayscaleImage {

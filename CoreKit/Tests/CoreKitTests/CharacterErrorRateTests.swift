@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Domain
 
-@Suite("CER 字符错误率")
+@Suite("SU-OCR0-EVAL · CER 字符错误率")
 struct CharacterErrorRateTests {
     @Test func identicalStringsHaveZeroDistance() {
         #expect(CharacterErrorRate.distance("血红蛋白 135 g/L", "血红蛋白 135 g/L") == 0)

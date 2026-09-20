@@ -4,7 +4,7 @@ import Testing
 
 /// round4 D-2：`GroundedValue.continuation` 自 E2 起存在，适配器从未消费——确认页「原文」只显首行而
 /// `value` 三行，用户无法核对后两行出处（BR-002 出处呈现完整性）。本套件钉住三轨归一后的 rawText 语义。
-@Suite("FieldDraftAdapter 出处呈现")
+@Suite("SU-OCRA-LAYOUT · FieldDraftAdapter 出处呈现")
 struct FieldDraftAdapterTests {
     let lines = ["现病史：患儿3天前受凉后出现发热，无抽搐，精神尚可，食欲", "减退，大小便正常。", "诊断：急性上呼吸道感染"]
 
