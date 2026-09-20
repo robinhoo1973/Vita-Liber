@@ -68,6 +68,30 @@ struct RootAdaptiveView: View {
             set: { if let new = $0 { selection.wrappedValue = new } })
     }
 
+    /// 侧栏（2026-09-20 拆出：body 类型检查 1261ms 超预算，分支体移出主表达式）。
+    private var regularSidebar: some View {
+        // 侧栏用 `List(selection:)` 驱动，**不是** `NavigationLink(value:)`——
+        // 业主 2026-09-16 iPad 实测「无法切换到其他页面」的根因：
+        // 侧栏**没有自己的 NavigationStack**（下面的栈属于 detail 列），
+        // `NavigationLink` 无处可推，点击静默无效；原先补偿性的
+        // `.navigationDestination(for: MainModule.self)` 挂在 detail 列的栈上，
+        // 同样接不到侧栏的行选择。选中态改由 `selection` 单源驱动，
+        // detail 列随 `selection` 换根——与 compact 分支的 TabView 同源同语义。
+        List(selection: sidebarSelection) {
+            ForEach(MainModule.allCases) { m in
+                // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    Label(m.title, systemImage: m.systemGlyph)
+                        // §11-14：iPad 侧边栏补未读角标（compact 已有）
+                        .badge(m == .reminders && reminderStore.pendingCount > 0
+                               ? reminderStore.pendingCount : 0)
+                        .tag(m)
+                }
+            }
+        }
+        .navigationTitle(L10n.help_appName)
+    }
+
     var body: some View {
         WithPerceptionTracking {
             // 容器驱动重排（ADR-021）：compact=TabView、regular=侧边栏。
@@ -100,26 +124,7 @@ struct RootAdaptiveView: View {
                 }
             } else {
                 NavigationSplitView {
-                    // 侧栏用 `List(selection:)` 驱动，**不是** `NavigationLink(value:)`——
-                    // 业主 2026-09-16 iPad 实测「无法切换到其他页面」的根因：
-                    // 侧栏**没有自己的 NavigationStack**（下面的栈属于 detail 列），
-                    // `NavigationLink` 无处可推，点击静默无效；原先补偿性的
-                    // `.navigationDestination(for: MainModule.self)` 挂在 detail 列的栈上，
-                    // 同样接不到侧栏的行选择。选中态改由 `selection` 单源驱动，
-                    // detail 列随 `selection` 换根——与 compact 分支的 TabView 同源同语义。
-                    List(selection: sidebarSelection) {
-                        ForEach(MainModule.allCases) { m in
-                            // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
-                            WithPerceptionTracking {
-                                Label(m.title, systemImage: m.systemGlyph)
-                                    // §11-14：iPad 侧边栏补未读角标（compact 已有）
-                                    .badge(m == .reminders && reminderStore.pendingCount > 0
-                                           ? reminderStore.pendingCount : 0)
-                                    .tag(m)
-                            }
-                        }
-                    }
-                    .navigationTitle(L10n.help_appName)
+                    regularSidebar
                 } detail: {
                     NavigationStack(path: router.binding(for: MainModuleID(selection.wrappedValue))) {
                         ModuleRoot(module: selection.wrappedValue)

@@ -43,44 +43,56 @@ struct QuickCaptureView: View {
             && !showCamera && !showPhotos && !fileImporterActive && !showRegionEditor && !showOcclusion
     }
 
+    /// 提示卡区（2026-09-20 拆出：body 类型检查 4725ms 超预算，分区体移出主表达式）。
+    private var capturePromptCard: some View {
+        Group {
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+                .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
+                .frame(maxWidth: 320, minHeight: 180)
+            Text(title).font(.title2.bold())
+            OCRReviewOwnerRow(patientId: docs.activeImport?.patientId ?? patientId ?? app.currentPatientId)
+            Text(L10n.ocrReviewDocumentHint).font(.footnote).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+    }
+
+    /// 采集动作区（同上拆出）。
+    private var captureActions: some View {
+        VStack(spacing: 12) {
+            if cameraAvailable {
+                Button { startCamera() } label: {
+                    Label(L10n.homeCaptureShoot, systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 50)
+                }.buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("SP-11.capture.shoot")
+            } else {
+                Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill").font(.caption).foregroundStyle(.secondary)
+            }
+            Button {
+                if beginSelection(step: .photos) { showPhotos = true }
+            } label: {
+                Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 50)
+            }.buttonStyle(.bordered)
+            .accessibilityIdentifier("SP-11.capture.library")
+            Button {
+                if beginSelection(step: .file) { fileImporterActive = true }
+            } label: {
+                Label(L10n.homeCaptureFile, systemImage: "folder").frame(maxWidth: .infinity, minHeight: 50)
+            }.buttonStyle(.bordered)
+            .accessibilityIdentifier("SP-11.capture.file")
+            Toggle(L10n.captureSensitiveToggle, isOn: $markSensitive)
+                .accessibilityIdentifier("SP-11.capture.sensitive")
+        }
+        .disabled(!docs.importSlotFree)
+    }
+
     var body: some View {
         WithPerceptionTracking {
             ScrollView {
                 VStack(spacing: 20) {
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [6]))
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                        .overlay(VLIcon.scanDocument.resizable().frame(width: 56, height: 56))
-                        .frame(maxWidth: 320, minHeight: 180)
-                    Text(title).font(.title2.bold())
-                    OCRReviewOwnerRow(patientId: docs.activeImport?.patientId ?? patientId ?? app.currentPatientId)
-                    Text(L10n.ocrReviewDocumentHint).font(.footnote).foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    VStack(spacing: 12) {
-                        if cameraAvailable {
-                            Button { startCamera() } label: {
-                                Label(L10n.homeCaptureShoot, systemImage: "camera.fill").frame(maxWidth: .infinity, minHeight: 50)
-                            }.buttonStyle(.borderedProminent)
-                            .accessibilityIdentifier("SP-11.capture.shoot")
-                        } else {
-                            Label(L10n.homeCaptureNoCamera, systemImage: "camera.fill").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Button {
-                            if beginSelection(step: .photos) { showPhotos = true }
-                        } label: {
-                            Label(L10n.homeCaptureLibrary, systemImage: "photo.on.rectangle").frame(maxWidth: .infinity, minHeight: 50)
-                        }.buttonStyle(.bordered)
-                        .accessibilityIdentifier("SP-11.capture.library")
-                        Button {
-                            if beginSelection(step: .file) { fileImporterActive = true }
-                        } label: {
-                            Label(L10n.homeCaptureFile, systemImage: "folder").frame(maxWidth: .infinity, minHeight: 50)
-                        }.buttonStyle(.bordered)
-                        .accessibilityIdentifier("SP-11.capture.file")
-                        Toggle(L10n.captureSensitiveToggle, isOn: $markSensitive)
-                            .accessibilityIdentifier("SP-11.capture.sensitive")
-                    }
-                    .disabled(!docs.importSlotFree)
+                    capturePromptCard
+                    captureActions
                     if docs.activeImport != nil {
                         if docs.activeImport?.isPreparing == true { ProgressView() }
                         Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)

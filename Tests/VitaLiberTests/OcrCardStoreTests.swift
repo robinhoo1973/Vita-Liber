@@ -570,8 +570,10 @@ final class OcrCardStoreTests: XCTestCase {
         let store = OCRCardStore(writer: db.writer)
         let first = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(first.writtenCount, 1)
+        // 并发闭包外承接值（2026-09-20 告警清除：捕获 var card 在 Swift 6 是错误）
+        let tamperRowId = card.rows[0].id.uuidString
         try await db.writer.write { db in
-            try db.execute(sql: "UPDATE prescription_line SET dose_text = '5' WHERE source_row_id = ?", arguments: [card.rows[0].id.uuidString])
+            try db.execute(sql: "UPDATE prescription_line SET dose_text = '5' WHERE source_row_id = ?", arguments: [tamperRowId])
         }
         card = try XCTUnwrap(first.remainingCard)
         _ = card.rows[0].fields[0].confirm()
@@ -1185,8 +1187,10 @@ final class OcrCardStoreTests: XCTestCase {
         let first = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(first.writtenCount, 1)
         XCTAssertFalse(first.resolved)
+        // 并发闭包外承接值（2026-09-20 告警清除：捕获 var card 在 Swift 6 是错误）
+        let tamperRowId = card.rows[0].id.uuidString
         try await db.writer.write { db in
-            try db.execute(sql: "UPDATE diagnosis SET name = 'tampered' WHERE id = ?", arguments: [card.rows[0].id.uuidString])
+            try db.execute(sql: "UPDATE diagnosis SET name = 'tampered' WHERE id = ?", arguments: [tamperRowId])
         }
         card = try XCTUnwrap(first.remainingCard)
         _ = card.rows[0].fields[0].confirm()
@@ -1331,8 +1335,10 @@ final class OcrCardStoreTests: XCTestCase {
             allFieldCoverage: 1, requiredCoverage: 1, missingRequired: [], level: .complete)
         let partial = try await store.save(card: card, patientId: patient, documentId: document)
         XCTAssertEqual(partial.writtenCount, 1)
+        // 并发闭包外承接值（2026-09-20 告警清除：捕获 var card 在 Swift 6 是错误）
+        let tamperRowId = card.rows[0].id.uuidString
         try await db.writer.write { db in
-            try db.execute(sql: "UPDATE lab_result SET result_text = '弱阳性' WHERE id = ?", arguments: [card.rows[0].id.uuidString])
+            try db.execute(sql: "UPDATE lab_result SET result_text = '弱阳性' WHERE id = ?", arguments: [tamperRowId])
         }
         completion = try XCTUnwrap(partial.remainingCard)
         _ = completion.rows[0].fields[2].confirm()
@@ -1835,7 +1841,7 @@ final class OcrCardStoreTests: XCTestCase {
             .init(key: "treated_at", value: "2024-03-03"), .init(key: "treatment_type", value: "dressing"), .init(key: "content", value: "换药一次")], encounter: enc),
             patientId: patient, documentId: document)
         let apts = AppointmentStore(writer: db.writer, scheduler: InMemoryReminderScheduler())
-        let apt = try await apts.create(patientId: patient, hospital: "市一院", department: "外科", startsAt: Date(timeIntervalSince1970: 1_720_000_000), encounterId: enc, purpose: .followUp)
+        _ = try await apts.create(patientId: patient, hospital: "市一院", department: "外科", startsAt: Date(timeIntervalSince1970: 1_720_000_000), encounterId: enc, purpose: .followUp)
         _ = try await ReminderLinkStore(writer: db.writer).create(patientId: patient, kind: "followUp", title: "拆线", at: Date(timeIntervalSince1970: 1_719_000_000), source: .init(table: "encounter", id: enc))
         let tables = ["encounter", "health_exam", "clinical_conclusion", "surgery", "treatment_record", "lab_report", "lab_result", "metric_sample", "appointment", "reminder", "ocr_card_commit"]
         let before = try await tableCounts(db, tables)

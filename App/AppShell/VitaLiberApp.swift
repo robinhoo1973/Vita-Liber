@@ -40,9 +40,6 @@ struct VitaLiberApp: App {
         // 消除非默认语言用户首帧 zh-Hans 闪烁；不广播（重渲染由
         // settingsStore.values[.language] 观察驱动，见 AppRootView）。
         L10n.restoreLanguage()
-        // 评审修正（§7 不静默吞）：审计/额度失败必须记日志（不阻断交互）。
-        // 局部常量：init 闭包捕获 self 成员须待全部成员初始化，故此处用局部值。
-        let logger = Logger(subsystem: "com.vitaliber", category: "app")
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
         // 数据层装配是启动不变量：live 失败降级 preview（内存库）；连内存库都建不出来
         // 意味着 SQLite 损坏——此时任何降级都无意义，显式终止并留清晰信息。

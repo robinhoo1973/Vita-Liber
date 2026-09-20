@@ -33,7 +33,7 @@ enum ReminderHubLoader {
                 priority: slot.allTaken ? 0 : 1,
                 status: slot.allTaken ? "taken" : (slot.anyPending ? "pending" : "resolved"),
                 routeKey: "reminderToday",
-                planID: slot.records.first.flatMap { planId(fromNotifyId: $0.dose.notifyId ?? "") })
+                planID: slot.records.first.flatMap { planId(fromNotifyId: $0.dose.notifyId) })
         }
     }
 

@@ -29,13 +29,16 @@ private final class RenderedImageBox: @unchecked Sendable {
 enum DocumentSourceRenderer {
     enum Failure: Error { case unreadable, pageMissing }
 
-    static func pageCount(data: Data, mimeType: String) throws -> Int {
+    /// nonisolated（2026-09-20 告警清除）：两个静态纯函数在 Task.detached 内被
+    /// 调用（Face ID 解锁后的解码不占主线程）——它们只消费入参、不触碰任何
+    /// @MainActor 状态，Swift 6 语言模式下主隔离静态从外部调用是错误。
+    nonisolated static func pageCount(data: Data, mimeType: String) throws -> Int {
         guard mimeType == "application/pdf" || data.starts(with: Data("%PDF".utf8)) else { return 1 }
         guard let pdf = PDFDocument(data: data), !pdf.isLocked, pdf.pageCount > 0 else { throw Failure.unreadable }
         return pdf.pageCount
     }
 
-    static func image(data: Data, mimeType: String, pageIndex: Int) throws -> UIImage {
+    nonisolated static func image(data: Data, mimeType: String, pageIndex: Int) throws -> UIImage {
         if mimeType == "application/pdf" || data.starts(with: Data("%PDF".utf8)) {
             guard let pdf = PDFDocument(data: data), !pdf.isLocked, pageIndex >= 0,
                   let page = pdf.page(at: pageIndex) else { throw Failure.pageMissing }

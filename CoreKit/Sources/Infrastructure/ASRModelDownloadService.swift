@@ -262,7 +262,7 @@ public actor ASRModelDownloadService {
             // 挡住再次发起）。唤醒后循环顶部的 checkCancellation 抛出结束。
             let waiterID = UUID()
             try await withTaskCancellationHandler {
-                try await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     slotWaiters.append((id: waiterID, continuation: continuation))
                     // 追加后再查取消（2026-09-19 扫尾发现 #5）：onCancel 的
                     // removeWaiter 经非结构化 Task 跳回 actor，可能先于追加执行

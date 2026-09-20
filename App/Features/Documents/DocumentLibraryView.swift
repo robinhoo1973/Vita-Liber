@@ -89,7 +89,9 @@ final class DocumentsState {
     @MainActor @Perceptible
     final class PendingReview: Identifiable {
         let pending: PendingCard
-        var id: String { pending.id }
+        /// nonisolated（2026-09-20 告警清除）：Identifiable 一致性穿越主隔离
+        /// 在 Swift 6 语言模式下是错误；id 只读不可变 Sendable 成员，安全。
+        nonisolated var id: String { pending.id }
         var card: MatchedCard
         var pageCount: Int
         var sharedCommitted: Bool

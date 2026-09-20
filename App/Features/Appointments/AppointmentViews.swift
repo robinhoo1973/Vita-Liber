@@ -70,6 +70,44 @@ struct AppointmentListView: View {
         }
     }
 
+    /// 行内容（2026-09-20 拆出：body 类型检查 1036ms 超预算，行体移出主表达式）。
+    private func appointmentRowContent(_ apt: AppointmentRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(apt.hospital).font(.headline)
+                    Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(L10n.apptStatusName(apt.status))
+                    .font(.caption2)
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
+                    .foregroundStyle(statusColor(apt.status))
+            }
+            if apt.status == "scheduled" {
+                scheduledActions(for: apt)
+            } else if apt.status == "missed" {
+                Button(L10n.apptFollowUpHint) {
+                    Task {
+                        await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
+                        await load()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+            }
+            // FR10.6 去挂号深链卡（本地映射表，无网可用）
+            if apt.status == "scheduled" {
+                AppointmentDeepLinkCard(hospital: apt.hospital)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityIdentifier("SP-18.appointment.row.\(apt.id.uuidString)")
+    }
+
     var body: some View {
         WithPerceptionTracking {
             Group {
@@ -81,40 +119,7 @@ struct AppointmentListView: View {
                 } else {
                     List {
                         ForEach(filtered, id: \.id) { apt in
-                            VStack(alignment: .leading, spacing: 8) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(apt.hospital).font(.headline)
-                                        Text("\(apt.department) · \(apt.startsAt.formatted(date: .abbreviated, time: .shortened))")
-                                            .font(.footnote).foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    Text(L10n.apptStatusName(apt.status))
-                                        .font(.caption2)
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(Capsule().fill(statusColor(apt.status).opacity(0.15)))
-                                        .foregroundStyle(statusColor(apt.status))
-                                }
-                                if apt.status == "scheduled" {
-                                    scheduledActions(for: apt)
-                                } else if apt.status == "missed" {
-                                    Button(L10n.apptFollowUpHint) {
-                                        Task {
-                                            await reminders.markAppointmentMissed(patientId: app.currentPatientId, id: apt.id)
-                                            await load()
-                                        }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.small)
-                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                                }
-                                // FR10.6 去挂号深链卡（本地映射表，无网可用）
-                                if apt.status == "scheduled" {
-                                    AppointmentDeepLinkCard(hospital: apt.hospital)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                            .accessibilityIdentifier("SP-18.appointment.row.\(apt.id.uuidString)")
+                            appointmentRowContent(apt)
                         }
                     }
                 }

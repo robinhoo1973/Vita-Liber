@@ -96,7 +96,7 @@ public actor PDFExportService {
                 return (clause, out)
             }
             let docDate = dateFragment("created_at")
-            var dateClause = docDate.clause
+            let dateClause = docDate.clause
             var args: [DatabaseValueConvertible] = [request.patientId.uuidString] + docDate.args
             // 第四轮全仓审查修复（5WHY）：此前按 TimelineDocumentEntry 解码
             // meta_json——V3.39 拆镜像后该投影无写入方，解码恒失败被静默
