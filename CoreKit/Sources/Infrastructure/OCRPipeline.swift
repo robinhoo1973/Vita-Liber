@@ -71,8 +71,9 @@ public struct OCRPipeline: Sendable {
     /// ① 行内嵌换行展平：Vision 合体观察（candidate.string 含 "\n"）会让
     /// rawText 按 "\n" 往返拆行时静默错位——恢复模式的行锚定（resume
     /// mode `components(separatedBy: "\n")`）对不上抽取时的行号；
-    /// ② 换行拆词归并（`TextLineMerger`，fail-safe：宁可漏合不可错合）。
-    /// 结构化版面（表格/段落，iOS 26 路径）不归并——表格行身份优先。
+    /// ② 归并：有块几何 → `TextLineMerger.merge(blocks:)` 以段落为边界
+    /// （iOS 26 段落 ∥ `ParagraphBuilder` 几何派生）、表格块不合；无几何 → 纯文本归并。
+    /// ③ 版面重映射：块 bbox 并集/置信均值、表格格与段落 `lineIndices` 按旧→新行号重写。
     private func normalizeAndMerge(_ recognition: ImageInputRules.Recognition)
         -> (lines: [String], layout: PageLayout?) {
         var lines: [String] = []
@@ -82,33 +83,61 @@ public struct OCRPipeline: Sendable {
             if parts.count > 1 { flattened = true }
             lines.append(contentsOf: parts)
         }
-        let layout = recognition.layout
-        let hasStructure = (layout?.tables.isEmpty == false) || (layout?.paragraphs.isEmpty == false)
-        let degraded = flattened ? PageLayout.linesOnly(lines) : layout
-        guard !hasStructure else { return (lines, degraded) }
-        let merged = TextLineMerger.merge(lines)
-        guard merged.count != lines.count else { return (lines, degraded) }
-        return (merged.map(\.text), rebuildBlocks(merged: merged, original: layout))
+        // 几何可用 = 未展平 ∧ 块数与行数一致（展平后块/行错位，几何不可信 → fail-closed 退纯文本）
+        guard !flattened, let layout = recognition.layout, layout.blocks.count == lines.count else {
+            let degraded = flattened ? PageLayout.linesOnly(lines) : recognition.layout
+            let merged = TextLineMerger.merge(lines)
+            guard merged.count != lines.count else { return (lines, degraded) }
+            return (merged.map(\.text), rebuildBlocks(merged: merged, original: degraded))
+        }
+        let tableLines = Set(layout.tables.flatMap { $0.rows.flatMap { $0.cells.flatMap(\.lineIndices) } }
+                             + layout.tables.flatMap { $0.header?.cells.flatMap(\.lineIndices) ?? [] })
+        let paragraphs = layout.paragraphs.isEmpty
+            ? ParagraphBuilder.paragraphs(from: layout.blocks, excluding: tableLines)
+            : layout.paragraphs
+        let merged = TextLineMerger.merge(blocks: layout.blocks, paragraphs: paragraphs, tableLineIndices: tableLines)
+        let withParagraphs = PageLayout(blocks: layout.blocks, tables: layout.tables, paragraphs: paragraphs)
+        guard merged.count != lines.count else { return (lines, withParagraphs) }
+        return (merged.map(\.text), rebuildLayout(merged: merged, original: withParagraphs))
     }
 
-    /// 合并行 → 布局块重建：成员块的 bbox 并集、置信均值；原布局缺失或
-    /// 成员块对不上（几何证据链断裂）→ 退化 linesOnly（fail-closed，
-    /// 框级锚定纪律：匹配不上不画）。
+    /// 合并行 → 布局块重建（无几何路径沿用）：成员块 bbox 并集、置信均值；对不上 → linesOnly。
     private func rebuildBlocks(merged: [TextLineMerger.MergedLine], original: PageLayout?) -> PageLayout? {
         guard let original else { return PageLayout.linesOnly(merged.map(\.text)) }
+        return rebuildLayout(merged: merged, original: original)
+    }
+
+    /// 合并行 → 整个版面重映射：块重建 + 表格格/段落行号按旧→新重写（fail-closed：成员对不上退 linesOnly）。
+    private func rebuildLayout(merged: [TextLineMerger.MergedLine], original: PageLayout) -> PageLayout {
+        var newIndex: [Int: Int] = [:]
         var blocks: [TextBlock] = []
         for (index, line) in merged.enumerated() {
-            let members = line.sourceIndices.compactMap { idx in
-                original.blocks.first { $0.lineIndex == idx }
-            }
+            let members = line.sourceIndices.compactMap { idx in original.blocks.first { $0.lineIndex == idx } }
             guard members.count == line.sourceIndices.count else {
                 return PageLayout.linesOnly(merged.map(\.text))
             }
+            for src in line.sourceIndices { newIndex[src] = index }
             let bbox = members.dropFirst().reduce(members[0].bbox) { $0.union($1.bbox) }
             let confidence = members.map(\.confidence).reduce(0, +) / Double(members.count)
             blocks.append(TextBlock(text: line.text, bbox: bbox, lineIndex: index, confidence: confidence))
         }
-        return PageLayout(blocks: blocks)
+        func remap(_ indices: [Int]) -> [Int] {
+            var seen = Set<Int>(), out: [Int] = []
+            for i in indices { if let n = newIndex[i], seen.insert(n).inserted { out.append(n) } }
+            return out
+        }
+        let tables = original.tables.map { table in
+            TableRegion(id: table.id, bbox: table.bbox,
+                        rows: table.rows.map { row in TableRow(cells: row.cells.map { cell in
+                            TableCell(text: cell.text, bbox: cell.bbox, columnIndex: cell.columnIndex, lineIndices: remap(cell.lineIndices)) }) },
+                        header: table.header.map { row in TableRow(cells: row.cells.map { cell in
+                            TableCell(text: cell.text, bbox: cell.bbox, columnIndex: cell.columnIndex, lineIndices: remap(cell.lineIndices)) }) })
+        }
+        let paragraphs = original.paragraphs.map { p in
+            let idx = remap(p.lineIndices)
+            return Paragraph(text: idx.map { merged[$0].text }.joined(separator: "\n"), bbox: p.bbox, lineIndices: idx)
+        }
+        return PageLayout(blocks: blocks, tables: tables, paragraphs: paragraphs)
     }
 }
 // [linux-unguard] end
