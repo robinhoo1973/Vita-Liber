@@ -90,4 +90,75 @@ public enum TextLineMerger {
     private static func isWordCharacter(_ character: Character) -> Bool {
         character.isLetter || TranscriptJoiner.isCJK(character)
     }
+
+    // MARK: - 几何证据归并（2026-09-20 业主 Q1：分段/换行）
+
+    /// 带版面的归并：文本规则不成立时，以几何折行证据放宽（同列 ∧ 相邻 ∧ 上行写满 ∧ 下行不更长）。
+    /// 表格块 / 多列视觉行 / 跨段落绝不归并；无块几何时调用方应退回 `merge(_ lines:)`。
+    public static func merge(blocks: [TextBlock], paragraphs: [Paragraph] = [],
+                             tableLineIndices: Set<Int> = []) -> [MergedLine] {
+        let ordered = blocks.sorted { $0.lineIndex < $1.lineIndex }
+        guard !ordered.isEmpty else { return [] }
+        let heights = ordered.map(\.bbox.height).sorted()
+        let medianHeight = max(heights[heights.count / 2], 0.005)
+        let rights = ordered.map(\.bbox.maxX).sorted()
+        // 90 分位右缘（小 n 防退化：n=2 时取较大者而非较小者——round3 测试委员复核）。
+        let tenth = max(1, Int(Double(rights.count) * 0.1))
+        let rightEdge = rights[rights.count - tenth]
+        let multiColumn = Set(LayoutRowBuilder.rows(from: ordered).filter { $0.cells.count >= 2 }.flatMap(\.lineIndices))
+        var paragraphOf: [Int: Int] = [:]
+        for (p, paragraph) in paragraphs.enumerated() { for li in paragraph.lineIndices { paragraphOf[li] = p } }
+
+        var result: [MergedLine] = []
+        var lastBlock: TextBlock?
+        for block in ordered {
+            defer { lastBlock = block }
+            guard let previous = lastBlock, let last = result.last,
+                  block.lineIndex == previous.lineIndex + 1,
+                  !tableLineIndices.contains(previous.lineIndex), !tableLineIndices.contains(block.lineIndex),
+                  !multiColumn.contains(previous.lineIndex), !multiColumn.contains(block.lineIndex),
+                  paragraphs.isEmpty || (paragraphOf[previous.lineIndex] != nil && paragraphOf[previous.lineIndex] == paragraphOf[block.lineIndex])
+            else {
+                result.append(MergedLine(text: block.text, sourceIndices: [block.lineIndex]))
+                continue
+            }
+            let textual = shouldJoin(previous: last.text, next: block.text)
+            let geometric = geometricWrapEvidence(previous: previous.bbox, next: block.bbox,
+                                                  medianHeight: medianHeight, rightEdge: rightEdge)
+                && relaxedTextualGuard(previous: last.text, next: block.text)
+            if textual || geometric {
+                result[result.count - 1] = MergedLine(text: TranscriptJoiner.join([last.text, block.text]),
+                                                      sourceIndices: last.sourceIndices + [block.lineIndex])
+            } else {
+                result.append(MergedLine(text: block.text, sourceIndices: [block.lineIndex]))
+            }
+        }
+        return result
+    }
+
+    /// 折行的四条几何证据（全部成立才算）。
+    /// 绝对宽度下限（round3 开发委员反例）：全窄列收据的 rightEdge 90 分位退化时
+    /// 「上行写满」恒真——`previous.maxX` 还须覆盖半页宽，否则窄列相邻行错合。
+    static func geometricWrapEvidence(previous: LayoutRect, next: LayoutRect,
+                                      medianHeight: Double, rightEdge: Double) -> Bool {
+        let sameColumn = abs(next.x - previous.x) <= 1.5 * medianHeight
+        let gap = next.y - previous.maxY
+        let adjacent = gap >= -0.25 * medianHeight && gap <= 0.8 * medianHeight && next.midY > previous.midY
+        let previousFillsWidth = previous.maxX >= max(rightEdge - 2.0 * medianHeight, 0.5)
+        let nextNotLonger = next.width <= previous.width + 0.5 * medianHeight
+        return sameColumn && adjacent && previousFillsWidth && nextNotLonger
+    }
+
+    /// 几何路径的文本护栏（比 `shouldJoin` 宽：允许上行含数字、短于 8 字、以逗号/顿号结尾）。
+    static func relaxedTextualGuard(previous: String, next: String) -> Bool {
+        let p = previous.trimmingCharacters(in: .whitespacesAndNewlines)
+        let n = next.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let lastChar = p.last, let firstChar = n.first else { return false }
+        if "。！？!?".contains(lastChar) { return false }
+        if n.contains(":") || n.contains("：") { return false }
+        let leadingToken = String(n.prefix { !$0.isWhitespace && !$0.isPunctuation })
+        if DocumentTypeClassifierFallback.directionsPrefixes.contains(where: { leadingToken.hasPrefix($0) }) { return false }
+        if (lastChar == ":" || lastChar == "：") && firstChar.isNumber { return false }
+        return true
+    }
 }
