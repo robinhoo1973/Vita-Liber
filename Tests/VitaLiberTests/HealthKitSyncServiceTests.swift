@@ -337,52 +337,6 @@ private actor HealthSyncTestGate {
         waiters.removeAll()
         for waiter in pending { waiter.resume() }
     }
-    /// 睡眠零归并行回归（2026-09-20 业主真机复测「最近数据仍缺失」）：watch 迟到
-    /// 样本并入后 unspecified 段归零消失——窗口派生聚合行的重算即权威，旧键行
-    /// 可删、窗口照常判完整、锚点推进（此前 complete=false 永久冻结 → 该类型
-    /// 此后再无新数据）。
-    func test_sleepZeroMergedRowsDoNotFreezeTheWindow() async throws {
-        let (db, imports, binding) = try await makeStore()
-        let windowStart = Date(timeIntervalSince1970: 1_700_006_400)
-        let window = HealthImportWindow(kind: .sleep, start: windowStart, end: windowStart.addingTimeInterval(86_400))
-        let phoneSample = HealthSampleReference(id: UUID(), kind: .sleep, sourceID: "phone",
-            start: windowStart.addingTimeInterval(600), end: windowStart.addingTimeInterval(2_600))
-        let watchSample = HealthSampleReference(id: UUID(), kind: .sleep, sourceID: "watch",
-            start: windowStart.addingTimeInterval(600), end: windowStart.addingTimeInterval(2_600))
-        func sleepRow(_ key: String, _ value: Double) -> DeviceMetricRow {
-            DeviceMetricRow(metricKey: key, value: value, unit: "h", measuredAt: windowStart,
-                sourceRef: window.prefix + key, aggregation: .sleepDuration, windowEnd: window.end)
-        }
-        // 第一轮：仅手机 unspecified 样本 → total + unspecified 两行
-        let first = HealthWindowSnapshot(window: window, samples: [phoneSample],
-            rows: [sleepRow("sleep_total", 8.0), sleepRow("sleep_unspecified", 8.0)])
-        // 第二轮：watch 样本并入 → 合并语义把 unspecified 归零（行消失）
-        let second = HealthWindowSnapshot(window: window, samples: [phoneSample, watchSample],
-            rows: [sleepRow("sleep_total", 8.0), sleepRow("sleep_core", 6.0), sleepRow("sleep_rem", 2.0)])
-        let provider = HealthSyncFixtureProvider(kind: .sleep, pages: [
-            HealthChangeBatch(added: [phoneSample], deleted: [], anchor: Data([1]), hasMore: false),
-            HealthChangeBatch(added: [watchSample], deleted: [], anchor: Data([2]), hasMore: false),
-        ], snapshots: [first], snapshotQueues: [window: [first, second]])
-        let sync = service(db, imports: imports, provider: provider)
-
-        let round1 = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
-        let rows1 = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
-        XCTAssertEqual(round1.receivedChanges, 1)
-        XCTAssertEqual(rows1, 2, "首轮：total + unspecified 两行落库")
-        XCTAssertEqual(try await imports.anchor(binding: binding, kind: .sleep), Data([1]))
-
-        let round2 = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
-        let rows2 = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
-        XCTAssertEqual(round2.receivedChanges, 1)
-        XCTAssertEqual(rows2, 3, "次轮：归零的 unspecified 旧行删除（2-1），新 staged 行落库（+2）= 3")
-        XCTAssertEqual(try await imports.anchor(binding: binding, kind: .sleep), Data([2]),
-            "窗口照常判完整 → 锚点推进（此前永久冻结、最近数据缺失）")
-        let unspecified = try await db.writer.read {
-            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample WHERE source_ref LIKE '%sleep_unspecified'") ?? 0
-        }
-        XCTAssertEqual(unspecified, 0, "归零键行必须删除——合并后的总量行才是该窗口真相")
-    }
-
 }
 private actor HealthSyncFixtureProvider: HealthReadingProvider {
     struct Request: Sendable {
@@ -487,13 +441,15 @@ extension HealthKitSyncServiceTests {
         let rows1 = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
         XCTAssertEqual(round1.receivedChanges, 1)
         XCTAssertEqual(rows1, 2, "首轮：total + unspecified 两行落库")
-        XCTAssertEqual(try await imports.anchor(binding: binding, kind: .sleep), Data([1]))
+        let anchor1 = try await imports.anchor(binding: binding, kind: .sleep)
+        XCTAssertEqual(anchor1, Data([1]))
 
         let round2 = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
         let rows2 = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
         XCTAssertEqual(round2.receivedChanges, 1)
         XCTAssertEqual(rows2, 3, "次轮：归零的 unspecified 旧行删除（2-1），新 staged 行落库（+2）= 3")
-        XCTAssertEqual(try await imports.anchor(binding: binding, kind: .sleep), Data([2]),
+        let anchor2 = try await imports.anchor(binding: binding, kind: .sleep)
+        XCTAssertEqual(anchor2, Data([2]),
             "窗口照常判完整 → 锚点推进（此前永久冻结、最近数据缺失）")
         let unspecified = try await db.writer.read {
             try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample WHERE source_ref LIKE '%sleep_unspecified'") ?? 0
