@@ -137,7 +137,7 @@ struct OCRRecognitionEvaluationTests {
     }
 
     @Test func realFixturesArePaired() {
-        guard let dir = realDir else { return }
+        guard let dir = Self.realDir else { return }
         let items = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []   // try?-ok: 目录读取失败按无夹具处理
         let images = items.filter { ["png", "jpg", "jpeg"].contains($0.pathExtension.lowercased()) }
         for img in images {
