@@ -105,43 +105,15 @@ public struct OCRPipeline: Sendable {
             : layout.paragraphs
     }
 
-    /// 合并行 → 布局块重建（无几何路径沿用）：成员块 bbox 并集、置信均值；对不上 → linesOnly。
+    /// 合并行 → 版面重映射（无几何路径沿用）：无原版面 → linesOnly；否则委托 Domain `LayoutRemapper`。
     private func rebuildBlocks(merged: [TextLineMerger.MergedLine], original: PageLayout?) -> PageLayout? {
         guard let original else { return PageLayout.linesOnly(merged.map(\.text)) }
-        return rebuildLayout(merged: merged, original: original)
+        return LayoutRemapper.remap(merged: merged, original: original)
     }
 
-    /// 合并行 → 整个版面重映射：块重建 + 表格格/段落行号按旧→新重写（fail-closed：成员对不上退 linesOnly）。
+    /// 合并行 → 整个版面重映射（round4 P-6：实现迁入 Domain `LayoutRemapper`，本处仅委托）。
     private func rebuildLayout(merged: [TextLineMerger.MergedLine], original: PageLayout) -> PageLayout {
-        var newIndex: [Int: Int] = [:]
-        var blocks: [TextBlock] = []
-        for (index, line) in merged.enumerated() {
-            let members = line.sourceIndices.compactMap { idx in original.blocks.first { $0.lineIndex == idx } }
-            guard members.count == line.sourceIndices.count else {
-                return PageLayout.linesOnly(merged.map(\.text))
-            }
-            for src in line.sourceIndices { newIndex[src] = index }
-            let bbox = members.dropFirst().reduce(members[0].bbox) { $0.union($1.bbox) }
-            let confidence = members.map(\.confidence).reduce(0, +) / Double(members.count)
-            blocks.append(TextBlock(text: line.text, bbox: bbox, lineIndex: index, confidence: confidence))
-        }
-        func remap(_ indices: [Int]) -> [Int] {
-            var seen = Set<Int>(), out: [Int] = []
-            for i in indices { if let n = newIndex[i], seen.insert(n).inserted { out.append(n) } }
-            return out
-        }
-        let tables = original.tables.map { table in
-            TableRegion(id: table.id, bbox: table.bbox,
-                        rows: table.rows.map { row in TableRow(cells: row.cells.map { cell in
-                            TableCell(text: cell.text, bbox: cell.bbox, columnIndex: cell.columnIndex, lineIndices: remap(cell.lineIndices)) }) },
-                        header: table.header.map { row in TableRow(cells: row.cells.map { cell in
-                            TableCell(text: cell.text, bbox: cell.bbox, columnIndex: cell.columnIndex, lineIndices: remap(cell.lineIndices)) }) })
-        }
-        let paragraphs = original.paragraphs.map { p in
-            let idx = remap(p.lineIndices)
-            return Paragraph(text: idx.map { merged[$0].text }.joined(separator: "\n"), bbox: p.bbox, lineIndices: idx)
-        }
-        return PageLayout(blocks: blocks, tables: tables, paragraphs: paragraphs)
+        LayoutRemapper.remap(merged: merged, original: original)
     }
 }
 // [linux-unguard] end
