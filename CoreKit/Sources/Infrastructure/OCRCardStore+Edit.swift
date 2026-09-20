@@ -172,7 +172,7 @@ extension OCRCardStore {
                 SELECT id, raw_blocks FROM ocr_result WHERE document_file_id = ? AND page_index = ?
                 """, arguments: [document, pageIndex])
             for row in rows {
-                guard let raw = row["raw_blocks"] as String,
+                guard let raw = row["raw_blocks"] as String?,
                       var audit = try? JSONDecoder().decode(AuditRecord.self, from: Data(raw.utf8)),   // try?-ok: 非本卡/旧格式审计跳过，不阻断编辑主流程
                       audit.cardId == cardId else { continue }
                 audit.shared = audit.shared.map { field in

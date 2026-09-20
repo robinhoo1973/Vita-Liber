@@ -159,9 +159,9 @@ private func downloadAttempt(session: URLSession, request: URLRequest,
     for attempt in 0..<2 {
         // 委托按尝试重建；失败尝试已计入共享计数器的字节在重试前回滚——
         // 2026-09-19 扫尾发现 #4：重试双计会使 fraction > 1（进度条回绕/提前满格）。
-        var attemptBytes: Int64 = 0
+        let attemptBytes = AttemptByteCounter()
         let delegate = ModelResourceTransfer(expectedBytes: expected, range: range,
-                                             onBytes: { counter.add($0); attemptBytes += $0 })
+                                             onBytes: { counter.add($0); attemptBytes.add($0) })
         do {
             let (temporary, response) = try await session.download(for: request, delegate: delegate)
             return (temporary, response)
@@ -172,11 +172,31 @@ private func downloadAttempt(session: URLSession, request: URLRequest,
                   [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains(urlError.code) else {
                 throw lastError
             }
-            counter.remove(attemptBytes)
+            counter.remove(attemptBytes.total)
             try await Task.sleep(nanoseconds: 2_000_000_000)
         }
     }
     throw lastError
+}
+
+/// 尝试内已收字节计数盒（2026-09-20 CI 35488987944 修复）：onBytes 是 @Sendable
+/// 闭包、由 URLSession 并发线程回调，闭包内修改裸 var 捕获在 Swift 6 语言模式下
+/// 是错误——NSLock 盒与 ProgressCounter 同纪律，捕获盒（引用类型）不修改捕获变量。
+private final class AttemptByteCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes: Int64 = 0
+
+    func add(_ count: Int64) {
+        lock.lock()
+        bytes += count
+        lock.unlock()
+    }
+
+    var total: Int64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return bytes
+    }
 }
 
 /// 多段并发进度聚合（回调可在任意线程调用；调用方自行切主线程）。

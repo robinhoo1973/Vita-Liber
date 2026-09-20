@@ -61,6 +61,14 @@
 #      不列入（Apple 文档核实为回部署/更低版本）：.topBarLeading/.topBarTrailing
 #      （iOS 14，@backDeployed）、Animation.snappy/.spring(duration:bounce:)（iOS 13）、
 #      #Preview（iOS 13）。
+#   K. 条件绑定直接解包非可选 as-转型的下标读 —— CI 35488987944 实证：
+#      OCRCardStore+Edit.swift:175 `guard let raw = row["raw_blocks"] as String`
+#      （GRDB Row 非可选泛型下标 `try! decode`，NULL 时崩溃）；`Optional<T> as T`
+#      是编译错误（"must be unwrapped"）、非可选下标进条件绑定报 "initializer
+#      for conditional binding must have Optional type"——两者都只有 macOS L1
+#      类型检查暴露，swiftc -parse 放行（平台守卫文件在 Linux 空编译，族 A2 盲区）。
+#      判定：`guard/if let X = sub[...] as T[,)]`（T 无 `?`）即 FAIL——按 Swift
+#      语言语义该形态必然编译失败，零误报；可空列须 `as String?`。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -730,10 +738,42 @@ def main():
                 f"ambiguous use of 'environment'）——在 import 块末尾补 `import Perception`"
             )
 
+    # ---- 家族 K：条件绑定直接解包非可选 as-转型的下标读 —— CI 35488987944 实证
+    # GRDB Row 的非可选泛型下标（try! decode，NULL 崩溃）与 Optional<T> as T
+    # 转型（编译错误）叠加：`guard let raw = row["raw_blocks"] as String` 在 macOS
+    # L1 报 'initializer for conditional binding must have Optional type'，而
+    # swiftc -parse 放行、平台守卫文件在 Linux 空编译（族 A2 盲区）。按 Swift
+    # 语言语义该形态必然编译失败，零误报；可空列须 `as String?`。
+    BIND_NONOPT_CAST_RE = re.compile(
+        r"\b(?:guard|if)\s+let\s+([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\[[^\]]+\]"
+        r"\s+as\s+(String|Int|Int64|Double|Bool|Date|Data|UUID)\s*[,)]")
+    k_files = [f for f in list(a_files) + list(c_files)]
+    scanned["K"] = len(k_files)
+    for f in k_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for idx, raw in enumerate(raw_lines):
+            lineno = idx + 1
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("//"):
+                continue
+            m = BIND_NONOPT_CAST_RE.search(raw)
+            if m and not exempted(raw_lines, lineno):
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: 条件绑定直接解包非可选 as-转型的下标读"
+                    f"（`let {m.group(1)} = {m.group(2)}[...] as {m.group(3)}`）——"
+                    f"非可选下标进条件绑定/`Optional<T> as T` 转型在 macOS L1 必编译失败"
+                    f"（CI 35488987944 同族；GRDB 非可选下标 `try! decode` 遇 NULL 崩溃），"
+                    f"可空列改 `as {m.group(3)}?`，或加 // tius-ok: 豁免"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
-          f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)}")
+          f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
+          f"K={scanned.get('K',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
