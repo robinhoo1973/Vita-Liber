@@ -140,6 +140,16 @@ struct QuickCaptureView: View {
            selection?.captureOriginalData == nil { cancelSelection() }
     }
 
+    /// 取消按钮(2026-09-20 告警清除:toolbar 闭包移出 body,1583ms → 目标 <1000ms)。
+    private var cancelToolbar: some View {
+        Button(L10n.commonCancel) {
+            if let session = selection { docs.cancelImport(sessionID: session.id); _ = docs.finishImportPresentation(sessionID: session.id) }
+            dismiss()
+        }
+        .disabled(docs.activeImport?.isSaving == true || docs.activeImport?.isPreparing == true || docs.activeImport?.source != nil)
+        .accessibilityIdentifier("SP-11.capture.cancel")
+    }
+
     private func handleImportedFile(_ result: Result<[URL], Error>) {
         guard let session = selection else { return }
         switch result {
@@ -188,16 +198,7 @@ struct QuickCaptureView: View {
             .background(Color("bg-grouped", bundle: .main))
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) {
-                        if let session = selection { docs.cancelImport(sessionID: session.id); _ = docs.finishImportPresentation(sessionID: session.id) }
-                        dismiss()
-                    }
-                    .disabled(docs.activeImport?.isSaving == true || docs.activeImport?.isPreparing == true || docs.activeImport?.source != nil)
-                    .accessibilityIdentifier("SP-11.capture.cancel")
-                }
-            }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { cancelToolbar } }
             // 修饰器闭包全部扁平化为单行方法引用（2026-09-20 告警清除：body 类型检查
             // 4725→3358ms 仍超预算，闭包体移出主表达式后逐方法独立类型检查）
             .fullScreenCover(isPresented: $showCamera, onDismiss: handleCameraDismiss) {
