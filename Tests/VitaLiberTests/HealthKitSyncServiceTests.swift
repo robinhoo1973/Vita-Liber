@@ -415,14 +415,17 @@ private actor HealthSyncFixtureProvider: HealthReadingProvider {
 extension HealthKitSyncServiceTests {
     func test_sleepZeroMergedRowsDoNotFreezeTheWindow() async throws {
         let (db, imports, binding) = try await makeStore()
+        let utc = Calendar(identifier: .gregorian)
         let windowStart = Date(timeIntervalSince1970: 1_700_006_400)
-        let window = HealthImportWindow(kind: .sleep, start: windowStart, end: windowStart.addingTimeInterval(86_400))
         let phoneSample = HealthSampleReference(id: UUID(), kind: .sleep, sourceID: "phone",
             start: windowStart.addingTimeInterval(600), end: windowStart.addingTimeInterval(2_600))
         let watchSample = HealthSampleReference(id: UUID(), kind: .sleep, sourceID: "watch",
             start: windowStart.addingTimeInterval(600), end: windowStart.addingTimeInterval(2_600))
+        // 睡眠窗口为正午边界（HealthImportWindow.covering 派生）——必须与同步层
+        // 的窗口派生同源，否则快照请求键不匹配（手建午夜窗口零落库，CI 35477771414）。
+        let window = try XCTUnwrap(HealthImportWindow.covering(phoneSample, calendar: utc).first)
         func sleepRow(_ key: String, _ value: Double) -> DeviceMetricRow {
-            DeviceMetricRow(metricKey: key, value: value, unit: "h", measuredAt: windowStart,
+            DeviceMetricRow(metricKey: key, value: value, unit: "h", measuredAt: window.start,
                 sourceRef: window.prefix + key, aggregation: .sleepDuration, windowEnd: window.end)
         }
         // 第一轮：仅手机 unspecified 样本 → total + unspecified 两行
