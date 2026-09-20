@@ -21,13 +21,23 @@ public enum ModelSpanAssembler {
                               spec: ExtractionSpec, lines: [String], pageIndex: Int) -> RegionExtraction {
         func grounded(_ span: ModelSpan) -> GroundedValue? {
             guard lines.indices.contains(span.lineIndex) else { return nil }
+            let segments = span.value.components(separatedBy: "\n")
+            guard let first = segments.first, !first.isEmpty else { return nil }
             let line = lines[span.lineIndex]
-            guard let range = line.range(of: span.value) else { return nil }
+            guard let range = line.range(of: first) else { return nil }
             let start = line.distance(from: line.startIndex, to: range.lowerBound)
             let end = line.distance(from: line.startIndex, to: range.upperBound)
-            let anchor = TextAnchor(pageIndex: pageIndex, lineIndex: span.lineIndex, blockId: nil, rowId: nil,
-                                    utf16Range: start..<end)
-            return GroundedValue(value: span.value, unit: span.unit, anchor: anchor, confidence: 0.6)
+            let anchor = TextAnchor(pageIndex: pageIndex, lineIndex: span.lineIndex, blockId: nil, rowId: nil, utf16Range: start..<end)
+            // R3（2026-09-20）：多段值（叙事折行）逐段整行 verbatim，产 continuation 锚点（与 RuleExtractor 同形）。
+            var continuation: [TextAnchor] = []
+            for (offset, segment) in segments.dropFirst().enumerated() {
+                let li = span.lineIndex + offset + 1
+                guard lines.indices.contains(li),
+                      lines[li].trimmingCharacters(in: .whitespacesAndNewlines) == segment.trimmingCharacters(in: .whitespacesAndNewlines)
+                else { return nil }
+                continuation.append(TextAnchor(pageIndex: pageIndex, lineIndex: li, blockId: nil, rowId: nil, utf16Range: 0..<lines[li].utf16.count))
+            }
+            return GroundedValue(value: span.value, unit: span.unit, anchor: anchor, continuation: continuation, confidence: 0.6)
         }
 
         var sharedOut: [String: GroundedValue] = [:]

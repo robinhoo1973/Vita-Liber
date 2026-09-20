@@ -89,6 +89,26 @@ public enum OCRGrounding {
         var seen = Set<String>()
         return candidates.prefix(128).compactMap { item in
             guard allowedKeys.contains(item.key), lines.indices.contains(item.lineIndex) else { return nil }
+            // R3（2026-09-20）：叙事键允许**连续整行**多段值（`\n` 分段），第 i 段 == lines[lineIndex+i]
+            // （首段亦可为标签剥离值）。非叙事键仍单行；任一段不整行/不相邻 → 整个 span 丢弃（不摘要不截断）。
+            if item.value.contains("\n") {
+                guard narrativeKeys.contains(item.key) else { return nil }
+                let segments = item.value.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                guard segments.count >= 2, segments.allSatisfy({ !$0.isEmpty }),
+                      lines.indices.contains(item.lineIndex + segments.count - 1) else { return nil }
+                var rawSegments: [String] = []
+                for (i, segment) in segments.enumerated() {
+                    let line = lines[item.lineIndex + i].trimmingCharacters(in: .whitespacesAndNewlines)
+                    let acceptable = segment == line || (i == 0 && segment == labeledValue(line, extraLabels: extraLabels))
+                    guard acceptable else { return nil }
+                    rawSegments.append(line)
+                }
+                let identity = "\(item.lineIndex)|\(item.key)|\(item.value)"
+                guard seen.insert(identity).inserted else { return nil }
+                return FieldDraft(key: item.key, value: segments.joined(separator: "\n"), unit: nil,
+                                  confidence: 0.6, rawText: rawSegments.joined(separator: "\n"),
+                                  source: .foundationModels, sourceLineIndex: item.lineIndex)
+            }
             let line = lines[item.lineIndex].trimmingCharacters(in: .whitespacesAndNewlines)
             let value = item.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty, value.utf8.count <= 2048, line.range(of: value) != nil else { return nil }
