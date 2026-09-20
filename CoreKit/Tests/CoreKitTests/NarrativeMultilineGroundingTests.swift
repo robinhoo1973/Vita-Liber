@@ -47,4 +47,30 @@ struct NarrativeMultilineGroundingTests {
                                  diagnostics: .init(track: .foundationModels))
         #expect(ExtractionGrounding.validate(card, spec: spec, lines: lines).card.shared["present_illness"] != nil)
     }
+
+    /// round4 D-1：非叙事键（`.text`）多段值在 T2 轨（assembler → validate）必须被第二道防线拒——
+    /// 此前逐段各自单行合法即过，T1/T3 拒而 T2 收，同一单据跨轨异形。
+    @Test func groundingRejectsMultilineValueForNonNarrativeType() throws {
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
+        let twoLines = ["北京协和", "医院", "就诊日期：2026-09-20"]
+        let span = ModelSpan(key: "hospital", value: "北京协和\n医院", unit: nil, lineIndex: 0)
+        let region = ModelSpanAssembler.region(shared: [span], rows: [], spec: spec, lines: twoLines, pageIndex: 0)
+        let card = ExtractedCard(kind: spec.kind, pageIndex: 0, shared: region.shared, rows: [],
+                                 provenance: .init(track: .foundationModels, specVersion: spec.version, modelId: nil, durationMs: 0),
+                                 diagnostics: .init(track: .foundationModels))
+        let validated = ExtractionGrounding.validate(card, spec: spec, lines: twoLines)
+        #expect(validated.card.shared["hospital"] == nil, "非叙事键多段值必须被丢弃")
+        #expect(validated.dropped == 1)
+    }
+
+    /// round4 D-1 对照：同结构叙事键仍放行（守卫只针对类型，不误伤）。
+    @Test func groundingKeepsMultilineValueForNarrativeType() throws {
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
+        let span = ModelSpan(key: "present_illness", value: "患儿3天前受凉后出现发热，无抽搐，精神尚可，食欲\n减退，大小便正常。", unit: nil, lineIndex: 0)
+        let region = ModelSpanAssembler.region(shared: [span], rows: [], spec: spec, lines: lines, pageIndex: 0)
+        let card = ExtractedCard(kind: spec.kind, pageIndex: 0, shared: region.shared, rows: [],
+                                 provenance: .init(track: .foundationModels, specVersion: spec.version, modelId: nil, durationMs: 0),
+                                 diagnostics: .init(track: .foundationModels))
+        #expect(ExtractionGrounding.validate(card, spec: spec, lines: lines).dropped == 0)
+    }
 }

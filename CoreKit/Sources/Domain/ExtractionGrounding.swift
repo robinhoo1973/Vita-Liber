@@ -42,6 +42,9 @@ public enum ExtractionGrounding {
         let segments = value.value.components(separatedBy: "\n")
         let anchors = [value.anchor] + value.continuation
         guard segments.count == anchors.count else { return nil }
+        // round4 D-1：多段值只允许 `.narrative`——本处是轨道无关的第二道防线，T1/T2/T3 同受约；
+        // 此前逐段各自单行合法即过，T2（assembler）非叙事键的 `\n` 值可穿过，同一单据跨轨异形。
+        if segments.count > 1, !type.isNarrative { return nil }
         var narrative = Set<String>(), numeric = Set<String>()
         if case .narrative = type { narrative.insert(key) }
         if case .number = type { numeric.insert(key) }

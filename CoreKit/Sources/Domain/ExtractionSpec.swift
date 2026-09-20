@@ -10,6 +10,12 @@ public enum FieldType: Codable, Sendable, Equatable {
     /// `maxChars` 只作 token 预算与 T2 文法长度上限（design §6.3），**不**截断、不据此丢弃（BR-002）。
     case text(maxChars: Int), narrative(maxChars: Int), number(integer: Bool), date, quantityWithUnit, enumerated(domain: [String])
 
+    /// 叙事型（唯一允许多段 `\n` 值的类型——续行整段保真，BR-002）。单点谓词，替代散落的 `if case .narrative`。
+    public var isNarrative: Bool {
+        if case .narrative = self { return true }
+        return false
+    }
+
     /// 格式校验（只查格式，BR-004/012）：日期可解析（NFKC 折叠后 `EntityCardProjection.parseDate`）、数字有限
     ///（`integer` 时须为整数）、带单位量至少含一个数字、枚举须为 canonical（归一在 `OCRGrounding.normalized` 单出口）；
     /// 文本 / 叙事只要求非空白。
