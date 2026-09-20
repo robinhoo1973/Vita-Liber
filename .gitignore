@@ -53,3 +53,6 @@ __pycache__/
 # T2 本机 LLM（业主 2026-09-17 定：随包内置）——GGUF 大文件不入库，
 # 由 materialize-llama-model.py 按 catalog.json sha256 校验取模
 /Resources/LLMModels/*.gguf
+
+# OCR 真实单据夹具（业主脱敏样本，CI 侧投放，不入库）——识别基线双轨（round3 C4 裁定）
+/CoreKit/Tests/CoreKitTests/Fixtures/ocr/real/
