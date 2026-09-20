@@ -28,4 +28,20 @@ public enum CharacterErrorRate {
         guard n > 0 else { return hypothesis.isEmpty ? 0 : 1 }
         return Double(distance(reference, hypothesis)) / Double(n)
     }
+
+    /// 行级 CER（按行号对齐；round4 P-9 自 macOS 评测测试迁入 Domain——Stage B `OCRConsensus`
+    /// 双引擎逐行一致率同一口径）：多出/缺失整行按 `max(reference, hypothesis)` 行长计错（round3 修正计权），
+    /// 分母同取每行 `max(r, h, 1)`，两侧都空 → 0。
+    public static func lineAligned(reference: [String], hypothesis: [String]) -> Double {
+        let n = max(reference.count, hypothesis.count)
+        guard n > 0 else { return 0 }
+        var errors = 0, total = 0
+        for i in 0..<n {
+            let r = i < reference.count ? reference[i] : ""
+            let h = i < hypothesis.count ? hypothesis[i] : ""
+            errors += distance(r, h)
+            total += max(r.count, h.count, 1)
+        }
+        return Double(errors) / Double(total)
+    }
 }

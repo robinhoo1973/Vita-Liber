@@ -51,13 +51,9 @@ struct ExtractionEvaluationTests {
         return nil
     }
 
-    // MARK: - 归一化等值（与 ExtractionGrounding.locate 同纪律：NFKC + 空白折叠 + 全角冒号；不繁简）
+    // MARK: - 归一化等值：单源 `ExtractionGrounding.folded`（round4 P-10：与 locate 同一实现而非同纪律副本）
 
-    static func normalized(_ s: String) -> String {
-        s.precomposedStringWithCompatibilityMapping
-            .replacingOccurrences(of: "：", with: ":")
-            .filter { !$0.isWhitespace }
-    }
+    static func normalized(_ s: String) -> String { ExtractionGrounding.folded(s) }
 
     private func equalNormalized(_ a: String, _ b: String) -> Bool {
         Self.normalized(a) == Self.normalized(b)

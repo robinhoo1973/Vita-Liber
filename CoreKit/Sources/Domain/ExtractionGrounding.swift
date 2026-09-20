@@ -74,13 +74,21 @@ public enum ExtractionGrounding {
         return checked
     }
 
-    /// 精确子串 → NFKC + 空白折叠 + 全角冒号归一后按字符映射回原文范围；否则 nil（不做繁简、不纠错——FR25.4 保真）。
+    /// 定位/等值归一的**唯一口径**：NFKC 兼容分解 + 全角冒号 → 半角 + 去全部空白；不繁简、不纠错（FR25.4 保真）。
+    /// 逐字符折叠（供 `locate` 建字符映射）；整串折叠 = `folded(_:)`。round4 P-10：金样 harness 此前自带副本，现同源。
+    static func fold(_ character: Character) -> String {
+        String(character).precomposedStringWithCompatibilityMapping.replacingOccurrences(of: "：", with: ":").filter { !$0.isWhitespace }
+    }
+
+    /// 整串归一（`fold` 逐字符拼接）；用于归一化等值比较（金样 TP 判定、Stage B 候选去重）。
+    public static func folded(_ text: String) -> String {
+        text.map(fold).joined()
+    }
+
+    /// 精确子串 → 归一后按字符映射回原文范围；否则 nil。
     public static func locate(_ value: String, in line: String) -> Range<String.Index>? {
         guard !value.isEmpty, !line.isEmpty else { return nil }
         if let exact = line.range(of: value) { return exact }
-        func fold(_ c: Character) -> String {
-            String(c).precomposedStringWithCompatibilityMapping.replacingOccurrences(of: "：", with: ":").filter { !$0.isWhitespace }
-        }
         var folded = ""
         var map: [String.Index] = []
         for index in line.indices {
@@ -88,7 +96,7 @@ public enum ExtractionGrounding {
             folded += f
             map += Array(repeating: index, count: f.count)
         }
-        let target = value.map(fold).joined()
+        let target = Self.folded(value)
         guard !target.isEmpty, let r = folded.range(of: target) else { return nil }
         let start = folded.distance(from: folded.startIndex, to: r.lowerBound)
         let end = folded.distance(from: folded.startIndex, to: r.upperBound)

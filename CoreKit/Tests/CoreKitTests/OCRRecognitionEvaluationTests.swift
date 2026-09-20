@@ -89,18 +89,9 @@ struct OCRRecognitionEvaluationTests {
         }
     }
 
-    /// 行级 CER：按行号对齐；多出/缺失整行按 max(reference, hypothesis) 行长计错。
+    /// 行级 CER 单源 Domain `CharacterErrorRate.lineAligned`（round4 P-9：测试不再持有生产语义副本）。
     static func lineCER(reference: [String], hypothesis: [String]) -> Double {
-        let n = max(reference.count, hypothesis.count)
-        guard n > 0 else { return 0 }
-        var errors = 0, total = 0
-        for i in 0..<n {
-            let r = i < reference.count ? reference[i] : ""
-            let h = i < hypothesis.count ? hypothesis[i] : ""
-            errors += CharacterErrorRate.distance(r, h)
-            total += max(r.count, h.count, 1)
-        }
-        return Double(errors) / Double(total)
+        CharacterErrorRate.lineAligned(reference: reference, hypothesis: hypothesis)
     }
 
     // MARK: - 合成轨：金样渲染图跑 Vision（硬哨兵）
