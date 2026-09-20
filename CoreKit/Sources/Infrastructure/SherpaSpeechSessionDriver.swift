@@ -262,6 +262,13 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
             // 模型在用户按压前驱逐。
             generation &+= 1
             evictOnRelease = false
+            // 2026-09-20 修复：预热无 owner、也从未排过驱逐计时（旧实现驱逐只在 endSession 排）——
+            // 面板打开预热后用户离开，GB 级运行时与资产租约驻留到内存警告才释放。此处为
+            // 无会话的预热排一次闲置驱逐：代次不变（期间无会话无预热）才逐出。
+            let scheduled = generation
+            SherpaSpeechSessionDriver.inferenceQueue.asyncAfter(deadline: .now() + SherpaSpeechSessionDriver.idleEvictionSeconds) {
+                if self.generation == scheduled { self.evictWhenIdle() }
+            }
         }
         func release(_ owner: UUID) {
             if self.owner == owner {

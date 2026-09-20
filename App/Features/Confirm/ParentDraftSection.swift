@@ -13,7 +13,8 @@ struct ParentDraftSection: View {
     let patientId: UUID
     var readOnly = false
     /// 字段 → 原文行锚定：sheet 由父视图（确认页）持有，草稿区只转发（`FieldConfirmRow.sourceLine`）。
-    var onViewSource: ((Int) -> Void)?
+    /// 2026-09-20 起携带字段键（父视图登记引用目标——此前不登记，点行静默无效果）。
+    var onViewSource: ((Int, String) -> Void)?
     /// 本卡所在页的原文行数组（锚定范围校验用，与确认页同一坐标系）。
     /// 缺省空数组 = 无锚定可校验 → 一律不给 [原文] 入口（诚实纪律）。
     var lines: [String] = []
@@ -43,12 +44,13 @@ struct ParentDraftSection: View {
                                 // 无高亮的整页面板（「锚不到就不给入口」落空）。
                                 let rawLine = draft.fields[index].sourceLineIndex
                                 let validatedLine = rawLine.flatMap { lines.indices.contains($0) ? $0 : nil }
+                                let fieldKey = draft.fields[index].key
                                 FieldConfirmRow(field: fieldBinding(index: index),
-                                                label: DocumentsDisplay.fieldLabel(forKey: draft.fields[index].key),
+                                                label: DocumentsDisplay.fieldLabel(forKey: fieldKey),
                                                 showUnit: false, readOnly: readOnly, cardLevelConfirmation: true,
-                                                isRequired: draftRequired.contains(draft.fields[index].key),
+                                                isRequired: draftRequired.contains(fieldKey),
                                                 sourceLine: validatedLine,
-                                                onViewSource: onViewSource,
+                                                onViewSource: onViewSource == nil ? nil : { line in onViewSource?(line, fieldKey) },
                                                 onRevise: { revise(index: index, value: $0) })
                                     .accessibilityIdentifier("SP-12.parentDraft.field.\(draft.fields[index].key)")
                             }

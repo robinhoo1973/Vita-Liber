@@ -230,7 +230,32 @@ public struct ASRModelAssets: Sendable {
             }
             paths[role] = url.path
         }
+        // 2026-09-20 修复（业主「下载解压完成后引擎仍报不可用」纵深防御）：
+        // 清单此前只做自洽校验（文件集 ↔ 清单自身一致、字节/SHA 逐文件比对）——
+        // 若发布包把运行时必需角色命名成别的 role（如 VAD 文件叫 silero_vad、
+        // 缺 vocab），校验通过、设置页显示「可用/已装」，而 `SherpaASRRuntime`
+        // 在 `assets.path("vad")/("vocab")/("frontend")` 处抛 engineUnavailable，
+        // 每次按压必失败且与「模型缺失」无法区分。此处按运行时固定角色集
+        // （与 `SherpaASRRuntime` 装配一一对应）交叉校验——校验与加载同源，
+        // 缺角色在安装期/可用性判定即红，绝不等到按压。
+        for role in Self.runtimeRoles(for: choice) where paths[role] == nil {
+            throw TranscriptionError.engineUnavailable
+        }
         return Validated(paths: paths)
+    }
+
+    /// 运行时必需角色（单一事实源与 `SherpaASRRuntime` 的 assets.path 装配一一对应；
+    /// vad 为 sherpa 轨共用组件）。
+    private static func runtimeRoles(for choice: VoiceEngineChoice) -> Set<String> {
+        switch choice {
+        // zipformer 走在线流式分支，不装配 VAD（SherpaASRRuntime init 的 else 分支才加载 vad）
+        case .zipformer: return ["tokens", "encoder", "decoder", "joiner", "bpe"]
+        case .qwen3: return ["frontend", "encoder", "decoder", "vocab", "vad"]
+        // dolphin/whisper 走 `assets.path("tokens")`（仅 qwen3 以空串替代 tokens）
+        case .whisper: return ["encoder", "decoder", "tokens", "vad"]
+        case .dolphin: return ["model", "tokens", "vad"]
+        case .auto, .classic, .advanced, .dictation: return []
+        }
     }
 
     private func readManifest(_ root: URL) throws -> Manifest {

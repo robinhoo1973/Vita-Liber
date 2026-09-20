@@ -1112,8 +1112,11 @@
 "sharedFields.carriersFmt" = "適用：%@";
 "entityCard.sourceLineTitle" = "原文行";
 "entityCard.sourceLineHint" = "此欄位識別自下面高亮的那一行";
-"entityCard.sourceLineQuoteHint" = "點選一行，將原文引用到欄位（引用後仍需確認）；長按可複製文字";
-"entityCard.sourceLineQuote" = "引用此行";
+"entityCard.sourceLineQuoteHint" = "點選多行，將按順序連接後引用到欄位（引用後仍需確認）；長按可複製文字";
+"entityCard.sourceLineQuoteConfirmFmt" = "引用所選（%d 行）";
+"entityCard.sourceLineSelected" = "已選";
+"entityCard.sourceLineSelect" = "選擇";
+"entityCard.fieldViewSourceText" = "選文";
 "entityCard.fieldViewScan" = "看圖";
 "entityCard.rowSkipped" = "本行缺必填，稍後可在待辦補充";
 "entityCard.sharedSection" = "共同資訊";
@@ -1127,6 +1130,16 @@
 "entityCard.kind.appointment" = "預約";
 "entityCard.kind.claim_item" = "費用";
 "entityCard.saveFailed" = "儲存失敗，可稍後處理或重試";
+"cardEdit.title" = "編輯欄位";
+"cardEdit.fieldsSection" = "欄位";
+"cardEdit.hint" = "修改後的值將直接更新健康檔案（編輯即確認）；留空表示不改動。";
+"cardEdit.save" = "儲存";
+"cardEdit.saved" = "已儲存";
+"cardEdit.savedHint" = "欄位已更新到健康檔案";
+"cardEdit.failed" = "儲存失敗，請重試";
+"cardEdit.invalidDate" = "「%@」不是有效日期（yyyy-MM-dd）";
+"cardEdit.invalidNumber" = "「%@」不是有效數值";
+"cardEdit.lineTitle" = "藥品行 · %@";
 "pendingCard.resume" = "繼續確認";
 "pendingCard.viewSource" = "檢視原文";
 "pendingCard.discard" = "放棄此待辦";
@@ -1735,6 +1748,7 @@
 "voiceLab.asset.unavailable" = "此引擎不支援該語言";
 "voiceLab.asset.install" = "下載語言資源";
 "voiceLab.asset.installing" = "下載中…";
+"voiceLab.asset.installingHint" = "正在下載並安裝語言資源（視網絡情況需要數十秒到數分鐘）";
 "voiceLab.asset.installDone" = "語言資源已安裝";
 "voiceLab.asset.installFailed" = "下載失敗，請檢查網路後重試";
 "voiceLab.asset.footer" = "開源模型全部隨附、本機執行。此處的下載按鈕僅用於可選的 Apple 系統語音資源，且需手動觸發。";
@@ -2178,14 +2192,3 @@
 "health.connectDevice" = "連線裝置以查看健康資料";
 "health.connectButton" = "連線裝置";
 
-"llm.section" = "本機 AI 模型";
-"llm.section.hint" = "離線識別與轉寫潤色。首次下載約 491MB，之後完全離線可用。";
-"llm.download" = "下載本機 AI 模型（約 491MB）";
-"llm.downloading" = "下載中";
-"llm.verifying" = "校驗中";
-"llm.activating" = "啟用中";
-"llm.ready" = "本機 AI 已就緒（完全離線可用）";
-"llm.failed" = "模型下載失敗";
-"llm.retry" = "重試";
-"llm.cancel" = "取消";
-"llm.progressFmt" = "%@ / %@";

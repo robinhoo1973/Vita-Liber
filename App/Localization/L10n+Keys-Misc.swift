@@ -325,6 +325,33 @@ extension L10n {
         return value == key ? kind : value
     }
 
+    // 已确认卡字段编辑（业主 2026-09-20 第 4 项：从健康档案进入编辑）
+    static var cardEditTitle: String { t("cardEdit.title") }
+
+    static var cardEditFieldsSection: String { t("cardEdit.fieldsSection") }
+
+    static var cardEditHint: String { t("cardEdit.hint") }
+
+    static var cardEditSave: String { t("cardEdit.save") }
+
+    static var cardEditSaved: String { t("cardEdit.saved") }
+
+    static var cardEditSavedHint: String { t("cardEdit.savedHint") }
+
+    static var cardEditFailed: String { t("cardEdit.failed") }
+
+    static func cardEditInvalidDate(_ label: String) -> String {
+        t("cardEdit.invalidDate").replacingOccurrences(of: "%@", with: label)
+    }
+
+    static func cardEditInvalidNumber(_ label: String) -> String {
+        t("cardEdit.invalidNumber").replacingOccurrences(of: "%@", with: label)
+    }
+
+    static func cardEditLineTitle(_ name: String) -> String {
+        t("cardEdit.lineTitle").replacingOccurrences(of: "%@", with: name)
+    }
+
     static var pendingCardResume: String { t("pendingCard.resume") }
 
     static var pendingCardViewSource: String { t("pendingCard.viewSource") }

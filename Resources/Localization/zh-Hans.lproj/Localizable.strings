@@ -1112,8 +1112,11 @@
 "sharedFields.carriersFmt" = "适用：%@";
 "entityCard.sourceLineTitle" = "原文行";
 "entityCard.sourceLineHint" = "此字段识别自下面高亮的那一行";
-"entityCard.sourceLineQuoteHint" = "点选一行，将原文引用到字段（引用后仍需确认）；长按可复制文字";
-"entityCard.sourceLineQuote" = "引用此行";
+"entityCard.sourceLineQuoteHint" = "点选多行，将按顺序连接后引用到字段（引用后仍需确认）；长按可复制文字";
+"entityCard.sourceLineQuoteConfirmFmt" = "引用所选（%d 行）";
+"entityCard.sourceLineSelected" = "已选";
+"entityCard.sourceLineSelect" = "选择";
+"entityCard.fieldViewSourceText" = "选文";
 "entityCard.fieldViewScan" = "看图";
 "entityCard.rowSkipped" = "本行缺必填，稍后可在待办补充";
 "entityCard.sharedSection" = "共同信息";
@@ -1127,6 +1130,16 @@
 "entityCard.kind.appointment" = "预约";
 "entityCard.kind.claim_item" = "费用";
 "entityCard.saveFailed" = "保存失败，可稍后处理或重试";
+"cardEdit.title" = "编辑字段";
+"cardEdit.fieldsSection" = "字段";
+"cardEdit.hint" = "修改后的值将直接更新健康档案（编辑即确认）；留空表示不改动。";
+"cardEdit.save" = "保存";
+"cardEdit.saved" = "已保存";
+"cardEdit.savedHint" = "字段已更新到健康档案";
+"cardEdit.failed" = "保存失败，请重试";
+"cardEdit.invalidDate" = "「%@」不是有效日期（yyyy-MM-dd）";
+"cardEdit.invalidNumber" = "「%@」不是有效数值";
+"cardEdit.lineTitle" = "药品行 · %@";
 "pendingCard.resume" = "继续确认";
 "pendingCard.viewSource" = "查看原文";
 "pendingCard.discard" = "放弃此待办";
@@ -1735,6 +1748,7 @@
 "voiceLab.asset.unavailable" = "该引擎不支持此语言";
 "voiceLab.asset.install" = "下载语言资源";
 "voiceLab.asset.installing" = "正在下载…";
+"voiceLab.asset.installingHint" = "正在下载并安装语言资源（视网络情况需要数十秒到数分钟）";
 "voiceLab.asset.installDone" = "语言资源已安装";
 "voiceLab.asset.installFailed" = "下载失败，请检查网络后重试";
 "voiceLab.asset.footer" = "开源模型全部随包、本地运行。此处的下载按钮仅用于可选的 Apple 系统语音资源，且需手动触发。";
@@ -2178,14 +2192,3 @@
 "health.connectDevice" = "连接设备以查看健康数据";
 "health.connectButton" = "连接设备";
 
-"llm.section" = "本机 AI 模型";
-"llm.section.hint" = "离线识别与转写润色。首次下载约 491MB，之后完全离线可用。";
-"llm.download" = "下载本机 AI 模型（约 491MB）";
-"llm.downloading" = "下载中";
-"llm.verifying" = "校验中";
-"llm.activating" = "激活中";
-"llm.ready" = "本机 AI 已就绪（完全离线可用）";
-"llm.failed" = "模型下载失败";
-"llm.retry" = "重试";
-"llm.cancel" = "取消";
-"llm.progressFmt" = "%@ / %@";

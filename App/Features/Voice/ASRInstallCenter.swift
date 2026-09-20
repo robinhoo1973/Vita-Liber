@@ -56,6 +56,12 @@ final class ASRInstallCenter {
         nonisolated func submit(progress: ASRModelDownloadService.DownloadProgress) {
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                // 2026-09-20 修复：阶段切换（submit(phase:) 清空 progress）后，
+                // 下载阶段排队在途的旧系列 hop（series 0/1）可能晚到并重新装回
+                // 已清空的槽位——校验/解压分支用旧下载快照渲染，条钉死在旧百分比。
+                // 校验/解压系列自 2 起（下载 = 0/1，ASRModelDownloadService 契约），
+                // 非下载阶段直接弃下载系列回包。
+                if let phase = self.phase, phase != .downloading, progress.series < 2 { return }
                 // 单调守卫**限同系列**（审查修复 2026-09-18）：同系列内乱序旧值
                 // 丢弃；跨系列（分段退单流/校验/解压——同一 totalBytes 从 0 重计）
                 // 一律放行——此前按 totalBytes 相同 + received 不增判定，单流重建

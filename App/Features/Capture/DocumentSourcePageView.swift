@@ -18,6 +18,12 @@ struct DocumentSourcePageReference: Equatable {
     }
 }
 
+/// 后台解码产物的 Sendable 载体（UIImage 跨执行器回传的装箱；2026-09-20 修复）。
+private final class RenderedImageBox: @unchecked Sendable {
+    let image: UIImage
+    init(_ image: UIImage) { self.image = image }
+}
+
 /// UI-only rendering: PDF pages are addressed explicitly, never passed to UIImage(data:).
 @MainActor
 enum DocumentSourceRenderer {
@@ -63,6 +69,10 @@ struct DocumentSourcePageView: View {
     @State private var unlocking = false
     @State private var scale: CGFloat = 1
     @State private var operation: Task<Void, Never>?
+    /// prepareMetadata 已取到的文档行（2026-09-20 修复：loadMedia 不再二次 fetch——）
+    /// 敏感解锁路径此前每开一次页面查两遍同一行，且解锁后重查窗口内文档可被
+    /// 并发归档/删除致解锁即失败）
+    @State private var loadedDocument: DocumentStore.DocumentRow?
     /// 空闲重锁计时器（审查修复：第四份手写 relockTask 脚手架收敛进共享
     /// MediaRelockTimer——改 TTL 语义/取消纪律只此一处机制）
     @State private var relockTimer = MediaRelockTimer()
@@ -149,7 +159,7 @@ struct DocumentSourcePageView: View {
             }
             .privacySensitive(scenePhase != .active)
             .task { await prepareMetadata() }
-            .onChangeCompat(of: pageIndex) { _, _ in renderPage(); scheduleRelock() }
+            .onChangeCompat(of: pageIndex) { _, _ in Task { await renderPage() }; scheduleRelock() }
             .onChangeCompat(of: scenePhase) { _, phase in
                 // background = 真离开恒立即重锁；inactive 可能是认证浮层
                 // 收起瞬态——解锁后 5 秒内不重锁（MediaUnlockPolicy，
@@ -178,6 +188,7 @@ struct DocumentSourcePageView: View {
                       let path = meta["original_path"] as? String else { throw DocumentSourceRenderer.Failure.unreadable }
                 guard !Task.isCancelled else { return }
                 sensitive = doc.isSensitive; originalPath = path; mimeType = doc.mimeType ?? "image/jpeg"
+                loadedDocument = doc
             }
             loading = false
             if !sensitive { await loadMedia() }
@@ -197,7 +208,9 @@ struct DocumentSourcePageView: View {
         unlocking = true
         let task = Task {
             let allowed = await app.requestUnlock(reason: L10n.sensitive_unlockReason)
-            guard !Task.isCancelled else { return }
+            // 2026-09-20 修复：取消路径必须复位在途守卫（SensitiveMediaContainer 同族修复）——
+            // 旧实现 return 前置 unlocking 恒 true，无 relock 兜底的取消源会把解锁按钮永久禁用
+            guard !Task.isCancelled else { unlocking = false; return }
             unlocking = false
             guard allowed else { return }
             unlocked = true
@@ -206,7 +219,10 @@ struct DocumentSourcePageView: View {
             await loadMedia()
             guard !Task.isCancelled, !failed else { return }
             if case .document(let id, _) = source { app.auditViewSensitiveOriginal(documentId: id, title: "") }
-            scheduleRelock()
+            // 2026-09-20 修复（BR-007）：解锁后**必武装** 30s 空闲自动重锁——旧实现走
+            // scheduleRelock()，其活跃信号合并（<1s 丢弃）恰把解锁后的第一次武装吞掉：
+            // 不触碰屏幕即无限期解锁。此处直接武装（合并守卫只服务手势热路径）。
+            relockTimer.schedule(onExpiry: { relock() })
         }
         operation = task
         relockTimer.trackUnlock(task)
@@ -218,32 +234,59 @@ struct DocumentSourcePageView: View {
             let bytes: Data
             switch source {
             case .draft(let draft): bytes = draft.mimeType == "application/pdf" ? draft.originalData : draft.processedData
-            case .document(let documentID, let patient):
-                guard let document = await docs.fetch(id: documentID), document.patientId == patient else {
-                    throw DocumentSourceRenderer.Failure.unreadable
-                }
+            case .document:
+                // 2026-09-20 修复：复用 prepareMetadata 已取的文档行（敏感解锁路径
+                // 此前二次 fetch 同一行；且解锁后重查窗口内文档可被并发归档致解锁即失败）
+                guard let document = loadedDocument else { throw DocumentSourceRenderer.Failure.unreadable }
                 guard !Task.isCancelled else { return }
                 if document.isSensitive && !unlocked {
                     sensitive = true; image = nil; data = nil; loading = false
                     return
                 }
                 guard let originalPath else { throw DocumentSourceRenderer.Failure.unreadable }
-                bytes = try Data(contentsOf: URL(fileURLWithPath: originalPath))
+                // 大文件读取 + PDF 页数解析移出主 actor（2026-09-20 修复：旧实现
+                // Data(contentsOf:) 数十 MB + PDFDocument 整册解析在 Face ID 解锁后
+                // 同步跑在主线程——「人脸识别后图片不出来」的卡死/假死主因之一）
+                let path = originalPath
+                let mime = mimeType
+                let loaded = try await Task.detached(priority: .userInitiated) {
+                    let read = try Data(contentsOf: URL(fileURLWithPath: path))
+                    let count = try DocumentSourceRenderer.pageCount(data: read, mimeType: mime)
+                    return (read, count)
+                }.value
+                bytes = loaded.0
+                pageCount = loaded.1
             }
             guard !Task.isCancelled else { return }
-            pageCount = try DocumentSourceRenderer.pageCount(data: bytes, mimeType: mimeType)
             data = bytes
-            renderPage()
+            await renderPage()
             loading = false
         } catch { loading = false; failed = true }
     }
 
-    private func renderPage() {
+    /// 解码在后台执行器（2026-09-20 修复：PDF 整册解析 + 2048px 缩略图/降采样
+    /// 原为同步主线程工作，翻页每次重解析——大扫描件每次数秒级主线程停顿）。
+    /// pageIndex 越界钳制（旧卡 pageIndex ≥ 实际页数 → 原实现 pageMissing 必失败）；
+    /// 代次守卫防快速翻页时迟到的旧页结果覆盖新页。
+    @State private var renderGeneration = 0
+    private func renderPage() async {
         guard !sensitive || unlocked, let data else { return }
+        let mime = mimeType
+        let bytes = data
+        let target = min(pageIndex, max(0, pageCount - 1))
+        renderGeneration += 1
+        let generation = renderGeneration
         do {
-            image = try DocumentSourceRenderer.image(data: data, mimeType: mimeType, pageIndex: pageIndex)
+            let box = try await Task.detached(priority: .userInitiated) {
+                try RenderedImageBox(DocumentSourceRenderer.image(data: bytes, mimeType: mime, pageIndex: target))
+            }.value
+            guard generation == renderGeneration else { return }   // 迟到的旧页结果弃件
+            image = box.image
             scale = 1; failed = false
-        } catch { image = nil; failed = true }
+        } catch {
+            guard generation == renderGeneration else { return }
+            image = nil; failed = true
+        }
     }
 
     private func scheduleRelock() {

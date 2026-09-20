@@ -4,8 +4,9 @@ import Foundation
 /// 结构轮（2026-09-15）：自 LlamaCppExtractionEngine.swift 迁出——引擎与
 /// 模型文件管理是两个职责（P2）。
 /// 业主 2026-09-17 定：模型**随包内置**（`Resources/LLMModels/` 文件夹引用入
-/// bundle）——本管理器改为 bundle-first；Documents/llm-models 保留为**后置
-/// 覆盖位**（将来若提供官方更新包下载，落在沙盒即优先于随包版本）。
+/// bundle）；2026-09-20 业主再裁决（第 5 项）：**取消首启下载**——下载服务
+/// （LlamaModelDownloadService/LlamaInstallCenter）整体移除，模型以随包为
+/// 唯一来源（bundle-only），Documents 覆盖位随下载路径一并退役。
 public enum LlamaModelManager {
     /// 模型文件名（与 `Resources/LLMModels/catalog.json` 一致）。
     public static let modelFileName = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
@@ -13,27 +14,14 @@ public enum LlamaModelManager {
     public static let bundleSubdirectory = "LLMModels"
     /// 模型体积（q4_k_m 实测字节数，随 catalog.json 钉版）。
     public static let expectedModelBytes: Int64 = 491_400_032
-    /// 下载安装目录（首启下载落位，2026-09-20 业主裁决项 4：模型不再随包）。
-    public static var installDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("llm-models", isDirectory: true)
-    }
 
-    /// 模型文件路径：下载位（Documents/llm-models，体积钉版校验）优先；
-    /// 随包资源回落（历史版本过渡期兼容——新构建不再内置，见 catalog.json）。
-    /// 2026-09-19 审查修复：覆盖位此前仅凭存在即生效——截断/损坏的同名文件会
-    /// 遮蔽钉版模型，冷载失败后整轨静默降级 T3 且无诊断。
+    /// 模型文件路径：随包资源唯一来源（CI 经 materialize-llama-model.py 按
+    /// catalog.json sha256 取模入包；模型文件不入库）。
     public static func modelURL(for fileName: String = modelFileName) -> URL? {
-        let downloaded = installDirectory.appendingPathComponent(fileName)
-        if FileManager.default.fileExists(atPath: downloaded.path),
-           let attrs = try? FileManager.default.attributesOfItem(atPath: downloaded.path),   // try?-ok: 属性读取失败按不存在处理，回落随包
-           (attrs[.size] as? NSNumber)?.int64Value == expectedModelBytes {
-            return downloaded
-        }
-        return Bundle.main.url(forResource: fileName, withExtension: nil, subdirectory: bundleSubdirectory)
+        Bundle.main.url(forResource: fileName, withExtension: nil, subdirectory: bundleSubdirectory)
     }
 
-    /// 模型是否已就绪（随包在 / 覆盖位在，可读，且体积与 catalog.json 钉版一致）。
+    /// 模型是否已就绪（随包在、可读，且体积与 catalog.json 钉版一致）。
     /// 2026-09-19 审查修复：此前仅查可读性——expectedModelBytes 全仓零引用（死常量），
     /// 截断的 491MB 包体通过「就绪」判定后冷载失败，仅表现为静默 T3 降级。
     public static func isModelReady(fileName: String = modelFileName) -> Bool {

@@ -37,7 +37,9 @@ public actor ASRModelDownloadService {
         /// （received 从 0 爬起）都被判成「旧值」丢弃，进度条钉死在分段
         /// 峰值数分钟——业主实测「进度条无反应、百分比不变化」。
         public var series: Int = 0
-        public var fraction: Double { totalBytes > 0 ? Double(receivedBytes) / Double(totalBytes) : 0 }
+        /// 2026-09-20 修复：钳制 0…1——分段尝试回滚/计数修正可使 received 短时超过 total
+        /// （fraction > 1 喂给 `ProgressView(value:)` 属契约外输入，渲染未定义）。
+        public var fraction: Double { totalBytes > 0 ? min(1, Double(receivedBytes) / Double(totalBytes)) : 0 }
     }
 
     public enum Failure: Error, Equatable {
@@ -194,6 +196,9 @@ public actor ASRModelDownloadService {
     }
 
     /// 最新可发布条目（同 id 中取版本最高者；未发布/不兼容条目跳过）。
+    /// 2026-09-20 修复：`expandedBytes` 必须为正且在上限内才入候选——此前该闸门
+    /// 只在 performInstall 里（下载完、校验完、解压完才判），目录条目缺 expandedBytes
+    /// 时下载按钮照常出现、每次点击都白下 GB 级包后报「下载失败」。
     public nonisolated static func latest(for choice: VoiceEngineChoice,
                                           in index: ASRModelReleaseIndex,
                                           appVersion: String) -> ASRModelRelease? {
@@ -201,6 +206,7 @@ public actor ASRModelDownloadService {
             .filter { $0.id == choice.rawValue && $0.isPublished && $0.isCompatible(appVersion: appVersion) }
             // 方案 B：目录验签产生动态授权；App 内基线提供已知包的离线授权。
             .filter { ModelCatalogTrustStore.shared.isAuthorized($0) && $0.runtime == ModelResourcePolicy.runtime }
+            .filter { ($0.expandedBytes ?? 0) > 0 && ($0.expandedBytes ?? 0) <= ModelResourcePolicy.expandedBytes }
             .max {
                 if $0.version == $1.version { return ($0.artifactRevision ?? 0) < ($1.artifactRevision ?? 0) }
                 return ASRVersion.isNewer($1.version, than: $0.version)

@@ -2,9 +2,6 @@ import SwiftUI
 import Domain
 import Infrastructure
 import Perception
-#if os(iOS)
-import UIKit   // beginBackgroundTask（切后台继续下载窗口）
-#endif
 
 /// FR17.15 生产设置：选择直接写入 voiceEngine，下一次按压从同一键解析。
 /// 业主 2026-09-12 决定：随包模型之外新增**运行时下载路径**——
@@ -215,13 +212,7 @@ struct ASREngineSettingsSection: View {
                 }
             } header: { Text(L10n.voiceLabEngineSection) }
               footer: { Text(L10n.asrSelectionHint) }
-            // 本机 AI 模型（llama）首启下载卡（2026-09-20 业主裁决项 4）：
-            // 确定性进度 + 阶段文案 + 取消/重试——「下载等待 UI」唯一落点。
-            Section {
-                LlamaModelInstallCard()
-            } header: { Text(L10n.llmSection) }
-              footer: { Text(L10n.llmSectionHint) }
-              // 派生结论在渲染路径之外算（见 `availability` 的说明）。
+            // 派生结论在渲染路径之外算（见 `availability` 的说明）。
               // **必须挂在追踪闭包内**：`derivationKey` 读 `installCenter.active`，
               // 挂到闭包外则读值不被追踪，安装开始/结束时 id 不变、任务不重跑，
               // 按钮形态会停在旧态。
@@ -418,71 +409,13 @@ struct ASREngineSettingsSection: View {
     }
 
     private func startInstall(_ release: ASRModelRelease) {
-        let base = (index ?? ModelCatalogTrustStore.shared.baselineIndex)?.baseUrl.flatMap(URL.init(string:))
+        // 2026-09-20 修复：以信任库的**授权基址**为准（服务层 performInstall 按
+        // trust.baseURL(for:) 比对——此前传页内索引的 baseUrl，与签名根信封的
+        // assetBaseURL 不一致时每击必报 badAddress，用户只见「下载失败」）。
+        // 索引 baseUrl 仅在无网络目录授权（测试/基线）时兜底。
+        let base = ModelCatalogTrustStore.shared.baseURL(for: release)
+            ?? (index ?? ModelCatalogTrustStore.shared.baselineIndex)?.baseUrl.flatMap(URL.init(string:))
         // 启动/取消/进度/后台窗口/资产广播全在中心（App 层）——本页只提供索引与授权上下文。
         installCenter.start(release, baseURL: base)
-    }
-}
-
-/// 本机 AI 模型下载卡：未装 → 下载按钮；下载中 → 确定性进度 + 阶段 + 取消；
-/// 已装 → 就绪标记；失败 → 错误 + 重试。状态全部来自 LlamaInstallCenter。
-private struct LlamaModelInstallCard: View {
-    @State private var center = LlamaInstallCenter.shared
-
-    var body: some View {
-        WithPerceptionTracking {
-            switch center.state {
-            case .idle:
-                Button { center.start() } label: {
-                    HStack {
-                        Label(L10n.llmDownload, systemImage: "arrow.down.circle")
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("voiceLab.llm.download")
-            case .installing:
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(phaseText).font(.subheadline)
-                        Spacer()
-                        Button(L10n.llmCancel) { center.cancel() }
-                            .buttonStyle(.borderless)
-                            .frame(minHeight: 44)
-                            .accessibilityIdentifier("voiceLab.llm.cancel")
-                    }
-                    ProgressView(value: center.active?.fraction ?? 0)
-                        .accessibilityIdentifier("voiceLab.llm.progress")
-                    Text(L10n.llmProgressText(center.active?.receivedBytes ?? 0,
-                                              center.active?.totalBytes ?? 1))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            case .installed:
-                Label(L10n.llmReady, systemImage: "checkmark.seal.fill")
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .accessibilityIdentifier("voiceLab.llm.ready")
-            case .failed:
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(L10n.llmFailed, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                    if let message = center.lastError {
-                        Text(message).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Button(L10n.llmRetry) { center.start() }
-                        .buttonStyle(.bordered)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("voiceLab.llm.retry")
-                }
-            }
-        }
-    }
-
-    private var phaseText: String {
-        switch center.active?.phase {
-        case .downloading, nil: return L10n.llmDownloading
-        case .verifying: return L10n.llmVerifying
-        case .activating: return L10n.llmActivating
-        }
     }
 }

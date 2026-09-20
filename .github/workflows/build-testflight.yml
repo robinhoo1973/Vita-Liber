@@ -181,6 +181,11 @@ jobs:
           # 键 = catalog.json 内容哈希——模型换版即失效重取（同 ASR 哈希先行纪律）
           key: llama-model-${{ hashFiles('Resources/LLMModels/catalog.json') }}
 
+      - name: 取模 T2 llama 模型（sha256 校验，随包内置）
+        # 2026-09-20 恢复（业主第 5 项：取消首启下载、模型随包内置）——
+        # b8d6c4f 曾随「首启下载」裁决移除本步骤，冷缓存下 CI 包内无模型。
+        run: python3 .github/workflows/materialize-llama-model.py
+
       - name: 环境与工具链
         run: |
           xcodebuild -version

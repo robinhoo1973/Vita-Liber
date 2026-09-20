@@ -103,6 +103,18 @@ struct VoiceEngineLabView: View {
                         .disabled(installing)
                         .accessibilityIdentifier("SP-62.asset.install")
                     }
+                    // 2026-09-20 修复（业主第 6 项「语音模型下载没有进度显示」）：
+                    // 系统资产下载 API（SpeechAnalyzerSupport.install → AssetInventory）
+                    // 不暴露字节进度——旧实现安装期间零反馈（无 spinner 无文案），
+                    // GB 级语言资源数十秒无响应，用户判定「没有下载/卡死」。
+                    // 如实呈现进行态（不确定进度 + 阶段文案），终态经 installNote 反馈。
+                    if installing {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L10n.voiceLabInstallingHint).font(.caption).foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("SP-62.asset.installing")
+                    }
                     if let installNote {
                         Text(installNote).font(.caption).foregroundStyle(.secondary)
                             .accessibilityIdentifier("SP-62.asset.note")

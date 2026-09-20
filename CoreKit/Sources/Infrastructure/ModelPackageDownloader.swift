@@ -189,8 +189,9 @@ private final class ProgressCounter: @unchecked Sendable {
     private var lastEmitTime: TimeInterval = 0
     private let total: Int64
     private let mode: ASRModelDownloadService.DownloadMode
-    /// 系列代次：同一 totalBytes 的重启系列（退单流）必须换代（见 DownloadProgress.series）
-    private let series: Int
+    /// 系列代次：同一 totalBytes 的重启系列（退单流 / 段重试回滚）必须换代
+    /// （见 DownloadProgress.series）——消费侧单调守卫跨系列一律放行。
+    private var series: Int
     private let callback: (@Sendable (ASRModelDownloadService.DownloadProgress) -> Void)?
 
     init(total: Int64, mode: ASRModelDownloadService.DownloadMode, series: Int,
@@ -218,11 +219,18 @@ private final class ProgressCounter: @unchecked Sendable {
         }
     }
 
-    /// 失败尝试字节回滚（重试路径）：只扣计数，不发进度回调——真实进度只会前进，
-    /// 回滚后的下一 add 恢复节流发射（lastEmittedFraction 不回退，防瞬时抖动）。
+    /// 失败尝试字节回滚（重试路径）：扣计数 + **系列换代** + 节流基线回退。
+    /// 2026-09-20 修复（业主「语音模型下载进度条无反应」）：旧实现只扣计数——
+    /// 消费侧单调守卫（`ASRInstallCenter.Install.submit`）按「同系列 received 不增
+    /// 即丢弃」判定，回滚后的每次发射（received 低于已接受峰值）全被丢弃，
+    /// 进度条在段重试的整段重下期间钉死在旧峰值（分钟级）。系列换代让消费侧
+    /// 跨系列放行；lastEmittedFraction 回退到回滚后分数，重试进度立即恢复发射。
     func remove(_ bytes: Int64) {
         lock.lock()
         received = max(0, received - bytes)
+        series &+= 1
+        let fraction = total > 0 ? Double(received) / Double(total) : 0
+        lastEmittedFraction = max(0, fraction)
         lock.unlock()
     }
 }

@@ -46,13 +46,23 @@ extension L10n {
 
     static var entityCardSourceLineHint: String { t("entityCard.sourceLineHint") }
 
-    /// 点行引用（业主 2026-09-19 第 1 项：原文行点选回填字段）
+    /// 点行引用（业主 2026-09-19 第 1 项：原文行点选回填字段；2026-09-20 升级多行选择）
     static var entityCardSourceLineQuoteHint: String { t("entityCard.sourceLineQuoteHint") }
 
-    static var entityCardSourceLineQuote: String { t("entityCard.sourceLineQuote") }
+    /// 多行引用确认（业主 2026-09-20 第 1 项：已选行按行序连接后回填）
+    static func entityCardSourceLineQuoteConfirm(_ count: Int) -> String {
+        String(format: t("entityCard.sourceLineQuoteConfirmFmt"), count)
+    }
+
+    static var entityCardSourceLineSelected: String { t("entityCard.sourceLineSelected") }
+
+    static var entityCardSourceLineSelect: String { t("entityCard.sourceLineSelect") }
 
     /// 字段旁 [看图] 入口（业主 2026-09-19 第 1 项：查看扫描原件核对证据）
     static var entityCardFieldViewScan: String { t("entityCard.fieldViewScan") }
+
+    /// 字段旁 [选文] 入口（业主 2026-09-20 第 2 项：无锚定的新增字段从识别文本选填）
+    static var entityCardFieldViewSourceText: String { t("entityCard.fieldViewSourceText") }
 
     static var entityCardRowSkipped: String { t("entityCard.rowSkipped") }
 

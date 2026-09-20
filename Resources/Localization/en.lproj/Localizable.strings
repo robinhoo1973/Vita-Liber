@@ -1112,8 +1112,11 @@
 "sharedFields.carriersFmt" = "Applies to: %@";
 "entityCard.sourceLineTitle" = "Source line";
 "entityCard.sourceLineHint" = "This field was read from the highlighted line below";
-"entityCard.sourceLineQuoteHint" = "Tap a line to quote it into the field (still needs confirmation); long-press to copy text";
-"entityCard.sourceLineQuote" = "Quote this line";
+"entityCard.sourceLineQuoteHint" = "Tap multiple lines to quote them joined in order (still needs confirmation); long-press to copy text";
+"entityCard.sourceLineQuoteConfirmFmt" = "Quote Selected (%d)";
+"entityCard.sourceLineSelected" = "Selected";
+"entityCard.sourceLineSelect" = "Select";
+"entityCard.fieldViewSourceText" = "Pick from text";
 "entityCard.fieldViewScan" = "View scan";
 "entityCard.rowSkipped" = "Row is missing a required field — finish it later from To-do";
 "entityCard.sharedSection" = "Shared details";
@@ -1127,6 +1130,16 @@
 "entityCard.kind.appointment" = "Appointment";
 "entityCard.kind.claim_item" = "Expense";
 "entityCard.saveFailed" = "Save failed — try again or defer";
+"cardEdit.title" = "Edit Fields";
+"cardEdit.fieldsSection" = "Fields";
+"cardEdit.hint" = "Changes update the health record directly (editing is confirming); leave a field empty to keep it unchanged.";
+"cardEdit.save" = "Save";
+"cardEdit.saved" = "Saved";
+"cardEdit.savedHint" = "Fields updated in the health record";
+"cardEdit.failed" = "Save failed — please try again";
+"cardEdit.invalidDate" = "“%@” is not a valid date (yyyy-MM-dd)";
+"cardEdit.invalidNumber" = "“%@” is not a valid number";
+"cardEdit.lineTitle" = "Medication line · %@";
 "pendingCard.resume" = "Continue";
 "pendingCard.viewSource" = "View source";
 "pendingCard.discard" = "Discard this pending card";
@@ -1735,6 +1748,7 @@
 "voiceLab.asset.unavailable" = "Not supported by this engine";
 "voiceLab.asset.install" = "Download language assets";
 "voiceLab.asset.installing" = "Downloading…";
+"voiceLab.asset.installingHint" = "Downloading and installing the language asset (can take a minute or more)";
 "voiceLab.asset.installDone" = "Language assets installed";
 "voiceLab.asset.installFailed" = "Download failed. Check your connection and try again.";
 "voiceLab.asset.footer" = "Open-source models are bundled and run locally. Download controls here apply only to optional Apple system speech assets and require an explicit action.";
@@ -2178,14 +2192,3 @@
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
 
-"llm.section" = "On-device AI Model";
-"llm.section.hint" = "Offline extraction and transcript refinement. One-time ~491MB download, then fully offline.";
-"llm.download" = "Download On-device AI Model (~491MB)";
-"llm.downloading" = "Downloading";
-"llm.verifying" = "Verifying";
-"llm.activating" = "Activating";
-"llm.ready" = "On-device AI ready (fully offline)";
-"llm.failed" = "Model download failed";
-"llm.retry" = "Retry";
-"llm.cancel" = "Cancel";
-"llm.progressFmt" = "%@ / %@";

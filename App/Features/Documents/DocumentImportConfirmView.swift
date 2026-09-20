@@ -161,6 +161,9 @@ struct FieldConfirmRow: View {
     /// 属于「缺证据被当成有证据」（BR-003 同族）。
     var sourceLine: Int?
     var onViewSource: ((Int) -> Void)?
+    /// 字段 → 全文选文（业主 2026-09-20 第 2 项）：无锚定的新增字段也能从识别
+    /// 文本选填——全文面板**无高亮**，与 [原文] 锚定入口语义分离；nil = 不渲染。
+    var onViewSourceText: (() -> Void)?
     /// 字段旁 [看图] 入口（业主 2026-09-19 第 1 项）：打开扫描原件核对证据。
     /// nil = 无原件可看（如待办续办模式的旧数据）→ 不渲染。
     var onViewScan: (() -> Void)?
@@ -258,6 +261,16 @@ struct FieldConfirmRow: View {
                                 }
                                 .accessibilityLabel(L10n.entityCardReviewSource)
                                 .accessibilityIdentifier("OCR.field.source.\(field.key)")
+                            }
+                            // 字段 → 全文选文（业主 2026-09-20 第 2 项）：无锚定字段的
+                            // 识别文本取数入口，与 [原文] 锚定入口并列、语义分离
+                            if let onViewSourceText {
+                                Button { onViewSourceText() } label: {
+                                    Label(L10n.entityCardFieldViewSourceText, systemImage: "text.quote")
+                                        .labelStyle(.iconOnly)
+                                }
+                                .accessibilityLabel(L10n.entityCardFieldViewSourceText)
+                                .accessibilityIdentifier("OCR.field.sourceText.\(field.key)")
                             }
                             // 字段 → 扫描原件（业主 2026-09-19 第 1 项）：
                             // 有原件路径才出入口，与 [原文] 同诚实纪律

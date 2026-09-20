@@ -2389,14 +2389,6 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 
-## CoreKit/Sources/Infrastructure/LlamaModelDownloadService.swift
-- `LlamaModelDownloadService` (15) — 本机 AI 模型首启下载 actor（2026-09-20 业主裁决项 4；断点续传/双钉版校验/原子落位/失败清理）
-  - `Phase` (17) — downloading/verifying/activating
-  - `Progress` (20) — received/total 字节 + 阶段
-  - `Failure` (26) — catalogMissing/sizeMismatch/checksumMismatch/underlying
-  - `func install(progress:onPhase:)` (50) — 下载→校验→原子落位主流程（.part 续传）
-- `LlamaModelCatalog` (119) — 模型目录元数据（构建期信任锚：URL+sha256+字节随签名二进发布）
-  - `static func load()` (125) — 从 bundle LLMModels/catalog.json 解析
 
 ## CoreKit/Sources/Infrastructure/LlamaModelManager.swift
 - `LlamaModelManager` (9) — Qwen GGUF 模型路径查找/就绪判定/文件校验
@@ -3777,7 +3769,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
   - `Failure` (24) — 渲染失败原因（unreadable / pageMissing）
   - `pageCount(data:mimeType:)` (26) — PDF 页数（非 PDF = 1）
   - `image(data:mimeType:pageIndex:)` (32) — 第 N 页缩略图（PDF 走 PDFKit、图片走 downsample）
-- `DocumentSourcePageView` (46) — 敏感原件页查看器（加载 / 解锁 / 分页 / 空闲重锁）
+- `DocumentSourcePageView` (46) — 敏感原件页查看器（加载 / 解锁 / 分页 / 空闲重锁；2026-09-20：读盘/解析/降采样移出主 actor + 代次守卫、解锁后必武装 30s 重锁、pageIndex 钳制、复用 prepareMetadata 已取行）
   - `Source` (47) — 数据源：库内文档或导入草稿
   - `var body` (84) — 渲染装载/失败/加锁/图片+缩放四态
   - `prepareMetadata()` (128) — 装载元数据（敏感级 / 原图路径 / 页数）
@@ -3896,7 +3888,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 ## App/Features/Confirm/SourceLineSheet.swift
-- `SourceLineSheet` (10) — 字段 → 原文行锚定面板（行级高亮 + **点行引用** `onPick`：回填目标字段 = revise 留痕、D 级待确认；无 onPick 只读；框级高亮归 DocumentSourcePageView(highlight:)）
+- `SourceLineSheet` (10) — 字段 → 原文行锚定面板（行级高亮 + **多行点选引用** `onPick([String])`：圈选切换 + 「引用所选」按行序连接，连接语义收敛 Domain `FieldDraft.quoteLines`、revise 留痕 D 级待确认；无 onPick 只读；框级高亮归 DocumentSourcePageView(highlight:)；行触点 ≥44pt）
   - `highlighted` (15) — 行号合法性守卫
   - `var body` (20) — 逐行渲染 + 高亮行滚动定位
 
@@ -4171,6 +4163,13 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 
+## CoreKit/Sources/Infrastructure/OCRCardStore+Edit.swift
+- `updateCardFields(kind:entityId:patientId:shared:lines:)` (7) — 已确认卡字段编辑（业主 2026-09-20 第 4 项）：单事务事实列 UPDATE + ocr_result 审计 JSON 同步；编辑即确认、confirmed 不变、清空=不改；encounter/health_exam/lab_report 除外
+- `applyCardFieldEdits` / `syncAuditsForEdits` — 编辑事务主体 / 审计同步（decode→替换→re-encode）
+
+## App/Features/Records/CardFieldEditSheet.swift
+- `CardFieldEditSheet` (7) — 已确认卡字段编辑表单（保存前日期/数值预校验、枚举 Picker、处方行关键列编辑；编辑即确认）
+
 ## App/Features/Records/MedicalCardDetailView.swift
 - `MedicalCardDetailView` (7) — FR4.2/FR6.9 已确认卡详情（就诊/原件共用入口）
   - `var body` (22) — 头部/处方行/叙事列/诊断/结论/检验分段/关联/来源
@@ -4285,12 +4284,6 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 
 
-## App/Features/Voice/LlamaInstallCenter.swift
-- `LlamaInstallCenter` (13) — 本机 AI 模型首启下载中心（@MainActor @Perceptible；下载等待 UI 四态）
-  - `State` (15) — idle/installing/installed/failed
-  - `Active` (23) — 进度/阶段可观察载体（submit 回跳主 actor）
-  - `func start() / cancel() / refresh() / dismissFailure()` (53-77) — 生命周期
-  - `private func run(_:)` (82) — 后台任务窗口 + install 编排 + assetsChanged 广播
 
 ## App/Features/Voice/ASREngineSettingsSection.swift
 - `ASREngineSettingsSection` (23) — FR17.15 生产引擎设置区（档位选择 + 运行时下载）

@@ -81,12 +81,27 @@ enum ActivePointerStore {
         guard let hash = pointer.packageSHA256, ModelResourcePolicy.isSHA256(hash),
               !ModelCatalogTrustStore.shared.isRevoked(hash),
               pointer.choice == choice.rawValue, ModelResourcePolicy.isSlug(pointer.version),
-              ModelResourcePolicy.isSlug(pointer.directory ?? pointer.version) else { return nil }
+              validDirectory(pointer.directory ?? pointer.version, version: pointer.version) else { return nil }
         let dir = root.appendingPathComponent(pointer.directory ?? pointer.version, isDirectory: true)
         guard FileManager.default.fileExists(atPath: dir.appendingPathComponent("manifest.json").path) else {
             return nil
         }
         return pointer
+    }
+
+    /// 目录名校验（2026-09-20 修复，业主「下载解压完成后引擎仍不可用」）：
+    /// 变体安装目录形如 `small~<version>-<sha12>-<uuid>`——变体段与版本间以 `~` 分隔
+    /// （`ASRInstallLayout`：`~` 特意**不在** `isSlug` 字符集内，以便无歧义切分），
+    /// 此前用 `isSlug` 校验整段目录名会拒绝**一切**变体安装的指针 → `resolve` 回落
+    /// 随包缺件 → 引擎恒报 engineUnavailable、设置页显示「未安装」。
+    /// 改为按 `ASRInstallLayout` 规则校验：历史布局 = 版本号自身（已过 isSlug）；
+    /// 变体布局 = 变体段为 slug 且目录内版本与指针 version 一致。
+    private static func validDirectory(_ directory: String, version: String) -> Bool {
+        if directory == version { return true }
+        guard let parsed = ASRInstallLayout.parseDirectory(directory),
+              parsed.version == String(version.prefix(60)),   // directoryName 生成时版本截 60 字符
+              let variant = parsed.variant, ModelResourcePolicy.isSlug(variant) else { return false }
+        return true
     }
 
     static func invalidatePointerCache() {

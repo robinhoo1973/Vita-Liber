@@ -74,8 +74,15 @@ struct VoiceQuickLaunchView: View {
     /// 预热键（round2 A-N2）：模型就绪后随主语言 / 引擎档位变化重新预热；nil = 模型尚未装配。
     private var warmUpKey: String? {
         guard let model else { return nil }
-        return (model.preferredLocale ?? TranscriptionSegmentation.fallbackLocale) + "|"
-            + (settings.values[.voiceEngine] ?? "")
+        // 2026-09-20 修复：键计入**资产身份**（根路径 + 分代）——面板开着时
+        // 下载完成（invalidateCaches 推进分代）即触发重预热；旧键只有语言 +
+        // 档位，面板驻留期间下载完成无任何重预热入口，首压仍付整模加载
+        // （round2 A-N2 首句丢失症状在下载→可用转换点复发）。
+        let choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine] ?? "")
+        let locale = model.preferredLocale ?? TranscriptionSegmentation.fallbackLocale
+        let resolved = choice == .auto ? ASRModelCatalog.automaticChoice(locale: locale) : choice
+        let assetIdentity = resolved.isBundledModel ? ASRModelAssets.resolve(for: resolved).identity : ""
+        return locale + "|" + (settings.values[.voiceEngine] ?? "") + "|" + assetIdentity
     }
 
     var body: some View {

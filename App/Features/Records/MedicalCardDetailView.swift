@@ -18,6 +18,15 @@ struct MedicalCardDetailView: View {
     @State private var saving = false
     /// 多项目处方单默认折叠（业主 2026-09-17 定，同时间轴主卡口径）
     @State private var linesExpanded = false
+    /// 字段编辑（业主 2026-09-20 第 4 项：保存后可从健康档案进入编辑）
+    @State private var showEdit = false
+
+    /// 可编辑卡类（与 `OCRCardStore.updateCardFields` 门控同源：encounter/health_exam
+    /// 有专用编辑面、lab_report 为聚合读面）。
+    private static let editableKinds: Set<String> = [
+        "prescription", "claim_item", "immunization", "diagnosis", "clinical_conclusion",
+        "exam_report", "surgery", "treatment_record", "hospitalization", "metric_sample",
+    ]
 
     var body: some View {
         WithPerceptionTracking {
@@ -134,9 +143,23 @@ struct MedicalCardDetailView: View {
                 }
             }
             .navigationTitle(L10n.entityCardKindName(kind))
+            .toolbar {
+                if detail != nil, Self.editableKinds.contains(kind) {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button(L10n.cardEditTitle) { showEdit = true }
+                            .accessibilityIdentifier("medicalCard.edit")
+                    }
+                }
+            }
             .task(id: entityId) { await load() }
             .sheet(item: $source) { page in
                 DocumentSourcePageView(documentId: page.documentId, patientId: patientId, pageIndex: page.pageIndex)
+            }
+            .sheet(isPresented: $showEdit) {
+                if let detail {
+                    CardFieldEditSheet(kind: kind, entityId: entityId, patientId: patientId,
+                                       detail: detail, onSaved: { Task { await load() } })
+                }
             }
         }
     }

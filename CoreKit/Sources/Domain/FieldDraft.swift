@@ -132,6 +132,19 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         value = newValue
     }
 
+    /// 多行原文引用归并（业主 2026-09-20 第 1 项）：点选多行原文 → 按行序以换行连接回填。
+    /// 分隔符与抽取管线 `DocumentTypeClassifierFallback.mergeNarrativeLines` 同源（`\n`）——
+    /// 保留行结构，与「回原文核对」的呈现一致；空行剔除。
+    /// 语义 = `revise` 修订留痕（引用是机器原文的搬运、不是用户手输，不借 fillByUser 升 C；BR-003）。
+    public mutating func quoteLines(_ lines: [String], by actor: String = "owner", at date: Date = Date()) {
+        let text = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        guard !text.isEmpty else { return }
+        revise(to: text, by: actor, at: date)
+    }
+
     /// 用户手填（业主 2026-09-17 裁定）：**仅当该字段从无机器识别值**（`originalValue` 为空）
     /// 时，写入即记 `.userConfirmed`。
     ///

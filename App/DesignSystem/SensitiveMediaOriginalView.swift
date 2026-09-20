@@ -185,7 +185,10 @@ struct SensitiveMediaOriginalView: View {
         unlockedAt = Date()
         lastActivity = Date()
         if !loadFailed, image == nil { loadDownsampled() }   // 预传 imageData 路径的解码（认证后）
-        scheduleRelock()
+        // 2026-09-20 修复（BR-007，同 DocumentSourcePageView）：解锁后**必武装**
+        // 30s 空闲自动重锁——旧实现走 scheduleRelock()，其活跃信号合并（<1s 丢弃）
+        // 恰把解锁后的第一次武装吞掉（lastActivity 刚刷新），不触碰屏幕即无限期解锁。
+        relockTimer.schedule(onExpiry: { relock() })
         // FR14.2 审计：敏感原图查看留痕（评审修正——原视图零审计锚点）
         if let assetId { app.auditViewSensitiveOriginal(documentId: assetId, title: caption) }
         return true
