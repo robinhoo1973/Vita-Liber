@@ -3794,13 +3794,13 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 ## App/Features/Capture/QuickCaptureView.swift
 - `QuickCaptureView` (11) — 拍摄/相册/文件统一入口（区域→遮挡→OCR→确认管线）
-  - `var body` (46) — 渲染三入口 + 相机/区域/遮挡/确认四层 sheet 编排
-  - `beginSelection(step:)` (259) — 建立导入会话并登记步骤
-  - `startCamera()` (269) — 相机权限请求 + 拉起相机
-  - `startOCR()` (282) — 进 OCR 草稿管线（prepareImageDraft）
-  - `recoverSelection()` (295) — 按 captureStep 恢复中断流程（含离屏转场补发）
-  - `cancelSelection()` (325) / `failSelection()` (333) — 取消/失败清理
-  - `title` (335) / `docTypeHint` (345) / `allowedTypes` (354) — 按 CaptureKind 的派生文案与文件类型
+  - `var body` (174) — 渲染三入口 + 相机/区域/遮挡/确认四层 sheet 编排
+  - `beginSelection(step:)` (276) — 建立导入会话并登记步骤
+  - `startCamera()` (286) — 相机权限请求 + 拉起相机
+  - `startOCR()` (299) — 进 OCR 草稿管线（prepareImageDraft）
+  - `recoverSelection()` (312) — 按 captureStep 恢复中断流程（含离屏转场补发）
+  - `cancelSelection()` (342) / `failSelection()` (350) — 取消/失败清理
+  - `title` (352) / `docTypeHint` (362) / `allowedTypes` (371) — 按 CaptureKind 的派生文案与文件类型
 
 
 

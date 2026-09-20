@@ -87,6 +87,90 @@ struct QuickCaptureView: View {
         .disabled(!docs.importSlotFree)
     }
 
+    // —— 修饰器闭包处理体（2026-09-20 从 body 移出；每个方法独立类型检查）——
+
+    private func handleCameraDismiss() {
+        captureSheetTransition = false
+        guard scenePhase == .active else { return }
+        if regionAfterCamera {
+            regionAfterCamera = false
+            captureSheetTransition = true
+            showRegionEditor = true
+        } else { cancelSelection() }
+    }
+
+    private func handleCameraImage(_ image: UIImage) {
+        guard let session = selection, let data = image.jpegData(compressionQuality: 1) else { failSelection(); return }
+        session.captureOriginalData = data; session.captureOrigin = "camera"
+        session.captureStep = .region
+        regionImage = image
+        regionAfterCamera = true
+        showCamera = false
+    }
+
+    private func handleScenePhase(_ phase: ScenePhase) {
+        guard phase == .active, regionAfterCamera else { return }
+        regionAfterCamera = false
+        captureSheetTransition = true
+        showRegionEditor = true
+    }
+
+    private func handlePickedItem(_ item: PhotosPickerItem?) {
+        guard let item, let session = selection else { return }
+        session.isPreparing = true
+        pickedItem = nil
+        Task {
+            do {
+                guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
+                    throw DocumentsState.ImportError.unreadableMedia
+                }
+                session.isPreparing = false
+                session.captureOriginalData = data; session.captureOrigin = "photoLibrary"
+                session.captureStep = .region
+                regionImage = image; captureSheetTransition = true; showRegionEditor = true
+            } catch {
+                session.isPreparing = false
+                failSelection()
+            }
+        }
+    }
+
+    private func handleShowPhotosChange(_ showing: Bool) {
+        if scenePhase == .active, !showing, pickedItem == nil, selection?.isPreparing == false,
+           selection?.captureOriginalData == nil { cancelSelection() }
+    }
+
+    private func handleImportedFile(_ result: Result<[URL], Error>) {
+        guard let session = selection else { return }
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { cancelSelection(); return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            if ImageInputRules.supports(pathExtension: url.pathExtension) {
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let data = try Data(contentsOf: url)
+                    guard let image = UIImage(data: data) else { throw DocumentsState.ImportError.unreadableMedia }
+                    session.captureOriginalData = data; session.captureOrigin = "import"
+                    session.captureStep = .region
+                    regionImage = image; captureSheetTransition = true; showRegionEditor = true
+                } catch { failSelection() }
+            } else {
+                reviewEnabled = true
+                session.captureStep = .review
+                Task {
+                    // PDF result is consumed, not discarded or reported as an already-saved file.
+                    session.draft = await docs.importDocument(patientId: session.patientId, url: url,
+                        docType: docTypeHint, isSensitive: session.captureSensitive)
+                    if scoped { url.stopAccessingSecurityScopedResource() }
+                }
+            }
+        case .failure(let error):
+            if (error as NSError).code == NSUserCancelledError { cancelSelection() }
+            else { failSelection() }
+        }
+    }
+
     var body: some View {
         WithPerceptionTracking {
             ScrollView {
@@ -114,88 +198,21 @@ struct QuickCaptureView: View {
                     .accessibilityIdentifier("SP-11.capture.cancel")
                 }
             }
-            .fullScreenCover(isPresented: $showCamera, onDismiss: {
-                captureSheetTransition = false
-                guard scenePhase == .active else { return }
-                if regionAfterCamera {
-                    regionAfterCamera = false
-                    captureSheetTransition = true
-                    showRegionEditor = true
-                } else { cancelSelection() }
-            }) {
-                CameraPicker { image in
-                    guard let session = selection, let data = image.jpegData(compressionQuality: 1) else { failSelection(); return }
-                    session.captureOriginalData = data; session.captureOrigin = "camera"
-                    session.captureStep = .region
-                    regionImage = image
-                    regionAfterCamera = true
-                    showCamera = false
-                }
+            // 修饰器闭包全部扁平化为单行方法引用（2026-09-20 告警清除：body 类型检查
+            // 4725→3358ms 仍超预算，闭包体移出主表达式后逐方法独立类型检查）
+            .fullScreenCover(isPresented: $showCamera, onDismiss: handleCameraDismiss) {
+                CameraPicker { image in handleCameraImage(image) }
             }
             // 审查修复（离屏丢转场）：fullScreenCover 关闭时若 scenePhase != .active
             // （Home 键/锁屏抢先），onDismiss 的 guard 直接丢弃区域编辑器转场——
             // session 停在 captureStep .region 且满分辨率图常驻内存，此前无任何
             // 路径重武装（captureStep 未变化、onChange 不触发）。回前台补发转场。
-            .onChangeCompat(of: scenePhase) { _, phase in
-                guard phase == .active, regionAfterCamera else { return }
-                regionAfterCamera = false
-                captureSheetTransition = true
-                showRegionEditor = true
-            }
+            .onChangeCompat(of: scenePhase) { _, phase in handleScenePhase(phase) }
             .photosPicker(isPresented: $showPhotos, selection: $pickedItem, matching: .images)
-            .onChangeCompat(of: pickedItem) { _, item in
-                guard let item, let session = selection else { return }
-                session.isPreparing = true
-                pickedItem = nil
-                Task {
-                    do {
-                        guard let data = try await item.loadTransferable(type: Data.self), let image = UIImage(data: data) else {
-                            throw DocumentsState.ImportError.unreadableMedia
-                        }
-                        session.isPreparing = false
-                        session.captureOriginalData = data; session.captureOrigin = "photoLibrary"
-                        session.captureStep = .region
-                        regionImage = image; captureSheetTransition = true; showRegionEditor = true
-                    } catch {
-                        session.isPreparing = false
-                        failSelection()
-                    }
-                }
-            }
-            .onChangeCompat(of: showPhotos) { _, showing in
-                if scenePhase == .active, !showing, pickedItem == nil, selection?.isPreparing == false,
-                   selection?.captureOriginalData == nil { cancelSelection() }
-            }
-            .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: allowedTypes, allowsMultipleSelection: false) { result in
-                guard let session = selection else { return }
-                switch result {
-                case .success(let urls):
-                    guard let url = urls.first else { cancelSelection(); return }
-                    let scoped = url.startAccessingSecurityScopedResource()
-                    if ImageInputRules.supports(pathExtension: url.pathExtension) {
-                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                        do {
-                            let data = try Data(contentsOf: url)
-                            guard let image = UIImage(data: data) else { throw DocumentsState.ImportError.unreadableMedia }
-                            session.captureOriginalData = data; session.captureOrigin = "import"
-                            session.captureStep = .region
-                            regionImage = image; captureSheetTransition = true; showRegionEditor = true
-                        } catch { failSelection() }
-                    } else {
-                        reviewEnabled = true
-                        session.captureStep = .review
-                        Task {
-                            // PDF result is consumed, not discarded or reported as an already-saved file.
-                            session.draft = await docs.importDocument(patientId: session.patientId, url: url,
-                                docType: docTypeHint, isSensitive: session.captureSensitive)
-                            if scoped { url.stopAccessingSecurityScopedResource() }
-                        }
-                    }
-                case .failure(let error):
-                    if (error as NSError).code == NSUserCancelledError { cancelSelection() }
-                    else { failSelection() }
-                }
-            }
+            .onChangeCompat(of: pickedItem) { _, item in handlePickedItem(item) }
+            .onChangeCompat(of: showPhotos) { _, showing in handleShowPhotosChange(showing) }
+            .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: allowedTypes,
+                          allowsMultipleSelection: false, onCompletion: handleImportedFile)
             .sheet(isPresented: $showRegionEditor, onDismiss: {
                 captureSheetTransition = false
                 guard scenePhase == .active else { return }

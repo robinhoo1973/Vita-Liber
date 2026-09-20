@@ -261,7 +261,7 @@ public actor ASRModelDownloadService {
             // （否则取消的排队任务挂在队列里——槽位释放才醒，且占着 active 槽
             // 挡住再次发起）。唤醒后循环顶部的 checkCancellation 抛出结束。
             let waiterID = UUID()
-            try await withTaskCancellationHandler {
+            await withTaskCancellationHandler {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                     slotWaiters.append((id: waiterID, continuation: continuation))
                     // 追加后再查取消（2026-09-19 扫尾发现 #5）：onCancel 的
