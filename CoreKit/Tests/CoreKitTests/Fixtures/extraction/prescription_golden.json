@@ -3,18 +3,48 @@
   "lines": [
     "北京协和医院",
     "处方笺",
-    "科室：呼吸内科    医师：张三",
+    "科室：呼吸内科 医师：张三",
     "日期：2026-09-12",
     "Rp.",
     "布洛芬缓释胶囊 0.3g×20 口服 每次1粒 每日2次 3天 1盒"
   ],
   "shared": {
-    "prescribed_at": { "value": "2026-09-12" },
-    "hospital": { "value": "北京协和医院" },
-    "department": { "value": "呼吸内科" },
-    "doctor": { "value": "张三" }
+    "prescribed_at": {
+      "value": "2026-09-12"
+    },
+    "hospital": {
+      "value": "北京协和医院"
+    },
+    "department": {
+      "value": "呼吸内科"
+    },
+    "doctor": {
+      "value": "张三"
+    }
   },
   "rows": [
-    { "drug_name": { "value": "布洛芬缓释胶囊" }, "spec": { "value": "0.3g×20" }, "dosage": { "value": "1粒" }, "frequency": { "value": "每日2次" }, "route": { "value": "口服" }, "days": { "value": "3" }, "quantity": { "value": "1盒" } }
+    {
+      "drug_name": {
+        "value": "布洛芬缓释胶囊"
+      },
+      "spec": {
+        "value": "0.3g×20"
+      },
+      "dosage": {
+        "value": "1粒"
+      },
+      "frequency": {
+        "value": "每日2次"
+      },
+      "route": {
+        "value": "口服"
+      },
+      "days": {
+        "value": "3"
+      },
+      "quantity": {
+        "value": "1盒"
+      }
+    }
   ]
 }

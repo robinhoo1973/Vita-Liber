@@ -2,20 +2,63 @@
   "kind": "metric_sample",
   "lines": [
     "上海市第一人民医院 检验报告单",
-    "姓名：李四    性别：女    年龄：45",
+    "姓名：李四 性别：女 年龄：45",
     "报告日期：2026-08-30",
-    "项目名称        结果      单位     参考范围",
-    "血红蛋白        135       g/L      115-150",
-    "白细胞计数      6.2       10^9/L   3.5-9.5",
-    "血小板计数      210       10^9/L   125-350"
+    "项目名称 结果 单位 参考范围",
+    "血红蛋白 135 g/L 115-150",
+    "白细胞计数 6.2 10^9/L 3.5-9.5",
+    "血小板计数 210 10^9/L 125-350"
   ],
   "shared": {
-    "hospital": { "value": "上海市第一人民医院" },
-    "measured_at": { "value": "2026-08-30" }
+    "hospital": {
+      "value": "上海市第一人民医院"
+    },
+    "measured_at": {
+      "value": "2026-08-30"
+    }
   },
   "rows": [
-    { "raw_label": { "value": "血红蛋白" }, "value": { "value": "135" }, "unit": { "value": "g/L" }, "reference_range": { "value": "115-150" } },
-    { "raw_label": { "value": "白细胞计数" }, "value": { "value": "6.2" }, "unit": { "value": "10^9/L" }, "reference_range": { "value": "3.5-9.5" } },
-    { "raw_label": { "value": "血小板计数" }, "value": { "value": "210" }, "unit": { "value": "10^9/L" }, "reference_range": { "value": "125-350" } }
+    {
+      "raw_label": {
+        "value": "血红蛋白"
+      },
+      "value": {
+        "value": "135"
+      },
+      "unit": {
+        "value": "g/L"
+      },
+      "reference_range": {
+        "value": "115-150"
+      }
+    },
+    {
+      "raw_label": {
+        "value": "白细胞计数"
+      },
+      "value": {
+        "value": "6.2"
+      },
+      "unit": {
+        "value": "10^9/L"
+      },
+      "reference_range": {
+        "value": "3.5-9.5"
+      }
+    },
+    {
+      "raw_label": {
+        "value": "血小板计数"
+      },
+      "value": {
+        "value": "210"
+      },
+      "unit": {
+        "value": "10^9/L"
+      },
+      "reference_range": {
+        "value": "125-350"
+      }
+    }
   ]
 }
