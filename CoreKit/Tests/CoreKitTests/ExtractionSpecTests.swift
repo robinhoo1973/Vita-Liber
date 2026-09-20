@@ -449,6 +449,18 @@ struct FieldDraftAdapterTests {
         #expect(d2.unit == "10^9/L" && d2.rawText == "6.5" && d2.sourceLineIndex == 7)
     }
 
+    /// round4 D-2（SU-OCRA-LAYOUT）：`continuation` 自 E2 起存在、适配器从未消费——多行叙事确认页「原文」只显首行、
+    /// `value` 却三行，用户无法核对后两行出处（BR-002 出处完整）。rawText = 主锚行 + 全部续行（`\n` 连接，与 value 分段同源）。
+    @Test func rawTextCoversAnchorAndContinuationLines() {
+        let gv = GroundedValue(value: "普通处方\n阿莫西林胶囊 0.25g 每次1粒", anchor: anchor(1), continuation: [anchor(2)], confidence: 0.9)
+        let draft = FieldDraftAdapter.draft(key: "advice_text", gv, lines: lines, pageConfidence: 0.9, track: .rules)
+        #expect(draft.rawText == lines[1] + "\n" + lines[2])
+        #expect(draft.sourceLineIndex == 1)
+        // 续行越界：不猜、不拼半截——只保留可定位的行（fail-closed）
+        let partial = GroundedValue(value: "a\nb", anchor: anchor(2), continuation: [anchor(9)], confidence: 0.9)
+        #expect(FieldDraftAdapter.draft(key: "advice_text", partial, lines: lines, pageConfidence: 0.9, track: .rules).rawText == lines[2])
+    }
+
     /// 原名：轨道到来源映射穷尽
     @Test func trackToSourceMappingIsExhaustive() {
         #expect(FieldDraftAdapter.source(.foundationModels) == .foundationModels)
