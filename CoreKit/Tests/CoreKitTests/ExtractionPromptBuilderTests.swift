@@ -22,6 +22,16 @@ struct ExtractionPromptBuilderTests {
         try #require(ExtractionSpecRegistry.spec(for: kind), "卡种 \(kind) 必须有 spec")
     }
 
+    @Test("规则单句单源：逐字总则与叙事折行句字面出现，且 \\n 以两字符转义呈现（round4 P-10）")
+    func ruleSentencesAreSingleSourced() throws {
+        let prompt = ExtractionPromptBuilder.systemPrompt(for: try spec("encounter"))
+        #expect(prompt.contains(ExtractionPromptBuilder.verbatimRule))
+        #expect(prompt.contains(ExtractionPromptBuilder.narrativeMultilineRule))
+        // 模型看到的必须是字面 `\n` 两字符（JSON 转义），不是真实换行
+        #expect(ExtractionPromptBuilder.narrativeMultilineRule.contains("\"\\n\""))
+        #expect(!ExtractionPromptBuilder.narrativeMultilineRule.contains("\n"))
+    }
+
     @Test("每个字段的**键**都出现在提示词里（覆盖完整）")
     /// 原名：键全覆盖
     func keysFullyCovered() throws {

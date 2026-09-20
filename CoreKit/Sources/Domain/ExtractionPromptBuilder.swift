@@ -24,6 +24,18 @@ import Foundation
 /// 提示词不指示模型补全、翻译或纠错（BR-002/003）；全部产物仍恒 D 级，确认边界不变。
 public enum ExtractionPromptBuilder {
 
+    // MARK: - 规则单句（round4 P-10：`FoundationModelsUnderstanding` 内联指令与本处此前各写一份，一处改一处忘）
+
+    /// 逐字锚定总则——与 `OCRGrounding.fields` / `ExtractionGrounding.locate` 的校验口径同一句话。
+    public static let verbatimRule =
+        "Every value and unit MUST be a verbatim substring of the referenced zero-based lineIndex."
+
+    /// 叙事折行放行（R3，2026-09-20）——与 `MultilineSpan.continuationLineIndices` 的整行相邻校验同一句话。
+    public static let narrativeMultilineRule = """
+        A NARRATIVE value that wraps across consecutive lines may be returned as the whole lines joined \
+        with "\\n", referencing the FIRST lineIndex; every segment must be an entire line, verbatim.
+        """
+
     /// 系统指令：安全边界（原文照抄 / 不诊断 / 不换算 / 注入防护）+ **逐字段目录**。
     public static func systemPrompt(for spec: ExtractionSpec) -> String {
         let shared = spec.shared
@@ -35,9 +47,8 @@ public enum ExtractionPromptBuilder {
             """,
             """
             Rules:
-            - Every value and unit MUST be a verbatim substring of the referenced zero-based lineIndex.
-            - A NARRATIVE value that wraps across consecutive lines may be returned as the whole lines joined
-              with "\n", referencing the FIRST lineIndex; every segment must be an entire line, verbatim.
+            - \(verbatimRule)
+            - \(narrativeMultilineRule)
             - Copy whole clinical clauses including negations, comparisons and punctuation.
             - Do NOT translate, correct names, invent fields, calculate values, convert units,
               diagnose, or infer medication doses. Skip a field when unsure.
