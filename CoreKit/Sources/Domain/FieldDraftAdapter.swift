@@ -16,8 +16,19 @@ public enum FieldDraftAdapter {
     public static func draft(key: String, _ value: GroundedValue, lines: [String], pageConfidence: Double, track: ExtractionTrack) -> FieldDraft {
         FieldDraft(key: key, value: value.normalized ?? value.value, unit: value.unit,
                    confidence: min(pageConfidence, 0.6),
-                   rawText: lines.indices.contains(value.anchor.lineIndex) ? lines[value.anchor.lineIndex] : value.value,
+                   rawText: sourceText(for: value, lines: lines),
                    source: source(track), grade: .ocrUnconfirmed, sourceLineIndex: value.anchor.lineIndex)
+    }
+
+    /// 出处原文 = 主锚行 + 全部续行（`continuation`，`\n` 连接——与 `value` 分段同源分隔符）。
+    /// round4 D-2：此前只取主锚行，多行叙事的确认页「原文」只显首行、`value` 却三行，用户无法核对后两行出处。
+    /// fail-closed：越界锚点跳过不猜；主锚也越界 → 回落 `value` 本身（保持既有行为）。
+    static func sourceText(for value: GroundedValue, lines: [String]) -> String {
+        let located = ([value.anchor] + value.continuation)
+            .map(\.lineIndex)
+            .filter { lines.indices.contains($0) }
+            .map { lines[$0] }
+        return located.isEmpty ? value.value : located.joined(separator: "\n")
     }
 
     /// 整卡 → 共享草稿 + 逐行草稿（按 spec 字段序；spec 外键按键名尾随，确定性输出）。轨道取卡级 `provenance.track`。
