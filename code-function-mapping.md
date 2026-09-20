@@ -1073,7 +1073,20 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 
 ## CoreKit/Sources/Domain/TextLineMerger.swift
 - `TextLineMerger` (22) — FR6.1 换行拆词归并纯函数（fail-safe 宁可漏合不可错合：边界字符均字母/CJK ∧ 上行无 ASCII 数字 ∧ 下行非剂量/用法引导词 ∧ 无冒号；拼接走 TranscriptJoiner CJK 策略；`merge` 产出 sourceIndices 供布局块重建；OCR Pipeline 出口单点调用）
+  - `merge(_ lines:)` (41) — 纯文本归并（无几何路径）
+  - `merge(blocks:paragraphs:tableLineIndices:)` (98) — 几何证据归并（2026-09-20 Q1：四证据放宽数字/长度护栏；表格/多列/跨段绝不归并）
+  - `geometricWrapEvidence(previous:next:medianHeight:rightEdge:)` (142) — 四证据（同列/相邻/写满含绝对下限 0.5/下行不更长）
+  - `relaxedTextualGuard(previous:next:)` (153) — 几何路径文本护栏（句末/冒号/引导词/数字首字符）
 
+
+## CoreKit/Sources/Domain/CharacterErrorRate.swift
+- `CharacterErrorRate` (8) — 字符错误率（Levenshtein/参考长；Stage 0 识别评测与 OCRConsensus 一致率共用；ADR-025 经审查无可用实现）
+  - `distance(_:_:)` (9) — 编辑距离（双行滚动数组）
+  - `rate(reference:hypothesis:)` (22) — CER（参考空：假设空 0 否则 1）
+
+## CoreKit/Sources/Domain/ParagraphBuilder.swift
+- `ParagraphBuilder` (7) — 纵向段落聚合（2026-09-20 Q1 根因 R4：iOS 16–25 几何路径；同列左缘+行距聚连续单列行；多列行分隔且不入段）
+  - `paragraphs(from:excluding:)` (8) — 块几何 → [Paragraph]
 ## CoreKit/Sources/Domain/MediaUnlockPolicy.swift
 - `MediaUnlockPolicy` (14) — 敏感媒体解锁/重锁策略（BR-007/008 · FR8.4，Domain 纯函数）
 - `postUnlockInactiveGrace` (32) — 认证后 inactive 重锁宽限 5 秒（业主 2026-09-19「最低认证要求至少 5 秒」；宽限只豁免 inactive，background 恒重锁）
@@ -3035,7 +3048,7 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 ## CoreKit/Sources/Infrastructure/ModelSpanAssembler.swift
 - `ModelSpan` (7) — 生成轨模型输出 span（key/value/unit/lineIndex；verbatim 契约）
 - `ModelSpanAssembler` (18) — 模型 span → RegionExtraction 装配器（T1/T2 共用，收敛单点）
-  - `region(shared:rows:spec:lines:pageIndex:)` (20) — spec 键过滤 + 行界校验 + verbatim 子串锚定
+  - `region(shared:rows:spec:lines:pageIndex:)` (20) — spec 键过滤 + 行界校验 + verbatim 子串锚定；多段叙事值产 continuation 锚点（R3，L22 grounded）
 - `ModelPromptBuilder` (51) — 生成轨提示词转发壳（实现在 Domain ExtractionPromptBuilder）
   - `systemPrompt(for:)` (60) — 转发提示词组装
   - `numbered(lines:)` (65) — 转发编号行
@@ -5652,6 +5665,24 @@ MedicationStore / 健康导入 HealthImportStore 分页物化 + 锚点推进）�
 - `Fixture` (23) — 夹具聚合（库/待办/调度/状态/目录）；`fixture(pages:confidence:scheduler:)` (71) — 完整活管线装配；`PageRecognizer` (33) — 按页脚本识别桩（PDF 字节拒绝）；`FailingScheduler` (54) — 恒失败调度桩；`imageDraft` (89) / `pdfURL` (97) / `reviewed` (110) — 草稿/PDF/确认卡便捷
 
 
+
+## CoreKit/Tests/CoreKitTests/CharacterErrorRateTests.swift
+- `CharacterErrorRateTests` (5) — CER 五例（相同/替换/增删/归一/空参考）
+
+## CoreKit/Tests/CoreKitTests/TextLineMergerGeometryTests.swift
+- `TextLineMergerGeometryTests` (6) — FR6.1 几何折行归并 10 例（含窄列绝对下限反例、跨段/表格/多列禁合）
+
+## CoreKit/Tests/CoreKitTests/ParagraphBuilderTests.swift
+- `ParagraphBuilderTests` (5) — 段落聚合 5 例 + `extractionRegionsUseRealParagraphs`（A4）
+
+## CoreKit/Tests/CoreKitTests/OCRPipelineParagraphTests.swift
+- `OCRPipelineParagraphTests` (8) — 段内归并+重映射/几何派生段落/表格不归并 3 例
+
+## CoreKit/Tests/CoreKitTests/NarrativeMultilineGroundingTests.swift
+- `NarrativeMultilineGroundingTests` (6) — R3 叙事多行放行 5 例（整行 verbatim/部分段拒/不相邻拒/非叙事单行/continuation 锚点）
+
+## CoreKit/Tests/CoreKitTests/OCRRecognitionEvaluationTests.swift
+- `OCRRecognitionEvaluationTests` (20) — Stage 0 识别基线双轨（合成 CoreText 渲染硬哨兵 + 真实单据 skip 轨；lineCER 分母 max(r,h)）
 
 ## Tests/VitaLiberTests/OcrCardStoreTests.swift
 - `OcrCardStoreTests` (10) — SU-M2-PENDINGCARD / SU-M1c-EXPORT（FR6.1/FR6.9/BR-001/BR-003）：OCRCardStore 落库 + 备份恢复大网（v25 行实体 / v26 临床集 / v27 卡层级）
