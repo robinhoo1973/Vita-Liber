@@ -225,4 +225,35 @@ public enum CardConfirmationRules {
             }
         }
     }
+
+    /// 原文引用回填（round5 Q1）：与 `revise` 并列的**第二个**用户编辑入口，语义不同——
+    /// 引用是机器原文的搬运，走 `FieldDraft.quoteLines(_:sourceLineIndices:)`（revise 留痕、**不**经 `fillByUser` 升 C，
+    /// V3.99 ①），并记录出处（rawText / sourceLineIndex）。此前视图把引用值经 `revise(_:at:rowId:to:)` 落字段，
+    /// 原值为空的新增字段被顺手升 C，且出处丢失。
+    /// 主卡草稿字段（`rowId == nil` 且 `draftKey` 非空）同经此路。证据键变化对关联建议的影响与 `revise` 同律。
+    public static func quote(_ card: inout MatchedCard, key: String, rowId: UUID?, draftKey: String? = nil,
+                             lines: [String], sourceLineIndices: [Int]) {
+        if let draftKey {
+            guard case .newHub(var draft) = card.encounterAssociation,
+                  let index = draft.fields.firstIndex(where: { $0.key == draftKey }) else { return }
+            draft.fields[index].quoteLines(lines, sourceLineIndices: sourceLineIndices)
+            card.encounterAssociation = .newHub(draft)
+            return
+        }
+        guard let rowId else {
+            guard let index = card.shared.firstIndex(where: { $0.key == key }) else { return }
+            let before = card.shared[index].value
+            card.shared[index].quoteLines(lines, sourceLineIndices: sourceLineIndices)
+            if card.shared[index].value != before {
+                if case .suggested = card.encounterAssociation { card.encounterAssociation = .unselected }
+                if case .newHub = card.encounterAssociation, EncounterResolver.evidenceKeys.contains(key) {
+                    card.encounterAssociation = .unselected
+                }
+            }
+            return
+        }
+        guard let r = card.rows.firstIndex(where: { $0.id == rowId }),
+              let index = card.rows[r].fields.firstIndex(where: { $0.key == key }) else { return }
+        card.rows[r].fields[index].quoteLines(lines, sourceLineIndices: sourceLineIndices)
+    }
 }

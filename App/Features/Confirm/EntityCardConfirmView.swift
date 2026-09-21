@@ -135,34 +135,17 @@ struct EntityCardConfirmView: View {
         return rect
     }
 
-    /// 原文行点选（多行按行序连接）→ 回填目标字段（引用语义 = revise 留痕、
-    /// D 级待确认——引用是机器原文的搬运，不是用户手输，不借 fillByUser 升 C；
-    /// BR-003）。归并/换行连接收敛 Domain `FieldDraft.quoteLines`。
-    private func quoteLine(_ lines: [String]) {
-        guard let target = quoteTarget else { return }
+    /// 原文行点选（多行按行序连接）→ 回填目标字段 **并记录出处**（round5 Q1：此前只写值——
+    /// 新增字段引用后仍无 [原文] 锚、行原文不含引用行，业主实测「识别原文为空」；且旧路径经
+    /// `revise → fillByUser` 把原值为空的新增字段顺手升 C，违反 V3.99 ①「引用不借 fillByUser 升 C」）。
+    /// 语义与接线全部收敛 Domain `CardConfirmationRules.quote`：revise 留痕、D 级待确认、rawText/sourceLineIndex 落锚。
+    private func quoteLine(_ lines: [String], _ indices: [Int]) {
+        guard let target = quoteTarget, !saving, target.rowId != nil || target.draftKey != nil || !sharedCommitted else { return }
         quoteTarget = nil
-        // 主卡草稿字段（2026-09-20 修复：草稿区此前无目标登记，点行静默无效果）
-        if let draftKey = target.draftKey {
-            guard case .newHub(var draft) = card.encounterAssociation,
-                  let index = draft.fields.firstIndex(where: { $0.key == draftKey }) else { return }
-            draft.fields[index].quoteLines(lines)
-            card.encounterAssociation = .newHub(draft)
-            return
-        }
-        let fieldIndex: Int?
-        if let rowId = target.rowId {
-            guard let r = card.rows.firstIndex(where: { $0.id == rowId }),
-                  let i = card.rows[r].fields.firstIndex(where: { $0.key == target.key }) else { return }
-            fieldIndex = i
-        } else {
-            fieldIndex = card.shared.firstIndex { $0.key == target.key }
-        }
-        guard let index = fieldIndex else { return }
-        // 归并出口收敛 Domain `FieldDraft.quoteLines`（视图不拼分隔符）；
-        // 落字段走既有 revise 路径（D 级待确认，BR-003）
-        var sample = FieldDraft(key: target.key, value: "", confidence: 1)
-        sample.quoteLines(lines)
-        revise(index: index, rowID: target.rowId, value: sample.value)
+        var current = card
+        CardConfirmationRules.quote(&current, key: target.key, rowId: target.rowId, draftKey: target.draftKey,
+                                    lines: lines, sourceLineIndices: indices)
+        card = current
     }
 
     /// 复核清单段——同样从 List 体里拆出来（同一族类型检查压力）。

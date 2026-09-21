@@ -17,8 +17,9 @@ import Domain
 struct SourceLineSheet: View {
     let lines: [String]
     let highlight: Int?
-    /// 点选引用回调：nil = 只读面板（无引用语义的调用方）
-    var onPick: (([String]) -> Void)?
+    /// 点选引用回调（按行序：原文 + 行号——round5 Q1：行号即出处锚，字段据此获得 [原文] 入口）；
+    /// nil = 只读面板（无引用语义的调用方）
+    var onPick: ((_ lines: [String], _ indices: [Int]) -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     /// 已选行集合（按行序输出；行 tap 切换选择，不立即回填）
@@ -107,13 +108,12 @@ struct SourceLineSheet: View {
         }
     }
 
-    /// 按行序取已选行的原文，交 `FieldDraft.quoteLines` 归并（空行剔除、\n 连接在 Domain）。
+    /// 按行序取已选行的原文与行号，交 `FieldDraft.quoteLines(_:sourceLineIndices:)` 归并并记录出处
+    /// （空行剔除、\n 连接、锚点写入均在 Domain）。
     private func pickSelection() {
         guard let onPick, !selection.isEmpty else { return }
-        let ordered = lines.indices
-            .filter { selection.contains($0) }
-            .map { lines[$0] }
-        onPick(ordered)
+        let indices = lines.indices.filter { selection.contains($0) }
+        onPick(indices.map { lines[$0] }, Array(indices))
         dismiss()
     }
 }

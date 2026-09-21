@@ -145,6 +145,22 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         revise(to: text, by: actor, at: date)
     }
 
+    /// 引用 **并记录出处**（round5 Q1，业主 2026-09-20 第 1 项「识别原文为空」）：用户点选的原文行就是该字段的出处断言——
+    /// `rawText` = 所选原行（保留行结构）、`sourceLineIndex` = 首行行号，字段随之获得 [原文] 锚、行原文包含引用行。
+    /// 与 [选文]「无高亮不冒充出处」并不矛盾：面板打开时确无出处，**用户选定后**出处即成立。
+    /// 行数与行号数不等（调用方传参不一致）→ 只写值不写出处（不猜锚点）。仍是 revise 语义，不升 C。
+    public mutating func quoteLines(_ lines: [String], sourceLineIndices: [Int],
+                                    by actor: String = "owner", at date: Date = Date()) {
+        let before = value
+        quoteLines(lines, by: actor, at: date)
+        guard value != before || !value.isEmpty, lines.count == sourceLineIndices.count,
+              let first = sourceLineIndices.first else { return }
+        let kept = zip(lines, sourceLineIndices).filter { !$0.0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !kept.isEmpty else { return }
+        rawText = kept.map { $0.0.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: "\n")
+        sourceLineIndex = kept.first?.1 ?? first
+    }
+
     /// 用户手填（业主 2026-09-17 裁定）：**仅当该字段从无机器识别值**（`originalValue` 为空）
     /// 时，写入即记 `.userConfirmed`。
     ///
