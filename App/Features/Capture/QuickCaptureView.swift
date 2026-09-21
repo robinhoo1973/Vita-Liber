@@ -214,51 +214,14 @@ struct QuickCaptureView: View {
             .onChangeCompat(of: showPhotos) { _, showing in handleShowPhotosChange(showing) }
             .fileImporter(isPresented: $fileImporterActive, allowedContentTypes: allowedTypes,
                           allowsMultipleSelection: false, onCompletion: handleImportedFile)
-            .sheet(isPresented: $showRegionEditor, onDismiss: {
-                captureSheetTransition = false
-                guard scenePhase == .active else { return }
-                if occlusionImage != nil { captureSheetTransition = true; showOcclusion = true }
-                else if processedInput != nil { startOCR() }
-                else { cancelSelection() }
-            }) {
-                if let regionImage {
-                    ScanRegionEditorView(image: regionImage) { _, corrected in
-                        selection?.captureProcessedData = corrected.jpegData(compressionQuality: 0.85)
-                        if selection?.captureOrigin == "camera" {
-                            occlusionImage = corrected; selection?.captureStep = .occlusion
-                        } else {
-                            processedInput = selection?.captureProcessedData; selection?.captureStep = .review
-                        }
-                    } onSkip: {
-                        processedInput = nil; occlusionImage = nil
-                        selection?.captureProcessedData = nil
-                    }
-                    .interactiveDismissDisabled()
-                } else {
-                    VLUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                }
+            .sheet(isPresented: $showRegionEditor, onDismiss: handleRegionSheetDismiss) {
+                regionEditorContent
             }
-            .sheet(isPresented: $showOcclusion, onDismiss: {
-                captureSheetTransition = false
-                guard scenePhase == .active else { return }
-                occlusionImage = nil
-                if processedInput != nil { startOCR() }
-                else { cancelSelection() }
-            }) {
-                if let occlusionImage {
-                    OcclusionEditorView(originalImage: occlusionImage) { processed in
-                        processedInput = processed.jpegData(compressionQuality: 0.85)
-                        selection?.captureProcessedData = processedInput
-                        selection?.captureStep = .review
-                    }
-                    .interactiveDismissDisabled()
-                }
+            .sheet(isPresented: $showOcclusion, onDismiss: handleOcclusionSheetDismiss) {
+                occlusionEditorContent
             }
-            .ocrImportReviewHost(enabled: reviewCanPresent, advanceQueuedImports: false) { outcome in
-                selectionSessionID = nil
-                regionImage = nil; processedInput = nil
-                if outcome != .cancelled { dismiss() }
-            }
+            .ocrImportReviewHost(enabled: reviewCanPresent, advanceQueuedImports: false,
+                                  onFinished: handleReviewOutcome)
             .alert(L10n.docImportFailedTitle, isPresented: $importFailed) {
                 if permissionDenied {
                     Button(L10n.homeNotifOpen) {
@@ -271,6 +234,64 @@ struct QuickCaptureView: View {
             .onChangeCompat(of: docs.activeImport?.captureStep) { _, _ in
                 if !captureSheetTransition && !showCamera && !showRegionEditor && !showOcclusion && !showPhotos && !fileImporterActive { recoverSelection() }
             }
+        }
+    }
+
+    // ── body 型检预算提取（2026-09-21，2819ms → 逐段独立型检）────────
+    // 两个 sheet 的 onDismiss/内容闭包与 reviewHost 完成回调移出主表达式；
+    // 与 2026-09-20 同族：闭包体逐方法独立类型检查，body 不再单次吃满预算。
+
+    private func handleRegionSheetDismiss() {
+        captureSheetTransition = false
+        guard scenePhase == .active else { return }
+        if occlusionImage != nil { captureSheetTransition = true; showOcclusion = true }
+        else if processedInput != nil { startOCR() }
+        else { cancelSelection() }
+    }
+
+    private func handleOcclusionSheetDismiss() {
+        captureSheetTransition = false
+        guard scenePhase == .active else { return }
+        occlusionImage = nil
+        if processedInput != nil { startOCR() }
+        else { cancelSelection() }
+    }
+
+    private func handleReviewOutcome(_ outcome: DocumentsState.ImportOutcome) {
+        selectionSessionID = nil
+        regionImage = nil; processedInput = nil
+        if outcome != .cancelled { dismiss() }
+    }
+
+    @ViewBuilder
+    private var regionEditorContent: some View {
+        if let regionImage {
+            ScanRegionEditorView(image: regionImage) { _, corrected in
+                selection?.captureProcessedData = corrected.jpegData(compressionQuality: 0.85)
+                if selection?.captureOrigin == "camera" {
+                    occlusionImage = corrected; selection?.captureStep = .occlusion
+                } else {
+                    processedInput = selection?.captureProcessedData; selection?.captureStep = .review
+                }
+            } onSkip: {
+                processedInput = nil; occlusionImage = nil
+                selection?.captureProcessedData = nil
+            }
+            .interactiveDismissDisabled()
+        } else {
+            VLUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
+        }
+    }
+
+    @ViewBuilder
+    private var occlusionEditorContent: some View {
+        if let occlusionImage {
+            OcclusionEditorView(originalImage: occlusionImage) { processed in
+                processedInput = processed.jpegData(compressionQuality: 0.85)
+                selection?.captureProcessedData = processedInput
+                selection?.captureStep = .review
+            }
+            .interactiveDismissDisabled()
         }
     }
 
