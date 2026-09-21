@@ -81,33 +81,21 @@ extension OCRCardStore {
             sets.append("\(column) = ?")
             args.append(value)
         }
-        func fieldValue(_ key: String) -> FieldDraft? { shared.first { $0.key == key } }
-        switch kind {
-        case "claim_item":
-            for key in ["amount", "reimbursed_amount", "out_of_pocket", "personal_account_amount"] {
-                try setDouble(key, from: fieldValue(key))
+        // round5 Q4：键型取 Domain 单源 `EntityCardProjection.valueKind`（此前按卡种手写键表——被 detailColumns
+        // 排除又不在手写表里的日期/数值键（如处方 prescribed_at、检验 collected_at）编辑后**静默不落**）。
+        // 列名 == 模板键且须存在于事实表（`hasColumn`），否则跳过不猜列。
+        for field in shared where fact.hasColumn(field.key) {
+            switch EntityCardProjection.valueKind(kind: kind, key: field.key) {
+            case .date: try setDate(field.key, from: field)
+            case .number: try setDouble(field.key, from: field)
+            case .integer: try setInt(field.key, from: field)
+            default: break
             }
-        case "prescription":
-            try setDouble("total_amount", from: fieldValue("total_amount"))
-        case "immunization":
-            try setInt("dose_number", from: fieldValue("dose_number"))
-        case "hospitalization":
-            for key in ["admit_at", "discharge_at", "summary_date"] { try setDate(key, from: fieldValue(key)) }
-            for key in ["inpatient_times", "actual_days"] { try setInt(key, from: fieldValue(key)) }
-            try setDouble("total_cost", from: fieldValue("total_cost"))
-        case "diagnosis":
-            try setDate("diagnosed_at", from: fieldValue("diagnosed_at"))
-        case "exam_report":
-            for key in ["exam_at", "reported_at"] { try setDate(key, from: fieldValue(key)) }
-        case "surgery":
-            for key in ["surgery_at", "ended_at"] { try setDate(key, from: fieldValue(key)) }
-        case "treatment_record":
-            try setDate("treated_at", from: fieldValue("treated_at"))
-        case "metric_sample":
-            for key in ["value", "ref_low", "ref_high"] { try setDouble(key, from: fieldValue(key)) }
-        default:
-            break
         }
+        // 事实表列型与模板键型不一致的两处遗留（模板视为文本、列为 REAL/INTEGER）：沿用旧口径按列型写。
+        func fieldValue(_ key: String) -> FieldDraft? { shared.first { $0.key == key } }
+        if kind == "metric_sample" { try setDouble("value", from: fieldValue("value")) }
+        if kind == "immunization" { try setInt("dose_number", from: fieldValue("dose_number")) }
         if !sets.isEmpty {
             args.append(now.timeIntervalSince1970)
             args.append(entityId.uuidString)

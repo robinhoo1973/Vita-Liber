@@ -73,11 +73,7 @@ public enum PrescriptionLineField: String, CaseIterable, Sendable {
 
     /// 行实体 → 规范文本（审计 JSON 同步 / 编辑面初值 / 契约测试）：日期 `yyyy-MM-dd`、数值 `String(describing:)`。
     public func canonicalText(of line: PrescriptionLine, calendar: Calendar = Calendar(identifier: .gregorian)) -> String? {
-        func ymd(_ date: Date?) -> String? {
-            guard let date else { return nil }
-            let c = calendar.dateComponents([.year, .month, .day], from: date)
-            return String(format: "%04d-%02d-%02d", c.year ?? 1970, c.month ?? 1, c.day ?? 1)
-        }
+        func ymd(_ date: Date?) -> String? { date.map { EntityCardProjection.canonicalDateText($0, calendar: calendar) } }
         switch self {
         case .drugName: return line.printedName.isEmpty ? nil : line.printedName
         case .genericName: return line.genericName

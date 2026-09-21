@@ -113,6 +113,8 @@ extension L10n {
     "cardEdit.failed",
     "cardEdit.invalidDate",
     "cardEdit.invalidNumber",
+    "cardEdit.addField",
+    "field.date.unparsed",
     "cardEdit.lineTitle",
     "pendingCard.resume",
     "pendingCard.viewSource",

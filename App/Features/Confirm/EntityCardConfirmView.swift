@@ -102,7 +102,9 @@ struct EntityCardConfirmView: View {
                         // 字段旁 [看图]（业主 2026-09-19 第 1 项）：原件有路径
                         // 才出（同 [原文] 诚实纪律——续办模式无原件不冒充）
                         onViewScan: canViewScan ? { openScanSheet(lines: lines, field: field, rowId: rowId) } : nil,
-                        onRevise: { revise(index: index, rowID: rowId, value: $0) })
+                        onRevise: { revise(index: index, rowID: rowId, value: $0) },
+                        // round5 Q4：值类型单源——日期字段渲染选择器、数值字段数字键盘
+                        valueKind: EntityCardProjection.valueKind(kind: card.kind, key: field.key))
             .id(CardConfirmationRules.anchorId(key: field.key, rowId: rowId))
     }
 

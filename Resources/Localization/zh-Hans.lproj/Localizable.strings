@@ -1139,6 +1139,8 @@
 "cardEdit.failed" = "保存失败，请重试";
 "cardEdit.invalidDate" = "「%@」不是有效日期（yyyy-MM-dd）";
 "cardEdit.invalidNumber" = "「%@」不是有效数值";
+"cardEdit.addField" = "添加字段";
+"field.date.unparsed" = "识别原文「%@」不是有效日期，请在下方选择日期";
 "cardEdit.lineTitle" = "药品行 · %@";
 "pendingCard.resume" = "继续确认";
 "pendingCard.viewSource" = "查看原文";

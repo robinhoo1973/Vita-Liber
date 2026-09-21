@@ -51,7 +51,9 @@ struct ParentDraftSection: View {
                                                 isRequired: draftRequired.contains(fieldKey),
                                                 sourceLine: validatedLine,
                                                 onViewSource: onViewSource == nil ? nil : { line in onViewSource?(line, fieldKey) },
-                                                onRevise: { revise(index: index, value: $0) })
+                                                onRevise: { revise(index: index, value: $0) },
+                                                // round5 Q4：草稿枢纽的卡种 = RecordHub raw 值（与必填集取法同源）
+                                                valueKind: EntityCardProjection.valueKind(kind: draft.hub.rawValue, key: fieldKey))
                                     .accessibilityIdentifier("SP-12.parentDraft.field.\(draft.fields[index].key)")
                             }
                         }
@@ -166,9 +168,6 @@ struct ParentDraftSection: View {
         })
     }
 
-    /// yyyy-MM-dd（公历、当前时区）——`EntityCardProjection.parseDate` 可逆解析。
-    static func dateText(_ date: Date) -> String {
-        let parts = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)
-        return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
-    }
+    /// yyyy-MM-dd：委托 Domain 单源 `EntityCardProjection.canonicalDateText`（round5 Q4——此前本处、审计同步、行表各持一份）。
+    static func dateText(_ date: Date) -> String { EntityCardProjection.canonicalDateText(date, calendar: .current) }
 }

@@ -344,6 +344,14 @@ extension L10n {
         t("cardEdit.invalidDate").replacingOccurrences(of: "%@", with: label)
     }
 
+    /// round5 Q4：日期字段的原文不可解析时，选择器上方的提示（含原文，让用户对照）。
+    static func fieldDateUnparsed(_ raw: String) -> String {
+        t("field.date.unparsed").replacingOccurrences(of: "%@", with: raw)
+    }
+
+    /// round5 Q1（F1.4）：已确认卡编辑面「添加字段」菜单标题。
+    static var cardEditAddField: String { t("cardEdit.addField") }
+
     static func cardEditInvalidNumber(_ label: String) -> String {
         t("cardEdit.invalidNumber").replacingOccurrences(of: "%@", with: label)
     }

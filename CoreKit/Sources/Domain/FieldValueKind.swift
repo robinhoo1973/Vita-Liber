@@ -17,6 +17,15 @@ public enum FieldValueKind: Equatable, Sendable {
 }
 
 extension EntityCardProjection {
+    /// 日期字段的**规范文本** `yyyy-MM-dd`（公历、给定时区当日）——`parseDate` 可逆解析。
+    /// 单源：日期选择器写回、审计 JSON 同步、处方行表 `canonicalText`、编辑面初值此前各持一份格式化闭包。
+    public static func canonicalDateText(_ date: Date, calendar: Calendar = Calendar(identifier: .gregorian)) -> String {
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let parts = gregorian.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
+    }
+
     /// 必填面上的数值键（不在 `numericKeys` 可选表里，但 `applyCardKindChecks` 按数值裁定）。
     static let requiredNumericKeys: [String: Set<String>] = [
         "claim_item": ["amount"],

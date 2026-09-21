@@ -168,6 +168,9 @@ struct FieldConfirmRow: View {
     /// nil = 无原件可看（如待办续办模式的旧数据）→ 不渲染。
     var onViewScan: (() -> Void)?
     var onRevise: ((String) -> Void)?
+    /// 值类型（round5 Q4：Domain 单源 `EntityCardProjection.valueKind`）——日期走 `DateFieldEditor`、
+    /// 数值走数字键盘、枚举走 Picker；缺省 `.text`。文档级字段（SP-11）不知卡种时传缺省。
+    var valueKind: FieldValueKind = .text
     @FocusState private var focused: Bool
 
     private var tier: ConfidenceTier { ConfidenceTier.tier(field.confidence) }
@@ -216,6 +219,10 @@ struct FieldConfirmRow: View {
                     }
                     .pickerStyle(.menu)
                     .accessibilityIdentifier("OCR.field.picker.\(field.key)")
+                } else if valueKind == .date {
+                    // round5 Q4：日期字段用选择器（原文不可解析时保留原文提示、用户选定才写回规范 yyyy-MM-dd）
+                    DateFieldEditor(label: label, text: field.value) { valueBinding.wrappedValue = $0 }
+                        .accessibilityIdentifier("OCR.field.date.\(field.key)")
                 } else {
                     // 编辑态显示并回写 canonical raw（编辑框即数据真值；展示文案
                     // 永不写回数据）——把展示文案映射进编辑框会令半程编辑
@@ -227,6 +234,8 @@ struct FieldConfirmRow: View {
                     .focused($focused)
                     .submitLabel(.done)
                     .onSubmit { focused = false }
+                    // 数值/整数键：数字键盘（round5 Q4；值真值仍是文本，校验在 Domain invalidFields）
+                    .keyboardType(valueKind == .number ? .decimalPad : (valueKind == .integer ? .numberPad : .default))
                     if showUnit, field.unit != nil {
                         TextField(L10n.templateFieldLabel("unit"), text: Binding(get: { field.unit ?? "" }, set: { field.unit = $0 }))
                             .textFieldStyle(.roundedBorder)

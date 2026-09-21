@@ -1139,6 +1139,8 @@
 "cardEdit.failed" = "Save failed — please try again";
 "cardEdit.invalidDate" = "“%@” is not a valid date (yyyy-MM-dd)";
 "cardEdit.invalidNumber" = "“%@” is not a valid number";
+"cardEdit.addField" = "Add field";
+"field.date.unparsed" = "Recognized text “%@” is not a valid date — pick one below";
 "cardEdit.lineTitle" = "Medication line · %@";
 "pendingCard.resume" = "Continue";
 "pendingCard.viewSource" = "View source";

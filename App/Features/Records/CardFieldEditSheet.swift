@@ -40,6 +40,9 @@ struct CardFieldEditSheet: View {
                         ForEach(fields.indices, id: \.self) { index in
                             editRow(fields[index])
                         }
+                        // round5 Q1（F1.4）：后期补填——目录（CardKindRegistry 共享面可选键）− 已有键；
+                        // 此前编辑面只列 detail.fields（有值字段），OCR 漏抽的字段在档案里永远补不上。
+                        addFieldMenu
                     } header: {
                         Text(L10n.cardEditFieldsSection)
                     }
@@ -84,7 +87,9 @@ struct CardFieldEditSheet: View {
     @ViewBuilder
     private func editRow(_ field: FieldDraft) -> some View {
         let key = field.key
-        if let options = DocumentsDisplay.enumOptions(forKey: key), !options.isEmpty {
+        // round5 Q4：控件按 Domain 单源 `valueKind` 选择（此前只有枚举 Picker / 文本框两分支）
+        switch EntityCardProjection.valueKind(kind: kind, key: key) {
+        case .enumerated(let options) where !options.isEmpty:
             Picker(DocumentsDisplay.fieldLabel(forKey: key), selection: valueBinding(key)) {
                 if !options.contains(field.value) && !field.value.isEmpty {
                     Text(field.value).tag(field.value)
@@ -93,12 +98,39 @@ struct CardFieldEditSheet: View {
                     Text(DocumentsDisplay.fieldValueDisplay(forKey: key, value: option)).tag(option)
                 }
             }
-        } else {
+        case .date:
+            DateFieldEditor(label: DocumentsDisplay.fieldLabel(forKey: key), text: field.value) { valueBinding(key).wrappedValue = $0 }
+        case .number, .integer:
+            LabeledContent(DocumentsDisplay.fieldLabel(forKey: key)) {
+                TextField("", text: valueBinding(key))
+                    .keyboardType(EntityCardProjection.valueKind(kind: kind, key: key) == .integer ? .numberPad : .decimalPad)
+                    .multilineTextAlignment(.trailing)
+            }
+        default:
             LabeledContent(DocumentsDisplay.fieldLabel(forKey: key)) {
                 TextField("", text: valueBinding(key), axis: .vertical)
                     .lineLimit(1...4)
                     .multilineTextAlignment(.trailing)
             }
+        }
+    }
+
+    /// 「添加字段」：共享面目录 − 已有键（目录与 SP-12 同源 `CardKindRegistry.optionalCatalog`）。
+    @ViewBuilder
+    private var addFieldMenu: some View {
+        let catalog = CardKindRegistry.optionalCatalog(kind: kind, present: Set(fields.map(\.key)), rowLevel: false)
+        if !catalog.isEmpty {
+            Menu {
+                ForEach(catalog, id: \.self) { key in
+                    Button(DocumentsDisplay.fieldLabel(forKey: key)) {
+                        guard !fields.contains(where: { $0.key == key }) else { return }
+                        fields.append(FieldDraft(key: key, value: "", confidence: 1))
+                    }
+                }
+            } label: {
+                Label(L10n.cardEditAddField, systemImage: "plus.circle").frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("cardEdit.addField")
         }
     }
 
@@ -112,54 +144,53 @@ struct CardFieldEditSheet: View {
         })
     }
 
+    /// 处方行编辑：按 `PrescriptionLineField` 全列生成（round5 Q1 F1.4——此前手写 6 列，其余 13 列在档案里
+    /// 不可编、不可补；`unit` 并入剂量行右侧小框；日期列走选择器、金额列数字键盘）。
     @ViewBuilder
     private func prescriptionLineSection(_ index: Int) -> some View {
         let line = lines[index]
         let title = line.printedName.isEmpty ? L10n.entityCardRowIndex(index + 1) : line.printedName
         Section {
-            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "drug_name")) {
-                TextField("", text: lineTextBinding(index, { $0.printedName }, { $0.printedName = $1 }))
-                    .multilineTextAlignment(.trailing)
-            }
-            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "spec")) {
-                TextField("", text: lineTextBinding(index, { $0.spec ?? "" }, { $0.spec = $1.isEmpty ? nil : $1 }))
-                    .multilineTextAlignment(.trailing)
-            }
-            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "dosage")) {
-                HStack(spacing: 6) {
-                    TextField("", text: lineTextBinding(index, { $0.doseText ?? "" }, { $0.doseText = $1.isEmpty ? nil : $1 }))
-                        .multilineTextAlignment(.trailing)
-                    TextField("", text: lineTextBinding(index, { $0.doseUnit ?? "" }, { $0.doseUnit = $1.isEmpty ? nil : $1 }))
-                        .frame(maxWidth: 72).multilineTextAlignment(.trailing)
-                }
-            }
-            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "frequency")) {
-                TextField("", text: lineTextBinding(index, { $0.frequencyText ?? "" }, { $0.frequencyText = $1.isEmpty ? nil : $1 }))
-                    .multilineTextAlignment(.trailing)
-            }
-            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "days")) {
-                TextField("", text: lineTextBinding(index, { $0.durationText ?? "" }, { $0.durationText = $1.isEmpty ? nil : $1 }))
-                    .multilineTextAlignment(.trailing)
-            }
-            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "note")) {
-                TextField("", text: lineTextBinding(index, { $0.note ?? "" }, { $0.note = $1.isEmpty ? nil : $1 }))
-                    .multilineTextAlignment(.trailing)
+            ForEach(PrescriptionLineField.allCases.filter { !$0.isUnitCompanion }, id: \.rawValue) { column in
+                prescriptionLineRow(index, column)
             }
         } header: {
             Text(L10n.cardEditLineTitle(title))
         }
     }
 
-    /// 处方行文本列绑定（String 与 String? 列同一出口；空串回写 nil，与事实列空值形态同口径）。
-    private func lineTextBinding(_ index: Int,
-                                 _ get: @escaping (PrescriptionLine) -> String,
-                                 _ set: @escaping (inout PrescriptionLine, String) -> Void) -> Binding<String> {
+    @ViewBuilder
+    private func prescriptionLineRow(_ index: Int, _ column: PrescriptionLineField) -> some View {
+        let label = DocumentsDisplay.fieldLabel(forKey: column.key)
+        switch column.valueKind {
+        case .date:
+            DateFieldEditor(label: label, text: lineColumnBinding(index, column).wrappedValue) { lineColumnBinding(index, column).wrappedValue = $0 }
+        case .number, .integer:
+            LabeledContent(label) {
+                TextField("", text: lineColumnBinding(index, column))
+                    .keyboardType(.decimalPad).multilineTextAlignment(.trailing)
+            }
+        default:
+            LabeledContent(label) {
+                HStack(spacing: 6) {
+                    TextField("", text: lineColumnBinding(index, column)).multilineTextAlignment(.trailing)
+                    if column == .dosage {
+                        TextField(DocumentsDisplay.fieldLabel(forKey: PrescriptionLineField.unit.key), text: lineColumnBinding(index, .unit))
+                            .frame(maxWidth: 72).multilineTextAlignment(.trailing)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 行列绑定单出口：读 `canonicalText`、写 `write(_:to:)`（空串 = 清空，与事实列 nil 同口径；不可解析保持原值）。
+    private func lineColumnBinding(_ index: Int, _ column: PrescriptionLineField) -> Binding<String> {
         Binding(get: {
             guard lines.indices.contains(index) else { return "" }
-            return get(lines[index])
+            return column.canonicalText(of: lines[index], calendar: Self.calendar) ?? ""
         }, set: { value in
             guard lines.indices.contains(index) else { return }
-            set(&lines[index], value)
+            column.write(value, to: &lines[index], calendar: Self.calendar)
         })
     }
 
