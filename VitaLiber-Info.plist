@@ -44,6 +44,9 @@
     <key>BGTaskSchedulerPermittedIdentifiers</key>
     <array>
         <string>com.vitaliber.healthkit-sync</string>
+        <string>com.vitaliber.healthkit-backfill</string>
+        <string>com.vitaliber.continued.healthkit-sync</string>
+        <string>com.vitaliber.continued.asr-install</string>
     </array>
     <key>UIBackgroundModes</key>
     <array>

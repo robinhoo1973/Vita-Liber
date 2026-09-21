@@ -367,6 +367,8 @@ extension L10n {
     static var asrModelPhasePruning: String { t("asr.model.phasePruning") }
 
     static var asrModelBackgroundHint: String { t("asr.model.backgroundHint") }
+    /// round5 Q2：iOS ≤25 下载期如实提示（`beginBackgroundTask` 仅约 30 秒宽限，切后台即暂停）；iOS 26 用 backgroundHint。
+    static var asrModelForegroundHint: String { t("asr.model.foregroundHint") }
 
     static var asrIndexFetchFailed: String { t("asr.index.fetchFailed") }
 

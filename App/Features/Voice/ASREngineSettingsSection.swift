@@ -13,7 +13,7 @@ import Perception
 ///   后续阶段显示不确定进度 + 阶段文案；
 /// - **多任务**：此前单 `busy` 全局互斥，第二个下载被静默拒绝——改 per-choice 进行态集合
 ///   （服务端已按 per-model 互斥 + 并发上限 2）；
-/// - **切后台**：`beginBackgroundTask` 窗口（系统 ~30min），文案相应更新；
+/// - **切后台**：iOS 26 continued processing 续跑；更早系统 `beginBackgroundTask` 仅 ≈30 秒（非 30 分钟），文案按版本如实更新；
 /// - **检查更新三元反馈**：检查中 / 已是最新 / 发现 N 个可更新 / 失败（此前点击无任何结果）；
 /// - **资产失效广播**：安装成功 `assetsChanged()`——语言列表据此重算可选性
 ///   （此前同页内下载完成不触发重算，「下载完了还是不能选」）。
@@ -307,6 +307,11 @@ struct ASREngineSettingsSection: View {
     /// 业主裁决 D6：按设备 RAM 给出建议（用户自行决定，不做硬限制）。
     /// 建议规则在 Domain `ASRVariantRecommendation.variantIndex`（BR 规则不进视图）；
     /// 视图只取建议下标 + 格式化。清单已按 variantWeight 大小升序。
+    /// iOS 26+ 可经 continued processing 切后台续跑（与 `BackgroundWorkScheduler.runContinued` 同判据）。
+    private static var supportsContinuedProcessing: Bool {
+        if #available(iOS 26, *) { return true } else { return false }
+    }
+
     private func variantHint(for variants: [ASRModelRelease]) -> String? {
         let ramBytes = ProcessInfo.processInfo.physicalMemory
         guard let index = ASRVariantRecommendation.variantIndex(ramBytes: ramBytes,
@@ -347,7 +352,8 @@ struct ASREngineSettingsSection: View {
                 .font(.caption2).foregroundStyle(.secondary)
                 .accessibilityIdentifier("\(accessibilityPrefix).model.phase.\(choice.rawValue)")
         }
-        Text(L10n.asrModelBackgroundHint)
+        // round5 Q2：后台事实按系统版本如实呈现——iOS 26 continued processing 可续跑；更早只有 ≈30 秒宽限
+        Text(Self.supportsContinuedProcessing ? L10n.asrModelBackgroundHint : L10n.asrModelForegroundHint)
             .font(.caption2).foregroundStyle(.tertiary)
         Button(L10n.commonCancel) { installCenter.cancel(choice) }
             .frame(minHeight: 44)

@@ -1800,7 +1800,8 @@
 "asr.model.phaseUnpacking" = "解压中…";
 "asr.model.phaseActivating" = "安装中…";
 "asr.model.phasePruning" = "清理旧版本…";
-"asr.model.backgroundHint" = "可切到后台继续下载";
+"asr.model.backgroundHint" = "可切到后台继续下载（系统会显示进度，可随时取消）";
+"asr.model.foregroundHint" = "请保持应用在前台直到完成：切到后台约 30 秒后系统会暂停下载，回到前台可续传";
 "asr.index.fetchFailed" = "检查更新失败，请重试";
 "home.swipe.archive" = "归档";
 "home.swipe.archived" = "已归档「%@」";

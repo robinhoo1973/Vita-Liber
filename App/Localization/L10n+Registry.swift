@@ -936,7 +936,7 @@ extension L10n {
         "asr.model.checkUpdate", "asr.index.fetchFailed",
         "asr.model.checking", "asr.model.checkUpToDate", "asr.model.checkUpdatesFmt",
         "asr.model.progressFmt", "asr.model.phaseVerifying", "asr.model.phaseUnpacking",
-        "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint",
+        "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint", "asr.model.foregroundHint",
         // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
         "asr.model.modeSegmentedFmt", "asr.model.modeSingle",
         "asr.qwen3", "asr.qwen3.hint",

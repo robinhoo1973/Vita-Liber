@@ -1800,7 +1800,8 @@
 "asr.model.phaseUnpacking" = "Unpacking…";
 "asr.model.phaseActivating" = "Installing…";
 "asr.model.phasePruning" = "Cleaning up old versions…";
-"asr.model.backgroundHint" = "You can switch to the background while downloading";
+"asr.model.backgroundHint" = "You can switch to the background — the system shows progress and lets you cancel";
+"asr.model.foregroundHint" = "Keep the app in the foreground until it finishes: the system pauses the download about 30 s after backgrounding; it resumes when you return";
 "asr.index.fetchFailed" = "Update check failed. Try again.";
 "home.swipe.archive" = "Archive";
 "home.swipe.archived" = "Archived “%@”";

@@ -239,7 +239,9 @@ struct AppRootView: View {
                             quietStart: SettingsRules.resolved(
                                 settingsStore.values[.quietHoursStart], key: .quietHoursStart),
                             quietEnd: SettingsRules.resolved(
-                                settingsStore.values[.quietHoursEnd], key: .quietHoursEnd), maxRounds: 1)
+                                settingsStore.values[.quietHoursEnd], key: .quietHoursEnd),
+                            // round5 Q2：回前台 1→3 轮（Domain 常量；仍有界，不再「每次回前台只前进一页」）
+                            maxRounds: HealthSyncBacklogPolicy.foregroundActiveRounds)
                     }
                 }
             }

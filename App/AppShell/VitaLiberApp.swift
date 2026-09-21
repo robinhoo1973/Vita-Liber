@@ -176,10 +176,35 @@ struct VitaLiberApp: App {
         // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
         // 后台唤起执行体（BG 启动无 UI——未建档/未授权即跳过，前台锚点
         // 兜底路径不受影响）
-        HealthKitSyncService.registerBackgroundTask()
         let bgSync = container.healthSync
         let healthSettings = container.settings
         HealthKitSyncService.backgroundCancelHandler = { await bgSync.cancelSync() }
+        // round5 Q2：分钟级回填执行体（BGProcessingTask / iOS 26 continued processing 共用）——
+        // 轮数与时间预算由系统给的到期时间推算（Domain HealthSyncBacklogPolicy），积压排空即停止重排
+        HealthKitSyncService.backgroundBackfillHandler = { [dataChange] budget in
+            do {
+                guard try await bgSync.canAutomaticallySync() else { return BackgroundJobOutcome(success: true, reschedule: false) }
+                let start = try await healthSettings.value(for: .quietHoursStart)
+                let end = try await healthSettings.value(for: .quietHoursEnd)
+                let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
+                                                             maxRounds: HealthSyncBacklogPolicy.maxRounds(for: budget),
+                                                             timeBudget: budget)
+                await MainActor.run {
+                    if report.persistedRows > 0 { dataChange.metricsChanged() }
+                    dataChange.alertsChanged()
+                }
+                let more = HealthSyncBacklogPolicy.shouldRequestProcessing(remainingWindows: report.remainingWindows, hasMore: report.hasMore)
+                return BackgroundJobOutcome(success: report.failedTypes.isEmpty, reschedule: more)
+            } catch is CancellationError {
+                return BackgroundJobOutcome(success: false, reschedule: true)   // 到期打断：进度已逐类落盘，下次续排
+            } catch {
+                return BackgroundJobOutcome(success: false, reschedule: false)
+            }
+        }
+        // 注册须在装配执行体之后、启动完成之前（BGTaskScheduler 限制）；两作业 + continued 标识符经统一门面一次注册
+        // （ASR 下载的 continued 标识符也在此登记——registerAll 之后的登记不会被系统唤起）
+        BackgroundWorkScheduler.shared.addContinued(identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier)
+        HealthKitSyncService.registerBackgroundTask()
         HealthKitSyncService.backgroundSyncHandler = { [dataChange] in
             do {
                 guard try await bgSync.canAutomaticallySync() else { return false }

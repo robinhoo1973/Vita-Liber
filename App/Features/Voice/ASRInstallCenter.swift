@@ -14,7 +14,11 @@ import UIKit   // beginBackgroundTask（切后台继续下载窗口）
 ///    提升后状态与生命周期脱离视图。
 ///
 /// 职责：启动/取消安装、持有进行态（进度/阶段）、完成广播 `assetsChanged()`
-/// （语言列表与档位可用性据此重算）、后台窗口（`beginBackgroundTask`，~30min）。
+/// （语言列表与档位可用性据此重算）、后台窗口。
+/// **后台事实（round5 Q2 更正）**：`beginBackgroundTask` 在 iOS 13+ 只给**约 30 秒**（前台切后台约 3 分钟）宽限——此前注释
+/// 误记「~30min」、UI 文案「可切到后台继续下载」在 iOS ≤25 属误导。现：iOS 26 经 `BackgroundWorkScheduler.runContinued`
+/// 提交 continued processing（切后台续跑、系统显示进度、可取消）；更早系统如实提示「请保持在前台」。
+/// 锁屏整夜级下载需后台 `URLSession`（下载任务 + 委托持久化）——登记 tech §11 技术债，另轮迁移。
 /// 索引与授权检查留在调用方（设置页自持 `index`，安全审查 2026-09-12 的显式联网面不变）。
 @MainActor
 @Perceptible
@@ -139,8 +143,8 @@ final class ASRInstallCenter {
             active.removeAll { $0.id == install.id }
             tasks[choice] = nil
         }
-        // 切后台继续下载窗口：beginBackgroundTask 给系统级 ~30min 宽限；
-        // 更长（锁屏整夜）需 background URLSession——登记 tech §11 技术债。
+        // 切后台宽限：beginBackgroundTask ≈30 秒（iOS 13+ 事实，非 30 分钟）——只够收尾一段；
+        // 切后台续跑靳 iOS 26 continued processing（下方 runContinued）；锁屏整夜级需后台 URLSession（tech §11 技术债）。
         #if os(iOS)
         var assertion: UIBackgroundTaskIdentifier = .invalid
         assertion = UIApplication.shared.beginBackgroundTask(withName: "asr-model-install") {
@@ -149,19 +153,37 @@ final class ASRInstallCenter {
         }
         defer { if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) } }
         #endif
-        do {
-            // 直接投递到该安装自身的可观察对象（见 `Install` 说明）——不再经
-            // `active[index]` 变址写入，首页全量聚合因此不再被高频进度牵连。
-            _ = try await service.install(release, baseURL: baseURL) { progress in
-                install.submit(progress: progress)
-            } onPhase: { phase in
-                install.submit(phase: phase)
+        let service = self.service
+        var outcome: Result<Void, Error> = .success(())
+        // 用户动作发起 → 统一入口 runContinued（iOS 26 续跑 + 系统进度；更早系统/提交失败回落前台直跑同一 operation）
+        _ = await BackgroundWorkScheduler.shared.runContinued(
+            identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier,
+            title: L10n.asrModelDownloading, subtitle: [release.id, release.variant].compactMap { $0 }.joined(separator: " · ")) { progress, _ in
+            do {
+                // 直接投递到该安装自身的可观察对象（见 `Install` 说明）——不再经
+                // `active[index]` 变址写入，首页全量聚合因此不再被高频进度牵连。
+                _ = try await service.install(release, baseURL: baseURL) { downloaded in
+                    install.submit(progress: downloaded)
+                    if let progress, downloaded.totalBytes > 0 {
+                        progress.totalUnitCount = downloaded.totalBytes
+                        progress.completedUnitCount = downloaded.receivedBytes
+                    }
+                } onPhase: { phase in
+                    install.submit(phase: phase)
+                }
+                return true
+            } catch {
+                outcome = .failure(error)
+                return false
             }
+        }
+        switch outcome {
+        case .success:
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()
-        } catch is CancellationError {
-            // 用户取消：不记失败（可再发起）。
-        } catch {
+        case .failure(let error) where error is CancellationError:
+            break   // 用户取消：不记失败（可再发起）。
+        case .failure:
             failed.insert(choice)
             lastFailure = choice
         }

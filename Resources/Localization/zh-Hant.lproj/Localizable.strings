@@ -1800,7 +1800,8 @@
 "asr.model.phaseUnpacking" = "解壓中…";
 "asr.model.phaseActivating" = "安裝中…";
 "asr.model.phasePruning" = "清理舊版本…";
-"asr.model.backgroundHint" = "可切到背景繼續下載";
+"asr.model.backgroundHint" = "可切到背景繼續下載（系統會顯示進度，可隨時取消）";
+"asr.model.foregroundHint" = "請保持 App 在前景直到完成：切到背景約 30 秒後系統會暫停下載，回到前景可續傳";
 "asr.index.fetchFailed" = "檢查更新失敗，請重試";
 "home.swipe.archive" = "封存";
 "home.swipe.archived" = "已封存「%@」";

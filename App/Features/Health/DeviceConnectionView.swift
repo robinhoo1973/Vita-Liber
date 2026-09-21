@@ -144,7 +144,10 @@ final class F16DeviceState {
         return connected
     }
 
-    func sync(authEnabled: Bool = true, quietStart: String = "22:00", quietEnd: String = "07:00", maxRounds: Int = 20) async {
+    /// `userInitiated`（round5 Q2）：用户点「立即同步」时为 true——iOS 26 经 `BackgroundWorkScheduler.runContinued` 提交
+    /// continued processing（切后台续跑、系统显示进度、可取消）；回前台自动对账（非用户动作）不得使用该原语。
+    func sync(authEnabled: Bool = true, quietStart: String = "22:00", quietEnd: String = "07:00", maxRounds: Int = 20,
+              userInitiated: Bool = false) async {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
         phase = .syncing
@@ -172,7 +175,32 @@ final class F16DeviceState {
         do {
             // I2 审查修复：轮询与聚合下沉 HealthKitSyncService.performSyncAll
             // （服务语义不进视图状态对象），本层只消费一次终态报告。
-            let total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
+            let total: HealthKitSyncService.SyncReport
+            if userInitiated {
+                // 用户发起 → 单一入口 runContinued：iOS 26 切后台续跑；更早系统/提交失败回落前台直跑（同一 operation）
+                var captured: HealthKitSyncService.SyncReport?
+                var failure: Error?
+                let service = syncService
+                _ = await BackgroundWorkScheduler.shared.runContinued(
+                    identifier: HealthKitSyncService.continuedSyncIdentifier,
+                    title: L10n.f16Syncing, subtitle: L10n.f16SyncHint) { progress, _ in
+                    do {
+                        progress?.totalUnitCount = Int64(maxRounds)
+                        let report = try await service.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
+                        progress?.completedUnitCount = progress?.totalUnitCount ?? 0
+                        captured = report
+                        return report.failedTypes.isEmpty
+                    } catch {
+                        failure = error
+                        return false
+                    }
+                }
+                if let failure { throw failure }
+                guard let report = captured else { throw CancellationError() }
+                total = report
+            } else {
+                total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
+            }
             applyLiveReport(total, epoch: epoch, force: true)
             syncEpoch &+= 1   // 终态落定：旧轮询刻度（已在途读取者）失效，不得再覆盖终态
             if total.persistedRows > 0 { dataChange.metricsChanged() }
@@ -580,7 +608,8 @@ struct DeviceConnectionView: View {
     private func sync() async {
         await deviceState.sync(authEnabled: healthEnabled,
             quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
-            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
+            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd),
+            userInitiated: true)
     }
 
     // MARK: - 特征型候选（业主 2026-09-17 定）

@@ -171,6 +171,10 @@ public actor HealthKitSyncService {
         try Task.checkCancellation()
         try await imports.saveReport(report)
         latestReport = report
+        #if os(iOS)
+        // round5 Q2：每轮终态有积压即申请一次分钟级回填（系统在设备空闲时唤起排空，不再只靠 30 秒刷新与回前台）
+        requestBackfillIfNeeded(report)
+        #endif
         return report
     }
 
@@ -310,10 +314,41 @@ public actor HealthKitSyncService {
     }
 
     #if os(iOS)
+    /// 刷新作业（30 秒级）：增量对账一轮。
     public static let bgTaskIdentifier = "com.vitaliber.healthkit-sync"
+    /// 回填作业（round5 Q2 新增，分钟级 `BGProcessingTask`）：设备空闲时排空积压——此前后台只有刷新作业，每次唤醒每类只排 1 页，
+    /// 一年心率需数百次唤醒；`processing` 模式在 Info.plist 声明了却从未使用。
+    public static let backfillTaskIdentifier = "com.vitaliber.healthkit-backfill"
+    /// 用户发起的手动同步在 iOS 26 经 continued processing 续跑（切后台不中断）。
+    public static let continuedSyncIdentifier = "com.vitaliber.continued.healthkit-sync"
     public private(set) var backgroundRegistrationFailed = false
     nonisolated(unsafe) public static var backgroundSyncHandler: (@Sendable () async -> Bool)?
+    /// 回填执行体（App 装配：读静默时段设置 → `performSyncAll(maxRounds: 按预算, timeBudget: 预算)`）。
+    nonisolated(unsafe) public static var backgroundBackfillHandler: (@Sendable (Duration) async -> BackgroundJobOutcome)?
     nonisolated(unsafe) public static var backgroundCancelHandler: (@Sendable () async -> Void)?
+
+    /// 两个后台作业（描述为 Domain 纯值；执行体经静态闭包由 App 装配）。
+    struct RefreshJob: BackgroundJob {
+        let descriptor = BackgroundJobDescriptor(identifier: HealthKitSyncService.bgTaskIdentifier, kind: .refresh, minimumInterval: 15 * 60)
+        func run(budget: Duration) async -> BackgroundJobOutcome {
+            BackgroundJobOutcome(success: (await HealthKitSyncService.backgroundSyncHandler?()) ?? false, reschedule: true)
+        }
+    }
+    struct BackfillJob: BackgroundJob {
+        // 不要求外接电源/网络：HealthKit 本机读、CPU 轻；要求电源会让多数夜间不充电的用户永远排不到
+        let descriptor = BackgroundJobDescriptor(identifier: HealthKitSyncService.backfillTaskIdentifier,
+                                                 kind: .processing(requiresNetwork: false, requiresExternalPower: false),
+                                                 minimumInterval: 60 * 60)
+        func run(budget: Duration) async -> BackgroundJobOutcome {
+            (await HealthKitSyncService.backgroundBackfillHandler?(budget)) ?? BackgroundJobOutcome(success: false, reschedule: false)
+        }
+    }
+
+    /// 积压判定后申请一次回填（服务内每轮落盘报告后调用；纯策略在 Domain `HealthSyncBacklogPolicy`）。
+    private func requestBackfillIfNeeded(_ report: SyncReport) {
+        guard HealthSyncBacklogPolicy.shouldRequestProcessing(remainingWindows: report.remainingWindows, hasMore: report.hasMore) else { return }
+        _ = BackgroundWorkScheduler.shared.submit(Self.backfillTaskIdentifier)
+    }
 
     public func startBackgroundObservation() async {
         // 审查修正：非 HealthKitReader 注入（测试替身/未来第二实现）此前静默
@@ -332,26 +367,24 @@ public actor HealthKitSyncService {
         } catch { backgroundRegistrationFailed = true }
     }
 
+    /// 排期刷新作业；有积压时同时排期回填作业（round5 Q2：统一门面 `BackgroundWorkScheduler`——此前本处直接构造
+    /// `BGAppRefreshTaskRequest`，与 ASR 的 `beginBackgroundTask`、HK 观察者三处各自为政）。
     @discardableResult
     public func scheduleBackgroundRefresh() -> Bool {
-        let request = BGAppRefreshTaskRequest(identifier: Self.bgTaskIdentifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-        do { try BGTaskScheduler.shared.submit(request); return true }
-        catch { backgroundRegistrationFailed = true; return false }
+        let ok = BackgroundWorkScheduler.shared.submit(Self.bgTaskIdentifier)
+        if !ok { backgroundRegistrationFailed = true }
+        if let report = latestReport { requestBackfillIfNeeded(report) }
+        return ok
     }
 
+    /// App init 唯一注册点：两作业登记到门面并向系统注册（含 iOS 26 continued processing 标识符）。
     public nonisolated static func registerBackgroundTask() {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskIdentifier, using: nil) { task in
-            guard let refresh = task as? BGAppRefreshTask else { task.setTaskCompleted(success: false); return }
-            let work = Task {
-                let success = (await Self.backgroundSyncHandler?()) ?? false
-                refresh.setTaskCompleted(success: success && !Task.isCancelled)
-            }
-            refresh.expirationHandler = {
-                // Do not cancel a foreground owner's flight merely because this callback joined it.
-                work.cancel()
-            }
-        }
+        let scheduler = BackgroundWorkScheduler.shared
+        scheduler.add(RefreshJob())
+        scheduler.add(BackfillJob())
+        scheduler.addContinued(identifier: continuedSyncIdentifier)   // 手动同步（用户动作）在 iOS 26 切后台续跑
+        scheduler.registerAll()
+        scheduler.registerContinuedAll()
     }
     #endif
 }
