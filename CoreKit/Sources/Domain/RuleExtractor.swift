@@ -39,11 +39,9 @@ public enum RuleExtractor {
         return nil
     }
 
+    /// 日期记号：委托 `ExtractionPatterns.dateToken` 单文法（round5 Q4；此前本处第三份 4 位年正则）。
     static func dateToken(in text: String) -> String? {
-        guard let regex = Patterns.date,
-              let m = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let r = Range(m.range, in: text) else { return nil }
-        return String(text[r])
+        ExtractionPatterns.dateToken(in: text)
     }
 
     // MARK: 共享字段
@@ -307,7 +305,7 @@ public enum RuleExtractor {
         static func rx(_ p: String) -> NSRegularExpression? {
             try? NSRegularExpression(pattern: p, options: [.caseInsensitive])   // try?-ok: 静态字面量文法，构造失败即规则不命中而非崩溃
         }
-        static let date = rx(#"(?<!\d)\d{4}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}(?:\s*日)?"#)
+        // `date` 文法已收敛 `ExtractionPatterns.dateMatch`（round5 Q4）——本枚举不再持有日期正则。
         static let spec = rx(#"\d+(?:\.\d+)?\s*(?:mg|g|ml|mL|μg|ug|IU|%)(?:\s*[/:*×xX]\s*\d+(?:\.\d+)?\s*(?:片|粒|支|袋|瓶|ml|mL|g|mg)?)*"#)
         static let dosage = rx(#"(?:每次|每晚|每早|晨起|一次)\s*(\d+(?:\.\d+)?\s*(?:mg|g|ml|mL|μg|ug|IU|片|粒|支|袋|滴|喷|噴|贴|貼|丸|包|单位|單位))"#)
         static let frequency = rx(#"(?:每日|每天|一天|一日|隔日|每周|每週|每\d+小时|每\d+小時)\s*[\d一二三四两兩]*\s*次|每晚|睡前|晨起|饭前|飯前|饭后|飯後|必要时|必要時|\b(?:qd|bid|tid|qid|qn|prn|q\d+h)\b"#)

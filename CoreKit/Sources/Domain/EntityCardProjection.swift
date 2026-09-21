@@ -127,27 +127,18 @@ public enum EntityCardProjection {
     /// `hospitalization` 卡派生就诊类型的许可集（§C.2：kind ∈ inpatient/daySurgery）。
     static let hospitalizationKinds: Set<String> = [EncounterKind.inpatient.rawValue, EncounterKind.daySurgery.rawValue]
 
-    /// 日期文法（静态字面量一次性编译复用——此前每调用现编译一次；
-    /// 与本模块 `ClinicalFieldLabels` 静态正则同纪律）。
-    private static let datePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
-        pattern: #"(?<!\d)(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})(?!\d)"#)
-
-    /// OCR 日期：yyyy-MM-dd / yyyy/M/d / yyyy年M月d日（含「日期：」前缀）→ 当日零点；解析失败 nil。
+    /// OCR 日期 → 当日零点；解析失败 nil。文法**委托** `ExtractionPatterns.dateMatch`（round5 Q4 单文法：
+    /// 4/2 位年、全角、OCR 混淆字、紧凑 8 位、标签前缀/时间后缀忽略）——此前本处第五份近似正则。
+    /// 本处只负责日历合法性（2 月 30 日 → nil）与时区当日零点。
     public static func parseDate(_ text: String, calendar: Calendar) -> Date? {
-        guard let regex = datePattern,
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              match.numberOfRanges == 4,
-              let y = Range(match.range(at: 1), in: text), let m = Range(match.range(at: 2), in: text),
-              let d = Range(match.range(at: 3), in: text),
-              let year = Int(text[y]), let month = Int(text[m]), let day = Int(text[d]),
-              (1...9999).contains(year), (1...12).contains(month), (1...31).contains(day) else { return nil }
+        guard let match = ExtractionPatterns.dateMatch(in: text) else { return nil }
         var gregorian = Calendar(identifier: .gregorian)
         gregorian.timeZone = calendar.timeZone
-        var components = DateComponents(year: year, month: month, day: day)
+        var components = DateComponents(year: match.year, month: match.month, day: match.day)
         components.hour = 0; components.minute = 0; components.second = 0
         guard let date = gregorian.date(from: components), date.timeIntervalSince1970.isFinite,
-              gregorian.component(.year, from: date) == year,
-              gregorian.component(.month, from: date) == month, gregorian.component(.day, from: date) == day else { return nil }
+              gregorian.component(.year, from: date) == match.year,
+              gregorian.component(.month, from: date) == match.month, gregorian.component(.day, from: date) == match.day else { return nil }
         return date
     }
 

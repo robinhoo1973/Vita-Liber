@@ -147,14 +147,97 @@ public enum ExtractionPatterns {
         return String(text[range])
     }
 
-    /// 日期记号（有界，恒为原文精确子串）：`2026-09-12` / `2026年9月12日` / `2026/9/12`。
-    /// 实测缺陷：`append("report_date", text)` 在 `parseDate` 于行内**任意位置**找到日期时
-    /// （它是 `firstMatch` 搜索），把**整行**当日期值。
+    // MARK: - 日期单文法（round5 Q4，2026-09-20）
+
+    /// 日期命中：年月日 + **原文**记号范围（记号恒为原文精确子串，grounding 可逐字定位）。
+    public struct DateMatch: Equatable, Sendable {
+        public let year: Int, month: Int, day: Int
+        public let range: Range<String.Index>
+    }
+
+    /// 全仓日期文法的**唯一**定义（此前 `EntityCardProjection.datePattern` / `dateTokenPattern` /
+    /// `RuleExtractor.Patterns.date` / fallback 边界四份近似副本各自演进、全部只认 4 位年在前）。
+    /// 识别面（按 OCR 实测形态）：
+    /// - 分隔形：`2026-09-20` / `2026/9/20` / `2026年9月20日` / `2026.09.20`（年 4 位**或** 2 位；2 位年仅在
+    ///   三段齐全且含分隔时接受，世纪按 `referenceYear` 推：yy ≤ 参考年末两位+1 → 本世纪，否则上世纪）；
+    /// - 紧凑形：`20260920`（前后不得紧邻数字——票据号/身份证片段不算；月 1–12、日 1–31 才算）；
+    /// - 全角数字（NFKC 逐字折叠）与 OCR 混淆字（紧邻数字的 `O/o→0`、`l/I/|→1`）在**匹配副本**上折叠，
+    ///   返回范围映射回原文——记号仍是原文子串；
+    /// - 标签前缀、时间后缀忽略（`firstMatch`）。
+    /// 折叠对每个 `Character` 一比一，字符偏移与原文对齐，故范围可直接映射。
+    public static func dateMatch(in text: String, referenceYear: Int = currentYear) -> DateMatch? {
+        guard !text.isEmpty else { return nil }
+        let folded = foldedForDate(text)
+        let foldedText = String(folded)
+        let full = NSRange(foldedText.startIndex..., in: foldedText)
+        if let regex = separatedDatePattern,
+           let m = regex.firstMatch(in: foldedText, range: full),
+           let match = components(from: m, in: foldedText, original: text, referenceYear: referenceYear, separated: true) {
+            return match
+        }
+        if let regex = compactDatePattern,
+           let m = regex.firstMatch(in: foldedText, range: full),
+           let match = components(from: m, in: foldedText, original: text, referenceYear: referenceYear, separated: false) {
+            return match
+        }
+        return nil
+    }
+
+    /// 日期记号（有界，恒为原文精确子串）——`dateMatch` 的记号投影。
+    /// 实测缺陷（历史）：`append("report_date", text)` 曾把 `parseDate` 于行内任意位置命中的**整行**当值。
     public static func dateToken(in text: String) -> String? {
-        guard let regex = dateTokenPattern,
-              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
-              let range = Range(match.range, in: text) else { return nil }
-        return String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = dateMatch(in: text) else { return nil }
+        return String(text[match.range]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 参考年（两位年世纪推断用）；测试注入固定值以保证确定性。
+    public static var currentYear: Int { Calendar(identifier: .gregorian).component(.year, from: Date()) }
+
+    /// 匹配副本折叠：① NFKC 只在结果仍为单个 Character 时替换（全角数字/标点→半角）；
+    /// ② 混淆字仅当左右任一侧紧邻 ASCII 数字才折（避免把 "Il-Il" 类罗马数字折成日期）。
+    static func foldedForDate(_ text: String) -> [Character] {
+        var chars: [Character] = text.map { c in
+            let nfkc = String(c).precomposedStringWithCompatibilityMapping
+            return nfkc.count == 1 ? nfkc.first! : c
+        }
+        func isDigit(_ i: Int) -> Bool { chars.indices.contains(i) && chars[i].isASCII && chars[i].isNumber }
+        for i in chars.indices where isDigit(i - 1) || isDigit(i + 1) {
+            switch chars[i] {
+            case "O", "o": chars[i] = "0"
+            case "l", "I", "|": chars[i] = "1"
+            default: break
+            }
+        }
+        return chars
+    }
+
+    private static func components(from m: NSTextCheckingResult, in folded: String, original: String,
+                                   referenceYear: Int, separated: Bool) -> DateMatch? {
+        func group(_ i: Int) -> Int? {
+            guard m.numberOfRanges > i, let r = Range(m.range(at: i), in: folded) else { return nil }
+            return Int(folded[r])
+        }
+        let year: Int
+        if separated {
+            if let y4 = group(1) { year = y4 }
+            else if let y2 = group(2) {
+                let century = referenceYear / 100 * 100
+                year = y2 <= referenceYear % 100 + 1 ? century + y2 : century - 100 + y2
+            } else { return nil }
+        } else {
+            guard let y4 = group(1) else { return nil }
+            year = y4
+        }
+        guard let month = group(separated ? 3 : 2), let day = group(separated ? 4 : 3),
+              (1...9999).contains(year), (1...12).contains(month), (1...31).contains(day),
+              let foldedRange = Range(m.range, in: folded) else { return nil }
+        // 折叠一比一：按字符偏移映射回原文
+        let start = folded.distance(from: folded.startIndex, to: foldedRange.lowerBound)
+        let end = folded.distance(from: folded.startIndex, to: foldedRange.upperBound)
+        guard end <= original.count else { return nil }
+        let lower = original.index(original.startIndex, offsetBy: start)
+        let upper = original.index(original.startIndex, offsetBy: end)
+        return DateMatch(year: year, month: month, day: day, range: lower..<upper)
     }
 
     /// 参考范围边界解析：「3.5-9.5」「3.5～9.5」「3.5 ~ 9.5」→ (低, 高)；
@@ -174,8 +257,12 @@ public enum ExtractionPatterns {
 
     private static let institutionNamePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量
         pattern: #"([一-龥A-Za-z0-9（）()·]{2,20}(?:医院|醫院|卫生院|衛生院|诊所|診所))"#)
-    private static let dateTokenPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量
-        pattern: #"\d{4}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}\s*日?"#)
+    /// 分隔形：组 1 = 4 位年 / 组 2 = 2 位年（二选一）、组 3 = 月、组 4 = 日；年前后不得紧邻数字。
+    private static let separatedDatePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量
+        pattern: #"(?<!\d)(?:(\d{4})|(\d{2}))\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})(?:\s*日)?(?!\d)"#)
+    /// 紧凑形 yyyyMMdd：8 位、前后非数字（月日合法性在 `components` 校验）。
+    private static let compactDatePattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量
+        pattern: #"(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)"#)
     private static let referenceBoundsPattern: NSRegularExpression? = {
         let number = #"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"#
         return try? NSRegularExpression(pattern: "^\\s*(\(number))\\s*[-–~～]\\s*(\(number))\\s*$")   // try?-ok: 静态数值文法字面量，构造不会失败

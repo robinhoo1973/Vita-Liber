@@ -130,7 +130,9 @@ public enum DocumentTypeClassifierFallback {
             // 科室（检验单/病历共用）
             ("dept", #"科\s*室[:：]?\s*(.+)"#),
             // 报告/就诊日期（yyyy-MM-dd 或 yyyy年M月d日）
-            ("report_date", #"(?:日期|检查时间|就诊时间)[:：]?\s*(\d{4}[-年/]\d{1,2}[-月/]\d{1,2})"#),
+            // round5 Q4：捕获整段自由文本，日期记号由下游 `parseDate`/`dateToken`（单文法）裁出——
+            // 此前内联 4 位年正则第五份副本，全角/混淆字/紧凑形在此处即失配、report_date 整体丢失。
+            ("report_date", #"(?:日期|检查时间|就诊时间)[:：]?\s*(.+)"#),
             // 参考范围（体检报告字段目录：项目/结果/参考范围/单位——
             // coreml §4.2 字段目录此前缺此角色，检验报告参考区间落 line_N）
             ("reference_range", #"(?:参考范围|參考範圍|参考值|參考值|正常范围|正常範圍|参考区间|參考區間)[:：]?\s*(.+)"#),
@@ -236,6 +238,11 @@ public enum DocumentTypeClassifierFallback {
                 guard let truncated = ExtractionPatterns.truncatingAtLabelBoundary(payload) else { continue }
                 payload = truncated
             }
+            // 日期角色（round5 Q4）：标签后自由文本 → 单文法裁出有界日期记号（原文子串）；裁不出即非日期行。
+            if key == "report_date" {
+                guard let token = ExtractionPatterns.dateToken(in: payload) else { continue }
+                payload = token
+            }
             var unit: String?
             var referenceRange: String?
             if key == "lab_item" {
@@ -328,9 +335,14 @@ public extension DocumentTypeClassifierFallback {
         pattern: #"(?:合计|合計|总额|總額|金额|金額|(?i:total|amount))\s*[:：]?\s*([0-9]+(?:\.[0-9]{1,2})?)(?![0-9.])"#)
     private static let amountNumberPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
         pattern: #"[0-9]+(?:\.[0-9]{1,2})?"#)
-    /// 叙事并入的边界行记号（日期开头）。
-    private static let dateBoundaryPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
-        pattern: #"^\d{4}\s*[-/年.]"#)
+    /// 叙事并入的边界行记号（日期开头）：委托 `ExtractionPatterns.dateMatch` 单文法（round5 Q4——
+    /// 此前本处第四份「4 位年 + 分隔」正则，全角/混淆字/紧凑形一律漏判为叙事续行）。
+    /// 记号须从行首（去首尾空白后）开始才算「日期开头」。
+    static func startsWithDate(_ candidate: String) -> Bool {
+        let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let match = ExtractionPatterns.dateMatch(in: trimmed) else { return false }
+        return match.range.lowerBound == trimmed.startIndex
+    }
     /// 叙事并入的边界行记号（编号列表）。诊断/医嘱吸收时豁免——「1.支气管炎
     /// 2.高血压」是诊断列表本体，不是后续结构行（2026-09-19 审查修复）。
     private static let numberedBoundaryPattern: NSRegularExpression? = try? NSRegularExpression(   // try?-ok: 静态字面量，构造不会失败
@@ -573,7 +585,7 @@ public extension DocumentTypeClassifierFallback {
             guard !candidate.isEmpty else { cursor += 1; continue }
             if !guessFields(line: lines[cursor]).isEmpty { break }
             if Self.isDirectLabelLine(candidate) { break }
-            if dateBoundaryPattern?.firstMatch(in: candidate, range: NSRange(candidate.startIndex..., in: candidate)) != nil { break }
+            if Self.startsWithDate(candidate) { break }
             // 编号行边界（诊断/医嘱吸收时豁免——「1.支气管炎 2.高血压」是诊断列表本体）。
             // 2026-09-19 审查修复：豁免过宽会把编号**药品行**（「1.阿莫西林胶囊 0.25g 每日三次」）
             // 吞进诊断值——剂量/规格文字污染诊断字段且不产任何 drug_name 草稿（吸收行跳过
