@@ -175,10 +175,10 @@ final class F16DeviceState {
         do {
             // I2 审查修复：轮询与聚合下沉 HealthKitSyncService.performSyncAll
             // （服务语义不进视图状态对象），本层只消费一次终态报告。
-            let total: HealthKitSyncService.SyncReport
+            let total: SyncReport
             if userInitiated {
                 // 用户发起 → 单一入口 runContinued：iOS 26 切后台续跑；更早系统/提交失败回落前台直跑（同一 operation）
-                var captured: HealthKitSyncService.SyncReport?
+                var captured: SyncReport?
                 var failure: Error?
                 let service = syncService
                 _ = await BackgroundWorkScheduler.shared.runContinued(

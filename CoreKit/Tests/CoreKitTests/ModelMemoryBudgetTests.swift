@@ -57,7 +57,7 @@ struct ModelMemoryBudgetTests {
     @Test func markerRoundTripsThroughData() throws {
         let marker = LoadAttemptMarker(identity: "zipformer:large:1", startedAt: Date(timeIntervalSince1970: 42))
         let data = try marker.encoded()
-        #expect(try LoadAttemptMarker.decode(data) == marker)
+        #expect(LoadAttemptMarker.decode(data) == marker)
         #expect(LoadAttemptMarker.decode(Data("garbage".utf8)) == nil)
     }
 
