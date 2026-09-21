@@ -154,7 +154,9 @@ final class ASRInstallCenter {
         defer { if assertion != .invalid { UIApplication.shared.endBackgroundTask(assertion) } }
         #endif
         let service = self.service
-        var outcome: Result<Void, Error> = .success(())
+        // 值承接盒（CI 35588830526 告警族）：@Sendable operation 内不得变异捕获 var
+        // （Swift 6 语言模式为错误）；nil = 原 `.success(())` 语义。
+        let outcome = ValueBox<Result<Void, Error>>()
         // 用户动作发起 → 统一入口 runContinued（iOS 26 续跑 + 系统进度；更早系统/提交失败回落前台直跑同一 operation）
         _ = await BackgroundWorkScheduler.shared.runContinued(
             identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier,
@@ -173,11 +175,11 @@ final class ASRInstallCenter {
                 }
                 return true
             } catch {
-                outcome = .failure(error)
+                outcome.value = .failure(error)
                 return false
             }
         }
-        switch outcome {
+        switch outcome.value ?? .success(()) {
         case .success:
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()

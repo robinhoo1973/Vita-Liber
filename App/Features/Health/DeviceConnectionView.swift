@@ -178,8 +178,10 @@ final class F16DeviceState {
             let total: SyncReport
             if userInitiated {
                 // 用户发起 → 单一入口 runContinued：iOS 26 切后台续跑；更早系统/提交失败回落前台直跑（同一 operation）
-                var captured: SyncReport?
-                var failure: Error?
+                // 值承接盒：@Sendable operation 内不得变异捕获 var（Swift 6 语言模式为错误），
+                // ValueBox 以锁串行化代替裸捕获（CI 35588830526 告警族清零）。
+                let captured = ValueBox<SyncReport>()
+                let failure = ValueBox<Error>()
                 let service = syncService
                 _ = await BackgroundWorkScheduler.shared.runContinued(
                     identifier: HealthKitSyncService.continuedSyncIdentifier,
@@ -188,15 +190,15 @@ final class F16DeviceState {
                         progress?.totalUnitCount = Int64(maxRounds)
                         let report = try await service.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
                         progress?.completedUnitCount = progress?.totalUnitCount ?? 0
-                        captured = report
+                        captured.value = report
                         return report.failedTypes.isEmpty
                     } catch {
-                        failure = error
+                        failure.value = error
                         return false
                     }
                 }
-                if let failure { throw failure }
-                guard let report = captured else { throw CancellationError() }
+                if let failureError = failure.value { throw failureError }
+                guard let report = captured.value else { throw CancellationError() }
                 total = report
             } else {
                 total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
