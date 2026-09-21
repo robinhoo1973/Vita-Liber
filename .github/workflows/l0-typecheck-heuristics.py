@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下十一族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
+# 以下十二族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -79,6 +79,11 @@
 #      `(... -> ...)?` 可选包装——可选函数型隐式 escaping 合法）且函数体内以点形式
 #      `self.x = p` / `obj.x = p` 赋给属性即 FAIL——按 Swift 语义该形态必然编译失败
 #      （函数型存储属性不存在非转义形态），零误报；签名歧义一律放弃该声明（宁漏勿错）。
+#   M. CoreKit 顶层类型被当作他类型的嵌套成员引用 —— CI 35577872954 实证：
+#      `HealthKitSyncService.SyncReport`（SyncReport 是 Domain 顶层类型）→
+#      "'SyncReport' is not a member type of actor 'Infrastructure.HealthKitSyncService'"。
+#      判定：`T.U` 中 T、U 同为 CoreKit 某模块顶层公有类型即 FAIL（模块名限定与
+#      小写成员访问不匹配；T 确有同名嵌套类型的病理场景加 // tius-ok: 豁免）。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -366,6 +371,45 @@ def main():
                             f"{f.relative_to(root)}:{lineno}: 引用 {s}（CoreKit.{mod}）"
                             f"但未 import {mod}——平台守卫文件在 Linux 空编译，"
                             f"仅 macOS 编译暴露（CI 34295670215 同族）"
+                        )
+                        break
+
+    # ---- 家族 M：CoreKit 顶层类型被当作他类型的嵌套成员引用 —— CI 35577872954 实证
+    # DeviceConnectionView.swift:178 `let total: HealthKitSyncService.SyncReport`
+    # （SyncReport 是 Domain 顶层类型，不是 actor 的嵌套成员）→ macOS L1 报
+    # "'SyncReport' is not a member type of actor 'Infrastructure.HealthKitSyncService'"，
+    # swiftc -parse 放行。判定：`T.U` 中 T、U 同为 CoreKit 某模块的顶层公有类型
+    # 即 FAIL——T 无同名嵌套类型则该引用必编译失败；病理场景（T 确有同名嵌套
+    # 类型遮蔽）加 // tius-ok: 豁免。模块名限定（Domain.SyncReport）与小写成员
+    # 访问（actor.shared）不匹配。用未做 EXCLUDE_A 过滤的原始符号集（Store/View/
+    # Row 作为真实类型名时同样适用本判据）。
+    mod_syms_m = {}
+    for mod in ("Domain", "Protocols", "Infrastructure"):
+        mod_dir = root / "CoreKit/Sources" / mod
+        txt = "\n".join(
+            p.read_text(encoding="utf-8")
+            for p in sorted(mod_dir.rglob("*.swift")) if p.is_file()
+        )
+        mod_syms_m[mod] = set(SYMBOL_RE.findall(txt))
+    m_files = sorted(set(list(a_files) + list(infra_files)))
+    scanned["M"] = len(m_files)
+    for f in m_files:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for lineno, code in code_lines("\n".join(raw_lines)):
+            if exempted(raw_lines, lineno):
+                continue
+            for m in re.finditer(r"\b([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b", code):
+                first, second = m.group(1), m.group(2)
+                for mod, syms in mod_syms_m.items():
+                    if first in syms and second in syms:
+                        fails.append(
+                            f"{f.relative_to(root)}:{lineno}: CoreKit 顶层类型 {second}（{mod}）"
+                            f"被当作 {first} 的嵌套成员引用（`{first}.{second}`）——macOS L1 必报 "
+                            f"'is not a member type'（CI 35577872954 同族），改非限定引用或补模块名"
+                            f"限定 {mod}.{second}，或加 // tius-ok: 豁免"
                         )
                         break
 
@@ -956,7 +1000,7 @@ def main():
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
-          f"K={scanned.get('K',0)} L={scanned.get('L',0)}")
+          f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
