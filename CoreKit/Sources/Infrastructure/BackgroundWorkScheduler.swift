@@ -122,7 +122,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         let operation: ContinuedOperation
         let completion: CheckedContinuation<Bool, Never>
         var taken = false
-        init(operation: ContinuedOperation, completion: CheckedContinuation<Bool, Never>) {
+        init(operation: @escaping ContinuedOperation, completion: CheckedContinuation<Bool, Never>) {
             self.operation = operation; self.completion = completion
         }
     }
