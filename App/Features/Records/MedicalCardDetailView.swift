@@ -489,6 +489,14 @@ private struct PrescriptionLineRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                // round5 Q1（F1.3）：其余非空字段（通用名/剂型/起止日期/编码/金额…）——用户补填的值在列表页即可见，
+                // 不再只在行详情才出现（业主实测「新增字段没有显示在处方行里」）。
+                if let extras = PrescriptionLinePresentation.extras(line, label: { DocumentsDisplay.fieldLabel(forKey: $0) }) {
+                    Text(extras)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-08.prescriptionLine.extras")
+                }
             }
             .padding(.vertical, 2)
         }

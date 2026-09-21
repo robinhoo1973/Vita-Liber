@@ -185,20 +185,16 @@ public enum EntityCardProjection {
         for row in card.rows {
             let dict = dictionary(row.fields)
             guard let name = dict["drug_name"] else { return nil }
-            let line = PrescriptionLine(
+            // round5 Q1：键→列写入经 `PrescriptionLineField` 单表（此前字面量映射漏 `unit`，用户补填的剂量单位被静默丢弃）。
+            var line = PrescriptionLine(
                 id: row.id, prescriptionId: PrescriptionLine.unassignedId, patientId: PrescriptionLine.unassignedId,
-                ordinal: lines.count, printedName: name,
-                genericName: dict["generic_name"], brandName: dict["brand_name"], drugForm: dict["drug_form"], spec: dict["spec"],
-                doseText: dict["dosage"], doseUnit: confirmedUnit(row.fields, key: "dosage"),
-                quantityText: dict["quantity"], quantityUnit: confirmedUnit(row.fields, key: "quantity"),
-                frequencyText: dict["frequency"], routeText: dict["route"], durationText: dict["days"],
-                startDate: dict["start_date"].flatMap { parseDate($0, calendar: calendar) },
-                endDate: dict["end_date"].flatMap { parseDate($0, calendar: calendar) },
-                asNeededText: dict["as_needed"], medicationNotes: dict["medication_notes"], note: dict["note"],
-                rawText: rawText(row.fields), insuranceCode: dict["insurance_code"], itemCodeText: dict["item_code"],
-                unitPrice: dict["unit_price"].flatMap(Double.init), amount: dict["line_amount"].flatMap(Double.init),
+                ordinal: lines.count, printedName: name, rawText: rawText(row.fields),
                 sourcePage: card.pageIndex, sourceRowId: row.id, confirmed: false,
                 createdAt: placeholder, updatedAt: placeholder)
+            for field in PrescriptionLineField.allCases where field != .drugName {
+                guard let text = dict[field.key] else { continue }
+                field.apply(text, unitText: confirmedUnit(row.fields, key: field.key), to: &line, calendar: calendar)
+            }
             lines.append(PrescriptionLineIntent(rowId: row.id, line: line))
         }
         let shared = dictionary(card.shared)

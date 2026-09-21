@@ -7,34 +7,38 @@ import Perception
 /// 与确认卡（SP-12）同一词表）。剂量/数量按「原文 + 单位」拼显示，疗程/频次/途径原文直出——
 /// 不解析数值、不换算、不推算给药方案（BR-006/007）；金额/单价为费用可格式化。
 enum PrescriptionLinePresentation {
-    /// 全部非空行字段（模板键, 展示值），按 DDL 列序。
+    /// 全部非空行字段（模板键, 展示值），按 `PrescriptionLineField` 表序（round5 Q1：一表四读——
+    /// 此前本处字面量列表是四份并行登记之一，目录新增键即漏显）。
+    /// 展示格式按值类型：日期本地化、金额 CNY 两位小数（与就诊费用行同口径）、剂量/数量「原文 + 单位」；
+    /// `unit` 并入 dosage 行不单独成行。
     static func fields(_ line: PrescriptionLine) -> [(key: String, value: String)] {
-        let pairs: [(String, String?)] = [
-            ("drug_name", line.printedName),
-            ("generic_name", line.genericName),
-            ("brand_name", line.brandName),
-            ("drug_form", line.drugForm),
-            ("spec", line.spec),
-            ("dosage", joined(line.doseText, unit: line.doseUnit)),
-            ("quantity", joined(line.quantityText, unit: line.quantityUnit)),
-            ("frequency", line.frequencyText),
-            ("route", line.routeText),
-            ("days", line.durationText),
-            ("start_date", line.startDate.map { $0.formatted(date: .abbreviated, time: .omitted) }),
-            ("end_date", line.endDate.map { $0.formatted(date: .abbreviated, time: .omitted) }),
-            ("as_needed", line.asNeededText),
-            ("medication_notes", line.medicationNotes),
-            ("note", line.note),
-            ("insurance_code", line.insuranceCode),
-            ("item_code", line.itemCodeText),
-            // 金额形态与就诊费用行同口径（CNY 两位小数）——同一处方金额不得两种显示
-            ("unit_price", line.unitPrice.map { $0.formatted(.currency(code: "CNY").precision(.fractionLength(2))) }),
-            ("line_amount", line.amount.map { $0.formatted(.currency(code: "CNY").precision(.fractionLength(2))) }),
-        ]
-        return pairs.compactMap { pair -> (key: String, value: String)? in
-            guard let value = pair.1, !value.isEmpty else { return nil }
-            return (key: pair.0, value: value)
+        PrescriptionLineField.allCases.compactMap { field -> (key: String, value: String)? in
+            guard !field.isUnitCompanion else { return nil }
+            let display: String?
+            switch field {
+            case .dosage: display = joined(line.doseText, unit: line.doseUnit)
+            case .quantity: display = joined(line.quantityText, unit: line.quantityUnit)
+            case .startDate: display = line.startDate.map { $0.formatted(date: .abbreviated, time: .omitted) }
+            case .endDate: display = line.endDate.map { $0.formatted(date: .abbreviated, time: .omitted) }
+            case .unitPrice: display = line.unitPrice.map { $0.formatted(.currency(code: "CNY").precision(.fractionLength(2))) }
+            case .lineAmount: display = line.amount.map { $0.formatted(.currency(code: "CNY").precision(.fractionLength(2))) }
+            default: display = field.displayValue(of: line)
+            }
+            guard let value = display, !value.isEmpty else { return nil }
+            return (key: field.key, value: value)
         }
+    }
+
+    /// 摘要行与说明行之外的其余非空字段（round5 Q1 F1.3：卡详情行此前只显 8/19 列——用户补填的
+    /// 通用名/剂型/起止日期/编码/金额在列表页不可见，被理解为「没保存」）。「标签 值」以 · 连接。
+    static func extras(_ line: PrescriptionLine, label: (String) -> String) -> String? {
+        let shown: Set<PrescriptionLineField> = [.drugName, .spec, .dosage, .unit, .quantity, .frequency, .route, .days,
+                                                 .medicationNotes, .note]
+        let parts = fields(line).compactMap { pair -> String? in
+            guard let field = PrescriptionLineField(rawValue: pair.key), !shown.contains(field) else { return nil }
+            return label(pair.key) + " " + pair.value
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// 列表摘要：规格 · 剂量 · 数量 · 频次 · 途径 · 疗程（非空项按原文拼接）。

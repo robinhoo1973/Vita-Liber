@@ -159,11 +159,6 @@ extension OCRCardStore {
             pages.insert("\(receipt["document_file_id"] as String)#\(receipt["page_index"] as Int)")
         }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let dateText: (Date?) -> String? = { date in
-            guard let date else { return nil }
-            let parts = calendar.dateComponents([.year, .month, .day], from: date)
-            return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
-        }
         for page in pages {
             let pieces = page.split(separator: "#")
             guard pieces.count == 2, let pageIndex = Int(pieces[1]) else { continue }
@@ -182,32 +177,12 @@ extension OCRCardStore {
                     return updated
                 }
                 if kind == "prescription" {
+                    // round5 Q1：审计键 ↔ 行列经 `PrescriptionLineField.canonicalText` 单表（此前本处第四份字面量映射）。
                     audit.fields = audit.fields.map { field in
-                        guard let line = linesByRowId[audit.rowId] else { return field }
+                        guard let line = linesByRowId[audit.rowId],
+                              let column = PrescriptionLineField(rawValue: field.key) else { return field }
                         var updated = field
-                        switch field.key {
-                        case "drug_name": updated.value = line.printedName
-                        case "spec": updated.value = line.spec ?? ""
-                        case "dosage": updated.value = line.doseText ?? ""
-                        case "unit": updated.value = line.doseUnit ?? ""
-                        case "quantity": updated.value = line.quantityText ?? ""
-                        case "frequency": updated.value = line.frequencyText ?? ""
-                        case "route": updated.value = line.routeText ?? ""
-                        case "days": updated.value = line.durationText ?? ""
-                        case "note": updated.value = line.note ?? ""
-                        case "drug_form": updated.value = line.drugForm ?? ""
-                        case "generic_name": updated.value = line.genericName ?? ""
-                        case "brand_name": updated.value = line.brandName ?? ""
-                        case "start_date": updated.value = dateText(line.startDate) ?? ""
-                        case "end_date": updated.value = dateText(line.endDate) ?? ""
-                        case "as_needed": updated.value = line.asNeededText ?? ""
-                        case "medication_notes": updated.value = line.medicationNotes ?? ""
-                        case "insurance_code": updated.value = line.insuranceCode ?? ""
-                        case "item_code": updated.value = line.itemCodeText ?? ""
-                        case "unit_price": updated.value = line.unitPrice.map(String.init(describing:)) ?? ""
-                        case "line_amount": updated.value = line.amount.map(String.init(describing:)) ?? ""
-                        default: break
-                        }
+                        updated.value = column.canonicalText(of: line, calendar: calendar) ?? ""
                         return updated
                     }
                 }
