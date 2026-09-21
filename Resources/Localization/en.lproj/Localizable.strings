@@ -1720,6 +1720,7 @@
 "voicenote.tapHint" = "Tap to start recording, tap again to stop; or press and hold";
 "voicenote.dictationDenied" = "Speech input permission not granted. Enable it in Settings.";
 "voicenote.dictationEngineUnavailable" = "Speech engine unavailable (model missing or failed to load) — you can type instead";
+"voicenote.dictationInsufficientMemory" = "Not enough memory to load this speech model (needs about %1$@ GB, %2$@ GB available). Pick a smaller variant in Settings or close other apps and retry — you can type instead";
 "voicePanel.confirm" = "Confirm";
 "voicePanel.clearTitle" = "Clear Recording";
 "voicePanel.clear" = "Clear";

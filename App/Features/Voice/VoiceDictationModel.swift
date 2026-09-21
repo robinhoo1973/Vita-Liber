@@ -14,7 +14,9 @@ final class VoiceDictationModel {
     /// 审查修复（分型补全）：引擎不可用（模型缺件/下载失败/加载失败）与
     /// 「没听到声音」是两回事——旧实现除 unauthorized 外全部映射 noSpeech，
     /// 引擎起不来的用户对着麦克风反复说，永远得不到「引擎不可用」的提示。
-    enum FailureReason: Equatable { case noSpeech, unauthorized, engineUnavailable }
+    /// round5 Q3：`insufficientMemory` 是第四回事——模型加载前被内存预算门拒绝（此前无门直接被系统终止 = 「闪退」），
+    /// 文案给可行动建议（换小档 / 释放内存）并附所需与可用容量。
+    enum FailureReason: Equatable { case noSpeech, unauthorized, engineUnavailable, insufficientMemory(requiredBytes: Int64, availableBytes: Int64) }
     private(set) var phase: Phase = .idle
     private(set) var failureReason: FailureReason?
     /// 失败态文案（两个挂载点共用一处映射，避免各自三元判断漂移）
@@ -22,8 +24,13 @@ final class VoiceDictationModel {
         switch failureReason {
         case .unauthorized: return L10n.voicenoteDictationDenied
         case .engineUnavailable: return L10n.voicenoteDictationEngineUnavailable
+        case .insufficientMemory(let required, let available):
+            return L10n.voicenoteDictationInsufficientMemory(requiredGB: Self.gigabytes(required), availableGB: Self.gigabytes(available))
         case .noSpeech, .none: return L10n.voicenoteDictationFailed
         }
+    }
+    private static func gigabytes(_ bytes: Int64) -> String {
+        String(format: "%.1f", Double(bytes) / 1_073_741_824)
     }
     /// 连续会话显示文本 = 已提交段 + 当前部分（引擎 onPartial 已合并，V3.61）
     private(set) var partial = ""
@@ -269,6 +276,8 @@ final class VoiceDictationModel {
                     switch error as? TranscriptionError {
                     case .unauthorized: failureReason = .unauthorized
                     case .engineUnavailable: failureReason = .engineUnavailable
+                    case .insufficientMemory(let required, let available):
+                        failureReason = .insufficientMemory(requiredBytes: required, availableBytes: available)
                     default: failureReason = .noSpeech
                     }
                     Haptics.notice(.warning)

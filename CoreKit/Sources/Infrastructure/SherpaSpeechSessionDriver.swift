@@ -229,13 +229,38 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
             choice.rawValue + ":" + (choice == .whisper ? language : "") + ":" + assets.identity
         }
 
-        private func load(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets, key nextKey: String) throws {
+        /// 崩溃环断路标记（round5 Q3）：加载前写、成功后清；启动时读到同身份残留 → 上次加载被系统终止。
+        private static let attemptMarker = LoadAttemptMarkerStore()
+
+        /// 加载（round5 Q3 加内存预算门）：校验 → **预算判定** → 建运行时。
+        /// - `insufficient` → 抛 `insufficientMemory(required, available)`（UI 给可行动建议）——此前无门，GB 级模型
+        ///   直接进 sherpa `ReadFile`→`Ort::Session`（峰值≈2×），超 jetsam 限即被系统终止，用户看到「闪退」并殃及整机；
+        /// - `tight` 且为预热 → 不加载（按压时再载）；按压加载照常；
+        /// - 加载前后落/清断路标记：sherpa 内部 `SHERPA_ONNX_EXIT` 与 jetsam 均不可捕获，只能事后识别。
+        private func load(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets, key nextKey: String,
+                          preloading: Bool) throws {
             runtime = nil; key = nil; assetLease = nil
             let lease = assets.acquireLease()
             let validated = try assets.validate(choice)
+            let verdict = ModelMemoryBudget.verdict(modelBytes: validated.totalBytes, availableBytes: ProcessMemory.availableBytes())
+            switch verdict {
+            case .insufficient(let required, let available):
+                throw TranscriptionError.insufficientMemory(requiredBytes: required, availableBytes: available)
+            case .tight where preloading:
+                return   // 余量紧：不在面板打开时抢占，留给按压加载
+            default:
+                break
+            }
+            Self.attemptMarker.begin(identity: nextKey)
             runtime = try SherpaASRRuntime(choice: choice, language: language, assets: validated)
+            Self.attemptMarker.finish()
             assetLease = lease
             key = nextKey
+        }
+
+        /// 上次同一模型加载未完成（断路器）：本会话预热跳过该模型，按压加载仍允许（用户显式动作）。
+        static func lastLoadWasInterrupted(identity: String) -> Bool {
+            attemptMarker.current()?.indicatesInterruptedLoad(of: identity) == true
         }
 
         func acquire(owner: UUID, choice: VoiceEngineChoice, language: String, assets: ASRModelAssets) throws {
@@ -243,7 +268,7 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
             guard self.owner == nil || self.owner == owner else { throw TranscriptionError.engineUnavailable }
             let nextKey = Self.key(choice: choice, language: language, assets: assets)
             if key != nextKey || runtime == nil {
-                try load(choice: choice, language: language, assets: assets, key: nextKey)
+                try load(choice: choice, language: language, assets: assets, key: nextKey, preloading: false)
             }
             self.owner = owner
             generation &+= 1
@@ -251,12 +276,15 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
         }
 
         /// 预热：无 owner 接管；有会话在用不打断；键已匹配则只刷新代次（使挂起的闲置驱逐失效）。
+        /// round5 Q3：内存余量紧或上次同模型加载未完成 → 跳过预热（按压时再载），不再让「进入录音态」本身触发系统终止。
         func preload(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets) throws {
             try assets.checkPackageAuthorization()
             guard owner == nil else { return }
             let nextKey = Self.key(choice: choice, language: language, assets: assets)
             if key != nextKey || runtime == nil {
-                try load(choice: choice, language: language, assets: assets, key: nextKey)
+                guard !Self.lastLoadWasInterrupted(identity: nextKey) else { return }
+                try load(choice: choice, language: language, assets: assets, key: nextKey, preloading: true)
+                guard runtime != nil else { return }   // tight：未加载，不排驱逐、不推进代次
             }
             // 代次推进：endSession 排下的 idleEvictionSeconds 驱逐按代次判定，预热后不得把刚装入的
             // 模型在用户按压前驱逐。

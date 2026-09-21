@@ -1720,6 +1720,7 @@
 "voicenote.tapHint" = "輕點開始錄音，再點結束；也可按住說話";
 "voicenote.dictationDenied" = "未取得語音輸入權限，可在系統設定中開啟";
 "voicenote.dictationEngineUnavailable" = "語音引擎不可用（模型缺失或載入失敗），可繼續手動輸入";
+"voicenote.dictationInsufficientMemory" = "記憶體不足，無法載入目前語音模型（需約 %1$@ GB，可用 %2$@ GB）。請在設定中改選較小檔位，或關閉其他 App 後重試；可繼續手動輸入";
 "voicePanel.confirm" = "確認";
 "voicePanel.clearTitle" = "清除錄音";
 "voicePanel.clear" = "清除";

@@ -217,6 +217,13 @@ final class LlamaRuntime: @unchecked Sendable {
         guard let url else { throw ExtractionEngineError.unavailable }
         if loadedURL == url, model != nil, context != nil, vocab != nil { return }
         if cancelFlag.isCancelled { throw CancellationError() }
+        // round5 Q3 举一反三：GB 级原生加载前内存预算门（与 sherpa ASR 同一策略，系数按 mmap+Metal 形态取 1.3）。
+        // 不足 → unavailable：T2 轨按既有语义降级到 T3，而不是让 llama 在 Metal 分配时被系统终止。
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value,   // try?-ok: 体积读不到即不设门（未知不拒）
+           case .insufficient = ModelMemoryBudget.verdict(modelBytes: size, availableBytes: ProcessMemory.availableBytes(),
+                                                          peakFactor: ModelMemoryBudget.llamaPeakFactor) {
+            throw ExtractionEngineError.unavailable
+        }
         if !backendInitialized {
             llama_backend_init()
             backendInitialized = true

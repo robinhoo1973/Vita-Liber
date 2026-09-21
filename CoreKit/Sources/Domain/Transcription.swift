@@ -145,4 +145,7 @@ public enum TranscriptionError: Error, Sendable, Equatable {
     case noSpeechDetected
     case timedOut
     case audioBufferOverflow
+    /// round5 Q3：模型加载前内存预算不足（`ModelMemoryBudget.verdict == .insufficient`）——此前无此门，
+    /// GB 级模型直接加载被 jetsam 终止（用户看到「闪退」）。携带所需/可用字节供 UI 给出可行动建议（换小档/释放内存）。
+    case insufficientMemory(requiredBytes: Int64, availableBytes: Int64)
 }

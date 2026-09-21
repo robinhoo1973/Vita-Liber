@@ -558,6 +558,7 @@ extension L10n {
         "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
     "voicenote.tapHint", "voicenote.dictationDenied",
     "voicenote.dictationEngineUnavailable",
+    "voicenote.dictationInsufficientMemory",
     "sleep.stage.deep", "sleep.stage.core", "sleep.stage.rem", "sleep.stage.awake",
     "sleep.stage.unspecified", "sleep.stage.inBed", "sleep.stage.valueFmt",
     "trend.sleep.title", "trend.sleep.legend", "trend.sleep.chart.accessibility",

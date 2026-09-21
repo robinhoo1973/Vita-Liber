@@ -182,6 +182,13 @@ extension L10n {
 
     static var voicenoteDictationDenied: String { t("voicenote.dictationDenied") }
     static var voicenoteDictationEngineUnavailable: String { t("voicenote.dictationEngineUnavailable") }
+    /// round5 Q3：模型加载前内存预算不足（`TranscriptionError.insufficientMemory`）——给可行动建议，不再表现为「闪退」。
+    /// 参数：所需 / 可用（GB，一位小数）。
+    static func voicenoteDictationInsufficientMemory(requiredGB: String, availableGB: String) -> String {
+        t("voicenote.dictationInsufficientMemory")
+            .replacingOccurrences(of: "%1$@", with: requiredGB)
+            .replacingOccurrences(of: "%2$@", with: availableGB)
+    }
 
     static var voicePrimaryLanguage: String { t("voice.primaryLanguage") }
 

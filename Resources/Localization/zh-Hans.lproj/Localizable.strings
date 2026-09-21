@@ -1720,6 +1720,7 @@
 "voicenote.tapHint" = "轻点开始录音，再点结束；也可按住说话";
 "voicenote.dictationDenied" = "未获得语音输入权限，可在系统设置中开启";
 "voicenote.dictationEngineUnavailable" = "语音引擎不可用（模型缺失或加载失败），可继续手动输入";
+"voicenote.dictationInsufficientMemory" = "内存不足，无法加载当前语音模型（需约 %1$@ GB，可用 %2$@ GB）。请在设置中改选较小档位，或关闭其他应用后重试；可继续手动输入";
 "voicePanel.confirm" = "确认";
 "voicePanel.clearTitle" = "清除录音";
 "voicePanel.clear" = "清除";

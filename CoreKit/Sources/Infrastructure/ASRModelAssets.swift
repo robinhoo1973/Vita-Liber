@@ -16,6 +16,8 @@ public struct ASRModelAssets: Sendable {
     struct File: Decodable { let role: String; let path: String; let bytes: Int64; let sha256: String }
     public struct Validated: Sendable {
         let paths: [String: String]
+        /// 全部模型文件字节和（round5 Q3：`ModelMemoryBudget` 的体积输入——清单已逐文件校验字节，此处求和零 IO）。
+        public let totalBytes: Int64
         func path(_ role: String) throws -> String {
             guard let path = paths[role] else { throw TranscriptionError.engineUnavailable }
             return path
@@ -205,6 +207,7 @@ public struct ASRModelAssets: Sendable {
         let selected = model.files + (choice == .zipformer ? [] : manifest.shared)
         var paths: [String: String] = [:]
         var filePaths = Set<String>()
+        var totalBytes: Int64 = 0
         for file in selected {
             let url = root.appendingPathComponent(file.path).standardizedFileURL
             // Model/VAD LICENSE 都可叫 notice；它们必须验字节/SHA，但不是唯一推理角色。
@@ -229,6 +232,7 @@ public struct ASRModelAssets: Sendable {
                 guard actual == file.sha256 else { throw TranscriptionError.engineUnavailable }
             }
             paths[role] = url.path
+            totalBytes += file.bytes
         }
         // 2026-09-20 修复（业主「下载解压完成后引擎仍报不可用」纵深防御）：
         // 清单此前只做自洽校验（文件集 ↔ 清单自身一致、字节/SHA 逐文件比对）——
@@ -241,7 +245,7 @@ public struct ASRModelAssets: Sendable {
         for role in Self.runtimeRoles(for: choice) where paths[role] == nil {
             throw TranscriptionError.engineUnavailable
         }
-        return Validated(paths: paths)
+        return Validated(paths: paths, totalBytes: totalBytes)
     }
 
     /// 运行时必需角色（单一事实源与 `SherpaASRRuntime` 的 assets.path 装配一一对应；
