@@ -925,5 +925,18 @@ public enum SchemaV2 {
       factor REAL NOT NULL,                   -- 换算系数(含摩尔质量)
       note TEXT NOT NULL,                     -- 来源留痕(摩尔质量出处)
       PRIMARY KEY(concept_id, from_unit, to_unit));
+
+    -- 词表锚定术语表(2026-09-21, F25 词表证据层/FR25.12⑬): 识别侧匹配词汇——
+    -- 药名/剂型/给药途径/频次; 与 code_alias 合成词表单源(同一扫描出口);
+    -- concept_id 可空(许可后补标准码); 词表只做匹配建议, 不承载事实(BR-003)。
+    CREATE TABLE lexicon_term (
+      term TEXT NOT NULL, locale TEXT NOT NULL,   -- zh-Hans/zh-Hant/zh-Hant-TW/zh-Hant-HK/en
+      category TEXT NOT NULL CHECK(category IN ('medication','drug_form','route','frequency')),
+      concept_id TEXT REFERENCES code_concept(id),-- 可空: 有码后补(FR25.11 只补不覆)
+      priority INTEGER NOT NULL DEFAULT 0,
+      bundle_version TEXT NOT NULL,
+      retired_at REAL,                            -- 软删纪律对齐 resolver_override
+      PRIMARY KEY(term, locale, category));
+    CREATE INDEX idx_lexicon_term_category ON lexicon_term(category);
     """
 }

@@ -134,6 +134,10 @@ struct VitaLiberApp: App {
             // FR11.4 懒创建 + 保存后跨页刷新信号
             understandingEngine: EngineRegistry.shared.resolve(TextUnderstandingFactory.self),
             codeIndex: container.codeIndex,
+            // F25 词表锚定（2026-09-21，FR25.12⑬）：词表来自同一码表实例；
+            // 语区随界面语言设置（替代硬编码 zh_Hans）。
+            lexiconSource: container.codeIndex,
+            uiLocale: { Locale(identifier: SettingsRules.resolved(appSettings.values[.language], key: .language)) },
             problemStore: container.healthProblems,
             dataChange: dataChange,
             pendingCards: container.pendingCards,

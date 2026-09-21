@@ -113,7 +113,7 @@ final class SchemaRuntimeTests: XCTestCase {
             "onboarding_progress", "plan_lifecycle_event", "reminder",
             "ai_conversation", "ai_message", "contact",
             "code_alias", "code_concept", "code_map", "resolver_override",
-            "ucum_molar_bridge", "ucum_unit",
+            "ucum_molar_bridge", "ucum_unit", "lexicon_term",
             "hk_import_binding", "hk_import_status", "hk_pending_batch",
             "hk_projection_state", "hk_sample_index", "hk_sync_anchor",
         ]

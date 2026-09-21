@@ -113,9 +113,11 @@ public struct UnderstandingResult: Sendable, Equatable {
 public enum UnderstandingCodeResolution {
     /// 医疗槽位键族（语音文法指标键与 OCR 药名/项目键）。不在族内的
     /// 字段原样透传（非医疗槽位不引码，FR25.12 负清单纪律）。
+    /// 2026-09-21 词表锚定轮：补 `raw_label`——词表锚定产出的化验行标签
+    /// （如「血红蛋白」）即 FR25.12② 的「化验项」槽位，须同过解析链。
     public static let medicalSlotKeys: Set<String> = [
         "heart_rate", "blood_oxygen", "respiratory_rate", "blood_pressure_sys",
-        "blood_pressure_dia", "temperature", "drug_name", "lab_item",
+        "blood_pressure_dia", "temperature", "drug_name", "lab_item", "raw_label",
     ]
 
     /// 逐字段解析；无命中保留原值（nil 编码建议），绝不猜码。
@@ -166,5 +168,33 @@ public enum UnderstandingCodeResolution {
             return (value, nil)
         }
         return (parts.dropLast().joined(separator: " "), String(last))
+    }
+
+    /// 近失配候选的编码建议（2026-09-21 词表锚定轮）：候选值是词表校正词——
+    /// 预先挂其惰性建议，用户选定即随切（`FieldDraft.chooseCandidate`），
+    /// 未选定不入任何消费（BR-003：候选是选项，不是事实）。
+    /// 无命中保留 nil（绝不猜码，FR25.1）。
+    public static func attachCandidateResolutions(_ fields: [FieldDraft], locale: Locale,
+                                                  index: any CodeIndex) async -> [FieldDraft] {
+        var out: [FieldDraft] = []
+        out.reserveCapacity(fields.count)
+        for field in fields {
+            guard field.candidates.contains(where: { $0.codeResolution == nil }) else {
+                out.append(field)
+                continue
+            }
+            var updated = field
+            for i in updated.candidates.indices where updated.candidates[i].codeResolution == nil {
+                do {
+                    let resolution = try await CodeResolver.resolve(updated.candidates[i].value,
+                                                                    locale: locale, index: index)
+                    if let resolution { updated.candidates[i].codeResolution = resolution }
+                } catch {
+                    // F25 失败不阻断（同 resolve 纪律）：候选保留无编码，仍可手选
+                }
+            }
+            out.append(updated)
+        }
+        return out
     }
 }

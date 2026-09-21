@@ -877,6 +877,23 @@ public enum SchemaMigrations {
              CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
              CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
              """, transactional: true, fkCheckTable: "ocr_card_commit"),
+        // v32：词表锚定术语表（2026-09-21 mirobody 审计轮，F25 词表证据层 /
+        // FR25.12⑬）——识别侧匹配词汇（药名/剂型/给药途径/频次），与 code_alias
+        // 合成词表单源；concept_id 可空（许可后补码，只补不覆 FR25.11）；
+        // 词表只出匹配建议，不承载事实（BR-003）。幂等：CREATE TABLE IF NOT EXISTS
+        // （baseline 已含同定义，全新库重复执行安全）。
+        Step(version: 32, name: "lexicon-terms",
+             sql: """
+             CREATE TABLE IF NOT EXISTS lexicon_term (
+               term TEXT NOT NULL, locale TEXT NOT NULL,
+               category TEXT NOT NULL CHECK(category IN ('medication','drug_form','route','frequency')),
+               concept_id TEXT REFERENCES code_concept(id),
+               priority INTEGER NOT NULL DEFAULT 0,
+               bundle_version TEXT NOT NULL,
+               retired_at REAL,
+               PRIMARY KEY(term, locale, category));
+             CREATE INDEX IF NOT EXISTS idx_lexicon_term_category ON lexicon_term(category);
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

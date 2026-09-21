@@ -383,4 +383,54 @@ struct StandardizationTests {
         #expect(ddl.contains("CREATE INDEX idx_dose_log_plan_time") == true)
         #expect(ddl.contains("CREATE INDEX idx_alert_event_patient_rule") == true)
     }
+
+    // MARK: - V2 词表锚定（2026-09-21，FR25.12⑬）
+
+    /// 词表种子完整性：类别合法/无重复主键/语区合法/计数下限——
+    /// `lexicon_term` PK(term, locale, category) 有重复即装载静默丢行，
+    /// 必须在金样层拦住（本测试即主键唯一性的静态守卫）。
+    @Test func lexiconTermsAreWellFormed() {
+        let allowedCategories: Set<String> = ["medication", "drug_form", "route", "frequency"]
+        let allowedLocales: Set<String> = ["zh-Hans", "zh-Hant", "zh-Hant-TW", "zh-Hant-HK", "en"]
+        var keys = Set<String>()
+        for seed in CodeSetSeeds.lexiconTerms {
+            #expect(!seed.term.isEmpty, "词条不得为空")
+            #expect(allowedCategories.contains(seed.category), "类别非法：\(seed.category)")
+            #expect(allowedLocales.contains(seed.locale), "语区非法：\(seed.locale)")
+            let key = "\(seed.term)|\(seed.locale)|\(seed.category)"
+            #expect(keys.insert(key).inserted, "词表主键重复（装载静默丢行）：\(key)")
+        }
+        #expect(CodeSetSeeds.lexiconTerms.count >= 150, "词表起点子集不得低于 150 条")
+        // 四类均有起点覆盖
+        let categories = Set(CodeSetSeeds.lexiconTerms.map(\.category))
+        #expect(categories == allowedCategories)
+        // 区域用词单列（TW/HK 均有用词行）
+        let locales = Set(CodeSetSeeds.lexiconTerms.map(\.locale))
+        #expect(locales.contains("zh-Hant-TW") && locales.contains("zh-Hant-HK"))
+    }
+
+    /// 区域别名行（V2）：血紅素（TW）→ c-hgb；词表扫描器可直接命中（与解析链同源）。
+    @Test func regionalAliasRowsFeedLexiconScanner() {
+        var entries: [LexiconEntry] = []
+        for seed in CodeSetSeeds.aliases {
+            entries.append(LexiconEntry(term: seed.aliasText, locale: seed.locale,
+                                        category: .metric, conceptId: seed.conceptId,
+                                        priority: seed.priority))
+        }
+        let lexicon = MedicalLexicon(entries: entries)
+        let hits = lexicon.hits(in: "血紅素 14.2 g/dL")
+        #expect(hits.first?.entry.conceptId == "c-hgb", "TW 用词行应命中 c-hgb")
+        #expect(hits.first?.value == "血紅素", "命中值恒为原文子串")
+    }
+
+    /// v32 契约：lexicon_term 建表 + 类别 CHECK（基线/迁移同形，与 v14 同纪律）。
+    @Test func lexiconTermDDLAndMigrationStaticContract() {
+        let ddl = SchemaV2.ddl
+        #expect(ddl.contains("CREATE TABLE lexicon_term") == true)
+        #expect(ddl.contains("category IN ('medication','drug_form','route','frequency')") == true)
+        let v32 = SchemaMigrations.steps.first { $0.version == 32 }
+        #expect(v32?.name == "lexicon-terms")
+        #expect(v32?.sql.contains("CREATE TABLE IF NOT EXISTS lexicon_term") == true)
+        #expect(v32?.sql.contains("CREATE INDEX IF NOT EXISTS idx_lexicon_term_category") == true)
+    }
 }

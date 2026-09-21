@@ -30,6 +30,7 @@ struct SchemaChainGoldenTests {
         "hospitalization", "diagnosis", "exam_report", "lab_report", "lab_result",
         "health_exam", "clinical_conclusion", "surgery", "treatment_record",
         "ocr_card_commit", "pending_card", "hk_import_status",
+        "lexicon_term",
     ]
 
     /// v1 老库：冻结快照 + `PRAGMA user_version = 1`（**必须为 1**——`pending(from:)` 取

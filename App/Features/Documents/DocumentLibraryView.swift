@@ -35,6 +35,12 @@ final class DocumentsState {
     private let originalsDir: URL
     private let understandingEngine: any TextUnderstanding
     private let codeIndex: (any CodeIndex & UnitIndex)?
+    /// F25 词表证据层来源（2026-09-21，FR25.12⑬）：nil = 词表锚定关闭（测试桩/未装配）。
+    private let lexiconSource: (any LexiconSource)?
+    /// 当前界面语言（解析/词表语区随语言切换，替代硬编码 zh_Hans）。
+    private let uiLocale: @MainActor () -> Locale
+    /// 词表快照缓存（种子随 bundle_version 整批替换，进程内不变）。
+    private var cachedLexicon: MedicalLexicon?
     private let problemStore: HealthProblemStore?
     private var loadingPatientId: UUID?
     private var lastIncludeArchived = false
@@ -217,6 +223,8 @@ final class DocumentsState {
          prescriptionDocTypeLabel: String = L10n.docTypePrescription,
          understandingEngine: (any TextUnderstanding)? = nil,
          codeIndex: (any CodeIndex & UnitIndex)? = nil,
+         lexiconSource: (any LexiconSource)? = nil,
+         uiLocale: @escaping @MainActor () -> Locale = { Locale(identifier: "zh_Hans") },
          problemStore: HealthProblemStore? = nil,
          dataChange: AppDataChangeCenter? = nil,
          pendingCards: PendingCardStore? = nil,
@@ -229,6 +237,7 @@ final class DocumentsState {
         self.originalsDir = originalsDir ?? FileManager.default.temporaryDirectory
         self.understandingEngine = understandingEngine ?? EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
         self.codeIndex = codeIndex; self.problemStore = problemStore
+        self.lexiconSource = lexiconSource; self.uiLocale = uiLocale
         self.dataChange = dataChange; self.pendingCardStore = pendingCards
         self.scheduler = scheduler; self.cardStore = cardStore
         self.suggestionStore = suggestionStore
@@ -589,9 +598,31 @@ final class DocumentsState {
                 understanding = try await understandingEngine.understand(gated)
                 fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields, confidence: confidence)
             }
+            // F25 词表锚定（2026-09-21，FR25.12⑬）：识别后先过词表扫描补字段缺口
+            // （指标行/处方行锚定 + 近失配候选），再统一过解析链贴码——锚定值恒为
+            // 原文子串（grounding 可逐字定位），全 D 级（BR-003）。词表不可用不阻断主链路。
+            if let lexiconSource {
+                if cachedLexicon == nil {
+                    do {
+                        let entries = try await lexiconSource.lexiconEntries()
+                        cachedLexicon = MedicalLexicon(entries: entries)
+                    } catch {
+                        cachedLexicon = nil
+                    }
+                }
+                if let lexicon = cachedLexicon {
+                    let anchored = LexiconExtraction.propose(lines: result.lines, lexicon: lexicon,
+                                                             existing: fields,
+                                                             documentTypeKey: understanding.suggestedTarget)
+                    if !anchored.isEmpty { fields += anchored }
+                }
+            }
             if let codeIndex {
-                fields = await UnderstandingCodeResolution.resolve(fields, locale: Locale(identifier: "zh_Hans"),
+                let locale = uiLocale()
+                fields = await UnderstandingCodeResolution.resolve(fields, locale: locale,
                                                                      index: codeIndex, units: codeIndex)
+                fields = await UnderstandingCodeResolution.attachCandidateResolutions(
+                    fields, locale: locale, index: codeIndex)
             }
             guard ocrAuthorized(), !Task.isCancelled else { return .init(index: index, lines: result.lines, status: "skipped", fields: []) }
             return .init(index: index, lines: result.lines, fields: fields,

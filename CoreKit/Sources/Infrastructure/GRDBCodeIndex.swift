@@ -16,7 +16,7 @@ import Domain
 ///   版本升级按 §5.52 语义整批替换旧种子行，`resolver_override` 用户纠错行
 ///   与已确认数据永不触碰（FR25.11 编码只补不覆）；
 /// - 全部读取走共享 DatabasePool 的并发读路径（§4.4）。
-public actor GRDBCodeIndex: CodeIndex, UnitIndex {
+public actor GRDBCodeIndex: CodeIndex, UnitIndex, LexiconSource {
     private let writer: any DatabaseWriter
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
@@ -65,12 +65,14 @@ public actor GRDBCodeIndex: CodeIndex, UnitIndex {
             // 删行会撞 FK（用户已确认数据永不重写，FR25.11）
             try db.execute(sql: "DELETE FROM code_alias WHERE bundle_version = ?", arguments: [prev])
             try db.execute(sql: "DELETE FROM code_map WHERE bundle_version = ?", arguments: [prev])
+            try db.execute(sql: "DELETE FROM lexicon_term WHERE bundle_version = ?", arguments: [prev])
             try db.execute(sql: "DELETE FROM ucum_unit")
             try db.execute(sql: "DELETE FROM ucum_molar_bridge")
         } else {
             // 无标记过渡态兜底：清掉任何非当前版本的别名行（code_alias 无主键，
             // 不清理会随重装重复堆积同文别名）
             try db.execute(sql: "DELETE FROM code_alias WHERE bundle_version != ?", arguments: [v])
+            try db.execute(sql: "DELETE FROM lexicon_term WHERE bundle_version != ?", arguments: [v])
         }
         for s in CodeSetSeeds.concepts {
             try db.execute(sql: """
@@ -132,6 +134,15 @@ public actor GRDBCodeIndex: CodeIndex, UnitIndex {
                   (concept_id, from_unit, to_unit, factor, note)
                 VALUES (?, ?, ?, ?, ?)
                 """, arguments: [s.conceptId, s.fromUnit, s.toUnit, s.factor, s.note])
+        }
+        // V2（2026-09-21 词表锚定轮）：词表术语种子（无码，concept_id 恒 NULL——
+        // 许可后经只补不覆补码；PK(term, locale, category) + OR IGNORE 幂等）。
+        for s in CodeSetSeeds.lexiconTerms {
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO lexicon_term
+                  (term, locale, category, concept_id, priority, bundle_version)
+                VALUES (?, ?, ?, NULL, ?, ?)
+                """, arguments: [s.term, s.locale, s.category, s.priority, v])
         }
     }
 
@@ -229,6 +240,48 @@ public actor GRDBCodeIndex: CodeIndex, UnitIndex {
             return UcumMolarBridge(conceptId: row["concept_id"],
                                    fromUnit: row["from_unit"], toUnit: row["to_unit"],
                                    factor: row["factor"], note: row["note"])
+        }
+    }
+
+    // MARK: - LexiconSource（词表证据层，FR25.12⑬）
+
+    /// 词表全量枚举：`code_alias`（有码：kind ∈ {metric, medication}，
+    /// concept_id 随行）∪ `lexicon_term`（无码词表，retired_at IS NULL）。
+    /// 识别侧只做匹配建议（D 级，BR-003）；排序确定性由 `MedicalLexicon` 保证。
+    public func lexiconEntries() async throws -> [LexiconEntry] {
+        try await writer.read { db in
+            var entries: [LexiconEntry] = []
+            let aliasRows = try Row.fetchAll(db, sql: """
+                SELECT a.alias_text, a.locale, a.priority, a.concept_id, c.kind
+                FROM code_alias a
+                JOIN code_concept c ON c.id = a.concept_id
+                """)
+            for row in aliasRows {
+                guard let category = Self.scanCategory(forConceptKind: row["kind"]) else { continue }
+                entries.append(LexiconEntry(term: row["alias_text"], locale: row["locale"],
+                                            category: category, conceptId: row["concept_id"],
+                                            priority: row["priority"]))
+            }
+            let termRows = try Row.fetchAll(db, sql: """
+                SELECT term, locale, category, concept_id, priority FROM lexicon_term
+                WHERE retired_at IS NULL
+                """)
+            for row in termRows {
+                guard let category = LexiconCategory(rawValue: row["category"] as String) else { continue }
+                entries.append(LexiconEntry(term: row["term"], locale: row["locale"],
+                                            category: category, conceptId: row["concept_id"],
+                                            priority: row["priority"]))
+            }
+            return entries
+        }
+    }
+
+    /// 概念 kind → 扫描类别：observation_kind/other 不参与识别扫描（负清单纪律）。
+    static func scanCategory(forConceptKind kind: String) -> LexiconCategory? {
+        switch kind {
+        case "metric": return .metric
+        case "medication": return .medication
+        default: return nil
         }
     }
 }

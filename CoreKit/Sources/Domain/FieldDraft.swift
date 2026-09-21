@@ -59,21 +59,29 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
         public var rawText: String?
         public var sourceLineIndex: Int?
         public var source: UnderstandingSource?
+        /// 近失配候选携带的 F25 惰性编码建议（2026-09-21 词表锚定轮）——
+        /// 用户选定候选即选定该术语，编码建议随之生效；仍为 D 级（BR-003）。
+        public var codeResolution: CodeResolution?
         public var id: String { "\(sourceLineIndex ?? -1)|\(value)|\(unit ?? "")" }
 
         public init(value: String, unit: String? = nil, confidence: Double,
                     rawText: String? = nil, sourceLineIndex: Int? = nil,
-                    source: UnderstandingSource? = nil) {
+                    source: UnderstandingSource? = nil,
+                    codeResolution: CodeResolution? = nil) {
             self.value = value; self.unit = unit; self.confidence = confidence
             self.rawText = rawText; self.sourceLineIndex = sourceLineIndex; self.source = source
+            self.codeResolution = codeResolution
         }
     }
 
     /// 用户从下拉里选定一个候选：写值 + 单位 + 标记已消歧。
     /// 写值经 `value.didSet` 使字段退回未确认——这是**正确**行为（BR-003）。
+    /// 候选自带编码建议（近失配校正词）时一并切换：建议与当前值同源，
+    /// 仍为惰性（升 C 前不入事实链；`codeResolution.didSet` 会清旧批准）。
     public mutating func chooseCandidate(_ candidate: Candidate) {
         revise(to: candidate.value)
         unit = candidate.unit
+        if let resolution = candidate.codeResolution { codeResolution = resolution }
         candidateChosen = true
     }
 
