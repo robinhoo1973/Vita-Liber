@@ -165,23 +165,20 @@ struct CardFieldEditSheet: View {
 
     private func save() {
         guard let store = docs.cardStore, !saving else { return }
-        // 保存前预校验（与 store 同口径）：日期 yyyy-MM-dd；数值 Double
-        let dateKeys: Set<String> = ["administered_at", "diagnosed_at", "exam_at", "reported_at",
-                                     "surgery_at", "ended_at", "treated_at",
-                                     "admit_at", "discharge_at", "summary_date"]
-        let numericKeys: Set<String> = ["amount", "reimbursed_amount", "out_of_pocket",
-                                        "personal_account_amount", "total_amount", "total_cost",
-                                        "value", "ref_low", "ref_high", "unit_price", "line_amount"]
+        // 保存前预校验（与 store 同口径）：键型取 Domain 单源 `EntityCardProjection.valueKind`
+        // （round5 Q4——此前本处手抄 dateKeys/numericKeys 两表，漏 fee_at/collected_at/start_date… 即退化为无校验文本）。
         for field in fields {
             let text = field.value.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { continue }
-            if dateKeys.contains(field.key), EntityCardProjection.parseDate(text, calendar: Self.calendar) == nil {
+            switch EntityCardProjection.valueKind(kind: kind, key: field.key) {
+            case .date where EntityCardProjection.parseDate(text, calendar: Self.calendar) == nil:
                 errorMessage = L10n.cardEditInvalidDate(DocumentsDisplay.fieldLabel(forKey: field.key))
                 return
-            }
-            if numericKeys.contains(field.key), Double(text) == nil {
+            case .number where Double(text) == nil, .integer where Int(text) == nil:
                 errorMessage = L10n.cardEditInvalidNumber(DocumentsDisplay.fieldLabel(forKey: field.key))
                 return
+            default:
+                break
             }
         }
         errorMessage = nil

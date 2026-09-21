@@ -102,18 +102,18 @@ public enum EntityCardProjection {
 
     /// REAL 列对应的模板键：出现即须可严格解析为有限数，否则判无效交用户复核（不静默丢弃、不换算）。
     /// v26：检验行 `value` 不再在此——非数值结果（阴性 / <0.5 / +）合法，由 `labProjection` 分流进 `lab_result`（§C.5）。
-    private static let numericKeys: [String: Set<String>] = [
+    static let numericKeys: [String: Set<String>] = [
         "metric_sample": ["ref_low", "ref_high"],
         "prescription": ["total_amount", "unit_price", "line_amount"],
         "claim_item": ["reimbursed_amount", "out_of_pocket", "personal_account_amount", "unit_price", "item_amount"],
         "hospitalization": ["total_cost"],
     ]
     /// INTEGER 列对应的模板键：出现即须可解析为整数（住院次数/实际住院天数为打印数字，不推算）。
-    private static let integerKeys: [String: Set<String>] = [
+    static let integerKeys: [String: Set<String>] = [
         "hospitalization": ["inpatient_times", "actual_days"],
     ]
     /// 共享日期键之外的可选日期键：出现即须可解析（不猜日期）。
-    private static let optionalDateKeys: [String: Set<String>] = [
+    static let optionalDateKeys: [String: Set<String>] = [
         "prescription": ["start_date", "end_date"],
         "claim_item": ["fee_at"],
         "metric_sample": ["collected_at", "received_at", "reported_at"],

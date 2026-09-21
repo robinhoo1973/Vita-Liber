@@ -122,23 +122,9 @@ enum DocumentsDisplay {
     /// 枚举槽位的 canonical 值目录（SP-12 确认卡 Picker 选项；标签经 `fieldValueDisplay`）。
     /// 与 `EntityCardProjection.invalidFields` 的枚举校验同拼写；nil = 自由文本字段（走 TextField）。
     /// 处方类型按 Domain `prescriptionTypes` 过滤保序（Domain 增删枚举不会让 Picker 出现非法项）。
+    /// 枚举槽位目录：委托 Domain `EntityCardProjection.enumeratedOptions`（round5 Q4 单源——目录是数据，
+    /// 本层只负责标签文案 `fieldValueDisplay`）。
     static func enumOptions(forKey key: String) -> [String]? {
-        switch key {
-        case "kind": return EncounterKind.allCases.map(\.rawValue)
-        case "item_type": return ["invoice", "fee", "receipt"]
-        case "unit_kind": return ["tablet", "capsule", "patch", "vial"]
-        case "currency": return ["CNY", "HKD", "MOP", "TWD", "USD", "EUR", "JPY", "GBP"]
-        case "prescription_type":
-            return ["general", "emergency", "pediatric", "narcotic", "psychotropic", "tcm", "other"]
-                .filter { EntityCardProjection.prescriptionTypes.contains($0) }
-        // v26：诊断类型 / 检查报告类型（Domain CHECK 同拼写目录，Picker 绑 canonical raw）；
-        // `kind` 目录随 EncounterKind.allCases 自动含 daySurgery（住院卡以外的 kind 由 invalidFields 裁定）。
-        case "diagnosis_type": return Diagnosis.diagnosisTypes
-        case "report_type": return ExamReport.reportTypes
-        // v27：治疗类型 / 结论类型（Domain CHECK 同拼写目录；Picker 绑 canonical raw）
-        case "treatment_type": return TreatmentRecord.treatmentTypes
-        case "conclusion_type": return ClinicalConclusion.conclusionTypes
-        default: return nil
-        }
+        EntityCardProjection.enumeratedOptions(forKey: key)
     }
 }
