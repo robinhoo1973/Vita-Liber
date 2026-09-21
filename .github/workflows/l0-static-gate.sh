@@ -25,7 +25,7 @@
 #        禁止 {name, package} 包测试引用（XcodeGen Spec validation error，
 #        CI 34017824105 实证：包测试目标进 scheme 会在 macOS 首步即炸）
 #   [15] 类型层启发式门禁 —— Linux 无法编译 App/（SwiftUI 缺失），swiftc -parse
-#        只查语法；以下十族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
+#        只查语法；以下十一族类型错误仅 macOS L1 编译门禁可暴露，静态启发式左移拦截：
 #        跨层引用缺 import（CI d0c1008）/ Date 与 Double 混比较（CI 34032245120）
 #        / iOS 专用符号未套 #if os(iOS)（CI 34018308312）/ #if os(Linux) 桩
 #        类型在非守卫区使用（CI 34018552283）/ `any X?` 可选 any 拼写（CI ad1d767，
@@ -113,6 +113,26 @@ else
   printf '%sERROR%s 未找到应用源码（需要 CoreKit/Sources/Domain）。本门禁属于代码仓库（MedicalNotes/VitaLiber），当前目录无可检查对象。\n' "$C_R" "$C_0" >&2
   exit 2
 fi
+
+# 扫描根收口到 .gitignore 白名单目录（2026-09-21 加固）：find/grep "$APP" 会把
+# 未跟踪旁支目录（实证：根下 C:llama.cpp 克隆，含 examples/*.swift）纳入语料——
+# [3] DDL 语料 cat 到目录报 "Is a directory"、[7] swiftc -parse 目录报错、[1] 分母虚增。
+# 白名单从 .gitignore `!` 条目推导（与入库策略同源）：新增顶层代码目录入仓须同步
+# ! 条目，否则漏扫——「扫描范围 = 入库范围」单一事实来源。
+SCAN_PATHS=()
+while IFS= read -r _gline; do
+  case "$_gline" in
+    '!/'*)
+      _gdir="${_gline#!}"
+      _gdir="${_gdir%/}"
+      [ -d "$APP/$_gdir" ] && SCAN_PATHS+=("$APP/$_gdir")
+      ;;
+  esac
+done < "$APP/.gitignore"
+if [ ${#SCAN_PATHS[@]} -eq 0 ]; then
+  printf '%sERROR%s .gitignore 白名单未推导出任何扫描根（$APP/.gitignore 缺失或漂移）——扫描范围失效，不得判 PASS（ERR#27）。\n' "$C_R" "$C_0" >&2
+  exit 2
+fi
 COREKIT="$APP/CoreKit"
 DOMAIN="$COREKIT/Sources/Domain"
 # 金样目录探测（ERR#27）：金样实际落在 CoreKit/Tests/CoreKitTests/Fixtures（SPM resources 约定），
@@ -129,7 +149,7 @@ else
   done
   # 兜底：全仓搜索任何含 JSON 的 Fixtures 目录（排除构建产物）
   if [ -z "$FIXTURES" ]; then
-    FIXTURES="$(find "$APP" -type d -name Fixtures \
+    FIXTURES="$(find "${SCAN_PATHS[@]}" -type d -name Fixtures \
       -not -path '*/.build/*' -not -path '*/DerivedData/*' -not -path '*/Build/*' \
       2>/dev/null | head -1)"
   fi
@@ -149,10 +169,10 @@ while IFS= read -r line; do
   case "$_content" in *'try?-ok:'*) try_exempt=$((try_exempt + 1)); continue ;; esac
   try_viol=$((try_viol + 1))
   [ "$try_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
-done < <(grep -rnE '(^|[^A-Za-z0-9_])try\?' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
+done < <(grep -rnE '(^|[^A-Za-z0-9_])try\?' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "${SCAN_PATHS[@]}" 2>/dev/null || true)
 # 分母：本项与下方 as!/try! 的判据都是「违规 0 处」，而 0 违规**同时是空扫的产物**——
 # 必须另证「确实扫到了文件」。此前二者与 [7]/[15] 同族：缺证据被当成有证据（2026-09-18 批量补强）。
-swift_scanned=$(find "$APP" -name '*.swift' -not -path '*/.build/*' -not -path '*/.swiftpm/*' \
+swift_scanned=$(find "${SCAN_PATHS[@]}" -name '*.swift' -not -path '*/.build/*' -not -path '*/.swiftpm/*' \
   -not -path '*/DerivedData/*' -not -path '*/Build/*' 2>/dev/null | wc -l | tr -d ' ')
 if ! require_scanned "$swift_scanned" "try? 扫描（Swift 源文件）"; then
   :
@@ -171,7 +191,7 @@ for _pat in 'as! ' 'try! '; do
     _r=${line#*:}; _r=${_r#*:}
     _nc=$(printf '%s\n' "$_r" | sed 's,//.*,,' )        # 剥离 // 注释（同 try? 扫描纪律）
     case "$_nc" in *"$_pat"*) force_viol=$((force_viol + 1)); [ "$force_viol" -le 12 ] && printf '    %s\n' "$line" ;; esac
-  done < <(grep -rn --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build -F "$_pat" "$APP" 2>/dev/null || true)
+  done < <(grep -rn --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build -F "$_pat" "${SCAN_PATHS[@]}" 2>/dev/null || true)
 done
 if ! require_scanned "$swift_scanned" "as!/try! 扫描（Swift 源文件）"; then
   :
@@ -183,7 +203,7 @@ fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
 section "2/17" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
-ipad_files=$(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
+ipad_files=$(find "${SCAN_PATHS[@]}" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
   fail "发现 *_iPad/*_iPhone 平行视图文件（每 SP 恰一个内容视图）"
@@ -199,7 +219,7 @@ while IFS= read -r line; do
   case "$_nc" in *'userInterfaceIdiom'*'.pad'*) ;; *) continue ;; esac   # 注释里的字样不算
   idiom_viol=$((idiom_viol + 1))
   [ "$idiom_viol" -le 15 ] && printf '    %s:%s\n' "$_f" "$_n"
-done < <(grep -rinE 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "$APP" 2>/dev/null || true)
+done < <(grep -rinE 'userInterfaceIdiom[[:space:]]*==[[:space:]]*\.pad' --include='*.swift' --exclude-dir=.build --exclude-dir=.swiftpm --exclude-dir=DerivedData --exclude-dir=Build "${SCAN_PATHS[@]}" 2>/dev/null || true)
 if [ "$idiom_viol" -gt 0 ]; then
   fail "idiom 分支换页 ${idiom_viol} 处 —— 改用容器驱动重排（ViewThatFits/AnyLayout/sizeClass）"
 else
@@ -223,7 +243,7 @@ while IFS= read -r -d '' _f; do
   cat "$_f" >> "$_ddl_file" || { fail "DDL 语料读取失败: $_f"; break; }
   printf '\n' >> "$_ddl_file"
   _ddl_files=$((_ddl_files + 1))
-done < <(find "$APP" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \
+done < <(find "${SCAN_PATHS[@]}" \( -name .build -o -name .swiftpm -o -name DerivedData \) -prune -o \
          \( -name '*.swift' -o -name '*.sql' \) -print0 2>/dev/null)
 created=$(tr -d '"' < "$_ddl_file" \
   | grep -ohE 'CREATE TABLE( IF NOT EXISTS)? [A-Za-z_]+' \
@@ -381,7 +401,7 @@ else
       printf '    解析失败: %s\n' "$f"
       swiftc -parse "$f" 2>&1 | grep -E '^.+error:' | head -3 | sed 's/^/      /' || true
     fi
-  done < <(find "$APP" -name '*.swift' \
+  done < <(find "${SCAN_PATHS[@]}" -name '*.swift' \
     -not -path '*/.build/*' -not -path '*/.swiftpm/*' \
     -not -path '*/DerivedData/*' -not -path '*/Build/*' 2>/dev/null)
   if ! require_scanned "$p_total" "Swift 源文件（swiftc -parse）"; then
@@ -887,9 +907,9 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界（十族 CI 实证左移）"
+section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/非转义函数型参数赋存储属性（十一族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
-# 以下十族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
+# 以下十一族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
 #   / iOS 专用符号未套 #if os(iOS)（34018308312）/ Linux 桩类型守卫外使用（34018552283）
 #   / `any X?` 可选 any 拼写（ad1d767，parse 静默放行、仅类型检查可查）
@@ -899,6 +919,8 @@ section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混
 #   / 家族 J：iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I，2026-09-13：
 #     J-1 符号越界 · J-2 缺 import Perception · J-3 App 视图整体 @available(iOS 17
 #     键槽陷阱；"is only available in iOS 17.0 or newer" 仅 macOS L1 可见）。
+#   / 家族 L：非转义函数型参数赋给存储属性（35570472020：init 函数型 typealias
+#     形参未标 @escaping，'assigning non-escaping parameter' 仅 macOS L1 可见）。
 # 判定器独立成文件（l0-typecheck-heuristics.py），与 [10]/[13] 同纪律：
 # python3 平台无关判定 + ERR#27 空扫/失效一律不得判 PASS。
 if ! command -v python3 >/dev/null 2>&1; then
@@ -906,10 +928,10 @@ if ! command -v python3 >/dev/null 2>&1; then
 else
   THEUR="$(python3 "$SCRIPT_DIR/l0-typecheck-heuristics.py" "$APP" 2>&1 || true)"
   t_scanned="$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p' | head -1)"
-  # 十族明细：求和 + 列出扫到 0 的族。此前只判「__SCANNED__ 行存在」，于是**空目录也过**
-  # ——实测 `python3 l0-typecheck-heuristics.py /tmp/emptydir` 打印 A=0 … J=0 且 exit 0，
-  # 十族错误判据全部失效而门禁全绿。任一族为 0 即视为该族判据失效（今天十族分别
-  # 92–480，取 0 为异常是安全的）。
+  # 各族明细：求和 + 列出扫到 0 的族。此前只判「__SCANNED__ 行存在」，于是**空目录也过**
+  # ——实测 `python3 l0-typecheck-heuristics.py /tmp/emptydir` 打印 A=0 … L=0 且 exit 0，
+  # 各族错误判据全部失效而门禁全绿。任一族为 0 即视为该族判据失效（今天各族分别
+  # 92–522，取 0 为异常是安全的）。
   t_total=0; t_zero=""
   if [ -n "$t_scanned" ]; then
     for _kv in $t_scanned; do
@@ -922,13 +944,13 @@ else
   if [ -z "$t_scanned" ]; then
     fail "类型层启发式无 __SCANNED__ 计数 —— 判定器失效，不得判 PASS（ERR#27）"
   elif [ "$t_total" -eq 0 ]; then
-    fail "类型层启发式十族全部扫到 0 个文件 —— 扫描根 '$APP' 漂移，十族错误判据全部失效，不得判 PASS（ERR#27）"
+    fail "类型层启发式各族全部扫到 0 个文件 —— 扫描根 '$APP' 漂移，各族错误判据全部失效，不得判 PASS（ERR#27）"
   elif [ -n "$t_zero" ]; then
     fail "类型层启发式以下族扫到 0 个文件：$t_zero —— 该族判据已失效（路径漂移或判据过时），不得判 PASS（ERR#27）"
   elif _grep_q '^FAIL:' "$THEUR"; then
     while IFS= read -r ln; do fail "$ln"; done < <(printf '%s\n' "$THEUR" | grep '^FAIL:')
   else
-    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过十族启发式"
+    pass "$(printf '%s\n' "$THEUR" | sed -n 's/^__SCANNED__ //p') 个文件通过十一族启发式"
   fi
 fi
 

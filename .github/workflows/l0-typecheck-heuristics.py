@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下十族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
+# 以下十一族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -69,6 +69,16 @@
 #      类型检查暴露，swiftc -parse 放行（平台守卫文件在 Linux 空编译，族 A2 盲区）。
 #      判定：`guard/if let X = sub[...] as T[,)]`（T 无 `?`）即 FAIL——按 Swift
 #      语言语义该形态必然编译失败，零误报；可空列须 `as String?`。
+#   L. 非转义函数型参数赋给存储属性 —— CI 35570472020 实证：
+#      BackgroundWorkScheduler.swift:125 `self.operation = operation`：init 参数
+#      为函数型 typealias（ContinuedOperation，@Sendable 不隐含 escaping）但未标
+#      @escaping；函数类型的存储属性恒为 escaping，赋值即报 'assigning non-escaping
+#      parameter to an @escaping closure'，swiftc -parse 放行、平台守卫文件在 Linux
+#      空编译（族 A2 同盲区，首现即 L1 红）。判定：init/func 形参为非可选函数型
+#      （内联 `... -> ...` 或函数型 typealias，无 @escaping/@autoclosure，且非
+#      `(... -> ...)?` 可选包装——可选函数型隐式 escaping 合法）且函数体内以点形式
+#      `self.x = p` / `obj.x = p` 赋给属性即 FAIL——按 Swift 语义该形态必然编译失败
+#      （函数型存储属性不存在非转义形态），零误报；签名歧义一律放弃该声明（宁漏勿错）。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
@@ -208,6 +218,76 @@ def is_negated(expr, token):
     """token 是否被紧跟其前的 `!` 否定（`#if !os(iOS)` / `!canImport(...)`）。"""
     idx = expr.find(token)
     return idx > 0 and expr[idx - 1] == "!"
+
+
+def mask_noncode(text):
+    """长度保持的注释/字符串掩蔽：源码结构（换行、括号、标识符）原位保留，
+    注释与字符串内容替换为空格——防止注释/文档字符串里的伪声明造成族 L 假红。
+    与 code_lines 同规则（三引号字符串跨行处理）。"""
+    out = list(text)
+    i, n = 0, len(text)
+    in_ml = False
+    while i < n:
+        if in_ml:
+            if text.startswith('"""', i):
+                out[i] = out[i + 1] = out[i + 2] = " "
+                in_ml = False
+                i += 3
+            else:
+                if text[i] != "\n":
+                    out[i] = " "
+                i += 1
+            continue
+        if text.startswith('"""', i):
+            out[i] = out[i + 1] = out[i + 2] = " "
+            in_ml = True
+            i += 3
+            continue
+        c = text[i]
+        if c == '"':
+            out[i] = " "
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    out[i] = " "
+                    i += 1
+                    if i < n:
+                        out[i] = " "
+                        i += 1
+                elif text[i] == '"':
+                    out[i] = " "
+                    i += 1
+                    break
+                else:
+                    if text[i] != "\n":
+                        out[i] = " "
+                    i += 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] == "/":
+            while i < n and text[i] != "\n":
+                out[i] = " "
+                i += 1
+            continue
+        i += 1
+    return "".join(out)
+
+
+def split_top_level(s):
+    """顶层逗号切分（括号/尖括号/方括号配对内不切）。"""
+    depth = 0
+    cur, parts = [], []
+    for ch in s:
+        if ch in "([{<":
+            depth += 1
+        elif ch in ")]}>":
+            depth = max(0, depth - 1)
+        if ch == "," and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    parts.append("".join(cur))
+    return parts
 
 
 def main():
@@ -769,11 +849,114 @@ def main():
                     f"可空列改 `as {m.group(3)}?`，或加 // tius-ok: 豁免"
                 )
 
+    # ---- 家族 L：非转义函数型参数赋给存储属性 —— CI 35570472020 实证
+    # 判定见文件头注释。实现要点：
+    # - 形参表括号配对扫描；遇 `{`（默认值闭包）即放弃该声明（宁漏勿错）；
+    # - 签名尾（`)` 与函数体 `{` 之间）限 200 字符且不含声明关键字——协议方法
+    #   无函数体，继续扫会把后续声明的函数体误认成本声明（假红），须放弃；
+    # - 点形式赋值 `self.x = p` / `obj.x = p`：函数型存储属性恒为 escaping，
+    #   非转义形参赋给它必编译失败；`==`/`>=`/`<=`/`!=`/`-=` 不匹配单 `=`。
+    # 不锚行首：别名可带 public/internal/private 访问修饰（真实证例即 `public typealias`）
+    FN_TYPALIAS_RE = re.compile(r"\btypealias\s+([A-Za-z_]\w*)\s*=\s*(.+)$", re.M)
+    OPT_FN_TYPE_RE = re.compile(r"\)\s*\?\s*(?:=|,|\)|\s*$)")
+    DECL_TAIL_BAN_RE = re.compile(
+        r"\b(?:struct|class|enum|actor|protocol|extension|func|init|var|let|"
+        r"import|typealias|precedencegroup|operator)\b")
+    l_all = sorted(set(list(a_files) + list(c_files)))
+    fn_aliases = set()
+    for f in l_all:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        # 掩蔽后收集：注释/文档字符串里的伪 typealias 不得入别名集
+        for m in FN_TYPALIAS_RE.finditer(mask_noncode(txt)):
+            if "->" in m.group(2):
+                fn_aliases.add(m.group(1))
+    scanned["L"] = len(l_all)
+    for f in l_all:
+        try:
+            raw_lines = f.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        masked = mask_noncode("\n".join(raw_lines))
+        n = len(masked)
+        for m in re.finditer(r"\b(init\??|func\s+[A-Za-z_]\w*)\s*(?:<[^>]*>)?\s*\(", masked):
+            # 声明前一个字符必须非标识符/`.`——排除 `Foo.init(` / `someFunc(` 调用形态
+            if m.start() > 0 and (masked[m.start() - 1].isalnum() or masked[m.start() - 1] == "_"
+                                  or masked[m.start() - 1] == "."):
+                continue
+            i = m.end()  # '(' 之后
+            depth, j = 1, i
+            while j < n and depth > 0:
+                ch = masked[j]
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                elif ch == "{":
+                    break  # 默认值闭包含花括号——放弃该声明，宁漏勿错
+                j += 1
+            if j >= n or depth != 0 or (j < n and masked[j] == "{"):
+                continue
+            fn_params = []
+            for part in split_top_level(masked[i:j]):
+                pm = re.match(r"\s*([A-Za-z_]\w*)\s*:\s*(.+)", part, re.S)
+                if not pm:
+                    continue
+                name, typ = pm.group(1), pm.group(2).strip()
+                if "@escaping" in typ or "@autoclosure" in typ:
+                    continue
+                if OPT_FN_TYPE_RE.search(typ):
+                    continue  # 可选函数型隐式 escaping，合法
+                base = typ.split()[0]
+                if "->" in typ or base in fn_aliases:
+                    fn_params.append(name)
+            if not fn_params:
+                continue
+            # 签名尾：`)` → async/throws/-> 返回类型 → 函数体 `{`；歧义即放弃。
+            # 禁令只查 `{` 之前（签名本身）——函数体可合法含 `;` 等任何字符
+            tail = masked[j + 1:j + 201]
+            brace = tail.find("{")
+            if brace < 0:
+                continue  # 扫描窗内无函数体（协议要求/抽象声明或超长返回类型），宁漏勿错
+            sig = tail[:brace]
+            if DECL_TAIL_BAN_RE.search(sig) or ";" in sig:
+                continue
+            body_start = j + 1 + brace
+            depth, k = 0, body_start
+            body_end = None
+            while k < n:
+                if masked[k] == "{":
+                    depth += 1
+                elif masked[k] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        body_end = k
+                        break
+                k += 1
+            if body_end is None:
+                continue
+            body = masked[body_start:body_end]
+            for name in fn_params:
+                asg = re.search(r"\b\w+\.\w+\s*=\s*" + re.escape(name) + r"\b", body)
+                if asg:
+                    lineno = masked[:body_start + asg.start()].count("\n") + 1
+                    if exempted(raw_lines, lineno):
+                        continue
+                    fails.append(
+                        f"{f.relative_to(root)}:{lineno}: 非转义函数型参数 `{name}` 赋给存储属性"
+                        f"（点形式赋值）——函数类型存储属性恒为 escaping，macOS L1 必报 "
+                        f"'assigning non-escaping parameter to an @escaping closure'"
+                        f"（CI 35570472020 同族；@Sendable 不隐含 escaping，可选函数型除外），"
+                        f"形参补 `@escaping`，或加 // tius-ok: 豁免"
+                    )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
-          f"K={scanned.get('K',0)}")
+          f"K={scanned.get('K',0)} L={scanned.get('L',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
