@@ -1,0 +1,19 @@
+# ASC API 工具钉版清单（2026-09-21，S-M6 哈希钉版纪律延伸到 upload/asc-build-status
+# 两个接触 p8 密钥的 job——此前裸 pip install 无 --require-hashes，供应链面不一致）。
+# 覆盖三组解释器/平台（均为各 job 实际组合，其余组合安装会响亮失败而非静默漂移）：
+#   upload / build 复核（macos-26，setup-python 3.13.5）：macosx arm64 cp313 + abi3 + py3-none-any
+#   asc-build-status（ubuntu-24.04，setup-python 3.13.5）：manylinux x86_64 cp313 + abi3 + py3-none-any
+#   历史 cp312 组合（ubuntu 镜像原生 python3）：manylinux x86_64 cp312 + abi3 + py3-none-any
+# 版本对齐 pip 当前默认解析集（cryptography 44 → cffi 2.0.0 → pycparser 3.0），
+# 与既有成功运行实测组合一致；换版须全三组重新取哈希（pip download --platform）。
+PyJWT==2.10.1 \
+    --hash=sha256:dcdd193e30abefd5debf142f9adfcdd2b58004e644f25406ffaebd50bd98dacb
+cryptography==44.0.0 \
+    --hash=sha256:660cb7312a08bc38be15b696462fa7cc7cd85c3ed9c576e81f4dc4d8b2b31591 \
+    --hash=sha256:404fdc66ee5f83a1388be54300ae978b2efd538018de18556dde92575e05defc
+cffi==2.0.0 \
+    --hash=sha256:45d5e886156860dc35862657e1494b9bae8dfa63bf56796f2fb56e1679fc0bca \
+    --hash=sha256:3e17ed538242334bf70832644a32a7aae3d83b57567f9fd60a26257e992b79ba \
+    --hash=sha256:c8d3b5532fc71b7a77c09192b4a5a200ea992702734a2e9279a37f2478236f26
+pycparser==3.0 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992

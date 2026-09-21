@@ -23,6 +23,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # 哈希钉版清单随仓获取；钉版 Python 与 upload job 同 3.13.5（轮子哈希按
+      # 解释器版本取，镜像默认 python3 漂移会响亮失败而非静默换轮）。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
       - name: 查询 App Store Connect 最近 builds
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -37,7 +43,7 @@ jobs:
           python3 -m venv /tmp/asc-status-venv
           export PATH="/tmp/asc-status-venv/bin:$PATH"
           python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/asc-status-pip.log 2>&1
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/workflows/requirements-asc-tools.txt" >/tmp/asc-status-pip.log 2>&1
           umask 077
           mkdir -p "$RUNNER_TEMP/keys"
           echo "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/keys/AuthKey.p8"

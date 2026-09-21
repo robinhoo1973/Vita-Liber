@@ -677,6 +677,18 @@ jobs:
           name: vitaliber-ipa
           path: Build/export/
 
+      # 哈希钉版清单（requirements-asc-tools.txt）随仓获取，与 build job 同纪律
+      - name: 检出仓库（哈希钉版依赖清单）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # 钉版 Python（2026-09-21）：pip --require-hashes 钉的轮子按解释器版本取
+      # 哈希（cffi cp313），镜像默认 python3 漂移会让安装响亮失败；与 build job
+      # 同 3.13.5，三 job 解释器一致。
+      - name: 配置钉版 Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
       # ── 凭据与产物检查：缺失即失败（不再“绿色成功 + 跳过”）────
       - name: 检查 TestFlight 上传凭据
         env:
@@ -732,12 +744,12 @@ jobs:
           fi
           export PATH="/tmp/asc-venv/bin:$PATH"
           if ! python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/workflows/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
             echo "::error::Python 依赖安装失败"
             cat /tmp/pip.log
             exit 1
           fi
-          echo "Python 依赖安装成功（venv）"
+          echo "Python 依赖安装成功（venv，哈希钉版）"
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::error::p8 不存在"; exit 1; }
           KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
@@ -857,12 +869,12 @@ jobs:
           fi
           export PATH="/tmp/asc-venv/bin:$PATH"
           if ! python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            "PyJWT==2.10.1" "cryptography==44.0.0" >/tmp/pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/workflows/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
             echo "::warning::复核步骤 Python 依赖安装失败，跳过复核"
             cat /tmp/pip.log
             exit 0
           fi
-          echo "Python 依赖安装成功（venv）"
+          echo "Python 依赖安装成功（venv，哈希钉版）"
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::warning::p8 不存在，跳过复核"; exit 0; }
           mk_token() {
