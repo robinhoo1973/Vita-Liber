@@ -880,14 +880,29 @@ jobs:
           echo "Python 依赖安装成功（venv，哈希钉版）"
           P8="$HOME/.appstoreconnect/private_keys/AuthKey_$APPLE_API_KEY_ID.p8"
           [ -f "$P8" ] || { echo "::warning::p8 不存在，跳过复核"; exit 0; }
+          # 与「注册/核对」步骤同一签发模式（heredoc + os.environ，CI 35588830526 实证
+          # 该模式可用）：此前为 python3 -c 内联插值 + `2>/dev/null || true`——失败原因
+          # 被吞（响亮失败纪律违反），且与另两处签发各写一份（三副本漂移）。失败时
+          # 输出 stderr 到日志，复核降级为告警但不再静默。
           mk_token() {
-            python3 -c "
-            import jwt, time
-            with open('$P8') as f: key = f.read()
+            local err="$RUNNER_TEMP/mktoken-err.$$"
+            if KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" python3 - "$P8" 2>"$err" <<'PYEOF'
+            import sys, os, time
+            import jwt
+            key = open(sys.argv[1]).read()
             now = int(time.time())
-            payload = {'iss': '$APPLE_API_KEY_ISSUER_ID', 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'}
-            print(jwt.encode(payload, key, algorithm='ES256', headers={'alg': 'ES256', 'kid': '$APPLE_API_KEY_ID'}))
-            " 2>/dev/null || true
+            tok = jwt.encode({'iss': os.environ['ISS'], 'iat': now, 'exp': now + 1200, 'aud': 'appstoreconnect-v1'},
+                             key, algorithm='ES256', headers={'alg': 'ES256', 'kid': os.environ['KEYID']})
+            print(tok)
+          PYEOF
+            then
+              rm -f "$err"
+              return 0
+            else
+              echo "::warning::JWT 签发失败：$(head -5 "$err" 2>/dev/null || echo 无 stderr)"
+              rm -f "$err"
+              return 1
+            fi
           }
           # 避免把短期 JWT 作为 curl -H 命令行参数暴露给同 runner 的进程列表。
           asc_curl() {
@@ -899,7 +914,7 @@ jobs:
           }
           # ② 查询本次 buildUpload 的 Apple 处理状态/错误（若捕获到 UUID）
           if [ -n "${DELIVERY_UUID:-}" ]; then
-            TOKEN=$(mk_token)
+            TOKEN=$(mk_token || true)
             if [ -n "$TOKEN" ]; then
               echo "── buildUpload ${DELIVERY_UUID} 处理状态 ──"
               asc_curl "https://api.appstoreconnect.apple.com/v1/buildUploads/$DELIVERY_UUID" 2>/dev/null | python3 -c "
@@ -927,7 +942,7 @@ jobs:
           APP="${APP_ID:-}"
           if [ -z "$APP" ]; then
             echo "按 bundleId=com.vitaliber.app 解析当前 App id..."
-            TOKEN=$(mk_token)
+            TOKEN=$(mk_token || true)
             if [ -n "$TOKEN" ]; then
               APP=$(asc_curl "https://api.appstoreconnect.apple.com/v1/apps?filter[bundleId]=com.vitaliber.app" 2>/dev/null | python3 -c "
             import json,sys
@@ -946,7 +961,7 @@ jobs:
           # 慢日会假阴性——build 320.1 实测 >4 分钟仍未入列，受理本身
           # 无错误；窗口延长降噪，不改变「精确匹配才报已登记」的语义）
           for i in $(seq 1 12); do
-            TOKEN=$(mk_token)
+            TOKEN=$(mk_token || true)
             if [ -z "$TOKEN" ]; then echo "::warning::JWT 生成失败，跳过复核"; exit 0; fi
             if [ -z "$APP" ]; then echo "::warning::仍无 App 记录（上传未自动创建），请手动在 ASC 创建后重跑"; break; fi
             OUT=$(asc_curl "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=$APP" 2>/dev/null | python3 -c "
