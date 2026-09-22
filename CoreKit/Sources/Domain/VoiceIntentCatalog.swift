@@ -7,9 +7,13 @@ import Foundation
 ///
 /// 期一兜底轨（ADR-029）：自动匹配 = 文法首命中即分类（§3.2 语义），
 /// 全零命中 → unknown（整句原文进语音速记，绝不静默丢弃）。
-/// 期一能力边界（诚实标注，FR17.19）：仅 metric/reminder/profile 有文法
-/// 证据可自动分类；observation/appointment/medDraft/question/assistant
-/// 期一无独立文法，经确认卡 Menu 显式改类到达（期二备轨补分类能力）。
+/// 期一能力边界（诚实标注，FR17.19）：metric/reminder/profile 有文法证据
+/// 可自动分类；observation/appointment/question 期一无独立文法，经确认卡
+/// Menu 显式改类到达（期二备轨补分类能力）。**appendMedDraft 例外
+/// （2026-09-21 词表锚定轮，FR25.12⑪）**：用药草稿槽位由词表证据补齐——
+/// 显式改类经 `extract(for:lexicon:)` 填药名/剂型/途径/频次；未判定/速记
+/// 两态在证据充分（精确药名命中或 ≥2 伴随槽位）时经
+/// `VoiceLexiconAnchoring.integrate` 自动升为用药草稿。
 public enum VoiceIntentKey: String, Sendable, Equatable, CaseIterable, Codable {
     case recordMetric
     case recordObservation
@@ -105,7 +109,11 @@ public enum VoiceIntentCatalog {
 
     /// 显式改类后的槽位抽取（确认卡 Menu 覆盖；FR17.19 消歧兜底语义）。
     /// 期一无独立文法的意图回落纯文本草稿（原语义不变，不静默丢内容）。
-    public static func extract(for key: VoiceIntentKey, text: String, confidence: Double) -> [FieldDraft] {
+    /// `lexicon`（FR25.12⑪，2026-09-21）：用药草稿改类时按词表证据补槽位
+    /// （此前恒回落整句原文草稿，药名/剂型/途径/频次全部丢失）；原文草稿
+    /// 恒保持首位——`.anyText` 分发只取 first 落速记正文（BR-002 不丢内容）。
+    public static func extract(for key: VoiceIntentKey, text: String, confidence: Double,
+                               lexicon: MedicalLexicon? = nil) -> [FieldDraft] {
         let extracted: [FieldDraft]
         switch key {
         case .recordMetric:
@@ -114,7 +122,16 @@ public enum VoiceIntentCatalog {
             extracted = VoiceStructuringEngine.extractReminder(text, rules: VoiceGrammarDefaults.reminderRules)
         case .appendProfile:
             extracted = VoiceStructuringEngine.extractProfile(text, rules: VoiceGrammarDefaults.profileRules)
-        case .recordObservation, .createAppointment, .appendMedDraft,
+        case .appendMedDraft:
+            // FR25.12⑪ 词表锚定：用药槽位由词表证据补齐（精确命中优先，
+            // 近失配仅候选）；词表不可用或零命中 → 回落整句原文草稿。
+            extracted = lexicon.map {
+                VoiceLexiconAnchoring.anchor(text, lexicon: $0).drafts
+            } ?? []
+            if !extracted.isEmpty {
+                return [unknownFallback(text, confidence: confidence)] + regexMarked(extracted)
+            }
+        case .recordObservation, .createAppointment,
              .appendNote, .createQuestion, .unknown:
             extracted = []
         }

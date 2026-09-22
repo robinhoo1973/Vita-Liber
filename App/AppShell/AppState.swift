@@ -57,6 +57,27 @@ final class AppState {
     /// FR17.9/FR17.18 端侧润色端口（V3.61，第 9 工厂；iOS 26 门控，不可用即替身）
     let textRefiner: any TextRefining
 
+    /// F25 医疗槽位端口（语音侧惰性接线，FR25.12⑪ 2026-09-21）：语音面板
+    /// 与 OCR 导入各自缓存词表快照、共用同一解析链实现；缺省 nil = 词表/
+    /// 码表不可用，语音链路照常走文法轨（绝不阻断）。
+    let codeIndex: (any CodeIndex & UnitIndex)?
+    let lexiconSource: (any LexiconSource)?
+    private var cachedMedicalLexicon: MedicalLexicon?
+
+    /// F25 词表快照（进程内缓存；种子随版本整批替换，与 OCR 侧同口径）。
+    /// 失败不阻断——词表不可用时语音锚定零产出。
+    func medicalLexicon() async -> MedicalLexicon? {
+        if let cachedMedicalLexicon { return cachedMedicalLexicon }
+        guard let lexiconSource else { return nil }
+        do {
+            let lexicon = MedicalLexicon(entries: try await lexiconSource.lexiconEntries())
+            cachedMedicalLexicon = lexicon
+            return lexicon
+        } catch {
+            return nil
+        }
+    }
+
     init(persistor: any PatientPersisting,
          speech: (any SpeechSynthesizing)? = nil,
          imageRecognizer: (any ImageTextRecognizing)? = nil,
@@ -65,6 +86,8 @@ final class AppState {
          gateUnlocker: (any GateUnlocking)? = nil,
          audit: AuditLogWriter? = nil,
          memberDeletion: MemberDeletionService? = nil,
+         codeIndex: (any CodeIndex & UnitIndex)? = nil,
+         lexiconSource: (any LexiconSource)? = nil,
          defaults: UserDefaults = .standard,
          launchArgs: [String] = ProcessInfo.processInfo.arguments) {
         // 组合根：按当前上下文一次性注册全部引擎能力（ADR-027 EAL）。
@@ -82,6 +105,8 @@ final class AppState {
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit
         self.memberDeletion = memberDeletion
+        self.codeIndex = codeIndex
+        self.lexiconSource = lexiconSource
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。

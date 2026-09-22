@@ -56,6 +56,8 @@ struct VoiceQuickLaunchView: View {
     /// 转写模型（§4.23 中部大号按住说话按钮持有——本页唯一实例，
     /// 同一引擎单会话；环境就绪后装配，同 VoiceDictationButton 纪律）
     @State private var model: VoiceDictationModel?
+    /// F25 词表快照（FR25.12⑪ 语音锚定；`.task` 装载一次进程内复用）
+    @State private var lexicon: MedicalLexicon?
 
     // FR17.9/FR17.18 V3.61 双版本：原生转译版 / LLM 修正版（仅 authAI 开且端侧模型可用时呈现）
     @State private var refinerAvailable = false
@@ -276,6 +278,8 @@ struct VoiceQuickLaunchView: View {
                     let available = await app.textRefiner.isAvailable
                     guard !Task.isCancelled else { return }
                     refinerAvailable = available
+                    // F25 词表快照（FR25.12⑪；失败不阻断——词表不可用=锚定零产出）
+                    if lexicon == nil { lexicon = await app.medicalLexicon() }
                 }
                 // 清除选择框（1.2）：清除最近一次为默认选项
                 .confirmationDialog(L10n.voicePanelClearTitle, isPresented: $showClearDialog,
@@ -301,10 +305,18 @@ struct VoiceQuickLaunchView: View {
                     judgedIntent = newKey
                     judgedConfidence = 0.9
                     let key = VoiceIntentKey(rawValue: newKey) ?? .unknown
-                    let drafts = VoiceIntentCatalog.extract(for: key, text: source.selectedText,
-                                                            confidence: minSegmentConfidence ?? 0.9)
-                    // A new confirmation identity rejects callbacks from the previous target's sheet.
-                    confirmSet = VoiceInputTemplate.confirmationSet(drafts: drafts)
+                    // FR25.12⑪：改类即按词表证据补槽位（用药草稿此前恒回落整句
+                    // 原文草稿）；解析链为 async——以 understandingTask 承接，
+                    // 旧目标回调由确认身份闸拒绝（new confirmation identity）。
+                    understandingTask = Task {
+                        let drafts = VoiceIntentCatalog.extract(for: key, text: source.selectedText,
+                                                                confidence: minSegmentConfidence ?? 0.9,
+                                                                lexicon: lexicon)
+                        let resolved = await resolveMedicalSlots(drafts)
+                        guard !Task.isCancelled, judgedIntent == newKey,
+                              confirmationSource == source else { return }
+                        confirmSet = VoiceInputTemplate.confirmationSet(drafts: resolved)
+                    }
                 }) { confirmed in
                     startDispatch(confirmed)
                 }
@@ -475,6 +487,17 @@ struct VoiceQuickLaunchView: View {
         }
     }
 
+    /// FR25.12⑪：语音医疗槽位统一过 F25 解析链（惰性建议，BR-003；
+    /// 码表不可用不阻断——无编码仍可确认）。OCR 侧同链（DocumentsState.analyze）。
+    private func resolveMedicalSlots(_ drafts: [FieldDraft]) async -> [FieldDraft] {
+        guard let codeIndex = app.codeIndex else { return drafts }
+        let locale = Locale(identifier: SettingsRules.resolved(settings.values[.language], key: .language))
+        var out = await UnderstandingCodeResolution.resolve(drafts, locale: locale,
+                                                            index: codeIndex, units: codeIndex)
+        out = await UnderstandingCodeResolution.attachCandidateResolutions(out, locale: locale, index: codeIndex)
+        return out
+    }
+
     /// 共享文本理解层自动判定（FR17.18 期一：兜底轨文法/启发式）——
     /// 单次调用产出意图 + 槽位草稿，替代此前三套正则并行抽取的内联实现。
     /// 转写置信度随输入传递（此前在此处被丢弃、引擎恒按 0.9 分类）
@@ -483,7 +506,7 @@ struct VoiceQuickLaunchView: View {
               transcript.matches(source, authorized: refinerEnabled,
                                  authorizationGeneration: settings.authAIRevision) else { return }
         let understanding = EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
-        let result: UnderstandingResult
+        var result: UnderstandingResult
         do {
             result = try await understanding.understand(
                 TextUnderstandingInput(text: source.selectedText,
@@ -493,6 +516,16 @@ struct VoiceQuickLaunchView: View {
             // 被折叠成降级结果继续覆盖 judgedIntent，用户撤销的语音判定仍落 UI
             return
         }
+        guard !Task.isCancelled, patientID == app.currentPatientId, confirmationSource == source,
+              transcript.matches(source, authorized: refinerEnabled,
+                                 authorizationGeneration: settings.authAIRevision) else { return }
+        // F25 词表锚定（2026-09-21，FR25.12⑪）：识别后先过词表（药名/剂型/
+        // 途径/频次槽位 + 近失配候选；未判定且证据充分时升为用药草稿），
+        // 再统一过解析链贴码（惰性；词表/码表不可用均不阻断）。
+        if let lexicon {
+            result = VoiceLexiconAnchoring.integrate(result, text: source.selectedText, lexicon: lexicon)
+        }
+        result.fields = await resolveMedicalSlots(result.fields)
         guard !Task.isCancelled, patientID == app.currentPatientId, confirmationSource == source,
               transcript.matches(source, authorized: refinerEnabled,
                                  authorizationGeneration: settings.authAIRevision) else { return }

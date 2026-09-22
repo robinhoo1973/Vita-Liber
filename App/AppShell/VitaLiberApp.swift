@@ -80,7 +80,9 @@ struct VitaLiberApp: App {
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
             audit: container.audit,
-            memberDeletion: container.memberDeletion))
+            memberDeletion: container.memberDeletion,
+            codeIndex: container.codeIndex,
+            lexiconSource: container.codeIndex))
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler,
             // 第八轮全仓审查修复：第七轮通道门只接到 AppointmentStore 与

@@ -84,4 +84,26 @@ struct LexiconScannerTests {
         #expect(MedicalLexicon.editDistance("abcd", "axyd", cap: 2) == 2)
         #expect(MedicalLexicon.editDistance("", "ab", cap: 2) == 2)
     }
+
+    @Test func sharedDraftPolicyIsSingleSource() {
+        // 公共工厂（OCR 行锚定与语音转写锚定共用）：置信度与候选形状
+        // 只在 `LexiconDraftFactory` 一处维护——两处后处理不得各自复制。
+        let lexicon = Self.seededLexicon()
+        guard let hit = lexicon.hits(in: "阿司匹林").first(where: { $0.entry.category == .medication }) else {
+            Issue.record("阿司匹林应命中词表")
+            return
+        }
+        #expect(hit.match == .exact)
+        #expect(LexiconDraftFactory.confidence(for: hit) == 0.6)
+        let folded = LexiconHit(value: hit.value, range: hit.range, entry: hit.entry, match: .folded)
+        #expect(LexiconDraftFactory.confidence(for: folded) == 0.55)
+        let candidate = LexiconDraftFactory.candidate(for: hit.entry)
+        #expect(candidate.confidence == 0.5)
+        #expect(candidate.source == .gazetteer)
+        let draft = LexiconDraftFactory.slotDraft(key: "drug_name", value: hit.value,
+                                                  confidence: 0.6, rawText: "阿司匹林")
+        #expect(draft.source == .gazetteer)
+        #expect(draft.rawText == "阿司匹林")
+        #expect(draft.sourceLineIndex == nil)
+    }
 }

@@ -54,14 +54,16 @@ public enum LexiconExtraction {
         guard !occupied.contains("raw_label|\(lineIndex)") else { return [] }
         let parsed = RuleExtractor.classify(line, kind: "metric_sample")
         var drafts: [FieldDraft] = []
-        let label = FieldDraft(key: "raw_label", value: hit.value, confidence: confidence(hit),
-                               rawText: line, source: .gazetteer, sourceLineIndex: lineIndex)
+        let label = LexiconDraftFactory.slotDraft(key: "raw_label", value: hit.value,
+                                                  confidence: LexiconDraftFactory.confidence(for: hit),
+                                                  rawText: line, sourceLineIndex: lineIndex)
         var hasReading = false
         for (key, value) in parsed where key != "raw_label" {
             guard !occupied.contains("\(key)|\(lineIndex)") else { continue }
             if key == "value" || key == "unit" { hasReading = true }
-            drafts.append(FieldDraft(key: key, value: value, confidence: confidence(hit),
-                                     rawText: line, source: .gazetteer, sourceLineIndex: lineIndex))
+            drafts.append(LexiconDraftFactory.slotDraft(key: key, value: value,
+                                                        confidence: LexiconDraftFactory.confidence(for: hit),
+                                                        rawText: line, sourceLineIndex: lineIndex))
             occupied.insert("\(key)|\(lineIndex)")
         }
         // 无值无单位 = 表头/标题噪声（词表命中不足以成行）——不产出
@@ -83,8 +85,9 @@ public enum LexiconExtraction {
         for (key, value) in parsed where key != "drug_name" {
             guard !occupied.contains("\(key)|\(lineIndex)") else { continue }
             if companionKeys.contains(key) { companionCount += 1 }
-            drafts.append(FieldDraft(key: key, value: value, confidence: confidence(drugHit),
-                                     rawText: line, source: .gazetteer, sourceLineIndex: lineIndex))
+            drafts.append(LexiconDraftFactory.slotDraft(key: key, value: value,
+                                                        confidence: LexiconDraftFactory.confidence(for: drugHit),
+                                                        rawText: line, sourceLineIndex: lineIndex))
             occupied.insert("\(key)|\(lineIndex)")
         }
         // 剂型/途径/频次词表命中补齐文法漏项（同键不覆）
@@ -92,15 +95,17 @@ public enum LexiconExtraction {
             guard let key = lexiconKey(for: hit.entry.category) else { continue }
             guard !occupied.contains("\(key)|\(lineIndex)") else { continue }
             companionCount += 1
-            drafts.append(FieldDraft(key: key, value: hit.value, confidence: confidence(hit),
-                                     rawText: line, source: .gazetteer, sourceLineIndex: lineIndex))
+            drafts.append(LexiconDraftFactory.slotDraft(key: key, value: hit.value,
+                                                        confidence: LexiconDraftFactory.confidence(for: hit),
+                                                        rawText: line, sourceLineIndex: lineIndex))
             occupied.insert("\(key)|\(lineIndex)")
         }
         let isPrescription = documentTypeKey == "prescription"
         guard isPrescription || companionCount > 0 else { return [] }
         occupied.insert("drug_name|\(lineIndex)")
-        let name = FieldDraft(key: "drug_name", value: drugHit.value, confidence: confidence(drugHit),
-                              rawText: line, source: .gazetteer, sourceLineIndex: lineIndex)
+        let name = LexiconDraftFactory.slotDraft(key: "drug_name", value: drugHit.value,
+                                                 confidence: LexiconDraftFactory.confidence(for: drugHit),
+                                                 rawText: line, sourceLineIndex: lineIndex)
         return [name] + drafts
     }
 
@@ -148,9 +153,7 @@ public enum LexiconExtraction {
                                            lexicon: MedicalLexicon) -> [FieldDraft.Candidate]? {
         let entries = lexicon.nearMisses(for: token, category: category)
         guard !entries.isEmpty else { return nil }
-        return entries.map { entry in
-            FieldDraft.Candidate(value: entry.term, confidence: 0.5, source: .gazetteer)
-        }
+        return LexiconDraftFactory.candidates(for: entries)
     }
 
     // MARK: - 小工具（原文保真：token/值恒为 line 的精确子串）
@@ -176,9 +179,5 @@ public enum LexiconExtraction {
         let tail = line[range.upperBound...]
         guard tail.contains(where: { $0.isNumber }) else { return nil }
         return String(tail)
-    }
-
-    private static func confidence(_ hit: LexiconHit) -> Double {
-        hit.match == .exact ? 0.6 : 0.55
     }
 }

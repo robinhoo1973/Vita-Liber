@@ -168,6 +168,55 @@ public struct MedicalLexicon: Sendable {
         return out
     }
 
+    /// 子串近失配扫描（2026-09-21，FR25.12⑪ 语音侧）：无分词器场景
+    /// （ASR 整句转写常无空格/标点）的候选定位——对文本每个起点，仅当
+    /// 该起点字符与某词条折叠键首字相同（首字桶剪枝）时，按候选键长窗口
+    /// （L/L±1）做有界编辑距离裁决；命中即产出（原文窗口, 词条）对并跳到
+    /// 窗口末尾（非重叠，同 `hits`）。值恒为原文子串，绝不写回。
+    /// 精确命中不走本 API（调用方先 `hits`）。至多返回 8 个跨度。
+    public func nearMissSpans(in text: String, category: LexiconCategory,
+                              limit: Int = 2) -> [(span: String, candidates: [LexiconEntry])] {
+        var folded: [Character] = []
+        var origin: [String.Index] = []
+        for idx in text.indices {
+            for character in Self.fold(character: text[idx]) {
+                folded.append(character)
+                origin.append(idx)
+            }
+        }
+        guard !folded.isEmpty else { return [] }
+        var byFirst: [Character: [(key: String, entry: LexiconEntry)]] = [:]
+        for (key, entries) in index {
+            guard let entry = entries.first, entry.category == category,
+                  let first = key.first else { continue }
+            byFirst[first, default: []].append((key, entry))
+        }
+        guard !byFirst.isEmpty else { return [] }
+        var out: [(span: String, candidates: [LexiconEntry])] = []
+        var consumedUntil = 0
+        for start in 0..<folded.count where start >= consumedUntil {
+            guard let bucket = byFirst[folded[start]] else { continue }
+            search: for (key, entry) in bucket.sorted(by: { $0.key < $1.key }) {
+                for length in [key.count, key.count - 1, key.count + 1] where length >= 2 {
+                    let end = start + length
+                    guard end <= folded.count else { continue }
+                    let window = String(folded[start..<end])
+                    guard window != key else { continue }
+                    let threshold = window.allSatisfy { $0.isASCII } ? 6 : 4
+                    guard window.count >= threshold, key.count >= threshold else { continue }
+                    guard Self.editDistance(window, key, cap: 2) <= 1 else { continue }
+                    let lower = origin[start]
+                    let upper = text.index(after: origin[end - 1])
+                    out.append((String(text[lower..<upper]), [entry]))
+                    consumedUntil = end
+                    break search
+                }
+            }
+            if out.count >= min(8, max(1, limit * 4)) { break }
+        }
+        return out
+    }
+
     /// 有界编辑距离（cap 之外提前退出；两串均视为折叠后的字符序列）。
     static func editDistance(_ a: String, _ b: String, cap: Int) -> Int {
         let left = Array(a), right = Array(b)
