@@ -134,6 +134,7 @@ struct StockLotDetailView: View {
             .padding(16)
             .frame(maxWidth: 560, alignment: .leading)
         }
+        .tintedCanvas()   // ui-ux §3.0 surface/tint：渐变画布直挂（V4.06 修正）
         .frame(maxWidth: .infinity)
     }
 

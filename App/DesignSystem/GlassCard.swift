@@ -50,6 +50,18 @@ extension View {
         modifier(GlassCardModifier(cornerRadius: cornerRadius))
     }
 
+    /// 渐变画布（ui-ux §3.0 surface/tint，V4.06 强化色值）——**直挂页面容器**：
+    /// 根级背景会被 TabView/NavigationStack 的系统不透明底色覆盖（真机实证不可见），
+    /// 只有挂在 List/ScrollView 容器上才真正透出；玻璃卡在本渐变上才有可感知的模糊物。
+    func tintedCanvas() -> some View {
+        background {
+            LinearGradient(colors: [Color("surface-tint-start", bundle: .main),
+                                    Color("surface-tint-end", bundle: .main)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+        }
+    }
+
     /// 按压态缩放反馈（自定义按压路径用；Button 优先 `.buttonStyle(PressScaleButtonStyle())`）。
     func pressFeedback(_ pressed: Bool) -> some View {
         scaleEffect(pressed ? 0.97 : 1)

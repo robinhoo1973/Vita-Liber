@@ -165,7 +165,10 @@ struct RootAdaptiveView: View {
             .overlay(alignment: .bottomTrailing) {
                 if appState.careMode && careSettingsSOSOrbVisible {
                     SOSOrb()
-                        .padding(16)
+                        .padding(.trailing, 16)
+                        // V4.06：此前贴底 16pt——悬浮球压在 Tab 栏右端、遮挡导航按钮
+                        // （业主实测）；让出 Tab 栏 + home indicator（≈88pt）
+                        .padding(.bottom, 92)
                         .accessibilityIdentifier("F18.sos.orb")
                 }
             }

@@ -195,7 +195,7 @@ struct QuickCaptureView: View {
                 .frame(maxWidth: 480)
                 .padding(24)
             }
-            // ui-ux §3.0 surface/tint：不透明底移除，渐变画布透出（2026-09-23 打磨轮）
+            .tintedCanvas()   // ui-ux §3.0 surface/tint：渐变画布直挂（V4.06 修正）
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { cancelToolbar } }

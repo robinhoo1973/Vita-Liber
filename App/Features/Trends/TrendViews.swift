@@ -462,6 +462,7 @@ struct SleepTrendDetailView: View {
         ScrollView {
             SleepTrendChartView(series: series, window: window, onToggleExcluded: onToggleExcluded)
         }
+        .tintedCanvas()   // ui-ux §3.0 surface/tint：渐变画布直挂（V4.06 修正）
         .navigationTitle(L10n.trendSleepTitle)
         .navigationBarTitleDisplayMode(.inline)
     }

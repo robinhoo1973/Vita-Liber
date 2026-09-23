@@ -122,7 +122,8 @@ struct AppointmentListView: View {
                             appointmentRowContent(apt)
                         }
                     }
-                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+                    .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -439,7 +440,8 @@ struct AppointmentDetailRouteView: View {
                             }
                         }
                     }
-                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+                    .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
                 } else {
                     RouteFallbackView(route: .appointmentDetail(appointmentId))
                 }

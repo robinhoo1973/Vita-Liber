@@ -172,7 +172,8 @@ private struct MedicalIDGuideSheet: View {
                         Text(L10n.medicalIDNote)
                     }
                 }
-                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+                .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
                 .navigationTitle(L10n.medicalIDTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -202,7 +203,8 @@ struct EmergencyCardSelectorView: View {
                 selectorSection(L10n.emergencySectionHealth, items: candidates.healthProblems)
                 selectorSection(L10n.emergencySectionContacts, items: candidates.contacts)
             }
-            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.emergencySelectTitle)
         }
     }
@@ -322,11 +324,14 @@ struct SOSOrb: View {
     var body: some View {
         WithPerceptionTracking {
             ZStack {
-                Circle()
+                // V4.06 重设计（业主 2026-09-24）：圆 + 圆内文字 = 文字溢出 64pt 圆；
+                // 改**胶囊形**（图标 + 单行文字在内部，不再溢出），高度 64 保持
+                // 关怀触点 ≥64pt（FR18.2），宽度随内容。
+                Capsule()
                     // 第八轮修复：语义危险色令牌替代硬编码 Color.red（§3.1
                     // 语义色表：semantic/danger = 紧急/SOS 专用，深色模式自动映射）
-                    .fill(Color("semantic-danger", bundle: .main).opacity(0.85))
-                    .frame(width: 64, height: 64)   // 关怀触点 ≥64pt（FR18.2）
+                    .fill(Color("semantic-danger", bundle: .main).opacity(0.9))
+                    .frame(height: 64)
                     .shadow(radius: 6)
                 // 环形进度反馈（FR18.3 按住确认的环形进度）——第六轮全仓审查
                 // 修复：progress(start) 只在 body 重渲染时求值，按住期间无任何
@@ -334,17 +339,21 @@ struct SOSOrb: View {
                 // 驱动（仅按住期间挂载，松开即卸载）
                 if holdStart != nil {
                     TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                        Circle()
+                        Capsule()
                             .trim(from: 0, to: progress(timeline.date))
-                            .stroke(Color.white, lineWidth: 4)
-                            .frame(width: 64, height: 64)
-                            .rotationEffect(.degrees(-90))
+                            .stroke(Color.white, lineWidth: 3)
+                            .frame(height: 64)
                     }
                 }
-                Text(L10n.emergency_sos_hold)
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
+                HStack(spacing: 6) {
+                    Image(systemName: "sos")
+                        .font(.title3.bold())
+                    Text(L10n.emergency_sos_hold)
+                        .font(.caption.bold())
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
             }
             .opacity(0.9)   // 可半透明（FR18.6）
             // 审查修复：LongPressGesture 两处硬伤——onChanged 在 minimumDuration

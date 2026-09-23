@@ -348,7 +348,8 @@ struct ObservationListView: View {
                     .frame(height: 72)
             }
         }
-        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+        .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
     }
 
     /// §6 错误态 = 行内错误条 + [重试]
@@ -366,7 +367,8 @@ struct ObservationListView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+        .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
     }
 
     /// §6 空态 = 插画 + 一句话 + 唯一主行动按钮
@@ -453,7 +455,8 @@ struct ObservationListView: View {
                 }
             }
         }
-        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+        .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
     }
 
     private var currentPatientId: UUID { app.currentPatientId }

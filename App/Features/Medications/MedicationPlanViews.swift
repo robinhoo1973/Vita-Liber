@@ -42,7 +42,8 @@ struct MedicationPlanListView: View {
                     .accessibilityIdentifier("SP-15.plan.row.\(plan.id.uuidString)")
                 }
             }
-            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
             .navigationTitle(L10n.planListTitle)
             .toolbar {
@@ -159,7 +160,8 @@ struct MedicationPlanDetailView: View {
                     emptyState()
                 }
             }
-            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.planDetailTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -745,7 +747,8 @@ struct MedicationKnowledgeCardView: View {
                         .foregroundStyle(Color("semantic-warning", bundle: .main))
                 }
             }
-            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.knowledgeTitle)
             .task { await loadAdvice() }
         }

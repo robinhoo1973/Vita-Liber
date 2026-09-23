@@ -44,7 +44,8 @@ struct LanguageSettingsView: View {
                     Text(L10n.languageFooter)
                 }
             }
-            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.languageTitle)
         }
     }
@@ -229,7 +230,8 @@ struct VoiceLanguageSettingsView: View {
                     Text(L10n.voiceLabEntryHint)
                 }
             }
-            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .sheet(item: $t2Explained) { lang in
                 T2ExplanationSheet(locale: lang.locale, nativeName: lang.nativeName)
             }
@@ -289,7 +291,8 @@ struct T2ExplanationSheet: View {
                     Label(L10n.voiceLangT2Point1, systemImage: "ear")
                     Label(L10n.voiceLangT2Point3, systemImage: "checkmark.seal")
                 }
-                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
+                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+                .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
                 .navigationTitle(L10n.voiceLangBestEffort)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {

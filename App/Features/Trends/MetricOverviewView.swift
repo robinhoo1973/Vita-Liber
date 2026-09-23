@@ -61,6 +61,7 @@ struct MetricOverviewView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                     }
+                    .tintedCanvas()   // ui-ux §3.0 surface/tint：渐变画布直挂（V4.06 修正）
                 }
             }
             .navigationTitle(L10n.metricOverviewTitle)
