@@ -82,8 +82,10 @@ struct ProfileSuggestionSheet: View {
             }
             Text(suggestion.value).font(.body).textSelection(.enabled)
             if let code = suggestion.codeText, !code.isEmpty {
+                // mono-caption（ui-ux §3.2 V4.05）：编码/编码系统是 ID 类元信息——
+                // 等宽数字防 0/O、1/l 误读（Stripe tnum / Linear mono 令牌心得）
                 Text([code, suggestion.codeSystemText].compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(VLFont.monoCaption).monospacedDigit().foregroundStyle(.secondary)
             }
             Button {
                 sourceOf = suggestion

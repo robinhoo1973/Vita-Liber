@@ -16,4 +16,8 @@ enum VLFont {
     static let exportIcon: Font = .system(size: 56)
     /// 指标总览宫格大数字（§5.45；28pt bold rounded，硬编码字号收敛出口）
     static let metricTileValue: Font = .system(size: 28, weight: .bold, design: .rounded)
+    /// ID/编号类元信息（ui-ux §3.2 V4.05 mono-caption）：记录号/处方号/批次号/
+    /// 编码——须配 `.monospacedDigit()`（Font 不携带等宽数字，由 Text 修饰器承担；
+    /// Linear「mono 用于状态/ID 令牌」+ Stripe tnum 心得，防 0/O、1/l 误读）
+    static let monoCaption: Font = .system(size: 11, weight: .regular)
 }

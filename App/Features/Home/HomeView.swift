@@ -999,9 +999,9 @@ private struct GuideTaskCard: View {
                     }
                 }
                 .padding(14)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color(.secondarySystemGroupedBackground)))
+                .glassCard(cornerRadius: 14)   // §3.3 表面阶梯 L2 玻璃（V4.05：常态无阴影）
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一：scale(0.97) 弹簧 ≤350ms
             .accessibilityIdentifier("SP-04.home.guide.\(title)")
         }
     }
