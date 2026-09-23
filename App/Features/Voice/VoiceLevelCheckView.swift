@@ -42,7 +42,7 @@ struct VoiceLevelCheck: View {
                 Text(meter.testPhrase)
                     .font(.headline)
                     .padding(.horizontal, 20).padding(.vertical, 14)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+                    .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
                     .onAppear { app.speak(meter.testPhrase) }
 
                 // 实时音量条（RMS 归一化；达标段绿、不足段警示色）

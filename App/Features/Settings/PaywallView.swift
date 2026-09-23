@@ -97,7 +97,7 @@ struct PaywallView: View {
             Text(price).font(.subheadline.bold())
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color("bg-grouped", bundle: .main)))
+        .glassCard(cornerRadius: 16)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
     }
 
     private func load() async { await entitlements.load() }

@@ -366,7 +366,7 @@ private struct TrendPointBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+        .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-13.trend.bubble")
     }
@@ -638,7 +638,7 @@ private struct SleepNightBubble: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+        .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-13.trend.sleep.bubble")
     }
