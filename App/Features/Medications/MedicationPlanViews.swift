@@ -42,6 +42,7 @@ struct MedicationPlanListView: View {
                     .accessibilityIdentifier("SP-15.plan.row.\(plan.id.uuidString)")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
             .navigationTitle(L10n.planListTitle)
             .toolbar {
@@ -158,6 +159,7 @@ struct MedicationPlanDetailView: View {
                     emptyState()
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.planDetailTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -615,6 +617,15 @@ struct MedicationPlanFormView: View {
                     }
                 }
                 .navigationTitle(L10n.planFormTitle)
+                // FR9.19（V4.04）：每日次数变化 → 按推荐表预选时刻（用户仍可手改；确认后才落库）
+                .onChangeCompat(of: timesPerDay) { _, newValue in
+                    guard !isAsNeeded,
+                          let proposal = DoseScheduleAdvisor.advise(
+                              timesPerDay: Int(newValue.trimmingCharacters(in: .whitespaces))),
+                          case .fixed(let proposed) = proposal.schedule
+                    else { return }
+                    fixedTimes = proposed.joined(separator: ",")
+                }
                 .saveFailedAlert(title: L10n.planFormSaveFailed,
                                  hint: L10n.planFormSaveFailedHint,
                                  isPresented: $saveFailed)
@@ -641,9 +652,11 @@ struct MedicationPlanFormView: View {
             saveFailed = true
             return
         }
+        // FR9.19（V4.04）：空时刻按频率推荐表兜底（onChange 已预选；此处覆盖粘贴/清空场景）
+        let recommended = DoseScheduleAdvisor.advise(timesPerDay: Int(timesPerDay), isAsNeeded: isAsNeeded)
         let schedule: MedicationSchedule = isAsNeeded
             ? .asNeeded
-            : .fixed(times: times.isEmpty ? ["08:00"] : times)
+            : (times.isEmpty ? (recommended?.schedule ?? .fixed(times: ["08:00"])) : .fixed(times: times))
         let source: PrescriptionSource = .manual
         let rx = Prescription(
             patientId: app.currentPatientId,
@@ -732,6 +745,7 @@ struct MedicationKnowledgeCardView: View {
                         .foregroundStyle(Color("semantic-warning", bundle: .main))
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.knowledgeTitle)
             .task { await loadAdvice() }
         }

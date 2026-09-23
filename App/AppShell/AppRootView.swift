@@ -68,6 +68,17 @@ struct AppRootView: View {
                         }
                 }
             }
+            // ui-ux §3.0 surface/tint：屏幕底层渐变背景——玻璃（GlassCardModifier）
+            // 有物可模糊的前提（tech-spec §3「让玻璃有东西可模糊」；2026-09-23 补装，
+            // 此前根无渐变导致玻璃卡与普通卡在平坦底上无法区分）。colorset 自带
+            // 深色变体，无需按 colorScheme 手切；透明底页面（首页 List 已
+            // scrollContentBackground(.hidden)）直接透出本渐变。
+            .background {
+                LinearGradient(colors: [Color("surface-tint-start", bundle: .main),
+                                        Color("surface-tint-end", bundle: .main)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .ignoresSafeArea()
+            }
             // 2026-09-19 审查修复（业主诉求「返回后页面跟离开时不一致、之前的工作不见了」）：
             // 门禁此前是**分支替换**——锁定即把 RootAdaptiveView 从视图树整个摘除，
             // 解锁重挂载后所有子树 @State（表单草稿/滚动位置/向导步骤/在途任务）

@@ -122,6 +122,7 @@ struct AppointmentListView: View {
                             appointmentRowContent(apt)
                         }
                     }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -438,6 +439,7 @@ struct AppointmentDetailRouteView: View {
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                 } else {
                     RouteFallbackView(route: .appointmentDetail(appointmentId))
                 }

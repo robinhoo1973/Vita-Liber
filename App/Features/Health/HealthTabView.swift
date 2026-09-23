@@ -33,6 +33,7 @@ struct HealthTabView: View {
                     Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.navHealth)
             // 2026-09-15 审查修复（效率）：设置装载与 metricsVersion 无关——原与指标
             // 版本共用同一 task，设备每次落库都白跑一轮 app_settings 全表读（磁盘往返

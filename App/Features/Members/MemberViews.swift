@@ -67,6 +67,7 @@ struct MemberManagementView: View {
                     .accessibilityIdentifier("FR3.7.member.add")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.member_title)
             .task { await app.loadMembers() }
             .sheet(isPresented: $showAdd) {

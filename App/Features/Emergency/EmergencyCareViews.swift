@@ -133,7 +133,7 @@ struct GuideCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color("bg-grouped", bundle: .main)))
+            .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
             .sheet(isPresented: $showGuide) {
                 MedicalIDGuideSheet()
             }
@@ -172,6 +172,7 @@ private struct MedicalIDGuideSheet: View {
                         Text(L10n.medicalIDNote)
                     }
                 }
+                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                 .navigationTitle(L10n.medicalIDTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -201,6 +202,7 @@ struct EmergencyCardSelectorView: View {
                 selectorSection(L10n.emergencySectionHealth, items: candidates.healthProblems)
                 selectorSection(L10n.emergencySectionContacts, items: candidates.contacts)
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.emergencySelectTitle)
         }
     }

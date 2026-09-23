@@ -169,6 +169,7 @@ struct DataLifecycleView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.settings_dataLifecycle)
             // FR14.3 执行前影响清单确认
             .confirmationDialog(L10n.lifecycleClearButton, isPresented: $showClearConfirm,

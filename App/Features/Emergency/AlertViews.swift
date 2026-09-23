@@ -101,6 +101,7 @@ struct AlertHistoryView: View {
                             Button(L10n.healthLoadMore) { historyLimit += 200 }
                         }
                     }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                     .accessibilityIdentifier("F16.alerts.list")
                 }
             }

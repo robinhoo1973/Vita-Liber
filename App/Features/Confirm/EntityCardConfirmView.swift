@@ -435,6 +435,7 @@ struct EntityCardConfirmView: View {
                     }
                     .buttonStyle(.borderless)
                 }
+                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             }
             .disabled(saving)
             .scrollDismissesKeyboard(.interactively)
@@ -681,6 +682,7 @@ struct PendingCardResumeRouteView: View {
                         }
                         Section(L10n.pendingCardRawText) { Text(pending.rawText).textSelection(.enabled) }
                     }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                 } else if loadFailed {
                     VLUnavailableView {
                         Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")

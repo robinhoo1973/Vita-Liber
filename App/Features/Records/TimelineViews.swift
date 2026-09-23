@@ -258,6 +258,7 @@ struct TimelineFullView: View {
                             .accessibilityIdentifier("SP-19.quick.metrics")
                         }
                     }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("SP-19.timeline.list")
                 }
@@ -274,10 +275,12 @@ struct TimelineFullView: View {
             .onChangeCompat(of: dataChange.documentsVersion) { _, _ in
                 Task { await state.load(patientId: app.currentPatientId) }
             }
-            // 2026-09-15 审查修复（业主第 3/7 项同族）：设备读数经 Apple 健康导入后**也**
-            // 投影进本页（`.healthData` 叶子）——此前本页只观察 documentsVersion，同步落库后
-            // 仍显示导入前的列表（用户看到的正是「导入的记录不见了」），须切成员/切 Tab 才刷新。
-            // 其余设备数据面（SP-29 展示区/详情页、指标总览、SP-13）均已各自观察该信号。
+            // 2026-09-15 审查修复（业主第 3/7 项同族）：指标行（手输自测）经 metric_sample 落库后**也**
+            // 投影进本页（`.selfMeasured` 叶子）——此前本页只观察 documentsVersion，落库后仍显示
+            // 录入前的列表，须切成员/切 Tab 才刷新。
+            // FR11.2 V4.05（2026-09-23）：Apple 健康导入（`.healthData`）已移出健康档案（专属
+            // 「健康数据」tab），但本观察仍必需——手输自测行只经该信号刷新；其余设备数据面
+            // （SP-29 展示区/详情页、指标总览、SP-13）各自观察。
             .onChangeCompat(of: dataChange.metricsVersion) { _, _ in
                 Task { await state.load(patientId: app.currentPatientId) }
             }
@@ -291,7 +294,9 @@ struct TimelineFullView: View {
                     state.setFilter(nil)
                     Task { await state.load(patientId: app.currentPatientId) }
                 }
-                ForEach(TimelineEntryKind.allCases, id: \.rawValue) { kind in
+                // FR11.2 V4.05：筛选目录同读 Domain 单一事实源（Apple 健康导入 `.healthData` 不入健康档案，
+                // 专属「健康数据」tab——此前 allCases 使该 chip 存于本页但恒空）
+                ForEach(TimelineEntryKind.recordsArchiveKinds, id: \.rawValue) { kind in
                     // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                     WithPerceptionTracking {
                         FilterChip(title: L10n.timelineKindName(kind), selected: selectedKinds.contains(kind)) {
@@ -380,6 +385,8 @@ struct TimelineFullView: View {
         // 2026-09-16 业主实测（第 5 项）：设备行**不再直跳趋势图**（「感觉突兀」）——
         // 落该类型的数据列表页（= 详细数据：逐条读数 + 统计事实），页内已有趋势入口按钮。
         // 手输自测保持原口径（点 = 一次手输读数，趋势图承载即可）。
+        // V4.05（FR11.2）：本页不再投影 `.healthData`（专属「健康数据」tab）——
+        // 本分支保留为穷举防御（子卡/平铺路径若未来再次喂入仍然正确落点）。
         case .healthData:
             if let m = entry.metricKey, let kind = HealthDataKind.forMetricKey(m) {
                 router.navigate(to: .healthImportedData(kind: kind, patientId: entry.memberId))
@@ -571,6 +578,7 @@ struct HealthProblemListView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.problemTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -762,6 +770,7 @@ struct VisitPrepView: View {
                         .font(.caption2).foregroundStyle(.secondary)
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.prepTitle)
             .task(id: app.currentPatientId) {
                 await reminders.refreshTriggered(patientId: app.currentPatientId)
@@ -858,6 +867,7 @@ struct QuestionListView: View {
                     .accessibilityIdentifier("FR10.5.question.row")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.questionTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

@@ -141,6 +141,7 @@ struct NotificationCenterView: View {
                         .accessibilityIdentifier("SP-27.empty")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.ncTitle)
             // 悲观归档失败可见（U-N5）：行仍在，用户可重试或取消
             .alert(L10n.homeSwipeFailed, isPresented: $showArchiveFailed, presenting: archiveFailedKey) { key in

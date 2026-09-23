@@ -169,6 +169,7 @@ struct VoiceEngineLabView: View {
                     Text(L10n.voiceLabResultFooter)
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.voiceLabTitle)
             .navigationBarTitleDisplayMode(.inline)
             .task {

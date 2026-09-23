@@ -137,6 +137,7 @@ struct RemindersView: View {
                     .accessibilityIdentifier("FR24.5.entry")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.navReminders)
             .task(id: currentPatientId) {
                 await reminders.refreshTriggered(patientId: currentPatientId)

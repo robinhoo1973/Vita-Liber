@@ -1030,9 +1030,9 @@ private struct BigCareCard: View {
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, minHeight: 72)
-                .background(RoundedRectangle(cornerRadius: 18).fill(Color(.secondarySystemGroupedBackground)))
+                .glassCard(cornerRadius: 18)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         }
     }
 }

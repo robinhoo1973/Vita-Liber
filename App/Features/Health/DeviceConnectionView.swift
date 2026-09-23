@@ -586,6 +586,7 @@ struct DeviceConnectionView: View {
                     NavigationLink(value: AppRoute.alertHistory) { Text(L10n.alert_historyEntry) }
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(L10n.healthImportSettingsTitle)
             // H3：观察 metricsVersion——后台/自动同步落库后仪表盘与三态同步刷新，不等用户重进页面
             .task(id: dataChange.metricsVersion) {
@@ -870,6 +871,7 @@ struct HealthImportedDataView: View {
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                 }
             }
             .navigationTitle(L10n.metricName(kind.primaryMetric))

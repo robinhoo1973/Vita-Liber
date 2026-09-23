@@ -348,6 +348,7 @@ struct ObservationListView: View {
                     .frame(height: 72)
             }
         }
+        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
     }
 
     /// §6 错误态 = 行内错误条 + [重试]
@@ -365,6 +366,7 @@ struct ObservationListView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
     }
 
     /// §6 空态 = 插画 + 一句话 + 唯一主行动按钮
@@ -451,6 +453,7 @@ struct ObservationListView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
     }
 
     private var currentPatientId: UUID { app.currentPatientId }

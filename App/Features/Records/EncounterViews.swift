@@ -148,6 +148,7 @@ struct EncounterListView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
             .frame(maxWidth: 672)   // §9.1 正文行宽 ≤672pt（iPad 常宽列可读性）
             .safeAreaInset(edge: .top) {
                 HStack(spacing: 8) {
@@ -594,6 +595,7 @@ struct EncounterSummaryView: View {
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }
+                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（2026-09-23 打磨轮）
                 .navigationTitle(L10n.encounterSummaryTitle)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
