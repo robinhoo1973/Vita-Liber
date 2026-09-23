@@ -195,7 +195,7 @@ struct QuickCaptureView: View {
                 .frame(maxWidth: 480)
                 .padding(24)
             }
-            .background(Color("bg-grouped", bundle: .main))
+            // ui-ux §3.0 surface/tint：不透明底移除，渐变画布透出（2026-09-23 打磨轮）
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { cancelToolbar } }

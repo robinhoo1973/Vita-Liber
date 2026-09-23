@@ -294,8 +294,7 @@ struct VoiceConfirmSheet: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12)
-                        .fill(Color("bg-grouped", bundle: .main)))
+                    .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影；D 级虚线语义由下方 overlay 保留）
                     .overlay(RoundedRectangle(cornerRadius: 12)
                         .strokeBorder(Color("grade-d", bundle: .main),
                                       style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
