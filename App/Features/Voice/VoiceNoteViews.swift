@@ -122,7 +122,7 @@ struct VoiceNotePanelView: View {
                             .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("SP-59.voicenote.row")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                         // 录音进行中禁止进入详情：sheet 不改动本页层级，
                         // `DictationInteraction.onDisappear` 不会触发，麦克风会在
                         // 编辑面板底下继续收音，转写回来又弹一次确认卡

@@ -812,7 +812,7 @@ struct ObservationCreateSheet: View {
                 .strokeBorder(selected ? Color("brand-primary", bundle: .main) : .clear,
                               lineWidth: selected ? 1.5 : 0))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityLabel(L10n.observationKindName(item))
         .accessibilityIdentifier("SP-14.observation.kind.\(item.rawValue)")
     }

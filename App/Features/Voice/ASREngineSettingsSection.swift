@@ -202,7 +202,7 @@ struct ASREngineSettingsSection: View {
                                 }
                             }.frame(minHeight: 44)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                         .accessibilityIdentifier("\(accessibilityPrefix).engine.\(choice.rawValue)")
 
                         if choice.isBundledModel {

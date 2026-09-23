@@ -430,7 +430,7 @@ private struct TrendPointRow: View {
                         .resizable().frame(width: 20, height: 20)
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                 .accessibilityLabel(isExcluded ? L10n.trendRestorePoint : L10n.trendExcludePoint)
                 .accessibilityIdentifier(isExcluded ? "SP-13.trend.restore" : "SP-13.trend.exclude")
             }
@@ -680,7 +680,7 @@ private struct SleepNightRow: View {
                         .resizable().frame(width: 20, height: 20)
                         .frame(width: 44, height: 44)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                 .contentShape(Rectangle())
                 .accessibilityLabel(isExcluded ? L10n.trendRestorePoint : L10n.trendExcludePoint)
                 .accessibilityIdentifier(isExcluded ? "SP-13.trend.sleep.restore" : "SP-13.trend.sleep.exclude")

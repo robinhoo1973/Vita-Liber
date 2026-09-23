@@ -133,7 +133,7 @@ struct ThemeSegmentedPicker: View {
                     : Color.clear,
                 in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityIdentifier("SP-25.setting.appearance.\(theme.rawValue)")
         .accessibilityAddTraits(selected ? .isSelected : [])
     }

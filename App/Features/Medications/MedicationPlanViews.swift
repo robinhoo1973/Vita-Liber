@@ -425,7 +425,7 @@ private struct WeekStrip: View {
                                   ? Color("brand-primary", bundle: .main).opacity(0.08)
                                   : Color.clear))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                 }
             }
         }

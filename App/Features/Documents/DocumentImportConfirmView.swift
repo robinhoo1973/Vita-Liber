@@ -474,7 +474,7 @@ private struct OCRCardBrowserNavigation: View {
                                     .background(RoundedRectangle(cornerRadius: 10).fill(card.id == docs.currentEntityCard?.id
                                         ? Color("brand-primary", bundle: .main).opacity(0.16) : Color(.secondarySystemGroupedBackground)))
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                                 .accessibilityIdentifier("SP-12.card.select.\(card.id.uuidString)")
                             }
                         }

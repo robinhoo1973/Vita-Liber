@@ -76,7 +76,7 @@ struct SourceLineSheet: View {
                                 )
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                             .disabled(!pickable)
                             .id(index)
                         }

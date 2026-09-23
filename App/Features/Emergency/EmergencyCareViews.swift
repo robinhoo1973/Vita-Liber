@@ -230,7 +230,7 @@ struct EmergencyCardSelectorView: View {
                         .contentShape(Rectangle())
                         .frame(minHeight: 44)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                     .accessibilityLabel("\(item.title)：\(selectedIds.contains(item.id) ? L10n.emergencySelected : L10n.emergencyUnselected)")
                     .accessibilityIdentifier("F15.selector.item")
                 }

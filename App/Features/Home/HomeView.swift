@@ -413,7 +413,7 @@ struct HomeView: View {
                                        : Color(.systemGray6)))
             .foregroundStyle(selected ? Color.white : Color.primary)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityIdentifier("SP-04.home.chip.\(kind?.rawValue ?? "all")")
     }
 
@@ -534,7 +534,7 @@ struct HomeView: View {
             .frame(minHeight: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityLabel(L10n.homeProfileProgressTitle)
         .accessibilityValue(L10n.homeProfileProgressFmt(progress.done, progress.total))
         .accessibilityHint(L10n.homeProfileContinue)
@@ -625,7 +625,7 @@ struct HomeView: View {
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
             .accessibilityElement(children: .combine)
             .accessibilityLabel(L10n.homeModelDownloadTitle)
             .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
@@ -749,7 +749,7 @@ struct HomeView: View {
             .padding(.vertical, 8)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityIdentifier("SP-04.home.row.\(item.id.sourceId)")
     }
 

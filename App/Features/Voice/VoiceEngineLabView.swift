@@ -81,7 +81,7 @@ struct VoiceEngineLabView: View {
                             }
                             .frame(minHeight: 44)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                         .disabled(model?.hasPendingTranscriptions == true)
                         .accessibilityIdentifier("SP-62.engine.\(option.rawValue)")
                     }

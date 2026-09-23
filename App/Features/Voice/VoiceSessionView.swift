@@ -158,7 +158,7 @@ struct VoiceSessionLaunchCard: View {
                     .background(RoundedRectangle(cornerRadius: 16)
                         .fill(Color("bg-grouped", bundle: .main)))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                 .accessibilityIdentifier("F19.session.launchCard")
                 .fullScreenCover(isPresented: $showSession) {
                     VoiceSessionView()
@@ -309,7 +309,7 @@ struct VoiceSessionView: View {
                         .background(RoundedRectangle(cornerRadius: 12)
                             .fill(Color("surface-tint-start", bundle: .main).opacity(0.25)))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                     .accessibilityIdentifier("F19.session.option.\(index + 1)")
                 }
             }
