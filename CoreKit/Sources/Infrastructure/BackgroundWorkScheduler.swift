@@ -18,6 +18,21 @@ public struct BackgroundJobOutcome: Equatable, Sendable {
     public init(success: Bool, reschedule: Bool = true) { self.success = success; self.reschedule = reschedule }
 }
 
+/// `BGTaskScheduler.submit` 失败的分类（2026-09-23 修复「提交失败被误记注册失败」）：
+/// 注册级缺陷与系统级暂态必须分开——只有 `.notPermitted`（标识符未登记/未注册）或注册回执
+/// 为 false 才构成「注册失败」；`.unavailable`（系统关闭后台刷新/资源受限）与
+/// `.tooManyPendingTaskRequests`（同名请求未撤销即重提）是暂态，应静默重试自愈。
+public enum SubmitFailureKind: Sendable, Equatable {
+    /// 标识符未登记/未注册（`BGTaskScheduler.Error.Code.notPermitted`）——注册级缺陷。
+    case notPermitted
+    /// 系统层面暂不可用（后台刷新被关闭、低电量等）。
+    case unavailable
+    /// 排队过多（同名请求未撤销即重提的经典成因）。
+    case tooManyPending
+    /// 其他错误。
+    case other
+}
+
 /// 统一后台调度门面（round5 Q2，业主「可靠稳定的后台模块，可用作所有需要后台处理的工作」在 iOS 上的正确形态）。
 ///
 /// iOS 无守护进程；后台执行权只来自 OS 原语，本门面把三件事收口：
@@ -39,6 +54,12 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     private var registered = false
     /// 最近一次提交失败（标识符 → 错误描述）；仪表盘可据此如实呈现「后台任务未能排期」。
     public private(set) var lastSubmitFailure: [String: String] = [:]
+    /// 提交失败分类（标识符 → 分类；2026-09-23）：调用方据此把「注册级缺陷」与
+    /// 「系统级暂态」分开记账（前者报警、后者重试自愈）。
+    public private(set) var lastSubmitFailureKind: [String: SubmitFailureKind] = [:]
+    /// `register(forTaskWithIdentifier:)` 的 Bool 回执（此前被丢弃）：false = 系统拒绝注册
+    /// （标识符未登记/重复注册），此后一切提交必然失败——注册级缺陷的唯一在架证据。
+    public private(set) var registrationResults: [String: Bool] = [:]
 
     private init() {}
 
@@ -59,9 +80,11 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         let snapshot = jobs
         lock.unlock()
         for (identifier, job) in snapshot {
-            BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
+            // 2026-09-23：回执不再丢弃——false 即系统拒绝注册，是「注册失败」判定的第一手证据。
+            let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
                 self?.handle(task, job: job)
             }
+            lock.lock(); registrationResults[identifier] = ok; lock.unlock()
         }
     }
 
@@ -83,18 +106,47 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
             request = processing
         }
         request.earliestBeginDate = job.descriptor.earliestBeginDate(from: now)
+        // 同名重排 = 先撤旧请求再提交（2026-09-23）：不撤旧就重提是排队族错误
+        // （`tooManyPendingTaskRequests`）的经典成因。撤销只影响**挂起**请求，
+        // 对正在运行的作业无影响（运行中的请求已被系统消费）。
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
         do {
             try BGTaskScheduler.shared.submit(request)
-            lock.lock(); lastSubmitFailure[identifier] = nil; lock.unlock()
+            lock.lock(); lastSubmitFailure[identifier] = nil; lastSubmitFailureKind[identifier] = nil; lock.unlock()
             return true
         } catch {
-            lock.lock(); lastSubmitFailure[identifier] = String(describing: error); lock.unlock()
+            let kind = Self.classify(error)
+            lock.lock()
+            lastSubmitFailure[identifier] = String(describing: error)
+            lastSubmitFailureKind[identifier] = kind
+            lock.unlock()
             return false
         }
     }
 
     public func cancel(_ identifier: String) {
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+    }
+
+    /// 某标识符最近一次提交失败的分类（nil = 无失败记录）。
+    public func submitFailureKind(for identifier: String) -> SubmitFailureKind? {
+        lock.lock(); defer { lock.unlock() }
+        return lastSubmitFailureKind[identifier]
+    }
+
+    /// 某标识符是否被系统拒绝注册（false 回执；nil = 无记录）。
+    public func registrationFailed(for identifier: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return registrationResults[identifier] == false
+    }
+
+    private static func classify(_ error: Error) -> SubmitFailureKind {
+        guard let bgError = error as? BGTaskScheduler.Error else { return .other }
+        let code = bgError.code
+        if code == .notPermitted { return .notPermitted }
+        if code == .unavailable { return .unavailable }
+        if code == .tooManyPendingTaskRequests { return .tooManyPending }
+        return .other
     }
 
     /// 系统唤起：预算按作业种类给（刷新 ≈20s / 处理默认 4 分钟），到期 → 协作取消；作业返回后回报并按 outcome 重排。
@@ -141,7 +193,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         let identifiers = continuedIdentifiers
         lock.unlock()
         for identifier in identifiers {
-            BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
+            let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
                 guard let self, let continuedTask = task as? BGContinuedProcessingTask,
                       let pending = self.takePending(identifier) else { task.setTaskCompleted(success: false); return }
                 let expired = ExpiryFlag()
@@ -152,6 +204,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                 }
                 continuedTask.expirationHandler = { expired.value = true; work.cancel() }
             }
+            lock.lock(); registrationResults[identifier] = ok; lock.unlock()
         }
     }
 
@@ -174,7 +227,11 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
             do {
                 try BGTaskScheduler.shared.submit(request)
             } catch {
-                lock.lock(); lastSubmitFailure[identifier] = String(describing: error); lock.unlock()
+                let kind = Self.classify(error)
+                lock.lock()
+                lastSubmitFailure[identifier] = String(describing: error)
+                lastSubmitFailureKind[identifier] = kind
+                lock.unlock()
                 guard let taken = takePending(identifier) else { return }
                 Task { taken.completion.resume(returning: await taken.operation(nil) { Task.isCancelled }) }
                 return

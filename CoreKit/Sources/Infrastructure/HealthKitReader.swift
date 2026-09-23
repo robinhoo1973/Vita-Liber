@@ -228,8 +228,23 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
+    /// 后台投递注册结果（2026-09-23 修复）：不能再把「某类型未授权/被拒」与「注册整体失败」
+    /// 混为一个布尔——健康读取权限**按类型**授予、用户可逐类拒绝；任何单类型失败都把整体
+    /// 判死，会让警示横幅在部分授权用户处永久点亮（「重新连接」也无法修复被拒类型）。
+    public struct BackgroundDeliveryOutcome: Sendable, Equatable {
+        /// 已开启后台投递的样本类型（`HKSampleType.identifier`）。
+        public var armedTypes: [String] = []
+        /// 权限未定/被拒——用户侧修复（重新走连接授权单，或到「健康」App 调整读取权限）。
+        public var blockedTypes: [String] = []
+        /// 其他系统错误——可重试。
+        public var failedTypes: [String] = []
+        /// 后台自动导入可用 = 至少一个类型已武装。
+        public var isUsable: Bool { !armedTypes.isEmpty }
+        public init() {}
+    }
+
     public func observeChanges(handler: @escaping @Sendable () async -> Bool,
-                               enableDelivery: Bool) async -> Bool {
+                               enableDelivery: Bool) async -> BackgroundDeliveryOutcome {
         if observers.isEmpty {
             for type in Self.readTypes {
                 guard let sampleType = type as? HKSampleType else { continue }
@@ -243,20 +258,30 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
                 store.execute(query)
             }
         }
-        if !enableDelivery {
-            var success = true
-            for type in Self.readTypes {
-                do { try await store.disableBackgroundDelivery(for: type) }
-                catch { success = false }
-            }
-            return success
-        }
-        var success = true
+        var outcome = BackgroundDeliveryOutcome()
         for type in Self.readTypes {
-            do { try await store.enableBackgroundDelivery(for: type, frequency: .hourly) }
-            catch { success = false }
+            guard let sampleType = type as? HKSampleType else { continue }
+            let identifier = sampleType.identifier
+            do {
+                if enableDelivery {
+                    try await store.enableBackgroundDelivery(for: type, frequency: .hourly)
+                    outcome.armedTypes.append(identifier)
+                } else {
+                    try await store.disableBackgroundDelivery(for: type)
+                }
+            } catch let error as HKError {
+                // 权限族（未定/被拒）≠ 注册缺陷：逐类型分类留证，单类型被拒只封锁该类型。
+                switch error.code {
+                case .errorAuthorizationDenied, .errorAuthorizationNotDetermined:
+                    if enableDelivery { outcome.blockedTypes.append(identifier) }
+                default:
+                    if enableDelivery { outcome.failedTypes.append(identifier) }
+                }
+            } catch {
+                if enableDelivery { outcome.failedTypes.append(identifier) }
+            }
         }
-        return success
+        return outcome
     }
 
     /// round2 H-N1：按分道谓词分页——HKAnchoredObjectQuery 行序最旧优先且不可倒序。

@@ -342,8 +342,18 @@ final class F16DeviceState {
     /// 调用 startBackgroundObservation 后丢弃结果，运行时注册失败（如系统拒绝
     /// enableBackgroundDelivery）不刷新本标志，警告条永不出现。每次自动化注册
     /// 后如实同步标志（静默死亡警示的单一回填点补齐第二消费路径）。
+    /// 2026-09-23 修复：改走 `maintainBackgroundAutomation` 单一入口——开关打开时
+    /// 顺带重排后台请求；开关关闭时撤销挂起请求（不占用系统预算）。
     func updateAutomation() async {
-        await syncService.startBackgroundObservation()
+        await syncService.maintainBackgroundAutomation()
+        backgroundSyncBroken = await syncService.backgroundRegistrationFailed
+    }
+
+    /// 2026-09-23 修复（横幅假警报自愈）：回前台统一维护——重排刷新/回填请求 + 复核
+    /// 观察注册真相；服务侧提交成功即清暂态失败账（此前提交失败被误记注册失败，
+    /// 横幅点亮后无任何清除/重试路径，「重新连接」修复的也不是失败源）。
+    func maintainBackgroundAutomation() async {
+        await syncService.maintainBackgroundAutomation()
         backgroundSyncBroken = await syncService.backgroundRegistrationFailed
     }
     func importedRows(kind: HealthDataKind, before: HealthImportRow?) async throws -> [HealthImportRow] {

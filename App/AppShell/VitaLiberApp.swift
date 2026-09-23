@@ -232,7 +232,8 @@ struct VitaLiberApp: App {
                 return false
             }
         }
-        Task { await container.healthSync.startBackgroundObservation() }
+        // 2026-09-23 修复：启动入口改为统一维护（观察注册复核 + 刷新/回填请求重排）
+        Task { await container.healthSync.maintainBackgroundAutomation() }
     }
 
     var body: some Scene {

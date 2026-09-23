@@ -1889,7 +1889,7 @@
 "health.requestIncomplete" = "系統授權流程未完成，請重試連線。";
 "health.importedEmpty" = "尚無已匯入的資料。首次同步會優先匯入最近一年。";
 "health.sparseWindowsFmt" = "%d 個小時樣本稀疏，未形成小時統計。";
-"health.backgroundSyncFailed" = "後台自動導入註冊失敗——新資料僅在手動同步時到達（可重新連線修復）。";
+"health.backgroundSyncFailed" = "後台自動導入註冊失敗——新資料僅在手動同步時到達（可重新連線，或到「健康」App 檢查本應用的讀取權限）。";
 "health.backfillProgressFmt" = "正在匯入%@，剩餘 %d 個統計視窗。";
 "health.backfillLane.recent" = "最近一年";
 "health.backfillLane.history" = "更早歷史";

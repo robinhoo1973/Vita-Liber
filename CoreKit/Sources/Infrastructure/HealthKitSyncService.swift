@@ -37,8 +37,7 @@ public actor HealthKitSyncService {
         // A completed request says nothing about individual read permissions.
         let binding = try await imports.connect()
         #if os(iOS)
-        await startBackgroundObservation()
-        _ = scheduleBackgroundRefresh()
+        await maintainBackgroundAutomation()
         #endif
         return binding
     }
@@ -322,6 +321,12 @@ public actor HealthKitSyncService {
     /// 用户发起的手动同步在 iOS 26 经 continued processing 续跑（切后台不中断）。
     public static let continuedSyncIdentifier = "com.vitaliber.continued.healthkit-sync"
     public private(set) var backgroundRegistrationFailed = false
+    /// 提交（排期）失败标记（2026-09-23 拆分）：`BGTaskScheduler.submit` 的系统级暂态
+    /// （后台刷新被关、排队过多）此前被误记成「注册失败」——横幅文案错误、且「重新连接」
+    /// 并不能修复系统级限制。暂态只记账，由前台入口 `maintainBackgroundAutomation` 重试自愈。
+    public private(set) var backgroundScheduleFailed = false
+    /// 最近一次后台投递注册的分类结果（诊断用；`armedTypes` 为空 = 真正不可用）。
+    public private(set) var lastDeliveryOutcome: HealthKitReader.BackgroundDeliveryOutcome?
     nonisolated(unsafe) public static var backgroundSyncHandler: (@Sendable () async -> Bool)?
     /// 回填执行体（App 装配：读静默时段设置 → `performSyncAll(maxRounds: 按预算, timeBudget: 预算)`）。
     nonisolated(unsafe) public static var backgroundBackfillHandler: (@Sendable (Duration) async -> BackgroundJobOutcome)?
@@ -361,20 +366,54 @@ public actor HealthKitSyncService {
         }
         do {
             let enabled = try await canAutomaticallySync()
-            backgroundRegistrationFailed = !(await reader.observeChanges(handler: {
+            let outcome = await reader.observeChanges(handler: {
                 (await Self.backgroundSyncHandler?()) ?? false
-            }, enableDelivery: enabled))
+            }, enableDelivery: enabled)
+            lastDeliveryOutcome = outcome
+            // 2026-09-23 修复（横幅假警报根治）：判死条件从「全部类型逐一成功」改为
+            // 「至少一个类型武装」——部分授权（用户只勾了部分类型）是常态，不是注册失败；
+            // 自动化关闭（enabled=false，未连接/开关关闭）时「注册失败」不适用，一律清除。
+            backgroundRegistrationFailed = enabled && !outcome.isUsable
         } catch { backgroundRegistrationFailed = true }
     }
 
     /// 排期刷新作业；有积压时同时排期回填作业（round5 Q2：统一门面 `BackgroundWorkScheduler`——此前本处直接构造
     /// `BGAppRefreshTaskRequest`，与 ASR 的 `beginBackgroundTask`、HK 观察者三处各自为政）。
+    /// **2026-09-23 修复**：提交失败不再一律
+    /// 记成注册失败——`.notPermitted`/注册回执为 false 是注册级缺陷（如实置
+    /// `backgroundRegistrationFailed`）；系统暂态（后台刷新被关、排队过多）只记
+    /// `backgroundScheduleFailed`，提交成功即清除（前台入口重试自愈）。
     @discardableResult
     public func scheduleBackgroundRefresh() -> Bool {
         let ok = BackgroundWorkScheduler.shared.submit(Self.bgTaskIdentifier)
-        if !ok { backgroundRegistrationFailed = true }
+        if ok {
+            backgroundScheduleFailed = false
+        } else {
+            backgroundScheduleFailed = true
+            let kind = BackgroundWorkScheduler.shared.submitFailureKind(for: Self.bgTaskIdentifier)
+            if kind == .notPermitted || BackgroundWorkScheduler.shared.registrationFailed(for: Self.bgTaskIdentifier) {
+                backgroundRegistrationFailed = true
+            }
+        }
         if let report = latestReport { requestBackfillIfNeeded(report) }
         return ok
+    }
+
+    /// 前台统一维护单一入口（启动 / 回前台 / 连接 / 开关切换，2026-09-23 新增）：
+    /// 1. 复核观察注册真相（`startBackgroundObservation`）；
+    /// 2. 允许自动同步时重排刷新/回填请求（提交成功清暂态失败账 = 自愈）；
+    /// 3. 不允许时撤销挂起请求（不占用系统预算、不空转）。
+    public func maintainBackgroundAutomation() async {
+        await startBackgroundObservation()
+        let canAuto: Bool
+        do { canAuto = try await canAutomaticallySync() } catch { canAuto = false }
+        guard canAuto else {
+            BackgroundWorkScheduler.shared.cancel(Self.bgTaskIdentifier)
+            BackgroundWorkScheduler.shared.cancel(Self.backfillTaskIdentifier)
+            backgroundScheduleFailed = false
+            return
+        }
+        _ = scheduleBackgroundRefresh()
     }
 
     /// App init 唯一注册点：两作业登记到门面并向系统注册（含 iOS 26 continued processing 标识符）。

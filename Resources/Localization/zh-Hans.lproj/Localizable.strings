@@ -1889,7 +1889,7 @@
 "health.requestIncomplete" = "系统授权流程未完成，请重试连接。";
 "health.importedEmpty" = "尚无已导入的数据。首次同步会优先导入最近一年。";
 "health.sparseWindowsFmt" = "%d 个小时样本稀疏，未形成小时统计。";
-"health.backgroundSyncFailed" = "后台自动导入注册失败——新数据将仅在手动同步时到达（可重新连接修复）。";
+"health.backgroundSyncFailed" = "后台自动导入注册失败——新数据将仅在手动同步时到达（可重新连接，或到「健康」App 检查本应用的读取权限）。";
 "health.backfillProgressFmt" = "正在导入%@，剩余 %d 个统计窗口。";
 "health.backfillLane.recent" = "最近一年";
 "health.backfillLane.history" = "更早历史";
