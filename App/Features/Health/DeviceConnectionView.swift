@@ -370,6 +370,9 @@ struct DeviceConnectionView: View {
     @Environment(AppDataChangeCenter.self) private var dataChange
     /// 采用中的候选字段（防重入：写库期间该行按钮禁用）
     @State private var adoptingField: HealthCharacteristicImport.Field?
+    /// 当页「开启写回尝试未获准」现场态（V4.06，业主 2026-09-23 实测修复）：门控写回状态行——
+    /// 只在开关开启或刚回退的现场渲染，离开页面即消失（@State 随视图生命周期）。
+    @State private var writeAttemptFailed = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -508,33 +511,38 @@ struct DeviceConnectionView: View {
                     Section {
                         Toggle(L10n.healthWriteBackLabel, isOn: writeBackPreference)
                             .accessibilityIdentifier("SP-29.health.writeBack.toggle")
-                        switch deviceState.writeAuthState {
-                        case .granted:
-                            Label(L10n.healthWriteBackGranted, systemImage: "checkmark.shield")
-                                .accessibilityIdentifier("SP-29.health.writeBack.granted")
-                        case .denied:
-                            Label(L10n.healthWriteBackDenied, systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                                .accessibilityIdentifier("SP-29.health.writeBack.denied")
-                        case .notDetermined:
-                            if writeBackOn {
+                        // V4.06（业主 2026-09-23 实测修复）：写回是 opt-in——状态三态行与摘要
+                        // 只在「开关开启」或「当页刚发生开启尝试未获准并如实回退」的现场态渲染。
+                        // 此前 `.denied` 恒显：读取 Apple 健康时出现「系统写入授权被拒绝」并被提示去开
+                        // 写入权限，只读用户误以为读授权故障（share 被拒是持久可观察事实，跨页面探测
+                        // 每次都会如实回报——但只读常态下不该出现在读取主路径）。
+                        if writeBackOn || writeAttemptFailed {
+                            switch deviceState.writeAuthState {
+                            case .granted:
+                                Label(L10n.healthWriteBackGranted, systemImage: "checkmark.shield")
+                                    .accessibilityIdentifier("SP-29.health.writeBack.granted")
+                            case .denied:
+                                Label(L10n.healthWriteBackDenied, systemImage: "exclamationmark.triangle")
+                                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                    .accessibilityIdentifier("SP-29.health.writeBack.denied")
+                            case .notDetermined:
                                 VStack(alignment: .leading, spacing: 4) {
                                     Label(L10n.healthWriteBackNeedAuth, systemImage: "exclamationmark.triangle")
                                         .foregroundStyle(Color("semantic-warning", bundle: .main))
                                     Button(L10n.healthWriteBackRetryAuth) {
-                                        Task { _ = await deviceState.requestWriteBack() }
+                                        Task { writeAttemptFailed = !(await deviceState.requestWriteBack()) }
                                     }
                                     .buttonStyle(.bordered)
                                     .accessibilityIdentifier("SP-29.health.writeBack.retryAuth")
                                 }
                             }
-                        }
-                        if let summary = deviceState.writeSummary {
-                            Text(summary.failed
-                                 ? L10n.healthWriteBackFailed
-                                 : L10n.healthWriteBackLast(summary.written, summary.skipped))
-                                .font(.caption).foregroundStyle(.secondary)
-                                .accessibilityIdentifier("SP-29.health.writeBack.summary")
+                            if let summary = deviceState.writeSummary {
+                                Text(summary.failed
+                                     ? L10n.healthWriteBackFailed
+                                     : L10n.healthWriteBackLast(summary.written, summary.skipped))
+                                    .font(.caption).foregroundStyle(.secondary)
+                                    .accessibilityIdentifier("SP-29.health.writeBack.summary")
+                            }
                         }
                     } header: { Text(L10n.healthWriteBackSection) } footer: { Text(L10n.healthWriteBackHint) }
                 }
@@ -677,11 +685,15 @@ struct DeviceConnectionView: View {
             Task {
                 if value {
                     if await deviceState.requestWriteBack() {
+                        writeAttemptFailed = false
                         await settings.set("true", for: .healthWriteBack)
                     } else {
+                        // V4.06：未获准如实回退关闭 + 当页现场态说明原因（不虚设无效开关）
+                        writeAttemptFailed = true
                         await settings.set("false", for: .healthWriteBack)
                     }
                 } else {
+                    writeAttemptFailed = false
                     await settings.set("false", for: .healthWriteBack)
                 }
             }

@@ -147,7 +147,9 @@ public actor TimelineQueryStore {
         }()
         let cursorDate = cursor?.date.timeIntervalSince1970 ?? Double.greatestFiniteMagnitude
         let cursorId = cursor?.refID.uuidString ?? ""
-        let branches = Self.hubBranches + Self.leaves.filter { kinds.contains($0.kind) }.map(Self.leafBranch)
+        // 叶子装配同读 Domain 单一事实源（FR11.2 V4.05）：Apple 健康导入（`.healthData`）
+        // 不入健康档案（专属「健康数据」tab）；新增叶类必须显式入列 recordsArchiveKinds。
+        let branches = Self.hubBranches + Self.leaves.filter { kinds.contains($0.kind) && $0.kind.appearsInRecordsArchive }.map(Self.leafBranch)
         let rows: [TimelineHubRow] = try await writer.read { db in
             let sql = branches.joined(separator: "\n UNION ALL\n") + "\n ORDER BY d DESC, id DESC LIMIT ?"
             // 每分支占位符序：patient_id + 游标三元组（date/date/id）——逐分支重复（与 entries 同）
@@ -254,13 +256,9 @@ public actor TimelineQueryStore {
              grade: "'C'", metric: "NULL", patient: "patient_id", extra: "1 = 1"),
         Leaf(kind: .selfMeasured, from: "metric_sample", id: "id", d: "measured_at", title: "metric_key", summary: "CAST(value AS TEXT) || ' ' || unit",
              grade: "'C'", metric: "metric_key", patient: "patient_id", extra: "excluded = 0 AND origin = 'manual'"),
-        // 设备自动汇入（Apple 健康，FR7.9/FR16.1）：与手输自测**分列**——此前共用
-        // `.selfMeasured`（`origin <> 'hospital'`），导入数据在健康档案里被标成「自测」
-        // （业主第 7 项实测），且与手动读数同路送进指标行「观察详情」错路。设备读数不是
-        // 用户确认事实（FR7.9「设备自动来源不冒充医院原文、用户已确认或 OCR 的 D 级草稿」），
-        // 故 grade 留空——由条目类型名「健康数据」承担来源说明。成员隔离仍由 patient_id 过滤。
-        Leaf(kind: .healthData, from: "metric_sample", id: "id", d: "measured_at", title: "metric_key", summary: "CAST(value AS TEXT) || ' ' || unit",
-             grade: "NULL", metric: "metric_key", patient: "patient_id", extra: "excluded = 0 AND origin = 'device'"),
+        // 设备自动汇入（Apple 健康，FR7.9/FR16.1）**不入健康档案**（FR11.2 V4.05，业主 2026-09-23）：
+        // 此前以 `.healthData` 叶参与记录页投影（与手输自测分列防冒充自测）——归属定调后彻底移出，
+        // 专属「健康数据」tab（SP-29 展示区/详情页/指标总览）；`metric_sample.origin = 'device'` 数据本身不变。
         // 医院检验点：无表头、无体检、且无回执归属者才是叶子（有表头者经 labReport 子卡呈现，有回执归属者经子卡源到达）
         Leaf(kind: .lab, from: "metric_sample f", id: "f.id", d: "f.measured_at", title: "f.metric_key", summary: "CAST(f.value AS TEXT) || ' ' || f.unit",
              grade: "'C'", metric: "f.metric_key", patient: "f.patient_id",

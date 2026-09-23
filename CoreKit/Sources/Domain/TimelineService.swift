@@ -15,6 +15,16 @@ public enum TimelineEntryKind: String, Sendable, Equatable, Codable, CaseIterabl
     /// `kind` 字面量 = J4 L10n 键 `timeline.kind.<rawValue>`。旧平铺查询 `entries(for:)` **无**这些分支——平铺语义不变。
     case hospitalization, healthExam, diagnosis, prescription, labReport, examReport, claim
     case surgery, treatmentRecord, appointment, reminder, clinicalConclusion
+
+    /// 健康档案（记录页）投影目录（V4.05，业主 2026-09-23）：Apple 健康导入（`.healthData`）
+    /// **不入健康档案**——专属「健康数据」tab（SP-29 展示区/详情页/指标总览）。
+    /// 记录页筛选栏与 `TimelineQueryStore` 叶子装配同读本目录（单一事实源）。
+    public static var recordsArchiveKinds: [TimelineEntryKind] {
+        allCases.filter(\.appearsInRecordsArchive)
+    }
+
+    /// 是否属健康档案（记录页）投影（当前唯一例外：设备汇入 `.healthData`）。
+    public var appearsInRecordsArchive: Bool { self != .healthData }
 }
 
 public struct TimelineEntry: Sendable, Equatable, Identifiable {
