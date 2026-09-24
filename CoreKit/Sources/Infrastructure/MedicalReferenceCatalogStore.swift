@@ -28,7 +28,7 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
         let pool = try DatabasePool(path: path, configuration: config)
         self.pool = pool
         let version = try pool.read { db in
-            try Int(String.fetchOne(db, sql: "SELECT value FROM catalog_meta WHERE key = 'schema_version'")) ?? 0
+            try Int(String.fetchOne(db, sql: "SELECT value FROM catalog_meta WHERE key = 'schema_version'") ?? "0") ?? 0
         }
         self.gated = version < Self.schemaGateVersion
     }
@@ -36,7 +36,7 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
     public var catalogSchemaVersion: Int {
         get async throws {
             try await pool.read { db in
-                try Int(String.fetchOne(db, sql: "SELECT value FROM catalog_meta WHERE key = 'schema_version'")) ?? 0
+                try Int(String.fetchOne(db, sql: "SELECT value FROM catalog_meta WHERE key = 'schema_version'") ?? "0") ?? 0
             }
         }
     }
