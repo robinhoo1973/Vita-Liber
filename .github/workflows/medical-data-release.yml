@@ -69,7 +69,7 @@ jobs:
           echo "DATA_ROOT=$tools_root/data" >> "$GITHUB_ENV"
           case "$rc" in
             0) echo "source_status=complete" >> "$GITHUB_OUTPUT" ;;
-            3) echo "source_status=partial" >> "$GITHUB_OUTPUT" ;;
+            3) echo "source_status=partial" >> "$GITHUB_OUTPUT"; echo '::error::medical data sources are partial; refusing Release publication'; exit 3 ;;
             *) echo "::error::medical data build failed rc=$rc"; exit "$rc" ;;
           esac
           test -s "$tools_root/data/medical_data.json"
