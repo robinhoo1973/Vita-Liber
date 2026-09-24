@@ -51,7 +51,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y age chromium xvfb unzip zstd sqlite3 jq
+          sudo apt-get install -y age chromium xvfb unzip zip zstd sqlite3 jq
           mkdir -p "$WORK_ROOT" "$TMPDIR" "$NMPA_EVIDENCE"
 
       - name: Build fresh canonical data
@@ -174,8 +174,8 @@ jobs:
           [[ -n "$AGE_RECIPIENT" ]] || {
             echo '::error::MEDICAL_DATA_AGE_RECIPIENT is not configured'; exit 2;
           }
-          zstd -q -19 --threads=1 "$DATA_ROOT/medical-catalog.sqlite" -o "$WORK_ROOT/medical-catalog.sqlite.zst"
-          age -r "$AGE_RECIPIENT" -o "$WORK_ROOT/medical-data.bin" "$WORK_ROOT/medical-catalog.sqlite.zst"
+          zip -q -X -j "$WORK_ROOT/medical-catalog.sqlite.zip" "$DATA_ROOT/medical-catalog.sqlite"
+          age -r "$AGE_RECIPIENT" -o "$WORK_ROOT/medical-data.bin" "$WORK_ROOT/medical-catalog.sqlite.zip"
           sha256sum "$WORK_ROOT/medical-data.bin" | awk '{print $1}' > "$WORK_ROOT/medical-data.bin.sha256"
           sha256sum "$DATA_ROOT/medical-catalog.sqlite" | awk '{print $1}' > "$WORK_ROOT/medical-catalog.sqlite.sha256"
           cp "$DATA_ROOT/medical_manifest.json" "$WORK_ROOT/medical_manifest.json"

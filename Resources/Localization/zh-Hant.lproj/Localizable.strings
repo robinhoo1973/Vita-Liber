@@ -879,6 +879,8 @@
 "medicalCatalog.detail.spec" = "規格";
 "medicalCatalog.detail.dosageForm" = "劑型";
 "medicalCatalog.detail.ingredient" = "活性成分";
+"medicalCatalog.detail.usage" = "用法用量原文";
+"medicalCatalog.detail.indications" = "適應證原文";
 "medicalCatalog.detail.disclaimer" = "以上為來源數據與解析參考，不替代處方、說明書或醫務人員指導。";
 "medicalCatalog.detail.section.sources" = "來源與說明書連結";
 "medicalCatalog.detail.officialLink" = "查看官方仿單／外盒";
@@ -2218,4 +2220,3 @@
 "health.searchPrompt" = "搜尋健康記錄";
 "health.connectDevice" = "連線裝置以查看健康資料";
 "health.connectButton" = "連線裝置";
-

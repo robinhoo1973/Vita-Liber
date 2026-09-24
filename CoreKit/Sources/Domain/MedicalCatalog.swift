@@ -53,6 +53,26 @@ public struct MedicalCatalogMatch: Sendable, Equatable {
     }
 }
 
+/// Exact-first resolution shared by the SQLite adapter and its test contract.
+/// A candidate or conflict is evidence only; no result selects a medication_id.
+public enum MedicalCatalogMatching {
+    public static func resolve(exact: [MedicalCatalogDrug], candidates: [MedicalCatalogDrug]) -> MedicalCatalogMatch {
+        if exact.count == 1 {
+            return MedicalCatalogMatch(status: .exact, exact: exact[0], candidates: exact)
+        }
+        if exact.count > 1 {
+            return MedicalCatalogMatch(status: .conflict, exact: nil, candidates: exact)
+        }
+        if candidates.count == 1 {
+            return MedicalCatalogMatch(status: .candidate, exact: nil, candidates: candidates)
+        }
+        if candidates.count > 1 {
+            return MedicalCatalogMatch(status: .conflict, exact: nil, candidates: candidates)
+        }
+        return MedicalCatalogMatch(status: .unmatched, exact: nil, candidates: [])
+    }
+}
+
 public struct MedicalCatalogReference: Sendable, Equatable {
     public let referenceID: String
     public let region: String
@@ -74,8 +94,30 @@ public struct MedicalCatalogReference: Sendable, Equatable {
     }
 }
 
+public struct MedicalCatalogDrugDetail: Sendable, Equatable {
+    public let region: String
+    public let sourceID: String
+    public let usageText: String?
+    public let indications: String?
+    public let activeIngredients: String?
+    public let usageReferenceJSON: String
+    public let rawJSON: String
+
+    public init(region: String, sourceID: String, usageText: String?, indications: String?,
+                activeIngredients: String?, usageReferenceJSON: String, rawJSON: String) {
+        self.region = region
+        self.sourceID = sourceID
+        self.usageText = usageText
+        self.indications = indications
+        self.activeIngredients = activeIngredients
+        self.usageReferenceJSON = usageReferenceJSON
+        self.rawJSON = rawJSON
+    }
+}
+
 /// 独立 catalog 的读取端口。更新/解密服务通过基础设施实现，不让 App 视图接触文件与 SQL。
 public protocol MedicalCatalogReading: Sendable {
     func match(line: PrescriptionLine) async throws -> MedicalCatalogMatch
     func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference]
+    func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail?
 }

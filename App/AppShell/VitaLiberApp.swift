@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import os
 import Domain
@@ -49,7 +50,10 @@ struct VitaLiberApp: App {
         // body 显示可见引导——原静默降级内存库、用户看到空档案且写入即丢
         let container = AppContainer.liveOrDegraded(databasePath: AppContainer.defaultDatabasePath())
         self.container = container
-        _medicalCatalogState = State(initialValue: MedicalCatalogState(store: container.medicalCatalog))
+        _medicalCatalogState = State(initialValue: MedicalCatalogState(
+            store: container.medicalCatalog,
+            updater: container.medicalCatalogUpdater,
+            path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath())))
         let appRouter = AppRouter()
         self.router = appRouter
         let delegate = AppNotificationDelegate(router: appRouter)

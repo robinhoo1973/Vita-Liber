@@ -879,6 +879,8 @@
 "medicalCatalog.detail.spec" = "Specification";
 "medicalCatalog.detail.dosageForm" = "Dosage form";
 "medicalCatalog.detail.ingredient" = "Active ingredients";
+"medicalCatalog.detail.usage" = "Usage";
+"medicalCatalog.detail.indications" = "Indications";
 "medicalCatalog.detail.disclaimer" = "Source data and parsing reference only; does not replace prescriptions, package inserts, or professional guidance.";
 "medicalCatalog.detail.section.sources" = "Sources & package insert links";
 "medicalCatalog.detail.officialLink" = "View official package insert / packaging";
@@ -2218,4 +2220,3 @@
 "health.searchPrompt" = "Search health records";
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
-

@@ -79,6 +79,8 @@ struct AppContainer {
     let backup: BackupService
     /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
     let medicalCatalog: MedicalCatalogStore?
+    /// 药品目录更新器；Release 元数据/identity 由上层发布配置提供。
+    let medicalCatalogUpdater: MedicalCatalogUpdateService?
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
     // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
     /// FR13.1/13.2 PDF 导出（SP-22）
@@ -112,8 +114,11 @@ struct AppContainer {
             throw ContainerError.databaseMissing
         }
         let store = try GRDBStore.pool(at: databasePath)
-        let catalog = try? MedicalCatalogStore(path: URL(fileURLWithPath: defaultMedicalCatalogPath())) // try?-ok: 目录文件缺失/损坏=目录功能降级（无参考/联想），应用其余功能不受影响
-        return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog)
+        let catalogPath = URL(fileURLWithPath: defaultMedicalCatalogPath())
+        let catalog = try? MedicalCatalogStore(path: catalogPath) // try?-ok: 目录文件缺失/损坏=目录功能降级（无参考/联想），应用其余功能不受影响
+        let updater = MedicalCatalogUpdateService(destination: catalogPath)
+        return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
+                        medicalCatalogUpdater: updater)
     }
 
     /// 生产投递门统一装配（live 与降级路径共用）——装饰器链只此一处定义：
@@ -168,7 +173,8 @@ struct AppContainer {
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
                                  mediaBaseDir: URL? = nil,
                                  degradedReason: String? = nil,
-                                 medicalCatalog: MedicalCatalogStore? = nil) -> AppContainer {
+                                 medicalCatalog: MedicalCatalogStore? = nil,
+                                 medicalCatalogUpdater: MedicalCatalogUpdateService? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
         EngineRegistry.shared.registerDefaultEngines()
@@ -271,6 +277,7 @@ struct AppContainer {
                              prescriptions: prescriptions,
                              backup: backup,
                              medicalCatalog: medicalCatalog,
+                             medicalCatalogUpdater: medicalCatalogUpdater,
                              pdfExport: pdfExport,
                             healthReader: healthReader,
                             healthSync: healthSync)

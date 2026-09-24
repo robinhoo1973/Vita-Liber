@@ -11,6 +11,16 @@ import Domain
 public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendable {
     private let pool: DatabasePool
 
+    public static func integrityCheck(path: URL) throws {
+        var configuration = Configuration()
+        configuration.readonly = true
+        let pool = try DatabasePool(path: path.path, configuration: configuration)
+        let result = try pool.read { db in
+            try String.fetchOne(db, sql: "PRAGMA integrity_check")
+        }
+        guard result == "ok" else { throw MedicalCatalogUpdateError.catalogIntegrityFailed }
+    }
+
     public init(path: URL) throws {
         var configuration = Configuration()
         configuration.readonly = true
@@ -33,11 +43,8 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
                     ORDER BY id LIMIT 20
                     """, arguments: args)
             }
-            if let exact = exact.first, exact.count == 1 {
-                return MedicalCatalogMatch(status: .exact, exact: exact, candidates: exact)
-            }
-            if exact.count > 1 {
-                return MedicalCatalogMatch(status: .conflict, exact: nil, candidates: exact)
+            if !exact.isEmpty {
+                return MedicalCatalogMatching.resolve(exact: exact, candidates: [])
             }
 
             let name = line.printedName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -55,9 +62,7 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
                 let specCandidates = candidates.filter { $0.spec == spec }
                 if !specCandidates.isEmpty { candidates = specCandidates }
             }
-            if candidates.isEmpty { return MedicalCatalogMatch(status: .unmatched, exact: nil, candidates: []) }
-            if candidates.count == 1 { return MedicalCatalogMatch(status: .candidate, exact: nil, candidates: candidates) }
-            return MedicalCatalogMatch(status: .conflict, exact: nil, candidates: candidates)
+            return MedicalCatalogMatching.resolve(exact: [], candidates: candidates)
         }
     }
 
@@ -68,6 +73,16 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
                        spec_raw, image_urls_json, match_status
                 FROM drug_reference WHERE source_id = ? ORDER BY reference_id
                 """, arguments: [drug.sourceID]).map(Self.reference)
+        }
+    }
+
+    public func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail? {
+        try pool.read { db in
+            try Row.fetchOne(db, sql: """
+                SELECT region, source_id, usage_text, indications, active_ingredients,
+                       usage_ref_json, raw_json
+                FROM drug_detail WHERE region = ? AND source_id = ?
+                """, arguments: [drug.region, drug.sourceID]).map(Self.detail)
         }
     }
 
@@ -98,6 +113,13 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
             brandName: row["brand_name"], specificationRaw: row["spec_raw"],
             imageURLsJSON: row["image_urls_json"] ?? "[]",
             matchStatus: MedicalCatalogMatchStatus(rawValue: row["match_status"] ?? "unmatched") ?? .unmatched)
+    }
+
+    private static func detail(_ row: Row) -> MedicalCatalogDrugDetail {
+        MedicalCatalogDrugDetail(
+            region: row["region"], sourceID: row["source_id"], usageText: row["usage_text"],
+            indications: row["indications"], activeIngredients: row["active_ingredients"],
+            usageReferenceJSON: row["usage_ref_json"] ?? "{}", rawJSON: row["raw_json"] ?? "{}")
     }
 }
 #endif

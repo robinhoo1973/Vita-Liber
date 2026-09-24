@@ -267,6 +267,8 @@ extension L10n {
     static var medicalCatalogDetailSpec: String { t("medicalCatalog.detail.spec") }
     static var medicalCatalogDetailDosageform: String { t("medicalCatalog.detail.dosageForm") }
     static var medicalCatalogDetailIngredient: String { t("medicalCatalog.detail.ingredient") }
+    static var medicalCatalogDetailUsage: String { t("medicalCatalog.detail.usage") }
+    static var medicalCatalogDetailIndications: String { t("medicalCatalog.detail.indications") }
     static var medicalCatalogDetailDisclaimer: String { t("medicalCatalog.detail.disclaimer") }
     static var medicalCatalogDetailSectionSources: String { t("medicalCatalog.detail.section.sources") }
     static var medicalCatalogDetailOfficiallink: String { t("medicalCatalog.detail.officialLink") }

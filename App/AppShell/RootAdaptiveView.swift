@@ -254,7 +254,8 @@ private struct PreviewRoot: View {
             fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
         }
         container = assembled
-        medicalCatalogState = MedicalCatalogState(store: assembled.medicalCatalog)
+        medicalCatalogState = MedicalCatalogState(store: assembled.medicalCatalog,
+                                                  updater: assembled.medicalCatalogUpdater)
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
     }

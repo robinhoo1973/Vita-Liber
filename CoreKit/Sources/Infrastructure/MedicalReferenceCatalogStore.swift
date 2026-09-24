@@ -1,3 +1,5 @@
+#if os(iOS) || os(macOS)
+// linux-blind: GRDB 四域只读池 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Domain
 import Foundation
 import GRDB
@@ -165,3 +167,4 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
             priceRef: row["price_ref"], loincConceptID: row["loinc_concept_id"], aliasesJSON: row["aliases_json"])
     }
 }
+#endif

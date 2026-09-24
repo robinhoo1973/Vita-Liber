@@ -8,6 +8,7 @@ struct MedicalCatalogDetailView: View {
     let drugID: Int
     @Environment(MedicalCatalogState.self) private var catalog
     @State private var drug: MedicalCatalogDrug?
+    @State private var detail: MedicalCatalogDrugDetail?
     @State private var references: [MedicalCatalogReference] = []
 
     var body: some View {
@@ -24,6 +25,7 @@ struct MedicalCatalogDetailView: View {
             .task(id: drugID) {
                 guard let value = await catalog.drug(id: drugID) else { return }
                 drug = value
+                detail = await catalog.detail(for: value)
                 references = await catalog.references(for: value)
             }
         }
@@ -48,6 +50,16 @@ struct MedicalCatalogDetailView: View {
                 }
                 Text(L10n.medicalCatalogDetailDisclaimer)
                     .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let detail {
+                Section(L10n.medicalCatalogDetailSectionSpec) {
+                    if let usage = detail.usageText, !usage.isEmpty {
+                        LabeledContent(L10n.medicalCatalogDetailUsage, value: usage)
+                    }
+                    if let indications = detail.indications, !indications.isEmpty {
+                        LabeledContent(L10n.medicalCatalogDetailIndications, value: indications)
+                    }
+                }
             }
             if !references.isEmpty {
                 Section(L10n.medicalCatalogDetailSectionSources) {
