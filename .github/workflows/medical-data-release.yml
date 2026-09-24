@@ -42,6 +42,7 @@ jobs:
       MEDICAL_DATA_TRUST_ROOT_JSON: ${{ secrets.MEDICAL_DATA_TRUST_ROOT_JSON }}
       MEDICAL_DATA_SIGNING_KEYS_JSON: ${{ secrets.MEDICAL_DATA_SIGNING_KEYS_JSON }}
       CHANGE_NOTE: ${{ inputs.change_note }}
+      NMPA_NO_SANDBOX: '1'
     steps:
       - name: Checkout source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,7 +59,7 @@ jobs:
         run: |
           set +e
           note="${CHANGE_NOTE:-Automated GitHub refresh}"
-          bash .github/workflows/medical-data-ci.sh --fetch --change-note "$note" --legacy-names=off \
+          bash scripts/medical-data/medical-data-ci.sh --fetch --change-note "$note" --legacy-names=off \
             > "$WORK_ROOT/build.log" 2>&1
           rc=$?
           set -e
@@ -137,7 +138,7 @@ jobs:
         run: |
           set -euo pipefail
           manifest_sha=$(sha256sum "$DATA_ROOT/medical_manifest.json" | awk '{print $1}')
-          python3 .github/workflows/medical_data_trust.py sign \
+          python3 scripts/release/medical_data_trust.py sign \
             --root "$WORK_ROOT/medical-root.json" \
             --keys "$WORK_ROOT/medical-signing-keys.json" \
             --content-sha256 "$(cat "$WORK_ROOT/medical-data-content.sha256")" \
@@ -145,7 +146,7 @@ jobs:
             --release-tag "${{ steps.release.outputs.tag }}" \
             --repository "$GITHUB_REPOSITORY" \
             --output "$WORK_ROOT/medical-data-catalog.json"
-          python3 .github/workflows/model-trust.py verify \
+          python3 scripts/release/model-trust.py verify \
             --asset-kind medical-data \
             --root "$WORK_ROOT/medical-root.json" \
             --catalog "$WORK_ROOT/medical-data-catalog.json" \
