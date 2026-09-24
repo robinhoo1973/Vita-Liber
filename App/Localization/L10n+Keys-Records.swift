@@ -195,4 +195,6 @@ extension L10n {
     static var encounterLinkAppointmentConfirm: String { t("encounter.linkAppointment.confirm") }
 
     static var encounterLinkAppointmentFailed: String { t("encounter.linkAppointment.failed") }
+
+    static var catalogSuggestTitle: String { t("catalog.suggest.title") }
 }

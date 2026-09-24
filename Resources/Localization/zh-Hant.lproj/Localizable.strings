@@ -859,6 +859,7 @@
 "encounter.form.kind" = "就診類型";
 "encounter.form.date" = "就診時間";
 "encounter.form.hospital" = "醫院";
+"catalog.suggest.title" = "目錄參考";
 "encounter.form.department" = "科室";
 "encounter.form.doctor" = "醫生";
 "encounter.form.clinical" = "臨床資訊";

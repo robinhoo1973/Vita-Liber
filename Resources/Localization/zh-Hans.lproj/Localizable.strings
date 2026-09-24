@@ -859,6 +859,7 @@
 "encounter.form.kind" = "就诊类型";
 "encounter.form.date" = "就诊时间";
 "encounter.form.hospital" = "医院";
+"catalog.suggest.title" = "目录参考";
 "encounter.form.department" = "科室";
 "encounter.form.doctor" = "医生";
 "encounter.form.clinical" = "临床信息";

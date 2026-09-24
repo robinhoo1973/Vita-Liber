@@ -859,6 +859,7 @@
 "encounter.form.kind" = "Type";
 "encounter.form.date" = "Date & time";
 "encounter.form.hospital" = "Hospital";
+"catalog.suggest.title" = "Catalog reference";
 "encounter.form.department" = "Department";
 "encounter.form.doctor" = "Doctor";
 "encounter.form.clinical" = "Clinical Info";

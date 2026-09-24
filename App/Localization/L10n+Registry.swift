@@ -635,7 +635,7 @@ extension L10n {
         "encounter.summary.unconfirmed", "encounter.summary.allConfirmed",
         "encounter.summary.docFieldsFmt", "encounter.summary.note", "encounter.summary.noteText",
         "encounter.form.title", "encounter.form.basic", "encounter.form.kind", "encounter.form.date",
-        "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor",
+        "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor", "catalog.suggest.title",
         "encounter.form.clinical", "encounter.form.complaint", "encounter.form.diagnosis",
         "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
         "timeline.title", "timeline.emptyHint", "timeline.filter.all",
