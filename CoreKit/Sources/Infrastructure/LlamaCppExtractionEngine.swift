@@ -89,9 +89,14 @@ public struct LlamaCppExtractionEngine: CardExtractionEngine {
 
     // MARK: - Prompt 构建
 
-    /// T2 无独立 instructions 通道：防注入指令 + 编号行合入 prompt（与 T1 同源，ModelPromptBuilder 单点）。
+    /// T2 无独立 instructions 通道：防注入指令 + 编号行合入 **ChatML 帧**（与 T1 同源，ModelPromptBuilder 单点）。
+    /// 2026-09-24 契约轮：训练语料以 tokenizer chat_template 渲染为 ChatML，推理端此前裸拼
+    /// 「system\n\nuser」——训练/推理不同分布。显式封帧后与 MiniMind / Qwen2.5 的
+    /// chat_template 渲染字节一致（`<|im_start|>system…<|im_end|>\n<|im_start|>user…<|im_end|>\n<|im_start|>assistant\n`）。
     private static func buildPrompt(lines: [String], spec: ExtractionSpec) -> String {
-        "\(ModelPromptBuilder.systemPrompt(for: spec))\n\n\(ModelPromptBuilder.numbered(lines: lines))"
+        let system = ModelPromptBuilder.systemPrompt(for: spec)
+        let user = ModelPromptBuilder.numbered(lines: lines)
+        return "<|im_start|>system\n\(system)<|im_end|>\n<|im_start|>user\n\(user)<|im_end|>\n<|im_start|>assistant\n"
     }
 }
 
@@ -175,10 +180,13 @@ final class LlamaRuntime: @unchecked Sendable {
         // —— 分词（b11012 首参 = vocab；返回值 = 实际 token 数）——
         let maxPromptTokens = 4096
         var promptTokens = [llama_token](repeating: 0, count: maxPromptTokens)
+        // 2026-09-24 契约轮：add_special=false（封帧自带 <|im_start|>，避免 GGUF 元数据重复加 BOS——
+        // minimind tokenizer_config add_bos_token=false 即此口径）、parse_special=true
+        // （<|im_start|>/<|im_end|> 必须走特殊 token——此前 false 按字面字符切分，ChatML 帧退化为普通文本）。
         let promptLength = prompt.withCString { textPointer in
             promptTokens.withUnsafeMutableBufferPointer { buffer in
                 llama_tokenize(vocab, textPointer, Int32(prompt.utf8.count), buffer.baseAddress,
-                               Int32(maxPromptTokens), true, false)
+                               Int32(maxPromptTokens), false, true)
             }
         }
         guard promptLength > 0 else { throw ExtractionEngineError.unavailable }

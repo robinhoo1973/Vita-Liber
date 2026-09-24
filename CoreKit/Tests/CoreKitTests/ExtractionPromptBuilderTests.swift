@@ -134,4 +134,13 @@ struct ExtractionPromptBuilderTests {
         #expect(ModelPromptBuilder.systemPrompt(for: s) == ExtractionPromptBuilder.systemPrompt(for: s))
         #expect(ModelPromptBuilder.numbered(lines: ["a"]) == ExtractionPromptBuilder.numbered(lines: ["a"]))
     }
+
+    @Test("输出形状单句在提示词中（2026-09-24 契约轮：span JSON 形状显式描述，与 GBNF/解码器同形）")
+    func outputShapeIsStated() throws {
+        let prompt = ExtractionPromptBuilder.systemPrompt(for: try spec("prescription"))
+        #expect(prompt.contains(ExtractionPromptBuilder.outputShapeRule))
+        #expect(prompt.contains("lineIndex"))
+        #expect(prompt.contains("\"shared\""))
+        #expect(prompt.contains("\"rows\""))
+    }
 }

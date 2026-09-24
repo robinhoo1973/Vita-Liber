@@ -4,80 +4,70 @@ import Foundation
 /// 纯 Domain、零依赖、确定性输出；T2 引擎用此文法约束模型 JSON 输出格式。
 ///
 /// GBNF 格式参考：https://github.com/ggerganov/llama.cpp/blob/master/grammars/README.md
-/// 核心思路：`root` 产生 JSON 对象，每个键按 `FieldType` 生成对应的 value 文法规则。
-/// 文法只约束结构（JSON 格式），不约束语义（值由模型从 OCR 文本中抽取）。
+/// 形状：`root` 产生 `{"shared":[span…],"rows":[[span…]]}`，span = `{key,value,unit,lineIndex}`
+/// （与 T2 解码器 `ModelSpanResult`、T1 `@Generable` 同一契约）；键以字符串枚举收窄到 spec 键集。
+/// 文法只约束结构（JSON 格式与键域），不约束语义（值由模型从 OCR 文本中抽取，装配层再验 verbatim）。
 public enum GBNFGrammarGenerator {
 
     // MARK: - 公共 API
 
-    /// 从 ExtractionSpec 生成完整的 GBNF 文法字符串。
+    /// 从 `ExtractionSpec` 生成完整的 GBNF 文法字符串。
+    ///
+    /// **输出形状 = `ModelSpanResult`（2026-09-24 契约轮修复）**：T2 解码器（`LlamaCppExtractionEngine`
+    /// 内 `JSONDecoder().decode(ModelSpanResult.self)`）与 T1 `@Generable` 消费的形状都是
+    /// `{"shared":[{"key","value","unit","lineIndex"}],"rows":[[…span…]]}`；旧版文法生成
+    /// 「字段键 → 字符串」对象（`{"drug_name":"…"}`），与解码器不同形——文法每次能生成、解码每次必失败，
+    /// T2 因此对每个区域静默降级 T3。本版使文法与解码契约同形，并把键取值域按 scope 收窄
+    /// （shared-key / row-key 字符串枚举），空 scope 收口为字面空数组。
     public static func generate(for spec: ExtractionSpec) -> String {
         var rules: [String] = []
 
         let sharedKeys = spec.shared.map(\.key)
         let rowKeys = spec.row.map(\.key)
 
-        // shared 字段作为顶层键（sharedKeys 与 spec.shared 同序——zip 直取，
-        // 免 field(for:) 逐键线性查找与强制解包）
-        var rootElements: [String] = []
-        for (key, field) in zip(sharedKeys, spec.shared) {
-            rootElements.append(" \"\(key)\" : " + valueRuleName(for: field))
+        // root：与 ModelSpanResult 同形；空 scope 只允许字面空数组（该 scope 无键可填）。
+        let sharedSection = sharedKeys.isEmpty
+            ? #""\"shared\"" ":" "[" "]""#
+            : #""\"shared\"" ":" "[" shared-span* "]""#
+        let rowsSection = rowKeys.isEmpty
+            ? #""\"rows\"" ":" "[" "]""#
+            : #""\"rows\"" ":" "[" row-array* "]""#
+        rules.append(#"root ::= "{" \#(sharedSection) "," \#(rowsSection) "}""#)
+
+        // span 微形状（两 scope 同形，仅键域不同）。
+        if !sharedKeys.isEmpty {
+            rules.append(spanRule(name: "shared-span", keyRule: "shared-key"))
+            rules.append("shared-key ::= " + keyAlternation(sharedKeys))
         }
-        // rows 可选数组
         if !rowKeys.isEmpty {
-            rootElements.append(" \"rows\" : [ " + rowObject(spec: spec) + " ]")
-        }
-        rules.append("root ::= \"{\" \(rootElements.joined(separator: ","))  \"}\"")
-
-        // 为每个 field 类型生成 value 规则
-        for field in spec.fields {
-            rules.append(valueRuleDefinition(for: field))
+            rules.append(#"row-array ::= "[" row-span+ "]""#)
+            rules.append(spanRule(name: "row-span", keyRule: "row-key"))
+            rules.append("row-key ::= " + keyAlternation(rowKeys))
         }
 
-        // ws 规则（空白）
-        rules.append("ws ::= [ \\t\\n]*")
+        // 值规则：value 一律逐字字符串（含日期/数字/枚举——都是原文子串，类型判定在装配后的校验层）。
+        rules.append(#"unit ::= "null" | str"#)
+        rules.append(#"line-index ::= digit+"#)
+        rules.append(#"str ::= "\"" str-char* "\"""#)
+        rules.append(#"str-char ::= [^"\\\u0000-\u001F]"#)
+        rules.append(#"digit ::= [0-9]"#)
 
-        // 字符串内容规则
-        rules.append("str-char ::= [^\"\\\\\\u0000-\\u001F]")
-        rules.append("str ::= \"\\\"\" str-char* \"\\\"\"")
-
-        // 数字规则
-        rules.append("digit ::= [0-9]")
-        rules.append("number ::= \"-\"? digit+ (\".\" digit+)?")
-
-        // 日期规则
-        rules.append("date-str ::= digit digit digit digit [\\-/] digit digit [\\-/] digit digit")
+        // ws 规则：llama.cpp 文法匹配自动放行 token 间空白，此规则备而不用（与旧版保留一致）。
+        rules.append(#"ws ::= [ \t\n]*"#)
 
         return rules.joined(separator: "\n") + "\n"
     }
 
     // MARK: - 内部规则生成
 
-    private static func valueRuleName(for field: FieldSpec) -> String {
-        "value-\(field.key)"
+    /// span 对象微形状：四键固定顺序（key → value → unit → lineIndex），与 `ModelSpan` 编码形状一致。
+    private static func spanRule(name: String, keyRule: String) -> String {
+        #"\#(name) ::= "{" "\"key\"" ":" \#(keyRule) "," "\"value\"" ":" str "," "\"unit\"" ":" unit "," "\"lineIndex\"" ":" line-index "}""#
     }
 
-    private static func valueRuleDefinition(for field: FieldSpec) -> String {
-        let name = valueRuleName(for: field)
-        switch field.type {
-        case .text, .narrative:
-            return "\(name) ::= str"
-        case .number:
-            return "\(name) ::= number"
-        case .date:
-            return "\(name) ::= str | \"\\\"\" date-str \"\\\"\""
-        case .quantityWithUnit:
-            return "\(name) ::= str"
-        case .enumerated:
-            return "\(name) ::= str"
-        }
-    }
-
-    private static func rowObject(spec: ExtractionSpec) -> String {
-        let elements = spec.row.map { field in
-            "\"\(field.key)\" : " + valueRuleName(for: field)
-        }
-        return "\"{\" \(elements.joined(separator: ", ")) \"}\""
+    /// 键取值域枚举：`"\"a\"" | "\"b\"" | …`——小模型不得写出注册表外的键。
+    private static func keyAlternation(_ keys: [String]) -> String {
+        keys.map { "\"\\\"\($0)\\\"\"" }.joined(separator: " | ")
     }
 
     // MARK: - 快捷方法

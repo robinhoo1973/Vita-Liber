@@ -36,6 +36,13 @@ public enum ExtractionPromptBuilder {
         with "\\n", referencing the FIRST lineIndex; every segment must be an entire line, verbatim.
         """
 
+    /// 输出形状单句（2026-09-24 契约轮）：T2 解码器 `ModelSpanResult`（`shared`/`rows` 两个 span 数组）
+    /// 与新版 `GBNFGrammarGenerator` 文法同一形状——此前提示词不描述输出形状、旧文法又是「字段键→字符串」，
+    /// 与解码器三方不同形。形状进提示词后：训练语料 system 段与推理端逐字同文，模型不只靠文法猜结构。
+    public static let outputShapeRule =
+        #"Output one JSON object: {"shared":[{"key":"<field key>","value":"<verbatim text>","unit":<string or null>,"lineIndex":<zero-based line number>}],"rows":[[{"key":"…","value":"…","unit":…,"lineIndex":…}]]}."#
+        + #" "rows" is an array of row arrays; each row is a non-empty array of such spans; use [] when a section is empty."#
+
     /// 系统指令：安全边界（原文照抄 / 不诊断 / 不换算 / 注入防护）+ **逐字段目录**。
     public static func systemPrompt(for spec: ExtractionSpec) -> String {
         let shared = spec.shared
@@ -60,6 +67,7 @@ public enum ExtractionPromptBuilder {
         if !rows.isEmpty {
             sections.append("ROW fields (one set per table row; keep each row separate, never merge rows):\n" + catalogue(rows))
         }
+        sections.append("Output shape: " + outputShapeRule)
         return sections.joined(separator: "\n\n")
     }
 
