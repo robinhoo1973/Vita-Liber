@@ -34,11 +34,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
-      DATA_ROOT: ${{ runner.temp }}/medical-data-tools/data
-      WORK_ROOT: ${{ runner.temp }}/medical-data
-      XDG_CACHE_HOME: ${{ runner.temp }}/medical-data-cache
-      TMPDIR: ${{ runner.temp }}/medical-data-tmp
-      NMPA_EVIDENCE: ${{ runner.temp }}/medical-data-evidence
+      WORK_ROOT: ${{ github.workspace }}/.medical-data-work
+      XDG_CACHE_HOME: ${{ github.workspace }}/.medical-data-cache
+      TMPDIR: ${{ github.workspace }}/.medical-data-tmp
+      NMPA_EVIDENCE: ${{ github.workspace }}/.medical-data-evidence
       AGE_RECIPIENT: ${{ secrets.MEDICAL_DATA_AGE_RECIPIENT }}
       MEDICAL_DATA_TRUST_ROOT_JSON: ${{ secrets.MEDICAL_DATA_TRUST_ROOT_JSON }}
       MEDICAL_DATA_SIGNING_KEYS_JSON: ${{ secrets.MEDICAL_DATA_SIGNING_KEYS_JSON }}
@@ -64,17 +63,20 @@ jobs:
           rc=$?
           set -e
           cat "$WORK_ROOT/build.log"
+          tools_root="$(find "$RUNNER_TEMP/medical-data-tools" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          [[ -n "$tools_root" ]] || { echo '::error::embedded tools root not found'; exit 2; }
+          echo "DATA_ROOT=$tools_root/data" >> "$GITHUB_ENV"
           case "$rc" in
             0) echo "source_status=complete" >> "$GITHUB_OUTPUT" ;;
             3) echo "source_status=partial" >> "$GITHUB_OUTPUT" ;;
             *) echo "::error::medical data build failed rc=$rc"; exit "$rc" ;;
           esac
-          test -s "$DATA_ROOT/medical_data.json"
-          test -s "$DATA_ROOT/medical_index.json"
-          test -s "$DATA_ROOT/medical_details.jsonl"
-          test -s "$DATA_ROOT/medical_reference.jsonl"
-          test -s "$DATA_ROOT/medical_manifest.json"
-          test -s "$DATA_ROOT/medical-catalog.sqlite"
+          test -s "$tools_root/data/medical_data.json"
+          test -s "$tools_root/data/medical_index.json"
+          test -s "$tools_root/data/medical_details.jsonl"
+          test -s "$tools_root/data/medical_reference.jsonl"
+          test -s "$tools_root/data/medical_manifest.json"
+          test -s "$tools_root/data/medical-catalog.sqlite"
 
       - name: Validate canonical bundle and make deterministic payload
         id: content
