@@ -18,6 +18,11 @@ let package = Package(
         // MIT 许可、SPM、无网络/遥测、纯 Swift+zlib；退出成本低（仅在
         // ASRModelDownloadService 一处使用，替换为 AppleArchive 只改该文件）。
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
+        // Medical catalog Release: age X25519 decryption adapter. The catalog
+        // remains a separate read-only SQLite; this dependency is used only by
+        // the explicit update path, never by the patient database.
+        .package(url: "https://github.com/jamesog/AgeKit.git",
+                 revision: "7d3a1c53d056c410a7b459671c3f37ad4c654544"),
         // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
                  revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
@@ -56,6 +61,8 @@ let package = Package(
                 // （NotificationCenterState/PendingCardCenterState）迁入 App 层——CoreKit 零 UI 观察依赖（P3 分层复位）。
                 // ZIPFoundation：仅 iOS/macOS 链接（Linux 测试宿主不涉运行时下载）。
                 .product(name: "ZIPFoundation", package: "ZIPFoundation",
+                         condition: .when(platforms: [.iOS, .macOS])),
+                .product(name: "AgeKit", package: "AgeKit",
                          condition: .when(platforms: [.iOS, .macOS])),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS])),
