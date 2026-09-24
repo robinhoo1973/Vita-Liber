@@ -89,11 +89,25 @@ jobs:
           } || true
           jq -e '.meta.schema_version == 3 and (.drugs | length) > 0' medical_data.json >/dev/null
           jq -e '.schema_version == 3 and .merged_records > 0' medical_manifest.json >/dev/null
+          # 四域参考数据(schema v4):医院域硬断言(CSV 直链最稳)——防四域静默全缺的假绿;
+          # 诊断/检查/科室为软警告(台湾 ICD 查询 API 会话态、CN 手动件有波动面)。
+          jq -e '.schema_version == 4 and .domains.hospital.records > 0' medical_ref_manifest.json >/dev/null
+          for dom in department diagnosis exam; do
+            n=$(jq -r ".domains.$dom.records // 0" medical_ref_manifest.json)
+            [[ "$n" -gt 0 ]] || echo "::warning::ref domain $dom has 0 records"
+          done
           test "$(sqlite3 medical-catalog.sqlite 'PRAGMA integrity_check;')" = ok
+          test "$(sqlite3 medical-catalog.sqlite "SELECT value FROM catalog_meta WHERE key='schema_version';")" = 4
+          test "$(sqlite3 medical-catalog.sqlite 'SELECT COUNT(*) FROM hospital;')" -gt 0
           mkdir -p "$WORK_ROOT/payload"
+          ref_files=()
+          for f in medical_hospitals.jsonl medical_departments.jsonl medical_diagnoses.jsonl medical_exams.jsonl; do
+            [[ -f "$f" ]] && ref_files+=("$f")
+          done
           tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
             -C . -cf "$WORK_ROOT/medical-data.tar" \
-            medical_data.json medical_index.json medical_details.jsonl medical_reference.jsonl
+            medical_data.json medical_index.json medical_details.jsonl medical_reference.jsonl \
+            "${ref_files[@]}"
           zstd -q -19 --threads=1 "$WORK_ROOT/medical-data.tar" -o "$WORK_ROOT/medical-data.tar.zst"
           sha256sum "$WORK_ROOT/medical-data.tar.zst" | awk '{print $1}' > "$WORK_ROOT/medical-data-content.sha256"
           echo "content_sha256=$(cat "$WORK_ROOT/medical-data-content.sha256")" >> "$GITHUB_OUTPUT"

@@ -13,7 +13,7 @@ TMP_ROOT="${TMPDIR:-$ROOT/refactor/tools/.tmp}"
 WORK="$(mktemp -d "$TMP_ROOT/medical-data-ci-pack.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/src/tools"
-for f in build_medical_data.sh fetch_drug_data.sh fetch_nmpa.sh drugkit_build.sh merge_drug_data.sh parse_hk.awk parse_tw.awk; do
+for f in build_medical_data.sh fetch_drug_data.sh fetch_nmpa.sh fetch_ref_data.sh drugkit_build.sh merge_drug_data.sh parse_hk.awk parse_tw.awk; do
   cp "$TOOLS/$f" "$WORK/src/tools/$f"
 done
 for d in drugkit gonhsa gonmpa; do
