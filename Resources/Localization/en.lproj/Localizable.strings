@@ -695,6 +695,8 @@
 "search.retry" = "Retry";
 "search.group.docs" = "Documents";
 "search.group.healthData" = "Health data";
+"search.group.diagnosis" = "Diagnoses";
+"search.group.exam" = "Tests & labs";
 "search.healthData.hint" = "View all imported readings and trends for this metric";
 "search.group.observations" = "Observations";
 "search.group.meds" = "Medications";

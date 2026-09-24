@@ -591,7 +591,7 @@ extension L10n {
         "nc.section.alert", "nc.section.ocr", "nc.nextAction.dose", "nc.confirmDose",
         "nc.expireDateFmt", "nc.ocrCountFmt", "nc.empty", "nc.emptyHint",
         "search.title", "search.placeholder", "search.placeholderHint", "search.noResultFmt",
-        "search.loosenHint", "search.clear", "search.failed", "search.retry", "search.group.docs", "search.group.healthData", "search.healthData.hint", "search.group.observations",
+        "search.loosenHint", "search.clear", "search.failed", "search.retry", "search.group.docs", "search.group.healthData", "search.group.diagnosis", "search.group.exam", "search.healthData.hint", "search.group.observations",
         "search.group.meds", "search.obsLocked",
         "language.title", "language.footer", "voiceLang.title", "voiceLang.inputSection",
         "voiceLang.inputHint", "voiceLang.outputSection", "voiceLang.outputHint",

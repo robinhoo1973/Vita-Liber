@@ -695,6 +695,8 @@
 "search.retry" = "重試";
 "search.group.docs" = "資料";
 "search.group.healthData" = "健康資料";
+"search.group.diagnosis" = "疾病名稱";
+"search.group.exam" = "檢查化驗";
 "search.healthData.hint" = "檢視該指標的全部匯入資料與趨勢";
 "search.group.observations" = "觀察";
 "search.group.meds" = "用藥";

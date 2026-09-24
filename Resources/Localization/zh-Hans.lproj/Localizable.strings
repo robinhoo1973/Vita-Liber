@@ -695,6 +695,8 @@
 "search.retry" = "重试";
 "search.group.docs" = "资料";
 "search.group.healthData" = "健康数据";
+"search.group.diagnosis" = "疾病名称";
+"search.group.exam" = "检查化验";
 "search.healthData.hint" = "查看该指标的全部导入数据与趋势";
 "search.group.observations" = "观察";
 "search.group.meds" = "用药";

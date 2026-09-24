@@ -372,6 +372,10 @@ extension L10n {
 
     static var searchLoadFailed: String { t("search.failed") }
 
+    static var searchGroupDiagnosis: String { t("search.group.diagnosis") }
+
+    static var searchGroupExam: String { t("search.group.exam") }
+
     static var searchRetry: String { t("search.retry") }
 
     static var searchGroupDocs: String { t("search.group.docs") }
