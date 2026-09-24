@@ -29,7 +29,7 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
     }
 
     public func match(line: PrescriptionLine) async throws -> MedicalCatalogMatch {
-        try pool.read { db in
+        try await pool.read { db in
             let codeValues = [line.insuranceCode, line.itemCodeText].compactMap { $0 }.filter { !$0.isEmpty }
             var exact: [MedicalCatalogDrug] = []
             if !codeValues.isEmpty {
@@ -67,7 +67,7 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
     }
 
     public func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference] {
-        try pool.read { db in
+        try await pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT reference_id, region, source_id, license_no, name_zh, name_en, brand_name,
                        spec_raw, image_urls_json, match_status
@@ -77,7 +77,7 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
     }
 
     public func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail? {
-        try pool.read { db in
+        try await pool.read { db in
             try Row.fetchOne(db, sql: """
                 SELECT region, source_id, usage_text, indications, active_ingredients,
                        usage_ref_json, raw_json
@@ -87,7 +87,7 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
     }
 
     public func drug(id: Int) async throws -> MedicalCatalogDrug? {
-        try pool.read { db in
+        try await pool.read { db in
             try Row.fetchOne(db, sql: "SELECT * FROM drug WHERE id = ?", arguments: [id]).map(Self.drug)
         }
     }
