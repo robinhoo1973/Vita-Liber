@@ -43,7 +43,7 @@ jobs:
           python3 -m venv /tmp/asc-status-venv
           export PATH="/tmp/asc-status-venv/bin:$PATH"
           python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/.github/workflows/requirements-asc-tools.txt" >/tmp/asc-status-pip.log 2>&1
+            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-asc-tools.txt" >/tmp/asc-status-pip.log 2>&1
           umask 077
           mkdir -p "$RUNNER_TEMP/keys"
           echo "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/keys/AuthKey.p8"

@@ -11,6 +11,13 @@ import tarfile
 import shutil
 import time
 
+# 仓库根探测:从脚本所在目录逐级向上找 CoreKit/Sources/Domain 锚点
+# (与 l0-container-id-mask.py 同纪律——禁止按固定层级假设;
+# 2026-09-12 实证 parents[N] 随脚本位置漂移会静默扫错目录)
+ROOT = Path(__file__).resolve().parent
+while ROOT != ROOT.parent and not (ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    ROOT = ROOT.parent
+
 
 def validate_entries(entries):
     seen = set()
@@ -141,7 +148,7 @@ def require_same_source_manifest(bundle_manifest, source_manifest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2] / "Resources" / "ASRModels")
+    parser.add_argument("--root", type=Path, default=ROOT / "Resources" / "ASRModels")
     parser.add_argument("--check", action="store_true", help="Verify packaged files without downloading")
     parser.add_argument("--manifest-only", action="store_true")
     parser.add_argument("--source-manifest", type=Path,

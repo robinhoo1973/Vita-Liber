@@ -19,6 +19,8 @@
 # 同等是构建必需配置，必须在库（CI 上由 xcodegen 从 project.yml properties 重生成，
 # 本地文件若不入库会成为与 project.yml 双真相源、静默漂移）。非密钥文件。
 !/VitaLiber.entitlements
+# CI 辅助脚本（L0 门禁/发布信任链/医疗数据/钉版清单，按域分簇 scripts/<域>/）
+!/scripts/
 # ASR 下载包由独立 workflow 在 RUNNER_TEMP 中生成并发布至 GitHub Releases；
 # 源码只保存 Resources/ASRModelUpdates 的公开清单与签名，不保留 downloads/。
 
@@ -41,6 +43,7 @@ secrets*
 
 # Python 管线缓存
 __pycache__/
+*.pyc
 
 # ASR权重由钉版清单在构建机取得；清单与许可证入库，运行时全部随包。
 /Resources/ASRModels/zipformer/

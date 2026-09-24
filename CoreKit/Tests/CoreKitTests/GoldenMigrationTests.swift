@@ -446,7 +446,7 @@ struct FtsSensitiveMigrationTests {
 // binds: SU-M0-GOLDEN — 子项目 D · D1-1：v24→v25 `recognition-fact-lines` 老库逐步升级金样
 // （discussions/2026-09-13-hospital-card-schema-round1 §D.0/§D.4）。
 // GRDB 平台边界：仅 iOS/macOS（CI `cd CoreKit && swift test`）执行；Linux 侧由
-// .github/workflows/test-schema-integrity.py 以 sqlite3 复核同一 v25 SQL 步。
+// scripts/ci/gates/test-schema-integrity.py 以 sqlite3 复核同一 v25 SQL 步。
 // 夹具 schema_v24_baseline.sql = 改基线**之前**从 HEAD 冻结的 SchemaV2.ddl 全文。
 @Suite("SU-M0-GOLDEN · v24→v25 老库逐步升级 = 全新库基线 / 回填幂等")
 struct SchemaV25GoldenTests {
@@ -630,7 +630,7 @@ struct SchemaV25GoldenTests {
 
 // binds: SU-M0-GOLDEN — 子项目 D · D2-1：v25→v26 `clinical-episodes` 老库逐步升级金样
 // （discussions/2026-09-13-hospital-card-schema-round1 §C.2–C.5 / §D.2 / §D.4）。
-// GRDB 平台边界：仅 iOS/macOS 执行；Linux 侧由 .github/workflows/test-schema-integrity.py
+// GRDB 平台边界：仅 iOS/macOS 执行；Linux 侧由 scripts/ci/gates/test-schema-integrity.py
 // 以 sqlite3 复核同一 v26 SQL 步（含回填与红线 DDL 断言）。
 // 夹具 schema_v25_baseline.sql = 改基线**之前**从 HEAD（v25）冻结的 SchemaV2.ddl 全文。
 // v26 为纯 SQL 步（无表重建、无代码回填）：runner default 路径 executeIdempotent 逐语句 + 版本推进。
@@ -813,7 +813,7 @@ struct SchemaV26GoldenTests {
 
 // binds: SU-M0-GOLDEN — 子项目 J · J1：v26→v27 `card-hierarchy` 老库逐步升级金样
 // （discussions/2026-09-14-card-hierarchy-round1 §E.1/§E.7 V1/V2；recognition-remediation-design §0.4；并入原 D3 §C.8–C.10）。
-// GRDB 平台边界：仅 iOS/macOS 执行；Linux 侧由 .github/workflows/test-schema-integrity.py 以 sqlite3 复核同一 v27 SQL 步。
+// GRDB 平台边界：仅 iOS/macOS 执行；Linux 侧由 scripts/ci/gates/test-schema-integrity.py 以 sqlite3 复核同一 v27 SQL 步。
 // 夹具 schema_v26_baseline.sql = 改基线**之前**从 HEAD b856208 冻结的 SchemaV2.ddl 全文。
 // v27 为表重建步（ocr_card_commit 第三次重建扩 card_kind/entity_table 枚举）：runner default 路径按步级声明走
 // applyTransactional（DDL/搬运 + PRAGMA foreign_key_check(ocr_card_commit) + 版本推进同一事务）；无代码回填。

@@ -101,7 +101,7 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          python3 .github/workflows/release-version.py \
+          python3 scripts/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
@@ -162,7 +162,7 @@ jobs:
       - name: 准备构建期模型信任校验
         run: |
           # 哈希钉版（安全复审 S-M6）：版本钉不能阻止同版本号的替换发布物。
-          python3 -m pip install --disable-pip-version-check --require-hashes -r .github/workflows/requirements-model-tools.txt
+          python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
           echo "MODEL_PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
           # S-M7：artifact 会覆盖 Resources/ASRModels/manifest.json，先保存提交内清单供后续比对。
           cp Resources/ASRModels/manifest.json "$RUNNER_TEMP/manifest.git.json"
@@ -184,7 +184,7 @@ jobs:
       - name: 取模 T2 llama 模型（sha256 校验，随包内置）
         # 2026-09-20 恢复（业主第 5 项：取消首启下载、模型随包内置）——
         # b8d6c4f 曾随「首启下载」裁决移除本步骤，冷缓存下 CI 包内无模型。
-        run: python3 .github/workflows/materialize-llama-model.py
+        run: python3 scripts/release/materialize-llama-model.py
 
       - name: 环境与工具链
         run: |
@@ -219,10 +219,10 @@ jobs:
       # 「缺证据被当成有证据」同族）──────────
       - name: L0 静态门禁
         run: |
-          bash .github/workflows/l0-static-gate.sh
-          python3 .github/workflows/test-schema-integrity.py
-          python3 .github/workflows/test-asr-assets.py
-          python3 .github/workflows/fetch-asr-models.py --manifest-only
+          bash scripts/gates/l0-static-gate.sh
+          python3 scripts/gates/test-schema-integrity.py
+          python3 scripts/release/test-asr-assets.py
+          python3 scripts/release/fetch-asr-models.py --manifest-only
 
       # ── 签名材料到期预警（审计 2026-09-10 新增）──────────────
       # 证书/PP 到期是「静默悬崖」：平时一切绿色，到期日归档/导出突然失败，
@@ -423,8 +423,8 @@ jobs:
       - name: 校验随包 ASR 基线与签名目录
         run: |
           # S-M7：随包档位清单只允许比本提交的钉版清单多出 bundledModels，--check 才是在核对本提交的来源。
-          python3 .github/workflows/fetch-asr-models.py --check --source-manifest "$RUNNER_TEMP/manifest.git.json"
-          python3 .github/workflows/model-trust.py verify \
+          python3 scripts/release/fetch-asr-models.py --check --source-manifest "$RUNNER_TEMP/manifest.git.json"
+          python3 scripts/release/model-trust.py verify \
             --root Resources/ModelTrustRoot.json \
             --catalog Resources/ASRModelUpdates/catalog.json \
             --index Resources/ASRModelUpdates/index.json
@@ -622,7 +622,7 @@ jobs:
 
       - name: 校验 IPA 框架 minOS 与 ASR 随包完整性
         if: ${{ env.HAS_CERTS == 'true' }}
-        run: python3 .github/workflows/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
+        run: python3 scripts/release/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
 
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
       - name: 上传 IPA artifact
@@ -747,7 +747,7 @@ jobs:
           fi
           export PATH="/tmp/asc-venv/bin:$PATH"
           if ! python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/.github/workflows/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
             echo "::error::Python 依赖安装失败"
             cat /tmp/pip.log
             exit 1
@@ -872,7 +872,7 @@ jobs:
           fi
           export PATH="/tmp/asc-venv/bin:$PATH"
           if ! python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/.github/workflows/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
             echo "::warning::复核步骤 Python 依赖安装失败，跳过复核"
             cat /tmp/pip.log
             exit 0

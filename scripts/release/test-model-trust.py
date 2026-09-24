@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -154,14 +155,17 @@ class TrustTests(unittest.TestCase):
         downloads.mkdir(parents=True)
         (downloads / "catalog.json").write_text(json.dumps(envelope(self.catalog_payload, self.keys[3:5])))
         (downloads / "index.json").write_text(json.dumps(self.catalog_payload["index"]))
-        helpers = self.root / ".github/workflows"
+        # helper 目录从 project.yml 构建脚本解析(布局无关化:临时树复刻 $SRCROOT 下的真实路径)
+        project = yaml.safe_load((TOOLS.parents[1] / "project.yml").read_text())
+        script = project["targets"]["VitaLiber"]["preBuildScripts"][0]["script"]
+        helper_rel = re.search(r'\$SRCROOT/([^"\s]+\.py)', script).group(1)
+        helpers = self.root / Path(helper_rel).parent
         helpers.mkdir(parents=True)
         for name in ("model-trust.py", "model_trust.py", "asr_package.py"):
             shutil.copyfile(TOOLS / name, helpers / name)
         derived = self.root / "derived"
         bundle = self.root / "build/Example.app"
         bundle.mkdir(parents=True)
-        project = yaml.safe_load((TOOLS.parents[1] / "project.yml").read_text())
         target = project["targets"]["VitaLiber"]
         env = dict(os.environ, SRCROOT=str(self.root), DERIVED_FILE_DIR=str(derived),
                    TARGET_BUILD_DIR=str(bundle.parent), UNLOCALIZED_RESOURCES_FOLDER_PATH=bundle.name,

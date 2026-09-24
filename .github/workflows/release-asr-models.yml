@@ -49,21 +49,21 @@ jobs:
           python-version: '3.13.5'
 
       - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/workflows/requirements-model-tools.txt
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
 
       - name: 校验构建、签名及版本规则
         run: |
-          python3 .github/workflows/test-release-version.py
-          python3 .github/workflows/test-asr-assets.py
-          python3 .github/workflows/test-asr-package-integrity.py
-          python3 .github/workflows/test-model-trust.py
-          python3 .github/workflows/test-asr-release.py
+          python3 scripts/release/test-release-version.py
+          python3 scripts/release/test-asr-assets.py
+          python3 scripts/release/test-asr-package-integrity.py
+          python3 scripts/release/test-model-trust.py
+          python3 scripts/release/test-asr-release.py
 
       - name: 准备完整钉版权重（优先复用已验证 Release）
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 .github/workflows/prepare-asr-source.py \
+          python3 scripts/release/prepare-asr-source.py \
             --index Resources/ASRModelUpdates/index.json \
             --source Resources/ASRModels \
             --root "$RUNNER_TEMP/asr-source" \
@@ -72,18 +72,18 @@ jobs:
 
       - name: 构建四个完整 ZIP 与离线基线 bundle
         run: |
-          python3 .github/workflows/build-asr-packages.py \
+          python3 scripts/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
             --index Resources/ASRModelUpdates/index.json \
             --output "$RUNNER_TEMP/asr-packages" \
             --reuse-directory "$RUNNER_TEMP/asr-cache"
-          python3 .github/workflows/fetch-asr-models.py \
+          python3 scripts/release/fetch-asr-models.py \
             --root "$RUNNER_TEMP/asr-packages/bundle/ASRModels" --check
 
       - name: 核对公开签名与实际生成的包索引
         if: ${{ inputs.publish }}
         run: |
-          python3 .github/workflows/model-trust.py verify \
+          python3 scripts/release/model-trust.py verify \
             --root Resources/ModelTrustRoot.json \
             --catalog Resources/ASRModelUpdates/catalog.json \
             --index "$RUNNER_TEMP/asr-packages/index.json"
@@ -131,7 +131,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 .github/workflows/publish-asr-release.py publish \
+          python3 scripts/release/publish-asr-release.py publish \
             --index "$RUNNER_TEMP/asr-packages/index.json" \
             --directory "$RUNNER_TEMP/asr-packages" \
             --root Resources/ModelTrustRoot.json \

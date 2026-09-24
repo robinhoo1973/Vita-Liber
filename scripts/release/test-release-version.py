@@ -2,6 +2,7 @@
 """Execute the real version step: a model Release must not decide the App version."""
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -9,8 +10,14 @@ import unittest
 
 import yaml
 
+# 仓库根探测:锚点向上搜索,禁止按固定层级假设(同 l0-container-id-mask.py 纪律)
+REPO = Path(__file__).resolve().parent
+while REPO != REPO.parent and not (REPO / "CoreKit" / "Sources" / "Domain").is_dir():
+    REPO = REPO.parent
+WORKFLOWS = REPO / ".github" / "workflows"
+CLUSTER = Path(__file__).resolve().parent  # 助手脚本与本测试同簇(scripts/release/)
 
-WORKFLOWS = Path(__file__).resolve().parent
+HELPER_RE = re.compile(r"python3\s+([^\s\\]+\.py)")
 
 
 class ReleaseVersionTests(unittest.TestCase):
@@ -18,13 +25,17 @@ class ReleaseVersionTests(unittest.TestCase):
         document = yaml.safe_load((WORKFLOWS / "build-testflight.yml").read_text())
         step = next(s for s in document["jobs"]["version"]["steps"] if s.get("id") == "ver")
         script = step["run"].replace("${{ github.run_number }}", "27").replace("${{ github.run_attempt }}", "2")
+        match = HELPER_RE.search(script)
+        if not match:
+            self.fail("ver 步骤中未找到 python3 助手脚本路径——工作流与测试脱钩,先修工作流")
+        helper_path = Path(match.group(1))
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             if version is not None:
                 (root / "version.txt").write_text(version)
-            helpers = root / ".github/workflows"
+            helpers = root / helper_path.parent
             helpers.mkdir(parents=True)
-            for helper in WORKFLOWS.glob("*.py"):
+            for helper in CLUSTER.glob("*.py"):
                 if not helper.name.startswith("test-"):
                     shutil.copy2(helper, helpers / helper.name)
             binaries = root / "bin"

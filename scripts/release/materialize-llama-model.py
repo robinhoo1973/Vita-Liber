@@ -18,7 +18,10 @@ import sys
 import urllib.request
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+# 仓库根探测:锚点向上搜索,禁止按固定层级假设(同 l0-container-id-mask.py 纪律)
+ROOT = Path(__file__).resolve().parent
+while ROOT != ROOT.parent and not (ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    ROOT = ROOT.parent
 CATALOG = ROOT / "Resources" / "LLMModels" / "catalog.json"
 CHUNK = 1024 * 1024
 
