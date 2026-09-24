@@ -55,6 +55,8 @@ struct RouteDestinationView: View {
             case .prescriptionLine(let patient, let line):
                 // v25 处方行详情（§C.6）：行事实 + 来源页 + 表头卡入口；成员隔离由 OCRCardStore.lineDetail 出口把关
                 PrescriptionLineDetailView(lineId: line, patientId: patient)
+            case .medicalCatalogDetail(let id):
+                MedicalCatalogDetailView(drugID: id)
             case .healthExamDetail(let patient, let id):
                 // v27 体检主卡详情（子项目 J）：表头 → 一般检查原文 → 结论（不着色）→ 子报告 → 原件；成员隔离由 HealthExamStore 出口把关
                 HealthExamDetailView(patientId: patient, examId: id)

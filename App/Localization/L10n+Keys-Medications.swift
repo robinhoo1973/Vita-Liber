@@ -253,4 +253,26 @@ extension L10n {
     static var lotUnitVial: String { t("lot.unit.vial") }
 
     static var planAdd: String { t("plan.add") }
+
+    static var medicalCatalogDetailTitle: String { t("medicalCatalog.detail.title") }
+    static var medicalCatalogDetailSectionBasic: String { t("medicalCatalog.detail.section.basic") }
+    static var medicalCatalogDetailNamezh: String { t("medicalCatalog.detail.nameZh") }
+    static var medicalCatalogDetailNotprovided: String { t("medicalCatalog.detail.notProvided") }
+    static var medicalCatalogDetailNameen: String { t("medicalCatalog.detail.nameEn") }
+    static var medicalCatalogDetailBrand: String { t("medicalCatalog.detail.brand") }
+    static var medicalCatalogDetailRegion: String { t("medicalCatalog.detail.region") }
+    static var medicalCatalogDetailLicense: String { t("medicalCatalog.detail.license") }
+    static var medicalCatalogDetailCode: String { t("medicalCatalog.detail.code") }
+    static var medicalCatalogDetailSectionSpec: String { t("medicalCatalog.detail.section.spec") }
+    static var medicalCatalogDetailSpec: String { t("medicalCatalog.detail.spec") }
+    static var medicalCatalogDetailDosageform: String { t("medicalCatalog.detail.dosageForm") }
+    static var medicalCatalogDetailIngredient: String { t("medicalCatalog.detail.ingredient") }
+    static var medicalCatalogDetailDisclaimer: String { t("medicalCatalog.detail.disclaimer") }
+    static var medicalCatalogDetailSectionSources: String { t("medicalCatalog.detail.section.sources") }
+    static var medicalCatalogDetailOfficiallink: String { t("medicalCatalog.detail.officialLink") }
+
+    static var medicalCatalogMatchSection: String { t("medicalCatalog.match.section") }
+    static var medicalCatalogMatchExact: String { t("medicalCatalog.match.exact") }
+    static var medicalCatalogMatchCandidates: String { t("medicalCatalog.match.candidates") }
+    static var medicalCatalogMatchNone: String { t("medicalCatalog.match.none") }
 }

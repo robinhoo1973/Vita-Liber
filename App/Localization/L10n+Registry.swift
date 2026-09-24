@@ -635,7 +635,7 @@ extension L10n {
         "encounter.summary.unconfirmed", "encounter.summary.allConfirmed",
         "encounter.summary.docFieldsFmt", "encounter.summary.note", "encounter.summary.noteText",
         "encounter.form.title", "encounter.form.basic", "encounter.form.kind", "encounter.form.date",
-        "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor", "catalog.suggest.title",
+        "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor", "catalog.suggest.title", "medicalCatalog.detail.title", "medicalCatalog.match.section", "medicalCatalog.match.exact", "medicalCatalog.match.candidates", "medicalCatalog.match.none", "medicalCatalog.detail.section.basic", "medicalCatalog.detail.nameZh", "medicalCatalog.detail.notProvided", "medicalCatalog.detail.nameEn", "medicalCatalog.detail.brand", "medicalCatalog.detail.region", "medicalCatalog.detail.license", "medicalCatalog.detail.code", "medicalCatalog.detail.section.spec", "medicalCatalog.detail.spec", "medicalCatalog.detail.dosageForm", "medicalCatalog.detail.ingredient", "medicalCatalog.detail.disclaimer", "medicalCatalog.detail.section.sources", "medicalCatalog.detail.officialLink",
         "encounter.form.clinical", "encounter.form.complaint", "encounter.form.diagnosis",
         "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
         "timeline.title", "timeline.emptyHint", "timeline.filter.all",

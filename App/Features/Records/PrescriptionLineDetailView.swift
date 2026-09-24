@@ -71,7 +71,9 @@ struct PrescriptionLineDetailView: View {
     let lineId: UUID
     let patientId: UUID
     @Environment(DocumentsState.self) private var docs
+    @Environment(MedicalCatalogState.self) private var catalog
     @State private var detail: OCRCardStore.LineDetail?
+    @State private var catalogMatch: MedicalCatalogMatch?
     @State private var gone = false
     @State private var failed = false
 
@@ -117,6 +119,34 @@ struct PrescriptionLineDetailView: View {
             if let raw = detail.line.rawText, !raw.isEmpty {
                 Section(L10n.pendingCardRawText) {
                     Text(raw).font(.footnote).textSelection(.enabled)
+                }
+            }
+
+            if let match = catalogMatch {
+                Section(L10n.medicalCatalogMatchSection) {
+                    if let exact = match.exact {
+                        NavigationLink(value: AppRoute.medicalCatalogDetail(id: exact.id)) {
+                            Label(exact.displayName, systemImage: "pills")
+                        }
+                        Text(L10n.medicalCatalogMatchExact)
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else if !match.candidates.isEmpty {
+                        Text(L10n.medicalCatalogMatchCandidates)
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(match.candidates) { candidate in
+                            NavigationLink(value: AppRoute.medicalCatalogDetail(id: candidate.id)) {
+                                VStack(alignment: .leading) {
+                                    Text(candidate.displayName)
+                                    if let spec = candidate.spec, !spec.isEmpty {
+                                        Text(spec).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Text(L10n.medicalCatalogMatchNone)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -167,6 +197,7 @@ struct PrescriptionLineDetailView: View {
             let value = try await store.lineDetail(lineId: lineId, patientId: patientId)
             guard !Task.isCancelled else { return }
             detail = value
+            catalogMatch = await catalog.match(value.line)
         } catch OCRCardStore.StoreError.invalidCard {
             // 查无/跨成员：不区分存在性（不泄露他人数据），走 §5.48 已删除实体降级
             if !Task.isCancelled { detail = nil; gone = true }

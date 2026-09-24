@@ -242,6 +242,7 @@ private struct PreviewRoot: View {
     /// 设置仓（业主 2026-09-17：F16DeviceState 构造与环境注入共用同一实例——
     /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
     private let settingsStore: AppSettingsStore
+    private let medicalCatalogState: MedicalCatalogState
 
     init() {
         // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
@@ -253,6 +254,7 @@ private struct PreviewRoot: View {
             fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
         }
         container = assembled
+        medicalCatalogState = MedicalCatalogState(store: assembled.medicalCatalog)
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
     }
@@ -270,6 +272,7 @@ private struct PreviewRoot: View {
                                            scheduler: container.reminderScheduler,
                                             composer: container.composer))
                 .environment(settingsStore)
+                .environment(medicalCatalogState)
                 .environment(ObservationStoreState(store: container.observations,
                                                    allergyStore: container.allergies,
                                                    mediaAssets: container.mediaAssets))

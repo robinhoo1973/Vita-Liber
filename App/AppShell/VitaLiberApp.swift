@@ -34,6 +34,7 @@ struct VitaLiberApp: App {
     /// 模型安装中心（2026-09-16）：下载进行态 App 级可观察（首页条目 + 设置页同源）。
     @State private var asrInstallCenter: ASRInstallCenter
     @State private var backupState: BackupState
+    @State private var medicalCatalogState: MedicalCatalogState
 
     init() {
         // FR14.5 启动语言恢复（评审修正）：同步执行、首帧前完成——
@@ -48,6 +49,7 @@ struct VitaLiberApp: App {
         // body 显示可见引导——原静默降级内存库、用户看到空档案且写入即丢
         let container = AppContainer.liveOrDegraded(databasePath: AppContainer.defaultDatabasePath())
         self.container = container
+        _medicalCatalogState = State(initialValue: MedicalCatalogState(store: container.medicalCatalog))
         let appRouter = AppRouter()
         self.router = appRouter
         let delegate = AppNotificationDelegate(router: appRouter)
@@ -289,7 +291,8 @@ struct VitaLiberApp: App {
             .environment(questionsState)
             .environment(documentsState)
             .environment(exportWizardState)
-            .environment(f16DeviceState)
-            .environment(backupState)
+             .environment(f16DeviceState)
+             .environment(backupState)
+             .environment(medicalCatalogState)
     }
 }

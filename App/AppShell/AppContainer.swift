@@ -77,6 +77,8 @@ struct AppContainer {
     let prescriptions: PrescriptionStore
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
     let backup: BackupService
+    /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
+    let medicalCatalog: MedicalCatalogStore?
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
     // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
     /// FR13.1/13.2 PDF 导出（SP-22）
@@ -110,7 +112,8 @@ struct AppContainer {
             throw ContainerError.databaseMissing
         }
         let store = try GRDBStore.pool(at: databasePath)
-        return assemble(store: store, scheduler: productionScheduler())
+        let catalog = try? MedicalCatalogStore(path: URL(fileURLWithPath: defaultMedicalCatalogPath())) // try?-ok: 目录文件缺失/损坏=目录功能降级（无参考/联想），应用其余功能不受影响
+        return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog)
     }
 
     /// 生产投递门统一装配（live 与降级路径共用）——装饰器链只此一处定义：
@@ -164,7 +167,8 @@ struct AppContainer {
     @MainActor
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
                                  mediaBaseDir: URL? = nil,
-                                 degradedReason: String? = nil) -> AppContainer {
+                                 degradedReason: String? = nil,
+                                 medicalCatalog: MedicalCatalogStore? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
         EngineRegistry.shared.registerDefaultEngines()
@@ -264,9 +268,10 @@ struct AppContainer {
                             questions: questions,
                             memberDeletion: memberDeletion,
                             documents: documents,
-                            prescriptions: prescriptions,
-                            backup: backup,
-                            pdfExport: pdfExport,
+                             prescriptions: prescriptions,
+                             backup: backup,
+                             medicalCatalog: medicalCatalog,
+                             pdfExport: pdfExport,
                             healthReader: healthReader,
                             healthSync: healthSync)
     }
@@ -285,6 +290,17 @@ struct AppContainer {
         do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         catch { /* 目录创建失败由 GRDB 打开时报错，不在此吞掉 */ }
         return dir.appendingPathComponent("vitaliber.sqlite").path
+    }
+
+    /// 独立药品目录文件：可原子替换/回滚，不触碰患者主库。
+    static func defaultMedicalCatalogPath() -> String {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("VitaLiber/MedicalCatalog", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        catch { /* 更新服务/只读打开路径失败时如实显示不可用 */ }
+        return dir.appendingPathComponent("medical-catalog.sqlite").path
     }
 
     /// 原件专用目录（BR-002）：`<Documents>/MedicalNotes/originals/`——
