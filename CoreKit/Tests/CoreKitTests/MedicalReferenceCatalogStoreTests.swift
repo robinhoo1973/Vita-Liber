@@ -108,17 +108,21 @@ struct MedicalReferenceCatalogStoreTests {
         var config = Configuration()
         config.readonly = false
         let queue = try DatabaseQueue(path: path, configuration: config)
-        try queue.write { db in
+        try await queue.write { db in
             try db.execute(sql: "CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);")
             try db.execute(sql: "INSERT INTO catalog_meta(key,value) VALUES ('schema_version','3');")
         }
         let store = try MedicalReferenceCatalogStore(path: path)
         let version = try await store.catalogSchemaVersion
         #expect(version == 3)
-        #expect(try await store.hospitalSuggest(query: "協和", region: nil, limit: 20).isEmpty)
-        #expect(try await store.departmentList(region: nil).isEmpty)
-        #expect(try await store.diagnosisSuggest(query: "I21", system: nil, region: nil, limit: 20).isEmpty)
-        #expect(try await store.examSuggest(query: "血", category: nil, region: nil, limit: 20).isEmpty)
+        let hospitalsEmpty = try await store.hospitalSuggest(query: "協和", region: nil, limit: 20).isEmpty
+        let departmentsEmpty = try await store.departmentList(region: nil).isEmpty
+        let diagnosesEmpty = try await store.diagnosisSuggest(query: "I21", system: nil, region: nil, limit: 20).isEmpty
+        let examsEmpty = try await store.examSuggest(query: "血", category: nil, region: nil, limit: 20).isEmpty
+        #expect(hospitalsEmpty)
+        #expect(departmentsEmpty)
+        #expect(diagnosesEmpty)
+        #expect(examsEmpty)
     }
 }
 #endif
