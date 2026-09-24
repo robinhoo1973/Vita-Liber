@@ -72,6 +72,22 @@ class TrustTests(unittest.TestCase):
         result = self.verify(envelope(self.catalog_payload, self.keys[3:5]))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_independent_medical_asset_kind_accepts_only_with_explicit_scope(self):
+        root = dict(self.root_payload, assetKind="medical-data",
+                    assetBaseURL="https://github.com/robinhoo1973/Vita-Liber/releases/download/medical-data")
+        catalog = {"schemaVersion": 1, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
+                   "rootVersion": 1, "catalogVersion": 1, "issuedAt": self.catalog_payload["issuedAt"],
+                   "expiresAt": self.catalog_payload["expiresAt"], "contentSha256": "a" * 64,
+                   "manifestSha256": "b" * 64, "releaseTag": "medical-data", "repository": "robinhoo1973/Vita-Liber"}
+        root_file = self.write("medical-root.json", envelope(root, self.keys[:2]))
+        catalog_file = self.write("medical-catalog.json", envelope(catalog, self.keys[3:5]))
+        result = subprocess.run(["python3", str(TOOLS / "model-trust.py"), "verify",
+                                 "--asset-kind", "medical-data", "--root", str(root_file),
+                                 "--catalog", str(catalog_file), "--content-sha256", "a" * 64],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotEqual(self.verify(envelope(catalog, self.keys[3:5])).returncode, 0)
+
     def test_duplicate_signer_cannot_meet_threshold(self):
         result = self.verify(envelope(self.catalog_payload, [self.keys[3], self.keys[3]]))
         self.assertNotEqual(result.returncode, 0)

@@ -29,8 +29,8 @@ def payload(envelope):
     return decode_json(payload_bytes(envelope))
 
 
-def check_scope(value, role):
-    if value.get("schemaVersion") != 1 or value.get("role") != role or value.get("app") != "vitaliber" or value.get("assetKind") != "asr":
+def check_scope(value, role, asset_kind="asr"):
+    if value.get("schemaVersion") != 1 or value.get("role") != role or value.get("app") != "vitaliber" or value.get("assetKind") != asset_kind:
         raise ValueError("Signed metadata scope/version mismatch")
 
 
@@ -38,8 +38,8 @@ def positive(value):
     return type(value) is int and 0 < value < 2**63
 
 
-def validate_root(root):
-    check_scope(root, "root")
+def validate_root(root, asset_kind="asr"):
+    check_scope(root, "root", asset_kind)
     if not positive(root.get("version")):
         raise ValueError("Invalid root version")
     utc_date(root["expiresAt"])
@@ -60,15 +60,19 @@ def validate_root(root):
     if set(root["rootKeyIDs"]) & set(root["catalogKeyIDs"]):
         raise ValueError("Root and catalog keys must be separate")
     url = urlparse(root["assetBaseURL"])
+    if asset_kind == "asr":
+        allowed_path = r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/asr-models"
+    else:
+        allowed_path = r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9_.-]+"
     if (url.scheme != "https" or url.netloc != "github.com" or url.query or url.fragment
-            or not re.fullmatch(r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/asr-models", url.path)):
-        raise ValueError("ASR assets must use the authorized GitHub Release")
+            or not re.fullmatch(allowed_path, url.path)):
+        raise ValueError(f"{asset_kind} assets must use an authorized GitHub Release")
     if not root["allowedHosts"] or not set(root["allowedHosts"]) <= HOSTS:
         raise ValueError("Unexpected resource host policy")
 
 
-def verify_envelope(envelope, root, role):
-    validate_root(root)
+def verify_envelope(envelope, root, role, asset_kind="asr"):
+    validate_root(root, asset_kind)
     data = payload_bytes(envelope)
     signatures = envelope.get("signatures", [])
     if not 1 <= len(signatures) <= 16:
@@ -94,41 +98,45 @@ def verify_envelope(envelope, root, role):
     if len(verified) < root[role + "Threshold"]:
         raise ValueError("Signature threshold not satisfied")
     result = decode_json(data)
-    check_scope(result, role)
+    check_scope(result, role, asset_kind)
     return result
 
 
-def trusted_root(envelope, *, now=None, previous=None):
+def trusted_root(envelope, *, now=None, previous=None, asset_kind="asr"):
     root = payload(envelope)
-    validate_root(root)
+    validate_root(root, asset_kind)
     if previous is not None:
         old = payload(previous)
-        validate_root(old)
+        validate_root(old, asset_kind)
         if root["version"] != old["version"] + 1:
             raise ValueError("Root updates must be consecutive")
-        verify_envelope(envelope, old, "root")
-    verify_envelope(envelope, root, "root")
+        verify_envelope(envelope, old, "root", asset_kind)
+    verify_envelope(envelope, root, "root", asset_kind)
     if now is not None and utc_date(root["expiresAt"]) <= now:
         raise ValueError("Root metadata expired")
     return root
 
 
-def verify_catalog(root_envelope, catalog_envelope, *, previous=None, now=None):
+def verify_catalog(root_envelope, catalog_envelope, *, previous=None, now=None, asset_kind="asr"):
     now = now or datetime.now(timezone.utc)
-    root = trusted_root(root_envelope, now=now)
-    catalog = verify_envelope(catalog_envelope, root, "catalog")
+    root = trusted_root(root_envelope, now=now, asset_kind=asset_kind)
+    catalog = verify_envelope(catalog_envelope, root, "catalog", asset_kind)
     if catalog.get("rootVersion") != root["version"] or not positive(catalog.get("catalogVersion")):
         raise ValueError("Catalog/root version mismatch")
     issued, expires = utc_date(catalog["issuedAt"]), utc_date(catalog["expiresAt"])
     if expires <= now or issued > now + timedelta(minutes=5) or expires <= issued or expires - issued > timedelta(days=31):
         raise ValueError("Catalog expired or outside validity window")
     if previous is not None:
-        old = verify_envelope(previous, root, "catalog")
+        old = verify_envelope(previous, root, "catalog", asset_kind)
         if old.get("rootVersion") == root["version"]:
             if catalog["catalogVersion"] < old["catalogVersion"]:
                 raise ValueError("Catalog rollback rejected")
             if catalog["catalogVersion"] == old["catalogVersion"] and payload_bytes(catalog_envelope) != payload_bytes(previous):
                 raise ValueError("Catalog same-version equivocation rejected")
+    if asset_kind != "asr":
+        if not re.fullmatch(r"[0-9a-f]{64}", catalog.get("contentSha256", "")):
+            raise ValueError("Medical catalog contentSha256 is invalid")
+        return catalog
     index = catalog["index"]
     validate_index(index)
     if index["baseUrl"] != root["assetBaseURL"]:

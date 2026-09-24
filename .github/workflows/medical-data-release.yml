@@ -1,0 +1,192 @@
+# Canonical medical-data refresh + encrypted Release asset.
+#
+# Security/data contract:
+# - `medical-data-content.sha256` hashes the deterministic plaintext data payload.
+# - The encrypted `.bin` is produced only when that content hash differs from the latest Release.
+# - age encryption is intentionally randomized; comparing ciphertext would publish every run.
+# - `MEDICAL_DATA_AGE_RECIPIENT` is a public age recipient (stored as an Actions secret for
+#   configuration hygiene). The matching private key is not present in CI.
+# - The app must receive/decrypt the private key through its separately reviewed key strategy;
+#   embedding a private key in an offline app is obfuscation, not strong secrecy.
+name: Medical data release
+
+on:
+  workflow_dispatch:
+    inputs:
+      change_note:
+        description: 数据版本变化说明（写入 SQLite catalog_meta）
+        required: false
+        type: string
+        default: ''
+  schedule:
+    - cron: '17 3 * * 1'
+
+concurrency:
+  group: medical-data-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: Build, compare, encrypt, publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      DATA_ROOT: ${{ runner.temp }}/medical-data-tools/data
+      WORK_ROOT: ${{ runner.temp }}/medical-data
+      XDG_CACHE_HOME: ${{ runner.temp }}/medical-data-cache
+      TMPDIR: ${{ runner.temp }}/medical-data-tmp
+      NMPA_EVIDENCE: ${{ runner.temp }}/medical-data-evidence
+      AGE_RECIPIENT: ${{ secrets.MEDICAL_DATA_AGE_RECIPIENT }}
+      MEDICAL_DATA_TRUST_ROOT_JSON: ${{ secrets.MEDICAL_DATA_TRUST_ROOT_JSON }}
+      MEDICAL_DATA_SIGNING_KEYS_JSON: ${{ secrets.MEDICAL_DATA_SIGNING_KEYS_JSON }}
+      CHANGE_NOTE: ${{ inputs.change_note }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install data-tool dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age chromium xvfb unzip zstd sqlite3 jq
+          mkdir -p "$WORK_ROOT" "$TMPDIR" "$NMPA_EVIDENCE"
+
+      - name: Build fresh canonical data
+        id: build
+        run: |
+          set +e
+          note="${CHANGE_NOTE:-Automated GitHub refresh}"
+          bash .github/workflows/medical-data-ci.sh --fetch --change-note "$note" --legacy-names=off \
+            > "$WORK_ROOT/build.log" 2>&1
+          rc=$?
+          set -e
+          cat "$WORK_ROOT/build.log"
+          case "$rc" in
+            0) echo "source_status=complete" >> "$GITHUB_OUTPUT" ;;
+            3) echo "source_status=partial" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::medical data build failed rc=$rc"; exit "$rc" ;;
+          esac
+          test -s "$DATA_ROOT/medical_data.json"
+          test -s "$DATA_ROOT/medical_index.json"
+          test -s "$DATA_ROOT/medical_details.jsonl"
+          test -s "$DATA_ROOT/medical_reference.jsonl"
+          test -s "$DATA_ROOT/medical_manifest.json"
+          test -s "$DATA_ROOT/medical-catalog.sqlite"
+
+      - name: Validate canonical bundle and make deterministic payload
+        id: content
+        run: |
+          set -euo pipefail
+          cd "$DATA_ROOT"
+          grep -aE -q 'usageDosage|materialname' medical_data.json medical_index.json medical_details.jsonl medical_reference.jsonl medical_manifest.json && {
+            echo '::error::medical red-line substring detected'; exit 1;
+          } || true
+          jq -e '.meta.schema_version == 3 and (.drugs | length) > 0' medical_data.json >/dev/null
+          jq -e '.schema_version == 3 and .merged_records > 0' medical_manifest.json >/dev/null
+          test "$(sqlite3 medical-catalog.sqlite 'PRAGMA integrity_check;')" = ok
+          mkdir -p "$WORK_ROOT/payload"
+          tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+            -C . -cf "$WORK_ROOT/medical-data.tar" \
+            medical_data.json medical_index.json medical_details.jsonl medical_reference.jsonl
+          zstd -q -19 --threads=1 "$WORK_ROOT/medical-data.tar" -o "$WORK_ROOT/medical-data.tar.zst"
+          sha256sum "$WORK_ROOT/medical-data.tar.zst" | awk '{print $1}' > "$WORK_ROOT/medical-data-content.sha256"
+          echo "content_sha256=$(cat "$WORK_ROOT/medical-data-content.sha256")" >> "$GITHUB_OUTPUT"
+
+      - name: Compare with latest Release content hash
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          latest="$WORK_ROOT/latest-content.sha256"
+          rm -f "$latest"
+          latest_tag="medical-data"
+          if [[ -n "$latest_tag" ]] && gh release download "$latest_tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern medical-data-content.sha256 --dir "$WORK_ROOT/latest" >/dev/null 2>&1; then
+            found=$(find "$WORK_ROOT/latest" -name medical-data-content.sha256 -type f -print -quit)
+            [[ -n "$found" ]] && cp "$found" "$latest"
+          fi
+          current=$(cat "$WORK_ROOT/medical-data-content.sha256")
+          if [[ -s "$latest" ]] && [[ "$(tr -d '[:space:]' < "$latest")" == "$current" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Data content unchanged; no encrypted Release asset will be published."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Data content changed or no previous data Release exists."
+
+      - name: Prepare independent medical-data trust material
+        id: release
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          [[ -n "$MEDICAL_DATA_TRUST_ROOT_JSON" ]] || { echo '::error::MEDICAL_DATA_TRUST_ROOT_JSON is not configured'; exit 2; }
+          [[ -n "$MEDICAL_DATA_SIGNING_KEYS_JSON" ]] || { echo '::error::MEDICAL_DATA_SIGNING_KEYS_JSON is not configured'; exit 2; }
+          tag="medical-data"
+          printf '%s' "$MEDICAL_DATA_TRUST_ROOT_JSON" > "$WORK_ROOT/medical-root.json"
+          printf '%s' "$MEDICAL_DATA_SIGNING_KEYS_JSON" > "$WORK_ROOT/medical-signing-keys.json"
+          chmod 600 "$WORK_ROOT/medical-root.json" "$WORK_ROOT/medical-signing-keys.json"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Sign medical-data catalog (assetKind=medical-data)
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          manifest_sha=$(sha256sum "$DATA_ROOT/medical_manifest.json" | awk '{print $1}')
+          python3 .github/workflows/medical_data_trust.py sign \
+            --root "$WORK_ROOT/medical-root.json" \
+            --keys "$WORK_ROOT/medical-signing-keys.json" \
+            --content-sha256 "$(cat "$WORK_ROOT/medical-data-content.sha256")" \
+            --manifest-sha256 "$manifest_sha" \
+            --release-tag "${{ steps.release.outputs.tag }}" \
+            --repository "$GITHUB_REPOSITORY" \
+            --output "$WORK_ROOT/medical-data-catalog.json"
+          python3 .github/workflows/model-trust.py verify \
+            --asset-kind medical-data \
+            --root "$WORK_ROOT/medical-root.json" \
+            --catalog "$WORK_ROOT/medical-data-catalog.json" \
+            --content-sha256 "$(cat "$WORK_ROOT/medical-data-content.sha256")"
+          fi
+
+      - name: Encrypt changed payload
+        if: steps.compare.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          [[ -n "$AGE_RECIPIENT" ]] || {
+            echo '::error::MEDICAL_DATA_AGE_RECIPIENT is not configured'; exit 2;
+          }
+          zstd -q -19 --threads=1 "$DATA_ROOT/medical-catalog.sqlite" -o "$WORK_ROOT/medical-catalog.sqlite.zst"
+          age -r "$AGE_RECIPIENT" -o "$WORK_ROOT/medical-data.bin" "$WORK_ROOT/medical-catalog.sqlite.zst"
+          sha256sum "$WORK_ROOT/medical-data.bin" | awk '{print $1}' > "$WORK_ROOT/medical-data.bin.sha256"
+          sha256sum "$DATA_ROOT/medical-catalog.sqlite" | awk '{print $1}' > "$WORK_ROOT/medical-catalog.sqlite.sha256"
+          cp "$DATA_ROOT/medical_manifest.json" "$WORK_ROOT/medical_manifest.json"
+
+      - name: Publish changed encrypted Release
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.release.outputs.tag }}"
+          assets=(
+            "$WORK_ROOT/medical-data.bin"
+            "$WORK_ROOT/medical-data-content.sha256"
+            "$WORK_ROOT/medical-data.bin.sha256"
+            "$WORK_ROOT/medical-catalog.sqlite.sha256"
+            "$WORK_ROOT/medical-data-catalog.json"
+            "$WORK_ROOT/medical-root.json"
+            "$WORK_ROOT/medical_manifest.json"
+          )
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" --repo "$GITHUB_REPOSITORY" \
+              --title "Medical data" \
+              --notes "Canonical schema-v3 medical data. Source status: ${{ steps.build.outputs.source_status }}. Plaintext content hash is in medical-data-content.sha256."
+          fi
+
+      - name: Publish no-change summary
+        if: steps.compare.outputs.changed == 'false'
+        run: echo "No Release created because the deterministic medical-data content hash is unchanged."

@@ -15,12 +15,16 @@ def main():
     parser.add_argument("--index", type=Path)
     parser.add_argument("--previous-catalog", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--asset-kind", default="asr")
+    parser.add_argument("--content-sha256")
     args = parser.parse_args()
     try:
         root = decode_json(args.root.read_bytes())
         envelope = decode_json(args.catalog.read_bytes())
         previous = decode_json(args.previous_catalog.read_bytes()) if args.previous_catalog else None
-        catalog = verify_catalog(root, envelope, previous=previous)
+        catalog = verify_catalog(root, envelope, previous=previous, asset_kind=args.asset_kind)
+        if args.content_sha256 and catalog.get("contentSha256") != args.content_sha256:
+            raise ValueError("Signed catalog contentSha256 mismatch")
         if args.index and catalog["index"] != decode_json(args.index.read_bytes()):
             raise ValueError("Built model index differs from the signed catalog; generate a candidate and sign it first")
         if args.action == "build":
@@ -30,7 +34,8 @@ def main():
             temporary = args.output.with_suffix(".tmp")
             temporary.write_bytes(json_bytes(build_baseline(root, envelope)))
             temporary.replace(args.output)
-        print(f"MODEL-TRUST-OK: root {catalog['rootVersion']}, catalog {catalog['catalogVersion']}, {len(catalog['index']['models'])} packages")
+        count = len(catalog.get("index", {}).get("models", []))
+        print(f"MODEL-TRUST-OK: asset={args.asset_kind}, root={catalog['rootVersion']}, catalog={catalog['catalogVersion']}, entries={count}")
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"MODEL-TRUST-ERROR: {error}", file=sys.stderr)
