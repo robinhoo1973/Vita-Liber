@@ -90,7 +90,7 @@ let package = Package(
         .binaryTarget(
             name: "LlamaFramework",
             url: "https://github.com/robinhoo1973/Vita-Liber/releases/download/llama-xcframework/llama-b11012-xcframework.zip",
-            checksum: "0aea6bcb36447fd276629a3bd235b0523a9087f9de8feba981b823529f515efb"
+             checksum: "4f1c518268e68ce1fada40a4674d72d3847488cbe1d2a808d3ed6e68b6dd242f"
         ),
     ],
     cxxLanguageStandard: .cxx17
