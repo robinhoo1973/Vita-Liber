@@ -155,9 +155,12 @@ jobs:
           path: |
             CoreKit/.build
             Build/DerivedData/SourcePackages
-          key: spm-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
+          # Cache namespace bump: Package.swift binaryTarget checksums can change
+          # while the old artifact remains valid in a broad restore-key cache.
+          # Never restore a pre-checksum-update artifact into SwiftPM.
+          key: spm-v2-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
           restore-keys: |
-            spm-${{ runner.os }}-
+            spm-v2-${{ runner.os }}-
 
       - name: 准备构建期模型信任校验
         run: |
