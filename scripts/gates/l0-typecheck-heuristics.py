@@ -996,11 +996,49 @@ def main():
                         f"形参补 `@escaping`，或加 // tius-ok: 豁免"
                     )
 
+    # ---- 家族 N：CoreKitTests 用 Foundation 符号却无 import Foundation /
+    # #expect 内 keypath 闭包（rethrows 分析）—— CI 36246531585 实证：
+    # MemberProfileCompletenessTests 缺 import Foundation（15 处符号不可见）、
+    # MedicalTerminologyOverlayTests `contains(where: \.isNumber)` 报
+    # 'call is to rethrows function, but argument function can throw'。
+    # Linux swift test 全绿仍漏（Foundation 可见性与 rethrows 判定两平台
+    # 工具链不一致——parse/型检启发式都看不见），文本扫描左移。
+    n_files = sorted((root / "CoreKit/Tests/CoreKitTests").glob("*.swift"))
+    scanned["N"] = len(n_files)
+    for f in n_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        imports = set()
+        for raw in txt.splitlines():
+            m = IMPORT_RE.match(raw.strip())
+            if m:
+                imports.add(m.group(1))
+        if "Foundation" not in imports:
+            code = "\n".join(c for _, c in code_lines(txt))
+            for sym in ("Calendar", "NSTimeZone", "TimeZone", "DateComponents",
+                        "DateFormatter", "NSLock", "String(format:", "JSONDecoder(", "JSONEncoder("):
+                if sym in code:
+                    fails.append(
+                        f"{f.relative_to(root)}: 使用 {sym} 但无 import Foundation —— "
+                        f"Linux swift test 全绿仍漏（Foundation 可见性平台差异），仅 macOS 编译暴露"
+                    )
+                    break
+        for raw in txt.splitlines():
+            if "#expect" in raw and "where: \\." in raw:
+                fails.append(
+                    f"{f.relative_to(root)}: #expect 内 keypath 闭包（rethrows 判定平台差异）"
+                    f" —— 改显式闭包 {{ $0.xxx }}，CI 36246531585 同族"
+                )
+                break
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
-          f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)}")
+          f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
+          f"N={scanned.get('N',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

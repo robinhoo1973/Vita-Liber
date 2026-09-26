@@ -25,7 +25,7 @@ struct MedicalTerminologyOverlayTests {
                 Issue.record("缺解释: \(term)")
                 continue
             }
-            #expect(!explanation.contains(where: \.isNumber), "\(term) 解释含数字阈值: \(explanation)")
+            #expect(!explanation.contains(where: { $0.isNumber }), "\(term) 解释含数字阈值: \(explanation)")
         }
     }
 

@@ -71,7 +71,7 @@ struct ClinicalEpisodeProjectionTests {
         for kind in ["hospitalization", "diagnosis", "exam_report"] {
             #expect(CardTemplateMatcher.ocrTemplates.contains { $0.kind == kind }, "\(kind)")
             let rules = CompletenessEvaluator.rules(for: kind)
-            #expect(!rules.isEmpty && rules.contains(where: \.isRequired), "\(kind)")
+            #expect(!rules.isEmpty && rules.contains(where: { $0.isRequired }), "\(kind)")
         }
         #expect(Set(CompletenessEvaluator.rules(for: "hospitalization").filter(\.isRequired).map(\.key)) == ["hospital", "kind"])
         #expect(Set(CompletenessEvaluator.rules(for: "diagnosis").filter(\.isRequired).map(\.key)) == ["name"])
