@@ -14,6 +14,14 @@ public struct MedicalCatalogDepartmentRef: Codable, Sendable, Equatable {
     public let code: String?
     public let nameZh: String
 
+    /// depts_json 采用数据库列名风格（`name_zh`）——裸 Codable 会静默解不出
+    /// （CI 36250690955 实证：科室恒空），显式键映射是 snake_case↔camelCase
+    /// 的规范解法；code 键名两风格一致无需映射。
+    public enum CodingKeys: String, CodingKey {
+        case code
+        case nameZh = "name_zh"
+    }
+
     public init(code: String?, nameZh: String) {
         self.code = code
         self.nameZh = nameZh
