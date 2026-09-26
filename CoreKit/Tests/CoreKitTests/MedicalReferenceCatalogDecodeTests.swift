@@ -10,7 +10,7 @@ struct MedicalReferenceCatalogDecodeTests {
     @Test func hospitalDepartmentsDecodeCanonicalDeptsJSON() {
         // 与生产 depts_json 同形（fetch 管线落库形态）
         let json = #"[{"code":"03.02","name_zh":"心血管內科"}]"#
-        let list = try? JSONDecoder().decode([MedicalCatalogDepartmentRef].self, from: Data(json.utf8))
+        let list = try? JSONDecoder().decode([MedicalCatalogDepartmentRef].self, from: Data(json.utf8)) // try?-ok: 解码契约测试——try? 即被测语义（非法 JSON 降级为空）
         #expect(list?.first?.code == "03.02")
         #expect(list?.first?.nameZh == "心血管內科")
     }
