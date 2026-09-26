@@ -377,5 +377,23 @@ extension L10n {
     static var asrSelectionHint: String { t("asr.selectionHint") }
 
     static var voiceReadAloudA11y: String { t("voice.readAloudA11y") }
+static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
+    static var voicePanelEditHint: String { t("voicePanel.editHint") }
+    static var voicePanelConfirm: String { t("voicePanel.confirm") }
+    static var voicePanelClearTitle: String { t("voicePanel.clearTitle") }
+    static var voicePanelClear: String { t("voicePanel.clear") }
+    static var voicePanelClearLast: String { t("voicePanel.clearLast") }
+    static var voicePanelClearAll: String { t("voicePanel.clearAll") }
+    static var voicePanelTitle: String { t("voicePanel.title") }
+    static var voicePanelHint: String { t("voicePanel.hint") }
+    static var voicePanelStart: String { t("voicePanel.start") }
+    static var voiceLangTitle: String { t("voiceLang.title") }
+    static var voiceLangInputSection: String { t("voiceLang.inputSection") }
+    static var voiceLangInputHint: String { t("voiceLang.inputHint") }
+    static var voiceLangOutputSection: String { t("voiceLang.outputSection") }
+    static var voiceLangOutputHint: String { t("voiceLang.outputHint") }
+    static var voiceLangBestEffort: String { t("voiceLang.bestEffort") }
+    static var voiceLangFallback: String { t("voiceLang.fallback") }
+    static var voiceLangMix: String { t("voiceLang.mix") }
+    static var voiceLangMixHint: String { t("voiceLang.mixHint") }
 }
-

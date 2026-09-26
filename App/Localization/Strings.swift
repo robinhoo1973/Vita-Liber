@@ -64,7 +64,7 @@ enum L10n {
 
     // MARK: - Pro 产出包
 
-    /// 审查修正（F-A1）：成员写库失败警报（此前静默关单，见 MemberViews）
+    /// 审查修正（F-A1）：成员写库失败警报（此前静默关单，见 App/Features/Members/MemberManagementView.swift）
 
 
     /// 回读句式（FR17.13）：%@ = 已确认字段列表（App 层经字段标签映射组装，

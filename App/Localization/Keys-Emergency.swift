@@ -65,4 +65,13 @@ extension L10n {
     /// FR18.6 / BR-012：SOS 拨号失败（设备不可拨号或号码归一失败）。
     /// 免门禁路径的失败必须**响亮可见**——静默死控件会让用户以为已拨出。
     static var sosDialFailed: String { t("sos.dialFailed") }
+static var medicalIDTitle: String { t("medicalID.title") }
+    static var medicalIDStep1: String { t("medicalID.step1") }
+    static var medicalIDStep1Hint: String { t("medicalID.step1Hint") }
+    static var medicalIDStep2: String { t("medicalID.step2") }
+    static var medicalIDStep2Hint: String { t("medicalID.step2Hint") }
+    static var medicalIDStep3: String { t("medicalID.step3") }
+    static var medicalIDStep3Hint: String { t("medicalID.step3Hint") }
+    static var medicalIDOpenHealth: String { t("medicalID.openHealth") }
+    static var medicalIDNote: String { t("medicalID.note") }
 }

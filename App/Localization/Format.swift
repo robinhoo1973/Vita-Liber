@@ -1,5 +1,5 @@
-// Swift file split out of L10n.swift — 由 split-l10n.py 生成。
-// 文案唯一出口（tech-spec §3）：符号名不变，仅换文件；键表按前缀分域。
+// 文案唯一出口（tech-spec §3）· 参数化/派生文案（业主 2026-09-26 重命名：L10n+Mapping.swift → L10n+Format.swift → Format.swift（同日业主定案：
+// 移除 L10n 前缀、纯内容命名）；内容 = String(format:) 占位助手 + 枚举→名称映射，符号零变更）。
 import Foundation
 import Domain
 

@@ -127,4 +127,15 @@ extension L10n {
     static var docReportIssue: String { t("doc.reportIssue") }
 
     static var docAdd: String { t("doc.add") }
+    static var docTypeLabels: [String] {
+        [t("docTypeLabel.outpatient"), t("docTypeLabel.inpatient"), t("docTypeLabel.labReport"),
+         t("docTypeLabel.imageReport"), t("docTypeLabel.prescription"), t("docTypeLabel.payment"),
+         t("docTypeLabel.dischargeSummary"), t("docTypeLabel.diagnosisProof"),
+         t("docTypeLabel.vaccineRecord"), t("docTypeLabel.checkupReport"),
+         t("docTypeLabel.pathologyReport"), t("docTypeLabel.surgeryRecord"),
+         t("docTypeLabel.allergyRecord"), t("docTypeLabel.other"), t("docTypeLabel.custom")]
+    }
+    static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
+    static var docTypeLabelDiagnosisProof: String { t("docTypeLabel.diagnosisProof") }
+    static var docTypeLabelOther: String { t("docTypeLabel.other") }
 }

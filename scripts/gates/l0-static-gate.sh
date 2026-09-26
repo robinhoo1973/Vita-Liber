@@ -592,7 +592,7 @@ EOF
   if [ "${l10n_scanned:-0}" -eq 0 ]; then
     fail "L10n 扫描命中 0 行 —— 正则失效或扫描范围为空，不得空扫判 PASS（ERR#27）"
   elif [ "$l10n_bad" -gt 0 ]; then
-    fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 L10n.swift（三文件），或登记 $L10N_ALLOW"
+    fail "视图层未登记中文字面量 $l10n_bad 处 —— 迁入 App/Localization 文案出口（三文件），或登记 $L10N_ALLOW"
   else
     pass "视图层无未登记中文字面量（存量豁免清单 ${L10N_ALLOW}；扫描 $l10n_scanned 行）"
   fi
@@ -752,7 +752,7 @@ if files:
 # 第三轮全仓审查修复（V3.39 连带）：registeredKeys 登记表 ⊆ .strings——
 # M15 缺译测试遍历 registeredKeys，键被删出 .strings 而登记表未同步时 L1 必红；
 # 此前 L0 三文件互查覆盖不到（46d46fa 漏删登记表 = 该缺陷的实证）。
-l10n_files = sorted((root / "App/Localization").glob("L10n*.swift"))
+l10n_files = sorted((root / "App/Localization").glob("*.swift"))  # 2026-09-26 业主重命名：L10n 前缀已移除（Strings/Keys-*/RegisteredKeys/Format），目录即职责边界
 src = "\n".join(p.read_text(encoding="utf-8") for p in l10n_files)
 # 覆盖**整个文案出口**而不是单文件：L10n 按域拆成 L10n+Keys-*.swift 后，静态 t() 清单
 # 必须跟着覆盖新文件，否则反向检查（静态 t() ⊆ registeredKeys）会漏检已迁出的访问器而

@@ -150,22 +150,6 @@ struct EntityCardConfirmView: View {
         card = current
     }
 
-    /// 复核清单段——同样从 List 体里拆出来（同一族类型检查压力）。
-    @ViewBuilder
-    private func reviewSection(_ items: [CardConfirmationRules.ReviewItem], proxy: ScrollViewProxy,
-                               lines: [String]) -> some View {
-        if !items.isEmpty {
-            Section {
-                ForEach(items) { item in reviewQueueRow(item, proxy: proxy, lines: lines) }
-            } header: {
-                Text(L10n.entityCardReviewQueue(count: items.count,
-                                                labels: ListFormatter.localizedString(byJoining: uniqueLabels(items))))
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    .accessibilityIdentifier("SP-12.entity.reviewQueue")
-            }
-        }
-    }
-
     /// 本卡所在页的原文行（与 `FieldDraft.sourceLineIndex` **同一坐标系**）。
     /// 队列模式取自导入草稿的页；续办模式取自待办载荷的页文本——两处都按 `\n` 还原为行。
     private var pageLines: [String] {
@@ -184,65 +168,6 @@ struct EntityCardConfirmView: View {
             : card.rows.first { $0.id == rowId }?.fields.first { $0.key == key }
         guard let line = field?.sourceLineIndex, lines.indices.contains(line) else { return nil }
         return line
-    }
-
-    /// 清单表头的字段名（同键多行只报一次——12 药处方不会把表头撑爆）。
-    private func uniqueLabels(_ items: [CardConfirmationRules.ReviewItem]) -> [String] {
-        var seen = Set<String>()
-        return items.compactMap { item in
-            seen.insert(item.key).inserted ? DocumentsDisplay.fieldLabel(forKey: item.key) : nil
-        }
-    }
-
-    /// 清单一项：就地处置（确认 / 补填），不要求用户先找到它。
-    @ViewBuilder
-    private func reviewQueueRow(_ item: CardConfirmationRules.ReviewItem, proxy: ScrollViewProxy,
-                                lines: [String]) -> some View {
-        let label = DocumentsDisplay.fieldLabel(forKey: item.key)
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                if let rowId = item.rowId,
-                   let position = card.rows.firstIndex(where: { $0.id == rowId }).map({ $0 + 1 }) {
-                    Text(L10n.entityCardRowIndex(position)).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if item.isMissing {
-                // 缺 = 另一条路（业界把「缺」与「低置信」分开处理是明确口径）：
-                // 与既有的「缺少 X，点此填写」同一动作——补上字段并滚到它。
-                Button(L10n.entityCardMissingRequired(label)) {
-                    appendField(item.key, rowID: item.rowId)
-                    // 锚点 id 与「缺少 X，点此填写」那条按钮**同构**：键缺席时滚到按钮、已存在时滚到字段行，
-                    // 同一帧内恒有落点（不必等重渲染）。
-                    withAnimation { proxy.scrollTo(item.id, anchor: .center) }
-                }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("SP-12.review.fill.\(item.id)")
-            } else if item.severity == 2 {
-                // 歧义项**不给就地确认**：有候选就必须先做选择（业主 2026-09-17 裁定「挡」），
-                // 一键确认会让默认胜出值溜过去——只跳到字段处的候选选择器。
-                Button(L10n.entityCardReviewChoose) {
-                    withAnimation { proxy.scrollTo(item.id, anchor: .center) }
-                }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("SP-12.review.choose.\(item.id)")
-            } else {
-                Button(L10n.commonConfirm) { confirmField(item) }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("SP-12.review.confirm.\(item.id)")
-                if let line = sourceLine(forKey: item.key, rowId: item.rowId, lines: lines) {
-                    Button(L10n.entityCardReviewSource) {
-                        quoteTarget = QuoteTarget(key: item.key, rowId: item.rowId)
-                        scanHighlight = highlightRect(forLine: line, lines: lines)
-                        sourcePresentation = .line(line)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("SP-12.review.source.\(item.id)")
-                }
-            }
-        }
-        .frame(minHeight: 44)
     }
 
     /// 清单里的就地确认：按 rowId 定位到共享面或行内字段，与行内 [确认] 完全同语义。
@@ -341,99 +266,67 @@ struct EntityCardConfirmView: View {
             ScrollViewReader { proxy in
                 // 跳转锚点（复核清单 → 字段）：行 id 与清单项 id 同一构造（Domain `anchorId`）。
                 List {
-                    Section {
-                        OCRReviewOwnerRow(patientId: patientId)
-                        HStack {
-                            Text(L10n.entityCardHeaderPage(card.pageIndex + 1, max(pageCount, card.pageIndex + 1)))
-                            if let position { Text(L10n.entityCardHeaderIndex(position.0, position.1)) }
-                            Spacer()
-                            GradeBadge(grade: "D")
-                        }.font(.caption)
-                        Button {
-                            scanHighlight = nil
-                            sourcePresentation = .scan
-                        } label: {
-                            Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass").frame(minHeight: 44)
-                        }.buttonStyle(.borderless)
-                    } footer: { Text(L10n.docConfirmHint) }
+                    EntityCardHeaderSectionView(patientId: patientId, pageIndex: card.pageIndex,
+                                                pageCount: pageCount, position: position) {
+                        scanHighlight = nil
+                        sourcePresentation = .scan
+                    }
 
                     // v27 §0.4 改判：主卡草稿区**先于**关联区呈现（无可挂接主卡时随本卡新建；D 级、逐字段确认、同事务落库）
                     ParentDraftSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
                                    onViewSource: { line, key in
                                        // 范围校验已在草稿区完成；此处只负责呈现。
                                        // 2026-09-20 修复：登记草稿字段引用目标——此前
-                                       // 草稿区 [原文] 不登记目标，点行静默无效果。
-                                       quoteTarget = QuoteTarget(key: key, rowId: nil, draftKey: key)
-                                       scanHighlight = nil
-                                       sourcePresentation = .line(line)
-                                   },
-                                   lines: lines)
+                                        // 草稿区 [原文] 不登记目标，点行静默无效果。
+                                        quoteTarget = QuoteTarget(key: key, rowId: nil, draftKey: key)
+                                        scanHighlight = nil
+                                        sourcePresentation = .line(line)
+                                    },
+                                    lines: lines)
                     EncounterAssociationSection(card: $card, patientId: patientId, readOnly: saving || sharedCommitted,
                                                 documentTypeKey: sessionDocumentTypeKey)
 
-                    Section(L10n.entityCardSharedSection) {
-                        if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
-                        ForEach(card.shared.indices, id: \.self) { index in
-                            // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
-                            WithPerceptionTracking {
-                                // 字段行经 `fieldRow` 出列：内联版本（13 个实参 + `.id` 链）在
-                                // List→ForEach→WithPerceptionTracking 三层嵌套里把类型检查器压垮
-                                // （CI 35166937683 实证：unable to type-check in reasonable time）。
-                                fieldRow(card.shared[index], index: index, rowId: nil,
-                                         required: sharedRequired.contains(card.shared[index].key), lines: lines)
-                                if card.shared[index].isConfirmed, invalidSharedKeys.contains(card.shared[index].key) {
-                                    Text(L10n.ocrReviewInvalidField).font(.caption)
-                                        .foregroundStyle(Color("semantic-danger", bundle: .main))
-                                }
-                            }
-                        }
-                        ForEach(missingSharedKeys, id: \.self) { key in missingButton(key: key, rowID: nil) }
-                        addFieldMenu(rowID: nil, present: Set(card.shared.map(\.key)))
-                    }
-
-                    ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
-                        if !row.fields.isEmpty || !rowKeys.isEmpty {
-                            Section {
-                                ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
-                                    fieldRow(row.fields[index], index: index, rowId: row.id,
-                                             required: rowRequired(row).contains(row.fields[index].key), lines: lines)
-                                    if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
-                                        Text(L10n.ocrReviewInvalidField).font(.caption)
-                                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                                    }
-                                }
-                                ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
-                                    missingButton(key: key, rowID: row.id)
-                                }
-                                addFieldMenu(rowID: row.id, present: Set(row.fields.map(\.key)))
-                            } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
-                        }
-                    }
-                    if !missingSharedKeys.isEmpty || validation.values.contains(where: { !$0.isEmpty }) {
-                        Section { Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary) }
-                    }
-                    reviewSection(reviewItems, proxy: proxy, lines: lines)
-                    Section {
-                        Button { showLater = true } label: {
-                            Label(L10n.entityCardLater, systemImage: "clock.badge.checkmark").frame(minHeight: 44)
-                        }
-                        Button(role: .destructive) { showDiscard = true } label: {
-                            Label(L10n.entityCardDiscard, systemImage: "xmark.circle").frame(minHeight: 44)
-                        }
-                        if case .queue = mode, docs.entityQueue.count > 1 {
-                            Button {
-                                Task { _ = await docs.deferRemainingEntityCards() }
-                            } label: {
-                                Label(L10n.entityCardDeferRemaining, systemImage: "tray.full").frame(minHeight: 44)
-                            }
-                        }
-                    } footer: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L10n.entityCardConfirmAllHint)
-                            Text(L10n.entityCardLaterHint)
-                        }
-                    }
-                    .buttonStyle(.borderless)
+                    sharedFieldsSection(lines: lines, invalidSharedKeys: invalidSharedKeys,
+                                        missingSharedKeys: missingSharedKeys)
+                    rowFieldSections(lines: lines, validation: validation)
+                    EntityCardValidationHintSectionView(hasValidationIssues:
+                        !missingSharedKeys.isEmpty || validation.values.contains(where: { !$0.isEmpty }))
+                    EntityCardReviewSectionView(items: reviewItems, proxy: proxy,
+                                                rowPosition: { rowId in
+                                                    rowId.flatMap { id in
+                                                        card.rows.firstIndex(where: { $0.id == id }).map { $0 + 1 }
+                                                    }
+                                                },
+                                                sourceLineFor: { item in
+                                                    sourceLine(forKey: item.key, rowId: item.rowId, lines: lines)
+                                                },
+                                                onAppendMissing: { item in
+                                                    appendField(item.key, rowID: item.rowId)
+                                                    // 锚点 id 与「缺少 X，点此填写」那条按钮**同构**：
+                                                    // 键缺席时滚到按钮、已存在时滚到字段行，同一帧内恒有落点。
+                                                    withAnimation { proxy.scrollTo(item.id, anchor: .center) }
+                                                },
+                                                onChoose: { item in
+                                                    withAnimation { proxy.scrollTo(item.id, anchor: .center) }
+                                                },
+                                                onConfirm: { confirmField($0) },
+                                                onViewSource: { item in
+                                                    if let line = sourceLine(forKey: item.key, rowId: item.rowId, lines: lines) {
+                                                        quoteTarget = QuoteTarget(key: item.key, rowId: item.rowId)
+                                                        scanHighlight = highlightRect(forLine: line, lines: lines)
+                                                        sourcePresentation = .line(line)
+                                                    }
+                                                })
+                    EntityCardConfirmationActionsSectionView(
+                        showDeferRemaining: {
+                            if case .queue = mode, docs.entityQueue.count > 1 { return true }
+                            return false
+                        }(),
+                        onLater: { showLater = true },
+                        onDiscard: { showDiscard = true },
+                        onDeferRemaining: {
+                            Task { _ = await docs.deferRemainingEntityCards() }
+                        })
                 }
                 .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
                 .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
@@ -478,6 +371,50 @@ struct EntityCardConfirmView: View {
             .profileSuggestionHost(presenterKey: resumePresenterKey ?? "", enabled: suggestionsHostEnabled)
             .task(id: completionKey) {
                 if shouldDismissCompletedResume { dismiss() }
+            }
+        }
+    }
+
+    private func sharedFieldsSection(lines: [String], invalidSharedKeys: Set<String>,
+                                     missingSharedKeys: [String]) -> some View {
+        Section(L10n.entityCardSharedSection) {
+            if sharedCommitted { Text(L10n.homeCaptureSaved).font(.caption).foregroundStyle(.secondary) }
+            ForEach(card.shared.indices, id: \.self) { index in
+                // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                WithPerceptionTracking {
+                    // 字段行经 `fieldRow` 出列：内联版本（13 个实参 + `.id` 链）在
+                    // List→ForEach→WithPerceptionTracking 三层嵌套里把类型检查器压垮
+                    // （CI 35166937683 实证：unable to type-check in reasonable time）。
+                    fieldRow(card.shared[index], index: index, rowId: nil,
+                             required: sharedRequired.contains(card.shared[index].key), lines: lines)
+                    if card.shared[index].isConfirmed, invalidSharedKeys.contains(card.shared[index].key) {
+                        Text(L10n.ocrReviewInvalidField).font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    }
+                }
+            }
+            ForEach(missingSharedKeys, id: \.self) { key in missingButton(key: key, rowID: nil) }
+            addFieldMenu(rowID: nil, present: Set(card.shared.map(\.key)))
+        }
+    }
+
+    private func rowFieldSections(lines: [String], validation: [UUID: [String]]) -> some View {
+        ForEach(Array(card.rows.enumerated()), id: \.element.id) { offset, row in
+            if !row.fields.isEmpty || !rowKeys.isEmpty {
+                Section {
+                    ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { index in
+                        fieldRow(row.fields[index], index: index, rowId: row.id,
+                                 required: rowRequired(row).contains(row.fields[index].key), lines: lines)
+                        if row.fields[index].isConfirmed && validation[row.id]?.contains(row.fields[index].key) == true {
+                            Text(L10n.ocrReviewInvalidField).font(.caption)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                        }
+                    }
+                    ForEach((validation[row.id] ?? []).filter { key in rowKeys.contains(key) && !row.fields.contains(where: { $0.key == key }) }, id: \.self) { key in
+                        missingButton(key: key, rowID: row.id)
+                    }
+                    addFieldMenu(rowID: row.id, present: Set(row.fields.map(\.key)))
+                } header: { Text(L10n.entityCardRowIndex(offset + 1)) }
             }
         }
     }
@@ -637,93 +574,4 @@ struct EntityCardConfirmView: View {
 
 private extension Array {
     subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
-}
-
-struct PendingCardResumeRouteView: View {
-    let cardId: String
-    @Environment(DocumentsState.self) private var docs
-    @State private var pending: PendingCard?
-    @State private var loaded = false
-    @State private var loadFailed = false
-    @State private var reimport = false
-    @State private var retainedImportID: UUID?
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        WithPerceptionTracking {
-            Group {
-                if let retainedImportID, docs.activeImport?.id == retainedImportID {
-                    ProgressView()
-                } else if pending != nil, let review = docs.pendingReviews[cardId], let documentId = review.pending.sourceDocId, !loadFailed {
-                    EntityCardConfirmView(card: Binding(get: { review.card }, set: { review.card = $0 }),
-                        mode: .resume(review), patientId: review.pending.patientId, documentId: documentId,
-                        pageCount: review.pageCount, position: nil)
-                } else if let pending, loaded {
-                    List {
-                        Section {
-                            OCRReviewOwnerRow(patientId: pending.patientId)
-                            GradeBadge(grade: "D")
-                            Text(L10n.ocrReviewLegacySourceMissing)
-                            Button(L10n.homeCaptureFile) { reimport = true }.frame(minHeight: 44)
-                        }
-                        Section(L10n.entityCardSharedSection) {
-                            ForEach(pending.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
-                                               value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
-                            }
-                            ForEach(Array(pending.partialData.rows.enumerated()), id: \.offset) { index, row in
-                                VStack(alignment: .leading) {
-                                    Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
-                                    ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                        LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
-                                                       value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
-                                    }
-                                }
-                            }
-                        }
-                        Section(L10n.pendingCardRawText) { Text(pending.rawText).textSelection(.enabled) }
-                    }
-                    .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
-                    .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
-                } else if loadFailed {
-                    VLUnavailableView {
-                        Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                    } actions: { Button(L10n.retry) { Task { await load() } } }
-                } else if loaded {
-                    VLUnavailableView(L10n.pendingCardNotFound, systemImage: "tray")
-                } else { ProgressView() }
-            }
-            .task(id: cardId) { await load() }
-            .ocrImportReviewHost(enabled: retainedImportID != nil && docs.activeImport?.id == retainedImportID,
-                                 advanceQueuedImports: false) { _ in dismiss() }
-            .onDisappear {
-                if docs.pendingReviews[cardId]?.completed == true { docs.pendingReviews.removeValue(forKey: cardId) }
-            }
-            .sheet(isPresented: $reimport) {
-                if let pending { NavigationStack { QuickCaptureView(kind: nil, patientId: pending.patientId) } }
-            }
-            .toolbar {
-                if loaded && docs.pendingReviews[cardId] == nil && retainedImportID == nil {
-                    ToolbarItem(placement: .cancellationAction) { Button(L10n.commonCancel) { dismiss() } }
-                }
-            }
-        }
-    }
-
-    private func load() async {
-        loaded = false; loadFailed = false; pending = nil; retainedImportID = nil
-        do {
-            let fetched = try await docs.loadPendingCard(id: cardId)
-            guard !Task.isCancelled else { return }
-            guard let fetched, ["pending", "in_progress"].contains(fetched.status) else { loaded = true; return }
-            pending = fetched
-            if let retained = docs.retainedImport(for: fetched) {
-                retainedImportID = retained.id
-                loaded = true
-                return
-            }
-            _ = await docs.resumePendingCard(fetched)
-        } catch { loadFailed = true }
-        loaded = true
-    }
 }

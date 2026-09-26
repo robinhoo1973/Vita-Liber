@@ -197,4 +197,40 @@ extension L10n {
     static var encounterLinkAppointmentFailed: String { t("encounter.linkAppointment.failed") }
 
     static var catalogSuggestTitle: String { t("catalog.suggest.title") }
+static var problemTitle: String { t("problem.title") }
+    static var problemEmpty: String { t("problem.empty") }
+    static var problemEmptyHint: String { t("problem.emptyHint") }
+    static var problemCreateTitle: String { t("problem.createTitle") }
+    static var problemSaveFailedHint: String { t("problem.saveFailedHint") }
+    static var problemNamePlaceholder: String { t("problem.namePlaceholder") }
+    static var problemMerge: String { t("problem.merge") }
+    static var problemMergeTitle: String { t("problem.mergeTitle") }
+    static var problemMergeHint: String { t("problem.mergeHint") }
+    static var problemArchive: String { t("problem.archive") }
+    static var problemUnarchive: String { t("problem.unarchive") }
+    static var problemAdd: String { t("problem.add") }
+    static var healthExamTitle: String { t("healthExam.title") }
+    static var healthExamHeader: String { t("healthExam.header") }
+    static var healthExamGeneral: String { t("healthExam.general") }
+    static var healthExamReports: String { t("healthExam.reports") }
+    static var healthExamConclusions: String { t("healthExam.conclusions") }
+    static var healthExamGuidance: String { t("healthExam.guidance") }
+    static var healthExamOverall: String { t("healthExam.overall") }
+    static var healthExamNotFound: String { t("healthExam.notFound") }
+    static var healthExamNoReports: String { t("healthExam.noReports") }
+    static var healthExamNoConclusions: String { t("healthExam.noConclusions") }
+    static var healthExamSource: String { t("healthExam.source") }
+    static var healthExamSamples: String { t("healthExam.samples") }
+    static var healthExamDisclaimer: String { t("healthExam.disclaimer") }
+    static var ncTitle: String { t("nc.title") }
+    static var ncSectionPending: String { t("nc.section.pending") }
+    static var ncSectionAppointment: String { t("nc.section.appointment") }
+    static var ncSectionExpiry: String { t("nc.section.expiry") }
+    static var ncSectionAlert: String { t("nc.section.alert") }
+    static var ncSectionOcr: String { t("nc.section.ocr") }
+    static var ncNextActionDose: String { t("nc.nextAction.dose") }
+    static var ncConfirmDose: String { t("nc.confirmDose") }
+    static var ncEmpty: String { t("nc.empty") }
+    static var ncEmptyHint: String { t("nc.emptyHint") }
+    static var ncArchive: String { t("nc.archive") }
 }

@@ -367,7 +367,9 @@
 "member.deleteFailed" = "删除成员失败，请重试";
 "member.updateFailedHint" = "刚才的修改未生效。";
 "member.relation" = "关系";
-"member.birthDatePlaceholder" = "生日（如 1962-03）";
+"member.birthDateLabel" = "生日";
+"member.birthDateInvalidHint" = "生日格式无效，请在下方「更多信息」重新选择";
+"member.birthDatePlaceholder" = "生日（如 1990-05-12）";
 "member.save" = "保存";
 "member.quotaHint" = "免费档最多 4 位成员；超过后可随 Pro 解锁。";
 "member.addedHint" = "已添加，可在完善档案中补充健康史。";

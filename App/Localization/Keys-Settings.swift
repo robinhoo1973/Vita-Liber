@@ -580,4 +580,49 @@ extension L10n {
     static var helpcardRecipientPlaceholder: String { t("helpcard.recipientPlaceholder") }
 
     static var helpcard_photoPending: String { t("helpcard.photoPending") }
+static var lifecycleSingle: String { t("lifecycle.single") }
+    static var lifecycleSingleHint: String { t("lifecycle.singleHint") }
+    static var lifecycleMember: String { t("lifecycle.member") }
+    static var lifecycleMemberHint: String { t("lifecycle.memberHint") }
+    static var lifecycleClearAll: String { t("lifecycle.clearAll") }
+    static var lifecycleClearHint: String { t("lifecycle.clearHint") }
+    static var lifecycleClearButton: String { t("lifecycle.clearButton") }
+    static var lifecycleClearImpact: String { t("lifecycle.clearImpact") }
+    static var lifecycleResetSettings: String { t("lifecycle.resetSettings") }
+    static var lifecycleResetSettingsHint: String { t("lifecycle.resetSettingsHint") }
+    static var lifecycleResetSettingsImpact: String { t("lifecycle.resetSettingsImpact") }
+    static var lifecycleLogout: String { t("lifecycle.logout") }
+    static var lifecycleLogoutHint: String { t("lifecycle.logoutHint") }
+    static var feedbackTitle: String { t("feedback.title") }
+    static var feedbackCategory: String { t("feedback.category") }
+    static func feedbackCategoryName(_ i: Int) -> String { t("feedback.category.\(i)") }
+    static var feedbackDetail: String { t("feedback.detail") }
+    static var feedbackDetailPlaceholder: String { t("feedback.detailPlaceholder") }
+    static var feedbackAttachments: String { t("feedback.attachments") }
+    static var feedbackAttachScreenshot: String { t("feedback.attachScreenshot") }
+    static var feedbackAttachOriginal: String { t("feedback.attachOriginal") }
+    static var feedbackAttachMedia: String { t("feedback.attachMedia") }
+    static var feedbackAttachmentHint: String { t("feedback.attachmentHint") }
+    static var feedbackSubmit: String { t("feedback.submit") }
+    static var feedbackSubmitted: String { t("feedback.submitted") }
+    static var authOcrLabel: String { t("auth.ocr") }
+    static var authAILabel: String { t("auth.ai") }
+    static var authFamilyLabel: String { t("auth.family") }
+    static var authSharingLabel: String { t("auth.sharing") }
+    static var authCloudBackupLabel: String { t("auth.cloudBackup") }
+    static var authAnonymizedLabel: String { t("auth.anonymized") }
+    static var authHealthLabel: String { t("auth.health") }
+    static var authVoiceDictationLabel: String { t("auth.voiceDictation") }
+    static var reportIssueKind: String { t("report.issueKind") }
+    static var reportIssueField: String { t("report.issueField") }
+    static var reportIssueFieldAll: String { t("report.issueFieldAll") }
+    static var reportIssueNote: String { t("report.issueNote") }
+    static var reportIssueNoteHint: String { t("report.issueNoteHint") }
+    static var reportIssueMinimal: String { t("report.issueMinimal") }
+    static var reportIssueSubmit: String { t("report.issueSubmit") }
+    static var reportIssueSubmitted: String { t("report.issueSubmitted") }
+    static var reportIssueFieldWrong: String { t("report.issueFieldWrong") }
+    static var reportIssueMissing: String { t("report.issueMissing") }
+    static var reportIssueLayout: String { t("report.issueLayout") }
+    static var reportIssueEngine: String { t("report.issueEngine") }
 }

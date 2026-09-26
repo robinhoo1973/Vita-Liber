@@ -377,233 +377,168 @@ struct DeviceConnectionView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                Section {
-                    Toggle(L10n.authHealthLabel, isOn: preference(.authHealthRead))
-                    Toggle(L10n.healthAutoImport, isOn: preference(.healthAutoImport))
-                        .disabled(!healthEnabled)
-                } header: { Text(L10n.healthImportSettingsTitle) } footer: { Text(L10n.healthReadPermissionHint) }
-                Section {
-                    // round2 H1/H3/H-N3/H-N4：授权区按可见性三态分支（关闭 > 不可用 > 缺本人 > 未连接/已连接）
-                    switch pageState {
-                    case .disabled:
-                        Label(L10n.f16AuthDisabled, systemImage: "heart.slash")
-                    case .unavailable:
-                        // H-N4：设备不提供 HealthKit（iPad/模拟器）——如实说明，不再渲染永久禁用的请求按钮
-                        Label(L10n.healthUnavailable, systemImage: "iphone.slash")
-                            .accessibilityIdentifier("SP-29.health.unavailable")
-                    case .ownerMissing:
-                        // H-N3：Apple 健康只能导入到本人名下（BR-001）——引导建档，不是同步失败
-                        Label(L10n.healthOwnerMissing, systemImage: "person.crop.circle.badge.exclamationmark")
-                            .accessibilityIdentifier("SP-29.health.ownerMissing")
-                    case .notConnected, .connectedEmpty, .visible:
-                        if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
-                        Button(L10n.f16RequestAuth) {
-                            Task {
-                                if await deviceState.requestAuthorization(authEnabled: healthEnabled) {
-                                    await refreshCandidates()
-                                    await sync()
-                                }
-                            }
-                        }
-                        .disabled(deviceState.isSyncing)
-                        .accessibilityIdentifier("SP-29.health.requestAuth")
-                    }
-                    Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? app.owner?.displayName ?? L10n.commonMember))
-                        .font(.caption).foregroundStyle(.secondary)
-                } header: { Text(L10n.f16AuthSection) } footer: { Text(L10n.f16AuthHint) }
-
-                // 业主 2026-09-17 定：Apple 健康特征型 → 档案候选（D 级候选、
-                // 用户显式确认才写入；已有值只呈现对照不覆盖——Domain 规则单一事实源）
-                if !deviceState.characteristicCandidates.isEmpty {
-                    Section {
-                        ForEach(deviceState.characteristicCandidates) { candidate in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(fieldLabel(candidate.field))
-                                    if let existing = candidate.existing {
-                                        Text(L10n.healthCandidateExisting(existing))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                                Spacer()
-                                if candidate.isAdoptable {
-                                    Button(L10n.healthCandidateAdopt) { adopt(candidate) }
-                                        .buttonStyle(.bordered)
-                                        .disabled(adoptingField == candidate.field)
-                                        .accessibilityIdentifier("SP-29.health.candidate.adopt.\(candidate.field.rawValue)")
-                                } else {
-                                    Text(candidate.proposed).foregroundStyle(.secondary)
-                                }
-                            }
-                            .frame(minHeight: 44)
-                            .accessibilityElement(children: .contain)
-                            .accessibilityIdentifier("SP-29.health.candidate.\(candidate.field.rawValue)")
-                        }
-                    } header: { Text(L10n.healthCandidateSection) } footer: { Text(L10n.healthCandidateHint) }
-                }
-
-                Section {
-                    switch deviceState.phase {
-                    case .idle: EmptyView()
-                    case .syncing: ProgressView(L10n.f16Syncing)
-                    case .done(let count):
-                        // report 存在时已同步行数由下方报告块渲染——这里只在
-                        // 无报告兜底显示，避免「已同步 N 行」重复两行（round10 实测）。
-                        if deviceState.report == nil {
-                            Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
-                        }
-                    case .degraded(let message):
-                        // token-only（审查修复）：语义令牌替代硬编码 .orange
-                        Label(message, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    }
-                    if deviceState.backgroundSyncBroken {
-                        Label(L10n.healthBackgroundSyncFailed(), systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                            .accessibilityIdentifier("SP-29.health.backgroundSyncFailed")
-                    }
-                    if let report = deviceState.report {
-                        Text(L10n.f16SyncedRows(report.persistedRows))
-                            .accessibilityIdentifier("SP-29.health.syncedRows")
-                        // 「无可读变化」只在 HealthKit 未报告任何增删且无类型失败时成立；
-                        // 变化已收到但落库 0 行（重放/仅索引更新）不是「无数据」。
-                        if report.receivedChanges == 0 && report.failedTypes.isEmpty && !report.hasMore {
-                            Text(L10n.healthNoReadableData).font(.caption)
-                        }
-                        if !report.failedTypes.isEmpty {
-                            Label(L10n.healthImportPartial(report.failedTypes.count), systemImage: "exclamationmark.triangle")
-                                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                        }
-                        if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
-                        // H-N1：排空进度——当前道（近一年 / 更早历史）与剩余统计窗口数（纯进度事实）
-                        if report.hasMore, let remaining = report.remainingWindows, let lane = report.backfillLane {
-                            Text(L10n.healthBackfillProgress(L10n.healthBackfillLane(lane), remaining)).font(.caption)
-                                .accessibilityIdentifier("SP-29.health.backfillProgress")
-                        }
-                        // H-N2：<3 样本的小时桶计数提示，不静默丢弃（统计事实，非阈值判定）
-                        if let sparse = report.sparseWindows, sparse > 0 {
-                            Text(L10n.healthSparseWindows(sparse)).font(.caption)
-                                .accessibilityIdentifier("SP-29.health.sparse")
-                        }
-                        if report.preservedRows > 0 {
-                            Text(L10n.healthPreservedAggregates(report.preservedRows)).font(.caption)
-                        }
-                        if report.deferredWindows > 0 {
-                            Text(L10n.healthDeferredWindows(report.deferredWindows)).font(.caption)
-                        }
-                        if report.notificationFailures > 0 { Text(L10n.healthNotificationRetry).font(.caption) }
-                        Text(L10n.f16LastSync(report.lastSyncAt.formatted(date: .numeric, time: .shortened)))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    // 手动同步只在「开关开启 ∧ 已连接」（= 展示区存在）时提供
-                    if HealthImportVisibility.showsImportedData(pageState) {
-                        Button(L10n.f16SyncNow) {
-                            Task { await sync() }
-                        }
-                        .disabled(deviceState.isSyncing)
-                        .accessibilityIdentifier("SP-29.health.sync")
-                    }
-                } header: { Text(L10n.f16SyncSection) } footer: { Text(L10n.f16SyncHint) }
-
-                // 业主 2026-09-17 定：写回区（独立于读取开关——分享授权是独立系统授权单）
-                if deviceState.availabilityProbed && deviceState.available {
-                    Section {
-                        Toggle(L10n.healthWriteBackLabel, isOn: writeBackPreference)
-                            .accessibilityIdentifier("SP-29.health.writeBack.toggle")
-                        // V4.06（业主 2026-09-23 实测修复）：写回是 opt-in——状态三态行与摘要
-                        // 只在「开关开启」或「当页刚发生开启尝试未获准并如实回退」的现场态渲染。
-                        // 此前 `.denied` 恒显：读取 Apple 健康时出现「系统写入授权被拒绝」并被提示去开
-                        // 写入权限，只读用户误以为读授权故障（share 被拒是持久可观察事实，跨页面探测
-                        // 每次都会如实回报——但只读常态下不该出现在读取主路径）。
-                        if writeBackOn || writeAttemptFailed {
-                            switch deviceState.writeAuthState {
-                            case .granted:
-                                Label(L10n.healthWriteBackGranted, systemImage: "checkmark.shield")
-                                    .accessibilityIdentifier("SP-29.health.writeBack.granted")
-                            case .denied:
-                                Label(L10n.healthWriteBackDenied, systemImage: "exclamationmark.triangle")
-                                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-                                    .accessibilityIdentifier("SP-29.health.writeBack.denied")
-                            case .notDetermined:
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Label(L10n.healthWriteBackNeedAuth, systemImage: "exclamationmark.triangle")
-                                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                                    Button(L10n.healthWriteBackRetryAuth) {
-                                        Task { writeAttemptFailed = !(await deviceState.requestWriteBack()) }
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .accessibilityIdentifier("SP-29.health.writeBack.retryAuth")
-                                }
-                            }
-                            if let summary = deviceState.writeSummary {
-                                Text(summary.failed
-                                     ? L10n.healthWriteBackFailed
-                                     : L10n.healthWriteBackLast(summary.written, summary.skipped))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .accessibilityIdentifier("SP-29.health.writeBack.summary")
-                            }
-                        }
-                    } header: { Text(L10n.healthWriteBackSection) } footer: { Text(L10n.healthWriteBackHint) }
-                }
-
-                // round2 H1/H2：展示区只在「开关开启 ∧ 已连接」时存在（关闭即整体不可见）；
-                // 详情页身份由 dashboard.patientId（= local_owner.self_patient_id）父级下传，
-                // 趋势链接需「有数据 ∧ 身份已知」——绝不回落 currentPatientId（BR-001）
-                if HealthImportVisibility.showsImportedData(pageState), let dashboard = deviceState.dashboard {
-                    Section {
-                        if pageState == .connectedEmpty {
-                            // H-N5：空态独立文案（不是同步报告的「无可读变化」语句）
-                            Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
-                                .accessibilityIdentifier("SP-29.health.importedEmpty")
-                        }
-                        ForEach(dashboard.types) { type in
-                            // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
-                            WithPerceptionTracking {
-                                NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
-                                                                                  patientId: dashboard.patientId)) {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        HStack(spacing: 10) {
-                                            // 审查修复（指标图标）：与健康 Tab/SP-29 同出口同符号
-                                            Image(systemName: CardKindIcon.spec(metric: type.kind.primaryMetric).symbol)
-                                                .font(.title3)
-                                                .foregroundStyle(CardKindIcon.tint(metric: type.kind.primaryMetric))
-                                                .frame(width: 26)
-                                            Text(L10n.metricName(type.kind.primaryMetric))
-                                            Spacer()
-                                            Text(L10n.healthImportedPointCount(type.rowCount)).foregroundStyle(.secondary)
-                                        }
-                                        if let latest = type.latestAt {
-                                            Text(latest.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                                .accessibilityIdentifier("SP-29.health.data.\(type.kind.rawValue)")
-                            }
-                        }
-                    } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }
-                }
-
-                if GuidelineSource.thresholdsAwaitMedicalReview {
-                    Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
-                }
-                Section {
-                    // §5.45 注册表纪律（审查修复）：两处原以闭包目的地直连视图，绕开
-                    // AppRoute 注册表——通知深链/跨启动路径恢复无法寻址同一 SP。改类型安全路由。
-                    NavigationLink(value: AppRoute.metricOverview) { Text(L10n.metricOverviewTitle) }
-                    NavigationLink(value: AppRoute.alertHistory) { Text(L10n.alert_historyEntry) }
-                }
+                connectionSettingsSection
+                authorizationSection
+                characteristicCandidateSection
+                syncStatusSection
+                writeBackSection
+                importedDataSection
+                medicalReviewSection
+                navigationSection
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.healthImportSettingsTitle)
-            // H3：观察 metricsVersion——后台/自动同步落库后仪表盘与三态同步刷新，不等用户重进页面
-            .task(id: dataChange.metricsVersion) {
+            // 2026-09-26 审查修复（效率 + 复审修正）：app_settings 全表读与指标版本无关，
+            // 页面出现时跑一次即可（同 HealthTabView 2026-09-15 先例）；但写授权探测
+            // 与特征候选**会**被同步落库的场景失效——写授权随时可在健康 App 里被撤销、
+            // 新特征随新同步到达，metricsVersion 跳动正是其刷新信号（本轮复审：页面
+            // 常驻 TabView，离开重进前「已授权」状态会一直错显）。二者放回指标版本
+            // 键控 task，只保留全表读在一次性 task 里。
+            .task {
                 await settings.load()
+            }
+            // H3：观察 metricsVersion——后台/自动同步落库后仪表盘、写授权与特征候选同步刷新，
+            // 不等用户重进页面
+            .task(id: dataChange.metricsVersion) {
                 _ = await deviceState.currentAuthorization()
                 await deviceState.probeWriteAuthorization()
                 await refreshCandidates()
             }
+        }
+    }
+
+    private var connectionSettingsSection: some View {
+        Section {
+            Toggle(L10n.authHealthLabel, isOn: preference(.authHealthRead))
+            Toggle(L10n.healthAutoImport, isOn: preference(.healthAutoImport))
+                .disabled(!healthEnabled)
+        } header: { Text(L10n.healthImportSettingsTitle) } footer: { Text(L10n.healthReadPermissionHint) }
+    }
+
+    private var authorizationSection: some View {
+        Section {
+            // round2 H1/H3/H-N3/H-N4：授权区按可见性三态分支（关闭 > 不可用 > 缺本人 > 未连接/已连接）
+            switch pageState {
+            case .disabled:
+                Label(L10n.f16AuthDisabled, systemImage: "heart.slash")
+            case .unavailable:
+                // H-N4：设备不提供 HealthKit（iPadOS、无 HealthKit 的设备）——如实说明，
+                // 不再渲染永久禁用的请求按钮（注意 iPhone 模拟器提供 HealthKit，不可达本态）。
+                Label(L10n.healthUnavailable, systemImage: "iphone.slash")
+                    .accessibilityIdentifier("SP-29.health.unavailable")
+            case .ownerMissing:
+                // H-N3：Apple 健康只能导入到本人名下（BR-001）——引导建档，不是同步失败
+                Label(L10n.healthOwnerMissing, systemImage: "person.crop.circle.badge.exclamationmark")
+                    .accessibilityIdentifier("SP-29.health.ownerMissing")
+            case .notConnected, .connectedEmpty, .visible:
+                if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
+                Button(L10n.f16RequestAuth) {
+                    Task {
+                        if await deviceState.requestAuthorization(authEnabled: healthEnabled) {
+                            await refreshCandidates()
+                            await sync()
+                        }
+                    }
+                }
+                .disabled(deviceState.isSyncing)
+                .accessibilityIdentifier("SP-29.health.requestAuth")
+            }
+            Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? app.owner?.displayName ?? L10n.commonMember))
+                .font(.caption).foregroundStyle(.secondary)
+        } header: { Text(L10n.f16AuthSection) } footer: { Text(L10n.f16AuthHint) }
+    }
+
+    @ViewBuilder
+    private var characteristicCandidateSection: some View {
+        // 渲染原子已分解至 HealthCharacteristicCandidateSectionView
+        //（2026-09-26 原子结构轮第三批；值 + 闭包，与 SyncStatusSectionView 同族）。
+        if !deviceState.characteristicCandidates.isEmpty {
+            HealthCharacteristicCandidateSectionView(
+                candidates: deviceState.characteristicCandidates,
+                adoptingField: adoptingField,
+                fieldLabel: fieldLabel(_:),
+                onAdopt: { adopt($0) }
+            )
+        }
+    }
+
+    private var syncStatusSection: some View {
+        // 同步区渲染原子已分解至 SyncStatusSectionView（2026-09-26 原子结构轮第二批）。
+        SyncStatusSectionView(deviceState: deviceState,
+                              showsSyncButton: HealthImportVisibility.showsImportedData(pageState)) {
+            Task { await sync() }
+        }
+    }
+
+    @ViewBuilder
+    private var writeBackSection: some View {
+        // 渲染原子已分解至 HealthWriteBackSectionView（2026-09-26 原子结构轮第三批；
+        // V4.06 opt-in 状态语义原样保留在叶视图注释与 showsStatus 判据中）。
+        if deviceState.availabilityProbed && deviceState.available {
+            HealthWriteBackSectionView(
+                writeAuthState: deviceState.writeAuthState,
+                summary: deviceState.writeSummary,
+                toggle: writeBackPreference,
+                showsStatus: writeBackOn || writeAttemptFailed,
+                onRetryAuth: { Task { writeAttemptFailed = !(await deviceState.requestWriteBack()) } }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var importedDataSection: some View {
+        // round2 H1/H2：展示区只在「开关开启 ∧ 已连接」时存在（关闭即整体不可见）；
+        // 详情页身份由 dashboard.patientId（= local_owner.self_patient_id）父级下传，
+        // 趋势链接需「有数据 ∧ 身份已知」——绝不回落 currentPatientId（BR-001）
+        if HealthImportVisibility.showsImportedData(pageState), let dashboard = deviceState.dashboard {
+            Section {
+                if pageState == .connectedEmpty {
+                    // H-N5：空态独立文案（不是同步报告的「无可读变化」语句）
+                    Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-29.health.importedEmpty")
+                }
+                ForEach(dashboard.types) { type in
+                    // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+                    WithPerceptionTracking {
+                        NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
+                                                                          patientId: dashboard.patientId)) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 10) {
+                                    // 审查修复（指标图标）：与健康 Tab/SP-29 同出口同符号
+                                    Image(systemName: CardKindIcon.spec(metric: type.kind.primaryMetric).symbol)
+                                        .font(.title3)
+                                        .foregroundStyle(CardKindIcon.tint(metric: type.kind.primaryMetric))
+                                        .frame(width: 26)
+                                    Text(L10n.metricName(type.kind.primaryMetric))
+                                    Spacer()
+                                    Text(L10n.healthImportedPointCount(type.rowCount)).foregroundStyle(.secondary)
+                                }
+                                if let latest = type.latestAt {
+                                    Text(latest.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("SP-29.health.data.\(type.kind.rawValue)")
+                    }
+                }
+            } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }
+        }
+    }
+
+    @ViewBuilder
+    private var medicalReviewSection: some View {
+        if GuidelineSource.thresholdsAwaitMedicalReview {
+            Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
+        }
+    }
+
+    private var navigationSection: some View {
+        Section {
+            // §5.45 注册表纪律（审查修复）：两处原以闭包目的地直连视图，绕开
+            // AppRoute 注册表——通知深链/跨启动路径恢复无法寻址同一 SP。改类型安全路由。
+            NavigationLink(value: AppRoute.metricOverview) { Text(L10n.metricOverviewTitle) }
+            NavigationLink(value: AppRoute.alertHistory) { Text(L10n.alert_historyEntry) }
         }
     }
 
@@ -699,6 +634,85 @@ struct DeviceConnectionView: View {
                 }
             }
         })
+    }
+}
+
+// MARK: - 同步区渲染原子（2026-09-26 原子结构轮第二批：由 DeviceConnectionView 分解）
+
+/// 同步状态区：阶段三态（syncing/done/degraded）+ 报告行（行数/排空进度/稀疏窗口/
+/// 部分失败/保留聚合/延迟窗口/通知重试/最后同步时间）+ 手动同步按钮。
+/// 状态经 F16DeviceState 引用与闭包传入，无 @State/@Environment。
+struct SyncStatusSectionView: View {
+    let deviceState: F16DeviceState
+    let showsSyncButton: Bool
+    let onSyncNow: () -> Void
+
+    var body: some View {
+        WithPerceptionTracking {
+            Section {
+                switch deviceState.phase {
+                case .idle: EmptyView()
+                case .syncing: ProgressView(L10n.f16Syncing)
+                case .done(let count):
+                    // report 存在时已同步行数由下方报告块渲染——这里只在
+                    // 无报告兜底显示，避免「已同步 N 行」重复两行（round10 实测）。
+                    if deviceState.report == nil {
+                        Text(L10n.f16SyncedRows(count)).accessibilityIdentifier("SP-29.health.syncDone")
+                    }
+                case .degraded(let message):
+                    // token-only（审查修复）：语义令牌替代硬编码 .orange
+                    Label(message, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                }
+                if deviceState.backgroundSyncBroken {
+                    Label(L10n.healthBackgroundSyncFailed(), systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        .accessibilityIdentifier("SP-29.health.backgroundSyncFailed")
+                }
+                if let report = deviceState.report {
+                    Text(L10n.f16SyncedRows(report.persistedRows))
+                        .accessibilityIdentifier("SP-29.health.syncedRows")
+                    // 「无可读变化」只在 HealthKit 未报告任何增删且无类型失败时成立；
+                    // 变化已收到但落库 0 行（重放/仅索引更新）不是「无数据」。
+                    if report.receivedChanges == 0 && report.failedTypes.isEmpty && !report.hasMore {
+                        Text(L10n.healthNoReadableData).font(.caption)
+                    }
+                    if !report.failedTypes.isEmpty {
+                        Label(L10n.healthImportPartial(report.failedTypes.count), systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    }
+                    if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
+                    // H-N1：排空进度——当前道（近一年 / 更早历史）与剩余统计窗口数（纯进度事实）
+                    if report.hasMore, let remaining = report.remainingWindows, let lane = report.backfillLane {
+                        Text(L10n.healthBackfillProgress(L10n.healthBackfillLane(lane), remaining)).font(.caption)
+                            .accessibilityIdentifier("SP-29.health.backfillProgress")
+                    }
+                    // H-N2：<3 样本的小时桶计数提示，不静默丢弃（统计事实，非阈值判定）
+                    if let sparse = report.sparseWindows, sparse > 0 {
+                        Text(L10n.healthSparseWindows(sparse)).font(.caption)
+                            .accessibilityIdentifier("SP-29.health.sparse")
+                    }
+                    if report.preservedRows > 0 {
+                        Text(L10n.healthPreservedAggregates(report.preservedRows)).font(.caption)
+                    }
+                    if report.deferredWindows > 0 {
+                        Text(L10n.healthDeferredWindows(report.deferredWindows)).font(.caption)
+                    }
+                    if report.notificationFailures > 0 { Text(L10n.healthNotificationRetry).font(.caption) }
+                    Text(L10n.f16LastSync(report.lastSyncAt.formatted(date: .numeric, time: .shortened)))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                // 手动同步只在「开关开启 ∧ 已连接」（= 展示区存在）时提供
+                if showsSyncButton {
+                    Button(L10n.f16SyncNow) {
+                        onSyncNow()
+                    }
+                    .disabled(deviceState.isSyncing)
+                    .accessibilityIdentifier("SP-29.health.sync")
+                }
+            } header: { Text(L10n.f16SyncSection) } footer: { Text(L10n.f16SyncHint) }
+        }
     }
 }
 

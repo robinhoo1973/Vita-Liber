@@ -217,197 +217,15 @@ struct EncounterDetailView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                // 头部卡：医院·科室·医生·日期 + 类型胶囊
-                Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(current?.hospital ?? encounter.hospital ?? L10n.encounterUntitled)
-                                .font(.title2.bold())
-                            Spacer()
-                            Text(encounterKindDisplayName(current?.kind ?? encounter.kind))
-                                .font(.caption)
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                                .foregroundStyle(Color("brand-primary", bundle: .main))
-                        }
-                        if let dept = current?.department ?? encounter.department {
-                            Text(dept).font(.subheadline)
-                        }
-                        if let doctor = current?.doctor ?? encounter.doctor {
-                            Text(doctor).font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Text((current?.date ?? encounter.date).formatted(date: .long, time: .shortened))
-                            .font(.caption).foregroundStyle(.secondary)
-                        // round2 §3.3：费用此前落库不展示——按票面金额呈现（表单以元录入，FR4.1）
-                        if let fee = current?.feeAmount ?? encounter.feeAmount {
-                            LabeledContent(DocumentsDisplay.fieldLabel(forKey: "fee_amount"),
-                                           value: fee.formatted(.currency(code: "CNY").precision(.fractionLength(2))))
-                                .font(.caption)
-                        }
-                    }
-                }
-                // 审查修复（L0 §17 家族，判定器盲区）：容器标识不配 .contain 会把标识
-                // 下放覆盖子元素自身的标识（XCUITest 按子标识查询失败）。本处上一行是 `}`，
-                // 判定器的修饰链回溯只看「以 . 开头的连续行」，且子树内的带标识控件
-                // （hospital/kind/dept…）都在本 VStack 内——同文件另外两处同型。
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("SP-08.encounter.detail.header")
-
-                // 诊断与医嘱（原文引用块，左侧竖线+浅底）
-                Section(L10n.encounterDiagnosisAdvice) {
-                    if let diagnosis = current?.diagnosisText ?? encounter.diagnosisText {
-                        Text(diagnosis)
-                            .padding(.leading, 8)
-                            .overlay(alignment: .leading) {
-                                Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
-                            }
-                        // 评审修正 U1：就诊正文由用户手输/复诊自动建档（无医院原文链路），
-                        // 硬编码 A（医院原文）是伪造来源（BR-003/§4.1 一眼可辨来源）——
-                        // 应为 C（用户确认）。GradeBadge 自带色彩，去除手写覆盖。
-                        GradeBadge(grade: "C")
-                    }
-                    if let advice = current?.adviceText ?? encounter.adviceText {
-                        Text(advice)
-                            .padding(.leading, 8)
-                            .overlay(alignment: .leading) {
-                                Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
-                            }
-                        // 评审修正 U1：手写徽章变体 → GradeBadge 唯一出口（C 用户确认）
-                        GradeBadge(grade: "C")
-                    }
-                    if let followUp = current?.followUpRequirement ?? encounter.followUpRequirement {
-                        LabeledContent(L10n.encounterFollowUp, value: followUp)
-                    }
-                }
-
-                // v25 叙事列（§C.1 / round2 §3.3）：主诉·现病史·既往史·体格检查·过敏史·就诊总结
-                // 逐字段独立分段、多行原文呈现（不摘要不改写；过敏史只是病历原文，
-                // 写入个人资料须经 D4 资料建议逐项确认——此处不推导、不联动）。
-                ForEach(narrativeFields(current ?? encounter), id: \.key) { field in
-                    Section(DocumentsDisplay.fieldLabel(forKey: field.key)) {
-                        Text(field.value)
-                            .textSelection(.enabled)
-                            .accessibilityIdentifier("SP-08.encounter.narrative.\(field.key)")
-                    }
-                }
-
-                // 关联资料（FR4.2：挂接/解除均留操作历史）
-                Section(L10n.encounterLinkedDocs) {
-                    if sourceDocuments.isEmpty {
-                        Text(L10n.encounterNoDocs).font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        ForEach(sourceDocuments) { document in
-                            NavigationLink {
-                                DocumentDetailRouteView(documentId: document.id)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "doc.text")
-                                    Text(document.title ?? document.type)
-                                        .font(.subheadline)
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // v26（§C.2–§C.5 / SP-08）：住院期 / 诊断 / 检查报告 / 检验报告四分段——事实表 encounter_id 只读投影
-                //（写入侧 = 住院卡建就诊 / 确认卡显式归属），点击进同一已确认卡详情；原文摘要，不推导不解释。
-                // v27（子项目 J · round1 §D）：+ 手术 / 治疗记录（medicalCard）/ 复诊预约（appointmentDetail）/ 随访提醒（reminderToday）。
-                ForEach(Self.episodeSections, id: \.kind) { section in
-                    let cards = linkedCards.filter { $0.kind == section.kind }
-                    if !cards.isEmpty {
-                        Section(section.title) {
-                            ForEach(cards, id: \.identity) { card in
-                                episodeRow(card)
-                            }
-                        }
-                        // 审查修复（L0 §17 家族，判定器盲区）：本 Section 的子元素由
-                        // `episodeRow(_:)`（同文件 @ViewBuilder 方法）产出，其行标识
-                        // SP-08.encounter.appointment/reminder.<uuid> 在另一函数的行上——
-                        // 判定器只扫容器**花括号内**的带标识控件，看不到跨函数的子标识，
-                        // 故此处长期判绿而掩蔽真实存在。
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("SP-08.encounter.section.\(section.kind.rawValue)")
-                    }
-                }
-
-                // v27 FR10.7「关联预约」：候选只是清单（AppointmentStore.candidates ±3 天同医院未挂接），
-                // 挂接必须经用户点选 + 二次确认（link），不自动生效、不猜。
-                Section {
-                    Button {
-                        Task { await loadAppointmentCandidates() }
-                    } label: {
-                        Label(L10n.encounterLinkAppointment, systemImage: CardKindIcon.symbol(for: TimelineEntryKind.appointment))
-                            .frame(minHeight: 44)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityIdentifier("SP-08.encounter.linkAppointment")
-                    if appointmentLinkFailed {
-                        Text(L10n.encounterLinkAppointmentFailed).font(.caption).foregroundStyle(.orange)
-                    }
-                } footer: {
-                    Text(L10n.encounterLinkAppointmentHint)
-                }
-
-                // FR6.9 期二：卡片互联读面——本就诊关联的处方/收费卡片（写入侧 =
-                // OCR 确认卡 EncounterAssociation 显式归属；此处只呈现与跳转，不新增关联语义）
-                Section(L10n.encounterLinkedCards) {
-                    if linkLoadFailed {
-                        Text(L10n.docImportFailed).foregroundStyle(.orange)
-                        Button(L10n.retry) { Task { await refresh() } }
-                    }
-                    if !generalLinkedCards.isEmpty {
-                        Picker(L10n.encounterLinkedCards, selection: $cardKind) {
-                            Text(L10n.filterAll).tag(Optional<String>.none)
-                            ForEach(Array(Set(generalLinkedCards.map { $0.kind.cardKind })).sorted(), id: \.self) { kind in
-                                Text(L10n.entityCardKindName(kind)).tag(Optional(kind))
-                            }
-                        }
-                    }
-                    if generalLinkedCards.isEmpty {
-                        Text(L10n.encounterLinkedCardsEmpty)
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else {
-                        ForEach(generalLinkedCards.filter { cardKind == nil || $0.kind.cardKind == cardKind }, id: \.identity) { card in
-                            NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
-                                linkedCardRow(card)
-                            }
-                        }
-                    }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("SP-08.encounter.linkedCards")
-
-                // FR4.2 智能推荐（同医院±7 天；推荐必须标「待确认」，不得自动生效）
-                if !recommendations.isEmpty {
-                    Section {
-                        ForEach(recommendations, id: \.self) { docId in
-                            HStack {
-                                Image(systemName: "doc.badge.plus").foregroundStyle(.orange)
-                                Text(L10n.encounterRecommendPending)
-                                    .font(.caption).foregroundStyle(.orange)
-                                Spacer()
-                                Button(L10n.encounterLink) {
-                                    Task {
-                                        if await state.linkDocument(documentId: docId, encounterId: encounter.id) { await refresh() }
-                                        else { linkLoadFailed = true }
-                                    }
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                            }
-                        }
-                    } header: {
-                        Text(L10n.encounterRecommendSection)
-                    }
-                }
-
-                // 底部操作
-                Section {
-                    Button(L10n.encounterGenerateSummary) { showSummary = true }
-                        .accessibilityIdentifier("SP-08.encounter.summary")
-                }
+                headerSection
+                diagnosisAdviceSection
+                narrativeSections
+                linkedDocumentsSection
+                episodeCardSections
+                appointmentLinkSection
+                linkedCardsSection
+                recommendationSection
+                summaryActionSection
             }
             .navigationTitle(L10n.encounterDetailTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -435,6 +253,222 @@ struct EncounterDetailView: View {
                 Text(L10n.encounterLinkAppointmentConfirmTitle(pendingAppointmentLink.map(appointmentTitle) ?? ""))
             }
             .task { await refresh() }
+        }
+    }
+
+    /// 头部卡：医院·科室·医生·日期 + 类型胶囊
+    private var headerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(current?.hospital ?? encounter.hospital ?? L10n.encounterUntitled)
+                        .font(.title2.bold())
+                    Spacer()
+                    Text(encounterKindDisplayName(current?.kind ?? encounter.kind))
+                        .font(.caption)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                }
+                if let dept = current?.department ?? encounter.department {
+                    Text(dept).font(.subheadline)
+                }
+                if let doctor = current?.doctor ?? encounter.doctor {
+                    Text(doctor).font(.subheadline).foregroundStyle(.secondary)
+                }
+                Text((current?.date ?? encounter.date).formatted(date: .long, time: .shortened))
+                    .font(.caption).foregroundStyle(.secondary)
+                // round2 §3.3：费用此前落库不展示——按票面金额呈现（表单以元录入，FR4.1）
+                if let fee = current?.feeAmount ?? encounter.feeAmount {
+                    LabeledContent(DocumentsDisplay.fieldLabel(forKey: "fee_amount"),
+                                   value: fee.formatted(.currency(code: "CNY").precision(.fractionLength(2))))
+                        .font(.caption)
+                }
+            }
+        }
+        // 审查修复（L0 §17 家族，判定器盲区）：容器标识不配 .contain 会把标识
+        // 下放覆盖子元素自身的标识（XCUITest 按子标识查询失败）。本处上一行是 `}`，
+        // 判定器的修饰链回溯只看「以 . 开头的连续行」，且子树内的带标识控件
+        // （hospital/kind/dept…）都在本 VStack 内——同文件另外两处同型。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-08.encounter.detail.header")
+    }
+
+    /// 诊断与医嘱（原文引用块，左侧竖线+浅底）
+    private var diagnosisAdviceSection: some View {
+        Section(L10n.encounterDiagnosisAdvice) {
+            if let diagnosis = current?.diagnosisText ?? encounter.diagnosisText {
+                Text(diagnosis)
+                    .padding(.leading, 8)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
+                    }
+                // 评审修正 U1：就诊正文由用户手输/复诊自动建档（无医院原文链路），
+                // 硬编码 A（医院原文）是伪造来源（BR-003/§4.1 一眼可辨来源）——
+                // 应为 C（用户确认）。GradeBadge 自带色彩，去除手写覆盖。
+                GradeBadge(grade: "C")
+            }
+            if let advice = current?.adviceText ?? encounter.adviceText {
+                Text(advice)
+                    .padding(.leading, 8)
+                    .overlay(alignment: .leading) {
+                        Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
+                    }
+                // 评审修正 U1：手写徽章变体 → GradeBadge 唯一出口（C 用户确认）
+                GradeBadge(grade: "C")
+            }
+            if let followUp = current?.followUpRequirement ?? encounter.followUpRequirement {
+                LabeledContent(L10n.encounterFollowUp, value: followUp)
+            }
+        }
+    }
+
+    private var narrativeSections: some View {
+        // v25 叙事列（§C.1 / round2 §3.3）：主诉·现病史·既往史·体格检查·过敏史·就诊总结
+        // 逐字段独立分段、多行原文呈现（不摘要不改写；过敏史只是病历原文，
+        // 写入个人资料须经 D4 资料建议逐项确认——此处不推导、不联动）。
+        ForEach(narrativeFields(current ?? encounter), id: \.key) { field in
+            Section(DocumentsDisplay.fieldLabel(forKey: field.key)) {
+                Text(field.value)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("SP-08.encounter.narrative.\(field.key)")
+            }
+        }
+    }
+
+    /// 关联资料（FR4.2：挂接/解除均留操作历史）
+    private var linkedDocumentsSection: some View {
+        Section(L10n.encounterLinkedDocs) {
+            if sourceDocuments.isEmpty {
+                Text(L10n.encounterNoDocs).font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(sourceDocuments) { document in
+                    NavigationLink {
+                        DocumentDetailRouteView(documentId: document.id)
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.text")
+                            Text(document.title ?? document.type)
+                                .font(.subheadline)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// v26/v27 就诊 episode 分段：仅呈现当前就诊关联的事实卡片。
+    private var episodeCardSections: some View {
+        // v26（§C.2–§C.5 / SP-08）：住院期 / 诊断 / 检查报告 / 检验报告四分段——事实表 encounter_id 只读投影
+        //（写入侧 = 住院卡建就诊 / 确认卡显式归属），点击进同一已确认卡详情；原文摘要，不推导不解释。
+        // v27（子项目 J · round1 §D）：+ 手术 / 治疗记录（medicalCard）/ 复诊预约（appointmentDetail）/ 随访提醒（reminderToday）。
+        ForEach(Self.episodeSections, id: \.kind) { section in
+            let cards = linkedCards.filter { $0.kind == section.kind }
+            if !cards.isEmpty {
+                Section(section.title) {
+                    ForEach(cards, id: \.identity) { card in
+                        episodeRow(card)
+                    }
+                }
+                // 审查修复（L0 §17 家族，判定器盲区）：本 Section 的子元素由
+                // `episodeRow(_:)`（同文件 @ViewBuilder 方法）产出，其行标识
+                // SP-08.encounter.appointment/reminder.<uuid> 在另一函数的行上——
+                // 判定器只扫容器**花括号内**的带标识控件，看不到跨函数的子标识，
+                // 故此处长期判绿而掩蔽真实存在。
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("SP-08.encounter.section.\(section.kind.rawValue)")
+            }
+        }
+    }
+
+    private var appointmentLinkSection: some View {
+        // v27 FR10.7「关联预约」：候选只是清单（AppointmentStore.candidates ±3 天同医院未挂接），
+        // 挂接必须经用户点选 + 二次确认（link），不自动生效、不猜。
+        Section {
+            Button {
+                Task { await loadAppointmentCandidates() }
+            } label: {
+                Label(L10n.encounterLinkAppointment, systemImage: CardKindIcon.symbol(for: TimelineEntryKind.appointment))
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("SP-08.encounter.linkAppointment")
+            if appointmentLinkFailed {
+                // token-only（审查修复）：语义令牌替代硬编码 .orange
+                Text(L10n.encounterLinkAppointmentFailed).font(.caption)
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+            }
+        } footer: {
+            Text(L10n.encounterLinkAppointmentHint)
+        }
+    }
+
+    private var linkedCardsSection: some View {
+        // FR6.9 期二：卡片互联读面——本就诊关联的处方/收费卡片（写入侧 =
+        // OCR 确认卡 EncounterAssociation 显式归属；此处只呈现与跳转，不新增关联语义）
+        Section(L10n.encounterLinkedCards) {
+            if linkLoadFailed {
+                // token-only（审查修复）：语义令牌替代硬编码 .orange
+                Text(L10n.docImportFailed).foregroundStyle(Color("semantic-warning", bundle: .main))
+                Button(L10n.retry) { Task { await refresh() } }
+            }
+            if !generalLinkedCards.isEmpty {
+                Picker(L10n.encounterLinkedCards, selection: $cardKind) {
+                    Text(L10n.filterAll).tag(Optional<String>.none)
+                    ForEach(Array(Set(generalLinkedCards.map { $0.kind.cardKind })).sorted(), id: \.self) { kind in
+                        Text(L10n.entityCardKindName(kind)).tag(Optional(kind))
+                    }
+                }
+            }
+            if generalLinkedCards.isEmpty {
+                Text(L10n.encounterLinkedCardsEmpty)
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(generalLinkedCards.filter { cardKind == nil || $0.kind.cardKind == cardKind }, id: \.identity) { card in
+                    NavigationLink(value: AppRoute.medicalCard(kind: card.kind.cardKind, id: card.id, patientId: encounter.patientId)) {
+                        linkedCardRow(card)
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-08.encounter.linkedCards")
+    }
+
+    @ViewBuilder
+    private var recommendationSection: some View {
+        // FR4.2 智能推荐（同医院±7 天；推荐必须标「待确认」，不得自动生效）
+        if !recommendations.isEmpty {
+            Section {
+                ForEach(recommendations, id: \.self) { docId in
+                    HStack {
+                        // token-only（审查修复）：语义令牌替代硬编码 .orange
+                        Image(systemName: "doc.badge.plus").foregroundStyle(Color("semantic-warning", bundle: .main))
+                        Text(L10n.encounterRecommendPending)
+                            .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                        Spacer()
+                        Button(L10n.encounterLink) {
+                            Task {
+                                if await state.linkDocument(documentId: docId, encounterId: encounter.id) { await refresh() }
+                                else { linkLoadFailed = true }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                            .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                    }
+                }
+            } header: {
+                Text(L10n.encounterRecommendSection)
+            }
+        }
+    }
+
+    /// 底部操作
+    private var summaryActionSection: some View {
+        Section {
+            Button(L10n.encounterGenerateSummary) { showSummary = true }
+                .accessibilityIdentifier("SP-08.encounter.summary")
         }
     }
 
@@ -550,194 +584,3 @@ struct EncounterDetailView: View {
     }
 }
 
-/// 就诊总结页（FR4.3）：已完成/待完成检查、新增药品、复诊时间、
-/// 「以下信息尚未经你确认」清单（BR-003 红点标记）
-struct EncounterSummaryView: View {
-    let encounter: EncounterStore.EncounterRow
-    @Environment(EncountersState.self) private var state
-    @Environment(\.dismiss) private var dismiss
-    @State private var unconfirmed: [(documentId: UUID, title: String)] = []
-
-    var body: some View {
-        WithPerceptionTracking {
-            NavigationStack {
-                List {
-                    Section(L10n.encounterSummaryHeader) {
-                        Text(encounter.hospital ?? L10n.encounterUntitled).font(.headline)
-                        Text(encounter.date.formatted(date: .long, time: .omitted))
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    if let followUp = encounter.followUpRequirement {
-                        Section(L10n.encounterFollowUp) {
-                            Text(followUp)
-                        }
-                    }
-                    Section(L10n.encounterSummaryUnconfirmed) {
-                        if unconfirmed.isEmpty {
-                            Text(L10n.encounterSummaryAllConfirmed)
-                                .font(.caption).foregroundStyle(.secondary)
-                        } else {
-                            // BR-003：未确认清单红点标记，确认前不进入确定性陈述
-                            ForEach(unconfirmed, id: \.documentId) { item in
-                                HStack {
-                                    Image(systemName: "circle.fill").font(.caption2)
-                                        .foregroundStyle(Color("semantic-danger", bundle: .main))
-                                    // 审查修复（F-A4-04）：此前渲染 `documentId.uuidString
-                                    // .prefix(8)`（内部 UUID 片段当资料名）与一个恒为 1 的
-                                    // 假字段数。改为资料标题（空标题回落「未命名资料」）。
-                                    Text(L10n.encounterSummaryDocFields(L10n.docTitle(item.title)))
-                                        .font(.subheadline)
-                                }
-                            }
-                        }
-                    }
-                    Section(L10n.encounterSummaryNote) {
-                        Text(L10n.encounterSummaryNoteText)
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
-                .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
-                .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
-                .navigationTitle(L10n.encounterSummaryTitle)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.commonCancel) { dismiss() }
-                    }
-                }
-                .task {
-                    unconfirmed = await state.unconfirmedFields(patientId: encounter.patientId)
-                }
-            }
-        }
-    }
-}
-
-/// 就诊表单（FR4.1 字段全集；FR4.4 可从孤立资料懒创建——入口传资料上下文）
-struct EncounterFormView: View {
-    @Environment(AppState.self) private var app
-    @Environment(EncountersState.self) private var state
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var date = Date()
-    @State private var kind = EncounterKind.outpatient.rawValue
-    @State private var hospital = ""
-    @State private var department = ""
-    @State private var doctor = ""
-    @State private var chiefComplaint = ""
-    @State private var diagnosisText = ""
-    @State private var adviceText = ""
-    @State private var followUpRequirement = ""
-    @State private var feeText = ""
-    // v25 叙事列（§C.1）：原文录入，不摘要不改写；过敏史仅为病历原文（资料建议 D4 另走确认流）
-    @State private var presentIllness = ""
-    @State private var pastHistory = ""
-    @State private var physicalExam = ""
-    @State private var allergyHistory = ""
-    @State private var visitSummary = ""
-    @State private var saveFailed = false
-
-    private let kinds = EncounterKind.allCases
-
-    var body: some View {
-        WithPerceptionTracking {
-            NavigationStack {
-                Form {
-                    Section(L10n.encounterFormBasic) {
-                        Picker(L10n.encounterFormKind, selection: $kind) {
-                            ForEach(kinds, id: \.rawValue) { Text(L10n.encounterKindName($0)) }
-                        }
-                        DatePicker(L10n.encounterFormDate, selection: $date)
-                        TextField(L10n.encounterFormHospital, text: $hospital)
-                        TextField(L10n.encounterFormDepartment, text: $department)
-                        TextField(L10n.encounterFormDoctor, text: $doctor)
-                    }
-                    Section(L10n.encounterFormClinical) {
-                        TextField(L10n.encounterFormComplaint, text: $chiefComplaint, axis: .vertical)
-                        TextField(L10n.encounterFormDiagnosis, text: $diagnosisText, axis: .vertical)
-                        TextField(L10n.encounterFormAdvice, text: $adviceText, axis: .vertical)
-                        TextField(L10n.encounterFormFollowUp, text: $followUpRequirement, axis: .vertical)
-                        TextField(L10n.encounterFormFee, text: $feeText)
-                            .keyboardType(.decimalPad)
-                    }
-                    Section(L10n.encounterNarrative) {
-                        TextField(DocumentsDisplay.fieldLabel(forKey: "present_illness"), text: $presentIllness, axis: .vertical)
-                            .accessibilityIdentifier("SP-08.encounter.form.present_illness")
-                        TextField(DocumentsDisplay.fieldLabel(forKey: "past_history"), text: $pastHistory, axis: .vertical)
-                            .accessibilityIdentifier("SP-08.encounter.form.past_history")
-                        TextField(DocumentsDisplay.fieldLabel(forKey: "physical_exam"), text: $physicalExam, axis: .vertical)
-                            .accessibilityIdentifier("SP-08.encounter.form.physical_exam")
-                        TextField(DocumentsDisplay.fieldLabel(forKey: "allergy_history"), text: $allergyHistory, axis: .vertical)
-                            .accessibilityIdentifier("SP-08.encounter.form.allergy_history")
-                        TextField(DocumentsDisplay.fieldLabel(forKey: "visit_summary"), text: $visitSummary, axis: .vertical)
-                            .accessibilityIdentifier("SP-08.encounter.form.visit_summary")
-                    }
-                }
-                .navigationTitle(L10n.encounterFormTitle)
-                .saveFailedAlert(title: L10n.encounterSaveFailed,
-                                 hint: L10n.encounterSaveFailedHint,
-                                 isPresented: $saveFailed)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(L10n.commonCancel) { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.reminder_save) {
-                            let draft = EncounterDraft(
-                                patientId: app.currentPatientId, date: date, kind: kind,
-                                hospital: hospital.isEmpty ? nil : hospital,
-                                department: department.isEmpty ? nil : department,
-                                doctor: doctor.isEmpty ? nil : doctor,
-                                chiefComplaint: chiefComplaint.isEmpty ? nil : chiefComplaint,
-                                diagnosisText: diagnosisText.isEmpty ? nil : diagnosisText,
-                                adviceText: adviceText.isEmpty ? nil : adviceText,
-                                followUpRequirement: followUpRequirement.isEmpty ? nil : followUpRequirement,
-                                feeAmount: Double(feeText),
-                                presentIllness: presentIllness.isEmpty ? nil : presentIllness,
-                                visitSummary: visitSummary.isEmpty ? nil : visitSummary,
-                                pastHistory: pastHistory.isEmpty ? nil : pastHistory,
-                                physicalExam: physicalExam.isEmpty ? nil : physicalExam,
-                                allergyHistory: allergyHistory.isEmpty ? nil : allergyHistory)
-                            Task {
-                                // 保存失败保留表单并提示可重试——此前 upsert 吞错后
-                                // 无条件 dismiss，失败呈现为「已保存」而数据丢失
-                                if await state.upsert(draft) {
-                                    dismiss()
-                                } else {
-                                    saveFailed = true
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier("SP-08.encounter.form.save")
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// §5.45 路由式就诊详情（V3.72）：深链/通知指向就诊时按 id 从
-/// EncountersState 投影查找并渲染详情；查无（已删除）回落可见降级。
-struct EncounterDetailRouteView: View {
-    let encounterId: UUID
-    @Environment(EncountersState.self) private var state
-    /// 深链冷启动投影未加载时按 id 直取（跨成员可见，路由成员即就诊成员）
-    @State private var direct: EncounterStore.EncounterRow?
-
-    var body: some View {
-        WithPerceptionTracking {
-            Group {
-                if let enc = state.encounters.first(where: { $0.id == encounterId }) ?? direct {
-                    EncounterDetailView(encounter: enc)
-                } else {
-                    RouteFallbackView(route: .encounterDetail(encounterId))
-                }
-            }
-            .task {
-                // 此前视图从不加载：冷启动深链恒渲染「该资料已不存在」并自动弹回
-                if state.encounters.first(where: { $0.id == encounterId }) == nil {
-                    direct = await state.get(id: encounterId)
-                }
-            }
-        }
-    }
-}

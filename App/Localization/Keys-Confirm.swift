@@ -93,4 +93,48 @@ extension L10n {
     static var entityCardPickValue: String { t("entityCard.pickValue") }
 
     static var entityCardConfirmAllHint: String { t("entityCard.confirmAllHint") }
+static var profileSuggestionTitle: String { t("profileSuggestion.title") }
+    static var profileSuggestionHint: String { t("profileSuggestion.hint") }
+    static var profileSuggestionAccept: String { t("profileSuggestion.accept") }
+    static var profileSuggestionSkip: String { t("profileSuggestion.skip") }
+    static var profileSuggestionSkipAll: String { t("profileSuggestion.skipAll") }
+    static var profileSuggestionDone: String { t("profileSuggestion.done") }
+    static var profileSuggestionApplied: String { t("profileSuggestion.applied") }
+    static var profileSuggestionExisting: String { t("profileSuggestion.existing") }
+    static var profileSuggestionSkipped: String { t("profileSuggestion.skipped") }
+    static var profileSuggestionFailed: String { t("profileSuggestion.failed") }
+    static var profileSuggestionSeverityUnset: String { t("profileSuggestion.severityUnset") }
+    static var parentDraftTitle: String { t("parentDraft.title") }
+    static var parentDraftHint: String { t("parentDraft.hint") }
+    static var parentDraftNewEncounter: String { t("parentDraft.newEncounter") }
+    static var parentDraftNewHealthExam: String { t("parentDraft.newHealthExam") }
+    static var parentDraftUseExisting: String { t("parentDraft.useExisting") }
+    static var parentDraftDateRequired: String { t("parentDraft.dateRequired") }
+    static var parentDraftUnconfirmed: String { t("parentDraft.unconfirmed") }
+    static var cardEditTitle: String { t("cardEdit.title") }
+    static var cardEditFieldsSection: String { t("cardEdit.fieldsSection") }
+    static var cardEditHint: String { t("cardEdit.hint") }
+    static var cardEditSave: String { t("cardEdit.save") }
+    static var cardEditSaved: String { t("cardEdit.saved") }
+    static var cardEditSavedHint: String { t("cardEdit.savedHint") }
+    static var cardEditFailed: String { t("cardEdit.failed") }
+    static func cardEditInvalidDate(_ label: String) -> String {
+        t("cardEdit.invalidDate").replacingOccurrences(of: "%@", with: label)
+    }
+    /// round5 Q1（F1.4）：已确认卡编辑面「添加字段」菜单标题。
+    static var cardEditAddField: String { t("cardEdit.addField") }
+    static func cardEditInvalidNumber(_ label: String) -> String {
+        t("cardEdit.invalidNumber").replacingOccurrences(of: "%@", with: label)
+    }
+    static func cardEditLineTitle(_ name: String) -> String {
+        t("cardEdit.lineTitle").replacingOccurrences(of: "%@", with: name)
+    }
+    static var ocConfirmCardAll: String { t("oc.confirm.cardAll") }
+    static var ocFieldDept: String { t("oc.field.dept") }
+    static var ocFieldReportDate: String { t("oc.field.reportDate") }
+    static var ocFieldLabItem: String { t("oc.field.labItem") }
+    static var ocFieldReferenceRange: String { t("oc.field.referenceRange") }
+    static var ocFieldChiefComplaint: String { t("oc.field.chiefComplaint") }
+    static var ocFieldDiagnosis: String { t("oc.field.diagnosis") }
+    static var ocFieldTreatment: String { t("oc.field.treatment") }
 }

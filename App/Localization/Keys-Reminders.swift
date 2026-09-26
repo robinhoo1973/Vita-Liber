@@ -107,4 +107,18 @@ extension L10n {
     static var reminderApptDepartment: String { t("reminder.apptDepartment") }
 
     static var reminderApptTime: String { t("reminder.apptTime") }
+static var remchTitle: String { t("remch.title") }
+    static var remchSectionHint: String { t("remch.sectionHint") }
+    static var remchSectionFooter: String { t("remch.sectionFooter") }
+    static var remchMeds: String { t("remch.meds") }
+    static var remchApts: String { t("remch.apts") }
+    static var remchExam: String { t("remch.exam") }
+    static var remchExpiry: String { t("remch.expiry") }
+    static var remchAlert: String { t("remch.alert") }
+    static var remchBackup: String { t("remch.backup") }
+    static var remchLocal: String { t("remch.local") }
+    static var remchRing: String { t("remch.ring") }
+    static var remchInApp: String { t("remch.inApp") }
+    static var remchBannerToggle: String { t("remch.bannerToggle") }
+    static var remchBannerFooter: String { t("remch.bannerFooter") }
 }

@@ -11,14 +11,90 @@ import Domain
 public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendable {
     private let pool: DatabasePool
 
-    public static func integrityCheck(path: URL) throws {
+    /// 解密后 SQLite 的发布门（镜像 Go `GateSQLite`）：SQLite 头、`integrity_check`、
+    /// `foreign_key_check`、`user_version` 与 `catalog_meta` 的 schema/data 身份须等于已签字段。
+    public static func validateRelease(path: URL, schemaVersion: Int, dataVersion: String) throws {
+        let header = Data("SQLite format 3\u{0}".utf8)
+        do {
+            let handle = try FileHandle(forReadingFrom: path)
+            defer { try? handle.close() } // try?-ok: 只读句柄关闭失败由系统回收
+            guard try handle.read(upToCount: header.count) == header else {
+                throw MedicalCatalogUpdateError.catalogIntegrityFailed
+            }
+        }
         var configuration = Configuration()
         configuration.readonly = true
-        let pool = try DatabasePool(path: path.path, configuration: configuration)
-        let result = try pool.read { db in
-            try String.fetchOne(db, sql: "PRAGMA integrity_check")
+        let queue = try DatabaseQueue(path: path.path, configuration: configuration)
+        let passed = try queue.read { db -> Bool in
+            guard try String.fetchOne(db, sql: "PRAGMA integrity_check") == "ok",
+                  try Row.fetchOne(db, sql: "PRAGMA foreign_key_check") == nil,
+                  try Int.fetchOne(db, sql: "PRAGMA user_version") == schemaVersion else { return false }
+            let meta = try metadata(db)
+            return meta.schemaVersion == schemaVersion && meta.dataVersion == dataVersion
         }
-        guard result == "ok" else { throw MedicalCatalogUpdateError.catalogIntegrityFailed }
+        guard passed else { throw MedicalCatalogUpdateError.catalogIntegrityFailed }
+    }
+
+    /// 代表性查询：按 App 实际读路径（只读 pool）复开，读目录元数据与 drug 首行。
+    public static func smokeCheck(path: URL) throws {
+        let store = try MedicalCatalogStore(path: path)
+        let hasDrug = try store.pool.read { db -> Bool in
+            _ = try metadata(db)
+            return try Row.fetchOne(db, sql: """
+                SELECT id, region, source_id, name_zh, usage_ref_json FROM drug ORDER BY id LIMIT 1
+                """) != nil
+        }
+        guard hasDrug else { throw MedicalCatalogUpdateError.catalogIntegrityFailed }
+    }
+
+    /// 单次只读打开的完整发布门（2026-09-26 审查合并）：SQLite 头 + `integrity_check`
+    /// + `foreign_key_check` + user_version/schema/dataVersion 元数据 + drug 代表性行。
+    /// 原 `validateRelease` + `smokeCheck` 分两次打开同一文件、整库扫描跑两遍——
+    /// 安装链路每个候选白白多一次全量页扫描 + 一次连接建立；合并后安装前验证
+    /// 一次打开跑完（激活后 `activeCheck` 仍按最终路径复验，安全性不变）。
+    public static func validateReleaseAndSmoke(path: URL, schemaVersion: Int, dataVersion: String) throws {
+        let header = Data("SQLite format 3\u{0}".utf8)
+        do {
+            let handle = try FileHandle(forReadingFrom: path)
+            defer { try? handle.close() } // try?-ok: 只读句柄关闭失败由系统回收
+            guard try handle.read(upToCount: header.count) == header else {
+                throw MedicalCatalogUpdateError.catalogIntegrityFailed
+            }
+        }
+        var configuration = Configuration()
+        configuration.readonly = true
+        let queue = try DatabaseQueue(path: path.path, configuration: configuration)
+        let passed = try queue.read { db -> Bool in
+            guard try String.fetchOne(db, sql: "PRAGMA integrity_check") == "ok",
+                  try Row.fetchOne(db, sql: "PRAGMA foreign_key_check") == nil,
+                  try Int.fetchOne(db, sql: "PRAGMA user_version") == schemaVersion else { return false }
+            let meta = try metadata(db)
+            guard meta.schemaVersion == schemaVersion && meta.dataVersion == dataVersion else { return false }
+            return try Row.fetchOne(db, sql: """
+                SELECT id, region, source_id, name_zh, usage_ref_json FROM drug ORDER BY id LIMIT 1
+                """) != nil
+        }
+        guard passed else { throw MedicalCatalogUpdateError.catalogIntegrityFailed }
+    }
+
+    public static func installedVersion(path: URL) throws -> MedicalCatalogInstalledVersion {
+        var configuration = Configuration()
+        configuration.readonly = true
+        return try DatabaseQueue(path: path.path, configuration: configuration).read(metadata)
+    }
+
+    private static func metadata(_ db: Database) throws -> MedicalCatalogInstalledVersion {
+        let rows = try Row.fetchAll(db, sql: "SELECT key, value FROM catalog_meta WHERE key IN ('schema_version', 'data_version')")
+        var values: [String: String] = [:]
+        for row in rows {
+            let key: String = row["key"]
+            let value: String = row["value"]
+            values[key] = value
+        }
+        guard let schema = values["schema_version"].flatMap(Int.init), let data = values["data_version"] else {
+            throw MedicalCatalogUpdateError.catalogIntegrityFailed
+        }
+        return MedicalCatalogInstalledVersion(schemaVersion: schema, dataVersion: data)
     }
 
     public init(path: URL) throws {

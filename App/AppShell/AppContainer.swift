@@ -80,6 +80,8 @@ struct AppContainer {
     /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
     let medicalCatalog: MedicalCatalogStore?
     /// 药品目录更新器；Release 元数据/identity 由上层发布配置提供。
+    /// 反回退 floor（TrustStore）由 updater 内部持有并在 update() 入口消费——
+    /// 不再在容器上开第二条引用（扫尾修复：双引用在降级路径上可分歧）。
     let medicalCatalogUpdater: MedicalCatalogUpdateService?
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
     // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
@@ -115,8 +117,32 @@ struct AppContainer {
         }
         let store = try GRDBStore.pool(at: databasePath)
         let catalogPath = URL(fileURLWithPath: defaultMedicalCatalogPath())
-        let catalog = try? MedicalCatalogStore(path: catalogPath) // try?-ok: 目录文件缺失/损坏=目录功能降级（无参考/联想），应用其余功能不受影响
-        let updater = MedicalCatalogUpdateService(destination: catalogPath)
+        let catalogSupport = catalogPath.deletingLastPathComponent()
+        // 崩溃可恢复的激活 journal：必须在 MedicalCatalogStore 打开前跑一遍，把上次更新
+        // 窗口内任一步的崩溃收敛到"旧库可读"或"新库已验证生效"两态之一（Task 6）。
+        let catalogJournal = MedicalCatalogActivationJournal.production(supportDirectory: catalogSupport)
+        // tech-spec §5.53 ④：反回退 floor 与 journal 同要求——Store 打开前恢复（构造即读盘，
+        // 2026-09-26 审查接线：此前 TrustStore 生产零构造，防回退判据悬空）。
+        let catalogTrust = MedicalCatalogTrustStore.production(supportDirectory: catalogSupport)
+        var catalog: MedicalCatalogStore?
+        var updater: MedicalCatalogUpdateService?
+        do {
+            // 代价注记（2026-09-26 审查）：无 journal 时只多一次 stat（可忽略）；journal
+            // 存在（上次激活窗口内崩溃）时对 active 库做整文件 SHA-256 + 可能 schema 复核，
+            // 在启动主线程上多花若干秒——恢复必须前置于 Store 打开（§5.53 ④），此代价
+            // 是崩溃安全的定价，仅在上次更新被中断后一次性发生。
+            try catalogJournal.recoverBeforeOpen(catalogURL: catalogPath)
+            catalog = try? MedicalCatalogStore(path: catalogPath) // try?-ok: 目录文件缺失/损坏=目录功能降级（无参考/联想），应用其余功能不受影响
+            // 审查修复（2026-09-26）：updater 必须拿到同一 journal 实例——此前便捷 init
+            // 默认 journal=nil，begin/complete 全为 no-op，启动恢复永远读到 .clean。
+            updater = MedicalCatalogUpdateService(destination: catalogPath, journal: catalogJournal, trust: catalogTrust)
+        } catch {
+            // 恢复失败（journal 损坏/路径逃逸/不可收敛 irrecoverable）：fail-closed 不打开
+            // 目录库——绝不把未收敛的 active 当可信参考数据服务（B 级参考数据红线），
+            // 目录功能降级、患者主库与其余功能不受影响。恢复语义见 journal 契约：
+            // irrecoverable 从不静默吞掉（本处吞的是「目录功能」，不是状态）。
+            logger.error("医疗目录恢复失败，目录功能降级: \(String(describing: error))")
+        }
         return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
                         medicalCatalogUpdater: updater)
     }

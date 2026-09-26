@@ -1,5 +1,5 @@
-// Swift file split out of L10n.swift — 由 split-l10n.py 生成。
-// 文案唯一出口（tech-spec §3）：符号名不变，仅换文件；键表按前缀分域。
+// 文案唯一出口（tech-spec §3）· 键名登记表（业主 2026-09-26 重命名：L10n+Registry.swift → L10n+RegisteredKeys.swift（本日）→ RegisteredKeys.swift（同日业主定案：
+// 移除 L10n 前缀、纯内容命名）；键表本身零变更）。
 import Foundation
 import Domain
 
@@ -393,7 +393,8 @@ extension L10n {
         "inventory.reportBlocked", "inventory.reportFact", "inventory.reportTitle",
         "inventory.monthlyReportFmt",
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
-        "member.addedHint", "member.addFailed", "member.birthDatePlaceholder", "member.current", "member.namePlaceholder",
+        "member.addedHint", "member.addFailed", "member.birthDatePlaceholder", "member.birthDateLabel",
+        "member.birthDateInvalidHint", "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
         // 业主 2026-09-17 定：注册必要字段（特征性数据 + 紧急联系人）+ 健康预填
         "onboard.notSelected", "onboard.gender", "onboard.gender.male", "onboard.gender.female",

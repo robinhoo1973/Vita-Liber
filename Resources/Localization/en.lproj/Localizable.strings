@@ -367,7 +367,9 @@
 "member.deleteFailed" = "Could not delete the member — please try again.";
 "member.updateFailedHint" = "Your changes were not saved.";
 "member.relation" = "Relationship";
-"member.birthDatePlaceholder" = "Birth date (e.g. 1962-03)";
+"member.birthDateLabel" = "Birth date";
+"member.birthDateInvalidHint" = "Invalid birth date format; please re-select it under More info below.";
+"member.birthDatePlaceholder" = "Birth date (e.g. 1990-05-12)";
 "member.save" = "Save";
 "member.quotaHint" = "The free tier supports up to 4 members; Pro unlocks more.";
 "member.addedHint" = "Added — you can complete their health history later.";

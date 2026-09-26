@@ -9,15 +9,6 @@ extension L10n {
          t("dispense.header.plan"), t("dispense.header.confirmed"), t("dispense.header.expire")]
     }
 
-    static var docTypeLabels: [String] {
-        [t("docTypeLabel.outpatient"), t("docTypeLabel.inpatient"), t("docTypeLabel.labReport"),
-         t("docTypeLabel.imageReport"), t("docTypeLabel.prescription"), t("docTypeLabel.payment"),
-         t("docTypeLabel.dischargeSummary"), t("docTypeLabel.diagnosisProof"),
-         t("docTypeLabel.vaccineRecord"), t("docTypeLabel.checkupReport"),
-         t("docTypeLabel.pathologyReport"), t("docTypeLabel.surgeryRecord"),
-         t("docTypeLabel.allergyRecord"), t("docTypeLabel.other"), t("docTypeLabel.custom")]
-    }
-
     static var security_unlockTitle: String { t("security.unlockTitle") }
 
     static var security_unlockSubtitle: String { t("security.unlockSubtitle") }
@@ -29,28 +20,6 @@ extension L10n {
     static var security_unlockFailed: String { t("security.unlockFailed") }
 
     static var sensitive_unlockReason: String { t("sensitive.unlockReason") }
-
-    static var care_title: String { t("care.title") }
-
-    static var care_footer: String { t("care.footer") }
-
-    static var care_parameters_section: String { t("care.parameters.section") }
-
-    static var care_parameters_touchTarget: String { t("care.parameters.touchTarget") }
-
-    static var care_parameters_speechRate: String { t("care.parameters.speechRate") }
-
-    static var care_parameters_readback: String { t("care.parameters.readback") }
-
-    static var care_parameters_voiceInput: String { t("care.parameters.voiceInput") }
-
-    static var care_parameters_sos: String { t("care.parameters.sos") }
-
-    static var care_parameters_valueSlow: String { t("care.parameters.valueSlow") }
-
-    static var care_parameters_valueAskEachTime: String { t("care.parameters.valueAskEachTime") }
-
-    static var care_parameters_valueDefaultOn: String { t("care.parameters.valueDefaultOn") }
 
     static var currencyCNY: String { t("currency.CNY") }
 
@@ -168,47 +137,9 @@ extension L10n {
 
     static var disclosureAcknowledge: String { t("disclosure.acknowledge") }
 
-    static var ncTitle: String { t("nc.title") }
-
-    static var ncSectionPending: String { t("nc.section.pending") }
-
-    static var ncSectionAppointment: String { t("nc.section.appointment") }
-
-    static var ncSectionExpiry: String { t("nc.section.expiry") }
-
-    static var ncSectionAlert: String { t("nc.section.alert") }
-
-    static var ncSectionOcr: String { t("nc.section.ocr") }
-
-    static var ncNextActionDose: String { t("nc.nextAction.dose") }
-
-    static var ncConfirmDose: String { t("nc.confirmDose") }
-
-    static var ncEmpty: String { t("nc.empty") }
-
-    static var ncEmptyHint: String { t("nc.emptyHint") }
-
     static var languageTitle: String { t("language.title") }
 
     static var languageFooter: String { t("language.footer") }
-
-    static var voiceLangTitle: String { t("voiceLang.title") }
-
-    static var voiceLangInputSection: String { t("voiceLang.inputSection") }
-
-    static var voiceLangInputHint: String { t("voiceLang.inputHint") }
-
-    static var voiceLangOutputSection: String { t("voiceLang.outputSection") }
-
-    static var voiceLangOutputHint: String { t("voiceLang.outputHint") }
-
-    static var voiceLangBestEffort: String { t("voiceLang.bestEffort") }
-
-    static var voiceLangFallback: String { t("voiceLang.fallback") }
-
-    static var voiceLangMix: String { t("voiceLang.mix") }
-
-    static var voiceLangMixHint: String { t("voiceLang.mixHint") }
 
     static var retry: String { t("common.retry") }
 
@@ -227,28 +158,6 @@ extension L10n {
     static var knowledgeCaution: String { t("knowledge.caution") }
 
     static var knowledgeCautionText: String { t("knowledge.cautionText") }
-
-    static var problemTitle: String { t("problem.title") }
-
-    static var problemEmpty: String { t("problem.empty") }
-
-    static var problemEmptyHint: String { t("problem.emptyHint") }
-
-    static var problemCreateTitle: String { t("problem.createTitle") }
-
-    static var problemSaveFailedHint: String { t("problem.saveFailedHint") }
-
-    static var problemNamePlaceholder: String { t("problem.namePlaceholder") }
-
-    static var problemMerge: String { t("problem.merge") }
-
-    static var problemMergeTitle: String { t("problem.mergeTitle") }
-
-    static var problemMergeHint: String { t("problem.mergeHint") }
-
-    static var problemArchive: String { t("problem.archive") }
-
-    static var problemUnarchive: String { t("problem.unarchive") }
 
     static var prepTitle: String { t("prep.title") }
 
@@ -303,12 +212,6 @@ extension L10n {
 
     static var pendingCardRawText: String { t("pendingCard.rawText") }
 
-    static var docTypeLabelVaccineRecord: String { t("docTypeLabel.vaccineRecord") }
-
-    static var docTypeLabelDiagnosisProof: String { t("docTypeLabel.diagnosisProof") }
-
-    static var docTypeLabelOther: String { t("docTypeLabel.other") }
-
     static var sharedFieldsTitle: String { t("sharedFields.title") }
 
     static var sharedFieldsHint: String { t("sharedFields.hint") }
@@ -326,23 +229,6 @@ extension L10n {
     }
 
     // 已确认卡字段编辑（业主 2026-09-20 第 4 项：从健康档案进入编辑）
-    static var cardEditTitle: String { t("cardEdit.title") }
-
-    static var cardEditFieldsSection: String { t("cardEdit.fieldsSection") }
-
-    static var cardEditHint: String { t("cardEdit.hint") }
-
-    static var cardEditSave: String { t("cardEdit.save") }
-
-    static var cardEditSaved: String { t("cardEdit.saved") }
-
-    static var cardEditSavedHint: String { t("cardEdit.savedHint") }
-
-    static var cardEditFailed: String { t("cardEdit.failed") }
-
-    static func cardEditInvalidDate(_ label: String) -> String {
-        t("cardEdit.invalidDate").replacingOccurrences(of: "%@", with: label)
-    }
 
     /// round5 Q4：日期字段的原文不可解析时，选择器上方的提示（含原文，让用户对照）。
     static func fieldDateUnparsed(_ raw: String) -> String {
@@ -350,15 +236,6 @@ extension L10n {
     }
 
     /// round5 Q1（F1.4）：已确认卡编辑面「添加字段」菜单标题。
-    static var cardEditAddField: String { t("cardEdit.addField") }
-
-    static func cardEditInvalidNumber(_ label: String) -> String {
-        t("cardEdit.invalidNumber").replacingOccurrences(of: "%@", with: label)
-    }
-
-    static func cardEditLineTitle(_ name: String) -> String {
-        t("cardEdit.lineTitle").replacingOccurrences(of: "%@", with: name)
-    }
 
     static var pendingCardResume: String { t("pendingCard.resume") }
 
@@ -374,22 +251,6 @@ extension L10n {
         return value == l10nKey ? key : value
     }
 
-    static var ocConfirmCardAll: String { t("oc.confirm.cardAll") }
-
-    static var ocFieldDept: String { t("oc.field.dept") }
-
-    static var ocFieldReportDate: String { t("oc.field.reportDate") }
-
-    static var ocFieldLabItem: String { t("oc.field.labItem") }
-
-    static var ocFieldReferenceRange: String { t("oc.field.referenceRange") }
-
-    static var ocFieldChiefComplaint: String { t("oc.field.chiefComplaint") }
-
-    static var ocFieldDiagnosis: String { t("oc.field.diagnosis") }
-
-    static var ocFieldTreatment: String { t("oc.field.treatment") }
-
     static var healthProblemOfferTitle: String { t("healthProblem.offer.title") }
 
     static var healthProblemOfferBody: String { t("healthProblem.offer.body") }
@@ -397,20 +258,6 @@ extension L10n {
     static var healthProblemCreate: String { t("healthProblem.create") }
 
     static func voiceIntentName(_ key: String) -> String { t("voiceIntent.\(key)") }
-
-    static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
-
-    static var voicePanelEditHint: String { t("voicePanel.editHint") }
-
-    static var voicePanelConfirm: String { t("voicePanel.confirm") }
-
-    static var voicePanelClearTitle: String { t("voicePanel.clearTitle") }
-
-    static var voicePanelClear: String { t("voicePanel.clear") }
-
-    static var voicePanelClearLast: String { t("voicePanel.clearLast") }
-
-    static var voicePanelClearAll: String { t("voicePanel.clearAll") }
 
     static var voiceConfirmJudgedTarget: String { t("voiceConfirm.judgedTarget") }
 
@@ -468,28 +315,6 @@ extension L10n {
 
     static var hospitalizationEpisode: String { t("hospitalization.episode") }
 
-    static var profileSuggestionTitle: String { t("profileSuggestion.title") }
-
-    static var profileSuggestionHint: String { t("profileSuggestion.hint") }
-
-    static var profileSuggestionAccept: String { t("profileSuggestion.accept") }
-
-    static var profileSuggestionSkip: String { t("profileSuggestion.skip") }
-
-    static var profileSuggestionSkipAll: String { t("profileSuggestion.skipAll") }
-
-    static var profileSuggestionDone: String { t("profileSuggestion.done") }
-
-    static var profileSuggestionApplied: String { t("profileSuggestion.applied") }
-
-    static var profileSuggestionExisting: String { t("profileSuggestion.existing") }
-
-    static var profileSuggestionSkipped: String { t("profileSuggestion.skipped") }
-
-    static var profileSuggestionFailed: String { t("profileSuggestion.failed") }
-
-    static var profileSuggestionSeverityUnset: String { t("profileSuggestion.severityUnset") }
-
     static func profileSuggestionKindName(_ raw: String) -> String {
         let key = "profileSuggestion.kind.\(raw)"
         let value = t(key)
@@ -500,8 +325,6 @@ extension L10n {
 
     static var timezoneChangedBody: String { t("timezone.changed.body") }
 
-    static var ncArchive: String { t("nc.archive") }
-
     static var showcaseTitle: String { t("showcase.title") }
 
     static var showcaseExit: String { t("showcase.exit") }
@@ -509,34 +332,6 @@ extension L10n {
     static var showcaseEmpty: String { t("showcase.empty") }
 
     static var showcaseUnlockReason: String { t("showcase.unlockReason") }
-
-    static var remchTitle: String { t("remch.title") }
-
-    static var remchSectionHint: String { t("remch.sectionHint") }
-
-    static var remchSectionFooter: String { t("remch.sectionFooter") }
-
-    static var remchMeds: String { t("remch.meds") }
-
-    static var remchApts: String { t("remch.apts") }
-
-    static var remchExam: String { t("remch.exam") }
-
-    static var remchExpiry: String { t("remch.expiry") }
-
-    static var remchAlert: String { t("remch.alert") }
-
-    static var remchBackup: String { t("remch.backup") }
-
-    static var remchLocal: String { t("remch.local") }
-
-    static var remchRing: String { t("remch.ring") }
-
-    static var remchInApp: String { t("remch.inApp") }
-
-    static var remchBannerToggle: String { t("remch.bannerToggle") }
-
-    static var remchBannerFooter: String { t("remch.bannerFooter") }
 
     static var bannerDoseDue: String { t("banner.doseDue") }
 
@@ -580,30 +375,6 @@ extension L10n {
 
     static var gradeBadgePending: String { t("gradebadge.pending") }
 
-    static var reportIssueKind: String { t("report.issueKind") }
-
-    static var reportIssueField: String { t("report.issueField") }
-
-    static var reportIssueFieldAll: String { t("report.issueFieldAll") }
-
-    static var reportIssueNote: String { t("report.issueNote") }
-
-    static var reportIssueNoteHint: String { t("report.issueNoteHint") }
-
-    static var reportIssueMinimal: String { t("report.issueMinimal") }
-
-    static var reportIssueSubmit: String { t("report.issueSubmit") }
-
-    static var reportIssueSubmitted: String { t("report.issueSubmitted") }
-
-    static var reportIssueFieldWrong: String { t("report.issueFieldWrong") }
-
-    static var reportIssueMissing: String { t("report.issueMissing") }
-
-    static var reportIssueLayout: String { t("report.issueLayout") }
-
-    static var reportIssueEngine: String { t("report.issueEngine") }
-
     static var prepExport: String { t("prep.export") }
 
     static var prepTrendSnapshot: String { t("prep.trendSnapshot") }
@@ -630,81 +401,9 @@ extension L10n {
 
     static var aiFeedbackMore: String { t("aiFeedback.more") }
 
-    static var authOcrLabel: String { t("auth.ocr") }
-
-    static var authAILabel: String { t("auth.ai") }
-
-    static var authFamilyLabel: String { t("auth.family") }
-
-    static var authSharingLabel: String { t("auth.sharing") }
-
-    static var authCloudBackupLabel: String { t("auth.cloudBackup") }
-
-    static var authAnonymizedLabel: String { t("auth.anonymized") }
-
-    static var authHealthLabel: String { t("auth.health") }
-
-    static var authVoiceDictationLabel: String { t("auth.voiceDictation") }
-
-    static var lifecycleSingle: String { t("lifecycle.single") }
-
-    static var lifecycleSingleHint: String { t("lifecycle.singleHint") }
-
-    static var lifecycleMember: String { t("lifecycle.member") }
-
-    static var lifecycleMemberHint: String { t("lifecycle.memberHint") }
-
-    static var lifecycleClearAll: String { t("lifecycle.clearAll") }
-
-    static var lifecycleClearHint: String { t("lifecycle.clearHint") }
-
-    static var lifecycleClearButton: String { t("lifecycle.clearButton") }
-
-    static var lifecycleClearImpact: String { t("lifecycle.clearImpact") }
-
-    static var lifecycleResetSettings: String { t("lifecycle.resetSettings") }
-
-    static var lifecycleResetSettingsHint: String { t("lifecycle.resetSettingsHint") }
-
-    static var lifecycleResetSettingsImpact: String { t("lifecycle.resetSettingsImpact") }
-
-    static var lifecycleLogout: String { t("lifecycle.logout") }
-
-    static var lifecycleLogoutHint: String { t("lifecycle.logoutHint") }
-
-    static var feedbackTitle: String { t("feedback.title") }
-
-    static var feedbackCategory: String { t("feedback.category") }
-
-    static func feedbackCategoryName(_ i: Int) -> String { t("feedback.category.\(i)") }
-
-    static var feedbackDetail: String { t("feedback.detail") }
-
-    static var feedbackDetailPlaceholder: String { t("feedback.detailPlaceholder") }
-
-    static var feedbackAttachments: String { t("feedback.attachments") }
-
-    static var feedbackAttachScreenshot: String { t("feedback.attachScreenshot") }
-
-    static var feedbackAttachOriginal: String { t("feedback.attachOriginal") }
-
-    static var feedbackAttachMedia: String { t("feedback.attachMedia") }
-
-    static var feedbackAttachmentHint: String { t("feedback.attachmentHint") }
-
-    static var feedbackSubmit: String { t("feedback.submit") }
-
-    static var feedbackSubmitted: String { t("feedback.submitted") }
-
     static var fr24_markDelivered: String { t("fr24.markDelivered") }
 
     static var fr24_offlineNote: String { t("fr24.offlineNote") }
-
-    static var voicePanelTitle: String { t("voicePanel.title") }
-
-    static var voicePanelHint: String { t("voicePanel.hint") }
-
-    static var voicePanelStart: String { t("voicePanel.start") }
 
     static var routeComingSoon: String { t("route.comingSoon") }
 
@@ -720,27 +419,7 @@ extension L10n {
 
     static var startupLoadFailed: String { t("startup.loadFailed") }
 
-    static var medicalIDTitle: String { t("medicalID.title") }
-
-    static var medicalIDStep1: String { t("medicalID.step1") }
-
-    static var medicalIDStep1Hint: String { t("medicalID.step1Hint") }
-
-    static var medicalIDStep2: String { t("medicalID.step2") }
-
-    static var medicalIDStep2Hint: String { t("medicalID.step2Hint") }
-
-    static var medicalIDStep3: String { t("medicalID.step3") }
-
-    static var medicalIDStep3Hint: String { t("medicalID.step3Hint") }
-
-    static var medicalIDOpenHealth: String { t("medicalID.openHealth") }
-
-    static var medicalIDNote: String { t("medicalID.note") }
-
     static var appointmentAdd: String { t("appointment.add") }
-
-    static var problemAdd: String { t("problem.add") }
 
     static var questionAdd: String { t("question.add") }
 
@@ -801,43 +480,4 @@ extension L10n {
         return nil
     }
 
-    static var parentDraftTitle: String { t("parentDraft.title") }
-
-    static var parentDraftHint: String { t("parentDraft.hint") }
-
-    static var parentDraftNewEncounter: String { t("parentDraft.newEncounter") }
-
-    static var parentDraftNewHealthExam: String { t("parentDraft.newHealthExam") }
-
-    static var parentDraftUseExisting: String { t("parentDraft.useExisting") }
-
-    static var parentDraftDateRequired: String { t("parentDraft.dateRequired") }
-
-    static var parentDraftUnconfirmed: String { t("parentDraft.unconfirmed") }
-
-    static var healthExamTitle: String { t("healthExam.title") }
-
-    static var healthExamHeader: String { t("healthExam.header") }
-
-    static var healthExamGeneral: String { t("healthExam.general") }
-
-    static var healthExamReports: String { t("healthExam.reports") }
-
-    static var healthExamConclusions: String { t("healthExam.conclusions") }
-
-    static var healthExamGuidance: String { t("healthExam.guidance") }
-
-    static var healthExamOverall: String { t("healthExam.overall") }
-
-    static var healthExamNotFound: String { t("healthExam.notFound") }
-
-    static var healthExamNoReports: String { t("healthExam.noReports") }
-
-    static var healthExamNoConclusions: String { t("healthExam.noConclusions") }
-
-    static var healthExamSource: String { t("healthExam.source") }
-
-    static var healthExamSamples: String { t("healthExam.samples") }
-
-    static var healthExamDisclaimer: String { t("healthExam.disclaimer") }
 }

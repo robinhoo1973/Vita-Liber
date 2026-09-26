@@ -46,11 +46,11 @@ final class MedicalCatalogState {
         return try? await store.detail(for: drug) // try?-ok: 目录详情缺失=只展示主记录
     }
 
-    func update(_ release: MedicalCatalogRelease,
+    func update(_ candidate: VerifiedMedicalCatalogCandidate,
                 opener: any MedicalCatalogPackageOpening) async -> Bool {
         guard let updater, let path else { return false }
         do {
-            try await updater.update(release, opener: opener)
+            try await updater.update(candidate: candidate, opener: opener)
             store = try MedicalCatalogStore(path: path)
             matchByLineID.removeAll()
             return true

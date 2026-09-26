@@ -52,6 +52,15 @@ strip_patterns = [
 lit_re = re.compile(r'"[^"]*"')
 
 violations = []
+def _is_l10n_source(lines):
+    """豁免面 = 「文案唯一出口」职责的内容标记（enum/extension L10n），而非文件名——
+    2026-09-26 业主重命名移除 L10n 前缀后，按名豁免会漏放全部文案文件、按目录全放
+    又会放过目录内未来可能出现的非文案文件；头 50 行内出现类型声明即判定。"""
+    for line in lines[:50]:
+        if "enum L10n" in line or "extension L10n" in line:
+            return True
+    return False
+
 scanned = 0
 for dirpath, dirnames, filenames in os.walk(scan_root):
     dirnames.sort()
@@ -59,22 +68,20 @@ for dirpath, dirnames, filenames in os.walk(scan_root):
         if not name.endswith(".swift"):
             continue
         path = os.path.join(dirpath, name)
-        # 豁免面 = 「文案唯一出口」这一**职责**，而不是某一个文件名。原判据 `name == "L10n.swift"`
-        # 在 L10n 按域拆分后立刻失效：实测把文件复制成 L10n+Probe.swift 即报 6 处中文键名违规
-        # （键值对里的中文键、supportedDisplayLanguages 的「简体中文」等）。改为
-        # 「App/Localization/ 下的 L10n 前缀文件」——覆盖拆分后命名，又不整目录放行
-        # （目录内将来若有非 L10n 文件仍受检）。当前仓库仅有 L10n.swift，故此改在本日
-        # 行为等价，仅在拆分后生效。
-        if name.startswith("L10n") and os.path.basename(dirpath) == "Localization":
-            continue
-        rel = os.path.relpath(path)
-        if not rel.startswith("."):
-            rel = "./" + rel
         try:
             with open(path, encoding="utf-8", errors="replace") as f:
                 lines = f.readlines()
         except OSError:
             continue
+        # 豁免面 = 「文案唯一出口」这一**职责**，而不是某一个文件名。2026-09-26 业主
+        # 重命名移除 L10n 前缀后，按名豁免会漏放全部文案文件（中文注释/键值全被判违规）、
+        # 按目录全放又会放过目录内未来可能出现的非文案文件——故按内容标记
+        # （头 50 行内 enum/extension L10n 声明）判定。
+        if os.path.basename(dirpath) == "Localization" and _is_l10n_source(lines):
+            continue
+        rel = os.path.relpath(path)
+        if not rel.startswith("."):
+            rel = "./" + rel
         for lineno, raw in enumerate(lines, 1):
             s = raw.rstrip("\n")
             for pat in strip_patterns:

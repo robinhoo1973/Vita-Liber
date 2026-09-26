@@ -185,35 +185,23 @@ struct HomeView: View {
         }
     }
 
-    /// 底部条：撤销 / 重试双态；`.task(id:)` 以代次计时，取消（换条/消失）即返回不清理，
-    /// 到点后仍须核对代次——旧计时器不得清掉新条（round2 U3）。
+    /// 底部条：撤销 / 重试双态（渲染原子已分解至 HomeActionToastBanner，
+    /// 2026-09-26 原子结构轮第三批）。到点回调里仍须核对代次——旧计时器不得清掉
+    /// 新条（round2 U3）。
     @ViewBuilder private var actionToastBanner: some View {
         if let toast = actionToast {
-            HStack(spacing: 12) {
-                Text(toast.title).font(.subheadline).lineLimit(1)
-                Spacer(minLength: 8)
-                switch toast.kind {
-                case .undo(let key):
-                    Button(L10n.homeSwipeUndo) { undo(toast, key: key) }
-                        .font(.subheadline.bold())
-                        .frame(minHeight: 44)   // 设计系统触控目标 ≥44pt
-                case .failed(let retry):
-                    Button(L10n.retry) { actionToast = nil; retry() }
-                        .font(.subheadline.bold())
-                        .frame(minHeight: 44)
+            HomeActionToastBanner(
+                toast: toast,
+                onUndo: { key in undo(toast, key: key) },
+                onRetry: {
+                    actionToast = nil
+                    if case .failed(let retry) = toast.kind { retry() }
+                },
+                onExpire: {
+                    guard actionToast?.id == toast.id else { return }
+                    withAnimation(rowAnimation) { actionToast = nil }
                 }
-            }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(.thinMaterial, in: Capsule())
-            .padding(.horizontal, 16).padding(.bottom, 12)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .task(id: toast.id) {
-                do { try await Task.sleep(for: .seconds(toast.autoDismissSeconds)) } catch { return }
-                guard actionToast?.id == toast.id else { return }
-                withAnimation(rowAnimation) { actionToast = nil }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("SP-04.home.undo")
+            )
         }
     }
 
@@ -389,7 +377,7 @@ struct HomeView: View {
                 HStack(spacing: 8) {
                     filterChip(nil, L10n.homeFilterAll, icon: "square.grid.2x2")
                     ForEach(AggregationKind.allCases, id: \.self) { kind in
-                        filterChip(kind, kindLabel(kind), icon: CardKindIcon.spec(aggregation: kind).symbol)
+                        filterChip(kind, kind.homeFilterLabel, icon: CardKindIcon.spec(aggregation: kind).symbol)
                     }
                 }
             }
@@ -398,42 +386,16 @@ struct HomeView: View {
     }
 
     private func filterChip(_ kind: AggregationKind?, _ label: String, icon: String) -> some View {
-        let selected = filterKind == kind
-        return Button {
+        // 渲染原子已分解至 HomeFilterChip（2026-09-26 原子结构轮第二批）。
+        HomeFilterChip(kind: kind, label: label, icon: icon, selected: filterKind == kind) {
             filterKind = kind
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.caption)
-                Text(label).font(.caption)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .frame(minHeight: 44)   // ui-ux §5.2 触点 ≥44pt（原 ≈27pt）；与 TimelineViews FilterChip 同口径
-            .background(Capsule().fill(selected
-                                       ? Color("brand-primary", bundle: .main)
-                                       : Color(.systemGray6)))
-            .foregroundStyle(selected ? Color.white : Color.primary)
         }
-        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-        .accessibilityIdentifier("SP-04.home.chip.\(kind?.rawValue ?? "all")")
     }
 
     /// FR2.1a 时间窗 Menu（FR14.7 完整档位在设置页期二；首页三档常用预设）。
     private var windowMenu: some View {
-        Menu {
-            Button(L10n.homeWindowDefault) { windowRaw = "7,14" }
-            Button(L10n.homeWindowShort) { windowRaw = "1,7" }
-            Button(L10n.homeWindowLong) { windowRaw = "30,30" }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar")
-                Text(windowLabel).font(.caption)
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .frame(minHeight: 44)   // ui-ux §5.2 触点 ≥44pt（原 ≈27pt）；同族缺陷（筛选 chips 同修）
-            .background(Capsule().fill(Color(.systemGray6)))
-            .foregroundStyle(Color.primary)
-        }
-        .accessibilityIdentifier("SP-04.home.windowMenu")
+        // 渲染原子已分解至 HomeWindowMenu（2026-09-26 原子结构轮第二批）。
+        HomeWindowMenu(label: windowLabel) { windowRaw = $0 }
     }
 
     private var windowLabel: String {
@@ -506,251 +468,31 @@ struct HomeView: View {
 
     /// FR2.1b/FR17.11：实时资料状态，不伪装成「刚发生」的通知时间。
     private func profileProgressCard(_ progress: (done: Int, total: Int)) -> some View {
-        Button {
+        // 渲染原子已分解至 HomeProfileProgressCard（2026-09-26 原子结构轮第二批）。
+        HomeProfileProgressCard(progress: progress) {
             router.navigate(to: .voiceGuideProfile)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "person.text.rectangle")
-                    .font(.title3)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(L10n.homeProfileProgressTitle)
-                            .font(.subheadline.bold()).foregroundStyle(.primary)
-                        Spacer(minLength: 8)
-                        Text(L10n.homeProfileContinue)
-                            .font(.caption).foregroundStyle(Color("brand-primary", bundle: .main))
-                    }
-                    Text(L10n.homeProfileProgressFmt(progress.done, progress.total))
-                        .font(.caption).foregroundStyle(.secondary)
-                    ProgressView(value: Double(progress.done), total: Double(progress.total))
-                        .tint(Color("brand-primary", bundle: .main))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 8)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-        .accessibilityLabel(L10n.homeProfileProgressTitle)
-        .accessibilityValue(L10n.homeProfileProgressFmt(progress.done, progress.total))
-        .accessibilityHint(L10n.homeProfileContinue)
-        .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 
-    /// 后台任务（模型下载）卡片（2026-09-16 业主）：形态对齐档案完善进度卡——
-    /// 下载显示分数进度（条 + 百分比 + 字节数字），校验/解压/安装/清理显示不确定进度 + 阶段文案；
-    /// 主体点击进设置下载面（SP-25/SP-62），trailing [取消] 直达安装中心。
-    @ViewBuilder
+    /// 后台任务（模型下载）卡片（2026-09-16 业主）——渲染原子已分解至
+    /// HomeModelDownloadCard（独立观察域纪律随迁，2026-09-26 原子结构轮第三批）。
     private func modelDownloadCard(_ install: ASRInstallCenter.Install) -> some View {
-        // **独立观察域**（2026-09-16 业主实测「下载没有实时进度」的根因修复之二）：
-        // 卡片读 `install.progress`/`phase`——下载中每 200ms 一次（ProgressCounter 节流
-        // 上限 5 Hz）。这些读取若落在外层跟踪域内，每次进度写入都会让**整个首页 body**
-        // 重新求值，其中含 `aggregatedItems` 全量聚合（5 遍扫描 + 逐项日历运算），
-        // 主 actor 饱和后进度条自身的渲染反而被挤掉——现象就是「卡住不动」。
-        // 故**全部**读取下沉到内层 `WithPerceptionTracking`：进度只让本卡片重渲染。
-        // 配套：`ASRInstallCenter.Install` 已改为独立可观察对象（进度不再经
-        // `active[index]` 变址写入，`active` 只在安装开始/结束时变化）。
-        WithPerceptionTracking {
-            downloadCardContent(install)
+        HomeModelDownloadCard(install: install) {
+            router.navigate(to: .voiceLanguageSettings)
+        } onCancel: {
+            installCenter.cancel(install.choice)
         }
     }
 
-    /// 下载卡片主体。对 `install.progress`/`phase` 的读取**只准**在此求值，且只准由
-    /// 上面的 `WithPerceptionTracking` 调用——否则读取会落回外层跟踪域，高频进度重新
-    /// 牵连首页全量聚合。
-    ///
-    /// `@ViewBuilder` **不可省**：本函数在视图表达式前有 `let` 语句，没有它则
-    /// `some View` 推不出底层类型（CI 35068918836：`function declares an opaque
-    /// return type, but has no return statements`）。拆分时从原 `modelDownloadCard`
-    /// 掉了这个标注——App/ 在 Linux 零类型检查、symcheck 也只看标识符，故只能由
-    /// macOS L1 暴露。
-    @ViewBuilder
-    private func downloadCardContent(_ install: ASRInstallCenter.Install) -> some View {
-        // 校验/解压自 2026-09-16 起也报进度（见 ASRModelDownloadService.install）——
-        // 这两段在 GB 级包上要数十秒，此前只能转不确定 spinner，读起来就是
-        // 「进度条无反应、然后突然完成」。激活/清理两段仍无粒度，保持不确定态。
-        let brief = install.phase
-        // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
-        // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」
-        let showFraction = install.progress != nil
-            && (brief == nil || brief == .downloading || brief == .verifying || brief == .unpacking)
-        let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
-        HStack(spacing: 10) {
-            Button {
-                // 2026-09-16 委员会评审：此前落 `.voiceEngineLab`（SP-62 引擎实验室）
-                // ——该页不承载模型下载面（`ASREngineSettingsSection` 唯一挂在
-                // SP-25 语音语言页），「查看下载」点过去看不到进度条与取消。
-                router.navigate(to: .voiceLanguageSettings)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.title3)
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                        .frame(width: 36)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(L10n.homeModelDownloadTitle)
-                                .font(.subheadline.bold()).foregroundStyle(.primary)
-                            Spacer(minLength: 8)
-                            if showFraction {
-                                Text("\(Int(fraction * 100))%")
-                                    .font(.caption).monospacedDigit()
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                            }
-                        }
-                        Text(L10n.voiceEngineName(install.choice))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if showFraction {
-                            ProgressView(value: fraction)
-                                .tint(Color("brand-primary", bundle: .main))
-                        } else {
-                            ProgressView()
-                        }
-                        // 传输形态（2026-09-16 诊断「下载慢」）：分段 N 路 / 单流退化。
-                        // 单流意味着服务端没给 `Accept-Ranges` 或吞了 Range——那是
-                        // 「慢」的首要嫌疑，此前完全不可见。
-                        let modeLabel = downloadModeText(install.progress?.mode)
-                        Text(modeLabel.isEmpty
-                             ? detailText(install)
-                             : "\(detailText(install)) · \(modeLabel)")
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(L10n.homeModelDownloadTitle)
-            .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
-            .accessibilityHint(L10n.homeModelDownloadView)
-            .accessibilityIdentifier("SP-04.home.modelDownload.\(install.choice.rawValue)")
-
-            Button(L10n.commonCancel) { installCenter.cancel(install.choice) }
-                .font(.caption)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
-        }
-    }
-
-    /// 后台任务失败卡（2026-09-16 评审）：与进度卡同形，红字提示 + [重试] + 关闭。
-    @ViewBuilder
+    /// 后台任务失败卡（2026-09-16 评审）——渲染原子已分解至
+    /// HomeModelDownloadFailedCard（2026-09-26 原子结构轮第三批）。
     private func modelDownloadFailedCard(_ choice: VoiceEngineChoice) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.title3)
-                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                .frame(width: 36)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(L10n.asrModelDownloadFailed)
-                    .font(.subheadline.bold()).foregroundStyle(.primary)
-                Text(L10n.voiceEngineName(choice))
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Button(L10n.commonCancel) { installCenter.dismissFailure() }
-                .font(.caption)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("SP-04.home.modelDownload.failure.dismiss")
-        }
-        .frame(minHeight: 44)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("SP-04.home.modelDownload.failure.\(choice.rawValue)")
-    }
-
-    /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
-    /// 传输形态文案（2026-09-16）。空串 = 尚未确定（HEAD 探测完成前）。
-    private func downloadModeText(_ mode: ASRModelDownloadService.DownloadMode?) -> String {
-        switch mode {
-        case .segmented(let segments): return L10n.asrModelModeSegmented(segments)
-        case .singleStream: return L10n.asrModelModeSingle
-        case nil: return ""
-        }
-    }
-
-    private func detailText(_ install: ASRInstallCenter.Install) -> String {
-        // 2026-09-19：并发槽满排队等待态——首页卡片同源如实呈现，不误报下载中/失败
-        if install.waiting { return L10n.asrModelQueued }
-        switch install.phase {
-        case .verifying: return L10n.asrModelPhaseVerifying
-        case .unpacking: return L10n.asrModelPhaseUnpacking
-        case .activating: return L10n.asrModelPhaseActivating
-        case .pruning: return L10n.asrModelPhasePruning
-        case .downloading, nil:
-            if let progress = install.progress {
-                return L10n.asrModelProgress(
-                    ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
-                    ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file))
-            }
-            return L10n.asrModelDownloading
-        }
+        HomeModelDownloadFailedCard(choice: choice) { installCenter.dismissFailure() }
     }
 
     private func aggregationRow(_ item: AggregatedReminderItem) -> some View {
-        // 类别视觉映射每行只求值一次（原同表达式三次查表）
-        let icon = CardKindIcon.spec(aggregation: item.aggregationKind)
-        return Button {
-            open(item)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: icon.symbol)
-                    .font(.title3)
-                    .foregroundStyle(icon.tint)
-                    .frame(width: 36, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 10)
-                        .fill(icon.tint.opacity(0.12)))
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(L10n.pendingCardAggregationTitle(item.title))
-                            .font(.subheadline).foregroundStyle(.primary)
-                            .lineLimit(1)
-                        if item.id.kind == "alert_event", let status = item.status, status != "L0" {
-                            // FR16.2 证据卡入口：级别徽章（仅 alert_event 的 L1+ 才渲染；
-                            // dose_slot/pending_card 的 status 是处置状态透传，不是级别）
-                            Text(status)
-                                .font(.caption2.bold()).foregroundStyle(.white)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Capsule().fill(Color("semantic-danger", bundle: .main)))
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        Text(item.occurredAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if item.status == "L0" {
-                            // FR16.2 软提示注记：L0 是观察记录，不是警报
-                            Text(L10n.homeL0Note)
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
-                        if item.id.kind == "dose_slot", item.status == "taken" {
-                            // FR2.1⑦：已服时段仍可见（BR-004 不隐藏用药事实），只作注记、无滑动动作
-                            Text(L10n.reminder_taken)
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        if let remaining = item.remainingCount, remaining > 0 {
-                            Text(L10n.homeRemainingFmt(remaining))
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Spacer()
-                if item.isPinned {
-                    Image(systemName: "pin.fill")
-                        .font(.caption)
-                        .foregroundStyle(Color("semantic-danger", bundle: .main))
-                }
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
-            }
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-        .accessibilityIdentifier("SP-04.home.row.\(item.id.sourceId)")
+        // 渲染原子已分解至 HomeAggregationRow（2026-09-26 原子结构轮第二批）。
+        HomeAggregationRow(item: item) { open(item) }
     }
 
     /// FR2.2 点击直达：待办卡开详情 sheet；其余按稳定 routeKey 跳转。
@@ -794,90 +536,37 @@ struct HomeView: View {
     /// FR2.1c 筛选空态：当前窗口/类别无结果 ≠ 全局无数据（不得误报
     /// 「没有提醒」）；筛选激活时给「一键回到全部」。
     private var emptyAggregation: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tray")
-                .font(.largeTitle).foregroundStyle(.tertiary)
-            Text(L10n.homeEmptyFilter)
-                .font(.subheadline).foregroundStyle(.secondary)
-            if filterKind != nil {
-                Button(L10n.homeEmptyReset) { filterKind = nil }
-                    .font(.subheadline)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 32)
-        .accessibilityIdentifier("SP-04.home.emptyAggregation")
+        // 渲染原子已分解至 HomeEmptyAggregation（2026-09-26 原子结构轮第二批）。
+        HomeEmptyAggregation(showsReset: filterKind != nil) { filterKind = nil }
     }
 
     private var newUserGuide: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            GuideTaskCard(icon: "person.crop.circle.badge.plus", title: L10n.homeGuide1, done: !app.members.isEmpty) {
-                router.navigate(to: .memberList)
-            }
-            GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: !docs.documents.isEmpty) {
-                showQuickCapture = true
-            }
-            GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: !reminderStore.todaySlots.isEmpty) {
-                router.navigate(to: .medicationPlanForm(nil))
-            }
-            GuideTaskCard(icon: "heart.text.clipboard", title: L10n.homeGuide4, done: healthGuideVisited) {
+        // 渲染原子已分解至 HomeNewUserGuide（2026-09-26 原子结构轮第二批）。
+        HomeNewUserGuide(
+            memberDone: !app.members.isEmpty,
+            captureDone: !docs.documents.isEmpty,
+            medDone: !reminderStore.todaySlots.isEmpty,
+            healthDone: healthGuideVisited,
+            onNavigateMembers: { router.navigate(to: .memberList) },
+            onQuickCapture: { showQuickCapture = true },
+            onNavigateMedForm: { router.navigate(to: .medicationPlanForm(nil)) },
+            onVisitHealth: {
                 healthGuideVisited = true
                 router.select(.health)   // F12 退役：落点 = 健康 Tab 根（原 .assistantChat 弹栈语义已删除）
             }
-        }
-        .accessibilityIdentifier("SP-04.home.emptyGuide")
+        )
     }
 
     private var notifDeniedBanner: some View {
-        HStack {
-            Image(systemName: "bell.slash.fill").foregroundStyle(.orange)
-            Text(L10n.homeNotifDenied)
-                .font(.footnote)
-            Spacer()
-            Button(L10n.homeNotifOpen) {
-                SystemLinks.openSettings()
-            }
-            .font(.footnote)
-            Button {
-                dismissedDay = todayDayKey
-            } label: {
-                // 审查修复：触控目标 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
-                Image(systemName: "xmark").font(.footnote).foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel(L10n.commonCancel)
-            .accessibilityIdentifier("SP-04.home.notifDenied.dismiss")
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.12)))
-        // List 行内多按钮：borderless 让「去设置」与「关闭」各自命中，行空白区不触发任一
-        .buttonStyle(.borderless)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("SP-04.home.notifDenied")
+        // 渲染原子已分解至 HomeNotifDeniedBanner（2026-09-26 原子结构轮第二批；
+        // 顺带 token-only 修复：硬编码 .orange → semantic-warning）。
+        HomeNotifDeniedBanner { dismissedDay = todayDayKey }
     }
 
     // MARK: - 类别视觉映射（纯呈现）
 
-
-
-
-    /// 筛选 chips 文案（聚合类别 → 既有 L10n 键；图标/色已收敛至
-    /// `CardKindIcon.spec(aggregation:)` 单一出口，2026-09-16 委员会评审）。
-    private func kindLabel(_ kind: AggregationKind) -> String {
-        switch kind {
-        case .medication: return L10n.homeFilterMedication
-        case .appointment: return L10n.homeFilterAppointment
-        case .document: return L10n.homeFilterDocument
-        case .ocr: return L10n.homeFilterOcr
-        case .alert: return L10n.homeFilterAlert
-        case .pendingCard: return L10n.homeFilterPending
-        case .family: return L10n.homeFilterFamily
-        case .sos: return L10n.homeFilterSOS
-        case .system: return L10n.homeFilterSystem
-        }
-    }
+    // 筛选 chips 文案已迁移为 `AggregationKind.homeFilterLabel`（App/Features/Home/HomeSubviews.swift，
+    // 2026-09-26 原子结构轮第二批；单一出口同前）。
 
     // MARK: - FR18.5 关怀模式四大卡覆写
 
@@ -979,292 +668,8 @@ struct HomeView: View {
 
 // MARK: - 组件
 
-private struct GuideTaskCard: View {
-    let icon: String
-    let title: String
-    let done: Bool
-    let action: () -> Void
-
-    var body: some View {
-        WithPerceptionTracking {
-            Button(action: action) {
-                HStack(spacing: 12) {
-                    Image(systemName: done ? "checkmark.circle.fill" : icon)
-                        .font(.title3)
-                        .foregroundStyle(done ? Color.green : Color("brand-primary", bundle: .main))
-                    Text(title).font(.subheadline).foregroundStyle(.primary)
-                    Spacer()
-                    if done {
-                        Image(systemName: "checkmark").foregroundStyle(.green)
-                    }
-                }
-                .padding(14)
-                .glassCard(cornerRadius: 14)   // §3.3 表面阶梯 L2 玻璃（V4.05：常态无阴影）
-            }
-            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一：scale(0.97) 弹簧 ≤350ms
-            .accessibilityIdentifier("SP-04.home.guide.\(title)")
-        }
-    }
-}
-
-/// FR18.5 关怀模式大卡（≥72pt 主高度，FR18.2）
-private struct BigCareCard: View {
-    let icon: String
-    let title: String
-    let tint: Color
-    let action: () -> Void
-
-    var body: some View {
-        WithPerceptionTracking {
-            Button(action: action) {
-                HStack(spacing: 20) {
-                    Image(systemName: icon)
-                        .font(VLFont.homeActionIcon)
-                        .foregroundStyle(tint)
-                        .frame(width: 64, height: 64)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(tint.opacity(0.12)))
-                    Text(title)
-                        .font(.title3.bold())
-                        .foregroundStyle(.primary)
-                    Spacer()
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, minHeight: 72)
-                .glassCard(cornerRadius: 18)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
-            }
-            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-        }
-    }
-}
-
-/// FR2.1① 成员切换抽屉（SP-05 切片）：半屏 BottomSheet，当前成员打勾
-struct MemberPickerSheet: View {
-    @Environment(AppState.self) private var app
-    @Environment(AppRouter.self) private var router
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        WithPerceptionTracking {
-            NavigationStack {
-                List(app.members) { member in
-                    Button {
-                        app.setCurrentPatient(member.id)
-                        dismiss()
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(member.displayName).font(.body)
-                                Text(L10n.memberRelationDisplayName(member.relation))
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if member.id == app.currentPatientId {
-                                Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("SP-05.member.\(member.id.uuidString)")
-                }
-                .navigationTitle(L10n.homeMemberSwitch)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.member_add) {
-                            dismiss()
-                            // 添加家人（FR3.7 入口）：去成员管理页
-                            router.navigate(to: .memberList)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Pending detail owns its lookup; another route cannot replace its action target.
-private struct PendingCardDetailSheet: View {
-    let item: AggregatedReminderItem
-    @Environment(PendingCardCenterState.self) private var pendingCenter
-    @Environment(DocumentsState.self) private var docs
-    @Environment(AppState.self) private var app
-    @Environment(\.dismiss) private var dismiss
-    @State private var resuming = false
-    @State private var showDiscard = false
-    @State private var showSource = false
-    @State private var detail: PendingCard?
-    @State private var loaded = false
-    @State private var loadFailed = false
-    @State private var discardFailed = false
-    @State private var discarding = false
-
-    var body: some View {
-        WithPerceptionTracking {
-            List {
-                if let detail {
-                    Section {
-                        OCRReviewOwnerRow(patientId: detail.patientId)
-                        GradeBadge(grade: "D")
-                    }
-                    if !detail.incompleteFields.isEmpty {
-                        Section(L10n.docConfirmSkipTitle) {
-                            ForEach(Array(detail.incompleteFields.enumerated()), id: \.offset) { _, field in
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(field.label ?? DocumentsDisplay.fieldLabel(forKey: field.key))
-                                        .font(.subheadline)
-                                    Text(L10n.docConfirmHint).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
-                    if !detail.partialData.shared.isEmpty || !detail.partialData.rows.isEmpty {
-                        Section(L10n.docConfirmSkipSaved) {
-                            if let snapshot = detail.partialData.card {
-                                ForEach(snapshot.shared.indices.filter { snapshot.shared[$0].key != "metric_key" }, id: \.self) { index in
-                                    pendingField(snapshot.shared[index])
-                                }
-                                ForEach(Array(snapshot.rows.enumerated()), id: \.element.id) { index, row in
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
-                                        ForEach(row.fields.indices.filter { row.fields[$0].key != "metric_key" }, id: \.self) { field in
-                                            pendingField(row.fields[field])
-                                        }
-                                    }
-                                }
-                            } else {
-                                ForEach(detail.partialData.shared.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                    LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
-                                                   value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
-                                }
-                                ForEach(Array(detail.partialData.rows.enumerated()), id: \.offset) { index, row in
-                                    VStack(alignment: .leading) {
-                                        Text(L10n.entityCardRowIndex(index + 1)).font(.caption)
-                                        ForEach(row.filter { $0.key != "metric_key" }.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
-                                            LabeledContent(DocumentsDisplay.fieldLabel(forKey: key),
-                                                           value: DocumentsDisplay.fieldValueDisplay(forKey: key, value: value))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if !detail.rawText.isEmpty {
-                        Section {
-                            Text(detail.rawText).font(.footnote)
-                        } header: {
-                            Text(L10n.pendingCardRawText)
-                        }
-                    }
-                } else if loadFailed {
-                    Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                    Button(L10n.retry) { Task { await loadDetail() } }
-                } else if loaded {
-                    Text(L10n.pendingCardNotFound)
-                } else { ProgressView() }
-            }
-            .navigationTitle(L10n.pendingCardAggregationTitle(item.title))
-            .navigationBarTitleDisplayMode(.inline)
-            .task(id: item.id.sourceId) {
-                await loadDetail()
-            }
-            .safeAreaInset(edge: .bottom) {
-                if let detail {
-                    VStack(spacing: 8) {
-                        Button {
-                            resuming = true
-                        } label: {
-                            Label(L10n.pendingCardResume, systemImage: "checkmark.circle")
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .accessibilityIdentifier("SP-04.home.pendingCard.resume")
-                        HStack(spacing: 12) {
-                            Button {
-                                showSource = true
-                            } label: {
-                                Label(L10n.pendingCardViewSource, systemImage: "doc.text.magnifyingglass")
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(detail.sourceDocId == nil || detail.sourcePage == nil)
-                            .accessibilityIdentifier("SP-04.home.pendingCard.viewSource")
-                            Button(role: .destructive) {
-                                showDiscard = true
-                            } label: {
-                                Label(L10n.pendingCardDiscard, systemImage: "xmark.circle")
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(docs.retainedImport(for: detail) != nil)
-                            .accessibilityIdentifier("SP-04.home.pendingCard.discard")
-                        }
-                    }
-                    .padding(16)
-                    .background(.bar)
-                    .disabled(discarding)
-                }
-            }
-            .sheet(isPresented: $resuming, onDismiss: {
-                pendingCenter.refresh(patientId: app.currentPatientId)
-                Task {
-                    await loadDetail()
-                    if detail?.status == "resolved" { dismiss() }
-                }
-            }) {
-                NavigationStack { PendingCardResumeRouteView(cardId: item.id.sourceId) }
-            }
-            .sheet(isPresented: $showSource) {
-                if let detail, let documentID = detail.sourceDocId, let page = detail.sourcePage {
-                    DocumentSourcePageView(documentId: documentID, patientId: detail.patientId, pageIndex: page)
-                }
-            }
-            .confirmationDialog(L10n.pendingCardDiscard, isPresented: $showDiscard, titleVisibility: .visible) {
-                Button(L10n.pendingCardDiscard, role: .destructive) {
-                    guard let detail else { return }
-                    discarding = true
-                    Task {
-                        let discarded = await docs.discardPendingCard(detail)
-                        discarding = false
-                        pendingCenter.refresh(patientId: app.currentPatientId)
-                        if discarded { dismiss() } else { discardFailed = true }
-                    }
-                }
-                Button(L10n.commonCancel, role: .cancel) {}
-            }
-            .alert(L10n.docConfirmSaveFailedTitle, isPresented: $discardFailed) {
-                Button(L10n.onboard_gotIt, role: .cancel) {}
-            } message: {
-                // alert message 闭包逃逸：同步读 docs.pendingReviews，须自行包裹（子项目 I）
-                WithPerceptionTracking {
-                    Text(detail.flatMap { docs.pendingReviews[$0.id]?.notificationError } ?? L10n.entityCardSaveFailed)
-                }
-            }
-            .interactiveDismissDisabled(discarding)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.onboard_gotIt) {
-                        dismiss()
-                    }
-                    .disabled(discarding)
-                    .accessibilityIdentifier("SP-04.home.pendingCard.close")
-                }
-            }
-        }
-    }
-
-    private func loadDetail() async {
-        loaded = false; loadFailed = false
-        do {
-            let fetched = try await docs.loadPendingCard(id: item.id.sourceId)
-            guard !Task.isCancelled else { return }
-            detail = fetched
-        } catch { loadFailed = true; detail = nil }
-        loaded = true
-    }
-
-    private func pendingField(_ field: FieldDraft) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(DocumentsDisplay.fieldLabel(forKey: field.key)).font(.caption).foregroundStyle(.secondary)
-            Text(DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: field.value))
-                .strikethrough(field.grade == .rejected)
-        }
-    }
-}
+// 原子结构轮第二批/第三批迁移（2026-09-26）：
+// - GuideTaskCard / BigCareCard / HomeModelDownloadCard / HomeModelDownloadFailedCard /
+//   HomeActionToastBanner → App/Features/Home/HomeSubviews.swift
+// - MemberPickerSheet → App/Features/Home/MemberPickerSheet.swift
+// - PendingCardDetailSheet → App/Features/Home/PendingCardDetailSheet.swift
