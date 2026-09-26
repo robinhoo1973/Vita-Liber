@@ -1033,12 +1033,49 @@ def main():
                 )
                 break
 
+    # ---- 家族 O：四域参考目录测试夹具 DDL 与 store SELECT 列漂移 —— CI 36248076043
+    # 实证：hospital 表新增 contract_end 后夹具 CREATE TABLE 未同步，macOS 运行时
+    # "no such column"。Linux 上 store 与测试被平台守卫空编译（swift test 假绿），
+    # 文本交叉核对是唯一 Linux 可见通道。四表逐一比对，缺列即 FAIL。
+    ref_fix = root / "CoreKit/Tests/CoreKitTests/MedicalReferenceCatalogStoreTests.swift"
+    ref_store = root / "CoreKit/Sources/Infrastructure/MedicalReferenceCatalogStore.swift"
+    scanned["O"] = 0
+    if ref_fix.exists() and ref_store.exists():
+        tf = ref_fix.read_text(encoding="utf-8")
+        st = ref_store.read_text(encoding="utf-8")
+        tables = (
+            ("hospital", r"CREATE TABLE hospital \(([^)]*)\)",
+             r"SELECT rowid, region, source_id, code, name_zh, short_name, type_zh, level_zh, address,\s*\n?\s*([^F]*?)FROM hospital"),
+            ("department", r"CREATE TABLE department \(([^)]*)\)",
+             r"SELECT rowid, region, source_id, code, name_zh, category_zh, aliases_json\s*\n?\s*([^F]*?)FROM department"),
+            ("diagnosis", r"CREATE TABLE diagnosis \(([^)]*)\)",
+             r"SELECT rowid, region, source_id, code, name_zh, code_system, chapter_zh, aliases_json\s*\n?\s*([^F]*?)FROM diagnosis"),
+            ("exam_item", r"CREATE TABLE exam_item \(([^)]*)\)",
+             r"SELECT rowid, region, source_id, code, name_zh, name_en, category, method, specimen, unit,\s*\n?\s*([^F]*?)FROM exam_item"),
+        )
+        for name, ddl_re, sel_re in tables:
+            ddl = re.search(ddl_re, tf)
+            sel = re.search(sel_re, st, re.S)
+            if not ddl or not sel:
+                fails.append(f"{ref_fix.relative_to(root)}: 家族 O 无法解析 {name} 的 fixture DDL 或 store SELECT")
+                continue
+            ddl_cols = {c.strip().split()[0] for c in ddl.group(1).split(",")}
+            sel_cols = {c.strip() for c in sel.group(1).replace("\n", " ").split(",")
+                        if c.strip() and not c.strip().startswith(("FROM", "--"))}
+            missing = sel_cols - ddl_cols - {"rowid"}
+            if missing:
+                fails.append(
+                    f"{ref_fix.relative_to(root)}: {name} 表 fixture 缺列 {sorted(missing)} —— "
+                    f"store SELECT 消费但 fixture DDL 未定义，仅 macOS 运行时暴露（CI 36248076043 同族）"
+                )
+        scanned["O"] = 4
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
           f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
-          f"N={scanned.get('N',0)}")
+          f"N={scanned.get('N',0)} O={scanned.get('O',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

@@ -13,7 +13,7 @@ struct MedicalReferenceCatalogStoreTests {
 
     static let v4Schema = """
     CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-    CREATE TABLE hospital (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, code TEXT, name_zh TEXT NOT NULL, short_name TEXT, type_zh TEXT, level_zh TEXT, address TEXT, phone TEXT, admin_area TEXT, depts_json TEXT NOT NULL, aliases_json TEXT NOT NULL, match_status TEXT);
+    CREATE TABLE hospital (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, code TEXT, name_zh TEXT NOT NULL, short_name TEXT, type_zh TEXT, level_zh TEXT, address TEXT, phone TEXT, admin_area TEXT, depts_json TEXT NOT NULL, aliases_json TEXT NOT NULL, contract_end TEXT, match_status TEXT);
     CREATE TABLE department (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, code TEXT NOT NULL, name_zh TEXT NOT NULL, category_zh TEXT, aliases_json TEXT NOT NULL, match_status TEXT);
     CREATE TABLE diagnosis (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, code TEXT NOT NULL, name_zh TEXT NOT NULL, code_system TEXT NOT NULL, chapter_zh TEXT, aliases_json TEXT NOT NULL, match_status TEXT);
     CREATE TABLE exam_item (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, code TEXT NOT NULL, name_zh TEXT NOT NULL, name_en TEXT, category TEXT, method TEXT, specimen TEXT, unit TEXT, price_ref TEXT, loinc_concept_id TEXT, aliases_json TEXT NOT NULL, match_status TEXT);
