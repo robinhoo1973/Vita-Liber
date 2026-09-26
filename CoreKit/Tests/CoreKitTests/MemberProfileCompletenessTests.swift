@@ -62,18 +62,19 @@ struct MemberProfileCompletenessTests {
     }
 
     /// 审查修复回归钉：DatePicker 保留打开时刻（本地凌晨）的语义下，渲染必须是
-    /// 本地当天；旧 UTC 实现在 UTC+8 渲染为前一天（在 UTC 主机上旧实现也过——
-    /// 故显式切到东八区验证，验证后还原）。`.serialized`：改进程级
-    /// NSTimeZone.default 必须与并行套件隔离（同 TrendAcceptanceTests 先例）。
-    @Test(.serialized) func birthDateStringKeepsLocalCalendarDayInPositiveOffsetZone() {
-        let original = NSTimeZone.default
-        defer { NSTimeZone.default = original }
-        NSTimeZone.default = TimeZone(identifier: "Asia/Shanghai")!
-        let earlyMorning = Calendar(identifier: .gregorian)
-            .date(from: DateComponents(year: 1990, month: 5, day: 12, hour: 0, minute: 30))!
-        #expect(MemberProfileCompleteness.birthDateString(from: earlyMorning) == "1990-05-12")
+    /// 给定时区的当天；旧 UTC 实现在 UTC+8 渲染为前一天。时区显式注入
+    /// （CI 36249512459 修复：`TimeZone.current` 在 Darwin 是进程启动缓存、
+    /// 不随 `NSTimeZone.default` 变化——Linux corelibs 跟随才让旧写法假绿；
+    /// 注入参数两平台确定性一致，且无需 .serialized 串行）。
+    @Test func birthDateStringKeepsLocalCalendarDayInPositiveOffsetZone() {
+        let shanghai = TimeZone(identifier: "Asia/Shanghai")!
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        // UTC 1990-05-11T16:30Z = 上海 1990-05-12 00:30 —— 渲染必须落在上海的「当天」
+        let lateEveningUTC = utc.date(from: DateComponents(year: 1990, month: 5, day: 11, hour: 16, minute: 30))!
+        #expect(MemberProfileCompleteness.birthDateString(from: lateEveningUTC, in: shanghai) == "1990-05-12")
         // 「今天」串在东八区凌晨时段也必须有效（旧 UTC 解析把今天判成未来而误拒）
-        let today = MemberProfileCompleteness.birthDateString(from: Date())
+        let today = MemberProfileCompleteness.birthDateString(from: Date(), in: shanghai)
         #expect(MemberProfileCompleteness.isValidBirthDate(today))
     }
 }

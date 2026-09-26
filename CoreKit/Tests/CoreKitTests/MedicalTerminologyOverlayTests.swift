@@ -25,7 +25,8 @@ struct MedicalTerminologyOverlayTests {
                 Issue.record("缺解释: \(term)")
                 continue
             }
-            #expect(!explanation.contains(where: { $0.isNumber }), "\(term) 解释含数字阈值: \(explanation)")
+            #expect(!explanation.contains(where: { $0.isASCII && $0.isNumber }),
+            "\(term) 解释含数字阈值: \(explanation)")  // Character.isNumber 含中文数字（Unicode 数值判定）——阈值只指 ASCII 数字
         }
     }
 

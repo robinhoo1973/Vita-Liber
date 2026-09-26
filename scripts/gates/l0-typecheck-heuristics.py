@@ -1070,12 +1070,28 @@ def main():
                 )
         scanned["O"] = 4
 
+    # ---- 家族 P：测试内改 NSTimeZone.default 全局状态 —— CI 36249512459 实证：
+    # TimeZone.current 在 Darwin 是进程启动缓存、不随 NSTimeZone.default 变化
+    # （Linux corelibs 跟随，本地假绿）；且全局时区变异与并行套件互踩。
+    # 正确形态 = API 显式时区参数注入（birthDateString(from:in:)）。
+    p_files = sorted((root / "CoreKit/Tests/CoreKitTests").glob("*.swift"))
+    scanned["P"] = len(p_files)
+    for f in p_files:
+        for raw in f.read_text(encoding="utf-8").splitlines():
+            if "NSTimeZone.default" in raw and "=" in raw.split("NSTimeZone.default", 1)[1][:4]:
+                fails.append(
+                    f"{f.relative_to(root)}: 测试改 NSTimeZone.default 全局时区 —— "
+                    f"Darwin 的 TimeZone.current 不随其变化（Linux 跟随才假绿），"
+                    f"改 API 显式时区参数注入（CI 36249512459 同族）"
+                )
+                break
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
           f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
-          f"N={scanned.get('N',0)} O={scanned.get('O',0)}")
+          f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

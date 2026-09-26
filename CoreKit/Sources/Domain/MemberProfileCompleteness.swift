@@ -53,8 +53,10 @@ public enum MemberProfileCompleteness {
     }
 
     /// DatePicker 落库字符串（与 Health 导入同口径的 `yyyy-MM-dd`；公历、给定时区当日）。
-    public static func birthDateString(from date: Date) -> String {
-        let parts = birthDateCalendar.dateComponents([.year, .month, .day], from: date)
+    public static func birthDateString(from date: Date, in timeZone: TimeZone? = nil) -> String {
+        var calendar = birthDateCalendar
+        if let timeZone { calendar.timeZone = timeZone }
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
     }
 
