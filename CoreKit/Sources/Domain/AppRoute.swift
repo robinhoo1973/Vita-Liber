@@ -157,7 +157,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .privacyAuthorization, .themeSettings, .languageSettings,
              .voiceLanguageSettings, .voiceEngineLab, .emergencyCardConfig, .deviceConnection,
               .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
-             .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport,
+             .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport, .resourceManagement,
              .exportWizard, .backupRestore, .paywall,
              .helpPermissionDiagnostics, .helpReminderDiagnostics, .termsAndPrivacy:
             return .me
