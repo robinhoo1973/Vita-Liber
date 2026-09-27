@@ -375,36 +375,54 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(ownHits.isEmpty)
     }
 
-    // MARK: - 重定向
+    // MARK: - 重定向守卫（直接测 delegate 判定；URLSession 跟随行为属系统内部，钉此无益）
 
-    @Test("主机内重定向被跟随（api.github.com 路径内）")
-    func checkFollowsAllowlistedRedirect() async throws {
-        let fixture = try MedicalCatalogFixture.make()
-        defer { fixture.cleanUp() }
-        Self.resetStubs()
-        let target = URL(string: "https://api.github.com/repos/robinhoo1973/Vita-Liber/releases/tags/medical-data-final")!
-        Self.apply([
-            (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-                redirectTo: target)),
-            (target, URLProtocolStub.Script(body: Self.inventoryJSON(
-                [(fixture.pointerAssetName, Self.pointerURL(fixture.pointerAssetName))]))),
-            (URL(string: Self.pointerURL(fixture.pointerAssetName))!, URLProtocolStub.Script(body: fixture.signedPointerJSON)),
-        ])
-        let resolver = Self.makeResolver(fixture: fixture)
-        let outcome = try await resolver.check()
-        guard case .updateAvailable = outcome.state else {
-            Issue.record("主机内重定向后应正常发现更新，实际 \(outcome.state)")
-            return
-        }
+    @Test("重定向守卫：白名单内 URL 放行")
+    func redirectGuardAllowsAllowlistedURL() throws {
+        let box = RequestBox()
+        let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10, allowsURL: { _ in true })
+        let url = try #require(URL(string: "https://api.github.com/x"))
+        let task = URLSession.shared.dataTask(with: url)
+        let redirect = try #require(HTTPURLResponse(url: url, statusCode: 301, httpVersion: nil, headerFields: nil))
+        delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                            newRequest: URLRequest(url: url)) { box.set($0) }
+        #expect(box.called && box.value != nil)
+        task.cancel()
     }
 
-    @Test("越白名单重定向被拒 → networkUnavailable（URLSession 取消）")
-    func checkRejectsOffListRedirect() async throws {
+    @Test("重定向守卫：越白名单主机/超跳数上限 → 拒绝（nil）")
+    func redirectGuardRejectsOffListHost() throws {
+        let box = RequestBox()
+        let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10,
+                                                         allowsURL: { $0.host == "api.github.com" })
+        let github = try #require(URL(string: "https://api.github.com/x"))
+        let evil = try #require(URL(string: "https://evil.example.com/x"))
+        let task = URLSession.shared.dataTask(with: github)
+        let redirect = try #require(HTTPURLResponse(url: github, statusCode: 301, httpVersion: nil, headerFields: nil))
+        delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                            newRequest: URLRequest(url: evil)) { box.set($0) }
+        #expect(box.called && box.value == nil)
+
+        // 跳数上限：连续放行 5 次后第 6 次拒绝
+        for _ in 0..<MedicalCatalogBoundedDataDelegate.maxRedirects {
+            let hop = RequestBox()
+            delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                                newRequest: URLRequest(url: github)) { hop.set($0) }
+            #expect(hop.called && hop.value != nil)
+        }
+        let final = RequestBox()
+        delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                            newRequest: URLRequest(url: github)) { final.set($0) }
+        #expect(final.called && final.value == nil)
+        task.cancel()
+    }
+
+    @Test("重定向被拒后任务以 3xx 结束 → 归约 networkUnavailable")
+    func check3xxResponseMapsToNetworkUnavailable() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            redirectTo: URL(string: "https://evil.example.com/p")!)))
+        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 301)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .networkUnavailable)
     }

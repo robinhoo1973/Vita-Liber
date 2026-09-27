@@ -198,12 +198,15 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
     }
 
     /// 把 fetch 的 HTTP 非 2xx/304 结果归约为 Domain 状态（nil = 有可用响应体继续处理）：
-    /// 403/429 → rateLimited；404/410 → unavailable；5xx → networkUnavailable；
-    /// 其余非 2xx → verificationFailed。`pointerAsset: true` 时 404/410 归
-    /// verificationFailed（inventory 已 200 而资产缺失 = 发布方不一致，非「未发布」）。
+    /// 403/429 → rateLimited；404/410 → unavailable；3xx → networkUnavailable（重定向
+    /// 被拒/环：guard 拒绝后任务可能以 3xx 响应结束，见 fetch 的 task.cancel 注记）；
+    /// 5xx → networkUnavailable；其余非 2xx → verificationFailed。
+    /// `pointerAsset: true` 时 404/410 归 verificationFailed（inventory 已 200 而资产
+    /// 缺失 = 发布方不一致，非「未发布」）。
     private static func failureOutcome(_ result: FetchResult, pointerAsset: Bool = false) -> MedicalCatalogCheckOutcome? {
         switch result.status {
         case 200, 304: return nil
+        case 300...399: return MedicalCatalogCheckOutcome(state: .networkUnavailable)
         case 403, 429: return MedicalCatalogCheckOutcome(state: .rateLimited(retryAfter: result.retryAfter))
         case 404, 410: return MedicalCatalogCheckOutcome(
             state: pointerAsset ? .verificationFailed : .unavailable)
