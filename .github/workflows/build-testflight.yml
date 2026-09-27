@@ -833,7 +833,17 @@ jobs:
           st, d = call('GET', f'{BASE}/apps?filter[bundleId]={BID}')
           apps = d.get('data', [])
           if apps and REBUILD:
+              # 2026-09-27 委员会 P8：删除前预检——存在 PROCESSING/等待中的 build 时
+              # 拒删（半毁状态不可逆：版本元数据删除后 App 删除 403 无法回滚）。
               old = apps[0]
+              stb, db = call('GET', f"{BASE}/builds?filter[app]={old['id']}&limit=20")
+              blocking = [b for b in db.get('data', []) if b['attributes'].get('processingState') in ('PROCESSING', 'VALID')]
+              if blocking:
+                  print('[X] 存在处理中/有效 build，拒绝删除重建（半毁状态不可逆）：')
+                  for b in blocking[:5]:
+                      print(f"     build {b['attributes'].get('version','?')} state={b['attributes'].get('processingState','?')}")
+                  print('    请先等待其完结，或到 App Store Connect 手动处置后再重跑。')
+                  raise SystemExit(1)
               print(f'[..] rebuild_app=true → 删除现有记录 id={old["id"]} name="{old["attributes"].get("name")}"')
               st2, d2 = call('GET', f'{BASE}/apps/{old["id"]}/appStoreVersions?limit=50')
               for v in d2.get('data', []):
