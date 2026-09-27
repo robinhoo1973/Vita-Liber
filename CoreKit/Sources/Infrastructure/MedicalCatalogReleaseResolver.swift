@@ -1,3 +1,6 @@
+#if os(iOS) || os(macOS)
+// linux-blind: URLSession 在 Linux 属 FoundationNetworking 且检查传输语义不在 Linux
+// 真跑（+Install/传输测试同规）——Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import Protocols
 import Domain
@@ -127,9 +130,9 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
             guard let inventoryBody = inventory.body else {
                 return MedicalCatalogCheckOutcome(state: .verificationFailed)
             }
-            let selection = try parseInventory(inventoryBody)
+            let pointer = try parseInventory(inventoryBody)
             try Task.checkCancellation()
-            guard let pointer = selection.highestInstallable else {
+            guard let pointer else {
                 // 无 installable pointer（仅 progress/无 pointer）：不误报「最新」，
                 // 也不把 progress 呈现为更新（§5.53 / ui-ux 5.12.4）。
                 return MedicalCatalogCheckOutcome(state: .noInstallableAvailable)
@@ -290,7 +293,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         let catalogVersion: Int64
     }
 
-    private func parseInventory(_ data: Data) throws -> (highestInstallable: PointerRef?) {
+    private func parseInventory(_ data: Data) throws -> PointerRef? {
         guard data.count <= Self.maxInventoryBytes else { throw MedicalCatalogResolveError.tooLarge }
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let assets = object["assets"] as? [Any] else {
@@ -307,7 +310,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
                 highest = PointerRef(name: name, url: url, catalogVersion: version)
             }
         }
-        return (highestInstallable: highest)
+        return highest
     }
 
     /// 只认 `medical-data-catalog-installable-<正整数>.json` 文法；
@@ -418,3 +421,4 @@ public final class MedicalCatalogETagCache: @unchecked Sendable {
         entries[key] = Entry(etag: etag, body: body)
     }
 }
+#endif
