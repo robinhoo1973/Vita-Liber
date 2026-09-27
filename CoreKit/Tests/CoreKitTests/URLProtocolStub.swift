@@ -23,6 +23,7 @@ final class URLProtocolStub: URLProtocol {
         var failBeforeResponse: Bool = false
         /// 每个下载请求都失败（重试也失败——确定性**失败路径**钉用；
         /// 一次注入会被生产重试消化，钉不住失败态）。
+        var failEveryRequest: Bool = false
         /// 收到 Range 请求时仍返回整包 200（吞 Range 场景）。
         var swallowRanges: Bool = false
         /// 重定向目标（自动加 301 + Location）。
