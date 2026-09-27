@@ -15,8 +15,11 @@ final class URLProtocolStub: URLProtocol {
         /// 每块字节数与每块间延时（秒）；空 = 整包一次下发。
         var chunkBytes: Int? = nil
         var chunkDelay: TimeInterval = 0
-        /// 第 N 字节后断流（模拟 -1005）。
+        /// 第 N 字节后断流（模拟 -1005）；与 URLSession 部分响应状态机相克，
+        /// 重试注入优先用 failBeforeResponse。
         var cutAfterBytes: Int? = nil
+        /// 首个下载请求响应前即失败（干净连接失败——重试测试的标准注入形态）。
+        var failBeforeResponse: Bool = false
         /// 收到 Range 请求时仍返回整包 200（吞 Range 场景）。
         var swallowRanges: Bool = false
         /// 重定向目标（自动加 301 + Location）。
@@ -84,6 +87,10 @@ final class URLProtocolStub: URLProtocol {
         // cutAfterBytes 为一次性故障注入：只切首个**下载**请求（HEAD 探测不受切——
         // 否则断流落在探测上，段重试语义无从触发）；同 URL 首下载才断。
         let isHead = request.httpMethod?.uppercased() == "HEAD"
+        if script.failBeforeResponse, firstRequestForURL, !isHead {
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            return
+        }
         if let cut = script.cutAfterBytes, body.count > cut, firstRequestForURL, !isHead {
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

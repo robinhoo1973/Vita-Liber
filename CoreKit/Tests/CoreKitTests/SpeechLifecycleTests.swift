@@ -247,8 +247,10 @@ struct SpeechLifecycleTests {
     @Test func repeatedMissingFinalsExhaustRecoveryBudgetAndStopCapture() async throws {
         let driver = ManualSpeechDriver()
         var limits = SpeechSessionLimits()
-        limits.rotationInterval = 0.01
-        limits.finalizationTimeout = 0.01
+        // 2026-09-27 CI 36303130713/36303662286 连发抖动：10ms 计时在负载 runner 上
+        // 恢复预算与主流程赛跑（.timedOut 先到）；放宽到 50ms 保留全部语义断言。
+        limits.rotationInterval = 0.05
+        limits.finalizationTimeout = 0.05
         limits.restartDelay = 0.001
         let engine = SpeechSessionCoordinator(limits: limits) { _ in driver }
         let request = TranscriptionRequest(localeIdentifier: "en-US")
