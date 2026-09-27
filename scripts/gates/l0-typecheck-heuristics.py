@@ -1111,12 +1111,37 @@ def main():
                 )
                 break
 
+    # ---- 家族 Q：App 层引用传输实现四符号 —— 2026-09-27 委员会 P3c 窄门禁
+    # （传输符号属 Infrastructure 实现面：App 消费进度/错误/形态经 Domain 值类型；
+    # 当前引用数为零——窄族今日即绿，防批 2 写 SP-64 视图时直接 new fetcher 的
+    # 经典诱惑；词表精确匹配四符号，避免与通用名碰撞（家族 A 过泛词教训）。）
+    transport_symbols = ("ModelResourceTransfer", "MedicalCatalogPackageTransfer",
+                         "URLSessionMedicalCatalogPackageFetcher", "ModelPackageDownloader")
+    q_files = sorted((root / "App").rglob("*.swift"))
+    scanned["Q"] = len(q_files)
+    for f in q_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        raw_lines = txt.splitlines()
+        for lineno, code in code_lines(txt):
+            if exempted(raw_lines, lineno):
+                continue
+            for sym in transport_symbols:
+                if re.search(r"\b" + re.escape(sym) + r"\b", code):
+                    fails.append(
+                        f"{f.relative_to(root)}:{lineno}: App 层引用传输实现符号 {sym} —— "
+                        f"进度/错误/形态应经 Domain 值类型（委员会 P3c 家族 Q）"
+                    )
+                    break
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
           f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
-          f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)}")
+          f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)} Q={scanned.get('Q',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:

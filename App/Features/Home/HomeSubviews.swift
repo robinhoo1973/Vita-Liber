@@ -475,8 +475,10 @@ struct HomeModelDownloadCard: View {
 }
 
 /// 后台任务失败卡（2026-09-16 评审）：与进度卡同形，红字提示 + [重试] + 关闭。
+/// 2026-09-27 UX 席：此前注释谎称含 [重试] 实为仅关闭——补真重试按钮。
 struct HomeModelDownloadFailedCard: View {
     let choice: VoiceEngineChoice
+    let onRetry: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
@@ -492,6 +494,10 @@ struct HomeModelDownloadFailedCard: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            Button(L10n.retry) { onRetry() }
+                .font(.caption)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("SP-04.home.modelDownload.failure.retry")
             Button(L10n.commonCancel) { onDismiss() }
                 .font(.caption)
                 .frame(minHeight: 44)

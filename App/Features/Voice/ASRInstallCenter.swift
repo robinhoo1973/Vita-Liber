@@ -101,7 +101,14 @@ final class ASRInstallCenter {
     /// 最近一次失败（2026-09-16 委员会评审）：此前失败只在设置页三跳外可见、
     /// 首页卡片静默消失——用户从首页发起下载后失败无任何反馈。留到用户
     /// 显式处置（重试/关闭）或再次发起。
-    private(set) var lastFailure: VoiceEngineChoice?
+    /// 2026-09-27 委员会 UX 席：升级为可重试载荷——注释曾谎称「含 [重试]」实为
+    /// 仅关闭（HomeSubviews 漂移），重试需携带 release/baseURL 才能原样重启。
+    struct LastFailure {
+        let choice: VoiceEngineChoice
+        let release: ASRModelRelease
+        let baseURL: URL?
+    }
+    private(set) var lastFailure: LastFailure?
 
     private let service = ASRModelDownloadService.shared
     private let dataChange: AppDataChangeCenter
@@ -133,6 +140,12 @@ final class ASRInstallCenter {
 
     /// 首页失败卡关闭（用户已看到并处置）。
     func dismissFailure() { lastFailure = nil }
+
+    /// 首页失败卡 [重试]（2026-09-27 UX 席）：携带失败载荷原样重启安装。
+    func retryLastFailed() {
+        guard let failure = lastFailure, !isInstalling(failure.choice) else { return }
+        start(failure.release, baseURL: failure.baseURL)
+    }
 
     func cancel(_ choice: VoiceEngineChoice) {
         tasks[choice]?.cancel()
@@ -187,7 +200,7 @@ final class ASRInstallCenter {
             break   // 用户取消：不记失败（可再发起）。
         case .failure:
             failed.insert(choice)
-            lastFailure = choice
+            lastFailure = LastFailure(choice: choice, release: release, baseURL: baseURL)
         }
     }
 }

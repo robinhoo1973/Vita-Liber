@@ -111,6 +111,27 @@ enum ActivePointerStore {
     }
 
     /// 崩溃残留暂存回收（结构轮：自门面迁入，与安装目录生命周期同域）。
+    /// 崩溃残留续传点查找（2026-09-27 委员会平局裁定：保留 resumeOffset 并激活）。
+    /// 返回同版本残留 staging 及其 package.zip 已收字节——0 < size < expected 才算
+    /// 有效部分文件（0 = 全新残留、>= expected = 已完整，均不该续传）；SHA 终验
+    /// 由调用方 fail-closed 兜底身份绑定。无候选返回 nil（调用方走全新 staging）。
+    static func resumableStaging(in modelRoot: URL, version: String, expectedBytes: Int64,
+                                 fileManager: FileManager = .default) -> (url: URL, resumeOffset: Int64)? {
+        guard expectedBytes > 0,
+              let entries = try? fileManager.contentsOfDirectory(at: modelRoot, // try?-ok: 目录不可读=无续传候选，走全新暂存（fail-open 于重下而非失败）
+                                                                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                                                                 options: []) else { return nil }
+        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-\(version)-") {
+            guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]), // try?-ok: 属性不可读=跳过该候选
+                  values.isDirectory == true, values.isSymbolicLink != true else { continue }
+            let partial = entry.appendingPathComponent("package.zip")
+            guard let size = try? partial.resourceValues(forKeys: [.fileSizeKey]).fileSize, // try?-ok: 尺寸不可读=不可判有效部分文件，跳过该候选
+                  size > 0, Int64(size) < expectedBytes else { continue }
+            return (entry, Int64(size))
+        }
+        return nil
+    }
+
     static func removeStaleStaging(in modelRoot: URL, fileManager: FileManager = .default) {
         guard let entries = try? fileManager.contentsOfDirectory(at: modelRoot, // try?-ok: 目录不存在/不可读=无可回收残留，非关键路径
                                                                  includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],

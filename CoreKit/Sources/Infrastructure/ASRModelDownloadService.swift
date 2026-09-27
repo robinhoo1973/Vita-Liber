@@ -64,6 +64,11 @@ public actor ASRModelDownloadService {
         // 请求同刻争用会排队；抬到 8 留出余量。不设超时天花板（大包在慢链路需数小时，
         // timeoutIntervalForResource 默认 7 天不干预）。
         configuration.httpMaximumConnectionsPerHost = 8
+        // 2026-09-27 委员会裁决 5（SRE 席修正案）：waitsForConnectivity=true 让短时
+        // 网络抖动（切网/Wi-Fi 闪断）在系统层等待自愈，而非六段并行瞬间团灭；
+        // 段级 300s 请求超时兜底「离线死等」上限（URLSession 对排队未建立的连接
+        // 也计请求超时的陷阱已文档化于 ModelPackageDownloader）。
+        configuration.waitsForConnectivity = true
         self.session = session ?? URLSession(configuration: configuration)
     }
 
@@ -288,11 +293,24 @@ public actor ASRModelDownloadService {
               let expanded = release.expandedBytes, expanded > 0, expanded <= ModelResourcePolicy.expandedBytes else { throw Failure.invalidPackage }
         // 安全复审 S-I1：崩溃/jetsam 残留的暂存目录先于空间预算检查回收，
         // 否则反复中断的大包会把空闲空间耗尽、后续安装恒失败。
-        ActivePointerStore.removeStaleStaging(in: modelRoot, fileManager: fileManager)
-        let previousRoot = Self.activeRoot(for: choice)
-        let staging = modelRoot.appendingPathComponent(".staging-\(release.version)-\(UUID().uuidString)",
+        // 2026-09-27 委员会平局裁定（残留续传）：回收前先找同版本可续传的
+        // 崩溃残留（staging 名含版本）——package.zip 已收字节 0 < size < expected
+        // 即以其为续传起点复用同一 staging；SHA 终验 fail-closed 兜底身份绑定
+        // 缺口（同版本异 SHA 重发 → 白续传后判红 → 干净重试，正确性保持）。
+        var resumeOffset: Int64 = 0
+        var staging: URL
+        if let leftover = ActivePointerStore.resumableStaging(in: modelRoot, version: release.version,
+                                                              expectedBytes: release.bytes ?? 0,
+                                                              fileManager: fileManager) {
+            staging = leftover.url
+            resumeOffset = leftover.resumeOffset
+        } else {
+            ActivePointerStore.removeStaleStaging(in: modelRoot, fileManager: fileManager)
+            staging = modelRoot.appendingPathComponent(".staging-\(release.version)-\(UUID().uuidString)",
                                                        isDirectory: true)
-        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        }
+        let previousRoot = Self.activeRoot(for: choice)
         defer { try? fileManager.removeItem(at: staging) }   // try?-ok: 暂存清理失败无用户可见后果，不掩盖主错误
         var excludedRoot = modelRoot
         var values = URLResourceValues(); values.isExcludedFromBackup = true
@@ -302,7 +320,8 @@ public actor ASRModelDownloadService {
 
         let zipURL = staging.appendingPathComponent("package.zip")
         onPhase?(.downloading)
-        try await downloader.download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress)
+        try await downloader.download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress,
+                                     resumeOffset: resumeOffset)
 
         onPhase?(.verifying)
         // 校验/解压复用 `progress` 出口（不新增通道）：阶段本身已说明字节的含义，

@@ -487,7 +487,9 @@ struct HomeView: View {
     /// 后台任务失败卡（2026-09-16 评审）——渲染原子已分解至
     /// HomeModelDownloadFailedCard（2026-09-26 原子结构轮第三批）。
     private func modelDownloadFailedCard(_ choice: VoiceEngineChoice) -> some View {
-        HomeModelDownloadFailedCard(choice: choice) { installCenter.dismissFailure() }
+        HomeModelDownloadFailedCard(choice: choice,
+                                     onRetry: { installCenter.retryLastFailed() },
+                                     onDismiss: { installCenter.dismissFailure() })
     }
 
     private func aggregationRow(_ item: AggregatedReminderItem) -> some View {

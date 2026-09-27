@@ -208,8 +208,21 @@ extension MedicalCatalogUpdateService {
 public struct URLSessionMedicalCatalogPackageFetcher: MedicalCatalogPackageFetching, Sendable {
     private let session: URLSession
 
-    public init(session: URLSession = .shared) {
-        self.session = session
+    /// 2026-09-27 委员会裁决 5（SRE 席）：目录 fetcher 由 URLSession.shared（60s 空闲
+    /// 超时、无重试）升级为专有会话——waitsForConnectivity 吸收短时抖动、
+    /// 300s 请求超时兜底慢链路（GB 级 SQLite 在慢链路曾被 -1001 误杀）；
+    /// 瞬态错误重试一次（与 ModelPackageDownloader 同清单 + 4s 退避）。
+    public init(session: URLSession? = nil) {
+        if let session {
+            self.session = session
+        } else {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.httpShouldSetCookies = false
+            configuration.urlCredentialStorage = nil
+            configuration.waitsForConnectivity = true
+            configuration.timeoutIntervalForRequest = 300
+            self.session = URLSession(configuration: configuration)
+        }
     }
 
     public func fetch(assetName: String, expectedSize: Int64, to destination: URL,
@@ -220,26 +233,43 @@ public struct URLSessionMedicalCatalogPackageFetcher: MedicalCatalogPackageFetch
         var request = URLRequest(url: url)
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        let transfer = MedicalCatalogPackageTransfer(expectedBytes: expectedSize, onBytes: progress)
-        let location: URL
-        let response: URLResponse
-        do {
-            (location, response) = try await session.download(for: request, delegate: transfer)
-        } catch {
-            if Task.isCancelled { throw CancellationError() }
-            throw transfer.resolve(error)
+        var lastFailure: MedicalCatalogUpdateError = .downloadFailed
+        for attempt in 0..<2 {
+            let transfer = MedicalCatalogPackageTransfer(expectedBytes: expectedSize, onBytes: progress)
+            let location: URL
+            let response: URLResponse
+            do {
+                (location, response) = try await session.download(for: request, delegate: transfer)
+                defer { try? FileManager.default.removeItem(at: location) } // try?-ok: URLSession 临时文件清理
+                if let failure = transfer.failure { throw failure }
+                try transfer.validate(response)
+                do {
+                    try FileManager.default.moveItem(at: location, to: destination)
+                } catch {
+                    throw MedicalCatalogUpdateError.downloadFailed
+                }
+                guard try MedicalCatalogUpdateService.fileSize(of: destination) == expectedSize else {
+                    throw MedicalCatalogUpdateError.checksumMismatch
+                }
+                return
+            } catch {
+                if Task.isCancelled { throw CancellationError() }
+                if let medical = error as? MedicalCatalogUpdateError {
+                    lastFailure = medical
+                    // 非传输类失败（校验/落盘）不重试
+                    guard attempt == 0 else { throw medical }
+                    if medical != .downloadFailed { throw medical }
+                } else if attempt == 0, let urlError = error as? URLError,
+                          [.timedOut, .networkConnectionLost, .cannotConnectToHost,
+                           .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff].contains(urlError.code) {
+                    lastFailure = .downloadFailed
+                } else {
+                    throw error
+                }
+                try await Task.sleep(nanoseconds: 4_000_000_000)
+            }
         }
-        defer { try? FileManager.default.removeItem(at: location) } // try?-ok: URLSession 临时文件清理
-        if let failure = transfer.failure { throw failure }
-        try transfer.validate(response)
-        do {
-            try FileManager.default.moveItem(at: location, to: destination)
-        } catch {
-            throw MedicalCatalogUpdateError.downloadFailed
-        }
-        guard try MedicalCatalogUpdateService.fileSize(of: destination) == expectedSize else {
-            throw MedicalCatalogUpdateError.checksumMismatch
-        }
+        throw lastFailure
     }
 }
 

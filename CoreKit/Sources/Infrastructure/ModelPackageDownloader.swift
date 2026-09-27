@@ -169,11 +169,14 @@ private func downloadAttempt(session: URLSession, request: URLRequest,
             try Task.checkCancellation()
             lastError = delegate.resolve(error)
             guard attempt == 0, let urlError = error as? URLError,
-                  [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains(urlError.code) else {
+                  [.timedOut, .networkConnectionLost, .cannotConnectToHost,
+                   .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff].contains(urlError.code) else {
                 throw lastError
             }
             counter.remove(attemptBytes.total)
-            try await Task.sleep(nanoseconds: 2_000_000_000)
+            // 2026-09-27 委员会裁决 5：断网类纳入重试 + 退避 2s→4s（切网抖动窗口内
+            // 单次 2s 重试大概率仍失败；waitsForConnectivity 已吸收更长的自愈窗口）。
+            try await Task.sleep(nanoseconds: 4_000_000_000)
         }
     }
     throw lastError
