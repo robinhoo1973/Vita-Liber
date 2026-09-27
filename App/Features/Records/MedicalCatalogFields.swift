@@ -39,7 +39,7 @@ private struct CatalogSuggestSection<Item: Identifiable, Detail: View>: View {
     let items: [Item]
     let titleOf: (Item) -> String
     let select: (Item) -> Void
-    let detailOf: (Item) -> Detail
+    let detailOf: @ViewBuilder (Item) -> Detail
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
