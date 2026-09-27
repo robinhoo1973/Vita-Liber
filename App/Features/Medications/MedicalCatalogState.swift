@@ -22,13 +22,13 @@ final class MedicalCatalogState {
          opener: (any MedicalCatalogPackageOpening)? = nil) {
         self.store = store
         self.path = path
+        // 两段式装配（CI 36347424569）：闭包捕获 self 先于 updates 赋值会被
+        // definite-initialization 拒绝——先构造再回填回调。
         self.updates = MedicalCatalogUpdateCoordinator(updater: updater, path: path,
-                                                      checker: checker, opener: opener,
-                                                      onInstalled: { [weak self] in
-                                                          guard let self else { return false }
-                                                          self.reloadStore()
-                                                          return self.store != nil
-                                                      })
+                                                      checker: checker, opener: opener)
+        self.updates.onInstalled = { [weak self] in
+            self?.reloadStore() ?? false
+        }
     }
 
     var isAvailable: Bool { store != nil }
@@ -52,12 +52,14 @@ final class MedicalCatalogState {
     // MARK: - 读面
 
     /// 安装成功后由协调器回调：重开读面 store + 清匹配缓存。
-    /// 复开失败=读面保持旧 inode 连接（下次启动收敛），返回 false 让协调器
-    /// 走 activationFailed 语义（与拆分前行为逐路径等价）。
-    private func reloadStore() {
-        guard let path else { return }
-        store = try? MedicalCatalogStore(path: path) // try?-ok: 复开失败=读面保持旧连接，协调器按失败语义呈现
+    /// 复开失败=**旧 store 不动**（旧 GRDB 池继续读旧 inode，读面保持可用——
+    /// 1-vote 验证修复：此前 try? 赋值会把复开失败置成 store=nil，读面全空态），
+    /// 返回 false 让协调器走 activationFailed 语义（与拆分前行为逐路径等价）。
+    private func reloadStore() -> Bool {
+        guard let path, let reopened = try? MedicalCatalogStore(path: path) else { return false } // try?-ok: 复开失败=读面保持旧连接，协调器按失败语义呈现
+        store = reopened
         matchByLineID.removeAll()
+        return true
     }
 
     func match(_ line: PrescriptionLine) async -> MedicalCatalogMatch? {

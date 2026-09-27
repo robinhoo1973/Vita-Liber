@@ -16,7 +16,10 @@ final class MedicalCatalogUpdateCoordinator {
     private let checker: (any MedicalCatalogReleaseResolving)?
     private let opener: (any MedicalCatalogPackageOpening)?
     /// 安装成功后宿主重开读面（弱捕获——coordinator 与 state 同生命周期）。
-    private let onInstalled: (@MainActor () -> Bool)?
+    /// var（2026-09-28 CI 36347424569 修复）：宿主 init 期闭包捕获 self 会撞
+    /// Swift definite-initialization（闭包先于 `updates` 赋值捕获未初始化 self）——
+    /// 两段式装配：先构造（nil 回调）再回填。
+    var onInstalled: (@MainActor () -> Bool)?
 
     /// 远端检查态（Domain 类型：视图不 import Infrastructure，委员会 P3c 纪律）。
     var remoteState: MedicalCatalogRemoteState = .idle
@@ -139,9 +142,10 @@ final class MedicalCatalogUpdateCoordinator {
                     // 进度回调在下载/校验后台线程：hop 回主 actor 更新可感知状态。
                     Task { @MainActor in self?.updateProgress = progress }
                 }
-                // 宿主重开读面：失败与拆分前一致落入 activationFailed（复开失败=
-                // 激活结果无法确认，如实呈失败并尽力刷新本地呈现）。
-                guard onInstalled?() == true else { throw MedicalCatalogUpdateError.activationFailed }
+                // 宿主重开读面：失败须落 **generic catch**（尽力刷新本地版本/时间
+                // 的缓解正是为复开失败写的）——抛非词汇哨兵错误，避免被第一 catch
+                // （MedicalCatalogDownloadError）拦截而绕过刷新（1-vote 验证修复）。
+                guard onInstalled?() == true else { throw CatalogReopenFailure() }
                 self.localVersion = try? MedicalCatalogStore.installedVersion(path: path) // try?-ok: 复开成功即已确认，读版本失败不影响使用
                 self.localUpdatedAt = Self.fileModificationDate(path)
                 self.verifiedCandidate = nil
@@ -175,3 +179,7 @@ final class MedicalCatalogUpdateCoordinator {
         return true
     }
 }
+
+/// 复开失败哨兵（非词汇错误）：落入 generic catch 触发「尽力刷新本地版本/时间」
+/// 缓解——updateError 仍呈 .activationFailed（generic catch 置位），错误面不变。
+private struct CatalogReopenFailure: Error {}
