@@ -90,7 +90,8 @@ struct ASRModelDownloaderTransportTests {
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let partial = body.prefix(16384)
         try partial.write(to: dest)
-        try await makeDownloader().download(url: url, expectedBytes: Int64(body.count), to: dest, resumeOffset: 16384) { _ in }
+        try await makeDownloader().download(url: url, expectedBytes: Int64(body.count), to: dest,
+                                           progress: { _ in }, resumeOffset: 16384)
         #expect(try Data(contentsOf: dest) == body)
         let ranged = URLProtocolStub.requestLog.filter { $0.rangeHeader != nil }
         #expect(ranged.contains { $0.rangeHeader?.hasPrefix("bytes=16384-") == true }, "续传首段必须从偏移起步")
