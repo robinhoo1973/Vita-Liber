@@ -1038,6 +1038,16 @@ def main():
                     f" —— 改显式闭包 {{ $0.xxx }}，CI 36246531585 同族"
                 )
                 break
+        # CI 36324384565 实证：#expect 参数内 `==` 右侧 try 非法
+        # （'try' cannot appear to the right of a non-assignment operator）——
+        # Linux swift test 空编译盲区，文本扫描左移；修复 = 先 hoist 抛调再比较。
+        for raw in txt.splitlines():
+            if "#expect" in raw and re.search(r"(==|!=|&&|\|\|)\s*try\b", raw):
+                fails.append(
+                    f"{f.relative_to(root)}: #expect 参数内运算符右侧 try（非法语法，"
+                    f"CI 36324384565 实证）—— 先 hoist 抛调用为局部变量再比较"
+                )
+                break
 
     # ---- 家族 O：四域参考目录 DDL 三拷贝面漂移 —— CI 36248076043 / 测试席 F1
     # v2（2026-09-27）：除「store SELECT ⊆ 夹具列」外，增加「夹具列 == 生产 DDL 列」双向断言——

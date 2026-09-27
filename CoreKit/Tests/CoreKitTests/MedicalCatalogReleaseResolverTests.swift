@@ -112,7 +112,8 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(candidate.catalogVersion == 30)
         #expect(candidate.dataVersion == fixture.signedExpectation.dataVersion)
         #expect(candidate.schemaVersion == 5)
-        #expect(outcome.candidate == try fixture.candidate())
+        let expected = try fixture.candidate()
+        #expect(outcome.candidate == expected)
     }
 
     @Test("本地 (schemaVersion,dataVersion) 一致 → upToDate，不重复下载")
@@ -487,7 +488,8 @@ struct MedicalCatalogReleaseResolverTests {
             return
         }
         #expect(trust.observedFloor?.catalogVersion == 30)
-        #expect(trust.observedFloor?.payloadDigest == try fixture.candidate().signedPointerDigest)
+        let digest = try fixture.candidate().signedPointerDigest
+        #expect(trust.observedFloor?.payloadDigest == digest)
     }
 
     @Test("发布方回退到已见低版本 → 本机数据一致呈 upToDate")
