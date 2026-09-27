@@ -272,6 +272,8 @@
 "settings.resource.catalog.updateCompletedFmt" = "已更新至資料指紋 %@";
 "settings.resource.catalog.failedStorage" = "儲存空間不足，本機目錄仍可用";
 "settings.resource.catalog.failedRolledBack" = "發布資訊異常（疑似回退），已停止更新；本機目錄仍可用";
+"settings.resource.catalog.notConfigured" = "更新服務尚未配置，本機目錄仍可用";
+"settings.resource.catalog.notInstallable" = "發布資訊不可安裝或已過期，請重新檢查";
 "settings.resource.catalog.checkHint" = "連線公開 GitHub 取得發布資訊，不下載資料包";
 "settings.resource.catalog.updateHint" = "下載並安裝新目錄；安裝期間本機目錄保持可用";
 "settings.resource.catalog.cancelHint" = "停止更新並保留目前目錄";

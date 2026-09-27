@@ -272,6 +272,8 @@
 "settings.resource.catalog.updateCompletedFmt" = "Updated to data fingerprint %@";
 "settings.resource.catalog.failedStorage" = "Not enough storage; local catalog remains available";
 "settings.resource.catalog.failedRolledBack" = "Release information is inconsistent (possible rollback); update stopped. Local catalog remains available";
+"settings.resource.catalog.notConfigured" = "Update service is not configured; local catalog remains available";
+"settings.resource.catalog.notInstallable" = "Release information is not installable or has expired; check again";
 "settings.resource.catalog.checkHint" = "Connects to public GitHub to fetch release information; does not download the data package";
 "settings.resource.catalog.updateHint" = "Downloads and installs the new catalog; the local catalog stays available during installation";
 "settings.resource.catalog.cancelHint" = "Stops the update and keeps the current catalog";
