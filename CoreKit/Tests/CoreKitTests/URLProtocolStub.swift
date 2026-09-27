@@ -81,8 +81,10 @@ final class URLProtocolStub: URLProtocol {
             status = 206
             headers["Content-Range"] = "bytes \(range.lowerBound)-\(range.upperBound - 1)/\(script.body.count)"
         }
-        // cutAfterBytes 为一次性故障注入：同 URL 首请求才断（重试测试第二请求必须成功）
-        if let cut = script.cutAfterBytes, body.count > cut, firstRequestForURL {
+        // cutAfterBytes 为一次性故障注入：只切首个**下载**请求（HEAD 探测不受切——
+        // 否则断流落在探测上，段重试语义无从触发）；同 URL 首下载才断。
+        let isHead = request.httpMethod?.uppercased() == "HEAD"
+        if let cut = script.cutAfterBytes, body.count > cut, firstRequestForURL, !isHead {
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             let chunk = body.prefix(cut)

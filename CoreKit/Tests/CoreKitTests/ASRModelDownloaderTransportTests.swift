@@ -55,7 +55,7 @@ struct ASRModelDownloaderTransportTests {
             progress.append($0)
         }
         #expect(try Data(contentsOf: dest) == body)
-        #expect(progress.contains { $0.series == 1 }, "吞 Range 退单流必须系列换代（进度守卫病灶 1）")
+        #expect(progress.contains { $0.mode == .singleStream }, "吞 Range 必须退单流（下载器层可观察语义；series 由服务层包装）")
         #expect(progress.allSatisfy { $0.fraction <= 1.0 })
     }
 
