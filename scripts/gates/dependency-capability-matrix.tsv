@@ -2,17 +2,20 @@
 # 下已验证可编译/可测的最高钉版。L0 [18] 断言 Package.resolved 与 project.yml 的钉
 # ≤ 本矩阵（tag 语义版本比较；rev 钉必须等值）。行超前于钉 = 未验证状态，禁止。
 # 更新纪律：升版必须随 PR 携带对应 CI 全绿证据；矩阵行由 PR 作者在同一 PR 内改。
-# 列：package | xcode26_max | linux_max | 形态 | 引入路径（direct/transitive）
-swift-collections	1.6.0	1.6.0	tag	transitive(swift-nio from:1.1.0)
-swift-nio	2.103.0	2.103.0	tag	transitive(agekit)
-swift-atomics	1.3.1	1.3.1	tag	transitive(swift-nio)
-swift-system	1.8.1	1.8.1	tag	transitive(swift-nio)
-swift-extras-base64	0.7.0	0.7.0	tag	transitive(swift-nio)
-swift-scrypt	1.0.2	1.0.2	tag	transitive(agekit)
-zipfoundation	0.9.20	0.9.20	tag	direct
-grdb.swift	6.29.3	6.29.3	tag	direct
-agekit	7d3a1c53d056	7d3a1c53d056	rev	direct
-onnxruntime-libs	8ebc5ebf9219	8ebc5ebf9219	rev	direct
-sherpa-onnx	5e4232db78d0	5e4232db78d0	rev	direct
-swift-perception	2.0.12	2.0.12	exact	direct(project.yml)
-xctest-dynamic-overlay	1.13.1	1.13.1	exact	direct(project.yml)
+# 列：package | xcode26_swiftpm | xcode26_xcodebuild | linux | 形态 | 引入路径
+# xcodebuild 面独立成列：Xcode 包集成忽略 SPM extraSettings（Lifetimes/BuiltinModule
+# 等实验特性在 SPM CLI 绿、xcodebuild 红——CI 36281992182 实证），必须经
+# build-for-testing 真实编译才算已验证。
+swift-collections	1.2.1	1.2.1	1.2.1	tag	transitive(swift-nio from:1.1.0)
+swift-nio	2.103.0	2.103.0	2.103.0	tag	transitive(agekit)
+swift-atomics	1.3.1	1.3.1	1.3.1	tag	transitive(swift-nio)
+swift-system	1.8.1	1.8.1	1.8.1	tag	transitive(swift-nio)
+swift-extras-base64	0.7.0	0.7.0	0.7.0	tag	transitive(swift-nio)
+swift-scrypt	1.0.2	1.0.2	1.0.2	tag	transitive(agekit)
+zipfoundation	0.9.20	0.9.20	0.9.20	tag	direct
+grdb.swift	6.29.3	6.29.3	6.29.3	tag	direct
+agekit	7d3a1c53d056	7d3a1c53d056	7d3a1c53d056	rev	direct
+onnxruntime-libs	8ebc5ebf9219	8ebc5ebf9219	8ebc5ebf9219	rev	direct
+sherpa-onnx	5e4232db78d0	5e4232db78d0	5e4232db78d0	rev	direct
+swift-perception	2.0.12	2.0.12	2.0.12	exact	direct(project.yml)
+xctest-dynamic-overlay	1.13.1	1.13.1	1.13.1	exact	direct(project.yml)

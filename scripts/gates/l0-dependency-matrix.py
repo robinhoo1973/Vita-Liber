@@ -30,7 +30,7 @@ def load_matrix():
         parts = line.split("\t")
         if len(parts) < 5:
             continue
-        rows[parts[0]] = {"xcode26": parts[1], "linux": parts[2], "form": parts[3], "path": parts[4]}
+        rows[parts[0]] = {"xcode26": parts[1], "xcodebuild": parts[2], "linux": parts[3], "form": parts[4], "path": parts[5]}
     return rows
 
 
@@ -56,7 +56,7 @@ def main():
             continue
         row = matrix[identity]
         if "version" in state and state["version"]:
-            for face in ("xcode26", "linux"):
+            for face in ("xcode26", "xcodebuild", "linux"):
                 if semver(state["version"]) > semver(row[face]):
                     fails.append(
                         f"{identity}: pin {state['version']} > {face} 上限 {row[face]}"
