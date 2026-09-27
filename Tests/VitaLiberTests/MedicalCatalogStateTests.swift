@@ -172,7 +172,7 @@ final class MedicalCatalogStateTests: XCTestCase {
 
     func testCheck_updateAvailable_holdsCandidate() async throws {
         let checker = StubChecker()
-        await checker.set(updateAvailableOutcome())
+        await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
         let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
         state.check()
@@ -262,7 +262,7 @@ final class MedicalCatalogStateTests: XCTestCase {
 
     func testApplyUpdate_fetchFailure_setsErrorAndKeepsCandidate() async throws {
         let checker = StubChecker()
-        await checker.set(updateAvailableOutcome())
+        await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
         let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
         state.check()
@@ -282,7 +282,7 @@ final class MedicalCatalogStateTests: XCTestCase {
 
     func testApplyUpdate_cancelled_setsCancelledError() async throws {
         let checker = StubChecker()
-        await checker.set(updateAvailableOutcome())
+        await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: GatedFetcher())
         let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
                                         checker: checker, opener: NoopOpener())
