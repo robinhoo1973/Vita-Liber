@@ -475,6 +475,7 @@ extension L10n {
         "settings.resource.installed",
         "settings.resource.notInstalled",
         "settings.resource.bundled",
+        "settings.resource.phase.waiting",
         "settings.resource.phase.downloading",
         "settings.resource.phase.verifying",
         "settings.resource.phase.unpacking",

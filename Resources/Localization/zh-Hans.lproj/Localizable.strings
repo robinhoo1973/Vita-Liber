@@ -237,6 +237,7 @@
 "settings.resource.installed" = "已安装";
 "settings.resource.notInstalled" = "未安装";
 "settings.resource.bundled" = "随包内置";
+"settings.resource.phase.waiting" = "等待中";
 "settings.resource.phase.downloading" = "下载中";
 "settings.resource.phase.verifying" = "校验中";
 "settings.resource.phase.unpacking" = "解压中";

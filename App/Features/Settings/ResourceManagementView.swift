@@ -118,7 +118,8 @@ struct ResourceManagementView: View {
         }
     }
 
-    private func phaseText(_ phase: ASRModelDownloadService.InstallPhase) -> String {
+    private func phaseText(_ phase: ASRModelDownloadService.InstallPhase?) -> String {
+        guard let phase else { return L10n.resourcePhaseWaiting }
         switch phase {
         case .downloading: return L10n.resourcePhaseDownloading
         case .verifying: return L10n.resourcePhaseVerifying

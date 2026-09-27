@@ -237,6 +237,7 @@
 "settings.resource.installed" = "Installed";
 "settings.resource.notInstalled" = "Not installed";
 "settings.resource.bundled" = "Bundled";
+"settings.resource.phase.waiting" = "Waiting";
 "settings.resource.phase.downloading" = "Downloading";
 "settings.resource.phase.verifying" = "Verifying";
 "settings.resource.phase.unpacking" = "Unpacking";
