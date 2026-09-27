@@ -46,7 +46,7 @@ struct MedicalCatalogFetcherTransportTests {
         let name = "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin"
         let url = assetURL(name)
         URLProtocolStub.reset(host: "github.com")
-        URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body, failBeforeResponse: true)
+        URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body, failEveryRequest: true)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())

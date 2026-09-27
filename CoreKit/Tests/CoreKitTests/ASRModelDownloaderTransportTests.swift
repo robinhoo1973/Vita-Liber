@@ -67,7 +67,7 @@ struct ASRModelDownloaderTransportTests {
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/fail.bin")!
         URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
-            headers: ["Accept-Ranges": "bytes"], body: body, failBeforeResponse: true)
+            headers: ["Accept-Ranges": "bytes"], body: body, failEveryRequest: true)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         var progress: [ASRModelDownloadService.DownloadProgress] = []
