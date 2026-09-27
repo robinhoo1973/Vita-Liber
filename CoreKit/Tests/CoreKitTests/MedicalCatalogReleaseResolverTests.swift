@@ -405,16 +405,19 @@ struct MedicalCatalogReleaseResolverTests {
                             newRequest: URLRequest(url: evil)) { box.set($0) }
         #expect(box.called && box.value == nil)
 
-        // 跳数上限：连续放行 5 次后第 6 次拒绝
+        // 跳数上限：独立 delegate（上方 evil 拒绝已消耗 1 跳计数）——连续放行
+        // maxRedirects 次后下一次拒绝
+        let hopDelegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10,
+                                                            allowsURL: { $0.host == "api.github.com" })
         for _ in 0..<MedicalCatalogBoundedDataDelegate.maxRedirects {
             let hop = RequestBox()
-            delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
-                                newRequest: URLRequest(url: github)) { hop.set($0) }
+            hopDelegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                                   newRequest: URLRequest(url: github)) { hop.set($0) }
             #expect(hop.called && hop.value != nil)
         }
         let final = RequestBox()
-        delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
-                            newRequest: URLRequest(url: github)) { final.set($0) }
+        hopDelegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
+                               newRequest: URLRequest(url: github)) { final.set($0) }
         #expect(final.called && final.value == nil)
         task.cancel()
     }
