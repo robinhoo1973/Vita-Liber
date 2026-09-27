@@ -23,12 +23,25 @@ final class URLProtocolStub: URLProtocol {
         var redirectTo: URL? = nil
     }
 
-    static var scripts: [URL: Script] = [:]
-    static var requestLog: [(url: URL, rangeHeader: String?)] = []
+    /// 2026-09-27 CI 36302543076 实证：.serialized 只串行套件内——两传输套件之间仍并行，
+    /// 共享静态字典的并发变异导致进程级内存损坏（SIGSEGV 落在无关测试上）。锁保护。
+    private static let lock = NSLock()
+    private static var _scripts: [URL: Script] = [:]
+    private static var _requestLog: [(url: URL, rangeHeader: String?)] = []
+
+    static var scripts: [URL: Script] {
+        get { lock.lock(); defer { lock.unlock() }; return _scripts }
+        set { lock.lock(); defer { lock.unlock() }; _scripts = newValue }
+    }
+    static var requestLog: [(url: URL, rangeHeader: String?)] {
+        get { lock.lock(); defer { lock.unlock() }; return _requestLog }
+        set { lock.lock(); defer { lock.unlock() }; _requestLog = newValue }
+    }
 
     static func reset() {
-        scripts = [:]
-        requestLog = []
+        lock.lock(); defer { lock.unlock() }
+        _scripts = [:]
+        _requestLog = []
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
