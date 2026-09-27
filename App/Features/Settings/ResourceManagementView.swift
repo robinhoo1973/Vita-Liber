@@ -114,18 +114,18 @@ struct ResourceManagementView: View {
         } footer: {
             Text(L10n.resourceCatalogPrivacy)
         }
-        .onChangeCompat(of: catalogUpdatePhaseKey) { _ in
+        .onChangeCompat(of: catalogUpdatePhaseKey) { _, _ in
             if let progress = catalogState.updateProgress {
                 UIAccessibility.post(notification: .announcement, argument: catalogPhaseText(progress))
             }
         }
-        .onChangeCompat(of: catalogState.updateCompletedDataVersion) { version in
+        .onChangeCompat(of: catalogState.updateCompletedDataVersion) { _, version in
             if let version {
                 UIAccessibility.post(notification: .announcement,
                                      argument: L10n.resourceCatalogUpdateCompletedFmt(String(version.prefix(8))))
             }
         }
-        .onChangeCompat(of: catalogState.updateError) { error in
+        .onChangeCompat(of: catalogState.updateError) { _, error in
             if let error {
                 UIAccessibility.post(notification: .announcement, argument: updateErrorText(error))
             }
@@ -267,7 +267,7 @@ struct ResourceManagementView: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .contain)
-        .accessibilityValue(percentText(progress))
+        .accessibilityValue(percentText(progress) ?? "")
         .accessibilityIdentifier("SP-64.medicalCatalog.progress")
         .accessibilityAddTraits(.updatesFrequently)
     }
