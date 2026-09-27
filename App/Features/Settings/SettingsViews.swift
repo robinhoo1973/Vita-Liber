@@ -107,6 +107,11 @@ struct SettingsView: View {
                         Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
                     }
                     .accessibilityIdentifier("SP-25.settings.appleHealth")
+                    // SP-64 统一资源管理页入口（2026-09-27 业主定案）
+                    NavigationLink(value: AppRoute.resourceManagement) {
+                        Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
+                    }
+                    .accessibilityIdentifier("SP-64.settings.resources")
                     // mock 对齐项：语音指导模式入口（FR17.11 档案完善/修改，可语音可手输）
                     NavigationLink(value: AppRoute.voiceGuideProfile) {
                         Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")

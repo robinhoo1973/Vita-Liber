@@ -67,6 +67,23 @@ extension L10n {
         static var settings_authTitle: String { t("settings.authTitle") }
 
     static var settings_habits: String { t("settings.habits") }
+    // SP-64 统一「模型与数据资源」管理页（2026-09-27 业主定案）
+    static var resourceManagementTitle: String { t("settings.resourceManagement") }
+    static var resourceActiveTitle: String { t("settings.resource.active") }
+    static var resourceCatalogTitle: String { t("settings.resource.catalog") }
+    static var resourceCatalogRow: String { t("settings.resource.catalogRow") }
+    static var resourceT2Row: String { t("settings.resource.t2Row") }
+    static var resourceInstalled: String { t("settings.resource.installed") }
+    static var resourceNotInstalled: String { t("settings.resource.notInstalled") }
+    static var resourceBundled: String { t("settings.resource.bundled") }
+    static var resourcePhaseDownloading: String { t("settings.resource.phase.downloading") }
+    static var resourcePhaseVerifying: String { t("settings.resource.phase.verifying") }
+    static var resourcePhaseUnpacking: String { t("settings.resource.phase.unpacking") }
+    static var resourcePhaseActivating: String { t("settings.resource.phase.activating") }
+    static var resourcePhasePruning: String { t("settings.resource.phase.pruning") }
+    static func resourceProgressBytes(_ received: Int64, _ total: Int64) -> String {
+        String(format: t("settings.resource.progressBytesFmt"), received, total)
+    }
 
     static var settings_pro: String { t("settings.pro") }
 

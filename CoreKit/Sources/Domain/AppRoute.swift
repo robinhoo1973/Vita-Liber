@@ -85,6 +85,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
 
     // ---- F16 设备预警 ----
     case deviceConnection                // SP-29
+    case resourceManagement              // SP-64 统一「模型与数据资源」管理页（2026-09-27 业主定案）
     /// SP-29 子页「某类已导入数据」（FR7.9/FR16.1）。2026-09-15 审查修复：该页此前
     /// 只经**闭包目的地** NavigationLink 推入，不在 `healthPath` 内——而本 Tab 的
     /// NavigationStack 是 `path:` 绑定的（RootAdaptiveView §5.45），页内再以

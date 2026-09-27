@@ -131,6 +131,8 @@ struct RouteDestinationView: View {
                 AlertEvidenceRouteView(patientId: patient, eventId: event)
             case .deviceConnection:
                 DeviceConnectionView()
+            case .resourceManagement:
+                ResourceManagementView()
             case .healthImportedData(let kind, let patientId):
                 // SP-29 子页（FR7.9/FR16.1）：身份由路由载荷携带（= 本人绑定，BR-001），
                 // 不再经闭包目的地推入——该页因此可被通知深链/跨启动路径恢复寻址，
