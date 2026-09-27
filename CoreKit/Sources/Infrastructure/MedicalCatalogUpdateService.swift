@@ -1,4 +1,5 @@
 import Foundation
+import Domain
 
 /// 包解密 + 解包端口；identity 由 App 发布配置注入，更新服务本身不保存/生成私钥。
 /// 实现须把解出的 SQLite 限制在 `maxSQLiteBytes` 内。
@@ -40,28 +41,9 @@ public struct MedicalCatalogUpdateLimits: Sendable, Equatable {
                                                             maxSQLiteBytes: 4_294_967_296)
 }
 
-public enum MedicalCatalogUpdateProgress: Sendable, Equatable {
-    case downloading(receivedBytes: Int64, totalBytes: Int64)
-    case verifying
-    case activating
-}
+public typealias MedicalCatalogUpdateProgress = MedicalCatalogDownloadProgress  // P3c 升层 Domain，别名兼容
 
-public enum MedicalCatalogUpdateError: Error, Equatable {
-    case catalogNotInstallable
-    case updateInProgress
-    case packageTooLarge
-    case insufficientStorage
-    case downloadFailed
-    case redirectRejected
-    case checksumMismatch
-    case packageInvalid
-    case catalogIntegrityFailed
-    case activationFailed
-    case cancelled
-    /// 反回退 floor 拒绝（更低 catalogVersion，或同版本出现不同签名 digest——
-    /// 发布方或传输层已不可信），不进入下载。
-    case catalogRolledBack
-}
+public typealias MedicalCatalogUpdateError = MedicalCatalogDownloadError  // P3c 升层 Domain，别名兼容
 
 /// 本机已激活目录库的身份（取自 `catalog_meta`）。
 public struct MedicalCatalogInstalledVersion: Sendable, Equatable {

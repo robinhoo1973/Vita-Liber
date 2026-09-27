@@ -23,36 +23,9 @@ public actor ASRModelDownloadService {
     /// 传输形态已迁 Domain（委员会 P3b）——保留类型别名兼容既有调用面。
     public typealias DownloadMode = ASRDownloadMode
 
-    public struct DownloadProgress: Sendable, Equatable {
-        public var receivedBytes: Int64
-        public var totalBytes: Int64
-        /// 传输形态；`nil` = 尚未确定。
-        public var mode: DownloadMode? = nil
-        /// 进度系列代次（审查修复 2026-09-18）：同一 totalBytes 的**重启系列**
-        /// （分段被服务端吞 Range 后单流从 0 重计 / 校验/解压阶段从 0 重计）
-        /// 必须换代——消费侧单调守卫按系列比较：跨系列一律放行，同系列内
-        /// 才判「不增丢弃」。此前无此字段，单流重建计数器的每一次回调
-        /// （received 从 0 爬起）都被判成「旧值」丢弃，进度条钉死在分段
-        /// 峰值数分钟——业主实测「进度条无反应、百分比不变化」。
-        public var series: Int = 0
-        /// 2026-09-20 修复：钳制 0…1——分段尝试回滚/计数修正可使 received 短时超过 total
-        /// （fraction > 1 喂给 `ProgressView(value:)` 属契约外输入，渲染未定义）。
-        public var fraction: Double { totalBytes > 0 ? min(1, Double(receivedBytes) / Double(totalBytes)) : 0 }
-    }
+    public typealias DownloadProgress = ASRDownloadProgress  // P3c 升层 Domain，别名兼容
 
-    public enum Failure: Error, Equatable {
-        case badIndex          // 索引不合法/结构版本不支持
-        case notPublished      // 条目未发布（空 sha256 / 零字节）
-        case untrustedPackage  // 未登记于**构建期信任锚**或哈希不一致（fail closed）
-        case badAddress        // URL 无法解析
-        case badResponse(Int)  // 非 2xx
-        case sizeMismatch      // 下载字节数与索引不符
-        case checksumMismatch  // 整包 SHA-256 不符
-        case unzipFailed
-        case invalidPackage    // 包内 manifest/文件校验失败（ASRModelAssets 拒绝）
-        case installFailed
-        case installInProgress // 已有安装进行中（actor 级互斥，防跨视图实例竞态）
-    }
+    public typealias Failure = ASRDownloadFailure  // P3c 升层 Domain，别名兼容（含 .insufficientStorage）
 
     struct ActivePointer: Codable, Sendable {
         var choice: String
@@ -228,13 +201,7 @@ public actor ASRModelDownloadService {
     /// 安装阶段（业主 2026-09-16 实测：此前只有下载阶段有进度，校验/解压/激活
     /// 长时间无反馈——慢链路下用户判定「卡死」）。UI 按阶段展示确定进度（下载）
     /// 或不确定进度 + 阶段文案。
-    public enum InstallPhase: String, Sendable, Equatable {
-        case downloading
-        case verifying
-        case unpacking
-        case activating
-        case pruning
-    }
+    public typealias InstallPhase = ASRInstallPhase  // P3c 升层 Domain，别名兼容
 
     /// 下载 → 校验 → 解压 → 包内校验 → 原子切换。返回安装后的版本目录。
     /// `onPhase` 逐阶段回调（主线程无保证，调用方自行 hop）。
