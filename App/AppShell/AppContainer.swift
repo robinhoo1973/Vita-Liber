@@ -83,6 +83,12 @@ struct AppContainer {
     /// 反回退 floor（TrustStore）由 updater 内部持有并在 update() 入口消费——
     /// 不再在容器上开第二条引用（扫尾修复：双引用在降级路径上可分歧）。
     let medicalCatalogUpdater: MedicalCatalogUpdateService?
+    /// SP-64 手动检查 resolver（2026-09-27）：pinned root 由 bundle 发布配置注入；
+    /// provisioning 前为 nil——检查 fail-closed 呈「暂不可用」，绝不联网。
+    let medicalCatalogChecker: (any MedicalCatalogReleaseResolving)?
+    /// SP-64 更新解包 opener（2026-09-27）：age identity 由 bundle 发布配置注入；
+    /// 缺省 nil → 更新入口 fail-closed（packageInvalid），last-good 不受影响。
+    let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
     // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
     /// FR13.1/13.2 PDF 导出（SP-22）
@@ -143,8 +149,31 @@ struct AppContainer {
             // irrecoverable 从不静默吞掉（本处吞的是「目录功能」，不是状态）。
             logger.error("医疗目录恢复失败，目录功能降级: \(String(describing: error))")
         }
+        // SP-64 检查/更新链（2026-09-27）：pinned root 与 age identity 随发布配置
+        // provisioning 注入 bundle；provisioning 前资源缺省 → checker/opener 为 nil，
+        // 检查/更新 fail-closed（「暂不可用」/ packageInvalid），本机 last-good 不受影响。
+        let catalogChecker: (any MedicalCatalogReleaseResolving)?
+        let catalogOpener: (any MedicalCatalogPackageOpening)?
+        #if os(iOS) || os(macOS)
+        let catalogRoot = bundledData("MedicalCatalogRoot", "json")
+        let catalogIdentity = bundledData("MedicalCatalogAgeIdentity", "txt")
+            .flatMap { String(data: $0, encoding: .utf8) }
+        catalogChecker = catalogRoot.map { root in
+            MedicalCatalogReleaseResolver(pinnedRootJSON: root,
+                                          makeVerifier: { CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: $0) },
+                                          hasher: CryptoKitContentHasher(),
+                                          trust: catalogTrust,
+                                          localVersion: { try? MedicalCatalogStore.installedVersion(path: catalogPath) }) // try?-ok: 读版本失败=按「无本地版本」处理，检查仍可用
+        }
+        catalogOpener = catalogIdentity.map { AgeKitMedicalCatalogPackageOpening(identityText: $0) }
+        #else
+        catalogChecker = nil
+        catalogOpener = nil
+        #endif
         return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
-                        medicalCatalogUpdater: updater)
+                        medicalCatalogUpdater: updater,
+                        medicalCatalogChecker: catalogChecker,
+                        medicalCatalogOpener: catalogOpener)
     }
 
     /// 生产投递门统一装配（live 与降级路径共用）——装饰器链只此一处定义：
@@ -200,7 +229,9 @@ struct AppContainer {
                                  mediaBaseDir: URL? = nil,
                                  degradedReason: String? = nil,
                                  medicalCatalog: MedicalCatalogStore? = nil,
-                                 medicalCatalogUpdater: MedicalCatalogUpdateService? = nil) -> AppContainer {
+                                 medicalCatalogUpdater: MedicalCatalogUpdateService? = nil,
+                                 medicalCatalogChecker: (any MedicalCatalogReleaseResolving)? = nil,
+                                 medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
         EngineRegistry.shared.registerDefaultEngines()
@@ -304,6 +335,8 @@ struct AppContainer {
                              backup: backup,
                              medicalCatalog: medicalCatalog,
                              medicalCatalogUpdater: medicalCatalogUpdater,
+                             medicalCatalogChecker: medicalCatalogChecker,
+                             medicalCatalogOpener: medicalCatalogOpener,
                              pdfExport: pdfExport,
                             healthReader: healthReader,
                             healthSync: healthSync)
@@ -323,6 +356,13 @@ struct AppContainer {
         do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         catch { /* 目录创建失败由 GRDB 打开时报错，不在此吞掉 */ }
         return dir.appendingPathComponent("vitaliber.sqlite").path
+    }
+
+    /// bundle 发布配置资源（SP-64 信任锚/age identity）；缺省/不可读 = 未配置，
+    /// 检查 fail-closed 不阻断启动（未配置≠网络错误，UI 呈「暂不可用」）。
+    private static func bundledData(_ resource: String, _ ext: String) -> Data? {
+        guard let url = Bundle.main.url(forResource: resource, withExtension: ext) else { return nil }
+        return try? Data(contentsOf: url) // try?-ok: 资源读取失败=按「未配置」fail-closed，不阻断启动
     }
 
     /// 独立药品目录文件：可原子替换/回滚，不触碰患者主库。

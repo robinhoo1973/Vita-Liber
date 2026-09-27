@@ -82,9 +82,86 @@ extension L10n {
     static var resourcePhaseUnpacking: String { t("settings.resource.phase.unpacking") }
     static var resourcePhaseActivating: String { t("settings.resource.phase.activating") }
     static var resourcePhasePruning: String { t("settings.resource.phase.pruning") }
-    static func resourceProgressBytes(_ received: Int64, _ total: Int64) -> String {
+    static func resourceProgressBytes(_ received: String, _ total: String) -> String {
         String(format: t("settings.resource.progressBytesFmt"), received, total)
     }
+
+    // SP-64 医疗目录检查/更新（2026-09-27 B2-3）：本地与远端状态分离、检查→独立更新
+    static var resourceCatalogLocalLabel: String { t("settings.resource.catalog.local") }
+
+    static func resourceCatalogLocalVersionFmt(_ version: String) -> String {
+        String(format: t("settings.resource.catalog.localVersionFmt"), version)
+    }
+
+    static func resourceCatalogLocalUpdatedFmt(_ time: String) -> String {
+        String(format: t("settings.resource.catalog.localUpdatedFmt"), time)
+    }
+
+    static var resourceCatalogNotAvailable: String { t("settings.resource.catalog.notAvailable") }
+
+    static var resourceCatalogCheck: String { t("settings.resource.catalog.check") }
+
+    static var resourceCatalogRecheck: String { t("settings.resource.catalog.recheck") }
+
+    static var resourceCatalogUpdate: String { t("settings.resource.catalog.update") }
+
+    static var resourceCatalogChecking: String { t("settings.resource.catalog.checking") }
+
+    static var resourceCatalogUpToDate: String { t("settings.resource.catalog.upToDate") }
+
+    static func resourceCatalogUpdateAvailableFmt(_ version: Int64) -> String {
+        String(format: t("settings.resource.catalog.updateAvailableFmt"), version)
+    }
+
+    static func resourceCatalogCandidateDetailFmt(_ fingerprint: String, _ size: String) -> String {
+        String(format: t("settings.resource.catalog.candidateDetailFmt"), fingerprint, size)
+    }
+
+    static func resourceCatalogUpdateCompletedFmt(_ fingerprint: String) -> String {
+        String(format: t("settings.resource.catalog.updateCompletedFmt"), fingerprint)
+    }
+
+    static var resourceCatalogNoInstallable: String { t("settings.resource.catalog.noInstallable") }
+
+    static var resourceCatalogUnavailable: String { t("settings.resource.catalog.unavailable") }
+
+    static var resourceCatalogRateLimited: String { t("settings.resource.catalog.rateLimited") }
+
+    static func resourceCatalogRateLimitedFmt(_ relative: String) -> String {
+        String(format: t("settings.resource.catalog.rateLimitedFmt"), relative)
+    }
+
+    static var resourceCatalogVerificationFailed: String { t("settings.resource.catalog.verificationFailed") }
+
+    static var resourceCatalogNetworkUnavailable: String { t("settings.resource.catalog.networkUnavailable") }
+
+    static var resourceCatalogUpdateCancelled: String { t("settings.resource.catalog.updateCancelled") }
+
+    static var resourceCatalogUpdateFailed: String { t("settings.resource.catalog.updateFailed") }
+
+    static var resourceCatalogFailedStorage: String { t("settings.resource.catalog.failedStorage") }
+
+    static var resourceCatalogFailedRolledBack: String { t("settings.resource.catalog.failedRolledBack") }
+
+    static var resourceCatalogCheckHint: String { t("settings.resource.catalog.checkHint") }
+
+    static var resourceCatalogUpdateHint: String { t("settings.resource.catalog.updateHint") }
+
+    static var resourceCatalogCancelHint: String { t("settings.resource.catalog.cancelHint") }
+
+    static var resourceCatalogCancelCheckHint: String { t("settings.resource.catalog.cancelCheckHint") }
+
+    static var resourceCatalogPhaseDownloading: String { t("settings.resource.catalog.phase.downloading") }
+
+    static var resourceCatalogPhaseVerifyingPackage: String { t("settings.resource.catalog.phase.verifyingPackage") }
+
+    static var resourceCatalogPhaseDecrypting: String { t("settings.resource.catalog.phase.decrypting") }
+
+    static var resourceCatalogPhaseVerifyingCatalog: String { t("settings.resource.catalog.phase.verifyingCatalog") }
+
+    static var resourceCatalogPhaseActivating: String { t("settings.resource.catalog.phase.activating") }
+
+    static var resourceCatalogPrivacy: String { t("settings.resource.catalog.privacy") }
 
     static var settings_pro: String { t("settings.pro") }
 

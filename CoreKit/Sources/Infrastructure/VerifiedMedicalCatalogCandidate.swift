@@ -160,6 +160,40 @@ public protocol MedicalCatalogTrustVerifying: Sendable {
     func verify(catalogJSON: Data, expected: MedicalCatalogSignedExpectation) throws
 }
 
+#if DEBUG
+extension VerifiedMedicalCatalogCandidate {
+    /// 仅测试/Debug 构建的候选构造面（2026-09-27，App 层状态机测试所需）：
+    /// Release 构建不含本方法，「候选只能由 resolver 验签后产出」的密封不变量
+    /// 保持完整（同 `FakeGateUnlocker` 的 DEBUG 测试桩先例）。构造走真实
+    /// `MedicalCatalogSignedPointer.decode` 路径——字段仍受全部合法性校验
+    /// （digest 形态/资产名文法/时间窗），测试值不合法即抛。
+    public static func testing(catalogVersion: Int64, dataVersion: String, schemaVersion: Int,
+                               packageAssetName: String, packageSize: Int64, packageSHA256: String,
+                               sqliteSHA256: String, installable: Bool, issuedAt: Date, expiresAt: Date,
+                               signedPointerDigest: String) throws -> VerifiedMedicalCatalogCandidate {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        let fields: [String: Any] = [
+            "schemaVersion": 1, "role": "catalog", "app": MedicalCatalogReleaseProtocol.app,
+            "assetKind": MedicalCatalogReleaseProtocol.assetKind, "rootVersion": 1,
+            "catalogVersion": catalogVersion,
+            "issuedAt": formatter.string(from: issuedAt), "expiresAt": formatter.string(from: expiresAt),
+            "sqliteSha256": sqliteSHA256, "packageSha256": packageSHA256, "packageSize": packageSize,
+            "packageAssetName": packageAssetName, "fetchStateSha256": signedPointerDigest,
+            "installable": installable, "contentSha256": dataVersion, "manifestSha256": signedPointerDigest,
+            "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
+            "releaseTag": MedicalCatalogReleaseProtocol.releaseTag,
+            "repository": MedicalCatalogReleaseProtocol.repository,
+        ]
+        let payload = try JSONSerialization.data(withJSONObject: fields)
+        let pointer = try MedicalCatalogSignedPointer.decode(payload)
+        let expectation = MedicalCatalogSignedExpectation(pointer, signedPointerDigest: signedPointerDigest)
+        return VerifiedMedicalCatalogCandidate(verified: expectation)
+    }
+}
+#endif
+
 /// 未验签的 pointer 解码：字段/时间窗/资产名绑定。签名与 pin 由 verifier 负责。
 public enum MedicalCatalogSignedPointerDecoder {
     public static func expectation(catalogJSON: Data, servedAs assetName: String, now: Date,

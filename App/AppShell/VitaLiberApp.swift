@@ -53,7 +53,9 @@ struct VitaLiberApp: App {
         _medicalCatalogState = State(initialValue: MedicalCatalogState(
             store: container.medicalCatalog,
             updater: container.medicalCatalogUpdater,
-            path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath())))
+            path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
+            checker: container.medicalCatalogChecker,
+            opener: container.medicalCatalogOpener))
         let appRouter = AppRouter()
         self.router = appRouter
         let delegate = AppNotificationDelegate(router: appRouter)

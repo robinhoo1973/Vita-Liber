@@ -15,6 +15,12 @@ import Foundation
 /// 落盘用同目录 `rename(2)` 原子替换，版本化 + 限长 JSON；状态损坏/缺失按
 /// 「尚无 floor」处理——与 `ModelCatalogTrustStore` 同一先例：本机状态丢失只回到
 /// 首次安装态，不构成越权（沙盒内文件系统层面能篡改此文件的攻击者本就能替换整个 App）。
+///
+/// 操作注记（2026-09-27 评审，业主已裁决接受的行为边界）：floor 在**检查验签通过**
+/// 即推进（与安装结果无关）——若发布方对同一 catalogVersion 重新签发不同 digest，
+/// 本机将呈 verificationFailed（equivocation）；若仅目录文件被清而 floor 留存，
+/// 将呈 noInstallableAvailable。恢复路径 = 发布方升版（正常 publish）或清数据；
+/// 无需运维动作，且不构成安全洞（fail-closed）。
 public final class MedicalCatalogTrustStore: @unchecked Sendable {
     public enum Failure: Error, Equatable {
         /// 唯一入口收到 `installable == false`（progress pointer）——API 级拒绝，

@@ -9,9 +9,10 @@ extension MedicalCatalogUpdateService {
                 fetcher: any MedicalCatalogPackageFetching = URLSessionMedicalCatalogPackageFetcher(),
                 journal: (any MedicalCatalogActivationJournaling)? = nil,
                 limits: MedicalCatalogUpdateLimits = .standard,
-                trust: MedicalCatalogTrustStore? = nil) {
+                trust: MedicalCatalogTrustStore? = nil,
+                now: @escaping @Sendable () -> Date = { Date() }) {
         self.init(destination: destination, fetcher: fetcher, journal: journal, limits: limits,
-                  activeCheck: { try MedicalCatalogStore.smokeCheck(path: $0) }, trust: trust)
+                  activeCheck: { try MedicalCatalogStore.smokeCheck(path: $0) }, trust: trust, now: now)
     }
 
     /// 下载 → 包 size/SHA → 解密解包 → SQLite size/SHA → 发布门 + 代表性查询 → 同卷 staging
@@ -20,6 +21,10 @@ extension MedicalCatalogUpdateService {
                        opener: any MedicalCatalogPackageOpening,
                        progress: @escaping @Sendable (MedicalCatalogUpdateProgress) -> Void = { _ in }) async throws {
         guard candidate.installable else { throw MedicalCatalogUpdateError.catalogNotInstallable }
+        // expiry 复查（2026-09-27 评审修复）：时间窗此前只在检查期查（checkWindow），
+        // 检查→更新分离状态下候选可在页面上停留数日——「expiry 约束 App 安装
+        // 新鲜度」（§5.53）必须约束到安装入口，而不是只约束检查时刻。
+        guard candidate.expiresAt > now() else { throw MedicalCatalogUpdateError.catalogNotInstallable }
         guard !isUpdating else { throw MedicalCatalogUpdateError.updateInProgress }
         isUpdating = true
         defer { isUpdating = false }
@@ -64,13 +69,14 @@ extension MedicalCatalogUpdateService {
         }
         try Self.checkCancellation()
 
-        progress(.verifying)
+        progress(.verifyingPackage)
         guard try Self.size(of: package, failing: .downloadFailed) == candidate.packageSize,
               try await Self.sha256(of: package) == candidate.packageSHA256 else {
             throw MedicalCatalogUpdateError.checksumMismatch
         }
         try Self.checkCancellation()
 
+        progress(.decrypting)
         let sqlite = work.appendingPathComponent(MedicalCatalogReleaseProtocol.sqliteEntryName)
         do {
             try await opener.open(packageURL: package, sqliteURL: sqlite, maxSQLiteBytes: limits.maxSQLiteBytes)
@@ -83,6 +89,7 @@ extension MedicalCatalogUpdateService {
         guard try await Self.sha256(of: sqlite) == candidate.sqliteSHA256 else {
             throw MedicalCatalogUpdateError.checksumMismatch
         }
+        progress(.verifyingCatalog)
         do {
             try await Task.detached(priority: .userInitiated) {
                 // 审查修复（2026-09-26）：合并为单次只读打开的完整发布门，

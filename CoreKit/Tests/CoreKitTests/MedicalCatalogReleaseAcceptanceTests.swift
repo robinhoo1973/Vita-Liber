@@ -161,6 +161,17 @@ struct MedicalCatalogReleaseAcceptanceTests {
         #expect(opener.openCount == 0)
     }
 
+    /// 进度 → 阶段键（五阶段顺序钉用；2026-09-27 评审补）。
+    private static func phaseKey(_ progress: MedicalCatalogUpdateProgress) -> String {
+        switch progress {
+        case .downloading: return "downloading"
+        case .verifyingPackage: return "verifyingPackage"
+        case .decrypting: return "decrypting"
+        case .verifyingCatalog: return "verifyingCatalog"
+        case .activating: return "activating"
+        }
+    }
+
     @Test("verified package activates atomically after every gate, journal brackets the swap")
     func validPackageActivates() async throws {
         let fixture = try MedicalCatalogFixture.make()
@@ -185,10 +196,35 @@ struct MedicalCatalogReleaseAcceptanceTests {
         #expect(fixture.sha256(backup) == MedicalCatalogFixture.oldCatalogSHA256)
         #expect(events.values.first == .downloading(receivedBytes: 0, totalBytes: candidate.packageSize))
         #expect(events.values.last == .activating)
+        // 五阶段顺序钉（2026-09-27 评审补）：阶段只前进不回退，防重排回归
+        // （downloading 按进度多次上报，相邻去重后比较）。
+        var distinct: [String] = []
+        for phase in events.values.map(Self.phaseKey) where distinct.last != phase {
+            distinct.append(phase)
+        }
+        #expect(distinct == ["downloading", "verifyingPackage", "decrypting", "verifyingCatalog", "activating"])
         #expect(fixture.leftoverWorkFiles().isEmpty)
 
         let installed = try MedicalCatalogStore.installedVersion(path: fixture.destinationURL)
         #expect(MedicalCatalogUpdateService.sameDataVersion(local: installed, candidate: candidate))
+    }
+
+    @Test("expired candidate is rejected at the update entry (freshness gate)")
+    func expiredCandidateRejectedAtUpdateEntry() async throws {
+        let fixture = try MedicalCatalogFixture.make()
+        defer { fixture.cleanUp() }
+        let journal = InMemoryActivationJournal()
+        // 时钟错位注入：候选在 fixture 时钟（检查时刻）仍有效，更新入口时钟晚于
+        // 到期——「检查时有效、数日后更新时过期」的真实窗口。
+        let service = fixture.service(fetcher: StubPackageFetcher(bytes: fixture.packageBytes), journal: journal,
+                                      now: { MedicalCatalogFixture.date("2026-09-27T00:00:00Z") })
+        let expired = try fixture.candidate { $0["expiresAt"] = "2026-09-26T13:30:00Z" }
+        await #expect(throws: MedicalCatalogUpdateError.catalogNotInstallable) {
+            try await service.update(candidate: expired, opener: CountingZIPOpener())
+        }
+        #expect(fixture.sha256(fixture.destinationURL) == MedicalCatalogFixture.oldCatalogSHA256)
+        #expect(journal.events.isEmpty)
+        #expect(fixture.leftoverWorkFiles().isEmpty)
     }
 
     @Test("tampered or resized package bytes are rejected before opening")
@@ -528,9 +564,11 @@ struct MedicalCatalogFixture {
 
     func service(fetcher: any MedicalCatalogPackageFetching, journal: InMemoryActivationJournal,
                  limits: MedicalCatalogUpdateLimits = MedicalCatalogUpdateLimits(maxPackageBytes: 1 << 20, maxSQLiteBytes: 1 << 22),
-                 activeCheck: (@Sendable (URL) throws -> Void)? = nil) -> MedicalCatalogUpdateService {
+                 activeCheck: (@Sendable (URL) throws -> Void)? = nil,
+                 now: @escaping @Sendable () -> Date = { Date() }) -> MedicalCatalogUpdateService {
         MedicalCatalogUpdateService(destination: destinationURL, fetcher: fetcher, journal: journal, limits: limits,
-                                    activeCheck: activeCheck ?? { try MedicalCatalogStore.smokeCheck(path: $0) })
+                                    activeCheck: activeCheck ?? { try MedicalCatalogStore.smokeCheck(path: $0) },
+                                    now: now)
     }
 
     func expectRejected(_ error: MedicalCatalogUpdateError, journal: InMemoryActivationJournal,

@@ -28,6 +28,9 @@ final class URLProtocolStub: URLProtocol {
         var swallowRanges: Bool = false
         /// 重定向目标（自动加 301 + Location）。
         var redirectTo: URL? = nil
+        /// ETag/304 语义（2026-09-27 SP-64 检查链测试）：收到与 `headers["ETag"]`
+        /// 匹配的 If-None-Match 时返回 304 空体。
+        var etag304: Bool = false
     }
 
     /// 2026-09-27 CI 36302543076 实证：.serialized 只串行套件内——两传输套件之间仍并行，
@@ -47,7 +50,10 @@ final class URLProtocolStub: URLProtocol {
 
     /// 2026-09-27 CI 36305107324：两传输套件虽各 .serialized，但**彼此仍并行**且共享
     /// 全表——A 套件 reset 擦掉 B 套件脚本（badResponse(618)=协议类不处理请求的
-    /// 合成状态）。改为按主机作用域清表（ASR=release-assets 主机、医疗=github.com）。
+    /// 合成状态）。改为按主机作用域清表。**主机属主表（2026-09-27 SP-64 评审更新）**：
+    /// release-assets.githubusercontent.com=ASR 套件 · github.com=医疗目录 fetcher
+    /// 传输套件（独占）· api.github.com + objects.githubusercontent.com=医疗目录
+    /// 检查 resolver 套件（独占）。新套件必须登记新主机，不得复用已有属主。
     static func reset(host: String? = nil) {
         lock.lock(); defer { lock.unlock() }
         if let host {
@@ -87,6 +93,14 @@ final class URLProtocolStub: URLProtocol {
         var headers = script.headers
         var body = script.body
         var status = script.statusCode
+        if script.etag304,
+           let inm = request.value(forHTTPHeaderField: "If-None-Match"),
+           let etag = headers["ETag"], inm == etag {
+            let notModified = HTTPURLResponse(url: url, statusCode: 304, httpVersion: nil, headerFields: headers)!
+            client?.urlProtocol(self, didReceive: notModified, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         if request.value(forHTTPHeaderField: "Range") != nil, script.swallowRanges {
             headers.removeValue(forKey: "Content-Range")
         } else if let rangeHeader = request.value(forHTTPHeaderField: "Range"), status == 200,

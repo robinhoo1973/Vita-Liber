@@ -255,7 +255,9 @@ private struct PreviewRoot: View {
         }
         container = assembled
         medicalCatalogState = MedicalCatalogState(store: assembled.medicalCatalog,
-                                                  updater: assembled.medicalCatalogUpdater)
+                                                  updater: assembled.medicalCatalogUpdater,
+                                                  checker: assembled.medicalCatalogChecker,
+                                                  opener: assembled.medicalCatalogOpener)
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
     }

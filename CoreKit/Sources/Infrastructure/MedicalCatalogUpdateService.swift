@@ -71,18 +71,23 @@ public actor MedicalCatalogUpdateService {
     /// 更低 catalogVersion / 同版本异 digest 就地拒绝，不进入下载（2026-09-26
     /// 审查接线：此前 TrustStore 生产零构造、防回退判据悬空）。
     let trust: MedicalCatalogTrustStore?
+    /// 时钟注入（2026-09-27 评审修复）：expiry 复查用可注入时钟——「检查时有效、
+    /// 数日后更新时过期」的窗口测试必须有两个不同时点的参照，wall clock 不可测。
+    let now: @Sendable () -> Date
     var isUpdating = false
 
     init(destination: URL, fetcher: any MedicalCatalogPackageFetching,
          journal: (any MedicalCatalogActivationJournaling)?, limits: MedicalCatalogUpdateLimits,
          activeCheck: @escaping @Sendable (URL) throws -> Void,
-         trust: MedicalCatalogTrustStore? = nil) {
+         trust: MedicalCatalogTrustStore? = nil,
+         now: @escaping @Sendable () -> Date = { Date() }) {
         self.destination = destination
         self.fetcher = fetcher
         self.journal = journal
         self.limits = limits
         self.activeCheck = activeCheck
         self.trust = trust
+        self.now = now
     }
 
     /// 数据未变（schema 与 dataVersion 同时相等）即无需下载包；metadata trust floor 仍可推进。
