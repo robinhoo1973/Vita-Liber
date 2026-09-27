@@ -506,7 +506,7 @@ else
     _spec_su=$(grep -E '^\| (M[0-9]|OCR)' "$ROOT/refactor/test-plan-spec.md" | grep -oE 'SU-[A-Z0-9-]+' | sort -u || true)
     # 在途套件登记（2026-09-27）：§3 已声明、代码 token 未落地（V2.48 在途轮）——
     # 代码落地接线 tsv 后必须移出本清单（否则反查对真实漂移失明）。
-    _spec_su_allowlist="SU-M15-MEDCATALOG SU-M15-MEDCATALOG-UI"
+    _spec_su_allowlist="SU-M15-MEDCATALOG-UI"
     for _su in $_spec_su; do
       case " $_spec_su_allowlist " in *" $_su "*) continue ;; esac
       if ! grep -qF "$_su" "$SUITE_MANIFEST" 2>/dev/null; then

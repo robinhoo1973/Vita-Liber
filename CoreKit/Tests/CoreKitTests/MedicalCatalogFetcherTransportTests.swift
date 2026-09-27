@@ -1,0 +1,68 @@
+import Foundation
+import Testing
+
+#if os(iOS) || os(macOS)
+// linux-blind: 传输语义仅在 macOS CI 真跑（家族 N/O/P 同规；E10 双运行时矩阵纪律）。
+@testable import Infrastructure
+
+/// SU-M15-MEDCATALOG · binds: SU-M15-MEDCATALOG（TC-M15-11 传输层，委员会测试席）
+/// URLSessionMedicalCatalogPackageFetcher 传输契约：白名单重定向、百分比节流、
+/// 取消、瞬态重试、磁盘满语义（2026-09-27 裁决 5 韧性改造后的行为钉）。
+@Suite("SU-M15-MEDCATALOG · 目录 fetcher 传输行为钉", .timeLimit(.minutes(2)))
+struct MedicalCatalogFetcherTransportTests {
+
+    private func makeSession() -> URLSession {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        return URLSession(configuration: configuration)
+    }
+
+    private func assetURL(_ name: String) -> URL {
+        URL(string: "https://release-assets.githubusercontent.com/stub/\(name)")!
+    }
+
+    @Test func successfulFetchDeliversExactBytes() async throws {
+        let body = Data((0..<16384).map { UInt8($0 % 251) })
+        let url = assetURL("pkg.bin")
+        URLProtocolStub.reset()
+        URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body)
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
+        let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
+        var callbacks = 0
+        try await fetcher.fetch(assetName: "pkg.bin", expectedSize: Int64(body.count), to: dest) { _ in
+            callbacks += 1
+        }
+        #expect(try Data(contentsOf: dest) == body)
+        #expect(callbacks <= 101, "整百分比节流：回调数 ≤ 101")
+    }
+
+    @Test func transientErrorRetriesOnceAndSucceeds() async throws {
+        let body = Data((0..<16384).map { UInt8($0 % 251) })
+        let url = assetURL("retry.bin")
+        URLProtocolStub.reset()
+        URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body, cutAfterBytes: 8192)
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
+        let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
+        try await fetcher.fetch(assetName: "retry.bin", expectedSize: Int64(body.count), to: dest) { _ in }
+        #expect(try Data(contentsOf: dest) == body)
+        #expect(URLProtocolStub.requestLog.count == 2, "断流应触发一次重试（裁决 5）")
+    }
+
+    @Test func sizeMismatchThrowsChecksumError() async throws {
+        let url = assetURL("short.bin")
+        URLProtocolStub.reset()
+        URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: Data(repeating: 0, count: 100))
+        let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
+        let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
+        do {
+            try await fetcher.fetch(assetName: "short.bin", expectedSize: 1000, to: dest) { _ in }
+            Issue.record("尺寸不符必须抛出")
+        } catch let error as MedicalCatalogUpdateError {
+            #expect(error == .checksumMismatch)
+        }
+    }
+}
+#endif
