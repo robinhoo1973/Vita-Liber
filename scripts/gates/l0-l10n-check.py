@@ -22,6 +22,7 @@
 # ============================================================================
 import os
 import re
+from pathlib import Path
 import sys
 
 allow_path, scan_root = sys.argv[1], sys.argv[2]
@@ -61,6 +62,31 @@ def _is_l10n_source(lines):
             return True
     return False
 
+def check_member_registry():
+    """2026-09-27 委员会 F4：Keys-* 的 static 成员值 ⊆ registeredKeys 反向核对——
+    键在 .strings 有译文但登记表漏登时 M15 遍历集收窄、「无缺译」承诺腐烂
+    （RegisteredKeys.swift 曾一次性补登记 40+ 键的实证）；动态键（field.<key>）
+    经模板函数形态不在本检查面。此处为文件型判定器（内联 heredoc 在 macOS
+    bash 3.2 下转义解释不同，CI 36286641188 实证——本检查不许回到内联形态）。"""
+    import re
+    loc = Path(__file__).resolve().parent.parent.parent / "App" / "Localization"
+    registered = None
+    members = set()
+    for f in sorted(loc.glob("*.swift")):
+        text = f.read_text(encoding="utf-8")
+        if "static let registeredKeys" in text:
+            i = text.index("registeredKeys")
+            j = text.index("[", text.index("=", i))
+            registered = set(re.findall(r'"([^"]+)"', text[j:]))
+        members |= set(re.findall(r'static var \w+: String \{ t\("([^"]+)"\) \}', text))
+    if registered is None:
+        return ["registeredKeys 未找到——判定器失效，不得判 PASS（ERR#27）"]
+    missing = sorted(members - registered)
+    if missing:
+        return ["%d 个 static 成员键未入 registeredKeys: %s" % (len(missing), missing[:8])]
+    return []
+
+
 scanned = 0
 for dirpath, dirnames, filenames in os.walk(scan_root):
     dirnames.sort()
@@ -95,6 +121,8 @@ for dirpath, dirnames, filenames in os.walk(scan_root):
             if not all(lit[1:-1] in allowed for lit in literals):
                 violations.append("%s:%d: %s" % (rel, lineno, raw.rstrip("\n")))
 
+for msg in check_member_registry():
+    violations.append("registry:" + msg)
 for v in violations:
     print(v)
 print("__SCANNED__", scanned)

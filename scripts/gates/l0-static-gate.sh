@@ -798,14 +798,6 @@ if l10n_files and src.count("static let registeredKeys") == 1:
         reg_missing = sorted(registered - keysets[files[0]])
         if reg_missing:
             bad.append(f"L10n.swift: registeredKeys 有 {len(reg_missing)} 个键不在 .strings: {reg_missing[:8]}")
-        # 2026-09-27 委员会 F4：Keys-* 的 static 成员值 ⊆ registeredKeys 反向——
-        # 键在 .strings 有译文但登记表漏登时，M15 遍历集收窄、「无缺译」承诺腐烂
-        # （RegisteredKeys.swift:5-8 曾一次性补登记 40+ 键的实证）；动态键
-        # （field.\\(key）形态经模板函数，不在本检查面。
-        member_values = set(re.findall(r'static var \w+: String \{ t\("([^"]+)"\) \}', src))
-        member_missing = sorted(member_values - registered)
-        if member_missing:
-            bad.append(f"L10n: {len(member_missing)} 个 static 成员键未入 registeredKeys: {member_missing[:8]}")
         # 第十轮全仓审查修复（ERR#53）：登记表重复 key——set() 会静默去重掩盖
         # 重复登记，须先按列表比对计数（重复登记 = L1 M15LocalizationTests 红）
         if len(registered_list) != len(registered):
