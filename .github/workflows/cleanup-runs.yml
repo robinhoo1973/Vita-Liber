@@ -105,15 +105,13 @@ jobs:
               return
             fi
 
-            # 规则1a（2026-09-16 委员会评审·证据留存例外）：build-testflight.yml 的
-            # **failure 保留最近 K 次**——性能回归定位（「为什么从 25 分钟变 43 分钟」）
-            # 与偶发失败（日界/并发/设备差异）复盘都需要跨时间的失败对照集，
-            # 而清理策略此前把它们全部销毁（委员会两角色独立命中）。其余非成功
-            # （cancelled/timed_out/skipped）仍按规则 1 删除（多为并发取消噪音）。
+            # 规则1a（2026-09-16 委员会评审曾设「failure 保留最近 K 次」的例外；
+            # **2026-09-27 业主裁定 FAILURE_KEEP=0 撤销该例外**——失败记录不保留，
+            # 回到原始要求二「非成功一律删除」。此分支保留为开关形态，默认 0。
             if [ "$wf_key" = ".github/workflows/build-testflight.yml" ] && [ "$conclusion" = "failure" ]; then
               read FAIL_KEPT < "$FAILURES_FILE"
-              if [ "$FAIL_KEPT" -lt "${FAILURE_KEEP:-5}" ]; then
-                echo "  保留: #$run_id (build-testflight 失败证据 $((FAIL_KEPT + 1))/${FAILURE_KEEP:-5})"
+              if [ "$FAIL_KEPT" -lt "${FAILURE_KEEP:-0}" ]; then
+                echo "  保留: #$run_id (build-testflight 失败证据 $((FAIL_KEPT + 1))/${FAILURE_KEEP:-0})"
                 echo $((FAIL_KEPT + 1)) > "$FAILURES_FILE"
                 KEPT=$((KEPT + 1))
                 echo "$DELETED $KEPT" > "$COUNTS_FILE"
