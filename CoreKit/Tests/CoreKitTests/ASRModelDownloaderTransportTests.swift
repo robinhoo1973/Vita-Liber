@@ -24,7 +24,7 @@ struct ASRModelDownloaderTransportTests {
 
     @Test func headProbeAndRangeDownloadSucceed() async throws {
         let body = Data((0..<4096).map { UInt8($0 % 251) })
-        let url = URL(string: "https://stub.test/segmented.bin")!
+        let url = URL(string: "https://release-assets.githubusercontent.com/stub/segmented.bin")!
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body)
@@ -44,7 +44,7 @@ struct ASRModelDownloaderTransportTests {
 
     @Test func swallowedRangeFallsBackToSingleStreamWithSeriesBump() async throws {
         let body = Data((0..<8192).map { UInt8($0 % 251) })
-        let url = URL(string: "https://stub.test/swallow.bin")!
+        let url = URL(string: "https://release-assets.githubusercontent.com/stub/swallow.bin")!
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body, swallowRanges: true)
@@ -62,7 +62,7 @@ struct ASRModelDownloaderTransportTests {
     @Test func segmentRetryRollsBackBytesAndKeepsFractionBounded() async throws {
         // 首段首次请求断流 → 重试成功：字节回滚后 fraction 恒 ≤1（2026-09-19 扫尾 #4 病灶）
         let body = Data((0..<65536).map { UInt8($0 % 251) })
-        let url = URL(string: "https://stub.test/retry.bin")!
+        let url = URL(string: "https://release-assets.githubusercontent.com/stub/retry.bin")!
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body, cutAfterBytes: 8192)
@@ -82,7 +82,7 @@ struct ASRModelDownloaderTransportTests {
         // 残留续传（委员会平局裁定 B1-4）：预置部分文件 + resumeOffset 起步，
         // 终态字节完整、SHA 语义由服务层兜底（此处只钉传输层契约）。
         let body = Data((0..<65536).map { UInt8($0 % 251) })
-        let url = URL(string: "https://stub.test/resume.bin")!
+        let url = URL(string: "https://release-assets.githubusercontent.com/stub/resume.bin")!
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body)
@@ -98,7 +98,7 @@ struct ASRModelDownloaderTransportTests {
     }
 
     @Test func sizeMismatchFailsWithoutProducingArtifact() async throws {
-        let url = URL(string: "https://stub.test/short.bin")!
+        let url = URL(string: "https://release-assets.githubusercontent.com/stub/short.bin")!
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: Data(repeating: 0, count: 100))

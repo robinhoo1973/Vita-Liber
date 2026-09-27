@@ -18,7 +18,8 @@ struct MedicalCatalogFetcherTransportTests {
     }
 
     private func assetURL(_ name: String) -> URL {
-        URL(string: "https://release-assets.githubusercontent.com/stub/\(name)")!
+        // 用生产同一构造器（单一事实源）：桩键必须与 fetcher 实际请求的 URL 一致
+        MedicalCatalogReleaseProtocol.packageURL(assetName: name)!
     }
 
     @Test func successfulFetchDeliversExactBytes() async throws {
