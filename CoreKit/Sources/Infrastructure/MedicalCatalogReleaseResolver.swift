@@ -229,7 +229,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: maxBytes,
                                                          allowsURL: { Self.allowsCheckURL($0) })
         do {
-            let (_, response) = try await session.data(for: request, delegate: delegate)
+            let (tupleBody, response) = try await session.data(for: request, delegate: delegate)
             try Task.checkCancellation()
             guard let http = response as? HTTPURLResponse,
                   let finalURL = response.url, Self.allowsCheckURL(finalURL)
@@ -238,7 +238,12 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
             }
             switch http.statusCode {
             case 200:
-                let body = delegate.accumulated
+                // 双源归一（CI 36325211155 实证）：URLProtocol 路径下 data task 的
+                // didReceive 不回调、数据只进 tuple；生产 HTTP 路径 didReceive 正常
+                // 回调（Apple 文档契约）且提供流式上限守卫。delegate 有累计用累计，
+                // 否则用 tuple 返回体 + 事后上限断言（fail-closed）。
+                let body = delegate.accumulated.isEmpty ? tupleBody : delegate.accumulated
+                guard body.count <= maxBytes else { throw MedicalCatalogResolveError.tooLarge }
                 if let cachedETag = http.value(forHTTPHeaderField: "ETag"), !cachedETag.isEmpty {
                     etagCache.store(etag: cachedETag, body: body, for: url, limit: maxBytes)
                 }
@@ -368,7 +373,11 @@ final class MedicalCatalogBoundedDataDelegate: NSObject, URLSessionDataDelegate,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
         lock.lock(); redirects += 1; let count = redirects; lock.unlock()
         guard count <= Self.maxRedirects, let url = request.url, allowsURL(url) else {
+            // completionHandler(nil) 只拒绝重定向，任务会以 301 响应「正常」结束
+            // （CI 36325211155 实证）——必须同时取消任务，让拒绝表现为传输失败
+            // （下载面 MedicalCatalogPackageTransfer 同款双保险）。
             completionHandler(nil)
+            task.cancel()
             return
         }
         completionHandler(request)

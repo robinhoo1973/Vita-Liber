@@ -591,7 +591,10 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(!delegate.exceeded)
         delegate.urlSession(URLSession.shared, dataTask: task, didReceive: Data([5]))
         #expect(delegate.exceeded)
-        #expect(delegate.accumulated.count == 4, "超限后不再累计")
+        // 语义钉：跨界 chunk 已收（内存上界 = cap + 单 chunk），其后一律拒收
+        #expect(delegate.accumulated.count == 5, "跨界 chunk 计入后不再累计")
+        delegate.urlSession(URLSession.shared, dataTask: task, didReceive: Data([6]))
+        #expect(delegate.accumulated.count == 5, "超限后不再累计")
         task.cancel()
     }
 
