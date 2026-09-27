@@ -21,6 +21,9 @@
 !/VitaLiber.entitlements
 # CI 辅助脚本（L0 门禁/发布信任链/医疗数据/钉版清单，按域分簇 scripts/<域>/）
 !/scripts/
+# 医疗数据 Go 工具链（业主 2026-09-27：源码已迁往私仓 robinhoo1973/robinhoo-pipelines
+# 的 tasks/vita-liber/medical-data/，公开仓不再保留副本——整目录防误收，勿重新入库）
+/scripts/medical-data/go/
 # ASR 下载包由独立 workflow 在 RUNNER_TEMP 中生成并发布至 GitHub Releases；
 # 源码只保存 Resources/ASRModelUpdates 的公开清单与签名，不保留 downloads/。
 

@@ -10,7 +10,9 @@
 scripts/
 ├── gates/          # 域:L0 静态门禁(17 节)+ 其数据文件
 ├── release/        # 域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
-├── medical-data/   # 域:医疗数据发布工具链
+├── medical-data/   # 域:医疗数据发布工具链;go/{medrelease,drugkit,gonhsa,gonmpa} 为入库 Go 模块
+│                   #   (审查修复 2026-09-26:此前记载的第五模块 fetchstore 不存在——入库 Go 模块实际为四个)
+│                   #   (业主 2026-09-26 裁定源码入库、CI 用 actions/setup-go 直接构建;payload 壳 medical-data-ci.sh 待退役)
 └── requirements/   # 辅助文件:pip --require-hashes 钉版清单
 ```
 
@@ -51,7 +53,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 |---|---|---|---|
 | `build-testflight.yml` | push master / `v*` tag / dispatch | 版本号→构建→L0 门禁→测试→打包→ASC 上传 | gates / release / requirements |
 | `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 GitHub Releases | release / requirements |
-| `medical-data-release.yml` | dispatch | 医疗数据抓取、签名、发布 | medical-data / release |
+| `medical-data-release.yml` | Monday 03:17 UTC (`17 3 * * 1`) + dispatch（**待迁移**：随 Go 工具链启用后改 Sunday 08:00 Asia/Shanghai） | 医疗来源抓取；现行为 payload 壳抓取 + `gh release upload --clobber`；versioned no-clobber progress/installable pointers 与 pointer-last signed 发布随 Go 工具链启用 | medical-data / release |
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
 | `asc-build-status.yml` | 定时/Webhook | ASC 构建状态复核 | requirements |
 | `cleanup-runs.yml` | 定时 | 清理过期 workflow 运行记录 | — |
