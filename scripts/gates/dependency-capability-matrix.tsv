@@ -7,8 +7,8 @@
 # 等实验特性在 SPM CLI 绿、xcodebuild 红——CI 36281992182 实证），必须经
 # build-for-testing 真实编译才算已验证。
 swift-collections	1.2.1	1.2.1	1.2.1	tag	transitive(swift-nio from:1.1.0)
-swift-nio	2.103.0	2.103.0	2.103.0	tag	transitive(agekit)
-swift-atomics	1.3.1	1.3.1	1.3.1	tag	transitive(swift-nio)
+swift-nio	2.103.0	2.88.0	2.103.0	tag	transitive(agekit)
+swift-atomics	1.3.1	1.1.0	1.3.1	tag	transitive(swift-nio)
 swift-system	1.8.1	1.8.1	1.8.1	tag	transitive(swift-nio)
 swift-extras-base64	0.7.0	0.7.0	0.7.0	tag	transitive(swift-nio)
 swift-scrypt	1.0.2	1.0.2	1.0.2	tag	transitive(agekit)
