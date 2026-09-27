@@ -39,6 +39,10 @@ final class MedicalCatalogStateTests: XCTestCase {
             self.cancellationAware = cancellationAware
         }
 
+        /// continuation 已安装（测试等待「真正挂起」用——waitUntil(.checking) 只证明
+        /// 同步置位，不代表任务已进入 check() 并安装 continuation）。
+        var isGated: Bool { continuation != nil }
+
         func check() async throws -> MedicalCatalogCheckOutcome {
             if cancellationAware {
                 return try await withTaskCancellationHandler {
@@ -80,6 +84,8 @@ final class MedicalCatalogStateTests: XCTestCase {
     /// 取消形态的桩等价）。
     private actor GatedFetcher: MedicalCatalogPackageFetching {
         private var continuation: CheckedContinuation<Void, any Error>?
+        /// continuation 已安装（取消前必须等真正挂起，否则 onCancel 的 fail 空转）。
+        var isGated: Bool { continuation != nil }
         func fetch(assetName: String, expectedSize: Int64, to destination: URL,
                    progress: @escaping @Sendable (Int64) -> Void) async throws {
             try await withTaskCancellationHandler {
@@ -154,6 +160,17 @@ final class MedicalCatalogStateTests: XCTestCase {
         XCTAssertTrue(condition(), message)
     }
 
+    /// 等待异步探针成立（actor 隔离的桩状态无法用 @MainActor 闭包轮询）。
+    private func waitUntilGated(_ message: String, timeout: TimeInterval = 2,
+                                _ probe: @escaping @Sendable () async -> Bool) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if await probe() { return }
+            try? await Task.sleep(for: .milliseconds(20)) // try?-ok: 测试轮询等待，睡眠失败即下一轮
+        }
+        XCTFail(message)
+    }
+
     // MARK: - 检查态
 
     func testCheck_noChecker_setsUnavailable() async {
@@ -174,7 +191,8 @@ final class MedicalCatalogStateTests: XCTestCase {
         let checker = StubChecker()
         await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
-        let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
+        let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
+                                        checker: checker, opener: NoopOpener())
         state.check()
         await waitUntil("检查应发现可安装更新") {
             if case .updateAvailable = state.remoteState { return true }
@@ -200,6 +218,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         let state = MedicalCatalogState(store: nil, checker: checker)
         state.check()
         await waitUntil("检查应进入 checking 悬停") { state.remoteState == .checking }
+        await waitUntilGated("checker 应真正挂起") { await checker.isGated }
         state.cancelCheck()
         await waitUntil("取消检查应回 idle") { state.remoteState == .idle }
     }
@@ -211,6 +230,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         let state = MedicalCatalogState(store: nil, checker: checker)
         state.check()
         await waitUntil("检查应进入 checking 悬停") { state.remoteState == .checking }
+        await waitUntilGated("checker 应真正挂起") { await checker.isGated }
         state.cancelCheck()
         await checker.resume(MedicalCatalogCheckOutcome(state: .upToDate))
         await waitUntil("迟到结果不得覆写取消后的 idle") { state.remoteState == .idle }
@@ -221,6 +241,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         let state = MedicalCatalogState(store: nil, checker: checker)
         state.check()
         await waitUntil("检查应进入 checking 悬停") { state.remoteState == .checking }
+        await waitUntilGated("checker 应真正挂起") { await checker.isGated }
         // 单飞：进行中重复 check 被守卫吞掉，状态仍 checking
         state.check()
         await waitUntil("单飞守卫应保持 checking") { state.remoteState == .checking }
@@ -283,7 +304,8 @@ final class MedicalCatalogStateTests: XCTestCase {
     func testApplyUpdate_cancelled_setsCancelledError() async throws {
         let checker = StubChecker()
         await checker.set(try updateAvailableOutcome())
-        let (updater, destination) = try makeUpdater(fetcher: GatedFetcher())
+        let gatedFetcher = GatedFetcher()
+        let (updater, destination) = try makeUpdater(fetcher: gatedFetcher)
         let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
                                         checker: checker, opener: NoopOpener())
         state.check()
@@ -295,6 +317,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         await waitUntil("占位进度应立即可见（取消按钮可用）") {
             state.updateProgress != nil && state.canCancelUpdate
         }
+        await waitUntilGated("fetcher 应真正挂起") { await gatedFetcher.isGated }
         state.cancelUpdate()
         await waitUntil("取消应呈 cancelled") { state.updateError == .cancelled }
         XCTAssertNil(state.updateProgress)
