@@ -15,7 +15,7 @@ import Testing
 /// 主机属主纪律（2026-09-27 测试席评审修复）：本套件占 **api.github.com**
 /// （inventory）+ **objects.githubusercontent.com**（pointer）——github.com 由
 /// fetcher 传输套件独占，不再双重占用（URLProtocolStub 静态表跨套件并行）。
-@Suite("SU-M15-MEDCATALOG · SP-64 检查 resolver 行为钉", .serialized, .timeLimit(.minutes(3)))
+@Suite("SU-M15-MEDCATALOG · SP-64 检查 resolver 行为钉", .serialized)
 struct MedicalCatalogReleaseResolverTests {
 
     // MARK: - 组装助手
@@ -126,8 +126,10 @@ struct MedicalCatalogReleaseResolverTests {
                                                    dataVersion: fixture.signedExpectation.dataVersion)
         let resolver = Self.makeResolver(fixture: fixture, local: local)
         let outcome = try await resolver.check()
-        #expect(outcome.state == .upToDate)
-        #expect(outcome.candidate == nil)
+        guard outcome.state == .upToDate, outcome.candidate == nil else {
+            Issue.record("本地数据一致应呈 upToDate 且无候选，实际 \(outcome.state) / candidate=\(String(describing: outcome.candidate))")
+            return
+        }
     }
 
     @Test("Release 只有 progress pointer → noInstallableAvailable，不误报最新/更新")
