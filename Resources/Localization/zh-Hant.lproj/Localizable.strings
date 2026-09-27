@@ -237,12 +237,6 @@
 "settings.resource.installed" = "已安裝";
 "settings.resource.notInstalled" = "未安裝";
 "settings.resource.bundled" = "隨包內建";
-"settings.resource.phase.waiting" = "等待中";
-"settings.resource.phase.downloading" = "下載中";
-"settings.resource.phase.verifying" = "校驗中";
-"settings.resource.phase.unpacking" = "解壓中";
-"settings.resource.phase.activating" = "啟用中";
-"settings.resource.phase.pruning" = "清理中";
 "settings.resource.progressBytesFmt" = "%@ / %@";
 "settings.resource.catalog.local" = "本機目錄";
 "settings.resource.catalog.localVersionFmt" = "已安裝 · 資料指紋 %@";

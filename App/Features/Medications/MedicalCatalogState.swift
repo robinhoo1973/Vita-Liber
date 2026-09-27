@@ -13,7 +13,9 @@ final class MedicalCatalogState {
     private var store: (any MedicalCatalogReading)?
     private let path: URL?
     /// 检查/更新协调器（组合——状态机全部逻辑在此，见其头注）。
-    let updates: MedicalCatalogUpdateCoordinator
+    /// private（2026-09-28 终轮评审）：转发面是唯一使用面（全仓零 `.updates.` 直穿），
+    /// 私有化避免双路径 API 漂移。
+    private let updates: MedicalCatalogUpdateCoordinator
     var matchByLineID: [UUID: MedicalCatalogMatch] = [:]
 
     /// 2026-09-27 委员会 P3a：接 Domain 端口而非具体 Infrastructure 类型（四规则第 1 条）。

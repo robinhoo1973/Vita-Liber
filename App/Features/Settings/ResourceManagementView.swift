@@ -340,14 +340,16 @@ struct ResourceManagementView: View {
         }
     }
 
+    /// ASR 阶段文案（2026-09-28 键族归并：activeSection 展示的就是 ASR 安装，
+    /// 复用 asr.model.* 键——resourcePhase* 键族退役，阶段文案单一事实源）。
     private func phaseText(_ phase: ASRModelDownloadService.InstallPhase?) -> String {
-        guard let phase else { return L10n.resourcePhaseWaiting }
+        guard let phase else { return L10n.asrModelQueued }
         switch phase {
-        case .downloading: return L10n.resourcePhaseDownloading
-        case .verifying: return L10n.resourcePhaseVerifying
-        case .unpacking: return L10n.resourcePhaseUnpacking
-        case .activating: return L10n.resourcePhaseActivating
-        case .pruning: return L10n.resourcePhasePruning
+        case .downloading: return L10n.asrModelDownloading
+        case .verifying: return L10n.asrModelPhaseVerifying
+        case .unpacking: return L10n.asrModelPhaseUnpacking
+        case .activating: return L10n.asrModelPhaseActivating
+        case .pruning: return L10n.asrModelPhasePruning
         }
     }
 

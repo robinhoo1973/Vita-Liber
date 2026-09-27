@@ -76,12 +76,6 @@ extension L10n {
     static var resourceInstalled: String { t("settings.resource.installed") }
     static var resourceNotInstalled: String { t("settings.resource.notInstalled") }
     static var resourceBundled: String { t("settings.resource.bundled") }
-    static var resourcePhaseWaiting: String { t("settings.resource.phase.waiting") }
-    static var resourcePhaseDownloading: String { t("settings.resource.phase.downloading") }
-    static var resourcePhaseVerifying: String { t("settings.resource.phase.verifying") }
-    static var resourcePhaseUnpacking: String { t("settings.resource.phase.unpacking") }
-    static var resourcePhaseActivating: String { t("settings.resource.phase.activating") }
-    static var resourcePhasePruning: String { t("settings.resource.phase.pruning") }
     static func resourceProgressBytes(_ received: String, _ total: String) -> String {
         String(format: t("settings.resource.progressBytesFmt"), received, total)
     }

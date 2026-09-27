@@ -237,12 +237,6 @@
 "settings.resource.installed" = "Installed";
 "settings.resource.notInstalled" = "Not installed";
 "settings.resource.bundled" = "Bundled";
-"settings.resource.phase.waiting" = "Waiting";
-"settings.resource.phase.downloading" = "Downloading";
-"settings.resource.phase.verifying" = "Verifying";
-"settings.resource.phase.unpacking" = "Unpacking";
-"settings.resource.phase.activating" = "Activating";
-"settings.resource.phase.pruning" = "Cleaning up";
 "settings.resource.progressBytesFmt" = "%@ / %@";
 "settings.resource.catalog.local" = "Local catalog";
 "settings.resource.catalog.localVersionFmt" = "Installed · data fingerprint %@";
