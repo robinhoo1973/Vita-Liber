@@ -18,6 +18,9 @@ struct ResourceManagementView: View {
             Form {
                 activeSection
                 resourcesSection
+                // B2-3（2026-09-28）：语音模型管理并入本页（检查更新/下载/进度/取消，
+                // 复用语音设置页同一区块视图——单一管理面，无平行视图）。
+                ASREngineSettingsSection(accessibilityPrefix: "SP-64.resource.asr")
             }
             .navigationTitle(L10n.resourceManagementTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -332,29 +335,6 @@ struct ResourceManagementView: View {
             }
             .frame(minHeight: 44)
             .accessibilityIdentifier("SP-64.resource.t2")
-
-            // ASR 语音模型：状态只读，管理入口在语音设置（B2-3 并入本页）
-            ForEach(VoiceEngineChoice.allCases, id: \.self) { choice in
-                HStack {
-                    Label(L10n.voiceEngineName(choice), systemImage: "waveform")
-                    Spacer()
-                    if let version = ASRModelDownloadService.installedVersion(for: choice) {
-                        Text(version)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if choice.isBundledModel {
-                        Text(L10n.resourceBundled)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(L10n.resourceNotInstalled)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("SP-64.resource.asr.\(choice.rawValue)")
-            }
         }
     }
 

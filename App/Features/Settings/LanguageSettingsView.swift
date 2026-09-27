@@ -112,7 +112,14 @@ struct VoiceLanguageSettingsView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                ASREngineSettingsSection()
+                // B2-3（2026-09-28）：语音模型管理（检查更新/下载/进度）并入统一
+                // 「模型与数据资源」页——此处只留跳转入口，避免双处管理平行视图。
+                Section {
+                    NavigationLink(value: AppRoute.resourceManagement) {
+                        Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
+                    }
+                    .accessibilityIdentifier("SP-64.settings.resourcesFromVoice")
+                }
                 Section {
                     ForEach(inputLanguageOptions, id: \.locale) { lang in
                         // 规范化比较只求值一次（每行原先三处重复 normalizedIdentifier 归一）
