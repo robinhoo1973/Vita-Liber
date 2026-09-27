@@ -8,7 +8,7 @@ import Testing
 struct MemberProfileCompletenessTests {
 
     @Test func birthDateValidityAcceptsBothPrecisionForms() {
-        let valid = MemberProfileCompleteness.isValidBirthDate
+        func valid(_ s: String) -> Bool { MemberProfileCompleteness.isValidBirthDate(s) }  // 默认时区参数不参与函数引用
         #expect(valid("1990"))                      // 年份精度（FR3.1 口径）
         #expect(valid("1990-05-12"))                // 完整日期
         #expect(valid(" 1990-05-12 "))              // trim 后合法
@@ -16,7 +16,7 @@ struct MemberProfileCompletenessTests {
     }
 
     @Test func birthDateValidityRejectsJunkAndNormalizedDates() {
-        let valid = MemberProfileCompleteness.isValidBirthDate
+        func valid(_ s: String) -> Bool { MemberProfileCompleteness.isValidBirthDate(s) }
         #expect(!valid(""))
         #expect(!valid("   "))
         #expect(!valid("abc"))
@@ -73,8 +73,10 @@ struct MemberProfileCompletenessTests {
         // UTC 1990-05-11T16:30Z = 上海 1990-05-12 00:30 —— 渲染必须落在上海的「当天」
         let lateEveningUTC = utc.date(from: DateComponents(year: 1990, month: 5, day: 11, hour: 16, minute: 30))!
         #expect(MemberProfileCompleteness.birthDateString(from: lateEveningUTC, in: shanghai) == "1990-05-12")
-        // 「今天」串在东八区凌晨时段也必须有效（旧 UTC 解析把今天判成未来而误拒）
+        // 「今天」串在东八区凌晨时段也必须有效（CI 36252196293 第二形态：校验时区与
+        // 渲染时区必须同口径——旧实现用宿主机时区解析上海「今天」串，UTC 22:43 时
+        // 判成未来而误拒；时区参数化后两平台确定性一致）
         let today = MemberProfileCompleteness.birthDateString(from: Date(), in: shanghai)
-        #expect(MemberProfileCompleteness.isValidBirthDate(today))
+        #expect(MemberProfileCompleteness.isValidBirthDate(today, in: shanghai))
     }
 }

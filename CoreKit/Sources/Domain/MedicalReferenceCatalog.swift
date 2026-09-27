@@ -42,7 +42,6 @@ public struct MedicalCatalogHospital: Codable, Sendable, Equatable, Identifiable
     public let adminArea: String?
     public let deptsJSON: String
     public let aliasesJSON: String
-    public let contractEnd: String?
 
     public var aliases: [String] { CatalogJSON.stringArray(aliasesJSON) }
     public var departments: [MedicalCatalogDepartmentRef] {
@@ -53,11 +52,10 @@ public struct MedicalCatalogHospital: Codable, Sendable, Equatable, Identifiable
 
     public init(id: Int, region: String, sourceID: String, code: String?, nameZh: String, shortName: String?,
                 typeZh: String?, levelZh: String?, address: String?, phone: String?, adminArea: String?,
-                deptsJSON: String, aliasesJSON: String, contractEnd: String?) {
+                deptsJSON: String, aliasesJSON: String) {
         self.id = id; self.region = region; self.sourceID = sourceID; self.code = code; self.nameZh = nameZh
         self.shortName = shortName; self.typeZh = typeZh; self.levelZh = levelZh; self.address = address
         self.phone = phone; self.adminArea = adminArea; self.deptsJSON = deptsJSON; self.aliasesJSON = aliasesJSON
-        self.contractEnd = contractEnd
     }
 }
 

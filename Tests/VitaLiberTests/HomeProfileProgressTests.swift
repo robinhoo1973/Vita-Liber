@@ -74,7 +74,7 @@ final class HomeProfileProgressTests: XCTestCase {
             changed.fulfill()
         }
         app.setCurrentPatient(b.id)
-        await fulfillment(of: [changed], timeout: 1)
+        await fulfillment(of: [changed], timeout: 5)  // D6：1s 在负载模拟器上是壁钟族假红候选
     }
 
     func test_savedInterviewProgressIsMemberScopedAndSurvivesRestart() async throws {

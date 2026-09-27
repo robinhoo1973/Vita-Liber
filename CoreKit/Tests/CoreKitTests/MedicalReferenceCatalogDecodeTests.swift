@@ -19,8 +19,7 @@ struct MedicalReferenceCatalogDecodeTests {
         let hospital = MedicalCatalogHospital(id: 1, region: "CN", sourceID: "CN:1", code: nil,
                                               nameZh: "協和", shortName: nil, typeZh: nil, levelZh: nil,
                                               address: nil, phone: nil, adminArea: nil,
-                                              deptsJSON: "[]", aliasesJSON: #"["協和醫院","协和医院"]"#,
-                                              contractEnd: nil)
+                                              deptsJSON: "[]", aliasesJSON: #"["協和醫院","协和医院"]"#)
         #expect(hospital.aliases == ["協和醫院", "协和医院"])
     }
 
@@ -29,8 +28,7 @@ struct MedicalReferenceCatalogDecodeTests {
         let hospital = MedicalCatalogHospital(id: 1, region: "CN", sourceID: "CN:1", code: nil,
                                               nameZh: "協和", shortName: nil, typeZh: nil, levelZh: nil,
                                               address: nil, phone: nil, adminArea: nil,
-                                              deptsJSON: "not-json", aliasesJSON: "[]",
-                                              contractEnd: nil)
+                                              deptsJSON: "not-json", aliasesJSON: "[]")
         #expect(hospital.departments.isEmpty)
     }
 }

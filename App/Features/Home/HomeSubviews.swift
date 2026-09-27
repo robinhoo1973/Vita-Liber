@@ -1,6 +1,5 @@
 import SwiftUI
 import Domain
-import Infrastructure   // ASRModelDownloadService.DownloadMode（模型下载传输形态文案）
 import Perception
 
 // MARK: - 首页渲染原子（2026-09-26 原子结构轮第二批：由 HomeView 分解）
@@ -448,7 +447,7 @@ struct HomeModelDownloadCard: View {
 
     /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
     /// 传输形态文案（2026-09-16）。空串 = 尚未确定（HEAD 探测完成前）。
-    private func downloadModeText(_ mode: ASRModelDownloadService.DownloadMode?) -> String {
+    private func downloadModeText(_ mode: ASRDownloadMode?) -> String {
         switch mode {
         case .segmented(let segments): return L10n.asrModelModeSegmented(segments)
         case .singleStream: return L10n.asrModelModeSingle

@@ -7,12 +7,14 @@ import Perception
 @MainActor
 @Perceptible
 final class MedicalCatalogState {
-    private var store: MedicalCatalogStore?
+    private var store: (any MedicalCatalogReading)?
     private let updater: MedicalCatalogUpdateService?
     private let path: URL?
     var matchByLineID: [UUID: MedicalCatalogMatch] = [:]
 
-    init(store: MedicalCatalogStore?, updater: MedicalCatalogUpdateService? = nil, path: URL? = nil) {
+    /// 2026-09-27 委员会 P3a：接 Domain 端口而非具体 Infrastructure 类型（四规则第 1 条；
+    /// updater 仍为具体类型——其更新/解密职责尚无 Domain 端口，属下一轮架构收敛）。
+    init(store: (any MedicalCatalogReading)?, updater: MedicalCatalogUpdateService? = nil, path: URL? = nil) {
         self.store = store
         self.updater = updater
         self.path = path

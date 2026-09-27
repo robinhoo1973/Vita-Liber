@@ -201,7 +201,9 @@ final class SecurityGateAcceptanceTests: XCTestCase {
 
         // 落库断言（评审修正：不再是 UserDefaults 写入）；异步持久化任务轮询等落库
         var stored: [ConsentRecord] = []
-        for _ in 0..<20 {
+        // 2026-09-27 委员会 D6：1s 预算在负载模拟器上是壁钟族假红候选（a805c96 同族）——
+        // 放宽到 5s deadline（只放宽预算，不断言语义）。
+        for _ in 0..<100 {
             stored = try await container.persistor.loadConsents()
             if stored.count == 3 { break }
             try await Task.sleep(nanoseconds: 50_000_000)

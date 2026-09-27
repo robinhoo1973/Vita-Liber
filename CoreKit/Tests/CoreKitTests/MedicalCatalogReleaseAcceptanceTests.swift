@@ -8,7 +8,10 @@ import ZIPFoundation
 
 /// medical-data Release 信任链与安装边界验收（CryptoKit/GRDB/ZIPFoundation/AgeKit，仅 macOS CI）。
 /// 每条拒绝用例同时断言：目录 destination 与同目录患者库字节不变、journal 未进入。
-@Suite("Medical catalog release acceptance")
+/// 测试桩有界轮询超时错误（D4：挂起改清晰红）
+struct StubDeadlineTimeout: Error {}
+
+@Suite("Medical catalog release acceptance", .timeLimit(.minutes(2)))  // 2026-09-27 委员会 D4：无界轮询挂起会吞 120 分钟 job 预算——2 分钟内清晰红
 struct MedicalCatalogReleaseAcceptanceTests {
 
     // MARK: trust verifier
@@ -627,13 +630,23 @@ final class StubPackageFetcher: MedicalCatalogPackageFetching, @unchecked Sendab
     func release() { lock.lock(); held = false; lock.unlock() }
 
     func waitUntilStarted() async throws {
-        while !hasStarted { try await Task.sleep(nanoseconds: 1_000_000) }
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(2)
+        while !hasStarted {
+            if clock.now >= deadline { Issue.record("fetch 2s 内未启动——服务回归请勿挂起"); throw StubDeadlineTimeout() }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
     }
 
     func fetch(assetName: String, expectedSize: Int64, to destination: URL,
                progress: @escaping @Sendable (Int64) -> Void) async throws {
         lock.lock(); count += 1; started = true; lock.unlock()
-        while isHeld { try await Task.sleep(nanoseconds: 1_000_000) }
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(2)
+        while isHeld {
+            if clock.now >= deadline { Issue.record("release 2s 内未达——取消传播回归请勿挂起"); throw StubDeadlineTimeout() }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
         try bytes.write(to: destination)
         progress(Int64(bytes.count))
     }

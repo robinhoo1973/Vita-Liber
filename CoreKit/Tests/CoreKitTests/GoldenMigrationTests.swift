@@ -33,7 +33,7 @@ struct GoldenMigrationTests {
 // binds: SU-M1a-GOLDEN — 阶段金样扩充
 @Suite("SU-M1a-GOLDEN · M0 Sprint-3 三类补充")
 struct GoldenClassifyTests {
-    static let fixtures = Bundle.module.bundlePath + "/Fixtures"
+    static var fixtures: String { TestFixtures.path("") }
     func load(_ name: String) throws -> [LegacyRecord] {
         try JSONDecoder().decode([LegacyRecord].self, from: Data(contentsOf: URL(fileURLWithPath: Self.fixtures + "/" + name)))
     }
@@ -139,7 +139,7 @@ struct LoadGateAuditTests {
     /// 断言「迁移条数等于输入条数」且「分类路由与实际类型一致」。
     /// 原名：flutter真实备份样本无损迁移
     @Test func flutterRealBackupSampleMigratesLosslessly() throws {
-        let fixture = Bundle.module.bundlePath + "/Fixtures/flutter_backup_v1.json"
+        let fixture = TestFixtures.path("flutter_backup_v1.json")
         let data = try Data(contentsOf: URL(fileURLWithPath: fixture))
         #expect(MigrationEngine.migrate(recordsJSON: data) == .migrated(count: 6))
         let records = try JSONDecoder().decode([LegacyRecord].self, from: data)
@@ -350,7 +350,7 @@ struct MockFactoryTests {
 // GRDB 平台边界：本套件仅 iOS/macOS（L1）执行；SQL 正确性在 Linux 由
 // l0-static-gate 的 DDL 断言 + macOS 侧本套件双重把关。
 #if os(iOS) || os(macOS)
-@Suite("M1b · v6 FTS 敏感加固迁移（BR-007/008 老库触发器重建 + 索引重洗）")
+@Suite("SU-M1b-GOLDEN · M1b v6 FTS 敏感加固迁移（BR-007/008 老库触发器重建 + 索引重洗）")
 struct FtsSensitiveMigrationTests {
     /// 模拟 v1–v5 老库：baseline DDL 建库后把触发器替换回「无条件索引」旧形态，
     /// 插入敏感文档 → 迁移前敏感笔记可被搜中 → 应用 v6 → 笔记词条被清、标题词条保留。
@@ -450,7 +450,7 @@ struct FtsSensitiveMigrationTests {
 // 夹具 schema_v24_baseline.sql = 改基线**之前**从 HEAD 冻结的 SchemaV2.ddl 全文。
 @Suite("SU-M0-GOLDEN · v24→v25 老库逐步升级 = 全新库基线 / 回填幂等")
 struct SchemaV25GoldenTests {
-    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v24_baseline.sql"
+    static var fixture: String { TestFixtures.path("schema_v24_baseline.sql") }
     /// v24 老库经 GRDBStore 走完整链（v25 → v26 …），故列集比对也覆盖 v26 五表与 metric_sample 增列
     /// （D2-1：v24→v25→v26 逐步升级 = 全新库基线，§D.4 验证合同）。
     static let tables = ["encounter", "prescription", "prescription_line", "claim_item", "claim_line",
@@ -636,7 +636,7 @@ struct SchemaV25GoldenTests {
 // v26 为纯 SQL 步（无表重建、无代码回填）：runner default 路径 executeIdempotent 逐语句 + 版本推进。
 @Suite("SU-M0-GOLDEN · v25→v26 老库逐步升级 = 全新库基线 / lab_report 回填幂等 / 红线 DDL")
 struct SchemaV26GoldenTests {
-    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v25_baseline.sql"
+    static var fixture: String { TestFixtures.path("schema_v25_baseline.sql") }
     static let tables = ["hospitalization", "diagnosis", "exam_report", "lab_report", "lab_result", "metric_sample", "ocr_card_commit"]
 
     struct Legacy {
@@ -819,7 +819,7 @@ struct SchemaV26GoldenTests {
 // applyTransactional（DDL/搬运 + PRAGMA foreign_key_check(ocr_card_commit) + 版本推进同一事务）；无代码回填。
 @Suite("SU-M0-GOLDEN · v26→v27 老库逐步升级 = 全新库基线 / 视图 / 结论三择一 CHECK")
 struct SchemaV27GoldenTests {
-    static let fixture = Bundle.module.bundlePath + "/Fixtures/schema_v26_baseline.sql"
+    static var fixture: String { TestFixtures.path("schema_v26_baseline.sql") }
     static let tables = ["health_exam", "clinical_conclusion", "surgery", "treatment_record", "lab_report", "exam_report",
                          "metric_sample", "appointment", "reminder", "ocr_card_commit", "document_file"]
 

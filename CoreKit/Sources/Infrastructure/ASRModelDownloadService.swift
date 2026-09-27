@@ -20,10 +20,8 @@ public actor ASRModelDownloadService {
     /// 在 `supportsRanges` 为假、或 HEAD 最终响应不带 `Accept-Ranges: bytes` 时
     /// **静默退化**为单流——1 条连接 vs 分段 N 路并发，这是「慢」的首要嫌疑，
     /// 但此前没有任何出口可判定，只能靠猜。暴露到进度回调即可当场分辨。
-    public enum DownloadMode: Sendable, Equatable {
-        case segmented(segments: Int)
-        case singleStream
-    }
+    /// 传输形态已迁 Domain（委员会 P3b）——保留类型别名兼容既有调用面。
+    public typealias DownloadMode = ASRDownloadMode
 
     public struct DownloadProgress: Sendable, Equatable {
         public var receivedBytes: Int64

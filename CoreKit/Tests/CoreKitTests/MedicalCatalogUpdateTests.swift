@@ -359,7 +359,7 @@ struct GoMedicalExpected: Decodable {
 }
 
 enum GoMedicalFixture {
-    static let directory = Bundle.module.bundlePath + "/Fixtures/medical/"
+    static var directory: String { TestFixtures.path("medical/") }
 
     static func url(_ name: String) -> URL { URL(fileURLWithPath: directory + name) }
 

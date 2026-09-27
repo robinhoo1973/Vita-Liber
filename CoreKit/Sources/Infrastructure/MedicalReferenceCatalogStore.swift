@@ -52,7 +52,7 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
         let rows = try await pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT rowid, region, source_id, code, name_zh, short_name, type_zh, level_zh, address,
-                       phone, admin_area, depts_json, aliases_json, contract_end
+                       phone, admin_area, depts_json, aliases_json
                 FROM hospital
                 WHERE (?1 IS NULL OR region = ?1)
                   AND (name_zh LIKE ?2 ESCAPE '\\' OR short_name LIKE ?2 ESCAPE '\\'
@@ -142,8 +142,7 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
             id: row["rowid"], region: row["region"], sourceID: row["source_id"], code: row["code"],
             nameZh: row["name_zh"], shortName: row["short_name"], typeZh: row["type_zh"],
             levelZh: row["level_zh"], address: row["address"], phone: row["phone"],
-            adminArea: row["admin_area"], deptsJSON: row["depts_json"], aliasesJSON: row["aliases_json"],
-            contractEnd: row["contract_end"])
+            adminArea: row["admin_area"], deptsJSON: row["depts_json"], aliasesJSON: row["aliases_json"])
     }
 
     static func department(from row: Row) throws -> MedicalCatalogDepartment {

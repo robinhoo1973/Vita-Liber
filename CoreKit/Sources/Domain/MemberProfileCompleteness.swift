@@ -28,13 +28,13 @@ public enum MemberProfileCompleteness {
     /// （与 HealthCharacteristicImport 的 FR3.1 精度口径同源），且日期落在
     /// 1900-01-01 … 今天 的闭区间内。非空但非法的存量值（如 "abc"、"2023-02-30"）无效——
     /// 不计完整度，详情页提示补录；不做存量迁移（读时忽略，BR-002 原始数据原则）。
-    public static func isValidBirthDate(_ value: String) -> Bool {
+    public static func isValidBirthDate(_ value: String, in timeZone: TimeZone? = nil) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count == 4, let year = Int(trimmed),
-           (1900...currentYear()).contains(year) {
+           (1900...currentYear(in: timeZone)).contains(year) {
             return true
         }
-        guard trimmed.count == 10, let parsed = parsedBirthDate(trimmed) else { return false }
+        guard trimmed.count == 10, let parsed = parsedBirthDate(trimmed, in: timeZone) else { return false }
         return parsed >= birthDateEarliest && parsed <= Date()
     }
 
@@ -42,13 +42,15 @@ public enum MemberProfileCompleteness {
     /// 审查补充）；非法/空串返回 nil——调用方以今天作 picker 初始值展示，未经
     /// 显式选择不落库。归一化伪日期（如 02-30）经往返一致检查拒绝，与
     /// `isValidBirthDate` 同一判据。
-    public static func parsedBirthDate(_ value: String) -> Date? {
+    public static func parsedBirthDate(_ value: String, in timeZone: TimeZone? = nil) -> Date? {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: "-", omittingEmptySubsequences: false)
         guard trimmed.count == 10, parts.count == 3,
-              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]),
-              let parsed = birthDateCalendar.date(from: DateComponents(year: y, month: m, day: d)),
-              birthDateString(from: parsed) == trimmed else { return nil }
+              let y = Int(parts[0]), let m = Int(parts[1]), let d = Int(parts[2]) else { return nil }
+        var calendar = birthDateCalendar
+        if let timeZone { calendar.timeZone = timeZone }
+        guard let parsed = calendar.date(from: DateComponents(year: y, month: m, day: d)),
+              birthDateString(from: parsed, in: timeZone) == trimmed else { return nil }
         return parsed
     }
 
@@ -60,8 +62,10 @@ public enum MemberProfileCompleteness {
         return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
     }
 
-    private static func currentYear() -> Int {
-        Calendar.current.component(.year, from: Date())
+    private static func currentYear(in timeZone: TimeZone? = nil) -> Int {
+        var calendar = Calendar.current
+        if let timeZone { calendar.timeZone = timeZone }
+        return calendar.component(.year, from: Date())
     }
 
     /// 血型/证件/医保 3 个直接字段（非空即完成）+ 生日（非空且**合法**才完成）+ 语音访谈四段 = 8 项。

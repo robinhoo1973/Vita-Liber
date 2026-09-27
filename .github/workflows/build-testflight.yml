@@ -69,7 +69,9 @@ on:
 
 concurrency:
   group: testflight-${{ github.ref }}
-  cancel-in-progress: true
+  # 2026-09-27 委员会裁决 P9：发布路径取消语义 → 排队——新 push 取消进行中的
+  # TestFlight 上传会造成半上传态 + build 号已占（重跑 90189 终态）+ ASR 资源半发布。
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -126,6 +128,9 @@ jobs:
   build:
     name: '编译 + 导出 IPA'
     needs: [version, asr-models]
+    outputs:
+      # 2026-09-27 委员会裁决 P6：产物存在性输出（不信任 env 布尔，信任产物文件）
+      ipa_ready: ${{ steps.ipa-ready.outputs.ipa_ready }}
     # 钉版 macos-26（审计 2026-09-10）：发布流水线拒绝隐式工具链漂移；
     # 镜像内 Xcode 主版本变化由下方断言显式拦截，升级按文件头指引执行。
     runs-on: macos-26
@@ -260,15 +265,21 @@ jobs:
               except ValueError:
                   continue
           if end is None:
-              print(-1); raise SystemExit
+              print('PARSE_FAIL'); raise SystemExit
           if end.tzinfo is None:
               end = end.replace(tzinfo=timezone.utc)
           print((end - datetime.now(timezone.utc)).days)
           PY
           )
-            if [ "$days" -lt 0 ]; then
+            if [ "$days" = "PARSE_FAIL" ]; then
               echo "::warning::$label 到期日解析失败：$enddate"
               return 0
+            fi
+            # 2026-09-27 委员会裁决 P5：负天数=已过期（比 ≤7 更严重）——此前与
+            # -1 哨兵碰撞被当「解析失败」仅 warning 放行，门禁在唯一重要的日子失职。
+            if [ "$days" -lt 0 ]; then
+              echo "::error::$label 已过期 $((-days)) 天（$enddate）——立即轮换并更新仓库 Secrets"
+              return 1
             fi
             if [ "$days" -le 7 ]; then
               echo "::error::$label 将在 $days 天内到期（$enddate）——请立即轮换并更新仓库 Secrets"
@@ -628,6 +639,19 @@ jobs:
         run: python3 scripts/release/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
 
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
+      # 2026-09-27 委员会裁决 P6：IPA 产物存在性标记——签名材料缺失时 build 仍是
+      # success（签名步骤被 if 跳过），upload job 若只看 result 会在 download-artifact
+      # 处以谜之错误失败。此处按产物文件判真并输出，upload 侧具名失败。
+      - name: 记录 IPA 产物存在性
+        id: ipa-ready
+        if: always()
+        run: |
+          if [ -f Build/export/VitaLiber.ipa ]; then
+            echo "ipa_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ipa_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 上传 IPA artifact
         if: ${{ env.HAS_CERTS == 'true' }}
         # v7.0.1；固定完整 SHA（node24 运行时），artifact action 运行在含签名材料的 job 中。
@@ -688,7 +712,16 @@ jobs:
         with:
           python-version: '3.13.5'
 
+      # 2026-09-27 委员会裁决 P6：build 成功但无 IPA = 签名材料缺失——具名失败，
+      # 而非在 download-artifact 处以 "No artifacts found" 谜之失败。
+      - name: 前置检查 IPA 产物
+        if: ${{ needs.build.outputs.ipa_ready != 'true' }}
+        run: |
+          echo "::error::build 成功但未产出 IPA——签名材料缺失或导出失败；请核对 APPLE_* Secrets 后重跑"
+          exit 1
+
       - name: 下载 IPA artifact
+        if: ${{ needs.build.outputs.ipa_ready == 'true' }}
         # v8.0.1；固定完整 SHA（node24 运行时），避免可变 tag 供应链风险。
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -858,6 +891,11 @@ jobs:
             echo "::warning::未在 altool 日志中捕获到 Delivery UUID"
           fi
           echo "altool 已受理上传 ✓（Apple 处理完成前 TestFlight 不会立即可见，通常几分钟）"
+          # 2026-09-27 委员会 P7 第一批：弃用/协议漂移 tripwire——不阻断（弃用仍工作），
+          # 但命中必须让人看见（Apple 移除 altool/旧协议时静默断供的前哨）。
+          if grep -iE 'deprecat' Build/altool-upload.log; then
+            echo "::warning::altool 日志含弃用提示——上传协议漂移前哨（委员会 P7）；迁移路线见 workflow 头注"
+          fi
 
       # ── 复核：轮询 Build 是否登记 + 查询 buildUpload 处理错误 ──
       # JWT 用 PyJWT + cryptography 签发（含 aud=appstoreconnect-v1，缺它 401）。
@@ -973,8 +1011,14 @@ jobs:
           # 无错误；窗口延长降噪，不改变「精确匹配才报已登记」的语义）
           for i in $(seq 1 12); do
             TOKEN=$(mk_token || true)
-            if [ -z "$TOKEN" ]; then echo "::warning::JWT 生成失败，跳过复核"; exit 0; fi
-            if [ -z "$APP" ]; then echo "::warning::仍无 App 记录（上传未自动创建），请手动在 ASC 创建后重跑"; break; fi
+            if [ -z "$TOKEN" ]; then
+              echo "::error::JWT 生成失败——「受理≠登记」，无 Apple 侧正面证据不得以绿色冒充成功（委员会 P4）"
+              exit 1
+            fi
+            if [ -z "$APP" ]; then
+              echo "::error::仍无 App 记录且上传未自动创建——build 登记无从验证（委员会 P4：未证实即红）"
+              exit 1
+            fi
             asc_curl "https://api.appstoreconnect.apple.com/v1/builds?sort=-uploadedDate&limit=5&filter[app]=$APP" 2>/dev/null > "$RUNNER_TEMP/resp-builds.json"
             OUT=$(python3 - "$RUNNER_TEMP/resp-builds.json" 2>/dev/null <<'PYEOF' || true
           import json, sys
@@ -1009,9 +1053,33 @@ jobs:
             fi
             sleep 30
           done
+          # 2026-09-27 委员会 P4 三档判定：
+          #   红 = 无 Apple 侧正面证据（未证实不得绿——ERR#27 纪律延伸）
+          #   宽容 = Apple API 自证「处理中」（慢日档，build 320.1 历史假阴性的正解）
+          #   90189/90xx = 确定终态，不享宽容（重跑无用，指引 bump 版本号）
           if [ "$found" = "0" ]; then
-            echo "注意：约 6 分钟内本次 build ${EXPECTED} 仍未出现在列表。请查 App Store Connect → 活动/电子邮件"
-            echo "确认 Apple 处理是否报错（如 Invalid Binary / Missing Compliance / ITMS-90189 重复构建号）。"
+            UPLOAD_STATE="$(python3 - "$RUNNER_TEMP/resp-upload.json" 2>/dev/null <<'PYEOF' || echo UNKNOWN
+          import json, sys
+          try:
+              d = json.load(open(sys.argv[1]))
+              st = d.get('data', {}).get('attributes', {}).get('state', {})
+              print('PROCESSING' if st and not st.get('errors') else ('ERRORS' if st and st.get('errors') else 'UNKNOWN'))
+          except Exception:
+              print('UNKNOWN')
+          PYEOF
+            )"
+            if grep -qE 'ITMS-90[0-9]+' Build/altool-upload.log; then
+              echo "::error::altool 返回 ITMS-90xx（含 90189 重复构建号）——确定终态；重跑无用，请 bump CURRENT_PROJECT_VERSION 后重跑"
+              exit 1
+            elif [ "$UPLOAD_STATE" = "ERRORS" ]; then
+              echo "::error::buildUpload state.errors 非空——Apple 已出具失败证据，见上方 buildUpload 详情"
+              exit 1
+            elif [ "$UPLOAD_STATE" = "UNKNOWN" ]; then
+              echo "::error::约 6 分钟内 build ${EXPECTED} 未登记且无 Apple 侧正面证据（无 Delivery UUID/状态未知）——未证实不得绿；请用 asc-build-status workflow 查处理状态"
+              exit 1
+            else
+              echo "::warning::build ${EXPECTED} 尚未入列表但 buildUpload state=PROCESSING——Apple 自证处理中（慢日档），后续请用 asc-build-status 核对"
+            fi
           fi
 
       - name: 清理上传凭据

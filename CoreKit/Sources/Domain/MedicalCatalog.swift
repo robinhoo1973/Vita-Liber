@@ -120,4 +120,6 @@ public protocol MedicalCatalogReading: Sendable {
     func match(line: PrescriptionLine) async throws -> MedicalCatalogMatch
     func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference]
     func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail?
+    /// 2026-09-27 委员会 P3a：App 状态层经端口取单药——视图不再直接依赖具体 store 类型。
+    func drug(id: Int) async throws -> MedicalCatalogDrug?
 }

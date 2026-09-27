@@ -1,4 +1,3 @@
-#if os(iOS) || os(macOS)
 import Testing
 @testable import Domain
 
@@ -43,4 +42,3 @@ struct MedicalTerminologyOverlayTests {
         #expect(await overlay.canonicalName(for: "急性心梗") == "急性心梗")
     }
 }
-#endif

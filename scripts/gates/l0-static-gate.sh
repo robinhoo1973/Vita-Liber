@@ -159,7 +159,7 @@ fi
 echo "Vita Liber L0 静态门禁 · 应用源码根: $APP"
 
 # ---------- [1] 强制解包/try? 门禁 ----------
-section "1/17" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
+section "1/18" "强制解包门禁 —— try? / as! / try! 全仓清零，豁免须同行注释 // try?-ok: <理由>（tech-spec §7）"
 try_viol=0; try_exempt=0
 while IFS= read -r line; do
   [ -n "$line" ] || continue
@@ -202,7 +202,7 @@ else
 fi
 
 # ---------- [2] ADR-021 无平行视图 ----------
-section "2/17" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
+section "2/18" "ADR-021 —— 禁止平行视图文件与 idiom 分支换页（tech-spec §5.26）"
 ipad_files=$(find "${SCAN_PATHS[@]}" \( -name .build -o -name .swiftpm -o -name DerivedData -o -name Build \) -prune -o \( -name '*_iPad*.swift' -o -name '*_iPhone*.swift' \) -print 2>/dev/null | grep -v '/CoreKit/' || true)
 if [ -n "$ipad_files" ]; then
   printf '%s\n' "$ipad_files" | head -15 | sed 's/^/    /'
@@ -227,7 +227,7 @@ else
 fi
 
 # ---------- [3] DDL 引用完整性 ----------
-section "3/17" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
+section "3/18" "DDL 引用完整性 —— REFERENCES 目标已建表 + 外键开启（tech-spec §4.3）"
 # 大文本管道防 SIGPIPE（ERR#34）：ddl_text 达数 MB 后，
 # `printf | grep -qE` 在 grep 提前命中退出时把仍在写的 printf 打死
 # （exit 141），pipefail 下整段报错——曾造成「外键开启语句缺失」假红。
@@ -299,7 +299,7 @@ done
 rm -f "$_ddl_file"
 
 # ---------- [4] 红线模块禁读 EntitlementStore ----------
-section "4/17" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
+section "4/18" "商业化红线 —— 红线模块代码内禁止读取 EntitlementStore（tech-spec §5.14）"
 DEFAULT_REDLINE="$APP/App/Features/Onboarding/OnboardingViews.swift:$APP/App/Features/Reminders/RemindersViews.swift:$APP/App/Features/Observations/ObservationViews.swift:$APP/App/Features/Assistant/AssistantHistoryView.swift:$APP/App/Features/Emergency/EmergencyCareViews.swift:$APP/App/Features/Search/GlobalSearchView.swift:$APP/App/Features/Settings/HelpViews.swift:$APP/App/DesignSystem/SensitiveMediaContainer.swift:$APP/App/Features/Emergency/AlertViews.swift:$APP/App/Features/Medications/MedicationPlanViews.swift:$APP/App/Features/Medications/InventoryViews.swift:$APP/App/Features/Health/DeviceConnectionView.swift"
 REDLINE_PATHS="${REDLINE_PATHS:-$DEFAULT_REDLINE}"
 redline_matched=0; ent_viol=0
@@ -326,7 +326,7 @@ else
 fi
 
 # ---------- [5] Domain 零框架依赖 ----------
-section "5/17" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
+section "5/18" "分层纪律 —— Domain 零框架依赖，白名单断言 import ⊆ {Foundation}（tech-spec §1.1）"
 if [ ! -d "$DOMAIN" ]; then
   fail "缺少 $DOMAIN —— M0 要求 CoreKit 三目标骨架先行"
 else
@@ -345,7 +345,7 @@ else
 fi
 
 # ---------- [6] Fixtures JSON 校验 ----------
-section "6/17" "金样 Fixtures —— JSON 可解析（test-plan-spec Fixtures 约定）"
+section "6/18" "金样 Fixtures —— JSON 可解析（test-plan-spec Fixtures 约定）"
 validate_json() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$1" 2>/dev/null
@@ -385,7 +385,7 @@ else
 fi
 
 # ---------- [7] Swift 语法解析门禁 ----------
-section "7/17" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
+section "7/18" "Swift 解析门禁 —— App 层源码语法/保留字检查（ERR#28 shift-left）"
 # 背景：App/ 的 SwiftUI 源码不属于 CoreKit SPM 包，Linux 上 `swift build` 不覆盖它，
 # 过去任何语法错误（如 `static let import`）都要等 macOS L1 编译才暴露，一次往返数分钟。
 # swiftc -parse 只做语法分析、不做语义解析与 import 解析，因此在无 SwiftUI 的 Linux 上同样有效。
@@ -437,7 +437,7 @@ else
 fi
 
 # ---------- [8] 阶段门禁套件存在性 ----------
-section "8/17" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
+section "8/18" "阶段门禁套件存在性 —— test-plan §3 必过套件必须真实存在（ERR#27 原则推广）"
 # 根因族第三次复发的治本项：ERR#27=扫到 0 个对象判 PASS；ERR#30=job skipped 判 success；
 # M1.5=套件从未创建、CI 无 job 绑定 → 无红可判 → 默认通过。三者同为「缺证据被当成有证据」。
 # 本项把「某阶段必须存在哪些套件」变成可执行断言：清单里 required=yes 的套件
@@ -497,6 +497,25 @@ else
         ;;
     esac
   done < "$SUITE_MANIFEST"
+  # 2026-09-27 委员会 D5：§3→tsv 反向核查（doc-driven）——[8] 只查 tsv→代码正向，
+  # 缺行=缺断言=默认绿（ERR#27 族复发：V2.43/44 声称 tsv 同步、实际缺 5 行）。
+  # 反向只认 test-plan-spec §3 的必过套件列（零误伤：代码里 SU-FR* 等刻意无行）。
+  if [ -f "$ROOT/refactor/test-plan-spec.md" ]; then
+    # 只从 §3 阶段门禁表行（^| Mx 或 ^| OCR）提取——全文 grep 会误抓变更记录/
+    # 头注里提到的在途套件（SU-M15-MEDCATALOG 属 V2.48 在途、代码 token 未落地）。
+    _spec_su=$(grep -E '^\| (M[0-9]|OCR)' "$ROOT/refactor/test-plan-spec.md" | grep -oE 'SU-[A-Z0-9-]+' | sort -u || true)
+    # 在途套件登记（2026-09-27）：§3 已声明、代码 token 未落地（V2.48 在途轮）——
+    # 代码落地接线 tsv 后必须移出本清单（否则反查对真实漂移失明）。
+    _spec_su_allowlist="SU-M15-MEDCATALOG SU-M15-MEDCATALOG-UI"
+    for _su in $_spec_su; do
+      case " $_spec_su_allowlist " in *" $_su "*) continue ;; esac
+      if ! grep -qF "$_su" "$SUITE_MANIFEST" 2>/dev/null; then
+        s_missing=$((s_missing + 1))
+        printf '    §3 套件未入 tsv: %s —— test-plan §3 必过清单与 gate-suites.tsv 漂移\n' "$_su"
+      fi
+    done
+  fi
+
   if [ "$s_req" -eq 0 ]; then
     fail "清单内 required=yes 的套件为 0 —— 空集不得判过（ERR#27）"
   elif [ "$s_missing" -gt 0 ]; then
@@ -507,7 +526,7 @@ else
 fi
 
 # ---------- [9] FR17.13 语音输入模板复用 ----------
-section "9/17" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
+section "9/18" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
 # function-spec FR17.13：语音指导每步(FR17.11)/语音速记(FR17.9)/语音提醒设定(FR17.10)/
 # 观察语音速记(FR8.9) 一律调用标准模板，**禁止各功能自建独立确认逻辑**。
 # 两条断言：
@@ -560,7 +579,7 @@ else
 fi
 
 # ---------- [10] L10n 硬编码门禁（审查问题 E · 机制先于存量） ----------
-section "10/17" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
+section "10/18" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/workflows/l10n-legacy-allowlist.txt）"
 L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
 [ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
 # 判定统一走 python3 显式 Unicode 码点（ERR#5WHY：`grep [一-龥]` 多字节字符区间的
@@ -615,7 +634,7 @@ EOF
 fi
 
 # ---------- [11] 资产目录完整性 ----------
-section "11/17" "资产目录完整性 —— imageset 槽位 scale 必须 1x/2x/3x（actool 静默丢图标回归防护，ERR#28 同族）"
+section "11/18" "资产目录完整性 —— imageset 槽位 scale 必须 1x/2x/3x（actool 静默丢图标回归防护，ERR#28 同族）"
 ASSET_ROOT="$APP/Resources/Assets.xcassets"
 if [ ! -d "$ASSET_ROOT" ]; then
   fail "缺少资源目录 $ASSET_ROOT —— 不得空扫判 PASS（ERR#27）"
@@ -657,7 +676,7 @@ PY
 fi
 
 # ---------- [12] 生物识别权限声明 ----------
-section "12/17" "生物识别权限声明 —— 代码用 LocalAuthentication ⟹ Info.plist 有 NSFaceIDUsageDescription（缺失 = Face ID 静默不可用）"
+section "12/18" "生物识别权限声明 —— 代码用 LocalAuthentication ⟹ Info.plist 有 NSFaceIDUsageDescription（缺失 = Face ID 静默不可用）"
 la_used=0
 if grep -rqE --include='*.swift' 'deviceOwnerAuthentication|import LocalAuthentication' \
      "$APP/CoreKit/Sources" "$APP/App" 2>/dev/null; then
@@ -701,7 +720,7 @@ else
 fi
 
 # ---------- [13] .strings 结构校验 ----------
-section "13/17" ".strings 结构校验 —— 行级语法/重复键/三语键集一致（CopyStringsFile 容忍损坏=沉默劣化，ERR#48 同族）"
+section "13/18" ".strings 结构校验 —— 行级语法/重复键/三语键集一致（CopyStringsFile 容忍损坏=沉默劣化，ERR#48 同族）"
 # 背景：zh-Hans/zh-Hant 曾各有一行 8 个键值碎片挤单行、三文件各 7 个重复键（部分值
 # 冲突如瓶/支）、en 缺键——CopyStringsFile 均容忍通过，管道绿但运行时文案损坏/裸 key。
 # 判定与平台无关的 python3（ERR#5WHY 纪律）；ERR#27 空扫不得判 PASS。
@@ -838,7 +857,7 @@ PYEOF
 fi
 
 # ---------- [14] project.yml scheme 校验 ----------
-section "14/17" "project.yml scheme 校验 —— 测试目标必须是项目内声明 target，禁止包测试引用（XcodeGen Spec validation error，CI 34017824105 实证）"
+section "14/18" "project.yml scheme 校验 —— 测试目标必须是项目内声明 target，禁止包测试引用（XcodeGen Spec validation error，CI 34017824105 实证）"
 # 背景：scheme test targets 曾写 { name: CoreKitTests, package: CoreKit }——CoreKitTests 是
 # SPM 包内测试目标，不在 .xcodeproj 目标图里，XcodeGen 校验直接拒绝；本地 Linux 无 xcodegen，
 # 该错误只能烧一次完整 CI 在「生成 Xcode 工程」首步才暴露。纯 python3 标准库实现（macOS runner
@@ -907,7 +926,7 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/17" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/非转义函数型参数赋存储属性/顶层类型嵌套成员误引（十二族 CI 实证左移）"
+section "15/18" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/非转义函数型参数赋存储属性/顶层类型嵌套成员误引（十二族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
 # 以下十二族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
@@ -957,7 +976,7 @@ else
 fi
 
 # ---------- [16] 文本理解层结构断言（ADR-029 期一，V3.86） ----------
-section "16/17" "文本理解目录结构断言 —— 三文件存在/第 8 工厂注册/金样套件存在（ADR-029 承诺的编译期静态形态，coreml-minilm-spec §5.13）"
+section "16/18" "文本理解目录结构断言 —— 三文件存在/第 8 工厂注册/金样套件存在（ADR-029 承诺的编译期静态形态，coreml-minilm-spec §5.13）"
 # 背景：期一=端口+契约+兜底轨+F25 接线——「三文件 + 工厂注册 + 金样套件」
 # 是理解层最低静态形态（文件漂移/工厂漏注册 = 上层 resolve 崩溃或静默回落
 # 契约桩，Linux 门禁必须在 macOS 编译前拦截）；ERR#27 空扫不得判 PASS。
@@ -981,7 +1000,7 @@ if [ "$tu_missing" -eq 0 ]; then
 fi
 
 # ---------- [17] 容器标识掩蔽门禁 ----------
-section "17/17" "容器标识掩蔽 —— 容器 .accessibilityIdentifier 必须配 .accessibilityElement(children: .contain)（CI 34021989599 / 34660864382 实证错误族）"
+section "17/18" "容器标识掩蔽 —— 容器 .accessibilityIdentifier 必须配 .accessibilityElement(children: .contain)（CI 34021989599 / 34660864382 实证错误族）"
 # 背景：SwiftUI 容器（VStack/HStack/List…）上的 accessibilityIdentifier 会把容器标识
 # 下放覆盖到每个子元素自身的标识，XCUITest 按子元素标识查询必失败——但 App 源码里
 # 两个标识都「存在」，存在性交叉检查查不出，只能按修饰链形态判（python 判定器）。
@@ -1000,4 +1019,17 @@ if [ "$FAILURES" -eq 0 ]; then
 else
   printf '%s失败项：%s —— L0 不过不进 L1（dev-pm-spec §9.4）%s\n' "$C_R" "$FAILURES" "$C_0"
   exit 1
+fi
+
+# ---------- [18] 依赖能力矩阵（委员会 P1，2026-09-27） ----------
+# 依赖钉版与工具链能力错配族（CI 36253140508：swift-collections 1.7.0 在 Xcode 26
+# SPM 下 import Builtin 失败）：断言两个钉面 ≤ 已验证上限矩阵；未登记即未验证。
+section "18/18" "依赖能力矩阵 —— Package.resolved/project.yml 钉 ≤ 已验证上限（矩阵 scripts/gates/dependency-capability-matrix.tsv）"
+if python3 "$SCRIPT_DIR/l0-dependency-matrix.py"; then
+  pass_matrix=1
+else
+  pass_matrix=0
+fi
+if [ "$pass_matrix" -eq 0 ]; then
+  fail "依赖钉版超出能力矩阵——升级需随 PR 携带 CI 全绿证据并同 PR 更新矩阵"
 fi

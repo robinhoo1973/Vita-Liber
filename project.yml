@@ -11,7 +11,7 @@ packages:
   CoreKit: { path: CoreKit }
   GRDB.swift:
     url: https://github.com/groue/GRDB.swift.git
-    majorVersion: 6.29.0
+    exactVersion: 6.29.3   # 委员会 P1：majorVersion 区间钉是唯一可静默漂移面，改 exact
   swift-perception:
     url: https://github.com/pointfreeco/swift-perception
     exactVersion: 2.0.12   # 与 CoreKit from: "2.0.12" 同解；App 侧 xcodeproj 不入库，钉精确版保证 CI 可重现

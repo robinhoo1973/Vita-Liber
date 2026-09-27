@@ -378,7 +378,7 @@ struct SUM15CalibrationTests {
     /// 故按路径取而不是 `Bundle.module.url(forResource:)`（后者只搜 bundle 根，取不到）。
     /// 与 GoldenMigrationTests 的取法保持一致。
     private func loadCorpus() throws -> VoiceCalibration.Corpus {
-        let path = Bundle.module.bundlePath + "/Fixtures/voice-corpus.json"
+        let path = TestFixtures.path("voice-corpus.json")
         guard FileManager.default.fileExists(atPath: path) else {
             throw CalibrationFixtureError.missing
         }

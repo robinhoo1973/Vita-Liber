@@ -59,7 +59,10 @@
 #          @Environment(T.self) 选回 SwiftUI 原生重载、读另一键槽（Perception 键槽
 #          陷阱，运行时 fatalError "No perceptible object…"），必须改 #available 分支。
 #      不列入（Apple 文档核实为回部署/更低版本）：.topBarLeading/.topBarTrailing
-#      （iOS 14，@backDeployed）、Animation.snappy/.spring(duration:bounce:)（iOS 13）、
+#      （iOS 14，@backDeployed）、Animation.snappy/.spring(duration:bounce:)（iOS 13——Apple metadata JSON
+#      introducedAt=13.0 + @export(implementation)，非主文档页的 17.0；已过 Xcode 26
+#      + iOS 16 编译实证：HomeView.swift:46 随 539.1 全绿、HomeSubviews.swift:517 随
+#      09-26 各轮，委员会 D1 引证）、
 #      #Preview（iOS 13）。
 #   K. 条件绑定直接解包非可选 as-转型的下标读 —— CI 35488987944 实证：
 #      OCRCardStore+Edit.swift:175 `guard let raw = row["raw_blocks"] as String`
@@ -89,6 +92,7 @@
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
 #   现各族判定点统一读取（exempted()）。
 # ============================================================================
+import pathlib
 import re
 import sys
 from pathlib import Path
@@ -788,7 +792,9 @@ def main():
     # ---- 家族 J：iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I，2026-09-13）
     # 部署目标降至 16.0 后，这些符号只有 macOS L1 才报 "is only available in iOS 17.0 or newer"，
     # swiftc -parse 放行。不列入（Apple 文档核实为回部署/更低版本）：.topBarLeading/.topBarTrailing
-    # （iOS 14，@backDeployed）、Animation.snappy / .spring(duration:bounce:)（iOS 13）、#Preview（iOS 13）。
+    # （iOS 14，@backDeployed）、Animation.snappy / .spring(duration:bounce:)（iOS 13——metadata JSON
+#   introducedAt=13.0 + @export(implementation)；Xcode 26 + iOS 16 编译实证：HomeView.swift:46
+#   随 539.1 全绿、HomeSubviews.swift:517 随 09-26 各轮，委员会 D1）、#Preview（iOS 13）。
     # 放行：App/Compat/ 内（垫片本体）、同一 `if #available(iOS 17` 花括号块内（含其 else 分支——
     # 保守放行）、同行 `// ios17-ok: <理由>`（或 tius-ok）。
     IOS17_ONLY = {
@@ -1033,7 +1039,10 @@ def main():
                 )
                 break
 
-    # ---- 家族 O：四域参考目录测试夹具 DDL 与 store SELECT 列漂移 —— CI 36248076043
+    # ---- 家族 O：四域参考目录 DDL 三拷贝面漂移 —— CI 36248076043 / 测试席 F1
+    # v2（2026-09-27）：除「store SELECT ⊆ 夹具列」外，增加「夹具列 == 生产 DDL 列」双向断言——
+    # 测试席实测生产 catalog_v4.sql 无 contract_end 而夹具独有（幻影列，抄写链漂移），
+    # 此前单向检查抓不到「夹具多列掩盖生产缺列」的反方向。
     # 实证：hospital 表新增 contract_end 后夹具 CREATE TABLE 未同步，macOS 运行时
     # "no such column"。Linux 上 store 与测试被平台守卫空编译（swift test 假绿），
     # 文本交叉核对是唯一 Linux 可见通道。四表逐一比对，缺列即 FAIL。
@@ -1053,6 +1062,14 @@ def main():
             ("exam_item", r"CREATE TABLE exam_item \(([^)]*)\)",
              r"SELECT rowid, region, source_id, code, name_zh, name_en, category, method, specimen, unit,\s*\n?\s*([^F]*?)FROM exam_item"),
         )
+        prod_ddl = pathlib.Path("scripts/medical-data/go/fetchstore/catalog_v4.sql")
+        prod_cols = {}
+        if prod_ddl.exists():
+            prod_text = prod_ddl.read_text(encoding="utf-8")
+            for name in ("hospital", "department", "diagnosis", "exam_item"):
+                m = re.search(r"CREATE TABLE " + name + r" \(([^)]*)\)", prod_text)
+                if m:
+                    prod_cols[name] = {c.strip().split()[0] for c in m.group(1).split(",")}
         for name, ddl_re, sel_re in tables:
             ddl = re.search(ddl_re, tf)
             sel = re.search(sel_re, st, re.S)
@@ -1067,6 +1084,14 @@ def main():
                 fails.append(
                     f"{ref_fix.relative_to(root)}: {name} 表 fixture 缺列 {sorted(missing)} —— "
                     f"store SELECT 消费但 fixture DDL 未定义，仅 macOS 运行时暴露（CI 36248076043 同族）"
+                )
+            if name in prod_cols and ddl_cols != prod_cols[name]:
+                extra = ddl_cols - prod_cols[name]
+                lacking = prod_cols[name] - ddl_cols
+                fails.append(
+                    f"{ref_fix.relative_to(root)}: {name} 表夹具与生产 DDL 列集漂移"
+                    f"（夹具多列 {sorted(extra) or '∅'} / 夹具缺列 {sorted(lacking) or '∅'}）—— "
+                    f"幻影列族（测试席 F1：contract_end 曾仅存在于夹具）"
                 )
         scanned["O"] = 4
 

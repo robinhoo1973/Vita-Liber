@@ -74,11 +74,10 @@ struct ModelMemoryBudgetTests {
     }
 
     @Test func availabilityProbeIsNilOffiOS() {
-        // Linux/macOS 无 os_proc_available_memory → nil → 策略 fail-open（未知不拒）
-        #if os(iOS)
-        #expect(ProcessMemory.availableBytes() != nil)
-        #else
+        // 2026-09-27 委员会 D3：原 #if os(iOS) 分支在全部真实执行面（macOS runner
+        // swift test + 本机 Linux）都死——CoreKitTests 不进 scheme（project.yml:103），
+        // 死分支是假证据（读者以为 iOS 行为已被断言）。ProcessMemory.swift:14-19
+        // os_proc_available_memory 仅 iOS；非 iOS 恒 nil → 策略 fail-open（未知不拒）。
         #expect(ProcessMemory.availableBytes() == nil)
-        #endif
     }
 }
