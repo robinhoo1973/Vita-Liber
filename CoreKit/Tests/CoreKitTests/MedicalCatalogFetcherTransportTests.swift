@@ -24,14 +24,14 @@ struct MedicalCatalogFetcherTransportTests {
 
     @Test func successfulFetchDeliversExactBytes() async throws {
         let body = Data((0..<16384).map { UInt8($0 % 251) })
-        let url = assetURL("pkg.bin")
+        let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
         var callbacks = 0
-        try await fetcher.fetch(assetName: "pkg.bin", expectedSize: Int64(body.count), to: dest) { _ in
+        try await fetcher.fetch(assetName: "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin", expectedSize: Int64(body.count), to: dest) { _ in
             callbacks += 1
         }
         #expect(try Data(contentsOf: dest) == body)
@@ -40,26 +40,26 @@ struct MedicalCatalogFetcherTransportTests {
 
     @Test func transientErrorRetriesOnceAndSucceeds() async throws {
         let body = Data((0..<16384).map { UInt8($0 % 251) })
-        let url = assetURL("retry.bin")
+        let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body, cutAfterBytes: 8192)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
-        try await fetcher.fetch(assetName: "retry.bin", expectedSize: Int64(body.count), to: dest) { _ in }
+        try await fetcher.fetch(assetName: "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin", expectedSize: Int64(body.count), to: dest) { _ in }
         #expect(try Data(contentsOf: dest) == body)
         #expect(URLProtocolStub.requestLog.count == 2, "断流应触发一次重试（裁决 5）")
     }
 
     @Test func sizeMismatchThrowsChecksumError() async throws {
-        let url = assetURL("short.bin")
+        let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
         URLProtocolStub.reset()
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: Data(repeating: 0, count: 100))
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
         do {
-            try await fetcher.fetch(assetName: "short.bin", expectedSize: 1000, to: dest) { _ in }
+            try await fetcher.fetch(assetName: "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin", expectedSize: 1000, to: dest) { _ in }
             Issue.record("尺寸不符必须抛出")
         } catch let error as MedicalCatalogUpdateError {
             #expect(error == .checksumMismatch)
