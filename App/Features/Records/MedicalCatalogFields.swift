@@ -59,9 +59,9 @@ private struct CatalogSuggestSection<Item: Identifiable, Detail: View>: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
             ForEach(items.prefix(5)) { item in
-                CatalogCandidateRow(title: titleOf(item), select: { select(item) }) {
-                    detailOf(item)
-                }
+                // detail 是值参数（非 @ViewBuilder 闭包）——直接传值，不用尾随闭包
+                // （CI 36285227325：尾随闭包形态产生 () -> Detail 无法 conform View）
+                CatalogCandidateRow(title: titleOf(item), select: { select(item) }, detail: detailOf(item))
             }
         }
         .padding(.top, 2)

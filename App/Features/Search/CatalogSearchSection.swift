@@ -113,7 +113,7 @@ private struct CatalogSearchContent: View {
                         .foregroundStyle(.secondary)
                 }
                 if !state.hospitalHits.isEmpty {
-                    group(title: L10n.fieldHospital) {
+                    group(title: L10n.templateFieldLabel("hospital")) {
                         ForEach(state.hospitalHits) { hospital in
                             CatalogHitRow(title: hospital.nameZh,
                                           meta: hospital.adminArea ?? "",
