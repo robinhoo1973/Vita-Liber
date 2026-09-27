@@ -224,7 +224,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: maxBytes,
-                                                         allowsURL: Self.allowsCheckURL)
+                                                         allowsURL: { Self.allowsCheckURL($0) })
         do {
             let (_, response) = try await session.data(for: request, delegate: delegate)
             try Task.checkCancellation()
@@ -307,7 +307,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
                 highest = PointerRef(name: name, url: url, catalogVersion: version)
             }
         }
-        return (highest)
+        return (highestInstallable: highest)
     }
 
     /// 只认 `medical-data-catalog-installable-<正整数>.json` 文法；

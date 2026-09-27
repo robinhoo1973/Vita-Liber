@@ -2,6 +2,7 @@ import XCTest
 import Foundation
 import Domain
 import Infrastructure
+@testable import Infrastructure
 @testable import VitaLiber
 
 // binds: SU-M15-MEDCATALOG
@@ -67,6 +68,12 @@ final class MedicalCatalogStateTests: XCTestCase {
                    progress: @escaping @Sendable (Int64) -> Void) async throws {
             throw error
         }
+    }
+
+    /// 无操作 opener：让取消用例的链路到达挂起 fetcher（无 opener 会被状态机
+    /// 前置短路为 packageInvalid，1-vote 验证发现的接线遗漏）。
+    private struct NoopOpener: MedicalCatalogPackageOpening {
+        func open(packageURL: URL, sqliteURL: URL, maxSQLiteBytes: Int64) async throws {}
     }
 
     /// 挂起式 fetcher：取消响应经 withTaskCancellationHandler 还原（生产 URLSession
@@ -277,7 +284,8 @@ final class MedicalCatalogStateTests: XCTestCase {
         let checker = StubChecker()
         await checker.set(updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: GatedFetcher())
-        let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
+        let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
+                                        checker: checker, opener: NoopOpener())
         state.check()
         await waitUntil("检查应发现更新") {
             if case .updateAvailable = state.remoteState { return true }

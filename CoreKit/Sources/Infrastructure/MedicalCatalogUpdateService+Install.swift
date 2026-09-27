@@ -439,7 +439,7 @@ enum MedicalCatalogPackageExtractor {
         } catch {
             throw MedicalCatalogUpdateError.packageInvalid
         }
-        var entries = archive.makeIterator()
+        let entries = archive.makeIterator()
         guard let entry = entries.next(), entries.next() == nil,
               entry.path == MedicalCatalogReleaseProtocol.sqliteEntryName, entry.type == .file,
               entry.uncompressedSize > 0, entry.uncompressedSize <= UInt64(maxSQLiteBytes) else {

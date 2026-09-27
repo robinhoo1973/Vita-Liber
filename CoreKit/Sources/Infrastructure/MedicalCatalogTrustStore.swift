@@ -154,7 +154,7 @@ enum MedicalCatalogSupportFile {
             // 故不采用。
             let handle = try FileHandle(forWritingTo: temp)
             try handle.synchronizeFile()
-            try handle.close()
+            handle.close() // close() 不抛（同步语义）；CI 警告清理 2026-09-27
             #endif
         } catch {
             // 写盘/fsync 失败同样清理半成品（2026-09-26 扫尾修复：原实现只在
