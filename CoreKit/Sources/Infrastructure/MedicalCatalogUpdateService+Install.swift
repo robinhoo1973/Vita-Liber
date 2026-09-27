@@ -259,10 +259,13 @@ public struct URLSessionMedicalCatalogPackageFetcher: MedicalCatalogPackageFetch
                     // 非传输类失败（校验/落盘）不重试
                     guard attempt == 0 else { throw medical }
                     if medical != .downloadFailed { throw medical }
-                } else if attempt == 0, let urlError = error as? URLError,
+                } else if let urlError = error as? URLError,
                           [.timedOut, .networkConnectionLost, .cannotConnectToHost,
                            .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff].contains(urlError.code) {
                     lastFailure = .downloadFailed
+                    // 末次尝试仍失败：抛映射后的统一错误域（fetcher 契约 = MedicalCatalogUpdateError，
+                    // 不向调用面泄漏 URLError——CI 36308337446 行为钉实证）
+                    if attempt > 0 { throw lastFailure }
                 } else {
                     throw error
                 }
