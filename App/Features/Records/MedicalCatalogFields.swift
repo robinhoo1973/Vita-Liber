@@ -39,7 +39,18 @@ private struct CatalogSuggestSection<Item: Identifiable, Detail: View>: View {
     let items: [Item]
     let titleOf: (Item) -> String
     let select: (Item) -> Void
-    let detailOf: @ViewBuilder (Item) -> Detail
+    private let detailOf: (Item) -> Detail
+
+    /// @ViewBuilder 须标在 init 参数上（存储属性类型上的标注在 Xcode 26 报
+    /// "unknown attribute 'ViewBuilder'"，CI 36284602861 实证）。
+    init(title: String, items: [Item], titleOf: @escaping (Item) -> String,
+         select: @escaping (Item) -> Void, @ViewBuilder detailOf: @escaping (Item) -> Detail) {
+        self.title = title
+        self.items = items
+        self.titleOf = titleOf
+        self.select = select
+        self.detailOf = detailOf
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
