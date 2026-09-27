@@ -191,8 +191,8 @@ final class MedicalCatalogStateTests: XCTestCase {
         let checker = StubChecker()
         await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
-        let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
-                                        checker: checker, opener: NoopOpener())
+        // 无 opener：applyUpdate 走 opener-guard 短路 → packageInvalid（证明候选已在手）
+        let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
         state.check()
         await waitUntil("检查应发现可安装更新") {
             if case .updateAvailable = state.remoteState { return true }
@@ -285,7 +285,10 @@ final class MedicalCatalogStateTests: XCTestCase {
         let checker = StubChecker()
         await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
-        let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
+        // 必须注入 opener：无 opener 会被状态机前置短路为 packageInvalid，
+        // 到不了 fetcher 的 downloadFailed 路径
+        let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
+                                        checker: checker, opener: NoopOpener())
         state.check()
         await waitUntil("检查应发现更新") {
             if case .updateAvailable = state.remoteState { return true }
