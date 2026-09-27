@@ -423,8 +423,8 @@ struct HomeView: View {
         }
         // 失败终态（2026-09-16 评审）：下载失败在首页可见（此前失败只在设置页
         // 三跳外、首页卡片静默消失）——含 [重试] 与关闭。
-        if let failedChoice = installCenter.lastFailure, installCenter.active.isEmpty {
-            modelDownloadFailedCard(failedChoice)
+        if let failed = installCenter.lastFailure, installCenter.active.isEmpty {
+            modelDownloadFailedCard(failed.choice)
                 .listRowBackground(Color(.secondarySystemGroupedBackground))
                 .listRowInsets(cardRowInsets)
         }
