@@ -8,7 +8,7 @@ import Testing
 /// SU-M15-MEDCATALOG · binds: SU-M15-MEDCATALOG（TC-M15-11 传输层，委员会测试席）
 /// URLSessionMedicalCatalogPackageFetcher 传输契约：白名单重定向、百分比节流、
 /// 取消、瞬态重试、磁盘满语义（2026-09-27 裁决 5 韧性改造后的行为钉）。
-@Suite("SU-M15-MEDCATALOG · 目录 fetcher 传输行为钉", .timeLimit(.minutes(2)))
+@Suite("SU-M15-MEDCATALOG · 目录 fetcher 传输行为钉", .serialized, .timeLimit(.minutes(2)))
 struct MedicalCatalogFetcherTransportTests {
 
     private func makeSession() -> URLSession {

@@ -44,6 +44,7 @@ final class URLProtocolStub: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
             return
         }
+        let firstRequestForURL = !URLProtocolStub.requestLog.contains { $0.url == url }
         URLProtocolStub.requestLog.append((url, request.value(forHTTPHeaderField: "Range")))
 
         if let target = script.redirectTo {
@@ -67,7 +68,8 @@ final class URLProtocolStub: URLProtocol {
             status = 206
             headers["Content-Range"] = "bytes \(range.lowerBound)-\(range.upperBound - 1)/\(script.body.count)"
         }
-        if let cut = script.cutAfterBytes, body.count > cut {
+        // cutAfterBytes 为一次性故障注入：同 URL 首请求才断（重试测试第二请求必须成功）
+        if let cut = script.cutAfterBytes, body.count > cut, firstRequestForURL {
             let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: headers)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             let chunk = body.prefix(cut)

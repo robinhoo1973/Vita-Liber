@@ -9,7 +9,7 @@ import Testing
 /// SU-M15-ASRTRANSPORT · binds: SU-M15-ASRTRANSPORT
 /// ModelPackageDownloader 传输语义（2026-09-27 委员会测试席 Top1：三次进度 bug 的
 /// 修复代码至今零直测——分段/206/吞 Range 退单流/段重试回滚/节流在此锁定）。
-@Suite("SU-M15-ASRTRANSPORT · ASR 传输层行为钉", .timeLimit(.minutes(2)))
+@Suite("SU-M15-ASRTRANSPORT · ASR 传输层行为钉", .serialized, .timeLimit(.minutes(2)))
 struct ASRModelDownloaderTransportTests {
 
     private func makeSession() -> URLSession {
