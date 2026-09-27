@@ -41,10 +41,18 @@ final class URLProtocolStub: URLProtocol {
         set { lock.lock(); defer { lock.unlock() }; _requestLog = newValue }
     }
 
-    static func reset() {
+    /// 2026-09-27 CI 36305107324：两传输套件虽各 .serialized，但**彼此仍并行**且共享
+    /// 全表——A 套件 reset 擦掉 B 套件脚本（badResponse(618)=协议类不处理请求的
+    /// 合成状态）。改为按主机作用域清表（ASR=release-assets 主机、医疗=github.com）。
+    static func reset(host: String? = nil) {
         lock.lock(); defer { lock.unlock() }
-        _scripts = [:]
-        _requestLog = []
+        if let host {
+            _scripts = _scripts.filter { $0.key.host?.lowercased() != host.lowercased() }
+            _requestLog = _requestLog.filter { $0.url.host?.lowercased() != host.lowercased() }
+        } else {
+            _scripts = [:]
+            _requestLog = []
+        }
     }
 
     override class func canInit(with request: URLRequest) -> Bool {

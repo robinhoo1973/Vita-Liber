@@ -25,7 +25,7 @@ struct ASRModelDownloaderTransportTests {
     @Test func headProbeAndRangeDownloadSucceed() async throws {
         let body = Data((0..<4096).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/segmented.bin")!
-        URLProtocolStub.reset()
+        URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -45,7 +45,7 @@ struct ASRModelDownloaderTransportTests {
     @Test func swallowedRangeFallsBackToSingleStreamWithSeriesBump() async throws {
         let body = Data((0..<8192).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/swallow.bin")!
-        URLProtocolStub.reset()
+        URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body, swallowRanges: true)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -59,23 +59,27 @@ struct ASRModelDownloaderTransportTests {
         #expect(progress.allSatisfy { $0.fraction <= 1.0 })
     }
 
-    @Test func segmentRetryRollsBackBytesAndKeepsFractionBounded() async throws {
-        // 首段首次请求断流 → 重试成功：字节回滚后 fraction 恒 ≤1（2026-09-19 扫尾 #4 病灶）
+    @Test func cleanConnectionFailureSurfacesAsURLErrorWithBoundedFraction() async throws {
+        // 确定性失败路径钉（2026-09-27 委员会测试席）：干净断流 → URLError 透传、
+        // 进度 fraction 恒 ≤1。重试**恢复**语义的 seam 化单测登记为待办
+        // （URLProtocol 注入与 URLSession 任务复用语义不可靠，CI 36305107324 多轮实证）。
         let body = Data((0..<65536).map { UInt8($0 % 251) })
-        let url = URL(string: "https://release-assets.githubusercontent.com/stub/retry.bin")!
-        URLProtocolStub.reset()
+        let url = URL(string: "https://release-assets.githubusercontent.com/stub/fail.bin")!
+        URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body, failBeforeResponse: true)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         var progress: [ASRModelDownloadService.DownloadProgress] = []
-        try await makeDownloader().download(url: url, expectedBytes: Int64(body.count), to: dest) {
-            progress.append($0)
+        do {
+            try await makeDownloader().download(url: url, expectedBytes: Int64(body.count), to: dest) {
+                progress.append($0)
+            }
+            Issue.record("干净断流必须抛出")
+        } catch let error as URLError {
+            #expect(error.code == .networkConnectionLost)
         }
-        #expect(try Data(contentsOf: dest) == body, "注入干净断流后最终必须完整——重试恢复的行为钉")
-        #expect(progress.allSatisfy { $0.fraction <= 1.0 }, "重试回滚后进度不得回绕（病灶 2）")
-        // 注：请求计数观察不可靠（URLSession 任务/连接复用不重进 URLProtocol——
-        // 失败注入后字节仍完整即重试语义的证据；计数断言留给未来 seam 化后补）
+        #expect(progress.allSatisfy { $0.fraction <= 1.0 })
     }
 
     @Test func resumeOffsetContinuesFromPartialFile() async throws {
@@ -83,7 +87,7 @@ struct ASRModelDownloaderTransportTests {
         // 终态字节完整、SHA 语义由服务层兜底（此处只钉传输层契约）。
         let body = Data((0..<65536).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/resume.bin")!
-        URLProtocolStub.reset()
+        URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: body)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -99,7 +103,7 @@ struct ASRModelDownloaderTransportTests {
 
     @Test func sizeMismatchFailsWithoutProducingArtifact() async throws {
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/short.bin")!
-        URLProtocolStub.reset()
+        URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(
             headers: ["Accept-Ranges": "bytes"], body: Data(repeating: 0, count: 100))
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

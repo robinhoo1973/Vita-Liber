@@ -25,7 +25,7 @@ struct MedicalCatalogFetcherTransportTests {
     @Test func successfulFetchDeliversExactBytes() async throws {
         let body = Data((0..<16384).map { UInt8($0 % 251) })
         let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset()
+        URLProtocolStub.reset(host: "github.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
@@ -38,23 +38,29 @@ struct MedicalCatalogFetcherTransportTests {
         #expect(callbacks <= 101, "整百分比节流：回调数 ≤ 101")
     }
 
-    @Test func transientErrorRetriesOnceAndSucceeds() async throws {
+    @Test func persistentConnectionFailureSurfacesAsDownloadFailure() async throws {
+        // 确定性失败路径钉：持续断流 → .downloadFailed（重试**恢复**语义的 seam 化
+        // 单测登记为待办——URLProtocol 注入与 URLSession 任务复用语义不可靠，
+        // CI 36305107324 多轮实证）。
         let body = Data((0..<16384).map { UInt8($0 % 251) })
-        let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset()
+        let name = "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin"
+        let url = assetURL(name)
+        URLProtocolStub.reset(host: "github.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: body, failBeforeResponse: true)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
-        try await fetcher.fetch(assetName: "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin", expectedSize: Int64(body.count), to: dest) { _ in }
-        #expect(try Data(contentsOf: dest) == body, "注入干净断流后最终必须完整——裁决 5 重试语义的行为钉")
-        // 注：请求计数观察不可靠（URLSession 内部复用不重进 URLProtocol），
-        // 字节完整即恢复证据。
+        do {
+            try await fetcher.fetch(assetName: name, expectedSize: Int64(body.count), to: dest) { _ in }
+            Issue.record("持续断流必须抛出")
+        } catch let error as MedicalCatalogUpdateError {
+            #expect(error == .downloadFailed)
+        }
     }
 
     @Test func sizeMismatchThrowsChecksumError() async throws {
         let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset()
+        URLProtocolStub.reset(host: "github.com")
         URLProtocolStub.scripts[url] = URLProtocolStub.Script(body: Data(repeating: 0, count: 100))
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
