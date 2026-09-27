@@ -22,7 +22,9 @@ struct ASREngineSettingsSection: View {
     /// 安装中心（App 层，2026-09-16 提升）：进行态在此**全局可见**（首页同源），
     /// 离开设置页不再丢失；本页只自持索引与检查状态。
     @Environment(ASRInstallCenter.self) private var installCenter
-    var accessibilityPrefix = "SP-25"
+    /// 必填（2026-09-28 评审修复：默认 "SP-25" 已成死参数——唯一挂载点在统一
+    /// 资源页；漏传前缀会造成 a11y id 撞 SP-25 族）。
+    var accessibilityPrefix: String
 
     /// 「检查更新」三元结果（业主实测：此前点击无任何可见反馈）。
     private enum IndexCheckState: Equatable {
@@ -398,6 +400,10 @@ struct ASREngineSettingsSection: View {
         defer { fetch.cancel(); watchdog.cancel(); refreshTask = nil }
         do {
             let fetched = try await fetch.value
+            // 离场取消出口（2026-09-28 评审修复）：onDisappear 取消的是外层
+            // refreshTask，内层非结构化 fetch 不继承取消——结果到达时不再写回
+            // 已离场视图的 @State（30s 看门狗窗口内）。
+            guard !Task.isCancelled else { return }
             index = fetched
             derivationEpoch += 1   // 新索引 → 重算派生结论（`.task(id:)` 据此重跑）
             // 该索引下、与本 App 版本兼容且已授权的新装/更新条目数。

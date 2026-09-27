@@ -388,8 +388,9 @@ struct HomeModelDownloadCard: View {
         HStack(spacing: 10) {
             Button {
                 // 2026-09-16 委员会评审：此前落 `.voiceEngineLab`（SP-62 引擎实验室）
-                // ——该页不承载模型下载面（`ASREngineSettingsSection` 唯一挂在
-                // SP-25 语音语言页），「查看下载」点过去看不到进度条与取消。
+                // ——该页不承载模型下载面。2026-09-28 B2-3：管理面并入统一
+                // 「模型与数据资源」页（SP-64），HomeView 的 onOpen 同步改落
+                // `.resourceManagement`。
                 onOpen()
             } label: {
                 HStack(spacing: 10) {

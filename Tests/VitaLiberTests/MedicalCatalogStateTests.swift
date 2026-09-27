@@ -75,7 +75,7 @@ final class MedicalCatalogStateTests: XCTestCase {
     }
 
     /// 无操作 opener：让取消用例的链路到达挂起 fetcher（无 opener 会被状态机
-    /// 前置短路为 packageInvalid，1-vote 验证发现的接线遗漏）。
+    /// 前置短路为 catalogNotConfigured，1-vote 验证发现的接线遗漏）。
     private struct NoopOpener: MedicalCatalogPackageOpening {
         func open(packageURL: URL, sqliteURL: URL, maxSQLiteBytes: Int64) async throws {}
     }
@@ -191,17 +191,17 @@ final class MedicalCatalogStateTests: XCTestCase {
         let checker = StubChecker()
         await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
-        // 无 opener：applyUpdate 走 opener-guard 短路 → packageInvalid（证明候选已在手）
+        // 无 opener：applyUpdate 走 opener-guard 短路 → catalogNotConfigured（证明候选已在手）
         let state = MedicalCatalogState(store: nil, updater: updater, path: destination, checker: checker)
         state.check()
         await waitUntil("检查应发现可安装更新") {
             if case .updateAvailable = state.remoteState { return true }
             return false
         }
-        // 状态持有验签候选：applyUpdate 能拿到（无 opener → packageInvalid，
+        // 状态持有验签候选：applyUpdate 能拿到（无 opener → catalogNotConfigured，
         // 证明候选已在手、走的是状态机内路径而非空操作）
         state.applyUpdate()
-        await waitUntil("无 opener 应呈 packageInvalid") { state.updateError == .packageInvalid }
+        await waitUntil("无 opener 应呈 catalogNotConfigured") { state.updateError == .catalogNotConfigured }
         XCTAssertFalse(state.isUpdating)
     }
 
@@ -285,7 +285,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         let checker = StubChecker()
         await checker.set(try updateAvailableOutcome())
         let (updater, destination) = try makeUpdater(fetcher: FailingFetcher(error: .downloadFailed))
-        // 必须注入 opener：无 opener 会被状态机前置短路为 packageInvalid，
+        // 必须注入 opener：无 opener 会被状态机前置短路为 catalogNotConfigured，
         // 到不了 fetcher 的 downloadFailed 路径
         let state = MedicalCatalogState(store: nil, updater: updater, path: destination,
                                         checker: checker, opener: NoopOpener())

@@ -504,6 +504,8 @@ extension L10n {
         "settings.resource.catalog.updateFailed",
         "settings.resource.catalog.failedStorage",
         "settings.resource.catalog.failedRolledBack",
+        "settings.resource.catalog.notConfigured",
+        "settings.resource.catalog.notInstallable",
         "settings.resource.catalog.checkHint",
         "settings.resource.catalog.updateHint",
         "settings.resource.catalog.cancelHint",

@@ -478,7 +478,9 @@ struct HomeView: View {
     /// HomeModelDownloadCard（独立观察域纪律随迁，2026-09-26 原子结构轮第三批）。
     private func modelDownloadCard(_ install: ASRInstallCenter.Install) -> some View {
         HomeModelDownloadCard(install: install) {
-            router.navigate(to: .voiceLanguageSettings)
+            // B2-3（2026-09-28）：ASR 模型管理已并入统一「模型与数据资源」页——
+            // 「查看下载」落点必须跟着走（语音语言页只剩跳转行，看不到进度条与取消）。
+            router.navigate(to: .resourceManagement)
         } onCancel: {
             installCenter.cancel(install.choice)
         }

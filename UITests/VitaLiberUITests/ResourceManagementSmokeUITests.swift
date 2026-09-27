@@ -21,8 +21,11 @@ final class ResourceManagementSmokeUITests: XCTestCase {
         let check = app.descendants(matching: .any)["SP-64.medicalCatalog.check"].firstMatch
         XCTAssertTrue(check.waitForExistence(timeout: 5), "未检查态必须呈现「检查更新」按钮")
 
-        // ASR 管理已并入本页（B2-3）：检查更新按钮以资源页前缀存在
+        // ASR 管理已并入本页（B2-3）：检查更新按钮以资源页前缀存在。
+        // 滚动护栏（评审修复）：目录段未来加行/小屏设备下可能推出屏外，
+        // Form 屏外元素未必物化进 a11y 树——已可见时脚手架不滑动，零成本。
         let asrCheck = app.descendants(matching: .any)["SP-64.resource.asr.model.checkUpdate"].firstMatch
+        UITestSupport.scrollToHittable(asrCheck, in: app, maxSwipes: 4)
         XCTAssertTrue(asrCheck.waitForExistence(timeout: 5), "语音模型管理必须并入统一资源页")
     }
 }

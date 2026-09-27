@@ -153,7 +153,7 @@ final class MedicalCatalogState {
             guard let self else { return }
             do {
                 guard let opener = self.opener else {
-                    self.updateError = .packageInvalid
+                    self.updateError = .catalogNotConfigured
                     self.updateTask = nil
                     self.updateProgress = nil
                     return

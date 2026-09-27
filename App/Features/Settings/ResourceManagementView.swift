@@ -291,13 +291,15 @@ struct ResourceManagementView: View {
         }
     }
 
-    /// 更新错误 → 用户文案：安全事件（回退拒绝）与可行动指引（存储不足）单列，
-    /// 其余保留通用「更新失败，本机目录仍可用」（13 词折叠评审修复）。
+    /// 更新错误 → 用户文案：安全事件（回退拒绝）与可行动指引（存储不足/重新检查/
+    /// 未配置）单列，其余保留通用「更新失败，本机目录仍可用」（13 词折叠评审修复）。
     private func updateErrorText(_ error: MedicalCatalogDownloadError) -> String {
         switch error {
         case .cancelled: return L10n.resourceCatalogUpdateCancelled
         case .insufficientStorage: return L10n.resourceCatalogFailedStorage
         case .catalogRolledBack: return L10n.resourceCatalogFailedRolledBack
+        case .catalogNotConfigured: return L10n.resourceCatalogNotConfigured
+        case .catalogNotInstallable: return L10n.resourceCatalogNotInstallable
         default: return L10n.resourceCatalogUpdateFailed
         }
     }

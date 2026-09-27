@@ -16,6 +16,10 @@ public enum MedicalCatalogDownloadProgress: Sendable, Equatable {
 /// 更新错误词汇（迁移自 Infrastructure）。
 public enum MedicalCatalogDownloadError: Error, Equatable {
     case catalogNotInstallable
+    /// 更新服务未配置（opener/发布配置尚未 provisioning）——与「包损坏」
+    /// （packageInvalid）严格区分：前者是部署状态、后者是数据完整性事件
+    /// （2026-09-28 评审修复：词汇误用会把 provisioning 缺口呈现为安全事件）。
+    case catalogNotConfigured
     case updateInProgress
     case packageTooLarge
     case insufficientStorage

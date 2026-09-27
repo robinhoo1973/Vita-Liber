@@ -143,6 +143,10 @@ extension L10n {
 
     static var resourceCatalogFailedRolledBack: String { t("settings.resource.catalog.failedRolledBack") }
 
+    static var resourceCatalogNotConfigured: String { t("settings.resource.catalog.notConfigured") }
+
+    static var resourceCatalogNotInstallable: String { t("settings.resource.catalog.notInstallable") }
+
     static var resourceCatalogCheckHint: String { t("settings.resource.catalog.checkHint") }
 
     static var resourceCatalogUpdateHint: String { t("settings.resource.catalog.updateHint") }
