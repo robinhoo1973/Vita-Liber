@@ -14,6 +14,9 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
     /// 解密后 SQLite 的发布门（镜像 Go `GateSQLite`）：SQLite 头、`integrity_check`、
     /// `foreign_key_check`、`user_version` 与 `catalog_meta` 的 schema/data 身份须等于已签字段。
     public static func validateRelease(path: URL, schemaVersion: Int, dataVersion: String) throws {
+        guard MedicalCatalogReleaseProtocol.supportedSQLiteSchemaVersions.contains(schemaVersion) else {
+            throw MedicalCatalogUpdateError.catalogIntegrityFailed
+        }
         let header = Data("SQLite format 3\u{0}".utf8)
         do {
             let handle = try FileHandle(forReadingFrom: path)
@@ -53,6 +56,9 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
     /// 安装链路每个候选白白多一次全量页扫描 + 一次连接建立；合并后安装前验证
     /// 一次打开跑完（激活后 `activeCheck` 仍按最终路径复验，安全性不变）。
     public static func validateReleaseAndSmoke(path: URL, schemaVersion: Int, dataVersion: String) throws {
+        guard MedicalCatalogReleaseProtocol.supportedSQLiteSchemaVersions.contains(schemaVersion) else {
+            throw MedicalCatalogUpdateError.catalogIntegrityFailed
+        }
         let header = Data("SQLite format 3\u{0}".utf8)
         do {
             let handle = try FileHandle(forReadingFrom: path)

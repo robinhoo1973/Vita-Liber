@@ -214,7 +214,7 @@ struct MedicalCatalogUpdateTests {
             (.invalidScope, { $0["app"] = "other" }),
             (.invalidScope, { $0["assetKind"] = "asr-model" }),
             (.invalidScope, { $0["schemaVersion"] = 2 }),
-            (.invalidField, { $0["sqliteSchemaVersion"] = 6 }),
+            (.invalidField, { $0["sqliteSchemaVersion"] = 7 }),
             (.invalidField, { $0["packageSize"] = 0 }),
             (.invalidField, { $0["sqliteSha256"] = upper }),
             (.invalidField, { $0["packageSha256"] = "abc" }),
@@ -317,6 +317,20 @@ struct MedicalCatalogUpdateTests {
             local: MedicalCatalogInstalledVersion(schemaVersion: 4, dataVersion: expected.dataVersion), candidate: candidate))
         #expect(!MedicalCatalogUpdateService.sameDataVersion(
             local: MedicalCatalogInstalledVersion(schemaVersion: 5, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
+    }
+
+    @Test("v6 candidate is up-to-date only with a matching local v6 schema and data version")
+    func sameDataVersionSupportsPhysicalV6() throws {
+        let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+        defer { fixture.cleanUp() }
+        let candidate = try fixture.candidate()
+        #expect(candidate.schemaVersion == 6)
+        #expect(MedicalCatalogUpdateService.sameDataVersion(
+            local: MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: candidate.dataVersion), candidate: candidate))
+        #expect(!MedicalCatalogUpdateService.sameDataVersion(
+            local: MedicalCatalogInstalledVersion(schemaVersion: 5, dataVersion: candidate.dataVersion), candidate: candidate))
+        #expect(!MedicalCatalogUpdateService.sameDataVersion(
+            local: MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
     }
 
     @Test("fileSize reports regular-file bytes and throws for missing files or directories")

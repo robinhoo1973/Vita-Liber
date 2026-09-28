@@ -8,7 +8,11 @@ public enum MedicalCatalogReleaseProtocol {
     public static let releaseTag = "medical-data"
     public static let assetKind = "medical-data"
     public static let app = "vitaliber"
-    public static let sqliteSchemaVersion = 5
+    /// Latest physical schema emitted by the current Go producer.
+    public static let sqliteSchemaVersion = 6
+    /// v5 is retained for already-published checkpoints; v6 adds fetch provenance
+    /// while preserving the exact App-visible v4 catalog tables.
+    public static let supportedSQLiteSchemaVersions: Set<Int> = [5, 6]
     public static let sqliteEntryName = "medical-catalog.sqlite"
     public static let releaseBaseURL = "https://github.com/" + repository + "/releases/download/" + releaseTag
     public static let allowedHosts: Set<String> = [
@@ -297,7 +301,7 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         guard pointer.rootVersion > 0, pointer.catalogVersion > 0,
               digests.allSatisfy(MedicalCatalogReleaseProtocol.isLowercaseSHA256),
               pointer.packageSize > 0,
-              pointer.sqliteSchemaVersion == MedicalCatalogReleaseProtocol.sqliteSchemaVersion else {
+              MedicalCatalogReleaseProtocol.supportedSQLiteSchemaVersions.contains(pointer.sqliteSchemaVersion) else {
             throw MedicalCatalogTrustError.invalidField
         }
         guard pointer.repository == MedicalCatalogReleaseProtocol.repository,

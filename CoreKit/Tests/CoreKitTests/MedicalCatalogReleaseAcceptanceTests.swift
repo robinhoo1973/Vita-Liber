@@ -111,7 +111,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
                     sqliteSHA256: other, packageSHA256: fields["packageSha256"] as? String ?? "")
             }),
             ("dataVersion", { $0["dataVersion"] = other }),
-            ("sqliteSchemaVersion", { $0["sqliteSchemaVersion"] = 6 }),
+            ("sqliteSchemaVersion", { $0["sqliteSchemaVersion"] = 7 }),
             ("rootVersion", { $0["rootVersion"] = 2 }),
         ]
         let verifier = fixture.verifier()
@@ -120,6 +120,50 @@ struct MedicalCatalogReleaseAcceptanceTests {
             #expect(throws: MedicalCatalogTrustError.self, "\(name) mismatch must be rejected") {
                 try verifier.verify(catalogJSON: resigned, expected: fixture.signedExpectation)
             }
+        }
+    }
+
+    @Test("physical v5 and v6 candidates are accepted; v7 and mismatched SQLite stamps are rejected")
+    func physicalSchemaVersionCompatibility() throws {
+        for version in [5, 6] {
+            let fixture = try MedicalCatalogFixture.make(schemaVersion: version)
+            defer { fixture.cleanUp() }
+            let candidate = try fixture.candidate()
+            #expect(candidate.schemaVersion == version)
+            let sqlite = fixture.directory.appendingPathComponent("source.sqlite")
+            try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: version,
+                                                    dataVersion: fixture.signedExpectation.dataVersion)
+            #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
+                try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: version == 5 ? 6 : 5,
+                                                        dataVersion: fixture.signedExpectation.dataVersion)
+            }
+        }
+
+        let unsupported = try MedicalCatalogFixture.make(schemaVersion: 7)
+        defer { unsupported.cleanUp() }
+        #expect(throws: MedicalCatalogTrustError.invalidField) {
+            _ = try unsupported.candidate()
+        }
+        #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
+            try MedicalCatalogStore.validateRelease(
+                path: unsupported.directory.appendingPathComponent("source.sqlite"), schemaVersion: 7,
+                dataVersion: unsupported.signedExpectation.dataVersion)
+        }
+
+        let badUserVersion = try MedicalCatalogFixture.make(schemaVersion: 6, database: .wrongUserVersion)
+        defer { badUserVersion.cleanUp() }
+        #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
+            try MedicalCatalogStore.validateRelease(
+                path: badUserVersion.directory.appendingPathComponent("source.sqlite"), schemaVersion: 6,
+                dataVersion: badUserVersion.signedExpectation.dataVersion)
+        }
+
+        let badMetaVersion = try MedicalCatalogFixture.make(schemaVersion: 6, database: .wrongSchemaVersion)
+        defer { badMetaVersion.cleanUp() }
+        #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
+            try MedicalCatalogStore.validateRelease(
+                path: badMetaVersion.directory.appendingPathComponent("source.sqlite"), schemaVersion: 6,
+                dataVersion: badMetaVersion.signedExpectation.dataVersion)
         }
     }
 
@@ -457,7 +501,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
 // MARK: - Swift-generated fixture
 
 struct MedicalCatalogFixture {
-    enum Database { case valid, foreignKeyViolation, wrongDataVersion, wrongUserVersion, missingDrugTable }
+    enum Database { case valid, foreignKeyViolation, wrongDataVersion, wrongUserVersion, wrongSchemaVersion, missingDrugTable }
 
     static let clock = date("2026-09-26T13:00:00Z")
     static let oldCatalog = Data("previous verified catalog bytes".utf8)
@@ -477,7 +521,7 @@ struct MedicalCatalogFixture {
     static func date(_ value: String) -> Date { MedicalCatalogReleaseProtocol.timestamp(value) ?? .distantPast }
 
     static func make(rootSignerCount: Int = 2, catalogSignerCount: Int = 2, installable: Bool = true,
-                     database: Database = .valid) throws -> MedicalCatalogFixture {
+                     database: Database = .valid, schemaVersion: Int = 5) throws -> MedicalCatalogFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("medical-acceptance-\(UUID().uuidString)", isDirectory: true)
         let catalogDirectory = directory.appendingPathComponent("MedicalCatalog", isDirectory: true)
@@ -498,7 +542,7 @@ struct MedicalCatalogFixture {
 
         let dataVersion = CryptoKitContentHasher().sha256Hex(Data(UUID().uuidString.utf8))
         let sqliteURL = directory.appendingPathComponent("source.sqlite")
-        try buildDatabase(at: sqliteURL, dataVersion: dataVersion, shape: database)
+        try buildDatabase(at: sqliteURL, dataVersion: dataVersion, schemaVersion: schemaVersion, shape: database)
         let sqliteBytes = try Data(contentsOf: sqliteURL)
         let packageBytes = try Data(contentsOf: zip(at: directory.appendingPathComponent("package.zip"),
                                                     entries: [("medical-catalog.sqlite", .file, sqliteBytes)]))
@@ -514,7 +558,7 @@ struct MedicalCatalogFixture {
             "fetchStateSha256": hasher.sha256Hex(Data("fetch".utf8)),
             "installable": installable,
             "contentSha256": dataVersion, "manifestSha256": hasher.sha256Hex(Data("manifest".utf8)),
-            "dataVersion": dataVersion, "sqliteSchemaVersion": 5,
+            "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
             "releaseTag": "medical-data", "repository": "robinhoo1973/Vita-Liber",
         ]
         let signers = Array(catalogKeys.prefix(catalogSignerCount))
@@ -622,16 +666,18 @@ struct MedicalCatalogFixture {
                                           options: [.sortedKeys])
     }
 
-    private static func buildDatabase(at url: URL, dataVersion: String, shape: Database) throws {
+    private static func buildDatabase(at url: URL, dataVersion: String, schemaVersion: Int, shape: Database) throws {
         var configuration = Configuration()
         configuration.foreignKeysEnabled = false
         let queue = try DatabaseQueue(path: url.path, configuration: configuration)
         try queue.write { db in
-            try db.execute(sql: "PRAGMA user_version = \(shape == .wrongUserVersion ? 4 : 5)")
+            let userVersion = shape == .wrongUserVersion ? (schemaVersion == 5 ? 4 : schemaVersion + 1) : schemaVersion
+            try db.execute(sql: "PRAGMA user_version = \(userVersion)")
             try db.execute(sql: "CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
             let metaVersion = shape == .wrongDataVersion ? String(repeating: "f", count: 64) : dataVersion
-            try db.execute(sql: "INSERT INTO catalog_meta(key, value) VALUES ('schema_version', '5'), ('data_version', ?)",
-                           arguments: [metaVersion])
+            let metaSchemaVersion = shape == .wrongSchemaVersion ? (schemaVersion == 5 ? 6 : 5) : schemaVersion
+            try db.execute(sql: "INSERT INTO catalog_meta(key, value) VALUES ('schema_version', ?), ('data_version', ?)",
+                           arguments: [String(metaSchemaVersion), metaVersion])
             guard shape != .missingDrugTable else { return }
             try db.execute(sql: """
                 CREATE TABLE drug (id INTEGER PRIMARY KEY, region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, license_no TEXT, name_zh TEXT, name_en TEXT, brand_name TEXT, dosage_form TEXT, spec TEXT, drug_category TEXT, license_holder TEXT, manufacturer TEXT, insurance_code TEXT, drug_code TEXT, active_ingredients TEXT, usage_ref_json TEXT NOT NULL, region_specific_json TEXT NOT NULL, aliases_json TEXT NOT NULL);

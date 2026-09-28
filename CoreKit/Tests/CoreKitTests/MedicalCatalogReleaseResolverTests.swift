@@ -116,6 +116,22 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(outcome.candidate == expected)
     }
 
+    @Test("resolver accepts a verified physical v6 pointer")
+    func checkFindsPhysicalV6Update() async throws {
+        let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+        defer { fixture.cleanUp() }
+        Self.resetStubs()
+        Self.apply(Self.installRoutes(fixture))
+        let resolver = Self.makeResolver(fixture: fixture)
+        let outcome = try await resolver.check()
+        guard case .updateAvailable(let candidate) = outcome.state else {
+            Issue.record("v6 pointer should produce updateAvailable, actual=\(outcome.state)")
+            return
+        }
+        #expect(candidate.schemaVersion == 6)
+        #expect(candidate.dataVersion == fixture.signedExpectation.dataVersion)
+    }
+
     @Test("本地 (schemaVersion,dataVersion) 一致 → upToDate，不重复下载")
     func checkReportsUpToDateWhenLocalDataMatches() async throws {
         let fixture = try MedicalCatalogFixture.make()
@@ -130,6 +146,19 @@ struct MedicalCatalogReleaseResolverTests {
             Issue.record("本地数据一致应呈 upToDate 且无候选，实际 \(outcome.state) / candidate=\(String(describing: outcome.candidate))")
             return
         }
+    }
+
+    @Test("matching local physical v6 schema and data version reports upToDate")
+    func checkReportsUpToDateForPhysicalV6() async throws {
+        let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+        defer { fixture.cleanUp() }
+        Self.resetStubs()
+        Self.apply(Self.installRoutes(fixture))
+        let local = MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: fixture.signedExpectation.dataVersion)
+        let resolver = Self.makeResolver(fixture: fixture, local: local)
+        let outcome = try await resolver.check()
+        #expect(outcome.state == .upToDate)
+        #expect(outcome.candidate == nil)
     }
 
     @Test("Release 只有 progress pointer → noInstallableAvailable，不误报最新/更新")
