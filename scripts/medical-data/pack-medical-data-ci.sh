@@ -7,9 +7,14 @@ while [ ! -f "$ROOT/project.yml" ]; do
   [ "$PARENT" = "$ROOT" ] && { echo "ERROR: 未找到 project.yml 锚点" >&2; exit 1; }
   ROOT="$PARENT"
 done
-TOOLS="$ROOT/refactor/tools"
+# 2026-09-29 workspace 重组：refactor/ 工具链在 workspace 根，不在仓内。仓根 walk（上方 project.yml）
+# 仍用于 OUT 等仓内路径；workspace 锚点找不到时回退 $ROOT（旧布局/CI：与旧行为一致=找不到工具链即报错）。
+WS="$ROOT"
+while [ "$WS" != "/" ] && [ ! -f "$WS/VitaLiber.code-workspace" ]; do WS="$(dirname "$WS")"; done
+[ -f "$WS/VitaLiber.code-workspace" ] || WS="$ROOT"
+TOOLS="$WS/refactor/tools"
 OUT="$ROOT/scripts/medical-data/medical-data-ci.sh"
-TMP_ROOT="${TMPDIR:-$ROOT/refactor/tools/.tmp}"
+TMP_ROOT="${TMPDIR:-$WS/refactor/tools/.tmp}"
 WORK="$(mktemp -d "$TMP_ROOT/medical-data-ci-pack.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/src/tools"

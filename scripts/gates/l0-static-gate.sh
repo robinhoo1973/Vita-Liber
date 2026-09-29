@@ -500,10 +500,15 @@ else
   # 2026-09-27 委员会 D5：§3→tsv 反向核查（doc-driven）——[8] 只查 tsv→代码正向，
   # 缺行=缺断言=默认绿（ERR#27 族复发：V2.43/44 声称 tsv 同步、实际缺 5 行）。
   # 反向只认 test-plan-spec §3 的必过套件列（零误伤：代码里 SU-FR* 等刻意无行）。
-  if [ -f "$ROOT/refactor/test-plan-spec.md" ]; then
+  # 2026-09-29 workspace 重组：规格链 refactor/ 在 workspace 根（仓内不再有 refactor/）。向上找
+  # VitaLiber.code-workspace 定位；CI/独立克隆无 workspace → 回退仓内路径（不存在=跳过，与旧行为一致）。
+  _ws="$SCRIPT_DIR"
+  while [ "$_ws" != "/" ] && [ ! -f "$_ws/VitaLiber.code-workspace" ]; do _ws="$(dirname "$_ws")"; done
+  if [ -f "$_ws/VitaLiber.code-workspace" ]; then _spec="$_ws/refactor/test-plan-spec.md"; else _spec="$ROOT/refactor/test-plan-spec.md"; fi
+  if [ -f "$_spec" ]; then
     # 只从 §3 阶段门禁表行（^| Mx 或 ^| OCR）提取——全文 grep 会误抓变更记录/
     # 头注里提到的在途套件（SU-M15-MEDCATALOG 属 V2.48 在途、代码 token 未落地）。
-    _spec_su=$(grep -E '^\| (M[0-9]|OCR)' "$ROOT/refactor/test-plan-spec.md" | grep -oE 'SU-[A-Z0-9-]+' | sort -u || true)
+    _spec_su=$(grep -E '^\| (M[0-9]|OCR)' "$_spec" | grep -oE 'SU-[A-Z0-9-]+' | sort -u || true)
     # 在途套件登记（2026-09-27）：§3 已声明、代码 token 未落地（V2.48 在途轮）——
     # 代码落地接线 tsv 后必须移出本清单（否则反查对真实漂移失明）。
     _spec_su_allowlist="SU-M15-MEDCATALOG-UI"
