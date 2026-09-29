@@ -35,6 +35,13 @@
 #        iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I：ContentUnavailableView、
 #        @Observable、.onChange 双参等须走 App/Compat 垫片或 #available；缺 import
 #        Perception；App 视图整体 @available(iOS 17 键槽陷阱）。
+#        / 条件绑定解包非可选 as-转型下标读（CI 35488987944）/ 非转义函数型参数赋
+#        存储属性（CI 35570472020）/ CoreKit 顶层类型嵌套成员误引（CI
+#        35577872954）/ CoreKitTests 缺 import Foundation 及 #expect keypath
+#        闭包与运算符右侧 try（CI 36246531585、36324384565）/ 四域参考目录 DDL
+#        三拷贝面漂移（CI 36248076043、测试席 F1）/ 测试内改 NSTimeZone.default
+#        全局状态（CI 36249512459）/ App 引用传输实现四符号（委员会 P3c
+#        窄门禁）。
 #        豁免标记 `// tius-ok: <理由>`（判定器实际读取；家族 J 另认 `// ios17-ok:`）。
 #   [16] 文本理解目录结构断言 —— 三文件/第 8 工厂注册/金样套件（ADR-029 静态形态）
 #   [17] 容器标识掩蔽门禁 —— 容器 .accessibilityIdentifier 必须配
@@ -945,7 +952,7 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/18" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/非转义函数型参数赋存储属性/顶层类型嵌套成员误引/CoreKitTests 缺 import Foundation/四域参考目录 DDL 三拷贝面漂移/测试内改 NSTimeZone.default 全局状态/App 引用传输实现四符号（十七族 CI 实证左移）"
+section "15/18" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/条件绑定解包非可选 as 转型下标读/非转义函数型参数赋存储属性/顶层类型嵌套成员误引/CoreKitTests 缺 import Foundation/四域参考目录 DDL 三拷贝面漂移/测试内改 NSTimeZone.default 全局状态/App 引用传输实现四符号（十七族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
 # 以下十七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
@@ -957,6 +964,9 @@ section "15/18" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混
 #   / 家族 J：iOS 17 专用符号越过 iOS 16.0 部署目标（子项目 I，2026-09-13：
 #     J-1 符号越界 · J-2 缺 import Perception · J-3 App 视图整体 @available(iOS 17
 #     键槽陷阱；"is only available in iOS 17.0 or newer" 仅 macOS L1 可见）。
+#   / 家族 K：条件绑定直接解包非可选 as-转型的下标读（35488987944：GRDB Row
+#     非可选泛型下标 NULL 时崩溃、非可选下标进条件绑定报 'initializer for
+#     conditional binding must have Optional type'，两者仅 macOS L1 可见）。
 #   / 家族 L：非转义函数型参数赋给存储属性（35570472020：init 函数型 typealias
 #     形参未标 @escaping，'assigning non-escaping parameter' 仅 macOS L1 可见）。
 #   / 家族 M：CoreKit 顶层类型被当作他类型的嵌套成员引用（35577872954：
