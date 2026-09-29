@@ -1,5 +1,10 @@
 # Canonical medical-data refresh + encrypted Release asset.
 #
+# Release/sqlite contract (owner 2026-09-30):
+# - 公开仓无 medical-data Release 时 → Publish 步骤 `gh release create` 创建;
+#   已存在且内容哈希未变 → 跳过发布(changed=false,不产生新资产)。
+# - medical-catalog.sqlite 每轮全量重建(schema v4 + FTS,PRAGMA integrity_check
+#   断言),加密后作为 medical-data.bin 上传;上传采用 --clobber 同标签覆盖。
 # Security/data contract:
 # - `medical-data-content.sha256` hashes the deterministic plaintext data payload.
 # - The encrypted `.bin` is produced only when that content hash differs from the latest Release.

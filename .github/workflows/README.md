@@ -61,4 +61,6 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`） | release / requirements |
 
+**Release/sqlite 契约**:公开仓无 `medical-data` Release 时 Publish 步骤自动 `gh release create`;`medical-catalog.sqlite`(schema v4+FTS)每轮全量重建、age 加密后以 `medical-data.bin` 上传同标签(内容哈希未变则跳过)。
+
 发布操作文档:`.github/ASR_RELEASE.md`；医疗数据 Release 契约已迁入私有仓 `tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md`（[仅授权成员可访问](https://github.com/robinhoo1973/robinhoo-pipelines/blob/main/tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md)）。
