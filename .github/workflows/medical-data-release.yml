@@ -72,6 +72,8 @@ jobs:
             3) echo "source_status=partial" >> "$GITHUB_OUTPUT"; echo '::error::medical data sources are partial; refusing Release publication'; exit 3 ;;
             *) echo "::error::medical data build failed rc=$rc"; exit "$rc" ;;
           esac
+          # 长日志在 GitHub step 视图会被截断(实证:59 分钟抓取段的中间输出全部丢失,
+          # rc=3 的车道归属不可见)——失败路径把完整 build.log 传为 artifact 留存证据。
           test -s "$tools_root/data/medical_data.json"
           test -s "$tools_root/data/medical_index.json"
           test -s "$tools_root/data/medical_details.jsonl"
@@ -203,6 +205,14 @@ jobs:
               --title "Medical data" \
               --notes "Canonical schema-v3 medical data. Source status: ${{ steps.build.outputs.source_status }}. Plaintext content hash is in medical-data-content.sha256."
           fi
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: medical-data-build-log
+          path: ${{ env.WORK_ROOT }}/build.log
+          retention-days: 7
 
       - name: Publish no-change summary
         if: steps.compare.outputs.changed == 'false'
