@@ -1,0 +1,302 @@
+# 蒸馏/实体链接训练流水线(计划文档 2026-09-29-medical-llm-training-scenarios-ci-plan.md §7)
+#
+# 纪律:
+# - dispatch-only,零密钥起步;P1 全链路 = prepare → calibrate → smoke → eval → publish(闸门)。
+# - YAML 薄编排、逻辑下沉 scripts/distill/;语料/checkpoint 存 Release(artifact 500MB 会爆)。
+# - 训练侧指标只作进度信号;评测闸唯一权威 = 部署件在 ubuntu CPU 的打分(计划文档 §10)。
+# - MPS 探测段先行:真分配+matmul 对拍(#9918 假阳教训),失败自动回落 CPU(裁决自带回落条款)。
+name: distill-llm
+
+on:
+  workflow_dispatch:
+    inputs:
+      assets:
+        description: "prepare 用资产清单 JSON(缺省用仓内 scripts/distill/assets.json;P1=legacy Release 资产)"
+        required: false
+        default: ""
+      min_accepts:
+        description: "评测 tripwire 每带×域接受数下限(小集原型可调低,生产默认 50)"
+        required: false
+        default: "50"
+
+# 权限纪律:仅 publish job 声明 contents: write(gh release);其余 job 用默认 read。
+concurrency:
+  group: distill-llm
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  tests:
+    # 零依赖测试闸:entlink/corpus/gate 53 例 stdlib 单测 + 全簇语法验证(秒级)。
+    # 历史教训:无 torch 路径的 Python 逻辑错误(如 checkpoint sidecar 无限递归)
+    # py_compile 抓不到,此前 CI 从未跑过本簇单测——回归全部靠人眼。
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: stdlib 单测 + 全簇语法
+        run: bash scripts/distill/run_tests.sh
+
+  prepare:
+    # 语料冻结:Release 资产 → 校验/解密 → 目录装载 → 语料 JSONL + manifest(§7.6)
+    needs: tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install deps(哈希钉版)
+        run: |
+          pip install --require-hashes -r scripts/requirements/requirements-distill-train-linux.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Age identity guard
+        # secret 名与私仓 provision 工具链一致(MEDICAL_DATA_AGE_IDENTITY,
+        # go/lib/githubrelease/provision.go)——曾用 MEDICAL_AGE_IDENTITY 从未被
+        # 任何工具创建,守卫恒判缺 secret(历史教训:名字漂移 = prepare 永远红)。
+        env:
+          MEDICAL_DATA_AGE_IDENTITY: ${{ secrets.MEDICAL_DATA_AGE_IDENTITY }}
+        run: |
+          if [ -z "$MEDICAL_DATA_AGE_IDENTITY" ]; then
+            echo "::error::缺 MEDICAL_DATA_AGE_IDENTITY(公开仓 release 环境,计划文档 §7.6 开口项①)。"
+            echo "::error::P1 阶段可在本地以 dev 侧文件跑通 build/eval(scripts/distill/run_tests.sh);"
+            echo "::error::CI prepare 需业主配置该 secret 后重跑。"
+            exit 1
+          fi
+          printf '%s' "$MEDICAL_DATA_AGE_IDENTITY" > age-identity.txt
+      - name: Download + verify + decrypt + catalog gate
+        env:
+          ASSETS_INPUT: ${{ inputs.assets }}
+        run: |
+          # 经 env 传递 JSON 输入(直接 ${{ }} 内插进双引号 shell 串会断引号);
+          # 缺省直接用仓内 assets.json 文件路径,不再把 JSON 内容绕一道字符串。
+          if [ -n "$ASSETS_INPUT" ]; then
+            printf '%s' "$ASSETS_INPUT" > assets.json
+            ASSET_ARG="--assets-json assets.json"
+          else
+            ASSET_ARG="--assets-json scripts/distill/assets.json"
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y age >/dev/null
+          python3 scripts/distill/download_corpus.py \
+            $ASSET_ARG --age-identity age-identity.txt --out-dir corpus-assets
+      - name: Build frozen corpus
+        id: build
+        run: |
+          python3 scripts/distill/build_corpus.py \
+            --catalog-sqlite corpus-assets/catalog.sqlite --out corpus.jsonl
+          python3 - <<'EOF'
+          import json
+          m = json.load(open("corpus.jsonl.manifest.json", encoding="utf-8"))
+          print(f"corpus_sha256={m['corpus_sha256']}")
+          EOF
+      - name: Upload corpus artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: distill-corpus
+          path: |
+            corpus.jsonl
+            corpus.jsonl.manifest.json
+            corpus-assets/source.json
+            corpus-assets/catalog.sqlite
+          retention-days: 7
+
+  calibrate:
+    # 100 步标定:MPS 探测段先行(真分配+matmul 对拍),CPU/MPS 双通道吞吐实测(§7.4 第 8 条)
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            device: cpu
+          - os: macos-15
+            device: probe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install deps(哈希钉版)
+        run: |
+          REQ="scripts/requirements/requirements-distill-train-linux.txt"
+          EXTRA="--extra-index-url https://download.pytorch.org/whl/cpu"
+          if [ "${{ matrix.os }}" = macos-15 ]; then
+            REQ="scripts/requirements/requirements-distill-train-macos.txt"
+            EXTRA=""
+          fi
+          pip install --require-hashes -r "$REQ" $EXTRA
+      - name: MPS probe(仅 macOS;不信任 is_available)
+        if: matrix.device == 'probe'
+        run: |
+          # #9918 签名是 MPS 分配原生崩溃(segfault 类)——Python try/except 抓不到,
+          # 进程直接死。探测结果是数据不是失败:崩了也算 no,回落 CPU 即可。
+          python3 scripts/distill/probe_mps.py --json mps-probe.json || true
+      - name: Calibrate
+        run: |
+          DEVICE=cpu
+          if [ -f mps-probe.json ] && grep -q '"usable": true' mps-probe.json; then
+            DEVICE=mps
+            echo "MPS usable → mps 标定"
+          else
+            echo "MPS unusable/未探测 → CPU 标定(§7.2 回落条款)"
+          fi
+          python3 scripts/distill/calibrate.py --device "$DEVICE" --steps 100 --out calibrate.json
+      - name: Calibrate verdict(汇总裁决)
+        # calibrate.py 失败也 exit 0("标定失败也是数据,由 workflow 汇总裁决")——
+        # 本步即该裁决:失败须显式 error 标注,不得静默绿(历史教训:裁决步缺失)。
+        run: |
+          if grep -q '"error"' calibrate.json; then
+            echo "::error::标定失败: $(python3 -c "import json;print(json.load(open('calibrate.json'))['error'])")"
+          else
+            python3 -c "import json;print(json.dumps(json.load(open('calibrate.json')), ensure_ascii=False))"
+          fi
+      - name: Upload calibrate result
+        uses: actions/upload-artifact@v4
+        with:
+          name: calibrate-${{ matrix.os }}-${{ matrix.device }}
+          path: |
+            calibrate.json
+            mps-probe.json
+          # CPU 腿无探测文件——缺文件是预期,不是警告噪声(历史教训:默认 warn
+          # 每次 CPU 腿跑必出假警告,掩盖真缺件)。
+          if-no-files-found: ignore
+          retention-days: 7
+
+  smoke:
+    # ≤30 步训练回归:训练循环/checkpoint/预算停机在 CI 的烟雾验证(§7.1 smoke 段)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: distill-corpus
+      - name: Install deps(哈希钉版)
+        run: |
+          pip install --require-hashes -r scripts/requirements/requirements-distill-train-linux.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Smoke train(≤30 步 + 断点续训回归)
+        run: |
+          python3 scripts/distill/train_encoder.py \
+            --corpus corpus.jsonl --out-dir smoke-out \
+            --max-steps 30 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
+          python3 scripts/distill/train_encoder.py \
+            --corpus corpus.jsonl --out-dir smoke-resume --resume-dir smoke-out/checkpoints \
+            --max-steps 40 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
+      - name: Upload smoke artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-out
+          path: |
+            smoke-out/
+            smoke-resume/
+          # 训练第一步就崩时目录可能不全——缺件不掩盖真失败(训练步已红)。
+          if-no-files-found: ignore
+          retention-days: 7
+
+  eval:
+    # SU-M15-ENTLINK 评测闸:P1 = 数据基线对照臂 + tripwire;verdict=fail 阻断 publish(§10)
+    needs: prepare
+    runs-on: ubuntu-24.04
+    outputs:
+      # job 级 outputs 必须显式映射 step 输出,needs.eval.outputs.verdict 才有值
+      # (历史教训:缺本映射 → publish 的 if 恒假,publish 永远不跑且无任何报错)。
+      verdict: ${{ steps.gate.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: distill-corpus
+      - name: Install deps(哈希钉版;拼音层复现纪律 §10)
+        # prepare 构建冻结语料时带拼音层(同音噪声,manifest.pinyin_available=true);
+        # eval 基线臂必须装同一 pypinyin,否则召回 L2/L3 层静默缺位、评分不可复现。
+        run: |
+          pip install --require-hashes -r scripts/requirements/requirements-distill-eval-linux.txt
+      - name: Baseline arm + gate
+        id: gate
+        run: |
+          # catalog.sqlite 随 distill-corpus artifact 由 prepare job 提供
+          set +e
+          python3 scripts/distill/eval_entlink.py \
+            --corpus corpus.jsonl \
+            --catalog-sqlite corpus-assets/catalog.sqlite \
+            --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
+            --min-accepts "${{ inputs.min_accepts }}" \
+            --write-baseline baseline-out --write-verdict verdict.json \
+            > gate-report.txt 2>&1
+          RC=$?
+          set -e
+          cat gate-report.txt
+          # exit 1=运行错误(manifest 失配/词表导出失败等):必须炸 job,不得静默吞错;
+          # exit 2=RED 裁决:job 保持绿但 verdict=fail 阻断 publish(机器裁决语义)。
+          if [ "$RC" -eq 1 ]; then
+            echo "::error::评测闸运行错误(exit 1)——verdict 未生成,阻断"
+            exit 1
+          fi
+          # argparse 用法错误同 exit 2(与 RED 裁决撞码)——凡 verdict.json
+          # 未落盘一律按运行错误炸 job,不得让后续 json.load 崩出误导 traceback。
+          if [ ! -f verdict.json ]; then
+            echo "::error::评测闸未产出 verdict.json(RC=$RC)——按运行错误阻断"
+            exit 1
+          fi
+          VERDICT=$(python3 -c "import json;print(json.load(open('verdict.json'))['verdict'])")
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+          if [ "$VERDICT" = "fail" ]; then
+            echo "::error::评测闸 RED——阻断 publish(机器裁决)"
+          fi
+      - name: Upload verdict + baseline
+        # always():闸门 RED(exit 2)/运行错误(exit 1)时同样上传诊断件——
+        # gate-report.txt 在两种失败下都已落盘,是排查唯一现场。
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-report
+          path: |
+            verdict.json
+            gate-report.txt
+            baseline-out/
+          # 运行错误路径无 verdict.json/baseline——缺件是预期,不产警告噪声。
+          if-no-files-found: ignore
+          retention-days: 30
+
+  publish:
+    # 闸门后发布:verdict=pass 才放行;P1 无模型产物,仅登记语料(内容寻址,append-only)
+    needs: [eval, prepare]
+    if: needs.eval.outputs.verdict == 'pass'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # 全 workflow 唯一需要写权限的 job(最小权限)
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distill-corpus
+      - uses: actions/download-artifact@v4
+        with:
+          name: gate-report
+      - name: Publish frozen corpus + permanent baseline(content-addressed, append-only)
+        run: |
+          SHA=$(python3 -c "import json;print(json.load(open('corpus.jsonl.manifest.json', encoding='utf-8'))['corpus_sha256'])")
+          gh release view distill-corpus >/dev/null 2>&1 || gh release create distill-corpus --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only)"
+          # 上传失败必须炸 job(fail-closed):内容寻址同名资产 --clobber 重传幂等,
+          # 无竞态场景;历史教训:|| true 曾把静默丢资产包装成绿 run。
+          gh release upload distill-corpus "corpus.jsonl#distill-corpus-$SHA.jsonl" --clobber
+          gh release upload distill-corpus "corpus.jsonl.manifest.json#distill-corpus-$SHA.manifest.json" --clobber
+          # §10 P1 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
+          # (artifact 30 天即过期;P2/P3 模型只对比同版本基线行,不得丢)。
+          for f in baseline-out/*.json; do
+            gh release upload distill-corpus "$f#baseline-$(basename "$f")" --clobber
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
