@@ -139,15 +139,20 @@ struct MedicalCatalogReleaseAcceptanceTests {
             }
         }
 
-        let unsupported = try MedicalCatalogFixture.make(schemaVersion: 7)
-        defer { unsupported.cleanUp() }
+        // v7 在 pointer 解码门即被拒——`make` 构造 `signedExpectation` 时已调用
+        // `MedicalCatalogSignedPointerDecoder.expectation`（App 解析网络 pointer 的同一函数），
+        // `MedicalCatalogSignedPointer.decode` 字段校验先于 `candidate()` 触发（Go `validatePointerFields` 镜像），
+        // 故断言落在 `make` 上：v7 夹具本身不可构造。
         #expect(throws: MedicalCatalogTrustError.invalidField) {
-            _ = try unsupported.candidate()
+            _ = try MedicalCatalogFixture.make(schemaVersion: 7)
         }
+        // 不支持的物理版本即使 SQLite 本体有效，`validateRelease` 也在版本门即拒、不触达文件校验。
+        let v6Fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+        defer { v6Fixture.cleanUp() }
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
-                path: unsupported.directory.appendingPathComponent("source.sqlite"), schemaVersion: 7,
-                dataVersion: unsupported.signedExpectation.dataVersion)
+                path: v6Fixture.directory.appendingPathComponent("source.sqlite"), schemaVersion: 7,
+                dataVersion: v6Fixture.signedExpectation.dataVersion)
         }
 
         let badUserVersion = try MedicalCatalogFixture.make(database: .wrongUserVersion, schemaVersion: 6)
