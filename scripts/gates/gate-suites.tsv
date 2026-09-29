@@ -6,8 +6,8 @@
 #   **缺证据被当成有证据**。本清单把「某阶段必须存在哪些门禁套件」
 #   从文档承诺变成可执行断言（L0 [8]）——套件没写即红，而不是静默放行。
 #
-# 为什么放在 .github/ 而不是 refactor/：
-#   refactor/ 按业主指令不入库（见 .gitignore 白名单），CI 读不到；
+# 为什么放在 scripts/gates/ 而不是 refactor/：
+#   refactor/ 按业主指令不入库（公仓 .gitignore 已为精简显式规则，扫描根自其推导为空即 ERR#27；契约见 tech-spec §9 / ADR-033，解耦待 Q2），CI 读不到；
 #   门禁的可执行副本必须与门禁脚本同处于受版本控制的路径。
 #   refactor/test-plan-spec.md §3 是文档事实源，本文件是其执行面，两者必须同步。
 #

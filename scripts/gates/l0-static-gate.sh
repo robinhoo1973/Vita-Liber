@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================================
 # Vita Liber · 青囊书 — L0 静态门禁
-# 位置：.github/workflows/l0-static-gate.sh —— 被 build-testflight.yml 的
-#       build job「L0 静态门禁」步骤引用，与工作流同目录托管；本地同样可直接执行。
+# 位置：scripts/gates/l0-static-gate.sh —— 被 build-testflight.yml 的
+#       build job「L0 静态门禁」步骤引用（2026-09-24 自 .github/workflows/ 迁出、按域归簇），本地同样可直接执行。
 # 依据：test-plan-spec §1.1（L0 十八节，任一失败即红）/ §0 铁律 3（L0 不过不进 L1，分层不可跳越）
 #
 #   [1] try? grep 门禁 —— 全仓清零；豁免仅限同行注释 `// try?-ok: <理由>`（tech-spec §7）
