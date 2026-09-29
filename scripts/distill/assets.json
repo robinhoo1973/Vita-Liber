@@ -1,0 +1,12 @@
+{
+  "_comment": [
+    "distill-llm.yml prepare job 的 Release 资产清单(计划文档 §7.6 唯一来源纪律)。",
+    "当前医疗数据 Release 尚未发布(私仓 Phase B 生产 cutover 未批准,legacy producer",
+    "未产出公开资产)——在填真实值之前,CI prepare job 会响亮失败(fail-closed),",
+    "这是设计行为,不是故障。本地原型用 --local-jsonl 路径跑 build/eval 不受影响。",
+    "资产 schema: [{ \"url\", \"sha256\", \"encrypted\": true, \"kind\": \"catalog-sqlite\" }];",
+    "sha256 覆盖**下载到的密文**(download_corpus.py 先校验后解密;与 Release 签名",
+    "指针绑定的 ciphertext SHA-256 同口径,勿填明文哈希)。"
+  ],
+  "assets": []
+}
