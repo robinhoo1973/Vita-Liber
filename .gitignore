@@ -1,35 +1,8 @@
-# ── 默认全部私有（业主指令）：仅白名单入库 ──
-/*
-!/.github/
-!/.gitignore
-!/README.md
-!/README.zh-CN.md
-!/README.zh-Hant.md
-# 调试索引 code-function-mapping.md 已并入 refactor/（2026-09-20 业主裁定：唯一副本，随 refactor/ 本地策略不入库）
-!/CoreKit/
-!/App/
-!/Resources/
-!/design/
-!/Tests/
-!/UITests/
-!/project.yml
-!/version.txt
-!/VitaLiber-Info.plist
-# F16 HealthKit entitlements（project.yml entitlements.path 引用）：与 Info.plist
-# 同等是构建必需配置，必须在库（CI 上由 xcodegen 从 project.yml properties 重生成，
-# 本地文件若不入库会成为与 project.yml 双真相源、静默漂移）。非密钥文件。
-!/VitaLiber.entitlements
-# CI 辅助脚本（L0 门禁/发布信任链/医疗数据/钉版清单，按域分簇 scripts/<域>/）
-!/scripts/
-# 医疗数据 Go 工具链（业主 2026-09-27：源码已迁往私仓 robinhoo1973/robinhoo-pipelines
-# 的 tasks/vita-liber/medical-data/，公开仓不再保留副本——整目录防误收，勿重新入库）
-/scripts/medical-data/go/
-# ASR 下载包由独立 workflow 在 RUNNER_TEMP 中生成并发布至 GitHub Releases；
-# 源码只保存 Resources/ASRModelUpdates 的公开清单与签名，不保留 downloads/。
-
+# 精简模式（业主 2026-09-29 裁决）：显式规则忽略，无 deny-all；扫描根契约见 tech-spec §9/ADR-033（L0 因 ERR#27 暂红，解耦待 Q2）
 # Swift/SPM 构建产物（编译非必需，绝不入库）
 .build/
 .swiftpm/
+.superpowers/
 DerivedData/
 Build/
 *.xcresult
@@ -43,11 +16,18 @@ Build/
 .env*
 secrets*
 **/Secrets*.swift
+*.pem
+*.key
+id_*
+.netrc
 
 # Python 管线缓存
 __pycache__/
 *.pyc
 
+# 医疗数据 Go 工具链（业主 2026-09-27：源码已迁往私仓 robinhoo1973/robinhoo-pipelines
+# 的 tasks/vita-liber/medical-data/，公开仓不再保留副本——整目录防误收，勿重新入库）
+/scripts/medical-data/go/
 # ASR权重由钉版清单在构建机取得；清单与许可证入库，运行时全部随包。
 /Resources/ASRModels/zipformer/
 /Resources/ASRModels/dolphin/
