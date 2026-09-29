@@ -8,7 +8,7 @@
 
 ```
 scripts/
-├── gates/          # 域:L0 静态门禁(17 节)+ 其数据文件
+├── gates/          # 域:L0 静态门禁(18 节)+ 其数据文件
 ├── release/        # 域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
 ├── medical-data/   # 公开仓仅保留迁移期间的 legacy wrapper；Go 主线已迁至私有 pipeline 仓
 │                   #   (`robinhoo1973/robinhoo-pipelines/tasks/vita-liber/medical-data/go/`)
@@ -47,7 +47,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
   1. 所有引用该脚本的 YAML 调用路径、`project.yml` 构建阶段(`$SRCROOT/...`);
   2. `CLAUDE.md` / `AGENTS.md`;
   3. `refactor/` 规格链与 `code-function-mapping.md` 中的路径引用;
-  4. 验证:`bash scripts/gates/l0-static-gate.sh`(17 节全绿)+
+  4. 验证:`bash scripts/gates/l0-static-gate.sh`(18 节全绿)+
      跑受影响的 `test-*.py`;最后更新 `refactor/memory/` 知识库。
 
 ## 工作流一览

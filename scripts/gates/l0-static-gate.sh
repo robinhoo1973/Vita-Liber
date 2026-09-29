@@ -3,7 +3,7 @@
 # Vita Liber · 青囊书 — L0 静态门禁
 # 位置：.github/workflows/l0-static-gate.sh —— 被 build-testflight.yml 的
 #       build job「L0 静态门禁」步骤引用，与工作流同目录托管；本地同样可直接执行。
-# 依据：test-plan-spec §1.1（L0 十七节，任一失败即红）/ §0 铁律 3（L0 不过不进 L1，分层不可跳越）
+# 依据：test-plan-spec §1.1（L0 十八节，任一失败即红）/ §0 铁律 3（L0 不过不进 L1，分层不可跳越）
 #
 #   [1] try? grep 门禁 —— 全仓清零；豁免仅限同行注释 `// try?-ok: <理由>`（tech-spec §7）
 #   [2] ADR-021 无平行视图 —— 禁止 *_iPad/*_iPhone 视图文件；
@@ -41,6 +41,10 @@
 #        .accessibilityElement(children: .contain)，否则 SwiftUI 把容器标识下放
 #        覆盖每个子元素自身标识，XCUITest 按子元素标识查询失败（CI 34021989599 /
 #        34660864382 实证，判定器 .github/workflows/l0-container-id-mask.py）
+#   [18] 依赖能力矩阵 —— Package.resolved / project.yml 钉版 ≤ scripts/gates/
+#        dependency-capability-matrix.tsv 已验证上限；未登记即未验证
+#        （委员会 P1，2026-09-27 加；2026-09-29 由汇总 exit 之后的死代码复活为实跑节，
+#        业主裁决 Q5；另有「实计节数 ≡ 18」断言守在汇总之前）
 #
 # 运行环境：bash 3.2+（兼容 macOS 自带 bash）/ python3 或 node 或 jq（仅 JSON 校验用）。
 #           macOS/Linux 原生可跑；Windows 用 Git Bash 或等价 l0-static-gate.py。
@@ -63,7 +67,17 @@ FAILURES=0
 pass() { printf '  %sPASS%s %s\n' "$C_G" "$C_0" "$1"; }
 fail() { printf '  %sFAIL%s %s\n' "$C_R" "$C_0" "$1"; FAILURES=$((FAILURES + 1)); }
 warn() { printf '  %sWARN%s %s\n' "$C_Y" "$C_0" "$1"; }
-section() { printf '\n%s[%s]%s %s\n' "$C_B" "$1" "$C_0" "$2"; }
+# 实计节数登记簿（业主裁决 Q5）：section() 每执行一次把节标签追加进 SECTION_LABELS，
+# 汇总前断言「实计节序列 ≡ 声明的 1..18」。守的是 ERR#27 同族根因——「写下的断言 ≠
+# 执行的断言」：若某节被跳过、顺序错乱或末节非 18/18，说明门禁实际没跑满，不得以
+# 18 节之名判绿。序列用标量串（bash 3.2 + set -u 下数组空展开有雷），顺序与连续性一并校验。
+SECTION_LABELS=''
+SECTION_COUNT=0
+section() {
+  printf '\n%s[%s]%s %s\n' "$C_B" "$1" "$C_0" "$2"
+  SECTION_LABELS="${SECTION_LABELS} ${1}"
+  SECTION_COUNT=$((SECTION_COUNT + 1))
+}
 
 # ERR#27 通用守卫（2026-09-18 批量补强）：凡「扫描结果决定判定」的环节，必须先证明
 # **确实扫到了对象**。[13] 的 __DONE__ 守的是一半——「判定器没跑完」；本函数守另一半——
@@ -1016,16 +1030,6 @@ else
   fail "容器标识掩蔽存在 —— 在容器标识前补 .accessibilityElement(children: .contain)"
 fi
 
-# ---------- 汇总 ----------
-printf '\n========================================\n'
-if [ "$FAILURES" -eq 0 ]; then
-  printf '%s全绿 —— L0 通过，可进 L1 编译测试%s\n' "$C_G" "$C_0"
-  exit 0
-else
-  printf '%s失败项：%s —— L0 不过不进 L1（dev-pm-spec §9.4）%s\n' "$C_R" "$FAILURES" "$C_0"
-  exit 1
-fi
-
 # ---------- [18] 依赖能力矩阵（委员会 P1，2026-09-27） ----------
 # 依赖钉版与工具链能力错配族（CI 36253140508：swift-collections 1.7.0 在 Xcode 26
 # SPM 下 import Builtin 失败）：断言两个钉面 ≤ 已验证上限矩阵；未登记即未验证。
@@ -1037,4 +1041,30 @@ else
 fi
 if [ "$pass_matrix" -eq 0 ]; then
   fail "依赖钉版超出能力矩阵——升级需随 PR 携带 CI 全绿证据并同 PR 更新矩阵"
+fi
+
+# ---------- 实计节数断言（业主裁决 Q5；必须在任何 exit 之前执行） ----------
+# 2026-09-29 之前 [18] 写在汇总 exit 之后 = 死代码：输出恒为 17 节，PR 模板却声称 18 节。
+# 复活后加第三道保险：断言「实际执行的节标签序列」恰为 1..18 连续、末节 = 18/18；
+# 不满足即计入 FAILURES，由下方汇总走 exit 1（不绕过、不放宽 ERR#27 语义）。
+EXPECTED_SECTIONS=18
+expected_labels=''
+_i=1
+while [ "$_i" -le "$EXPECTED_SECTIONS" ]; do
+  expected_labels="${expected_labels} ${_i}/${EXPECTED_SECTIONS}"
+  _i=$((_i + 1))
+done
+if [ "$SECTION_LABELS" != "$expected_labels" ]; then
+  fail "section-count mismatch —— 实计节序列[${SECTION_LABELS# }]（${SECTION_COUNT} 节）≠ 声明 1..${EXPECTED_SECTIONS} 连续序列（末节须 ${EXPECTED_SECTIONS}/${EXPECTED_SECTIONS}）——有节被跳过或标签漂移，门禁实际未跑满，不得判绿"
+fi
+
+# ---------- 汇总 ----------
+printf '\n========================================\n'
+printf '节数实计：%s 节（声明 %s 节）\n' "$SECTION_COUNT" "$EXPECTED_SECTIONS"
+if [ "$FAILURES" -eq 0 ]; then
+  printf '%s全绿 —— L0 通过，可进 L1 编译测试%s\n' "$C_G" "$C_0"
+  exit 0
+else
+  printf '%s失败项：%s —— L0 不过不进 L1（dev-pm-spec §9.4）%s\n' "$C_R" "$FAILURES" "$C_0"
+  exit 1
 fi
