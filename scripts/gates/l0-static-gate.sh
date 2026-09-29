@@ -151,7 +151,17 @@ while IFS= read -r _gline; do
   esac
 done < "$APP/.gitignore"
 if [ ${#SCAN_PATHS[@]} -eq 0 ]; then
-  printf '%sERROR%s .gitignore 白名单未推导出任何扫描根（$APP/.gitignore 缺失或漂移）——扫描范围失效，不得判 PASS（ERR#27）。\n' "$C_R" "$C_0" >&2
+  # 2026-09-30 业主裁决落地（.gitignore 精简模式,原 ERR#27 解耦自 Q2 提前）:
+  # 白名单无 !/ 条目时改用 git ls-files 顶层目录推导——「扫描范围=入库范围」
+  # 语义不变,与 .gitignore 形态解耦;git 不可用或空树仍按 ERR#27 硬失败。
+  while IFS= read -r _gdir; do
+    [ -n "$_gdir" ] || continue
+    case "$_gdir" in .*|'') continue ;; esac
+    [ -d "$APP/$_gdir" ] && SCAN_PATHS+=("$APP/$_gdir")
+  done < <(git -C "$APP" ls-files 2>/dev/null | cut -d/ -f1 | sort -u || true)
+fi
+if [ ${#SCAN_PATHS[@]} -eq 0 ]; then
+  printf '%sERROR%s .gitignore 白名单与 git ls-files 均未推导出扫描根（$APP 无可入库目录或 git 不可用）——扫描范围失效，不得判 PASS（ERR#27）。\n' "$C_R" "$C_0" >&2
   exit 2
 fi
 COREKIT="$APP/CoreKit"
