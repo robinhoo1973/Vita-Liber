@@ -319,6 +319,9 @@ struct MedicalCatalogUpdateTests {
             local: MedicalCatalogInstalledVersion(schemaVersion: 5, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
     }
 
+    // 夹具 MedicalCatalogFixture 依赖 CryptoKit 签名（定义于 macOS-only 的
+    // AcceptanceTests 文件）；本测试与该夹具同平台面，Linux 上随文件守卫一并缺位。
+    #if os(iOS) || os(macOS)
     @Test("v6 candidate is up-to-date only with a matching local v6 schema and data version")
     func sameDataVersionSupportsPhysicalV6() throws {
         let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
@@ -332,6 +335,7 @@ struct MedicalCatalogUpdateTests {
         #expect(!MedicalCatalogUpdateService.sameDataVersion(
             local: MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
     }
+    #endif
 
     @Test("fileSize reports regular-file bytes and throws for missing files or directories")
     func fileSizeHelper() throws {
