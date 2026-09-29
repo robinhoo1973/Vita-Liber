@@ -47,7 +47,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
   1. 所有引用该脚本的 YAML 调用路径、`project.yml` 构建阶段(`$SRCROOT/...`);
   2. `CLAUDE.md` / `AGENTS.md`;
   3. `refactor/` 规格链与 `code-function-mapping.md` 中的路径引用;
-  4. 验证:`bash scripts/gates/l0-static-gate.sh`(18 节全绿)+
+  4. 验证:`bash scripts/gates/l0-static-gate.sh`(18 节全绿；Q2 解耦前本工作树预期红 ERR#27，见 AGENTS.md 状态注)+
      跑受影响的 `test-*.py`;最后更新 `refactor/memory/` 知识库。
 
 ## 工作流一览

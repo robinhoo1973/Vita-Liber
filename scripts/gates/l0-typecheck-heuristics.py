@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下十二族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
+# 以下十七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -87,6 +87,21 @@
 #      "'SyncReport' is not a member type of actor 'Infrastructure.HealthKitSyncService'"。
 #      判定：`T.U` 中 T、U 同为 CoreKit 某模块顶层公有类型即 FAIL（模块名限定与
 #      小写成员访问不匹配；T 确有同名嵌套类型的病理场景加 // tius-ok: 豁免）。
+#   N. CoreKitTests 使用 Foundation 符号却无 import Foundation / #expect 内 keypath
+#      闭包与运算符右侧 try —— CI 36246531585、36324384565 实证：Linux swift test
+#      全绿仍漏（Foundation 可见性与 rethrows 判定两平台工具链不一致，parse/型检
+#      启发式都看不见），文本扫描左移：缺 import 即 FAIL、`#expect(… \.x)` 与
+#      `(==|!=|&&||) try` 形态即 FAIL（修复 = 显式闭包 / 先 hoist 抛调用）。
+#   O. 四域参考目录 DDL 三拷贝面漂移 —— CI 36248076043 / 测试席 F1 实证：
+#      hospital/department/diagnosis/exam_item 四表逐一比对「store SELECT ⊆ 夹具列」
+#      与「夹具列 == 生产 DDL 列」双向断言，缺列/幻影列即 FAIL（Linux 上 store 与
+#      测试被平台守卫空编译、swift test 假绿，文本交叉核对是唯一 Linux 可见通道）。
+#   P. 测试内改 NSTimeZone.default 全局状态 —— CI 36249512459 实证：Darwin 的
+#      TimeZone.current 是进程启动缓存、不随 NSTimeZone.default 变化（Linux
+#      corelibs 跟随才假绿），且全局时区变异与并行套件互踩；改 API 显式时区参数注入。
+#   Q. App 层引用传输实现四符号 —— 2026-09-27 委员会 P3c 窄门禁：进度/错误/形态
+#      须经 Domain 值类型，词表精确匹配 ModelResourceTransfer 等四符号（当前零命中，
+#      防批 2 写 SP-64 视图时直接 new fetcher；精确词表避免家族 A 过泛词教训）。
 # 判定与平台无关（python3 标准库）；ERR#27 纪律：扫 0 文件/无计数一律 FAIL。
 # 豁免标记（与 try?-ok/adr021-ok 同惯例，仅同行注释）：`// tius-ok: <理由>`
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
