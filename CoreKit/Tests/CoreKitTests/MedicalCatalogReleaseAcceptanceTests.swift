@@ -150,7 +150,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
                 dataVersion: unsupported.signedExpectation.dataVersion)
         }
 
-        let badUserVersion = try MedicalCatalogFixture.make(schemaVersion: 6, database: .wrongUserVersion)
+        let badUserVersion = try MedicalCatalogFixture.make(database: .wrongUserVersion, schemaVersion: 6)
         defer { badUserVersion.cleanUp() }
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
@@ -158,7 +158,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
                 dataVersion: badUserVersion.signedExpectation.dataVersion)
         }
 
-        let badMetaVersion = try MedicalCatalogFixture.make(schemaVersion: 6, database: .wrongSchemaVersion)
+        let badMetaVersion = try MedicalCatalogFixture.make(database: .wrongSchemaVersion, schemaVersion: 6)
         defer { badMetaVersion.cleanUp() }
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
