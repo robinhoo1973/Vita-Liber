@@ -1085,10 +1085,10 @@ jobs:
               echo "::error::buildUpload state.errors 非空——Apple 已出具失败证据，见上方 buildUpload 详情"
               exit 1
             elif [ "$UPLOAD_STATE" = "UNKNOWN" ]; then
-              echo "::error::约 6 分钟内 build ${EXPECTED} 未登记且无 Apple 侧正面证据（无 Delivery UUID/状态未知）——未证实不得绿；请用 asc-build-status workflow 查处理状态"
+              echo "::error::约 6 分钟内 build ${EXPECTED} 未登记且无 Apple 侧正面证据（无 Delivery UUID/状态未知）——未证实不得绿；请用 maintenance workflow 的 asc-status job 查处理状态"
               exit 1
             else
-              echo "::warning::build ${EXPECTED} 尚未入列表但 buildUpload state=PROCESSING——Apple 自证处理中（慢日档），后续请用 asc-build-status 核对"
+              echo "::warning::build ${EXPECTED} 尚未入列表但 buildUpload state=PROCESSING——Apple 自证处理中（慢日档），后续请用 maintenance workflow 的 asc-status job 核对"
             fi
           fi
 

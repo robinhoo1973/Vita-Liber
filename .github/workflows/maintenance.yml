@@ -1,0 +1,374 @@
+# ============================================================================
+# 维护类 workflow 三合一（2026-09-29 业主指令：清理并合并可合并的 workflow）
+#
+# 原三个维护类文件合并至本文件（job 一一对应，语义与规则全保留）：
+#   1) cleanup-runs job  ← .github/workflows/cleanup-runs.yml
+#      workflow 执行记录清理（业主 2026-09-15 两规则）：
+#      规则A：本文件（maintenance.yml）自身所有执行记录——无论成功还是失败——
+#             全部删除；正在运行的本轮 run 无法自删（API 禁删进行中的 run），
+#             由下一轮清扫。三合一后自删语义由维护文件承接：签名周检 / ASC
+#             状态查询的 run 记录同样在下一轮清扫中删除（合并的既定后果）。
+#      规则B：其他 workflow 只保留最近一次成功；任何非 success 结论
+#             （failure/cancelled/skipped/timed_out）与非最近一次成功全部删除；
+#             已删除 workflow 的历史记录也会被清理。
+#   2) signing-expiry job ← .github/workflows/signing-expiry-check.yml
+#      签名材料到期周检（2026-09-27 委员会 P5）：主流水线的到期门禁只在发布时
+#      跑、≤30 天 warning 无人值守即静默悬崖——本 job 每周日 UTC 23:17 + 手动
+#      派发独立核对证书/PP 剩余天数，红则失败（轮换清单见 build-testflight.yml
+#      头注）。
+#   3) asc-status job ← .github/workflows/asc-build-status.yml
+#      查询 App Store Connect 最近 builds / buildUploads 处理状态（2026-09-10
+#      诊断资产）：主流水线复核窗口只覆盖上传后 6 分钟，Apple 处理偶发 >40 分钟
+#      （build 320.1/321.1 实证）——本 job 是发布前/卡单时的独立核对通道。
+#
+# 触发矩阵（job 级 if 用 github.event.schedule 区分是哪个 cron 触发）：
+#   cron '0 16 * * *'  （每日 UTC 16:00 = 北京时间 00:00）→ 仅 cleanup-runs
+#   cron '17 23 * * 0' （每周日 UTC 23:17）              → 仅 signing-expiry
+#   workflow_dispatch                                    → 三个 job 全部执行
+# ============================================================================
+name: Maintenance
+
+on:
+  schedule:
+    - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00（记录清理）
+    - cron: '17 23 * * 0'  # 每周日 UTC 23:17（签名材料到期周检）
+  workflow_dispatch:
+
+jobs:
+  cleanup-runs:
+    name: '清理历史执行记录'
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 16 * * *'
+    # 钉版 ubuntu-24.04（审计 2026-09-19）：GitHub 公告 ubuntu-latest 将于
+    # 2026-10-19 迁移到 Ubuntu 26——与 macos-26 钉版同一纪律，拒绝隐式工具链漂移。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: 清理各 workflow 历史记录
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 不使用 set -u / pipefail：GitHub Actions 默认 bash -e 已足够；
+          # -u 在 mktemp 失败等边界场景会制造无意义的崩溃，
+          # pipefail 与 2>/dev/null 组合容易吞掉关键诊断信息。
+          REPO="${{ github.repository }}"
+          echo "=== Workflow Run 清理开始 ==="
+          echo "仓库: $REPO"
+          echo ""
+
+          # ── 收集现存 workflow 注册表（id/name/path 三列） ──
+          # 审查修正（2026-09-15）：按 workflow 文件路径/ID 清理，而不是只按 run.name。
+          # reusable workflow（如 release-asr-models.yml）被 TestFlight 调用时，run.name
+          # 容易与展示名/调用关系漂移；path 才是 CI 执行记录的稳定登记键。
+          WORKFLOWS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          if ! gh api "repos/$REPO/actions/workflows" \
+            --jq '.workflows[] | [.id, .name, .path] | @tsv' > "$WORKFLOWS_FILE" 2>/dev/null; then
+            echo "警告: 获取 workflow 列表失败——本轮跳过清理（防误删全库）"
+            rm -f "$WORKFLOWS_FILE"
+            exit 0
+          fi
+          if [ ! -s "$WORKFLOWS_FILE" ]; then
+            echo "警告: workflow 注册表为空——本轮跳过清理（防误删全库）"
+            rm -f "$WORKFLOWS_FILE"
+            exit 0
+          fi
+          echo "现存 workflow:"
+          awk -F '\t' '{ printf "  - %s (%s) #%s\n", $2, $3, $1 }' "$WORKFLOWS_FILE"
+          echo ""
+
+          # 明确登记必须受清理策略覆盖的发布链 workflow；缺失时给 warning，
+          # 防“包构建流没有登记在 CI 执行记录清理面”。
+          REQUIRED_PATHS=".github/workflows/build-testflight.yml .github/workflows/release-asr-models.yml .github/workflows/maintenance.yml"
+          for required in $REQUIRED_PATHS; do
+            if ! awk -F '\t' -v p="$required" '$3 == p { found=1 } END { exit found ? 0 : 1 }' "$WORKFLOWS_FILE"; then
+              echo "::warning::workflow 未登记或已禁用: $required"
+            fi
+          done
+
+          # ── 按 workflow 逐个拉全量 completed runs ──
+          # 原实现只用 `gh run list --limit 500` 拉全仓最近 500 条：仓库活跃时，
+          # 某个 workflow 的旧成功记录可能根本不在样本里，导致“非最近一次成功”不会被删。
+          # 现在按 workflow id 分页拉取，保证每个现存 workflow 独立执行“仅保留最近一次成功”。
+          COUNTS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          DELETE_FAILURES_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          echo "0 0" > "$COUNTS_FILE"
+
+          delete_run() {
+            local id="$1" reason="$2" err rc
+            # 直接调用 REST API DELETE /actions/runs/{id}：
+            # 1) 不依赖 `gh run delete` 的交互确认行为，非 TTY 下行为确定；
+            # 2) 错误信息完整回显并落盘，不再被 2>/dev/null 吞掉根因。
+            err=$(gh api --method DELETE "repos/$REPO/actions/runs/$id" 2>&1)
+            rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "  删除: #$id ($reason)"
+              return 0
+            fi
+            echo "  删除失败: #$id ($reason) — $(echo "$err" | tr '\n' ' ' | head -c 300)"
+            echo "#$id	$reason	$err" >> "$DELETE_FAILURES_FILE"
+            return 1
+          }
+
+          keep_or_delete_run() {
+            local wf_key="$1" wf_name="$2" conclusion="$3" run_id="$4" created_at="$5" first_success_file="$6"
+            read DELETED KEPT < "$COUNTS_FILE"
+
+            # 规则0：maintenance.yml（维护文件）自身 → 无论成败全部删除（业主 2026-09-15 要求一；
+            # 2026-09-29 三合一后由维护文件承接原 cleanup-runs.yml 的自删语义）。
+            # 正在运行的本轮 run 状态为 in_progress、不在 completed 列表内，由下一轮清扫。
+            if [ "$wf_key" = ".github/workflows/maintenance.yml" ]; then
+              delete_run "$run_id" "$wf_name - 维护自身（全删）" && DELETED=$((DELETED + 1))
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              return
+            fi
+
+            # 规则1a（2026-09-16 委员会评审曾设「failure 保留最近 K 次」的例外；
+            # **2026-09-27 业主裁定 FAILURE_KEEP=0 撤销该例外**——失败记录不保留，
+            # 回到原始要求二「非成功一律删除」。此分支保留为开关形态，默认 0。
+            if [ "$wf_key" = ".github/workflows/build-testflight.yml" ] && [ "$conclusion" = "failure" ]; then
+              read FAIL_KEPT < "$FAILURES_FILE"
+              if [ "$FAIL_KEPT" -lt "${FAILURE_KEEP:-0}" ]; then
+                echo "  保留: #$run_id (build-testflight 失败证据 $((FAIL_KEPT + 1))/${FAILURE_KEEP:-0})"
+                echo $((FAIL_KEPT + 1)) > "$FAILURES_FILE"
+                KEPT=$((KEPT + 1))
+                echo "$DELETED $KEPT" > "$COUNTS_FILE"
+                return
+              fi
+            fi
+
+            # 规则1：任何非 success 结论 → 直接删除
+            # 业主 2026-09-15 要求二：非成功一律删除，包括 cancelled/failure/
+            # skipped/timed_out；失败证据不在 Actions run 历史里长期保留。
+            # （build-testflight 的 failure 已由规则 1a 例外保留。）
+            if [ "$conclusion" != "success" ]; then
+              delete_run "$run_id" "$wf_name - 非成功 ($conclusion)" && DELETED=$((DELETED + 1))
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              return
+            fi
+
+            # 规则2：成功但不是最近一次成功 → 删除
+            if grep -qxF "$wf_key" "$first_success_file"; then
+              delete_run "$run_id" "$wf_name - 非最近一次成功" && DELETED=$((DELETED + 1))
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+              return
+            fi
+
+            # 规则3：最近一次成功 → 保留，记录
+            echo "$wf_key" >> "$first_success_file"
+            echo "  保留: #$run_id ($wf_name - 最近一次成功)"
+            KEPT=$((KEPT + 1))
+            echo "$DELETED $KEPT" > "$COUNTS_FILE"
+          }
+
+          while IFS=$'\t' read -r WF_ID WF_NAME WF_PATH; do
+            echo "--- 清理 workflow: $WF_NAME ($WF_PATH) #$WF_ID ---"
+            RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            FIRST_SUCCESS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            # 失败证据计数（规则 1a，2026-09-16 委员会评审）
+            FAILURES_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+            echo 0 > "$FAILURES_FILE"
+            if gh api --paginate "repos/$REPO/actions/workflows/$WF_ID/runs?status=completed&per_page=100" \
+              --jq '.workflow_runs[] | [.id, .name, .conclusion, .created_at] | @tsv' \
+              > "$RUNS_FILE" 2>/dev/null; then
+              if [ ! -s "$RUNS_FILE" ]; then
+                echo "  无 completed run"
+              else
+                SORTED_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+                sort -t $'\t' -k4,4r "$RUNS_FILE" > "$SORTED_RUNS_FILE"
+                echo "  completed run 总数: $(wc -l < "$SORTED_RUNS_FILE")"
+                while IFS=$'\t' read -r RUN_ID RUN_NAME CONCLUSION CREATED_AT; do
+                  keep_or_delete_run "$WF_PATH" "$WF_NAME" "$CONCLUSION" "$RUN_ID" "$CREATED_AT" "$FIRST_SUCCESS_FILE"
+                done < "$SORTED_RUNS_FILE"
+                rm -f "$SORTED_RUNS_FILE"
+              fi
+            else
+              echo "::warning::拉取 workflow runs 失败: $WF_NAME ($WF_PATH)"
+            fi
+            rm -f "$RUNS_FILE" "$FAILURES_FILE" "$FIRST_SUCCESS_FILE"
+          done < "$WORKFLOWS_FILE"
+
+          # ── 已删除 workflow 历史兜底 ──
+          # API 的 workflow 注册表只覆盖现存 workflow；已删除 workflow 的 run 仍会出现在
+          # actions/runs 全局列表中。这里分组按 path/name 直接删除，避免历史垃圾长期保留。
+          echo "--- 清理已删除 workflow 历史记录（全局兜底） ---"
+          DELETED_RUNS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
+          if gh api --paginate "repos/$REPO/actions/runs?status=completed&per_page=100" \
+            --jq '.workflow_runs[] | [.id, .name, .path, .conclusion, .created_at] | @tsv' \
+            > "$DELETED_RUNS_FILE" 2>/dev/null; then
+            while IFS=$'\t' read -r RUN_ID RUN_NAME RUN_PATH CONCLUSION CREATED_AT; do
+              [ -n "$RUN_PATH" ] || continue
+              if awk -F '\t' -v p="$RUN_PATH" '$3 == p { found=1 } END { exit found ? 0 : 1 }' "$WORKFLOWS_FILE"; then
+                continue
+              fi
+              read DELETED KEPT < "$COUNTS_FILE"
+              delete_run "$RUN_ID" "$RUN_NAME - workflow 已删除 ($RUN_PATH)" && DELETED=$((DELETED + 1))
+              echo "$DELETED $KEPT" > "$COUNTS_FILE"
+            done < "$DELETED_RUNS_FILE"
+          else
+            echo "::warning::拉取全局 run 列表失败——跳过已删除 workflow 兜底清理"
+          fi
+
+          read TOTAL_DELETED TOTAL_KEPT < "$COUNTS_FILE"
+
+          echo ""
+          echo "=== 清理完成 ==="
+          echo "总计删除: $TOTAL_DELETED 条"
+          echo "总计保留: $TOTAL_KEPT 条"
+          if [ -s "$DELETE_FAILURES_FILE" ]; then
+            TOTAL_FAILURES=$(wc -l < "$DELETE_FAILURES_FILE")
+            echo "删除失败: $TOTAL_FAILURES 条（明细如下）"
+            echo "::error::存在删除失败的 workflow run：$TOTAL_FAILURES 条，见日志明细"
+            cat "$DELETE_FAILURES_FILE"
+          else
+            echo "删除失败: 0 条（全部删除请求成功）"
+          fi
+
+          rm -f "$WORKFLOWS_FILE" "$DELETED_RUNS_FILE" "$COUNTS_FILE" "$DELETE_FAILURES_FILE"
+
+  # ═══════════════════════════════════════════════════════════════
+  # 签名材料到期周检（原 signing-expiry-check.yml，2026-09-27 委员会 P5）
+  # 每周日 UTC 23:17 + 手动派发；证书剩余天数红则失败并给出轮换指引。
+  # ═══════════════════════════════════════════════════════════════
+  signing-expiry:
+    name: '签名材料到期周检'
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 23 * * 0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: 检查证书/PP 剩余天数
+        env:
+          APPLE_DEV_CERT_P12: ${{ secrets.APPLE_DEV_CERT_P12 }}
+          APPLE_DIS_CERT_P12: ${{ secrets.APPLE_DIS_CERT_P12 }}
+          APPLE_CERT_PASSWORD: ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          source scripts/release/check-signing-expiry.sh
+          red=0
+          check_cert() {
+            local label="$1" p12="$2"
+            if [ -z "$p12" ]; then echo "::warning::$label secret 未配置，跳过"; return 0; fi
+            echo "$p12" | tr -d ' \n\r' | base64 -d > /tmp/exp.p12
+            enddate=$(openssl pkcs12 -in /tmp/exp.p12 -nodes -passin pass:"$APPLE_CERT_PASSWORD" 2>/dev/null \
+              | openssl x509 -noout -enddate 2>/dev/null | sed 's/notAfter=//') || enddate=""
+            if [ -z "$enddate" ]; then echo "::error::$label 解析失败（密码错误或非 PKCS12）"; red=1; return 0; fi
+            verdict "$label" "$enddate" || red=1
+            rm -f /tmp/exp.p12
+          }
+          check_cert "DEV 证书" "$APPLE_DEV_CERT_P12"
+          check_cert "DIS 证书" "$APPLE_DIS_CERT_P12"
+          # PP 到期：security cms 是 macOS 专属；ubuntu 上 openssl cms 可解析 embedded plist，
+          # 此处先覆盖证书面（发布链路的最短到期者）；PP 面由主流水线门禁覆盖。
+          if [ "$red" -ne 0 ]; then
+            echo "::error::签名材料进入轮换窗口——按 build-testflight.yml 头注轮换清单执行"
+            exit 1
+          fi
+          echo "签名材料到期周检通过 ✓"
+
+  # ═══════════════════════════════════════════════════════════════
+  # ASC Build 状态查询（原 asc-build-status.yml，2026-09-10 新增）
+  # 场景：主流水线的复核窗口只覆盖上传后 6 分钟——Apple 处理偶发 >40 分钟
+  # （build 320.1/321.1 实证：受理无错误但长时间未入 builds 列表），
+  # 处理中/失败的最终状态此前无从查询。本 job 手动派发（ubuntu，约 1 分钟）
+  # 查询 App Store Connect 最近 10 个 build 的处理状态，是发布前的独立核对通道。
+  # ═══════════════════════════════════════════════════════════════
+  asc-status:
+    name: '查询 ASC builds 状态'
+    if: github.event_name == 'workflow_dispatch'
+    # 钉版 ubuntu-24.04（审计 2026-09-19）：GitHub 公告 ubuntu-latest 将于
+    # 2026-10-19 迁移到 Ubuntu 26——与 macos-26 钉版同一纪律，拒绝隐式工具链漂移。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # 哈希钉版清单随仓获取；钉版 Python 与 upload job 同 3.13.5（轮子哈希按
+      # 解释器版本取，镜像默认 python3 漂移会响亮失败而非静默换轮）。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+      - name: 查询 App Store Connect 最近 builds
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "::error::APPLE_API_KEY_P8 未配置"
+            exit 1
+          fi
+          python3 -m venv /tmp/asc-status-venv
+          export PATH="/tmp/asc-status-venv/bin:$PATH"
+          python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-asc-tools.txt" >/tmp/asc-status-pip.log 2>&1
+          umask 077
+          mkdir -p "$RUNNER_TEMP/keys"
+          echo "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/keys/AuthKey.p8"
+          KEYFILE="$RUNNER_TEMP/keys/AuthKey.p8" \
+            KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
+          python3 - <<'PYEOF'
+          import json, os, time, urllib.request, urllib.error
+          import jwt
+          key = open(os.environ['KEYFILE']).read()
+          now = int(time.time())
+          tok = jwt.encode({'iss': os.environ['ISS'], 'iat': now, 'exp': now + 1200,
+                            'aud': 'appstoreconnect-v1'},
+                           key, algorithm='ES256',
+                           headers={'alg': 'ES256', 'kid': os.environ['KEYID']})
+          BASE = 'https://api.appstoreconnect.apple.com/v1'
+          def call(url):
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', 'Bearer ' + tok)
+              req.add_header('Accept', 'application/json')
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.loads(r.read() or b'{}')
+              except urllib.error.HTTPError as e:
+                  return {'errors': json.loads(e.read() or b'{}')}
+          d = call(f'{BASE}/apps?filter[bundleId]=com.vitaliber.app')
+          if 'errors' in d or not d.get('data'):
+              print('App 解析失败:', json.dumps(d.get('errors', d), ensure_ascii=False)[:300])
+              raise SystemExit(1)
+          app = d['data'][0]['id']
+          builds = call(f'{BASE}/builds?sort=-uploadedDate&limit=10&filter[app]={app}')
+          if 'errors' in builds:
+              print('builds 查询失败:', json.dumps(builds['errors'], ensure_ascii=False)[:300])
+              raise SystemExit(1)
+          bs = builds.get('data', [])
+          if not bs:
+              print('无任何 build 记录')
+          for b in bs:
+              a = b['attributes']
+              mc = a.get('missingExportCompliance')
+              comp = 'YES' if mc is True else ('NO' if mc is False else '?')
+              print('BUILD %s state=%s compliance=%s uploaded=%s' % (
+                  a.get('version', '?'), a.get('processingState', '?'), comp,
+                  a.get('uploadedDate', '?')))
+          # 阻塞判定：近 2 个 build 若仍不在列表 = 处理中 >10 分钟，输出提示
+          latest = bs[0]['attributes'] if bs else {}
+          print('状态判定依据：最新入列 build =', latest.get('version', '无'))
+          # buildUpload 后续状态（2026-09-10 增补：受理后处理中/失败的定论
+          # 只存在于 buildUpload 资源——builds 列表对处理中的 build 不可见）
+          ups = call(f'{BASE}/apps/{app}/buildUploads?limit=6')
+          if 'errors' in ups:
+              print('buildUploads 查询失败:', json.dumps(ups['errors'], ensure_ascii=False)[:300])
+              raise SystemExit(1)
+          for u in ups.get('data', [])[:6]:
+              a = u.get('attributes', {})
+              st = a.get('state', {})
+              print('UPLOAD %s.%s state=%s' % (
+                  a.get('cfBundleShortVersionString', '?'),
+                  a.get('cfBundleVersion', '?'), st.get('state', '?')))
+              if st.get('errors'):
+                  print('  !! errors:', json.dumps(st['errors'], ensure_ascii=False)[:800])
+              if st.get('warnings'):
+                  print('  !! warnings:', json.dumps(st['warnings'], ensure_ascii=False)[:800])
+          PYEOF
+          rm -rf "$RUNNER_TEMP/keys"
