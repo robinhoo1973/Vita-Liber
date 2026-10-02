@@ -51,7 +51,10 @@ struct SettingsView: View {
                 } header: {
                     Text(L10n.settings_appearance)
                 } footer: {
-                    Text(L10n.settings_highContrastFooter)
+                    // 2026-10-03 信息架构评审（方案 C）：ThemeSettingsView 页并入主面后，
+                    // 关怀模式强制叠加高对比度的「明示当前生效层」注记随迁此处（原页 footer）。
+                    Text(app.careMode ? L10n.settings_highContrastForced
+                                      : L10n.settings_highContrastFooter)
                 }
                 // §5.12 安全（自动锁定）组（FR1.4 宽限 5/15/60 秒；选项由
                 // Domain 合法集单一事实源生成——业主 2026-09-19：最低宽限 5 秒，
@@ -102,7 +105,10 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("SP-23.backup.entry")
                 }
-                Section(L10n.hub_healthRecords) {
+                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：原 12 入口「健康记录」
+                // 大区拆分——「数据与资源」= 数据导入/资源下载同域聚合；其余档案与记录
+                // 管理入口归「健康记录」。入口集合不变，仅分组。
+                Section(L10n.settings_dataAndResources) {
                     NavigationLink(value: AppRoute.deviceConnection) {
                         Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
                     }
@@ -112,6 +118,8 @@ struct SettingsView: View {
                         Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
                     }
                     .accessibilityIdentifier("SP-64.settings.resources")
+                }
+                Section(L10n.hub_healthRecords) {
                     // mock 对齐项：语音指导模式入口（FR17.11 档案完善/修改，可语音可手输）
                     NavigationLink(value: AppRoute.voiceGuideProfile) {
                         Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
