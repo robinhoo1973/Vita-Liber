@@ -194,6 +194,9 @@ extension L10n {
 
     static var voicePrimaryLanguageHint: String { t("voice.primaryLanguageHint") }
 
+    /// 输入语言资源不可选时的下载引导（2026-10-03 信息架构评审方案 C：语言页 footer）
+    static var voiceLangAssetHint: String { t("voice.langAssetHint") }
+
     static var voiceBestEffortActive: String { t("voice.bestEffortActive") }
 
     static var voiceVersionNative: String { t("voice.version.native") }

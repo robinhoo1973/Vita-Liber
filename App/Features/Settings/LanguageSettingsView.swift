@@ -112,14 +112,8 @@ struct VoiceLanguageSettingsView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                // B2-3（2026-09-28）：语音模型管理（检查更新/下载/进度）并入统一
-                // 「模型与数据资源」页——此处只留跳转入口，避免双处管理平行视图。
-                Section {
-                    NavigationLink(value: AppRoute.resourceManagement) {
-                        Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
-                    }
-                    .accessibilityIdentifier("SP-64.settings.resourcesFromVoice")
-                }
+                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：「模型与数据资源」入口
+                // 自本页移除——设置主面已有同一入口（单一路径），语言页只做语言选择。
                 Section {
                     ForEach(inputLanguageOptions, id: \.locale) { lang in
                         // 规范化比较只求值一次（每行原先三处重复 normalizedIdentifier 归一）
@@ -180,7 +174,7 @@ struct VoiceLanguageSettingsView: View {
                 } header: {
                     Text(L10n.voiceLangInputSection)
                 } footer: {
-                    Text(L10n.voiceLangInputHint + "\n" + L10n.voicePrimaryLanguageHint)
+                    Text(L10n.voiceLangInputHint + "\n" + L10n.voicePrimaryLanguageHint + "\n" + L10n.voiceLangAssetHint)
                     if loaded && inputCapability.availableLocales.isEmpty { Text(L10n.voiceInputUnavailable) }
                 }
 
@@ -227,15 +221,8 @@ struct VoiceLanguageSettingsView: View {
                     Text(L10n.voiceLangOutputHint)
                 }
 
-                // FR17.15 V3.66：识别引擎实验室入口（引擎档位 / 语言资源 / 对照测试）
-                Section {
-                    NavigationLink(value: AppRoute.voiceEngineLab) {
-                        Label(L10n.voiceLabTitle, systemImage: "waveform")
-                    }
-                    .accessibilityIdentifier("SP-25.voiceEngineLab.entry")
-                } footer: {
-                    Text(L10n.voiceLabEntryHint)
-                }
+                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：识别引擎实验室入口
+                // 迁至「模型与数据资源」页（SP-64）——引擎管理同域聚合，本页不再承载他页入口。
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）

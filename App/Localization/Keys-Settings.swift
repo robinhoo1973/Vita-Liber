@@ -69,6 +69,9 @@ extension L10n {
     static var settings_habits: String { t("settings.habits") }
     // SP-64 统一「模型与数据资源」管理页（2026-09-27 业主定案）
     static var resourceManagementTitle: String { t("settings.resourceManagement") }
+
+    /// 设置主面「数据与资源」分组标题（2026-10-03 信息架构评审方案 C）
+    static var settings_dataAndResources: String { t("settings.dataAndResources") }
     static var resourceActiveTitle: String { t("settings.resource.active") }
     static var resourceCatalogTitle: String { t("settings.resource.catalog") }
     static var resourceCatalogRow: String { t("settings.resource.catalogRow") }

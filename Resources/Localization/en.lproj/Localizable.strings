@@ -2265,3 +2265,6 @@
 "health.searchPrompt" = "Search health records";
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
+
+"voice.langAssetHint" = "If a language pack isn't available, download it from Model & Data Resources, then return to select it.";
+"settings.dataAndResources" = "Data & Resources";

@@ -2265,3 +2265,6 @@
 "health.searchPrompt" = "搜尋健康記錄";
 "health.connectDevice" = "連線裝置以查看健康資料";
 "health.connectButton" = "連線裝置";
+
+"voice.langAssetHint" = "語言資源暫不可選時，請到「模型與數據資源」頁下載後回來選擇。";
+"settings.dataAndResources" = "數據與資源";

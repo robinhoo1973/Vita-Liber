@@ -21,6 +21,16 @@ struct ResourceManagementView: View {
                 // B2-3（2026-09-28）：语音模型管理并入本页（检查更新/下载/进度/取消，
                 // 复用语音设置页同一区块视图——单一管理面，无平行视图）。
                 ASREngineSettingsSection(accessibilityPrefix: "SP-64.resource.asr")
+                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：识别引擎实验室入口
+                // 自语音语言页迁入本页——与引擎管理同域聚合，语言页只做语言选择。
+                Section {
+                    NavigationLink(value: AppRoute.voiceEngineLab) {
+                        Label(L10n.voiceLabTitle, systemImage: "waveform")
+                    }
+                    .accessibilityIdentifier("SP-64.resource.engineLab.entry")
+                } footer: {
+                    Text(L10n.voiceLabEntryHint)
+                }
             }
             .navigationTitle(L10n.resourceManagementTitle)
             .navigationBarTitleDisplayMode(.inline)
