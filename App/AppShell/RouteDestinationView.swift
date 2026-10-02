@@ -113,8 +113,6 @@ struct RouteDestinationView: View {
                 AuditLogView()
             case .languageSettings:
                 LanguageSettingsView()
-            case .themeSettings:
-                ThemeSettingsView()
             case .voiceLanguageSettings:
                 VoiceLanguageSettingsView()
             case .voiceEngineLab:

@@ -52,49 +52,9 @@ enum AppSettingsBindings {
 
 /// ui-ux §5.12.1 外观与主题选择器：水平三段 + 迷你预览色块，即时生效、无确认弹窗。
 /// 预览语义（mock me.html `.theme-preview`）：浅=白底黑条 / 深=黑底白条 / 跟随=半白半黑。
-/// FR14.4 外观与主题设置页（SP-25 子页路由落点）：三段选择器 + 高对比度开关。
-/// 切换即时生效（AppRootView 读 settings 注入 preferredColorScheme/contrast）。
-struct ThemeSettingsView: View {
-    @Environment(AppSettingsStore.self) private var settings
-    @Environment(AppState.self) private var app
-
-    var body: some View {
-        WithPerceptionTracking {
-            Form {
-                Section {
-                    ThemeSegmentedPicker(selection: themeBinding)
-                } footer: {
-                    Text(L10n.settings_themeHint)
-                }
-                Section {
-                    Toggle(L10n.settings_highContrast, isOn: highContrastBinding)
-                } footer: {
-                    // 审查修复（FR18.16 叠加规则明示条款）：关怀模式强制叠加高对比度时，
-                    // 必须明示当前生效的是哪一层——否则开关显示「关」但界面实际高对比，
-                    // 用户拨动开关看不到变化、无法判断状态
-                    Text(app.careMode ? L10n.settings_highContrastForced
-                                      : L10n.settings_highContrastFooter)
-                }
-            }
-            .navigationTitle(L10n.settings_appearance)
-            .task { await settings.load() }
-        }
-    }
-
-    private var themeBinding: Binding<AppTheme> {
-        AppSettingsBindings.theme(settings)
-    }
-
-    private var highContrastBinding: Binding<Bool> {
-        Binding(
-            // 与 SettingsViews 的布尔读口径统一（values 未装载时同样落默认值）
-            get: { AppSettingsBindings.bool(settings, for: .highContrastEnabled) },
-            set: { on in
-                Task { await settings.set(on ? "true" : "false", for: .highContrastEnabled) }
-            })
-    }
-}
-
+// 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：ThemeSettingsView 删除——
+// 主题/高对比度已由设置主面外观区承担（零入口死路由）；关怀模式强制高对比
+// 的「明示生效层」注记已随迁 SettingsView 外观区 footer。
 struct ThemeSegmentedPicker: View {
     @Binding var selection: AppTheme
 

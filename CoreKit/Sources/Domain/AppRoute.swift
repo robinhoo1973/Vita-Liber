@@ -75,7 +75,8 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case notificationCenter              // SP-27
     case auditLog                        // FR14.2
     case privacyAuthorization            // FR14.1 九开关面板
-    case themeSettings                   // FR14.4 外观与主题
+    // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：themeSettings 路由删除——
+    // 主题/高对比度已由设置主面外观区承担（ThemeSettingsView 页并入主面，零入口死路由）。
     case languageSettings                // FR14.5 语言选择
     case voiceLanguageSettings           // FR17.15/17.16 语音语言选择
     case voiceEngineLab                  // SP-62 识别引擎实验室（FR17.15 V3.66）
@@ -154,7 +155,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .healthImportedData:
             return .health
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
-             .privacyAuthorization, .themeSettings, .languageSettings,
+             .privacyAuthorization, .languageSettings,
              .voiceLanguageSettings, .voiceEngineLab, .emergencyCardConfig, .deviceConnection,
               .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
              .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport, .resourceManagement,
