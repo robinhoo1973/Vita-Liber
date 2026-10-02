@@ -10,9 +10,6 @@
 scripts/
 ├── gates/          # 域:L0 静态门禁(18 节)+ 其数据文件
 ├── release/        # 域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
-├── medical-data/   # 公开仓仅保留迁移期间的 legacy wrapper；Go 主线已迁至私有 pipeline 仓
-│                   #   (`robinhoo1973/robinhoo-pipelines/tasks/vita-liber/medical-data/go/`)
-│                   #   下载数据的唯一 Release 目标仍是公开 `robinhoo1973/Vita-Liber` Release；私有 workflow 尚未切换
 ├── distill/        # 域:实体链接/蒸馏训练簇(entlink 确定性召回+语料构建+评测闸+训练循环;
 │                   #   设计依据 refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md §7;
 │                   #   零 PHI 数据纪律、MPS 探测段先行、checkpoint 断点续训,详见簇 README)
@@ -31,7 +28,6 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
   全部依赖「同目录」这一事实。
 - **因此:共用库的脚本必须同簇,禁止跨簇 import / with_name 定位。** 实证示例:
   `release/` 簇里 `asr_package.py` 被 7 个脚本导入、`model_trust.py` 被 3 个导入、
-  `medical_data_trust.py` 依赖 `model_trust.py`——拆到别的簇会静默断链。
 - 仓库根探测**禁止按固定层级 `parents[N]` 假设**:一律逐级向上找
   `CoreKit/Sources/Domain`(Python)或 `project.yml`(shell)锚点。
   教训见 `scripts/gates/l0-container-id-mask.py:20`(2026-09-12 假绿实证)。
@@ -56,7 +52,6 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 |---|---|---|---|
 | `build-testflight.yml` | push master / `v*` tag / dispatch | 版本号→构建→L0 门禁→测试→打包→ASC 上传 | gates / release / requirements |
 | `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 GitHub Releases | release / requirements |
-| `medical-data-release.yml` | Monday 03:17 UTC (`17 3 * * 1`) + dispatch | 公开仓现存 legacy producer：self-extracting payload + `gh release upload --clobber`；私有 Go producer 尚未启用。后续下载数据仍发布到本公开仓 Release；单写者 cutover 需单独审批 | medical-data / release |
 | `distill-llm.yml` | workflow_dispatch | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release(checkpoint Release 化随 P2 train job) | distill / requirements |
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`） | release / requirements |

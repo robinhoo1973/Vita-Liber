@@ -27,7 +27,6 @@ __pycache__/
 
 # 医疗数据 Go 工具链（业主 2026-09-27：源码已迁往私仓 robinhoo1973/robinhoo-pipelines
 # 的 tasks/vita-liber/medical-data/，公开仓不再保留副本——整目录防误收，勿重新入库）
-/scripts/medical-data/go/
 # ASR权重由钉版清单在构建机取得；清单与许可证入库，运行时全部随包。
 /Resources/ASRModels/zipformer/
 /Resources/ASRModels/dolphin/
