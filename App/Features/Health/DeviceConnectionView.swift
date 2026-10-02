@@ -384,7 +384,8 @@ struct DeviceConnectionView: View {
                 writeBackSection
                 importedDataSection
                 medicalReviewSection
-                navigationSection
+                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：指标总览/警报历史
+                // 两个业务查看页入口迁至健康 Tab 首页检索与总览区（本页只做设备连接设置）。
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
@@ -530,15 +531,6 @@ struct DeviceConnectionView: View {
     private var medicalReviewSection: some View {
         if GuidelineSource.thresholdsAwaitMedicalReview {
             Section { Text(L10n.healthMedicalReviewPending).font(.caption) }
-        }
-    }
-
-    private var navigationSection: some View {
-        Section {
-            // §5.45 注册表纪律（审查修复）：两处原以闭包目的地直连视图，绕开
-            // AppRoute 注册表——通知深链/跨启动路径恢复无法寻址同一 SP。改类型安全路由。
-            NavigationLink(value: AppRoute.metricOverview) { Text(L10n.metricOverviewTitle) }
-            NavigationLink(value: AppRoute.alertHistory) { Text(L10n.alert_historyEntry) }
         }
     }
 

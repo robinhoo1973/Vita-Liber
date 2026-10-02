@@ -215,6 +215,13 @@ struct HealthTabView: View {
                     .frame(minHeight: 44)
             }
             .accessibilityIdentifier("SP-29.health.home.trends")
+            // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：警报历史入口自设备连接
+            // 设置页迁入本区（指标总览同域；警报历史 = L1–L3 观察警报的时间线查看页）。
+            NavigationLink(value: AppRoute.alertHistory) {
+                Label(L10n.alert_historyEntry, systemImage: "bell.badge")
+                    .frame(minHeight: 44)
+            }
+            .accessibilityIdentifier("SP-29.health.home.alerts")
         }
     }
 }
