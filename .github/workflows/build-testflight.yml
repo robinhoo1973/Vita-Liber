@@ -434,15 +434,19 @@ jobs:
           swift test 2>&1 | tee ../Build/corekit-swift-test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            # 2026-10-03 审计（CI #629-#632 排障盲区）：job 日志需登录、诊断产物需 auth，
-            # 失败时唯一公开可读的通道 = step summary——把错误族行与失败测试名落盘，
-            # 否则远端失败只能盲猜根因（「缺证据被当成有证据」同族）。
+            # 2026-10-03 审计（CI #629-#633 排障盲区）：job 日志需登录、诊断产物需 auth，
+            # 唯一公开可读的通道 = 注解（::error:: 服务端渲染）+ step summary。
+            # 把日志尾部原文直出为注解行，远端失败不再盲猜根因
+            # （「缺证据被当成有证据」同族）。
             {
-              echo "### CoreKit swift test 失败摘要（自动截取 tail 80）"
+              echo "### CoreKit swift test 失败摘要（自动截取 tail 60 行原文）"
               echo '```'
-              grep -E "error:|✘|failed" ../Build/corekit-swift-test.log | tail -80 || true
+              tail -60 ../Build/corekit-swift-test.log || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            tail -12 ../Build/corekit-swift-test.log | while IFS= read -r line; do
+              echo "::error::CoreKit: $line"
+            done || true
             exit "$status"
           fi
           echo "CoreKit 域层测试通过 ✓"
@@ -499,14 +503,17 @@ jobs:
             2>&1 | tee Build/xcodebuild-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            # 2026-10-03 审计：编译失败摘要落 step summary（公开可读），
-            # 与本步 tee 的完整日志互补——远端排障不再盲猜（CI #629-#632 盲区复盘）。
+            # 2026-10-03 审计：编译失败摘要落 step summary + 注解（公开可读），
+            # 与本步 tee 的完整日志互补——远端排障不再盲猜（CI #629-#633 盲区复盘）。
             {
-              echo "### xcodebuild 编译失败摘要（自动截取 tail 60）"
+              echo "### xcodebuild 编译失败摘要（自动截取 tail 60 行原文）"
               echo '```'
-              grep -E "error:" Build/xcodebuild-build.log | tail -60 || true
+              tail -60 Build/xcodebuild-build.log || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            tail -12 Build/xcodebuild-build.log | while IFS= read -r line; do
+              echo "::error::xcodebuild: $line"
+            done || true
             exit "$status"
           fi
           echo "编译门禁通过 ✓"
