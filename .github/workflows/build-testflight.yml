@@ -588,10 +588,10 @@ jobs:
               tail -60 Build/xcodebuild-test.log || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            tail -12 Build/xcodebuild-test.log | while IFS= read -r line; do
+            grep -E "recorded an issue|Expectation failed|XCTAssert" Build/xcodebuild-test.log | head -10 | while IFS= read -r line; do
               echo "::error::xcodebuild-test: $line"
             done || true
-            grep -E "recorded an issue|Expectation failed|XCTAssert" Build/xcodebuild-test.log | head -10 | while IFS= read -r line; do
+            tail -4 Build/xcodebuild-test.log | while IFS= read -r line; do
               echo "::error::xcodebuild-test: $line"
             done || true
             exit "$status"
