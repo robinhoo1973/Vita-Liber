@@ -591,6 +591,9 @@ jobs:
             tail -12 Build/xcodebuild-test.log | while IFS= read -r line; do
               echo "::error::xcodebuild-test: $line"
             done || true
+            grep -E "recorded an issue|Expectation failed|XCTAssert" Build/xcodebuild-test.log | head -10 | while IFS= read -r line; do
+              echo "::error::xcodebuild-test: $line"
+            done || true
             exit "$status"
           fi
           echo "L1 单元测试通过 ✓"
