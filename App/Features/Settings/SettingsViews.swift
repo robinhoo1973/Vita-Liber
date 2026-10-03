@@ -13,13 +13,8 @@ struct SettingsView: View {
     var body: some View {
         WithPerceptionTracking {
             Form {
-                // mock 对齐项：离线模式副标题（数据透明信任资产）
-                Section {
-                    Label(L10n.settings_offlineNote, systemImage: "checkmark.shield")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("SP-25.settings.offlineNote")
-                }
+                // 2026-10-03 呈现评审（V4.13）：独立「离线说明」Section 为 mock 对齐残留，
+                // 降级为关于区页尾轻行（信任声明不占首屏权重）。
                 Section(L10n.settings_authTitle) {
                     ForEach(authKeys, id: \.rawValue) { key in
                         Toggle(isOn: binding(for: key)) {
@@ -45,7 +40,9 @@ struct SettingsView: View {
                     NavigationLink {
                         VoiceLanguageSettingsView()
                     } label: {
-                        LabeledContent(L10n.voiceLangTitle, value: app.voiceOutputLocale)
+                        // V4.13 呈现评审：值显示语言名摘要（主语言 +N），
+                        // 不再直出 locale 代码（如 zh-CN）
+                        LabeledContent(L10n.voiceLangTitle, value: currentVoiceLanguages)
                     }
                     .accessibilityIdentifier("SP-25.setting.voiceLanguage")
                 } header: {
@@ -201,8 +198,15 @@ struct SettingsView: View {
                     Text(L10n.settings_disclaimer)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // V4.13 呈现评审：离线信任声明自页首独立段降级至此（页尾轻行）
+                    Label(L10n.settings_offlineNote, systemImage: "checkmark.shield")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("SP-25.settings.offlineNote")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()   // 与全部设置子页视觉基底统一（此前本页 Form 裸白）
             .navigationTitle(L10n.navMe)
             .task { await settings.load() }
         }
@@ -249,6 +253,17 @@ struct SettingsView: View {
             .first { $0.code == L10n.bundleLanguage }?.nativeName ?? L10n.bundleLanguage
     }
 
+    /// FR17.15 语音语言行值摘要（V4.13 呈现评审）：「主语言原生名」或「主语言 +N」——
+    /// 行值必须人类可读，不直出 locale 代码。原生名映射走 Domain 六语言单一事实源。
+    private var currentVoiceLanguages: String {
+        let locales = SettingsRules.voiceLocales(settings.values[.voiceInputLanguages])
+        guard let primary = locales.first else { return L10n.voiceLangTitle }
+        let name = EngineCapabilityProfile.sixLanguages.first {
+            TranscriptionLocale.normalizedIdentifier($0.locale) == TranscriptionLocale.normalizedIdentifier(primary)
+        }?.nativeName ?? primary
+        return locales.count > 1 ? "\(name) +\(locales.count - 1)" : name
+    }
+
     private func label(for key: AppSettingKey) -> String {
         switch key {
         case .careModeEnable: return L10n.settings_careMode
@@ -270,17 +285,35 @@ struct SettingsView: View {
 /// 审计记录页（FR14.2）：append-only 事实列表
 struct AuditLogView: View {
     @Environment(AppSettingsStore.self) private var settings
+    /// V4.13 呈现评审：装载完成前显示加载态（此前首帧直接渲染列表）；
+    /// 空列表显示空态说明（此前空页无任何解释）。
+    @State private var loaded = false
     var body: some View {
         WithPerceptionTracking {
-            List(settings.auditEntries, id: \.id) { entry in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.action).font(.subheadline)
-                    Text("\(entry.entityType) · \(entry.at.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption2).foregroundStyle(.secondary)
+            Group {
+                if !loaded {
+                    ProgressView().frame(maxWidth: .infinity).padding()
+                } else if settings.auditEntries.isEmpty {
+                    Text(L10n.settings_auditEmpty)
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity).padding()
+                } else {
+                    List(settings.auditEntries, id: \.id) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.action).font(.subheadline)
+                            Text("\(entry.entityType) · \(entry.at.formatted(date: .abbreviated, time: .shortened))")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .scrollContentBackground(.hidden)   // ui-ux §3.0：渐变画布透出（V4.13 补齐）
+                    .tintedCanvas()
                 }
             }
             .navigationTitle(L10n.settings_audit)
-            .task { await settings.loadAudit() }
+            .task {
+                await settings.loadAudit()
+                loaded = true
+            }
         }
     }
 }
