@@ -136,12 +136,12 @@ struct PendingOcrQueueView: View {
                         Text(memberFilter.flatMap { id in app.members.first(where: { $0.id == id })?.displayName }
                              ?? L10n.filterAll)
                             .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
-                            .background(Capsule().fill(Color(.systemGray5)))
+                            .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                     }
                     ForEach([(0, L10n.filterAll), (1, L10n.filter3d), (2, L10n.filter72h)], id: \.0) { tag, name in
                         Button(name) { windowFilter = tag }
                             .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
-                            .background(Capsule().fill(windowFilter == tag ? Color("brand-primary", bundle: .main).opacity(0.2) : Color(.systemGray5)))
+                            .background(Capsule().fill(windowFilter == tag ? Color("brand-primary", bundle: .main).opacity(0.15) : Color("bg-grouped", bundle: .main)))
                     }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)

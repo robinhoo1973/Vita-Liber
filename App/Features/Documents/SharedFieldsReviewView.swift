@@ -116,7 +116,7 @@ struct SharedFieldsReviewView: View {
             .font(.caption2)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
-            .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.18)))
+            .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.15)))
     }
 
     /// 承载方说明：卡类名（行级时附「第 n 行」；主卡草稿附「主卡草稿」），去重。

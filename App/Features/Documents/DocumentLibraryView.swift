@@ -1054,7 +1054,7 @@ private struct DocumentLibraryRow: View {
                         HStack(spacing: 6) {
                             Text(doc.docType).font(.caption2)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Capsule().fill(Color(.systemGray5)))
+                                .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                             if doc.grade == "D" { GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed) }
                             if doc.isSensitive { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(Color("semantic-warning", bundle: .main)) }
                         }

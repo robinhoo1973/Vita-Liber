@@ -127,7 +127,7 @@ struct AlertHistoryView: View {
                         } label: {
                             Text(metricFilter.map(L10n.healthMetricName) ?? L10n.filterAll)
                                 .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
-                                .background(Capsule().fill(Color(.systemGray5)))
+                                .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                         }
                     }
                 }

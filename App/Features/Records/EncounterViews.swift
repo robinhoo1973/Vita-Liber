@@ -162,7 +162,7 @@ struct EncounterListView: View {
                         Text(memberFilter.flatMap { id in app.members.first(where: { $0.id == id })?.displayName }
                              ?? L10n.filterAll)
                             .font(.caption).padding(.horizontal, 10).frame(minHeight: 44)
-                            .background(Capsule().fill(Color(.systemGray5)))
+                            .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                     }
                     Spacer()
                 }

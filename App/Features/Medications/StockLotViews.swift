@@ -161,7 +161,7 @@ struct StockLotDetailView: View {
         Text(Self.statusName(status))
             .font(.caption2).bold()
             .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(status == "expired" ? Color("grade-d", bundle: .main) : Color(.systemGray5)))
+            .background(Capsule().fill(status == "expired" ? Color("grade-d", bundle: .main) : Color("bg-grouped", bundle: .main)))
             .foregroundStyle(status == "expired" ? .white : .primary)
     }
 

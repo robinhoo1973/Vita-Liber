@@ -420,7 +420,7 @@ struct AppointmentDetailRouteView: View {
                                 Text(L10n.apptStatusName(apt.status))
                                     .font(.caption2)
                                     .padding(.horizontal, 8).padding(.vertical, 4)
-                                    .background(Capsule().fill(Color(.systemGray5)))
+                                    .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                             }
                             .padding(.vertical, 4)
                         } header: {

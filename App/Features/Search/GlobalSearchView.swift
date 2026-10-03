@@ -387,7 +387,7 @@ private struct SearchResultRow: View {
                         Text(badge)
                             .font(.caption2.bold())
                             .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color(.systemGray5)))
+                            .background(Capsule().fill(Color("bg-grouped", bundle: .main)))
                     }
                     Text(title).font(.subheadline)
                     Spacer()

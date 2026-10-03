@@ -525,7 +525,7 @@ private struct FilterChip: View {
                     .frame(minHeight: 44)   // 审查修复：触点 ≥44pt（原 ≈25pt，违反 ui-ux §4.2）
                     .background(Capsule().fill(selected
                                                ? Color("brand-primary", bundle: .main)
-                                               : Color(.systemGray5)))
+                                               : Color("bg-grouped", bundle: .main)))
                     .foregroundStyle(selected ? .white : .primary)
             }
             .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
