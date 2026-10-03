@@ -438,17 +438,19 @@ jobs:
           status=${PIPESTATUS[0]}
           set -e
           if [ "$status" -ne 0 ]; then
-            # 2026-10-03 审计（CI #629-#633 排障盲区）：job 日志需登录、诊断产物需 auth，
+            # 2026-10-03 审计（CI #629-#635 排障盲区）：job 日志需登录、诊断产物需 auth，
             # 唯一公开可读的通道 = 注解（::error:: 服务端渲染）+ step summary。
-            # 把日志尾部原文直出为注解行，远端失败不再盲猜根因
-            # （「缺证据被当成有证据」同族）。
+            # 并行编译下错误行之后还有在途「Compiling」行冲刷——tail 会错过错误行，
+            # 注解通道用 grep 直抓错误行，tail 仅作上下文兜底。
             {
-              echo "### CoreKit swift test 失败摘要（自动截取 tail 60 行原文）"
+              echo "### CoreKit swift test 失败摘要（自动截取）"
               echo '```'
-              tail -60 ../Build/corekit-swift-test.log || true
+              grep -E "error:|✘|failed|Fatal" ../Build/corekit-swift-test.log | tail -30 || true
+              echo '--- 上下文（tail 25）---'
+              tail -25 ../Build/corekit-swift-test.log || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            tail -12 ../Build/corekit-swift-test.log | while IFS= read -r line; do
+            grep -E "error:|✘|failed|Fatal" ../Build/corekit-swift-test.log | tail -10 | while IFS= read -r line; do
               echo "::error::CoreKit: $line"
             done || true
             exit "$status"
