@@ -440,7 +440,7 @@ struct SOSHelpView: View {
                             .frame(maxWidth: .infinity, minHeight: 72)
                     }
                     .buttonStyle(.borderedProminent)
-                    .tint(.red)
+                    .tint(Color("semantic-danger", bundle: .main))
                     .accessibilityIdentifier("F18.sos.call120")
 
                     // 紧急联系人（已配置才显示；未配置引导去急救卡补录，FR15.1）

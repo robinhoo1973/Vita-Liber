@@ -68,7 +68,7 @@ struct CaregiverViews: View {
                                         item.dose.dueAt.formatted(date: isToday ? .omitted : .abbreviated,
                                                                   time: .shortened)))
                                         .font(.caption)
-                                        .foregroundStyle(.orange)
+                                        .foregroundStyle(Color("semantic-warning", bundle: .main))
                                 }
                                 Spacer()
                                 Image(systemName: "person.2.fill")

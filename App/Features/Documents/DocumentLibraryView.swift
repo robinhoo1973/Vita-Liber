@@ -1056,7 +1056,7 @@ private struct DocumentLibraryRow: View {
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Capsule().fill(Color(.systemGray5)))
                             if doc.grade == "D" { GradeBadge(grade: "D") }
-                            if doc.isSensitive { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(.orange) }
+                            if doc.isSensitive { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(Color("semantic-warning", bundle: .main)) }
                         }
                         Text(L10n.docTitle(doc.title)).font(.subheadline)
                         Text(doc.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption2).foregroundStyle(.secondary)
@@ -1068,7 +1068,7 @@ private struct DocumentLibraryRow: View {
             .swipeActions {
                 Button(doc.status == "archived" ? L10n.docUnarchive : L10n.docArchive) {
                     Task { await state.setArchived(id: doc.id, archived: doc.status != "archived") }
-                }.tint(.orange)
+                }.tint(Color("semantic-warning", bundle: .main))
                 Button(doc.status == "favorite" ? L10n.docUnfavorite : L10n.docFavorite) {
                     Task { await state.setFavorite(id: doc.id, favorite: doc.status != "favorite") }
                 }.tint(.yellow)

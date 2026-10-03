@@ -348,7 +348,7 @@ struct DoseSlotCard: View {
                     if !slot.allTaken && slot.records.count > 1 {
                         if allTakenHoldConfirmed {
                             Text(L10n.reminder_allTakenConfirm)
-                                .font(.caption).foregroundStyle(.orange)
+                                .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                             Button(L10n.reminder_allTakenYes) { onSlotAllTaken() }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)

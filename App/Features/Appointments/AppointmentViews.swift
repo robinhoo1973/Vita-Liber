@@ -344,7 +344,7 @@ struct AppointmentFormView: View {
                         case 2, 3:
                             // 检查完成后/疗程结束后：无具体日期 → 待确认草稿（不排提醒）
                             Text(L10n.apptFollowUpDraftOnly)
-                                .font(.footnote).foregroundStyle(.orange)
+                                .font(.footnote).foregroundStyle(Color("semantic-warning", bundle: .main))
                         case 4:
                             // 慢病定期随访：N 天后
                             Stepper(L10n.apptFollowUpDays(followUpDays), value: $followUpDays, in: 1...730)

@@ -345,7 +345,7 @@ struct StockLotEditView: View {
                     }
                     if saveFailed {
                         Label(L10n.lotEditFailed, systemImage: "exclamationmark.triangle")
-                            .font(.caption).foregroundStyle(.orange)
+                            .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                     }
                 }
                 .navigationTitle(L10n.lotEditTitle)

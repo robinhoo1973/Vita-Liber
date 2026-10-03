@@ -123,7 +123,7 @@ struct MedicalCardDetailView: View {
                             Button(L10n.commonSave) { saveAssociation() }.disabled(saving)
                                 .accessibilityIdentifier("medicalCard.association.save")
                             if associationFailed {
-                                Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(.orange)
+                                Text(L10n.ocrAssociationUnavailable).font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                             }
                         }
                     }
@@ -138,7 +138,7 @@ struct MedicalCardDetailView: View {
                     }
                 } else if !failed { ProgressView() }
                 if failed {
-                    Text(L10n.docImportFailed).foregroundStyle(.orange)
+                    Text(L10n.docImportFailed).foregroundStyle(Color("semantic-warning", bundle: .main))
                     Button(L10n.retry) { Task { await load() } }
                 }
             }
@@ -533,7 +533,7 @@ struct DocumentRelationsSection: View {
                         }
                     }
                 }
-                if failed { Text(L10n.docImportFailed).foregroundStyle(.orange); Button(L10n.retry) { Task { await load() } } }
+                if failed { Text(L10n.docImportFailed).foregroundStyle(Color("semantic-warning", bundle: .main)); Button(L10n.retry) { Task { await load() } } }
             }
             .task(id: documentId) { await load() }
         }
