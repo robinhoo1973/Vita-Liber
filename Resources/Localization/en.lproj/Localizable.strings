@@ -1312,7 +1312,6 @@
 "help.voice1" = "Examples: \"glucose 6.2 today\", \"132 over 85\"";
 "help.voice2" = "Common failures: noisy environment or heavy dialect — you can always type instead";
 "help.voiceSpeak" = "Speak";
-"inventory.barAccessibility" = "About %d%% remaining";
 "prep.export" = "Print/Export";
 "prep.trendSnapshot" = "Self-measured trend snapshot";
 "reminder.planScheduleKind" = "Schedule";

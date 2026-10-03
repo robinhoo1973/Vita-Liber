@@ -93,7 +93,7 @@ private struct InventoryRow: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 // §4.11 InventoryBar 分段余量条（V3.72）：绿>50%/琥珀20-50%/红<20%
-                InventoryBar(planUnits: item.remainingPlanUnits, confirmedUnits: item.remainingConfirmedUnits)
+                InventoryBar(planUnits: item.remainingPlanUnits, confirmedUnits: item.remainingConfirmedUnits, unit: item.unitKind)
                 Text(L10n.inventoryDualLine(MedicalNumberFormat.quantity(item.remainingPlanUnits), item.unitKind, MedicalNumberFormat.quantity(item.remainingConfirmedUnits)))
                     .font(.caption2).foregroundStyle(.secondary)
                 if let expireAt = item.expireAt {
@@ -220,6 +220,7 @@ struct InventoryReconcileSheet: View {
 private struct InventoryBar: View {
     let planUnits: Double
     let confirmedUnits: Double
+    let unit: String
 
     private var ratio: Double {
         guard confirmedUnits > 0 else { return 0 }
@@ -246,7 +247,9 @@ private struct InventoryBar: View {
                     }
             }
             .frame(height: 6)
-            .accessibilityLabel(L10n.inventoryBarAccessibility(Int(ratio * 100)))
+            // 2026-10-03 信息卡片评审 R1-2：原「余量约 X%」把双轨比（计划/确认）标成物理余量，
+            // 语义错标（FR9.8.7 诚实性）。改复用 inventory.dualLine 双轨事实句（同屏下方可见行同句式）。
+            .accessibilityLabel(L10n.inventoryDualLine(MedicalNumberFormat.quantity(planUnits), unit, MedicalNumberFormat.quantity(confirmedUnits)))
         }
     }
 }

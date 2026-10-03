@@ -381,8 +381,6 @@ extension L10n {
 
     static func profileSuggestionSource(_ page: Int) -> String { String(format: t("profileSuggestion.sourceFmt"), page) }
 
-    static func inventoryBarAccessibility(_ pct: Int) -> String { String(format: t("inventory.barAccessibility"), pct) }
-
     static func ocrQueueCount(_ n: Int) -> String { String(format: t("ocrQueue.countFmt"), n) }
 
     static func exportProgress(_ n: Int, _ total: Int) -> String { String(format: t("export.progressFmt"), n, total) }

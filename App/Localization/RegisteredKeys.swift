@@ -234,7 +234,6 @@ extension L10n {
     "image_input.noText",
     "immunization.childPlanComing",
     "immunization.doseCount",
-    "inventory.barAccessibility",
     "pref.dateFormatISO",
     "pref.dateFormatMD",
     "pref.dateFormatYMD",
