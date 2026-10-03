@@ -94,12 +94,16 @@ public actor HealthKitSyncService {
     /// 亦逐窗口复核）；performSync 的 inFlight 合并语义不变。
     public func performSyncAll(quietStart: String, quietEnd: String,
                                maxRounds: Int = 20,
-                               timeBudget: Duration = .seconds(30)) async throws -> SyncReport {
+                               timeBudget: Duration = .seconds(30),
+                               /// 每轮完成的进度回调（C6 评审修复：iOS 26 continued processing
+                               /// 要求全程上报 NSProgress，否则系统优先终止无进度任务）
+                               onRound: (@Sendable (Int) -> Void)? = nil) async throws -> SyncReport {
         let start = ContinuousClock.now
         var total: SyncReport?
-        for _ in 0..<max(1, maxRounds) {
+        for roundIndex in 0..<max(1, maxRounds) {
             try Task.checkCancellation()
             let result = try await performSync(quietStart: quietStart, quietEnd: quietEnd)
+            onRound?(roundIndex + 1)
             if var aggregate = total, aggregate.bindingId == result.bindingId, aggregate.patientId == result.patientId {
                 aggregate.persistedRows += result.persistedRows
                 aggregate.receivedChanges += result.receivedChanges
@@ -127,6 +131,24 @@ public actor HealthKitSyncService {
                     var merged = aggregate.perKindRemaining ?? [:]
                     for (key, remaining) in result.perKindRemaining ?? [:] { merged[key] = remaining }
                     aggregate.perKindRemaining = merged
+                }
+                // C1 埋点合并：轮数/样本/查询按累计，失败摘要并集（同律于 failedTypes 末轮为准，
+                // 但诊断需保留全程失败记录）
+                aggregate.rounds = (aggregate.rounds ?? 0) + (result.rounds ?? 1)
+                if result.perKindSamples != nil || aggregate.perKindSamples != nil {
+                    var merged = aggregate.perKindSamples ?? [:]
+                    for (key, count) in result.perKindSamples ?? [:] { merged[key] = count }
+                    aggregate.perKindSamples = merged
+                }
+                if result.perKindQueries != nil || aggregate.perKindQueries != nil {
+                    var merged = aggregate.perKindQueries ?? [:]
+                    for (key, count) in result.perKindQueries ?? [:] { merged[key] = count }
+                    aggregate.perKindQueries = merged
+                }
+                if let failures = result.lastFailures {
+                    var merged = aggregate.lastFailures ?? []
+                    for f in failures where !merged.contains(f) { merged.append(f) }
+                    aggregate.lastFailures = merged
                 }
                 total = aggregate
             } else {
@@ -165,6 +187,7 @@ public actor HealthKitSyncService {
 
     /// 合并调用者共享整个轮次，含状态落盘；完成后才释放flight，避免反复加入已完成任务。
     private func runAndRecord(id: UUID, quietStart: String, quietEnd: String) async throws -> SyncReport {
+        report.rounds = (report.rounds ?? 0) + 1
         defer { if inFlightID == id { inFlight = nil; inFlightID = nil } }
         let report = try await run(quietStart: quietStart, quietEnd: quietEnd)
         try Task.checkCancellation()
@@ -224,6 +247,10 @@ public actor HealthKitSyncService {
                 throw HealthImportStore.ImportError.bindingChanged
             } catch {
                 report.failedTypes.append(kind) // Its staged work and old checkpoint survive; other types can progress.
+                // C1 埋点：失败摘要去重入报告（诊断「不稳定」的归因通道）
+                var failures = report.lastFailures ?? []
+                if !failures.contains(kind.rawValue) { failures.append(kind.rawValue) }
+                report.lastFailures = failures
             }
             report.hasMore = report.hasMore || hasPending
             // 审查修复（共享轮次取消不丢进度）：每类页处理完即落盘报告——
@@ -273,6 +300,13 @@ public actor HealthKitSyncService {
         // Even a previously drained but incomplete batch can discover later tombstones on this page.
         let page = try await provider.changes(for: kind, scope: scope, anchor: previous, limit: 500)
         report.receivedChanges += page.added.count + page.deleted.count
+        // C7（2026-10-03）：空推进页（稀疏类型断点扫描封顶返回）——stage 门卫
+        // 拒绝空页（hasMore 必带内容），改经 saveAnchor 直接落锚点；
+        // hasMore 透传使 performSyncAll 在预算内续扫下一段。
+        if page.added.isEmpty, page.deleted.isEmpty, page.anchor != previous {
+            try await imports.saveAnchor(binding: binding, kind: kind, lane: scope.lane, anchor: page.anchor)
+            return DrainOutcome(hadWork: true, hasMore: page.hasMore)
+        }
         let pending = try await imports.stage(binding: binding, kind: kind, scope: scope, previousAnchor: previous, page: page)
         var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
             .filter { !pending.completedWindows.contains($0) }
@@ -287,12 +321,41 @@ public actor HealthKitSyncService {
         let attempted = Array(ordered.prefix(Self.windowsPerRound))
         var snapshots: [HealthWindowSnapshot] = []
         var queryFailed = false
-        for window in attempted {
-            try Task.checkCancellation()
-            guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
-            do { snapshots.append(try await provider.snapshot(for: window, calendar: binding.calendar)) }
-            catch is CancellationError { throw CancellationError() }
-            catch { queryFailed = true }
+        // C1 埋点（2026-10-03）：分页 + 快照查询计数（诊断「慢」的查询量账本）
+        report.perKindSamples?[kind.rawValue] = (report.perKindSamples?[kind.rawValue] ?? 0) + page.added.count + page.deleted.count
+        report.perKindQueries?[kind.rawValue] = (report.perKindQueries?[kind.rawValue] ?? 0) + 1 + attempted.count
+        // C2 快照并发化（2026-10-03）：窗口间无依赖，分块 ≤4 并发——
+        // provider 为 actor 但查询经 continuation 挂起（actor 重入），
+        // HK 往返真实重叠；提交仍串行单事务，checkpoint 语义不变。
+        guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+        let chunkSize = 4
+        var chunkStart = 0
+        while chunkStart < attempted.count {
+            let chunkEnd = min(chunkStart + chunkSize, attempted.count)
+            let chunk = Array(attempted[chunkStart..<chunkEnd])
+            var results: [(Int, Result<HealthWindowSnapshot, Error>)] = []
+            await withTaskGroup(of: (Int, Result<HealthWindowSnapshot, Error>).self) { group in
+                for (i, window) in chunk.enumerated() {
+                    let idx = chunkStart + i
+                    group.addTask {
+                        do {
+                            try Task.checkCancellation()
+                            return (idx, .success(try await provider.snapshot(for: window, calendar: binding.calendar)))
+                        } catch { return (idx, .failure(error)) }
+                    }
+                }
+                for await pair in group { results.append(pair) }
+            }
+            for (_, result) in results.sorted(by: { $0.0 < $1.0 }) {
+                switch result {
+                case .success(let snap): snapshots.append(snap)
+                case .failure(let error):
+                    if error is CancellationError { throw CancellationError() }
+                    queryFailed = true
+                }
+            }
+            chunkStart = chunkEnd
+            if queryFailed { break }   // 已失败的类型不再空跑后续窗口查询
         }
         let committed = try await imports.commit(binding: binding, kind: kind, pending: pending,
                                                  snapshots: snapshots, attemptedWindows: attempted)
