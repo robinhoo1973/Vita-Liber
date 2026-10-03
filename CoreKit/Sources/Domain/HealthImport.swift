@@ -194,6 +194,16 @@ public struct SyncReport: Sendable, Equatable, Codable {
     /// 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：按类型细分剩余窗口数；
     /// Optional——旧 report_json 无此键必须可解码。
     public var perKindRemaining: [String: Int]? = nil
+    /// 2026-10-03 埋点（健康导入「慢/不稳定」归因，评审 discussions/2026-10-03-healthkit-background-sync-round1.md）——
+    /// 全部 Optional，旧 report_json 无键可解码。
+    /// performSyncAll 已执行轮数（本次同步累计）
+    public var rounds: Int? = nil
+    /// 每类型累计接收样本数（added + deleted，按 rawValue 键）
+    public var perKindSamples: [String: Int]? = nil
+    /// 每类型累计快照/分页查询次数
+    public var perKindQueries: [String: Int]? = nil
+    /// 失败类型与错误摘要（去重，诊断用）
+    public var lastFailures: [String]? = nil
 
     /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
     /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
