@@ -467,6 +467,7 @@ struct HomeView: View {
     }
 
     /// FR2.1b/FR17.11：实时资料状态，不伪装成「刚发生」的通知时间。
+    @ViewBuilder
     private func profileProgressCard(_ progress: (done: Int, total: Int)) -> some View {
         // 渲染原子已分解至 HomeProfileProgressCard（2026-09-26 原子结构轮第二批）。
         // 2026-10-03 评审 R2-1：缺项行数据经 Domain 单一出口（固定语义序）。

@@ -1173,7 +1173,10 @@ def main():
     # 首语句为 let 且带显式 return 的合法形态不判；单表达式 body 不判。
     r_files = list(a_files)
     scanned["R"] = len(r_files)
-    some_view_decl = re.compile(r"\bvar\s+(\w+)\s*:\s*some\s+View\s*\{")
+    # 属性与函数两种形态：func f(...) -> some View 多语句同病（预推 symcheck 族 B
+    # 首次拦截实例 = HomeView.profileProgressCard 2026-10-03——左移进 L0，判据相同；
+    # 注意 func 用 `->` 箭头、var 用 `:` 冒号，两条形态分别匹配）
+    some_view_decl = re.compile(r"\b(?:func\s+(\w+)\s*\([^)]*\)\s*->\s*some\s+View|var\s+(\w+)\s*:\s*some\s+View)\s*\{")
     for f in r_files:
         try:
             txt = f.read_text(encoding="utf-8")
@@ -1189,7 +1192,7 @@ def main():
             m = some_view_decl.search(raw)
             if not m or exempted(raw_lines, lineno):
                 continue
-            name = m.group(1)
+            name = m.group(1) or m.group(2)
             if name == "body":
                 continue
             has_vb = "@ViewBuilder" in raw
