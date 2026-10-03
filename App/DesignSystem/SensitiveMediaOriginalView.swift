@@ -38,6 +38,8 @@ struct SensitiveMediaOriginalView: View {
     @State private var unlocking = false
     /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
     @State private var unlockedAt: Date?
+    /// 2026-10-03 评审修复：解锁后是否已回到 .active（宽限锚定，同容器）
+    @State private var hasReturnedToActive = false
     /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）：
     /// 缩放/拖动事件 60–120Hz 送达，逐事件重启计时任务 = 每帧 Task 分配/取消
     @State private var lastActivity: Date?
@@ -58,6 +60,10 @@ struct SensitiveMediaOriginalView: View {
                     Button(L10n.commonCancel) { dismiss() }
                 }
             }
+            // 2026-10-03 评审修复（BR-008 纵深）：本视图经 fullScreenCover 呈现，
+            // 根遮罩跨 presentation 宿主的传播无测试证据——自挂快照红化，
+            // 与 DocSource 页级同款（一行纵深，渲染/交互零影响）。
+            .privacySensitive(scenePhase != .active)
             .onAppear {
                 // 第七轮修复（BR-007 时序）：预传 imageData 的路径也把**解码**推迟到
                 // 认证通过之后——原实现在 onAppear 即降采样渲染，认证取消时解码图
@@ -75,8 +81,11 @@ struct SensitiveMediaOriginalView: View {
             // 会形成「认证完成即锁回 → 再点再认证」循环。
             .onChangeCompat(of: scenePhase) { _, phase in
                 if phase == .background { relock() }
+                else if phase == .active, unlocked { hasReturnedToActive = true }
                 else if phase != .active, unlocked,
-                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(), now: Date()) {
+                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
+                                                                 now: Date(),
+                                                                 hasReturnedToActive: hasReturnedToActive) {
                     relock()
                 }
             }
@@ -120,8 +129,13 @@ struct SensitiveMediaOriginalView: View {
                     .frame(width: geo.size.width, height: geo.size.height)
                     .onTapGesture { scheduleRelock() }
             } else if loadFailed {
+                // 2026-10-03 评审修复（黑屏）：失败卡此前渲染在黑底之上，
+                // 浅色模式下系统色文字黑字黑底 = 认证成功后纯黑屏——失败态
+                // 给不透明浅底（bg-grouped 令牌），黑底只留给图片内容。
                 VLUnavailableView(L10n.sensitiveMedia_loadFailed,
                                        systemImage: "exclamationmark.triangle")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color("bg-grouped", bundle: .main))
             } else {
                 ProgressView()
             }
@@ -140,17 +154,22 @@ struct SensitiveMediaOriginalView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color("bg-grouped", bundle: .main))   // 语义令牌（token-only 纪律）
-        .onTapGesture {
-            guard !unlocking else { return }   // 解锁在途守卫（连点只认证一次）
-            unlocking = true
-            // 占位视图仅在 !unlocked 时渲染，故此处无需再查 unlocked——
-            // authenticateAndUnlock 内部有取消检查，relock() 会取消本任务。
-            let task = Task {
-                _ = await authenticateAndUnlock()
-                unlocking = false
-            }
-            relockTimer.trackUnlock(task)
+        .onTapGesture { triggerUnlockFromPlaceholder() }
+        // 2026-10-03 评审修复（VoiceOver）：tap 手势无辅助功能语义——
+        // 补 accessibilityAction 使解锁动作在 VoiceOver 下可达。
+        .accessibilityAction { triggerUnlockFromPlaceholder() }
+    }
+
+    private func triggerUnlockFromPlaceholder() {
+        guard !unlocking else { return }   // 解锁在途守卫（连点只认证一次）
+        unlocking = true
+        // 占位视图仅在 !unlocked 时渲染，故此处无需再查 unlocked——
+        // authenticateAndUnlock 内部有取消检查，relock() 会取消本任务。
+        let task = Task {
+            _ = await authenticateAndUnlock()
+            unlocking = false
         }
+        relockTimer.trackUnlock(task)
     }
 
     private func authenticateAndUnlock() async -> Bool {
@@ -214,6 +233,7 @@ struct SensitiveMediaOriginalView: View {
         unlocking = false      // 立即释放守卫：被取消任务的复位有调度延迟，置位可避免回场首击被吞
         unlocked = false
         unlockedAt = nil
+        hasReturnedToActive = false
         lastActivity = nil
         // 第六轮全仓审查修复：重锁必须把已解码的降采样字节一并清出——
         // 原实现只翻转 unlocked，解码图仍驻留内存（下次解锁直接从内存
