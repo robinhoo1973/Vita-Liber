@@ -224,7 +224,10 @@ struct VitaLiberApp: App {
                 guard try await bgSync.canAutomaticallySync() else { return false }
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
-                let report = try await bgSync.performSync(quietStart: start, quietEnd: end)
+                // C3（2026-10-03 评审修复）：后台每唤醒此前只跑 1 轮（1 页/类），
+                // 20s 预算只用 2-7s——改多轮排空（预算内 ≤8 轮），唤醒次数 3-5× 降。
+                let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
+                                                             timeBudget: .seconds(18), maxRounds: 8)
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()

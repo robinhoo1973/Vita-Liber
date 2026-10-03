@@ -188,8 +188,15 @@ final class F16DeviceState {
                     title: L10n.f16Syncing, subtitle: L10n.f16SyncHint) { progress, _ in
                     do {
                         progress?.totalUnitCount = Int64(maxRounds)
-                        let report = try await service.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
-                        progress?.completedUnitCount = progress?.totalUnitCount ?? 0
+                        // C6（2026-10-03 评审修复）：每轮上报 completedUnitCount——
+                        // 此前全程 0/20，系统优先终止无进度任务（BGContinuedProcessingTask 文档）
+                        let progressBox = ValueBox(progress)
+                        let report = try await service.performSyncAll(
+                            quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds,
+                            onRound: { round in
+                                progressBox.value?.completedUnitCount = Int64(round)
+                            })
+                        progressBox.value?.completedUnitCount = progressBox.value?.totalUnitCount ?? 0
                         captured.value = report
                         return report.failedTypes.isEmpty
                     } catch {
