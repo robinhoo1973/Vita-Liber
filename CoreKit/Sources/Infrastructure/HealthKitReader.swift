@@ -377,9 +377,6 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
 
     /// 首填完成边界：窗口下沿越过 cutoff 再留 48h 余量（跨窗睡眠样本的 start 可早于
     /// cutoff——道谓词 end >= cutoff 会滤掉无跨窗者，余量窗口恒返回空页/跨窗者）。
-    /// C7：单调用空窗推进上限（稀疏类型后台重扫断点；每调用最多 48 次空查询，
-    /// 到顶带游标返回由服务层落盘续扫）
-    private static let maxEmptyAdvancesPerCall = 48
     private static let fillStraddleMargin: TimeInterval = 172_800
     /// 增量窄谓词的下界余量：newestStart − 7d——首填期间的迟达样本（Watch 晚同步/
     /// 回填时间戳）在 7 天窗口内由转锚点查询兜住；更深回填登记为已知边界。
@@ -432,9 +429,6 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     /// 超限时窗口自适应折半（有界推进——1 秒心率可上万样本）；空窗口**同调用内连续
     /// 推进**（整年零样本不必 365 轮空转）；窗口排空后向旧推进一天。
     private func descendingPage(kind: HealthDataKind, scope: HealthFetchScope, cursor: RecentLaneCursor?, limit: Int) async throws -> HealthChangeBatch {
-        // C7 空窗推进封顶计数：声明必须与使用同函数（此前误放 recentLaneChanges，
-        // iOS-only 守卫文件只有 xcodebuild iOS 编译才可见——CI #639 注解实证）
-        var emptyAdvances = 0
         var windowEnd = cursor?.windowEnd ?? Date().addingTimeInterval(86_400)
         var windowStart = cursor?.windowStart ?? windowEnd.addingTimeInterval(-86_400)
         var dayStart = cursor?.dayStart ?? windowStart
@@ -477,18 +471,8 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             nextCursor.newestStart = newestStart
             if refs.isEmpty {
                 // 空窗口（无样本/全为自身回声）：同调用内推进，不落空页。
-                // C7（2026-10-03 评审修复）：封顶 48 窗/调用——此前无界推进，
-                // 稀疏类型（近一年无数据）单调用连发数百空查询且取消不落盘，
-                // 后台每次唤醒从头重扫。到顶带游标返回（hasMore=false），
-                // 服务层比对锚点差异后经 saveAnchor 落盘，下次从断点续扫。
-                emptyAdvances += 1
-                if emptyAdvances >= Self.maxEmptyAdvancesPerCall {
-                    // hasMore=true 仅作「断点续扫」信号——服务层比对锚点差异后经
-                    // saveAnchor 落盘（空页不 stage，stage 门卫的「hasMore 必带内容」
-                    // 语义不参与）
-                    return HealthChangeBatch(added: [], deleted: [],
-                                             anchor: try Self.encodeCursor(nextCursor), hasMore: true)
-                }
+                // C7 封顶回退（2026-10-04 CI #652 契约回归）——恢复无界推进；
+                // 断点续扫优化登记重做。
                 windowEnd = next.windowEnd ?? windowEnd
                 windowStart = next.windowStart ?? windowStart
                 dayStart = next.dayStart ?? dayStart
