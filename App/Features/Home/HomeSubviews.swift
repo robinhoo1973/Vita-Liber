@@ -381,9 +381,9 @@ struct HomeModelDownloadCard: View {
         // 「进度条无反应、然后突然完成」。激活/清理两段仍无粒度，保持不确定态。
         let brief = install.phase
         // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
-        // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」
-        let showFraction = install.progress != nil
-            && (brief == nil || brief == .downloading || brief == .verifying || brief == .unpacking)
+        // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」。
+        // 2026-10-03 评审 R1-10c：分支下沉 Domain 纯函数（Linux 已测）。
+        let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
         let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
         HStack(spacing: 10) {
             Button {
