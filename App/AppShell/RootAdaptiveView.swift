@@ -49,6 +49,7 @@ struct RootAdaptiveView: View {
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppRouter.self) private var router
     @Environment(MediaUnlockSession.self) private var mediaSession
+    @Environment(AppState.self) private var appState   // 敏感批修复引用 authPromptInFlight（原 `app` 属 ModuleRoot，CI #648）
 
     /// 选中模块由 AppRouter 单一状态源驱动（TestFlight 实测：SceneStorage 与
     /// navigate 双源分离导致跨 Tab 路由只 append 不切 Tab、点击无反应）。
@@ -57,6 +58,34 @@ struct RootAdaptiveView: View {
         Binding(
             get: { MainModule(tabID: router.selection) },
             set: { router.select(MainModuleID(rawValue: $0.rawValue) ?? .home) })
+    }
+
+    /// 单 tab 内容（2026-10-04 拆出：TabView 巨型表达式在慢 runner 上触发
+    /// 类型检查预算超时——CI #648「unable to type-check in reasonable time」；
+    /// 与 regularSidebar 同族拆分纪律）。
+    @ViewBuilder
+    private func moduleTab(_ m: MainModule) -> some View {
+        NavigationStack(path: router.binding(for: MainModuleID(m))) {
+            ModuleRoot(module: m)
+                .navigationDestination(for: AppRoute.self) { route in
+                    RouteDestinationView(route: route)
+                }
+        }
+        .tabItem { Label(m.title, systemImage: m.systemGlyph) }
+        .tag(m)
+        // FR14.8/SP-27: Unread badge on reminders tab
+        .badge(m == .reminders ? reminderStore.pendingCount : 0)
+    }
+
+    /// iPad 详情列导航栈（同族拆分：与 compact 分支共享同一栈形态）。
+    @ViewBuilder
+    private func moduleStack(_ selection: Binding<MainModule>) -> some View {
+        NavigationStack(path: router.binding(for: MainModuleID(selection.wrappedValue))) {
+            ModuleRoot(module: selection.wrappedValue)
+                .navigationDestination(for: AppRoute.self) { route in
+                    RouteDestinationView(route: route)
+                }
+        }
     }
 
     /// 侧栏单选绑定（iPad regular）：`List(selection:)` 要求 `Optional<SelectionValue>`，
@@ -104,21 +133,7 @@ struct RootAdaptiveView: View {
                     ForEach(MainModule.allCases) { m in
                         // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                         WithPerceptionTracking {
-                            // 每个 tab 自带导航栈。放在这里而不是 ModuleRoot 内部：
-                            // ModuleRoot 为两种 idiom 共用（ADR-021 单一内容视图），
-                            // 若在其内部无条件包 NavigationStack，iPad 详情列会在
-                            // NavigationSplitView 已提供的导航上下文里再套一层嵌套栈。
-                            // §5.45：栈绑定 AppRouter 对应 path + 全量路由目的地分发表
-                            NavigationStack(path: router.binding(for: MainModuleID(m))) {
-                                ModuleRoot(module: m)
-                                    .navigationDestination(for: AppRoute.self) { route in
-                                        RouteDestinationView(route: route)
-                                    }
-                            }
-                            .tabItem { Label(m.title, systemImage: m.systemGlyph) }
-                            .tag(m)
-                            // FR14.8/SP-27: Unread badge on reminders tab
-                            .badge(m == .reminders ? reminderStore.pendingCount : 0)
+                            moduleTab(m)
                         }
                     }
                 }
@@ -126,12 +141,7 @@ struct RootAdaptiveView: View {
                 NavigationSplitView {
                     regularSidebar
                 } detail: {
-                    NavigationStack(path: router.binding(for: MainModuleID(selection.wrappedValue))) {
-                        ModuleRoot(module: selection.wrappedValue)
-                            .navigationDestination(for: AppRoute.self) { route in
-                                RouteDestinationView(route: route)
-                            }
-                    }
+                    moduleStack(selection)
                 }
             }
             }
@@ -149,7 +159,7 @@ struct RootAdaptiveView: View {
                 if phase == .background {
                     mediaSession.onBackground()
                 } else if phase != .active,
-                          !app.authPromptInFlight,
+                          !appState.authPromptInFlight,
                           MediaUnlockPolicy.shouldRelockOnInactive(
                             lastUnlockAt: mediaSession.lastUnlockedAt ?? Date(), now: Date()) {
                     mediaSession.onBackground()
