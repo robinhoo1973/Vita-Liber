@@ -133,7 +133,7 @@ struct GuideCard: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+            .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
             .sheet(isPresented: $showGuide) {
                 MedicalIDGuideSheet()
             }

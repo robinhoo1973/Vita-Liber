@@ -175,7 +175,7 @@ struct StockLotDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+        .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
     }
 
     private func archiveCard(_ lot: MedicationStore.LotRow) -> some View {
@@ -197,7 +197,7 @@ struct StockLotDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+        .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
     }
 
     @ViewBuilder

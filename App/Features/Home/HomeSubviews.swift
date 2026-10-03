@@ -284,7 +284,7 @@ struct GuideTaskCard: View {
                     }
                 }
                 .padding(14)
-                .glassCard(cornerRadius: 14)   // §3.3 表面阶梯 L2 玻璃（V4.05：常态无阴影）
+                .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2 玻璃（V4.05：常态无阴影）
             }
             .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一：scale(0.97) 弹簧 ≤350ms
             .accessibilityIdentifier("SP-04.home.guide.\(title)")
@@ -335,7 +335,7 @@ struct BigCareCard: View {
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, minHeight: 72)
-                .glassCard(cornerRadius: 18)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+                .glassCard(cornerRadius: VLCornerRadius.card)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
             }
             .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         }

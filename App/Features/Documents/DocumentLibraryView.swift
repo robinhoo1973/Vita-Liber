@@ -1205,7 +1205,7 @@ struct DuplicateCompareSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .glassCard(cornerRadius: 10)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+        .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
     }
 }
 

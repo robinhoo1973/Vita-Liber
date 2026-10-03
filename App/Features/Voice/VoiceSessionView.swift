@@ -155,7 +155,7 @@ struct VoiceSessionLaunchCard: View {
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, minHeight: 72)   // 关怀模式 72pt 大卡
-                    .glassCard(cornerRadius: 16)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+                    .glassCard(cornerRadius: VLCornerRadius.card)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
                 }
                 .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                 .accessibilityIdentifier("F19.session.launchCard")
@@ -283,7 +283,7 @@ struct VoiceSessionView: View {
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+                .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
                 .accessibilityIdentifier("F19.session.caption")
         }
     }

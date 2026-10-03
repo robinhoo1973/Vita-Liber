@@ -371,7 +371,7 @@ struct GuidelineSourceDetailView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .glassCard(cornerRadius: 12)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
+                .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
                 // 原文链接（FR16.3 可点开）
                 if let url = URL(string: entry.citationUrl), !entry.citationUrl.isEmpty {
                     Link(destination: url) {
