@@ -450,7 +450,10 @@ jobs:
               tail -25 ../Build/corekit-swift-test.log || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "error:|✘|failed|Fatal" ../Build/corekit-swift-test.log | tail -10 | while IFS= read -r line; do
+            grep -E "error:|✘|failed|Fatal" ../Build/corekit-swift-test.log | head -8 | while IFS= read -r line; do
+              echo "::error::CoreKit: $line"
+            done || true
+            grep -E "error:|✘" ../Build/corekit-swift-test.log | tail -6 | while IFS= read -r line; do
               echo "::error::CoreKit: $line"
             done || true
             exit "$status"
@@ -520,7 +523,10 @@ jobs:
               tail -60 Build/xcodebuild-build.log || true
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            tail -12 Build/xcodebuild-build.log | while IFS= read -r line; do
+            grep -E "error:" Build/xcodebuild-build.log | head -10 | while IFS= read -r line; do
+              echo "::error::xcodebuild: $line"
+            done || true
+            tail -8 Build/xcodebuild-build.log | while IFS= read -r line; do
               echo "::error::xcodebuild: $line"
             done || true
             exit "$status"
