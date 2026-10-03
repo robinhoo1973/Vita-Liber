@@ -81,6 +81,8 @@ struct DocumentSourcePageView: View {
     @State private var relockTimer = MediaRelockTimer()
     /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
     @State private var unlockedAt: Date?
+    /// 2026-10-03 评审修复：解锁后是否已回到 .active（宽限锚定，同敏感媒体族）
+    @State private var hasReturnedToActive = false
     /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）
     @State private var lastActivity: Date?
     /// 原文行高亮区（归一化 0…1，来自识别层实测 bbox；nil = 不画）。
@@ -165,11 +167,14 @@ struct DocumentSourcePageView: View {
             .onChangeCompat(of: pageIndex) { _, _ in Task { await renderPage() }; scheduleRelock() }
             .onChangeCompat(of: scenePhase) { _, phase in
                 // background = 真离开恒立即重锁；inactive 可能是认证浮层
-                // 收起瞬态——解锁后 5 秒内不重锁（MediaUnlockPolicy，
-                // 业主「最低认证要求至少 5 秒」，同 SensitiveMedia 族）
+                // 收起瞬态——2026-10-03 评审修复：宽限锚定「首次回 active」
+                // + 绝对兜底（Domain 谓词），慢收起/瞬态 inactive 不再秒回锁。
                 if phase == .background { relock() }
+                else if phase == .active, unlocked { hasReturnedToActive = true }
                 else if phase != .active, unlocked,
-                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(), now: Date()) {
+                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
+                                                                 now: Date(),
+                                                                 hasReturnedToActive: hasReturnedToActive) {
                     relock()
                 }
             }
@@ -219,9 +224,12 @@ struct DocumentSourcePageView: View {
             unlocked = true
             unlockedAt = Date()
             lastActivity = Date()
+            // 2026-10-03 评审修复（审计口径统一）：与 SensitiveMediaOriginalView
+            // 对齐——认证通过即留痕（保守侧），不再受后续装载成败影响
+            // （此前 !failed 前置:装载失败时认证成功无痕,两视图口径分裂）。
+            if case .document(let id, _) = source { app.auditViewSensitiveOriginal(documentId: id, title: "") }
             await loadMedia()
             guard !Task.isCancelled, !failed else { return }
-            if case .document(let id, _) = source { app.auditViewSensitiveOriginal(documentId: id, title: "") }
             // 2026-09-20 修复（BR-007）：解锁后**必武装** 30s 空闲自动重锁——旧实现走
             // scheduleRelock()，其活跃信号合并（<1s 丢弃）恰把解锁后的第一次武装吞掉：
             // 不触碰屏幕即无限期解锁。此处直接武装（合并守卫只服务手势热路径）。
@@ -310,6 +318,7 @@ struct DocumentSourcePageView: View {
         // 同族修复，本视图此前漏修）。
         scale = 1
         unlockedAt = nil
+        hasReturnedToActive = false
         lastActivity = nil
         loading = false
     }
