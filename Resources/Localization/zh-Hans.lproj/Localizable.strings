@@ -750,7 +750,6 @@
 "language.footer" = "切换即时生效，无需重启";
 "voiceLang.title" = "语音语言";
 "voiceLang.inputSection" = "语音输入语言";
-"voiceLang.inputHint" = "至少启用一项；「尽力识别」语言识别准确率可能低于平台原生语言";
 "voiceLang.outputSection" = "语音输出语言（回读与语音引导播报）";
 "voiceLang.outputHint" = "回读与语音引导将使用此语言播报";
 "voiceLang.bestEffort" = "尽力识别";
@@ -1217,7 +1216,6 @@
 "pendingCard.discard" = "放弃此待办";
 "pendingCard.notFound" = "该待办卡已处理或不存在";
 "voice.primaryLanguage" = "主语言";
-"voice.primaryLanguageHint" = "首位为主语言（识别所用语言）；点击已选语言可设为主语言。";
 "voice.recognizedAsFmt" = "识别语言：%@";
 "voice.bestEffortActive" = "尽力识别：所选语言当前无端侧模型，已使用可用的识别语言；请逐项核对。";
 "voice.version.native" = "原生转译版";
@@ -2266,5 +2264,8 @@
 "health.connectDevice" = "连接设备以查看健康数据";
 "health.connectButton" = "连接设备";
 
-"voice.langAssetHint" = "语言资源暂不可选时，请到「模型与数据资源」页下载后回来选择。";
 "settings.dataAndResources" = "数据与资源";
+
+"voice.langInputFooter" = "点击切换选择，首位为主语言；语言资源不可选时，到「模型与数据资源」页下载。";
+"voiceLab.building" = "正在构建识别引擎…";
+"settings.auditEmpty" = "暂无审计记录";

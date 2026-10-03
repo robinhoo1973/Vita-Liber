@@ -750,7 +750,6 @@
 "language.footer" = "切換即時生效，無需重新啟動";
 "voiceLang.title" = "語音語言";
 "voiceLang.inputSection" = "語音輸入語言";
-"voiceLang.inputHint" = "至少啟用一項；「盡力辨識」語言辨識準確率可能低於平台原生語言";
 "voiceLang.outputSection" = "語音輸出語言（回讀與語音引導播報）";
 "voiceLang.outputHint" = "回讀與語音引導將使用此語言播報";
 "voiceLang.bestEffort" = "盡力辨識";
@@ -1217,7 +1216,6 @@
 "pendingCard.discard" = "放棄此待辦";
 "pendingCard.notFound" = "該待辦卡已處理或不存在";
 "voice.primaryLanguage" = "主語言";
-"voice.primaryLanguageHint" = "首位為主語言（辨識所用語言）；點選已選語言可設為主語言。";
 "voice.recognizedAsFmt" = "辨識語言：%@";
 "voice.bestEffortActive" = "盡力辨識：所選語言目前無裝置端模型，已使用可用的辨識語言；請逐項核對。";
 "voice.version.native" = "原生轉譯版";
@@ -2266,5 +2264,8 @@
 "health.connectDevice" = "連線裝置以查看健康資料";
 "health.connectButton" = "連線裝置";
 
-"voice.langAssetHint" = "語言資源暫不可選時，請到「模型與數據資源」頁下載後回來選擇。";
 "settings.dataAndResources" = "數據與資源";
+
+"voice.langInputFooter" = "點擊切換選擇，首位為主語言；語言資源不可選時，到「模型與數據資源」頁下載。";
+"voiceLab.building" = "正在構建識別引擎…";
+"settings.auditEmpty" = "暫無審計記錄";

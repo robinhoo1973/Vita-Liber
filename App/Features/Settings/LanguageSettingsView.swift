@@ -112,8 +112,6 @@ struct VoiceLanguageSettingsView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：「模型与数据资源」入口
-                // 自本页移除——设置主面已有同一入口（单一路径），语言页只做语言选择。
                 Section {
                     ForEach(inputLanguageOptions, id: \.locale) { lang in
                         // 规范化比较只求值一次（每行原先三处重复 normalizedIdentifier 归一）
@@ -159,12 +157,16 @@ struct VoiceLanguageSettingsView: View {
                                 }
                             }
                             .disabled(!loaded || resolved == nil)
+                            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3；V4.13 补齐，此前行主按钮无按压样式）
                             .accessibilityIdentifier("SP-25.voiceInputLang.\(lang.locale)")
                             if lang.tier == .bestEffort {
                                 Button {
                                     t2Explained = T2Info(locale: lang.locale, nativeName: lang.nativeName)
                                 } label: {
                                     Image(systemName: "info.circle")
+                                        // V4.13 呈现评审：图标级触点扩至 ≥44pt（纪律）
+                                        .frame(minWidth: 44, minHeight: 44)
+                                        .contentShape(Rectangle())
                                 }
                                 .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                                 .accessibilityLabel(L10n.voiceLangT2Title(lang.nativeName))
@@ -174,7 +176,9 @@ struct VoiceLanguageSettingsView: View {
                 } header: {
                     Text(L10n.voiceLangInputSection)
                 } footer: {
-                    Text(L10n.voiceLangInputHint + "\n" + L10n.voicePrimaryLanguageHint + "\n" + L10n.voiceLangAssetHint)
+                    // V4.13 呈现评审：三条 hint 硬拼堆叠收敛为单键一句（两分句）——
+                    // 旧键 voiceLangInputHint/voicePrimaryLanguageHint/voiceLangAssetHint 退役。
+                    Text(L10n.voiceLangInputFooter)
                     if loaded && inputCapability.availableLocales.isEmpty { Text(L10n.voiceInputUnavailable) }
                 }
 
@@ -221,8 +225,6 @@ struct VoiceLanguageSettingsView: View {
                     Text(L10n.voiceLangOutputHint)
                 }
 
-                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：识别引擎实验室入口
-                // 迁至「模型与数据资源」页（SP-64）——引擎管理同域聚合，本页不再承载他页入口。
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
@@ -283,6 +285,8 @@ struct T2ExplanationSheet: View {
                 List {
                     Text(L10n.voiceLangT2Title(nativeName)).font(.headline)
                     Label(L10n.voiceLangT2Point1, systemImage: "ear")
+                    // V4.13 呈现评审：Point2（词表辅助）键存在但从未渲染——说明卡内容无声缺失，补齐
+                    Label(L10n.voiceLangT2Point2, systemImage: "text.book.closed")
                     Label(L10n.voiceLangT2Point3, systemImage: "checkmark.seal")
                 }
                 .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出

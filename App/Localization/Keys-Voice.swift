@@ -192,10 +192,11 @@ extension L10n {
 
     static var voicePrimaryLanguage: String { t("voice.primaryLanguage") }
 
-    static var voicePrimaryLanguageHint: String { t("voice.primaryLanguageHint") }
+    /// 输入语言 footer 单键一句（V4.13 呈现评审：原三条 hint 硬拼堆叠收敛合并）
+    static var voiceLangInputFooter: String { t("voice.langInputFooter") }
 
-    /// 输入语言资源不可选时的下载引导（2026-10-03 信息架构评审方案 C：语言页 footer）
-    static var voiceLangAssetHint: String { t("voice.langAssetHint") }
+    /// 识别引擎重建中的可见态文案（V4.13 呈现评审：补齐「诚实呈现构建中」承诺）
+    static var voiceLabBuilding: String { t("voiceLab.building") }
 
     static var voiceBestEffortActive: String { t("voice.bestEffortActive") }
 
@@ -392,7 +393,6 @@ static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
     static var voicePanelStart: String { t("voicePanel.start") }
     static var voiceLangTitle: String { t("voiceLang.title") }
     static var voiceLangInputSection: String { t("voiceLang.inputSection") }
-    static var voiceLangInputHint: String { t("voiceLang.inputHint") }
     static var voiceLangOutputSection: String { t("voiceLang.outputSection") }
     static var voiceLangOutputHint: String { t("voiceLang.outputHint") }
     static var voiceLangBestEffort: String { t("voiceLang.bestEffort") }

@@ -750,7 +750,6 @@
 "language.footer" = "Changes take effect immediately, no restart needed";
 "voiceLang.title" = "Voice Languages";
 "voiceLang.inputSection" = "Voice Input Languages";
-"voiceLang.inputHint" = "At least one must be enabled. Best-effort languages may be less accurate than platform-native ones.";
 "voiceLang.outputSection" = "Voice Output Language (readback & voice guidance)";
 "voiceLang.outputHint" = "Readback and voice guidance will speak in this language";
 "voiceLang.bestEffort" = "Best effort";
@@ -1217,7 +1216,6 @@
 "pendingCard.discard" = "Discard this pending card";
 "pendingCard.notFound" = "This pending card was already handled or no longer exists";
 "voice.primaryLanguage" = "Primary";
-"voice.primaryLanguageHint" = "The first language is the primary recognition language; tap a selected language to make it primary.";
 "voice.recognizedAsFmt" = "Recognized as: %@";
 "voice.bestEffortActive" = "Best effort: this language has no available on-device model. An available recognition language is in use; please review each field.";
 "voice.version.native" = "Native transcript";
@@ -2266,5 +2264,8 @@
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
 
-"voice.langAssetHint" = "If a language pack isn't available, download it from Model & Data Resources, then return to select it.";
 "settings.dataAndResources" = "Data & Resources";
+
+"voice.langInputFooter" = "Tap to select; the first language is the primary one. If a language pack isn't available, download it from Model & Data Resources.";
+"voiceLab.building" = "Building transcription engine…";
+"settings.auditEmpty" = "No audit records yet";
