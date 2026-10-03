@@ -324,9 +324,15 @@ public actor HealthKitSyncService {
         let attempted = Array(ordered.prefix(Self.windowsPerRound))
         var snapshots: [HealthWindowSnapshot] = []
         var queryFailed = false
-        // C1 埋点（2026-10-03）：分页 + 快照查询计数（诊断「慢」的查询量账本）
-        report.perKindSamples?[kind.rawValue] = (report.perKindSamples?[kind.rawValue] ?? 0) + page.added.count + page.deleted.count
-        report.perKindQueries?[kind.rawValue] = (report.perKindQueries?[kind.rawValue] ?? 0) + 1 + attempted.count
+        // C1 埋点（2026-10-03）：分页 + 快照查询计数（诊断「慢」的查询量账本）。
+        // macOS CI 修复：inout 参数的同属性读改写构成重叠访问（exclusivity），
+        // 先落局部字典再写回（Linux 平台守卫桩全盲，CI #637 注解实证）。
+        var samples = report.perKindSamples ?? [:]
+        samples[kind.rawValue] = (samples[kind.rawValue] ?? 0) + page.added.count + page.deleted.count
+        report.perKindSamples = samples
+        var queries = report.perKindQueries ?? [:]
+        queries[kind.rawValue] = (queries[kind.rawValue] ?? 0) + 1 + attempted.count
+        report.perKindQueries = queries
         // C2 快照并发化（2026-10-03）：窗口间无依赖，分块 ≤4 并发——
         // provider 为 actor 但查询经 continuation 挂起（actor 重入），
         // HK 往返真实重叠；提交仍串行单事务，checkpoint 语义不变。
