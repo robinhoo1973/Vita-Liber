@@ -132,11 +132,7 @@ struct MetricTile: View {
                                                   ? Color("brand-primary", bundle: .main)
                                                   : .clear))
                         .frame(width: 10, height: 10)
-                    // V3.53 §5.45 设备来源行：宫格最新点为设备自动汇入时标注
-                    if item.origin == "device" {
-                        Text(L10n.trendOriginDevice)
-                            .font(.caption2).foregroundStyle(.secondary)
-                    }
+                    // 设备标注已并入下方来源行（2026-10-03 评审 R1-4）：标题行不再重复两处来源信息
                 }
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     // 医学数值显示单一出口（审查修复：此前内联 .formatted，
@@ -157,10 +153,14 @@ struct MetricTile: View {
                         Text(unit).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if let aggregation = item.aggregation {
-                    Text(L10n.healthAggregation(aggregation)).font(.caption2).foregroundStyle(.secondary)
+                // 2026-10-03 评审 R1-4：4 处 caption2 元信息压 2 行——聚合与来源并入一行
+                // （设备来源以「设备」前缀标注），一瞥只给 值/方向/来源/时间
+                // （iOS 27.2 Health 改版同向的「信息分层收敛」，迁移的是分层非控件）。
+                let metaParts = [item.aggregation.map { L10n.healthAggregation($0) },
+                                 item.sourceName.map { item.origin == "device" ? "\(L10n.trendOriginDevice) · \($0)" : $0 }].compactMap { $0 }
+                if !metaParts.isEmpty {
+                    Text(metaParts.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
                 }
-                if let source = item.sourceName { Text(source).font(.caption2).foregroundStyle(.secondary) }
                 Text(item.measuredAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption2).foregroundStyle(.secondary)
                 if let spark, !spark.points.isEmpty {
