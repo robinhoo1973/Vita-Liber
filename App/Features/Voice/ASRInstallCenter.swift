@@ -71,9 +71,10 @@ final class ASRInstallCenter {
                 // 一律放行——此前按 totalBytes 相同 + received 不增判定，单流重建
                 // 计数器的每次回调都被当作旧值丢弃，进度条钉死在分段峰值数分钟
                 // （业主实测「进度条无反应、百分比不变化」）。
-                if let current = self.progress,
-                   current.series == progress.series,
-                   current.receivedBytes >= progress.receivedBytes { return }
+                // 2026-10-03 评审 R1-10b：委托 Domain 纯函数（Linux 已测）——
+                // 行为差异仅在 received 相等时：Domain 收（totalBytes 服务端修正
+                // 得以入账，更诚实），旧 App 复本拒；差异已登记测试用例。
+                if !ASRDownloadProgress.shouldAccept(previous: self.progress, incoming: progress) { return }
                 self.progress = progress
             }
         }
