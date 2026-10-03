@@ -26,8 +26,8 @@ struct ASRModelDownloaderTransportTests {
         let body = Data((0..<4096).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/segmented.bin")!
         URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
-        URLProtocolStub.scripts[url] = URLProtocolStub.Script(
-            headers: ["Accept-Ranges": "bytes"], body: body)
+        URLProtocolStub.setScript(URLProtocolStub.Script(
+            headers: ["Accept-Ranges": "bytes"], body: body), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         var progress: [ASRModelDownloadService.DownloadProgress] = []
@@ -46,8 +46,8 @@ struct ASRModelDownloaderTransportTests {
         let body = Data((0..<8192).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/swallow.bin")!
         URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
-        URLProtocolStub.scripts[url] = URLProtocolStub.Script(
-            headers: ["Accept-Ranges": "bytes"], body: body, swallowRanges: true)
+        URLProtocolStub.setScript(URLProtocolStub.Script(
+            headers: ["Accept-Ranges": "bytes"], body: body, swallowRanges: true), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         var progress: [ASRModelDownloadService.DownloadProgress] = []
@@ -66,8 +66,8 @@ struct ASRModelDownloaderTransportTests {
         let body = Data((0..<65536).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/fail.bin")!
         URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
-        URLProtocolStub.scripts[url] = URLProtocolStub.Script(
-            headers: ["Accept-Ranges": "bytes"], body: body, failEveryRequest: true)
+        URLProtocolStub.setScript(URLProtocolStub.Script(
+            headers: ["Accept-Ranges": "bytes"], body: body, failEveryRequest: true), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         var progress: [ASRModelDownloadService.DownloadProgress] = []
@@ -88,8 +88,8 @@ struct ASRModelDownloaderTransportTests {
         let body = Data((0..<65536).map { UInt8($0 % 251) })
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/resume.bin")!
         URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
-        URLProtocolStub.scripts[url] = URLProtocolStub.Script(
-            headers: ["Accept-Ranges": "bytes"], body: body)
+        URLProtocolStub.setScript(URLProtocolStub.Script(
+            headers: ["Accept-Ranges": "bytes"], body: body), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let partial = body.prefix(16384)
@@ -104,8 +104,8 @@ struct ASRModelDownloaderTransportTests {
     @Test func sizeMismatchFailsWithoutProducingArtifact() async throws {
         let url = URL(string: "https://release-assets.githubusercontent.com/stub/short.bin")!
         URLProtocolStub.reset(host: "release-assets.githubusercontent.com")
-        URLProtocolStub.scripts[url] = URLProtocolStub.Script(
-            headers: ["Accept-Ranges": "bytes"], body: Data(repeating: 0, count: 100))
+        URLProtocolStub.setScript(URLProtocolStub.Script(
+            headers: ["Accept-Ranges": "bytes"], body: Data(repeating: 0, count: 100)), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         do {

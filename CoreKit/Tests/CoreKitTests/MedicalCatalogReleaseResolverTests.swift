@@ -71,7 +71,7 @@ struct MedicalCatalogReleaseResolverTests {
 
     private static func apply(_ routes: [(URL, URLProtocolStub.Script)]) {
         for (url, script) in routes {
-            URLProtocolStub.scripts[url] = script
+            URLProtocolStub.setScript(script, for: url)
         }
     }
 

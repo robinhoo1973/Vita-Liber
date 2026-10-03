@@ -48,6 +48,22 @@ final class URLProtocolStub: URLProtocol {
         set { lock.lock(); defer { lock.unlock() }; _requestLog = newValue }
     }
 
+    /// 原子写单键（2026-10-04 CI #645 实证修复）：`scripts[url] = script` 是
+    /// getter 拷贝 → 变异 → setter 整表替换的非原子读改写——两个并发套件
+    /// 各持旧拷贝，后写者把先写者刚插入的键整个丢掉（丢键 → canInit 否 →
+    /// 请求逃逸真实网络 → runner 网关 618 → .badResponse(618) flake）。
+    /// 所有测试写入必须走本出口，禁止下标 RMW。
+    static func setScript(_ script: Script, for url: URL) {
+        lock.lock(); defer { lock.unlock() }
+        _scripts[url] = script
+    }
+
+    /// 原子追加请求日志（同族 RMW 修复；startLoading 专用）。
+    static func appendRequest(url: URL, rangeHeader: String?) {
+        lock.lock(); defer { lock.unlock() }
+        _requestLog.append((url, rangeHeader))
+    }
+
     /// 2026-09-27 CI 36305107324：两传输套件虽各 .serialized，但**彼此仍并行**且共享
     /// 全表——A 套件 reset 擦掉 B 套件脚本（badResponse(618)=协议类不处理请求的
     /// 合成状态）。改为按主机作用域清表。**主机属主表（2026-09-27 SP-64 评审更新）**：
@@ -79,7 +95,7 @@ final class URLProtocolStub: URLProtocol {
             return
         }
         let firstRequestForURL = !URLProtocolStub.requestLog.contains { $0.url == url }
-        URLProtocolStub.requestLog.append((url, request.value(forHTTPHeaderField: "Range")))
+        URLProtocolStub.appendRequest(url: url, rangeHeader: request.value(forHTTPHeaderField: "Range"))
 
         if let target = script.redirectTo {
             let response = HTTPURLResponse(url: url, statusCode: 301,
