@@ -580,17 +580,21 @@ struct HomeView: View {
                 pendingImportRecovery
                 pendingLoadFailure
                 // FR18.5 极简导航：四大卡（今日服药/续药/拍摄记录/呼救）
-                BigCareCard(icon: "pills.fill", title: L10n.homeCareMeds, tint: .blue) {
+                // 语义令牌映射（2026-10-03 信息卡片评审 R1-1）：裸系统色 .blue/.orange/.green/.red
+                // 违反本仓 token-only 纪律（HealthTabView.swift:20 头注释同族先例）；
+                // 蓝→brand-primary / 橙→semantic-warning / 绿→semantic-success / 红→semantic-danger
+                // （Assets 值近同原色，深浅模式随令牌重映射）。严格 §3.1 的全 brand 方案待业主。
+                BigCareCard(icon: "pills.fill", title: L10n.homeCareMeds, tint: Color("brand-primary", bundle: .main)) {
                     router.navigate(to: .reminderToday)
                 }
-                BigCareCard(icon: "pills.circle.fill", title: L10n.homeCareRefill, tint: .orange) {
+                BigCareCard(icon: "pills.circle.fill", title: L10n.homeCareRefill, tint: Color("semantic-warning", bundle: .main)) {
                     router.navigate(to: .medicationCabinet)
                 }
-                BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: .green) {
+                BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: Color("semantic-success", bundle: .main)) {
                     router.navigate(to: .scanCapture(nil))
                 }
                 // 评审修正 U7：§7.1 防误触——SOS 大卡按住 600ms 才进入
-                BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: .red) {
+                BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: Color("semantic-danger", bundle: .main)) {
                     // 常规点击被下面手势接管后 Button action 不再触发；
                     // 保留 action 仅为 accessibilityAction 兜底
                 }
