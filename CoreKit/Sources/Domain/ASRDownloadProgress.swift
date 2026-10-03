@@ -31,6 +31,19 @@ public struct ASRDownloadProgress: Sendable, Equatable {
         guard let previous else { return true }
         return incoming.series != previous.series || incoming.receivedBytes >= previous.receivedBytes
     }
+
+    /// 确定性进度呈现谓词（2026-10-03 评审 R1-10a：视图内分支下沉为纯函数）。
+    /// 有进度值且阶段属「有字节粒度」段（下载/校验/解压；nil 阶段 = 传输基线）
+    /// 才画确定条——激活/清理无粒度，如实呈现不确定态；阶段切换重置基线后
+    /// progress 为 nil，同样回落不确定态（见 App 侧 Install.submit 注释）。
+    public static func showsDeterminateProgress(progress: ASRDownloadProgress?, phase: ASRInstallPhase?) -> Bool {
+        guard progress != nil else { return false }
+        guard let phase else { return true }
+        switch phase {
+        case .downloading, .verifying, .unpacking: return true
+        case .activating, .pruning: return false
+        }
+    }
 }
 
 /// 安装阶段（迁移自 ASRModelDownloadService.InstallPhase）。

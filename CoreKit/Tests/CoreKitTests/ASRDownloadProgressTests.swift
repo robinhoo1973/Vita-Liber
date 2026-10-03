@@ -26,6 +26,25 @@ struct ASRDownloadProgressTests {
         #expect(ASRDownloadProgress.shouldAccept(previous: nil, incoming: stale), "首帧恒放行")
     }
 
+    @Test func monotonicGuardAcceptsEqualReceivedToPropagateTotalCorrection() {
+        // 2026-10-03 评审 R1-10a 登记的行为差异：received 相等时 Domain 收、旧 App 复本拒——
+        // 收下可让「received 相等但 totalBytes 被服务端修正」的回调入账（更诚实的方向）。
+        let current = ASRDownloadProgress(receivedBytes: 500, totalBytes: 1000, series: 0)
+        let corrected = ASRDownloadProgress(receivedBytes: 500, totalBytes: 1200, series: 0)
+        #expect(ASRDownloadProgress.shouldAccept(previous: current, incoming: corrected))
+    }
+
+    @Test func determinatePresentationFollowsByteGranularPhases() {
+        let p = ASRDownloadProgress(receivedBytes: 10, totalBytes: 100)
+        #expect(ASRDownloadProgress.showsDeterminateProgress(progress: p, phase: nil), "nil 阶段=传输基线，画确定条")
+        #expect(ASRDownloadProgress.showsDeterminateProgress(progress: p, phase: .downloading))
+        #expect(ASRDownloadProgress.showsDeterminateProgress(progress: p, phase: .verifying))
+        #expect(ASRDownloadProgress.showsDeterminateProgress(progress: p, phase: .unpacking))
+        #expect(!ASRDownloadProgress.showsDeterminateProgress(progress: p, phase: .activating), "激活无字节粒度，如实不确定")
+        #expect(!ASRDownloadProgress.showsDeterminateProgress(progress: p, phase: .pruning))
+        #expect(!ASRDownloadProgress.showsDeterminateProgress(progress: nil, phase: .downloading), "无进度值不画 0% 确定条")
+    }
+
     @Test func storageErrorMappingRecognizesPOSIXAndCocoaForms() {
         let cocoa = NSError(domain: NSCocoaErrorDomain, code: 640)  // NSFileWriteOutOfSpaceError
         #expect(ASRDownloadFailure.storageError(from: cocoa) == .insufficientStorage)
