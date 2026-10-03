@@ -103,13 +103,14 @@ struct ExportWizardView: View {
                             Text(L10n.exportFinished(pkg.recordCount, pkg.pageCount))
                             ShareLink(item: state.exportURL ?? URL(fileURLWithPath: "/")) {
                                 Label(L10n.exportShare, systemImage: "square.and.arrow.up")
-                                    .frame(maxWidth: .infinity, minHeight: 50)
+                                    .frame(maxWidth: .infinity, minHeight: 44)   // V4.13：50→44 与全仓触点纪律统一
                             }
                             .buttonStyle(.borderedProminent)
                             Button(L10n.onboard_finishEnterApp) {
                                 state.reset()
                                 dismiss()
                             }
+                            .frame(maxWidth: .infinity, minHeight: 44)   // V4.13：补齐 ≥44pt
                         }
                         .padding(24)
                     case .degraded(let message):
@@ -122,6 +123,7 @@ struct ExportWizardView: View {
                             state.reset()
                             step = 1
                         }
+                        .frame(maxWidth: .infinity, minHeight: 44)   // V4.13：补齐 ≥44pt
                     case .idle:
                         Form {
                             if step == 1 {
@@ -196,7 +198,7 @@ struct ExportWizardView: View {
                                     .accessibilityIdentifier("SP-22.export.start")
                                     if settings.values[.authSharing] == "false" {
                                         Label(L10n.privacyAuthSharingDisabled, systemImage: "square.and.arrow.up.trianglebadge.exclamationmark")
-                                            .font(.caption).foregroundStyle(.orange)
+                                            .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                                     }
                                 }
                             }

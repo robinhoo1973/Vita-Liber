@@ -165,7 +165,7 @@ struct ASREngineSettingsSection: View {
                         .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpdates")
                 case .failed:
                     Text(L10n.asrIndexFetchFailed)
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                         .accessibilityIdentifier("\(accessibilityPrefix).model.indexFailed")
                 case .idle, .checking:
                     EmptyView()
@@ -195,7 +195,7 @@ struct ASREngineSettingsSection: View {
                                         }
                                     }
                                     if let note = L10n.asrAvailability(row.availability) {
-                                        Text(note).font(.caption).foregroundStyle(.orange)
+                                        Text(note).font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                                     }
                                 }
                                 Spacer()
@@ -266,7 +266,7 @@ struct ASREngineSettingsSection: View {
                     // 失败提示与重试按钮并存：此前失败态被更新/下载按钮分支
                     // 永远遮蔽（分支顺序 bug），下载失败完全无反馈。
                     Text(L10n.asrModelDownloadFailed)
-                        .font(.caption).foregroundStyle(.orange)
+                        .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                         .accessibilityIdentifier("\(accessibilityPrefix).model.failed.\(choice.rawValue)")
                 }
                 if let chosenVariant {

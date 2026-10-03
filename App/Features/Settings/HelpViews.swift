@@ -92,7 +92,9 @@ struct HelpRootView: View {
             }
             // 审查修复（死控件清除）：.searchable(.constant("")) 渲染永久失效的
             // 搜索条（绑定常量、零搜索逻辑）——删除。
-            .navigationTitle(L10n.helpCenterTitle)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.helpCenterTitle)
         }
     }
 
@@ -120,7 +122,9 @@ struct HelpTopicView: View {
             List(bullets, id: \.self) { b in
                 Text(b).font(.body)
             }
-            .navigationTitle(title)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if title == L10n.helpTopicVoice {
@@ -167,7 +171,9 @@ struct HelpPermissionDiagnostics: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(L10n.helpDiagPermission)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.helpDiagPermission)
             .task { await checkPermissions() }
         }
     }
@@ -197,7 +203,7 @@ private struct PermissionRow: View {
                 Label(name, systemImage: icon)
                 Spacer()
                 Text(status)
-                    .foregroundStyle(status.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
+                    .foregroundStyle(status.contains(L10n.helpStatusAuthorized) ? Color("semantic-success", bundle: .main) : .secondary)
             }
         }
     }
@@ -221,7 +227,7 @@ struct HelpReminderDiagnostics: View {
                         Text(L10n.helpReminderPermission)
                         Spacer()
                         Text(notificationStatus)
-                            .foregroundStyle(notificationStatus.contains(L10n.helpStatusAuthorized) ? .green : .secondary)
+                            .foregroundStyle(notificationStatus.contains(L10n.helpStatusAuthorized) ? Color("semantic-success", bundle: .main) : .secondary)
                     }
                 }
                 Section(L10n.helpReminderTodaySection) {
@@ -229,7 +235,7 @@ struct HelpReminderDiagnostics: View {
                         Text(L10n.helpReminderPendingDoses)
                         Spacer()
                         Text("\(reminderStore.pendingCount)")
-                            .foregroundStyle(reminderStore.pendingCount > 0 ? .orange : .secondary)
+                            .foregroundStyle(reminderStore.pendingCount > 0 ? Color("semantic-warning", bundle: .main) : .secondary)
                     }
                     HStack {
                         Text(L10n.helpReminderTodaySlots)
@@ -248,7 +254,9 @@ struct HelpReminderDiagnostics: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(L10n.helpDiagReminder)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.helpDiagReminder)
             .task { await checkNotificationStatus() }
         }
     }
@@ -276,7 +284,7 @@ struct HelpDataHealth: View {
                         Text(L10n.helpDataIntegrity)
                         Spacer()
                         Text(dbIntegrity)
-                            .foregroundStyle(dbIntegrity.contains(L10n.helpDataNormal) ? .green : .secondary)
+                            .foregroundStyle(dbIntegrity.contains(L10n.helpDataNormal) ? Color("semantic-success", bundle: .main) : .secondary)
                     }
                 }
                 Section(L10n.helpDataStorageSection) {
@@ -295,7 +303,9 @@ struct HelpDataHealth: View {
                     }
                 }
             }
-            .navigationTitle(L10n.helpDataTitle)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.helpDataTitle)
             .task { await checkHealth() }
         }
     }
@@ -368,7 +378,9 @@ struct HelpAboutView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .navigationTitle(L10n.help_title)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.help_title)
         }
     }
 }

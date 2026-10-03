@@ -183,7 +183,7 @@ struct BackupView: View {
                     if settings.values[.authCloudBackup] == "false" {
                         Label(L10n.privacyAuthBackupDisabled, systemImage: "icloud.slash")
                             .font(.footnote)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
                             .accessibilityIdentifier("SP-24.backup.authDisabled")
                     }
                     if !state.iCloudSignedIn {

@@ -27,6 +27,9 @@ struct NotificationCenterView: View {
     /// 失败行仍可见并可重试——乐观 `markArchived` 已删除。
     @State private var archiveFailedKey: String?
     @State private var showArchiveFailed = false
+    /// V4.13 呈现评审：装载完成前显示加载态——此前首帧直接渲染空态
+    /// （「暂无通知」闪烁）,装载完成才允许空态判定。
+    @State private var loaded = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -135,7 +138,13 @@ struct NotificationCenterView: View {
                         .accessibilityIdentifier("SP-27.notification.ocr")
                     }
                 }
-                if allEmpty {
+                if !loaded {
+                    // V4.13 呈现评审：装载态（此前首帧直渲染空态文案）
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 48)
+                        .accessibilityIdentifier("SP-27.loading")
+                } else if allEmpty {
                     VLUnavailableView(L10n.ncEmpty, systemImage: "bell.slash",
                                            description: Text(L10n.ncEmptyHint))
                         .accessibilityIdentifier("SP-27.empty")
@@ -156,6 +165,7 @@ struct NotificationCenterView: View {
                 await hub.load(patientId: app.currentPatientId)
                 await docs.load(patientId: app.currentPatientId)
                 await loadStates()
+                loaded = true
             }
         }
     }
@@ -247,7 +257,7 @@ struct NotificationCenterView: View {
     @ViewBuilder
     private func archiveAction(_ key: String) -> some View {
         Button { archive(key) } label: { Label(L10n.ncArchive, systemImage: "archivebox") }
-            .tint(.orange)
+            .tint(Color("semantic-warning", bundle: .main))
     }
 
     private var allEmpty: Bool {

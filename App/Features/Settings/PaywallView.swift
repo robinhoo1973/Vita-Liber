@@ -57,7 +57,7 @@ struct PaywallView: View {
                     Task { await purchase(.proBase) }
                 } label: {
                     Text(busy ? L10n.pay_busy : L10n.pay_buy)
-                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .frame(maxWidth: .infinity, minHeight: 44)   // V4.13：50→44 与全仓触点纪律统一
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(busy)
@@ -72,7 +72,7 @@ struct PaywallView: View {
                 if let errorText {
                     Label(errorText, systemImage: "exclamationmark.triangle")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
                 }
 
                 Text(L10n.payTrustCopy)
