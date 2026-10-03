@@ -187,9 +187,12 @@ public actor HealthKitSyncService {
 
     /// 合并调用者共享整个轮次，含状态落盘；完成后才释放flight，避免反复加入已完成任务。
     private func runAndRecord(id: UUID, quietStart: String, quietEnd: String) async throws -> SyncReport {
-        report.rounds = (report.rounds ?? 0) + 1
         defer { if inFlightID == id { inFlight = nil; inFlightID = nil } }
-        let report = try await run(quietStart: quietStart, quietEnd: quietEnd)
+        var report = try await run(quietStart: quietStart, quietEnd: quietEnd)
+        // C1 埋点：每轮累计轮数（必须先 run 再计数——此前写在 let report 声明前，
+        // macOS CI 编译报 use of local variable before declaration；Linux 因
+        // HealthKit 平台守卫编译桩单元而全盲，属 macOS 可见面型检盲区）
+        report.rounds = (report.rounds ?? 0) + 1
         try Task.checkCancellation()
         try await imports.saveReport(report)
         latestReport = report
