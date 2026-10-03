@@ -80,6 +80,9 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     @State private var unlocking = false
     /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
     @State private var unlockedAt: Date?
+    /// 2026-10-03 评审修复：解锁后是否已回到 .active——宽限锚定「首次回
+    /// active」而非固定 5s 窗口（慢设备浮层收起 >5s 的秒回锁修复）
+    @State private var hasReturnedToActive = false
     /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）：
     /// 触摸事件 60–120Hz 送达，逐事件重启计时任务 = 每帧 Task 分配/取消
     @State private var lastActivity: Date?
@@ -96,28 +99,10 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
                 placeholder(unlocked)
                 if unlocked { content(unlocked) }
             }
-            .onTapGesture {
-                guard !unlocked, !unlocking else { return }
-                // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
-                // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证。
-                unlocking = true   // 同步置位（防连点双认证，见属性注）
-                let task = Task {
-                    let ok = await app.requestUnlock(reason: L10n.sensitive_unlockReason)
-                    // 重锁/离屏已取消本任务：认证结果不得复活解锁态
-                    guard !Task.isCancelled else {
-                        unlocking = false
-                        return
-                    }
-                    if ok {
-                        unlocked = true
-                        unlockedAt = Date()
-                        lastActivity = Date()
-                        scheduleRelock()
-                    }
-                    unlocking = false
-                }
-                relockTimer.trackUnlock(task)
-            }
+            .onTapGesture { triggerUnlock() }
+            // 2026-10-03 评审修复（VoiceOver）：tap 手势无辅助功能语义——
+            // 补 accessibilityAction 使解锁动作在 VoiceOver 下可达。
+            .accessibilityAction { triggerUnlock() }
             // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口；
             // 1 秒合并窗口（MediaUnlockPolicy.activityCoalescingWindow）
             // 滤掉 60–120Hz 触摸流的逐帧任务重启
@@ -131,18 +116,43 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
             .onChangeCompat(of: scenePhase) { _, phase in
                 // 审查修复（2026-09-19，业主「认证后立即被自己的浮层重锁」）：
                 // background = 真离开，恒立即重锁（BR-007/008 内存态纪律）；
-                // inactive 可能是系统认证浮层收起瞬态——解锁后 5 秒内
-                // 不重锁（MediaUnlockPolicy.shouldRelockOnInactive，
-                // 「最低认证要求至少 5 秒」），浮层期间重锁会导致
-                // 认证完成即锁回 → 再点再认证 = 循环。
+                // inactive 可能是系统认证浮层收起瞬态。2026-10-03 评审修复：
+                // 宽限锚定「首次回 active」+ 绝对兜底（Domain 谓词），
+                // 慢收起/瞬态 inactive 不再秒回锁。
                 if phase == .background { relock() }
+                else if phase == .active, unlocked { hasReturnedToActive = true }
                 else if phase != .active, unlocked,
-                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(), now: Date()) {
+                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
+                                                                 now: Date(),
+                                                                 hasReturnedToActive: hasReturnedToActive) {
                     relock()
                 }
             }
             .onDisappear { relock() }
         }
+    }
+
+    private func triggerUnlock() {
+        guard !unlocked, !unlocking else { return }
+        // BR-007/BR-009（V3.22 修订）：无应用 PIN 后按 FR1.9 直接用系统设备所有者
+        // 认证（Face ID/Touch ID + 设备密码兜底）。每次都是新弹系统浮层的独立认证。
+        unlocking = true   // 同步置位（防连点双认证，见属性注）
+        let task = Task {
+            let ok = await app.requestUnlock(reason: L10n.sensitive_unlockReason)
+            // 重锁/离屏已取消本任务：认证结果不得复活解锁态
+            guard !Task.isCancelled else {
+                unlocking = false
+                return
+            }
+            if ok {
+                unlocked = true
+                unlockedAt = Date()
+                lastActivity = Date()
+                scheduleRelock()
+            }
+            unlocking = false
+        }
+        relockTimer.trackUnlock(task)
     }
 
     private func scheduleRelock() {
@@ -162,6 +172,7 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
         unlocking = false
         unlocked = false
         unlockedAt = nil
+        hasReturnedToActive = false
         lastActivity = nil
     }
 }
