@@ -73,7 +73,9 @@ jobs:
         env:
           ASSETS_INPUT: ${{ inputs.assets }}
         run: |
-          # 经 env 传递 JSON 输入(直接 ${{ }} 内插进双引号 shell 串会断引号);
+          # 经 env 传递 JSON 输入(双花括号表达式直接内插进双引号 shell 串会断引号;
+          # 注意:本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把
+          # 注释里的空表达式当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)
           # 缺省直接用仓内 assets.json 文件路径,不再把 JSON 内容绕一道字符串。
           if [ -n "$ASSETS_INPUT" ]; then
             printf '%s' "$ASSETS_INPUT" > assets.json
