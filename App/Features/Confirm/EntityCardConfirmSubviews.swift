@@ -22,7 +22,7 @@ struct EntityCardHeaderSectionView: View {
                 Text(L10n.entityCardHeaderPage(pageIndex + 1, max(pageCount, pageIndex + 1)))
                 if let position { Text(L10n.entityCardHeaderIndex(position.0, position.1)) }
                 Spacer()
-                GradeBadge(grade: "D")
+                GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
             }.font(.caption)
             Button {
                 onViewScan()

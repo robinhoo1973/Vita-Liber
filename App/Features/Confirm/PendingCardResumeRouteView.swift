@@ -28,7 +28,7 @@ struct PendingCardResumeRouteView: View {
                     List {
                         Section {
                             OCRReviewOwnerRow(patientId: pending.patientId)
-                            GradeBadge(grade: "D")
+                            GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                             Text(L10n.ocrReviewLegacySourceMissing)
                             Button(L10n.homeCaptureFile) { reimport = true }.frame(minHeight: 44)
                         }

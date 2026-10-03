@@ -143,7 +143,7 @@ struct StockLotDetailView: View {
             HStack(spacing: 8) {
                 Text(lot.medicationName).font(.title3.bold())
                 if let spec = lot.spec { Text(spec).font(.subheadline).foregroundStyle(.secondary) }
-                GradeBadge(grade: "C")
+                GradeBadge(grade: GradeBadge.gradeConfirmed)
                 Spacer()
                 statusBadge(lot.status)
             }

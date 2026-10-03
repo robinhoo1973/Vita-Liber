@@ -222,7 +222,7 @@ struct VoiceConfirmSheet: View {
                             .frame(minHeight: 44)   // 触控目标 ≥44pt（ui-ux §3.3）
                             .background(Capsule().fill(Color("grade-d", bundle: .main).opacity(0.15)))
                         }
-                        GradeBadge(grade: "D")
+                        GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                         if judgedConfidence < 0.5 {
                             Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")
                                 .font(.caption2)
@@ -269,7 +269,7 @@ struct VoiceConfirmSheet: View {
                             // D 级「待确认」态经 GradeBadge 唯一渲染出口
                             // （审查修复：此前此处内联 grade-d 文案，与设计系统
                             // D/E 视觉契约双实现，徽章改版时本卡被落下）
-                            GradeBadge(grade: "D")
+                            GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                             let low = ConfidenceTier.tier(field.confidence) == .low
                             if low {
                                 Label(L10n.voiceConfirmLowConfidence, systemImage: "exclamationmark.triangle")

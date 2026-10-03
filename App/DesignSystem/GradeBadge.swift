@@ -94,3 +94,11 @@ struct GradeBadge: View {
         }
     }
 }
+
+/// 中央 grade 字面量（2026-10-03 评审 R1-12）：C=用户已确认事实 / D=机器识别未确认——
+/// 硬编码散落 19 处渲染调用点，语义靠字符串巧合；收敛为单一常量（详情页恒出
+/// C/D 的「并置可比口径」与时间轴「C 默认事实态不出徽章」的例外语义随常量自明）。
+extension GradeBadge {
+    static let gradeConfirmed = "C"
+    static let gradeMachineUnconfirmed = "D"
+}

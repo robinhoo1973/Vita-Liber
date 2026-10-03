@@ -34,7 +34,7 @@ struct AllergyListView: View {
                                     Text(allergy.substance).font(.subheadline)
                                     Spacer()
                                     // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口
-                                    GradeBadge(grade: "C")
+                                    GradeBadge(grade: GradeBadge.gradeConfirmed)
                                 }
                                 // v30（F-A4-01）：过敏原类型随行呈现；历史行 nil 不占位
                                 // 审查修复（L10n 单出口）：allergenKind 存储值是中文原文

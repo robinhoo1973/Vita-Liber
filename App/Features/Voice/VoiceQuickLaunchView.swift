@@ -153,7 +153,7 @@ struct VoiceQuickLaunchView: View {
                             .accessibilityIdentifier("SP-55.panel.version")
                             if transcriptVersion == .refined {
                                 HStack(spacing: 6) {
-                                    GradeBadge(grade: "D")
+                                    GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                                     if refining {
                                         ProgressView().controlSize(.small)
                                     } else if let revision, revision.original == accumulatedText {

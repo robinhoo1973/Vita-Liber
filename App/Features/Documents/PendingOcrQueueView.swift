@@ -91,7 +91,7 @@ struct PendingOcrQueueView: View {
                                     // GradeBadge 全仓唯一渲染出口（第四轮全仓审查修复：
                                     // 原手写 Capsule 徽章缺虚线边框与「待确认」角标，
                                     // 关怀模式/高对比主题下不随语义令牌重映射）
-                                    GradeBadge(grade: "D")
+                                    GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                                     if row.overdue {
                                         PillBadge(text: L10n.ocrQueue72h, style: .danger)
                                     }

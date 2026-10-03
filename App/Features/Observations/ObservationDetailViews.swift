@@ -138,7 +138,7 @@ struct ObservationDetailView: View {
                 event.kind.icon
                     .frame(width: 28, height: 28)
                 Text(L10n.observationKindName(event.kind)).font(.title3.bold())
-                GradeBadge(grade: "C")   // 观察 = 用户确认的 C 级数据
+                GradeBadge(grade: GradeBadge.gradeConfirmed)   // 观察 = 用户确认的 C 级数据
                 Spacer()
             }
             Text(event.occurredAt, format: .dateTime.year().month().day().hour().minute())

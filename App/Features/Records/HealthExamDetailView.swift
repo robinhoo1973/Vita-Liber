@@ -74,7 +74,7 @@ struct HealthExamDetailView: View {
                     Image(systemName: spec.symbol).foregroundStyle(spec.tint)
                     Text(exam.orgName ?? L10n.timelineKindName(.healthExam)).font(.title3.bold())
                     Spacer()
-                    GradeBadge(grade: "C")
+                    GradeBadge(grade: GradeBadge.gradeConfirmed)
                 }
                 ForEach(headerRows(exam), id: \.key) { row in
                     LabeledContent(DocumentsDisplay.fieldLabel(forKey: row.key), value: row.value)

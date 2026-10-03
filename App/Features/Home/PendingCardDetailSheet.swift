@@ -87,7 +87,7 @@ struct PendingCardDetailSheet: View {
         if let detail {
             Section {
                 OCRReviewOwnerRow(patientId: detail.patientId)
-                GradeBadge(grade: "D")
+                GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
             }
             if !detail.incompleteFields.isEmpty {
                 Section(L10n.docConfirmSkipTitle) {

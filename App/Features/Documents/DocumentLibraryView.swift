@@ -1055,7 +1055,7 @@ private struct DocumentLibraryRow: View {
                             Text(doc.docType).font(.caption2)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Capsule().fill(Color(.systemGray5)))
-                            if doc.grade == "D" { GradeBadge(grade: "D") }
+                            if doc.grade == "D" { GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed) }
                             if doc.isSensitive { Image(systemName: "lock.fill").font(.caption2).foregroundStyle(Color("semantic-warning", bundle: .main)) }
                         }
                         Text(L10n.docTitle(doc.title)).font(.subheadline)
@@ -1128,7 +1128,7 @@ struct DocumentStoreDetailView: View {
                     Text(L10n.docTitle(doc.title)).font(.headline)
                     OCRReviewOwnerRow(patientId: doc.patientId)
                     LabeledContent(L10n.docDate, value: doc.createdAt.formatted(date: .abbreviated, time: .shortened))
-                    HStack { Text(doc.docType); if doc.grade == "D" { GradeBadge(grade: "D") } }
+                    HStack { Text(doc.docType); if doc.grade == "D" { GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed) } }
                 }
                 DocumentRelationsSection(documentId: doc.id, patientId: doc.patientId)
                 Section {

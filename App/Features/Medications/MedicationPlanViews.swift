@@ -731,7 +731,7 @@ struct MedicationKnowledgeCardView: View {
                         // 评审修正 U2：手写徽章变体 → GradeBadge 唯一出口。
                         // 医嘱文本在 PlanRow 无医院原文溯源（A 需要来源链路），
                         // 用户记录口径取 C（用户确认）。
-                        GradeBadge(grade: "C")
+                        GradeBadge(grade: GradeBadge.gradeConfirmed)
                     } else {
                         Text(L10n.knowledgeNoAdvice).font(.caption).foregroundStyle(.secondary)
                     }

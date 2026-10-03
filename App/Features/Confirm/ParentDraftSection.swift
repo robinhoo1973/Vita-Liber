@@ -30,7 +30,7 @@ struct ParentDraftSection: View {
                         Text(draft.hub == .healthExam ? L10n.parentDraftNewHealthExam : L10n.parentDraftNewEncounter)
                             .font(.subheadline)
                         Spacer()
-                        GradeBadge(grade: "D")
+                        GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("SP-12.parentDraft.kind.\(draft.hub.rawValue)")

@@ -302,7 +302,7 @@ struct EncounterDetailView: View {
                 // 评审修正 U1：就诊正文由用户手输/复诊自动建档（无医院原文链路），
                 // 硬编码 A（医院原文）是伪造来源（BR-003/§4.1 一眼可辨来源）——
                 // 应为 C（用户确认）。GradeBadge 自带色彩，去除手写覆盖。
-                GradeBadge(grade: "C")
+                GradeBadge(grade: GradeBadge.gradeConfirmed)
             }
             if let advice = current?.adviceText ?? encounter.adviceText {
                 Text(advice)
@@ -311,7 +311,7 @@ struct EncounterDetailView: View {
                         Rectangle().fill(Color("brand-primary", bundle: .main)).frame(width: 3)
                     }
                 // 评审修正 U1：手写徽章变体 → GradeBadge 唯一出口（C 用户确认）
-                GradeBadge(grade: "C")
+                GradeBadge(grade: GradeBadge.gradeConfirmed)
             }
             if let followUp = current?.followUpRequirement ?? encounter.followUpRequirement {
                 LabeledContent(L10n.encounterFollowUp, value: followUp)

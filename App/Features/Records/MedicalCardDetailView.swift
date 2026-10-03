@@ -34,7 +34,7 @@ struct MedicalCardDetailView: View {
                 if let detail {
                     Section {
                         OCRReviewOwnerRow(patientId: patientId)
-                        GradeBadge(grade: "C")
+                        GradeBadge(grade: GradeBadge.gradeConfirmed)
                         ForEach(Array(headerFields(from: detail).enumerated()), id: \.offset) { _, field in
                             LabeledContent(DocumentsDisplay.fieldLabel(forKey: field.key),
                                            value: DocumentsDisplay.fieldValueDisplay(forKey: field.key, value: field.value))

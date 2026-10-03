@@ -37,7 +37,7 @@ struct ProfileSuggestionSheet: View {
                         }
                     } header: {
                         HStack(spacing: 6) {
-                            GradeBadge(grade: "D")
+                            GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                             Text(L10n.profileSuggestionHint)
                         }
                         .textCase(nil)
