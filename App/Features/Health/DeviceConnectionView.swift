@@ -194,7 +194,7 @@ final class F16DeviceState {
                         // （CI #640 注解实证：argument passed to call that takes no arguments）。
                         // 盒装非可选 NSProgress：装可选会叠出 NSProgress?? 双可选层
                         // （CI #641 注解实证：must be unwrapped to refer to member）
-                        let progressBox = ValueBox<NSProgress>()
+                        let progressBox = ValueBox<Progress>()   // iOS 26 SDK：NSProgress 已更名 Progress（CI #647）
                         if let progress { progressBox.value = progress }
                         let report = try await service.performSyncAll(
                             quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds,
