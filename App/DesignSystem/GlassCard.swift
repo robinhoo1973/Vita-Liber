@@ -1,5 +1,12 @@
 import SwiftUI
 
+/// 卡片圆角令牌（2026-10-03 评审 R1-11）：§3.3 明文「卡片 16」被 10/12/14/18
+/// 四种字面量漂移稀释——收敛为命名常量；紧凑 12 用于气泡/浮层小卡，卡片 16 为主卡。
+enum VLCornerRadius {
+    static let compact: CGFloat = 12
+    static let card: CGFloat = 16
+}
+
 /// Fluent Glass 玻璃卡片统一出口（ui-ux-spec §3.0 · tech-spec V3.156）。
 /// glass/fill + blur + border；**常态不打阴影**（V4.05 阴影收敛：blur + 光泽线 +
 /// 表面色差已表达层级——Apple DESIGN.md「全系统唯一阴影」心得），交互抬升时
@@ -11,7 +18,7 @@ import SwiftUI
 struct GlassCardModifier: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var cornerRadius: CGFloat = 16
+    var cornerRadius: CGFloat = VLCornerRadius.card
 
     func body(content: Content) -> some View {
         content
@@ -46,7 +53,7 @@ struct PressScaleButtonStyle: ButtonStyle {
 
 extension View {
     /// 玻璃卡片修饰（§3.0 统一出口；cornerRadius 默认 16 对应卡片圆角令牌）。
-    func glassCard(cornerRadius: CGFloat = 16) -> some View {
+    func glassCard(cornerRadius: CGFloat = VLCornerRadius.card) -> some View {
         modifier(GlassCardModifier(cornerRadius: cornerRadius))
     }
 
