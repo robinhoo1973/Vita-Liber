@@ -671,6 +671,7 @@
 "caregiver.alertBodyFmt" = "确认代 %1$@ 处理「%2$@」？\n此操作将记录为由你代确认。";
 "disclosure.title" = "使用须知";
 "disclosure.acknowledge" = "我知道了";
+"onboarding.stepFmt" = "第 %d 步，共 3 步";
 
 // F22 关于页（SP-48）
 "help.about.section" = "关于";

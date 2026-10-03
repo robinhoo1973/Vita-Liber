@@ -671,6 +671,7 @@
 "caregiver.alertBodyFmt" = "Confirm taking \"%2$@\" for %1$@?\nThis will be recorded as confirmed by you.";
 "disclosure.title" = "Notice";
 "disclosure.acknowledge" = "Got it";
+"onboarding.stepFmt" = "Step %d of 3";
 
 // F22 关于页（SP-48）
 "help.about.section" = "About";

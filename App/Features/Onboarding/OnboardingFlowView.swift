@@ -26,6 +26,10 @@ struct OnboardingFlowView: View {
                     }
                 }
                 .padding(.horizontal, 20).padding(.vertical, 8)
+                // 2026-10-03 评审 R1-8a：三步进度条补 a11y 与标识（此前零朗读值，XCUITest 不可达）
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(L10n.onboardingStepIndicator(stepIndex + 1))
+                .accessibilityIdentifier("SP-60.step.indicator")
                 switch app.stage {
                 case .disclosure(let i):
                     // else 分支为防御性兜底（disclosureCards 为空时索引越界→空白而非崩溃）

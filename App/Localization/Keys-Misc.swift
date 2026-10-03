@@ -137,6 +137,9 @@ extension L10n {
 
     static var disclosureAcknowledge: String { t("disclosure.acknowledge") }
 
+    /// 2026-10-03 评审 R1-8a：三步进度条 a11y 朗读（纯事实：第 X 步，共 3 步）
+    static func onboardingStepIndicator(_ step: Int) -> String { String(format: t("onboarding.stepFmt"), step) }
+
     static var languageTitle: String { t("language.title") }
 
     static var languageFooter: String { t("language.footer") }

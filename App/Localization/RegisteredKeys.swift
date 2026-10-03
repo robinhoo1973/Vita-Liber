@@ -621,7 +621,7 @@ extension L10n {
         "help.about.licenses", "help.about.section", "help.legal.section", "help.terms.title", "help.section",
         "caregiver.title", "caregiver.empty", "caregiver.emptyHint", "caregiver.pendingFmt",
         "caregiver.alertTitle", "caregiver.alertConfirm", "caregiver.alertBodyFmt",
-        "disclosure.title", "disclosure.acknowledge",
+        "disclosure.title", "disclosure.acknowledge", "onboarding.stepFmt",
         "backup.unlockReason", "backup.exportConfirm.title", "backup.exportConfirm.body",
         "backup.restoreConfirm.title", "backup.restoreConfirm.body", "backup.restoredCountFmt",
         "sos.help.title", "sos.call120", "sos.noContacts", "sos.viewCard", "sos.sendLocationP1",
