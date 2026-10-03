@@ -50,11 +50,11 @@ struct MetricOverviewView: View {
                                         return try? await state.store.series(for: app.currentPatientId,   // try?-ok: tile 迷你趋势读取失败只不画线，不阻断宫格
                                                                              metric: m,
                                                                              range: range)
+                                    },
+                                               onSelect: {
+                                        router.navigate(to: .trendChart(patientId: app.currentPatientId,
+                                                                        metric: item.metricKey))
                                     })
-                                        .onTapGesture {
-                                            router.navigate(to: .trendChart(patientId: app.currentPatientId,
-                                                                            metric: item.metricKey))
-                                        }
                                 }
                             }
                         }
@@ -111,10 +111,14 @@ struct MetricTile: View {
     let taskId: String
     /// 30 天迷你趋势数据源（按 metricKey 独立查询——每 tile 各画各的线）
     let sparkLoader: (String) async -> TrendSeries?
+    /// 2026-10-03 评审 R1-3：瓦片整体动作由调用方给——onTapGesture 无辅助功能动作，
+    /// VoiceOver 不可激活（主要健康数据卡无障碍缺口）；Button 化同 BigCareCard 先例。
+    let onSelect: () -> Void
     @State private var spark: TrendSeries?
 
     var body: some View {
         WithPerceptionTracking {
+            Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(metricName)
@@ -179,7 +183,24 @@ struct MetricTile: View {
                 guard !Task.isCancelled else { return }
                 spark = loaded
             }
+            }
+            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(metricName)
+            .accessibilityValue(accessibilityValue)
+            .accessibilityIdentifier("SP-13.overview.tile.\(item.metricKey)")
         }
+    }
+
+    /// 朗读值（血压双值/单位同视觉行——纯事实，无判断词）
+    private var accessibilityValue: String {
+        var s = MedicalNumberFormat.quantity(item.value)
+        if let secondary = item.secondaryValue,
+           MetricType(rawValue: item.metricKey) == .bloodPressureSys {
+            s += " / \(MedicalNumberFormat.quantity(secondary))"
+        }
+        if let unit = item.unit, !unit.isEmpty { s += " \(unit)" }
+        return s
     }
 
     private var metricName: String {
