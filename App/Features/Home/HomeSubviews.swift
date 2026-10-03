@@ -375,6 +375,64 @@ struct BigCareCard: View {
     }
 }
 
+/// FR18.5 关怀模式瞬态任务卡（2026-10-03 评审 R2-2）：进行中长任务在关怀首页
+/// 保持可见可取消——§6「进度可见可取消」× FR18.5「只留四大卡」的调和：仅活动
+/// 任务存在时渲染于四大卡之下，零任务零痕迹（与 SP-64 activeSection 同语义）。
+/// 进度读取下沉内层观察域（与 HomeModelDownloadCard 同纪律，防首页全量重算）。
+struct CareTransientTaskCard: View {
+    let install: ASRInstallCenter.Install
+    let onOpen: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        WithPerceptionTracking {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let brief = install.phase
+        let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
+        Button(action: onOpen) {
+            HStack(spacing: 20) {
+                Image(systemName: "arrow.down.circle")
+                    .font(VLFont.homeActionIcon)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .frame(width: 64, height: 64)
+                    .background(RoundedRectangle(cornerRadius: 16)
+                        .fill(Color("brand-primary", bundle: .main).opacity(0.12)))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(detailText(install))
+                        .font(.title3.bold())
+                        .foregroundStyle(.primary)
+                    Text(L10n.voiceEngineName(install.choice))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if showFraction {
+                        ProgressView(value: install.progress?.fraction ?? 0)
+                            .tint(Color("brand-primary", bundle: .main))
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Button(L10n.commonCancel) { onCancel() }
+                    .buttonStyle(.bordered)
+                    .frame(minHeight: 72)   // 关怀模式关键动作 ≥72pt（§7.1）
+                    .accessibilityIdentifier("SP-04.home.careMode.task.cancel")
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity)
+            .glassCard()
+        }
+        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.homeModelDownloadTitle)
+        .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
+        .accessibilityIdentifier("SP-04.home.careMode.task")
+    }
+}
+
 /// 后台任务（模型下载）卡片（2026-09-16 业主）：形态对齐档案完善进度卡——
 /// 下载显示分数进度（条 + 百分比 + 字节数字），校验/解压/安装/清理显示不确定进度 + 阶段文案；
 /// 主体点击进设置下载面（SP-25/SP-62），trailing [取消] 直达安装中心。

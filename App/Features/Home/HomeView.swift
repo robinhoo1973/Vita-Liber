@@ -605,6 +605,15 @@ struct HomeView: View {
                         .onEnded { _ in showSOS = true }
                 )
                 .accessibilityAction { showSOS = true }
+                // 2026-10-03 评审 R2-2：进行中长任务瞬态卡（FR18.5 V4.11 增补）——
+                // 仅活动任务存在时渲染，零任务零痕迹；进度可见可取消（§6）。
+                if let active = installCenter.active.first {
+                    CareTransientTaskCard(install: active) {
+                        router.navigate(to: .resourceManagement)
+                    } onCancel: {
+                        installCenter.cancel(active.choice)
+                    }
+                }
                 // FR19.1：关怀模式首页大卡 [开始语音]
                 VoiceSessionLaunchCard()
             }
