@@ -398,7 +398,6 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     }
 
     private func recentLaneChanges(kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
-        var emptyAdvances = 0
         var cursor: RecentLaneCursor?
         if let anchor {
             cursor = try? JSONDecoder().decode(RecentLaneCursor.self, from: anchor)   // try?-ok: 解码失败回落首填（幂等自愈）
@@ -433,6 +432,9 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     /// 超限时窗口自适应折半（有界推进——1 秒心率可上万样本）；空窗口**同调用内连续
     /// 推进**（整年零样本不必 365 轮空转）；窗口排空后向旧推进一天。
     private func descendingPage(kind: HealthDataKind, scope: HealthFetchScope, cursor: RecentLaneCursor?, limit: Int) async throws -> HealthChangeBatch {
+        // C7 空窗推进封顶计数：声明必须与使用同函数（此前误放 recentLaneChanges，
+        // iOS-only 守卫文件只有 xcodebuild iOS 编译才可见——CI #639 注解实证）
+        var emptyAdvances = 0
         var windowEnd = cursor?.windowEnd ?? Date().addingTimeInterval(86_400)
         var windowStart = cursor?.windowStart ?? windowEnd.addingTimeInterval(-86_400)
         var dayStart = cursor?.dayStart ?? windowStart
