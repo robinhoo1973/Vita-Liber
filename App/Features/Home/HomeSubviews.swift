@@ -536,33 +536,36 @@ struct HomeModelDownloadCard: View {
                 .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
         }
     }
+}
 
-    /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
-    /// 传输形态文案（2026-09-16）。空串 = 尚未确定（HEAD 探测完成前）。
-    private func downloadModeText(_ mode: ASRDownloadMode?) -> String {
-        switch mode {
-        case .segmented(let segments): return L10n.asrModelModeSegmented(segments)
-        case .singleStream: return L10n.asrModelModeSingle
-        case nil: return ""
-        }
+/// 传输形态文案（2026-09-16）。空串 = 尚未确定（HEAD 探测完成前）。
+/// 文件级私有：HomeModelDownloadCard 与 CareTransientTaskCard 共用
+/// （2026-10-04 L1 修复：原为 HomeModelDownloadCard 私有成员，
+/// 关怀瞬态卡跨类型引用不可见——CI #642 注解实证）。
+private func downloadModeText(_ mode: ASRDownloadMode?) -> String {
+    switch mode {
+    case .segmented(let segments): return L10n.asrModelModeSegmented(segments)
+    case .singleStream: return L10n.asrModelModeSingle
+    case nil: return ""
     }
+}
 
-    private func detailText(_ install: ASRInstallCenter.Install) -> String {
-        // 2026-09-19：并发槽满排队等待态——首页卡片同源如实呈现，不误报下载中/失败
-        if install.waiting { return L10n.asrModelQueued }
-        switch install.phase {
-        case .verifying: return L10n.asrModelPhaseVerifying
-        case .unpacking: return L10n.asrModelPhaseUnpacking
-        case .activating: return L10n.asrModelPhaseActivating
-        case .pruning: return L10n.asrModelPhasePruning
-        case .downloading, nil:
-            if let progress = install.progress {
-                return L10n.asrModelProgress(
-                    ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
-                    ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file))
-            }
-            return L10n.asrModelDownloading
+/// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
+private func detailText(_ install: ASRInstallCenter.Install) -> String {
+    // 2026-09-19：并发槽满排队等待态——首页卡片同源如实呈现，不误报下载中/失败
+    if install.waiting { return L10n.asrModelQueued }
+    switch install.phase {
+    case .verifying: return L10n.asrModelPhaseVerifying
+    case .unpacking: return L10n.asrModelPhaseUnpacking
+    case .activating: return L10n.asrModelPhaseActivating
+    case .pruning: return L10n.asrModelPhasePruning
+    case .downloading, nil:
+        if let progress = install.progress {
+            return L10n.asrModelProgress(
+                ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
+                ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file))
         }
+        return L10n.asrModelDownloading
     }
 }
 
