@@ -136,7 +136,16 @@ struct MedicalCardDetailView: View {
                             }.frame(minHeight: 44)
                         }
                     }
-                } else if !failed { ProgressView() }
+                } else if !failed {
+                    // §6 骨架屏（2026-10-03 评审 R1-7）：详情列表加载态禁用菊花，行形圆角条
+                    // （高≈真实 LabeledContent 行）。SkeletonCard 原语下沉已登记 tech §11（P2）。
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(.systemGray5))
+                            .frame(height: 44)
+                            .padding(.horizontal, 16)
+                    }
+                }
                 if failed {
                     Text(L10n.docImportFailed).foregroundStyle(Color("semantic-warning", bundle: .main))
                     Button(L10n.retry) { Task { await load() } }
