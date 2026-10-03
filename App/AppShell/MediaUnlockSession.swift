@@ -15,6 +15,9 @@ final class MediaUnlockSession {
     private(set) var isUnlocked = false
     /// 最后一次交互时刻（用于 idle TTL 计算）
     private var lastInteraction: Date?
+    /// 最近一次认证成功时刻（2026-10-03 评审修复：inactive 宽限锚点——
+    /// 会话级钩子须与媒体链同纪律豁免自己的认证浮层）
+    private(set) var lastUnlockedAt: Date?
     /// 空闲重锁计时器（计时句柄共享 MediaRelockTimer 机制；本会话无在途解锁句柄）
     private var idleTimer = MediaRelockTimer()
 
@@ -24,6 +27,7 @@ final class MediaUnlockSession {
     func unlock() {
         isUnlocked = true
         lastInteraction = Date()
+        lastUnlockedAt = Date()
         startIdleTimer()
     }
 
@@ -31,6 +35,7 @@ final class MediaUnlockSession {
     func relock() {
         isUnlocked = false
         lastInteraction = nil
+        lastUnlockedAt = nil
         idleTimer.cancelAll()
     }
 

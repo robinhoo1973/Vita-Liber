@@ -141,7 +141,17 @@ struct RootAdaptiveView: View {
             // 逐视图的 SensitiveMediaContainer/OriginalView 已自行重锁，此处补
             // 会话级统一钩子（含 300s showcase 会话的退后台终止）。
             .onChangeCompat(of: scenePhase) { _, phase in
-                if phase != .active {
+                // 2026-10-03 评审修复（展示模式「认证成功即秒回锁」）：
+                // background = 真离开恒立即重锁（BR-007 不松）；
+                // inactive 可能是**认证浮层自身**的瞬态——在途认证
+                // （authPromptInFlight）或宽限窗内不得杀会话，与媒体链
+                // 三视图同纪律（MediaUnlockPolicy.shouldRelockOnInactive）。
+                if phase == .background {
+                    mediaSession.onBackground()
+                } else if phase != .active,
+                          !app.authPromptInFlight,
+                          MediaUnlockPolicy.shouldRelockOnInactive(
+                            lastUnlockAt: mediaSession.lastUnlockedAt ?? Date(), now: Date()) {
                     mediaSession.onBackground()
                 }
             }
