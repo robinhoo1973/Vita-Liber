@@ -502,25 +502,11 @@ struct DeviceConnectionView: View {
                 ForEach(dashboard.types) { type in
                     // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                     WithPerceptionTracking {
-                        NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
-                                                                          patientId: dashboard.patientId)) {
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 10) {
-                                    // 审查修复（指标图标）：与健康 Tab/SP-29 同出口同符号
-                                    Image(systemName: CardKindIcon.spec(metric: type.kind.primaryMetric).symbol)
-                                        .font(.title3)
-                                        .foregroundStyle(CardKindIcon.tint(metric: type.kind.primaryMetric))
-                                        .frame(width: 26)
-                                    Text(L10n.metricName(type.kind.primaryMetric))
-                                    Spacer()
-                                    Text(L10n.healthImportedPointCount(type.rowCount)).foregroundStyle(.secondary)
-                                }
-                                if let latest = type.latestAt {
-                                    Text(latest.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier("SP-29.health.data.\(type.kind.rawValue)")
+                        // T3 呈现评审：行布局自 HealthImportedTypeRow 共享组件渲染
+                        // （此前与 HealthTabView 逐字复制，ADR-021 精神违背）
+                        HealthImportedTypeRow(type: type,
+                                              patientId: dashboard.patientId,
+                                              accessibilityPrefix: "SP-29.health.data")
                     }
                 }
             } header: { Text(L10n.healthImportedData) } footer: { Text(L10n.healthImportedDataHint) }

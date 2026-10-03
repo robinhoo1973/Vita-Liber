@@ -200,7 +200,9 @@ struct ASREngineSettingsSection: View {
                                 }
                                 Spacer()
                                 if VoiceEngineChoice.resolve(settings.values[.voiceEngine]) == choice {
-                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(Color("brand-primary", bundle: .main))
+                                    // T3 呈现评审：选中标记收敛为纯 checkmark（与此前语言页/
+                                    // 实验室三处同形态；checkmark.circle.fill 为唯一异形）
+                                    Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
                                 }
                             }.frame(minHeight: 44)
                         }

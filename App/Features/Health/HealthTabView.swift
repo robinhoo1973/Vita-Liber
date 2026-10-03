@@ -142,41 +142,13 @@ struct HealthTabView: View {
                     ForEach(dashboard.types.filter { deviceState.isSyncing || $0.rowCount > 0 }) { type in
                         // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                         WithPerceptionTracking {
-                            // 类型安全路由（§5.45）：身份由 dashboard.patientId（= 本人绑定）
-                            // 经载荷下传——绝不回落当前成员（BR-001）；本页不再以闭包目的地
-                            // 直连视图（那会让本页不在 healthPath 内，页内 value 推入与
-                            // path 绑定栈不一致：点行无反应/目的地插到当前页下方）。
-                            NavigationLink(value: AppRoute.healthImportedData(kind: type.kind,
-                                                                              patientId: dashboard.patientId)) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 10) {
-                                        // 审查修复（指标图标）：健康数据行此前纯文本、
-                                        // 指标间不可分辨——经 CardKindIcon.spec(metric:)
-                                        // 单一出口渲染指标符号（与时间轴/SP-29 同符号）
-                                        Image(systemName: CardKindIcon.spec(metric: type.kind.primaryMetric).symbol)
-                                            .font(.title3)
-                                            .foregroundStyle(CardKindIcon.tint(metric: type.kind.primaryMetric))
-                                            .frame(width: 26)
-                                        Text(L10n.metricName(type.kind.primaryMetric))
-                                        Spacer()
-                                        Text(L10n.healthImportedPointCount(type.rowCount))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if let latest = type.latestAt {
-                                        Text(latest.formatted(date: .abbreviated, time: .shortened))
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    // 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：同步进行中
-                                    // 该类别卡显示确定性排空进度（基线 = 本轮同步首见剩余窗口数）。
-                                    if deviceState.isSyncing,
-                                       let fraction = deviceState.kindProgress[type.kind.rawValue] {
-                                        ProgressView(value: fraction)
-                                            .accessibilityIdentifier("SP-29.health.home.progress.\(type.kind.rawValue)")
-                                    }
-                                }
-                                .frame(minHeight: 44)
-                            }
-                            .accessibilityIdentifier("SP-29.health.home.data.\(type.kind.rawValue)")
+                            // T3 呈现评审：行布局自 HealthImportedTypeRow 共享组件渲染
+                            // （此前与 DeviceConnectionView 逐字复制，ADR-021 精神违背）
+                            HealthImportedTypeRow(type: type,
+                                                  patientId: dashboard.patientId,
+                                                  accessibilityPrefix: "SP-29.health.home.data",
+                                                  syncProgressPrefix: "SP-29.health.home.progress",
+                                                  showsSyncProgress: true)
                         }
                     }
                 }
