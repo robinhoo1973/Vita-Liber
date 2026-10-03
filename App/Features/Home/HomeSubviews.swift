@@ -542,6 +542,9 @@ struct HomeModelDownloadCard: View {
 /// 文件级私有：HomeModelDownloadCard 与 CareTransientTaskCard 共用
 /// （2026-10-04 L1 修复：原为 HomeModelDownloadCard 私有成员，
 /// 关怀瞬态卡跨类型引用不可见——CI #642 注解实证）。
+/// @MainActor：Install 属性为 MainActor 隔离，文件级函数须同隔离
+/// （非隔离上下文访问报错——CI #644 注解实证）。
+@MainActor
 private func downloadModeText(_ mode: ASRDownloadMode?) -> String {
     switch mode {
     case .segmented(let segments): return L10n.asrModelModeSegmented(segments)
@@ -551,6 +554,7 @@ private func downloadModeText(_ mode: ASRDownloadMode?) -> String {
 }
 
 /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
+@MainActor
 private func detailText(_ install: ASRInstallCenter.Install) -> String {
     // 2026-09-19：并发槽满排队等待态——首页卡片同源如实呈现，不误报下载中/失败
     if install.waiting { return L10n.asrModelQueued }
