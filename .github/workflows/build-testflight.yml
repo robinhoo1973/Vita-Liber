@@ -431,8 +431,12 @@ jobs:
           set -o pipefail
           mkdir -p Build
           cd CoreKit
+          # 诊断先关 errexit：默认 shell bash -e 会在管道失败瞬间杀步，
+          # 失败摘要/注解块永远执行不到（CI #634 实证：零注解）。
+          set +e
           swift test 2>&1 | tee ../Build/corekit-swift-test.log
           status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             # 2026-10-03 审计（CI #629-#633 排障盲区）：job 日志需登录、诊断产物需 auth，
             # 唯一公开可读的通道 = 注解（::error:: 服务端渲染）+ step summary。
@@ -490,6 +494,8 @@ jobs:
           # 业界口径：用编译器自带的开关，而非自研启发式；且**不得**配 warnings-as-errors——
           # 该告警非确定（同一表达式在慢机器上更容易越线），做硬门禁会随机红。
           # 详见 discussions/2026-09-17-confirm-review-benchmark-round1.md §8.1。
+          # 诊断先关 errexit（同 CoreKit 步：bash -e 会在管道失败瞬间杀步）
+          set +e
           xcodebuild build-for-testing \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
@@ -502,6 +508,7 @@ jobs:
             OTHER_SWIFT_FLAGS='-Xfrontend -warn-long-expression-type-checking=500 -Xfrontend -warn-long-function-bodies=1000' \
             2>&1 | tee Build/xcodebuild-build.log
           status=${PIPESTATUS[0]}
+          set -e
           if [ "$status" -ne 0 ]; then
             # 2026-10-03 审计：编译失败摘要落 step summary + 注解（公开可读），
             # 与本步 tee 的完整日志互补——远端排障不再盲猜（CI #629-#633 盲区复盘）。
