@@ -49,7 +49,6 @@ struct RootAdaptiveView: View {
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppRouter.self) private var router
     @Environment(MediaUnlockSession.self) private var mediaSession
-    @Environment(AppState.self) private var appState   // 敏感批修复引用 authPromptInFlight（原 `app` 属 ModuleRoot，CI #648）
 
     /// 选中模块由 AppRouter 单一状态源驱动（TestFlight 实测：SceneStorage 与
     /// navigate 双源分离导致跨 Tab 路由只 append 不切 Tab、点击无反应）。
