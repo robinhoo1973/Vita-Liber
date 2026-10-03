@@ -46,7 +46,17 @@ struct PendingOcrQueueView: View {
             let rows = pendingRows
             Group {
                 if loading && rows.isEmpty {
-                    ProgressView()
+                    // §6 骨架屏（2026-10-03 评审 R1-5）：列表加载态禁用菊花，行形圆角条
+                    // （形状同真实队列行）。SkeletonCard 原语下沉已登记 tech §11（P2）。
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color(.systemGray5))
+                                .frame(height: 56)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("SP-53.queue.loading")
                 } else if rows.isEmpty && docs.pendingLoadError != nil {
                     VLUnavailableView {
                         Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
