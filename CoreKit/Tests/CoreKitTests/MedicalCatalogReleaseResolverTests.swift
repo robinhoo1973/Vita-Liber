@@ -12,8 +12,8 @@ import Testing
 /// 本地比较；ETag/304、限流、404/410/5xx、取消、单飞、字节上限、主机白名单、
 /// 重定向与 delegate/ETag 缓存直测。夹具复用 `MedicalCatalogFixture`（同目标）。
 ///
-/// 主机属主纪律（2026-09-27 测试席评审修复）：本套件占 **api.github.com**
-/// （inventory）+ **objects.githubusercontent.com**（pointer）——github.com 由
+/// 主机属主纪律（CNB 2026-10-03 接入）：本套件占 **api.cnb.cool**
+/// （inventory）+ **asset.cnb.cool**（pointer）——cnb.cool 由
 /// fetcher 传输套件独占，不再双重占用（URLProtocolStub 静态表跨套件并行）。
 @Suite("SU-M15-MEDCATALOG · SP-64 检查 resolver 行为钉", .serialized)
 struct MedicalCatalogReleaseResolverTests {
@@ -21,8 +21,8 @@ struct MedicalCatalogReleaseResolverTests {
     // MARK: - 组装助手
 
     private static func resetStubs() {
-        URLProtocolStub.reset(host: "api.github.com")
-        URLProtocolStub.reset(host: "objects.githubusercontent.com")
+        URLProtocolStub.reset(host: "api.cnb.cool")
+        URLProtocolStub.reset(host: "asset.cnb.cool")
     }
 
     private static func makeSession() -> URLSession {
@@ -38,7 +38,7 @@ struct MedicalCatalogReleaseResolverTests {
 
     /// pointer 由本套件独占主机服务（见套件头注）。
     private static func pointerURL(_ assetName: String) -> String {
-        "https://objects.githubusercontent.com/medical-data/" + assetName
+        "https://asset.cnb.cool/medical-data/" + assetName
     }
 
     private static func makeResolver(fixture: MedicalCatalogFixture,
@@ -165,7 +165,8 @@ struct MedicalCatalogReleaseResolverTests {
     func checkReportsNoInstallableWhenOnlyProgress() async throws {
         let fixture = try MedicalCatalogFixture.make(installable: false)
         defer { fixture.cleanUp() }
-        let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 30)
+        let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 30,
+                                                                             issuedAt: fixture.signedExpectation.issuedAt)
         Self.resetStubs()
         Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
             body: Self.inventoryJSON([(progressName, Self.pointerURL(progressName))]))))
@@ -178,7 +179,8 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         // 伪造的 progress-40 只需占名——解析器永不下载它
-        let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 40)
+        let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 40,
+                                                                             issuedAt: fixture.signedExpectation.issuedAt)
         Self.resetStubs()
         Self.apply([
             (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
@@ -205,8 +207,8 @@ struct MedicalCatalogReleaseResolverTests {
         Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
             body: Self.inventoryJSON([
                 ("medical-data-catalog-installable-30.json", "https://evil.example.com/p"),
-                ("medical-data-catalog-installable-30.json", "http://github.com/robinhoo1973/Vita-Liber/x.json"),
-                ("README.md", "https://github.com/robinhoo1973/Vita-Liber/README.md"),
+                ("medical-data-catalog-installable-30-20260926T120000Z.json", "http://asset.cnb.cool/x.json"),
+                ("README.md", "https://cnb.cool/robinhoo1973/Resources/README.md"),
                 ("medical-data-catalog-progress-30.json", Self.pointerURL("medical-data-catalog-progress-30.json")),
             ]))))
         let resolver = Self.makeResolver(fixture: fixture)
@@ -401,7 +403,7 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(try await resolver.check().state == .unavailable)
         // 按本套件主机过滤（全局日志有跨套件并发写，评审修复）
         let ownHits = URLProtocolStub.requestLog.filter {
-            $0.url.host == "api.github.com" || $0.url.host == "objects.githubusercontent.com"
+            $0.url.host == "api.cnb.cool" || $0.url.host == "asset.cnb.cool"
         }
         #expect(ownHits.isEmpty)
     }
@@ -412,7 +414,7 @@ struct MedicalCatalogReleaseResolverTests {
     func redirectGuardAllowsAllowlistedURL() throws {
         let box = RequestBox()
         let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10, allowsURL: { _ in true })
-        let url = try #require(URL(string: "https://api.github.com/x"))
+        let url = try #require(URL(string: "https://api.cnb.cool/x"))
         let task = URLSession.shared.dataTask(with: url)
         let redirect = try #require(HTTPURLResponse(url: url, statusCode: 301, httpVersion: nil, headerFields: nil))
         delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
@@ -425,8 +427,8 @@ struct MedicalCatalogReleaseResolverTests {
     func redirectGuardRejectsOffListHost() throws {
         let box = RequestBox()
         let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10,
-                                                         allowsURL: { $0.host == "api.github.com" })
-        let github = try #require(URL(string: "https://api.github.com/x"))
+                                                         allowsURL: { $0.host == "api.cnb.cool" })
+        let github = try #require(URL(string: "https://api.cnb.cool/x"))
         let evil = try #require(URL(string: "https://evil.example.com/x"))
         let task = URLSession.shared.dataTask(with: github)
         let redirect = try #require(HTTPURLResponse(url: github, statusCode: 301, httpVersion: nil, headerFields: nil))
@@ -437,7 +439,7 @@ struct MedicalCatalogReleaseResolverTests {
         // 跳数上限：独立 delegate（上方 evil 拒绝已消耗 1 跳计数）——连续放行
         // maxRedirects 次后下一次拒绝
         let hopDelegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10,
-                                                            allowsURL: { $0.host == "api.github.com" })
+                                                            allowsURL: { $0.host == "api.cnb.cool" })
         for _ in 0..<MedicalCatalogBoundedDataDelegate.maxRedirects {
             let hop = RequestBox()
             hopDelegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,

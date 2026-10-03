@@ -123,51 +123,44 @@ struct MedicalCatalogReleaseAcceptanceTests {
         }
     }
 
-    @Test("physical v5 and v6 candidates are accepted; v7 and mismatched SQLite stamps are rejected")
+    @Test("physical v7 candidates are accepted; v5/v6 and mismatched SQLite stamps are rejected")
     func physicalSchemaVersionCompatibility() throws {
-        for version in [5, 6] {
-            let fixture = try MedicalCatalogFixture.make(schemaVersion: version)
-            defer { fixture.cleanUp() }
-            let candidate = try fixture.candidate()
-            #expect(candidate.schemaVersion == version)
-            let sqlite = fixture.directory.appendingPathComponent("source.sqlite")
-            try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: version,
-                                                    dataVersion: fixture.signedExpectation.dataVersion)
-            #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
-                try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: version == 5 ? 6 : 5,
-                                                        dataVersion: fixture.signedExpectation.dataVersion)
+        // CNB 单写者契约:仅 v7(旧 GitHub 时代 v5/v6 检查点从未发布,零旧设备悬崖)。
+        let v7Fixture = try MedicalCatalogFixture.make(schemaVersion: 7)
+        defer { v7Fixture.cleanUp() }
+        let candidate = try v7Fixture.candidate()
+        #expect(candidate.schemaVersion == 7)
+        let sqlite = v7Fixture.directory.appendingPathComponent("source.sqlite")
+        try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: 7,
+                                                dataVersion: v7Fixture.signedExpectation.dataVersion)
+
+        // v5/v6 在 pointer 解码门即被拒——`make` 构造 `signedExpectation` 时已调用
+        // `MedicalCatalogSignedPointerDecoder.expectation`（App 解析网络 pointer 的同一函数）。
+        for legacy in [5, 6] {
+            #expect(throws: MedicalCatalogTrustError.invalidField) {
+                _ = try MedicalCatalogFixture.make(schemaVersion: legacy)
             }
         }
-
-        // v7 在 pointer 解码门即被拒——`make` 构造 `signedExpectation` 时已调用
-        // `MedicalCatalogSignedPointerDecoder.expectation`（App 解析网络 pointer 的同一函数），
-        // `MedicalCatalogSignedPointer.decode` 字段校验先于 `candidate()` 触发（Go `validatePointerFields` 镜像），
-        // 故断言落在 `make` 上：v7 夹具本身不可构造。
-        #expect(throws: MedicalCatalogTrustError.invalidField) {
-            _ = try MedicalCatalogFixture.make(schemaVersion: 7)
-        }
-        // 不支持的物理版本即使 SQLite 本体有效，`validateRelease` 也在版本门即拒、不触达文件校验。
-        let v6Fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
-        defer { v6Fixture.cleanUp() }
+        // 不支持的物理版本即使 SQLite 本体有效,`validateRelease` 也在版本门即拒。
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
-                path: v6Fixture.directory.appendingPathComponent("source.sqlite"), schemaVersion: 7,
-                dataVersion: v6Fixture.signedExpectation.dataVersion)
+                path: sqlite, schemaVersion: 6,
+                dataVersion: v7Fixture.signedExpectation.dataVersion)
         }
 
-        let badUserVersion = try MedicalCatalogFixture.make(database: .wrongUserVersion, schemaVersion: 6)
+        let badUserVersion = try MedicalCatalogFixture.make(database: .wrongUserVersion, schemaVersion: 7)
         defer { badUserVersion.cleanUp() }
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
-                path: badUserVersion.directory.appendingPathComponent("source.sqlite"), schemaVersion: 6,
+                path: badUserVersion.directory.appendingPathComponent("source.sqlite"), schemaVersion: 7,
                 dataVersion: badUserVersion.signedExpectation.dataVersion)
         }
 
-        let badMetaVersion = try MedicalCatalogFixture.make(database: .wrongSchemaVersion, schemaVersion: 6)
+        let badMetaVersion = try MedicalCatalogFixture.make(database: .wrongSchemaVersion, schemaVersion: 7)
         defer { badMetaVersion.cleanUp() }
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
-                path: badMetaVersion.directory.appendingPathComponent("source.sqlite"), schemaVersion: 6,
+                path: badMetaVersion.directory.appendingPathComponent("source.sqlite"), schemaVersion: 7,
                 dataVersion: badMetaVersion.signedExpectation.dataVersion)
         }
     }
@@ -417,11 +410,11 @@ struct MedicalCatalogReleaseAcceptanceTests {
 
     @Test("transfer guard rejects off-allowlist redirects, redirect chains and byte overflow")
     func transferGuard() throws {
-        let github = try #require(URL(string: "https://github.com/robinhoo1973/Vita-Liber/releases/download/medical-data/x.bin"))
-        let objects = try #require(URL(string: "https://objects.githubusercontent.com/asset"))
+        let base = try #require(URL(string: "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/x.bin"))
+        let asset = try #require(URL(string: "https://asset.cnb.cool/robinhoo1973/Resources/asset"))
         let evil = try #require(URL(string: "https://evil.example.com/asset"))
-        let task = URLSession.shared.downloadTask(with: github)
-        let redirect = try #require(HTTPURLResponse(url: github, statusCode: 302, httpVersion: nil, headerFields: nil))
+        let task = URLSession.shared.downloadTask(with: base)
+        let redirect = try #require(HTTPURLResponse(url: base, statusCode: 302, httpVersion: nil, headerFields: nil))
 
         let offList = MedicalCatalogPackageTransfer(expectedBytes: 10, onBytes: { _ in })
         let rejected = RequestBox()
@@ -434,7 +427,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
         for hop in 0...MedicalCatalogPackageTransfer.maxRedirects {
             let box = RequestBox()
             chain.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
-                             newRequest: URLRequest(url: objects)) { box.set($0) }
+                             newRequest: URLRequest(url: asset)) { box.set($0) }
             #expect((box.value != nil) == (hop < MedicalCatalogPackageTransfer.maxRedirects))
         }
         #expect(chain.failure == .redirectRejected)
@@ -449,18 +442,18 @@ struct MedicalCatalogReleaseAcceptanceTests {
             HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
         }
         let validator = MedicalCatalogPackageTransfer(expectedBytes: 10, onBytes: { _ in })
-        try validator.validate(try #require(response(objects, 200, ["Content-Length": "10"])))
+        try validator.validate(try #require(response(asset, 200, ["Content-Length": "10"])))
         #expect(throws: MedicalCatalogUpdateError.redirectRejected) {
             try validator.validate(try #require(response(evil, 200, ["Content-Length": "10"])))
         }
         #expect(throws: MedicalCatalogUpdateError.downloadFailed) {
-            try validator.validate(try #require(response(objects, 404, [:])))
+            try validator.validate(try #require(response(asset, 404, [:])))
         }
         #expect(throws: MedicalCatalogUpdateError.downloadFailed) {
-            try validator.validate(try #require(response(objects, 200, ["Content-Encoding": "gzip"])))
+            try validator.validate(try #require(response(asset, 200, ["Content-Encoding": "gzip"])))
         }
         #expect(throws: MedicalCatalogUpdateError.checksumMismatch) {
-            try validator.validate(try #require(response(objects, 200, ["Content-Length": "11"])))
+            try validator.validate(try #require(response(asset, 200, ["Content-Length": "11"])))
         }
     }
 
@@ -541,7 +534,7 @@ struct MedicalCatalogFixture {
             "rootKeyIDs": rootKeys.map(keyID), "rootThreshold": 2,
             "catalogKeyIDs": catalogKeys.map(keyID), "catalogThreshold": 2,
             "assetBaseURL": MedicalCatalogReleaseProtocol.releaseBaseURL,
-            "allowedHosts": ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"],
+            "allowedHosts": ["asset.cnb.cool"],
         ]
         let pinnedRootJSON = try sign(root, with: Array(rootKeys.prefix(rootSignerCount)))
 
@@ -564,11 +557,13 @@ struct MedicalCatalogFixture {
             "installable": installable,
             "contentSha256": dataVersion, "manifestSha256": hasher.sha256Hex(Data("manifest".utf8)),
             "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
-            "releaseTag": "medical-data", "repository": "robinhoo1973/Vita-Liber",
+            "releaseTag": "medical-data", "repository": "robinhoo1973/Resources",
+            "planSetSha256": hasher.sha256Hex(Data("plan-set".utf8)),
         ]
         let signers = Array(catalogKeys.prefix(catalogSignerCount))
         let pointerJSON = try sign(fields, with: signers)
-        let assetName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: installable, catalogVersion: 30)
+        let issuedDate = try #require(MedicalCatalogReleaseProtocol.timestamp("2026-09-26T12:00:00Z"))
+        let assetName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: installable, catalogVersion: 30, issuedAt: issuedDate)
         let expectation = try MedicalCatalogSignedPointerDecoder.expectation(
             catalogJSON: pointerJSON, servedAs: assetName, now: clock, hasher: hasher)
 
@@ -602,9 +597,12 @@ struct MedicalCatalogFixture {
         var fields = pointerFields
         mutate?(&fields)
         let json = mutate == nil ? signedPointerJSON : try Self.sign(fields, with: catalogSigners)
+        // v2 名须与 fields 内 issuedAt 一致(与期望绑定同源)。
+        let issued = try #require(MedicalCatalogReleaseProtocol.timestamp(fields["issuedAt"] as? String ?? ""))
         let name = MedicalCatalogReleaseProtocol.pointerAssetName(
             installable: fields["installable"] as? Bool ?? false,
-            catalogVersion: Int64(fields["catalogVersion"] as? Int ?? 0))
+            catalogVersion: Int64(fields["catalogVersion"] as? Int ?? 0),
+            issuedAt: issued)
         let expectation = try MedicalCatalogSignedPointerDecoder.expectation(
             catalogJSON: json, servedAs: name, now: Self.clock, hasher: CryptoKitContentHasher())
         try verifier().verify(catalogJSON: json, expected: expectation)

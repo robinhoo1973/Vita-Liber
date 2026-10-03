@@ -4,20 +4,21 @@ import Protocols
 /// medical-data Release 线协议常量与命名文法；逐项对齐
 /// `scripts/medical-data/go/medrelease`（trust.go / names.go），任何一侧改动须同步另一侧。
 public enum MedicalCatalogReleaseProtocol {
-    public static let repository = "robinhoo1973/Vita-Liber"
+    public static let repository = "robinhoo1973/Resources"
     public static let releaseTag = "medical-data"
     public static let assetKind = "medical-data"
     public static let app = "vitaliber"
-    /// Latest physical schema emitted by the current Go producer.
-    public static let sqliteSchemaVersion = 6
-    /// v5 is retained for already-published checkpoints; v6 adds fetch provenance
-    /// while preserving the exact App-visible v4 catalog tables.
-    public static let supportedSQLiteSchemaVersions: Set<Int> = [5, 6]
+    /// Latest physical schema emitted by the current Go producer(CNB 契约,2026-10-03 接入)。
+    public static let sqliteSchemaVersion = 7
+    /// CNB 单写者契约:只接受 v7;旧 GitHub 时代检查点从未发布,零旧设备悬崖
+    /// (医疗根从未随发布构建注入)。
+    public static let supportedSQLiteSchemaVersions: Set<Int> = [7]
     public static let sqliteEntryName = "medical-catalog.sqlite"
-    public static let releaseBaseURL = "https://github.com/" + repository + "/releases/download/" + releaseTag
-    public static let allowedHosts: Set<String> = [
-        "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com",
-    ]
+    /// CNB 资源下载基址(与 Go cnbReleaseBaseURL 逐字节一致)。
+    public static let releaseBaseURL = "https://cnb.cool/" + repository + "/-/releases/download/" + releaseTag
+    /// 基址主机(cnb.cool,常量拼出的首跳)+ 传输主机(asset.cnb.cool,根钉定;
+    /// 根 allowedHosts ⊆ 本集仍成立,与 GitHub 时代的基址+CDN 双主机同构)。
+    public static let allowedHosts: Set<String> = ["cnb.cool", "asset.cnb.cool"]
     static let signatureThreshold = 2
     static let maxPayloadBytes = 1 << 20
     static let maxEnvelopeBytes = 2 << 20
@@ -30,8 +31,40 @@ public enum MedicalCatalogReleaseProtocol {
     private static let packageInfix = "-cipher-"
     private static let packageSuffix = ".bin"
 
-    public static func pointerAssetName(installable: Bool, catalogVersion: Int64) -> String {
-        "medical-data-catalog-" + (installable ? "installable" : "progress") + "-" + String(catalogVersion) + ".json"
+    /// v2 指针资产名:版本 + 签名 issuedAt 的时间戳(Go TimeLayout 紧凑形)。
+    public static func pointerAssetName(installable: Bool, catalogVersion: Int64, issuedAt: Date) -> String {
+        "medical-data-catalog-" + (installable ? "installable" : "progress")
+            + "-" + String(catalogVersion) + "-" + timestampName(issuedAt) + ".json"
+    }
+
+    /// Go `TimeLayout`(`2006-01-02T15:04:05Z`)的紧凑文件名形态 `YYYYMMDDTHHMMSSZ`。
+    static func timestampName(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        return formatter.string(from: date)
+    }
+
+    /// v2 时间戳名解析:返回 (installable, catalogVersion, 名内时间戳字符串)。
+    /// 亦兼容 legacy 纯数字名(仅作候选定位;校验层的重算名只出 v2 形)。
+    public static func parsePointerAssetName(_ name: String) -> (installable: Bool, catalogVersion: Int64, timestamp: String?)? {
+        let prefix = "medical-data-catalog-"
+        let suffix = ".json"
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
+        let body = name.dropFirst(prefix.count).dropLast(suffix.count)
+        guard body.hasPrefix("installable-") || body.hasPrefix("progress-") else { return nil }
+        let installable = body.hasPrefix("installable-")
+        let rest = body.dropFirst(installable ? "installable-".count : "progress-".count)
+        let parts = rest.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let first = parts.first, first.allSatisfy(\.isNumber),
+              let version = Int64(first), version > 0 else { return nil }
+        if parts.count == 2 {
+            let ts = String(parts[1])
+            guard ts.utf8.count == 15, ts.allSatisfy({ $0.isNumber || $0 == "T" || $0 == "Z" }) else { return nil }
+            return (installable, version, ts)
+        }
+        return (installable, version, nil)   // legacy 形,仅定位用
     }
 
     public static func packageAssetName(sqliteSHA256: String, packageSHA256: String) -> String {
@@ -205,8 +238,10 @@ public enum MedicalCatalogSignedPointerDecoder {
         let envelope = try MedicalCatalogSignedEnvelope.decode(catalogJSON)
         let pointer = try MedicalCatalogSignedPointer.decode(envelope.payload)
         try pointer.checkWindow(now: now)
+        // v2 绑定:名内时间戳必须与签名 issuedAt 逐字节一致(防 inventory 置换)。
         guard assetName == MedicalCatalogReleaseProtocol.pointerAssetName(installable: pointer.installable,
-                                                                         catalogVersion: pointer.catalogVersion) else {
+                                                                         catalogVersion: pointer.catalogVersion,
+                                                                         issuedAt: pointer.issuedDate) else {
             throw MedicalCatalogTrustError.assetNameMismatch
         }
         return MedicalCatalogSignedExpectation(pointer, signedPointerDigest: hasher.sha256Hex(envelope.payload))
@@ -271,6 +306,9 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
     let sqliteSchemaVersion: Int
     let releaseTag: String
     let repository: String
+    /// v2 契约:canonical 计划集摘要(Go omitempty;App 侧要求必带——
+    /// 缺失/畸形在 strict 解码与摘要校验双重拒绝)。
+    let planSetSHA256: String
 
     private(set) var issuedDate = Date.distantPast
     private(set) var expiresDate = Date.distantPast
@@ -285,6 +323,7 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         case contentSHA256 = "contentSha256"
         case manifestSHA256 = "manifestSha256"
         case dataVersion, sqliteSchemaVersion, releaseTag, repository
+        case planSetSHA256
     }
 
     /// Go `validatePointerFields` 的 Swift 镜像（解码失败同 Go 归 invalidField）。
@@ -297,7 +336,8 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
             throw MedicalCatalogTrustError.invalidScope
         }
         let digests = [pointer.sqliteSHA256, pointer.packageSHA256, pointer.fetchStateSHA256,
-                       pointer.contentSHA256, pointer.manifestSHA256, pointer.dataVersion]
+                       pointer.contentSHA256, pointer.manifestSHA256, pointer.dataVersion,
+                       pointer.planSetSHA256]
         guard pointer.rootVersion > 0, pointer.catalogVersion > 0,
               digests.allSatisfy(MedicalCatalogReleaseProtocol.isLowercaseSHA256),
               pointer.packageSize > 0,

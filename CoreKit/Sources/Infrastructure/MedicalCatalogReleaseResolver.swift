@@ -47,14 +47,14 @@ enum MedicalCatalogResolveError: Error, Equatable {
 /// pinned root 缺失（发布配置尚未 provisioning）时 fail-closed **不联网**——
 /// 未配置≠网络错误，UI 呈「暂不可用」；检查永不自动重试限流（§5.53 限流纪律）。
 public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
-    /// 检查面固定地址（GitHub public API；无 Authorization/cookie/令牌）。
-    public static let inventoryURL = URL(string: "https://api.github.com/repos/"
-        + MedicalCatalogReleaseProtocol.repository + "/releases/tags/"
+    /// 检查面固定地址（CNB public API；无 Authorization/cookie/令牌）。
+    public static let inventoryURL = URL(string: "https://api.cnb.cool/"
+        + MedicalCatalogReleaseProtocol.repository + "/-/releases/tags/"
         + MedicalCatalogReleaseProtocol.releaseTag)!
     /// inventory 上界（覆盖 1000 资产上限内的 Release 元数据）。
     static let maxInventoryBytes = 4 << 20
-    /// 检查面允许的逐跳/终点主机 = 下载面三主机 + API 主机。
-    static let checkAllowedHosts = MedicalCatalogReleaseProtocol.allowedHosts.union(["api.github.com"])
+    /// 检查面允许的逐跳/终点主机 = 下载面钉定主机 + CNB API 主机。
+    static let checkAllowedHosts = MedicalCatalogReleaseProtocol.allowedHosts.union(["api.cnb.cool"])
 
     /// 检查面 URL 门（2026-09-27 评审修复）：此前三个检查点只查 host，弱于下载面
     /// `allowsTransferURL`（scheme/https/无 userinfo/端口 443 全查）——被篡改的
@@ -225,7 +225,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
 
     private func fetch(_ url: URL, maxBytes: Int, etag: Bool) async throws -> FetchResult {
         var request = URLRequest(url: url)
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         if etag, let cached = etagCache.entry(for: url) {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
@@ -321,15 +321,12 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         return highest
     }
 
-    /// 只认 `medical-data-catalog-installable-<正整数>.json` 文法；
-    /// progress / 其它命名一律返回 nil（不进入候选）。
+    /// 只认 `medical-data-catalog-installable-<正整数>[-<15 位时间戳>].json` 文法
+    /// (v2 时间戳名 + legacy 纯数字名兼容);progress / 其它命名一律返回 nil。
     private static func installablePointerVersion(_ name: String) -> Int64? {
-        let prefix = "medical-data-catalog-installable-"
-        let suffix = ".json"
-        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
-        let body = name.dropFirst(prefix.count).dropLast(suffix.count)
-        guard !body.isEmpty, body.allSatisfy(\.isNumber), let version = Int64(body), version > 0 else { return nil }
-        return version
+        guard let parsed = MedicalCatalogReleaseProtocol.parsePointerAssetName(name),
+              parsed.installable else { return nil }
+        return parsed.catalogVersion
     }
 }
 

@@ -214,7 +214,7 @@ struct MedicalCatalogUpdateTests {
             (.invalidScope, { $0["app"] = "other" }),
             (.invalidScope, { $0["assetKind"] = "asr-model" }),
             (.invalidScope, { $0["schemaVersion"] = 2 }),
-            (.invalidField, { $0["sqliteSchemaVersion"] = 7 }),
+            (.invalidField, { $0["sqliteSchemaVersion"] = 6 }),
             (.invalidField, { $0["packageSize"] = 0 }),
             (.invalidField, { $0["sqliteSha256"] = upper }),
             (.invalidField, { $0["packageSha256"] = "abc" }),
@@ -227,9 +227,9 @@ struct MedicalCatalogUpdateTests {
             (.invalidField, { $0["extra"] = 1 }),
             (.invalidField, { $0.removeValue(forKey: "manifestSha256") }),
             (.assetNameMismatch, { $0["packageAssetName"] = "medical-data-package-sqlite-\(String(repeating: "a", count: 64))-cipher-\(expected.packageSha256).bin" }),
-            (.expired, { $0["expiresAt"] = "2026-10-28T12:00:01Z" }),
+            (.expired, { $0["expiresAt"] = "2026-10-01T12:59:59Z" }),
             (.expired, { $0["expiresAt"] = "2026-09-26T12:00:00Z" }),
-            (.expired, { $0["issuedAt"] = "2026-09-26T13:05:01Z"; $0["expiresAt"] = "2026-10-27T13:05:01Z" }),
+            (.assetNameMismatch, { $0["issuedAt"] = "2026-09-26T13:05:01Z"; $0["expiresAt"] = "2026-10-27T13:05:01Z" }),
         ]
         for (error, mutate) in cases {
             let mutated = try GoMedicalFixture.rewrap(pointer, mutate: mutate)
@@ -274,32 +274,33 @@ struct MedicalCatalogUpdateTests {
     @Test("asset-name grammar matches the Go names")
     func assetNamesMatchGo() throws {
         let expected = try GoMedicalFixture.expected()
-        #expect(MedicalCatalogReleaseProtocol.pointerAssetName(installable: true, catalogVersion: 20) == expected.installablePointer)
-        #expect(MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 21) == expected.progressPointer)
+        let issued = try GoMedicalFixture.date(expected.issuedAt)
+        #expect(MedicalCatalogReleaseProtocol.pointerAssetName(installable: true, catalogVersion: 20, issuedAt: issued) == expected.installablePointer)
+        #expect(MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 21, issuedAt: issued) == expected.progressPointer)
         #expect(MedicalCatalogReleaseProtocol.packageAssetName(sqliteSHA256: expected.sqliteSha256,
                                                               packageSHA256: expected.packageSha256) == expected.packageAssetName)
         #expect(MedicalCatalogReleaseProtocol.isPackageAssetName(expected.packageAssetName))
         #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName("medical-data-package-sqlite-../x.bin"))
         #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName(expected.packageAssetName.uppercased()))
         #expect(MedicalCatalogReleaseProtocol.packageURL(assetName: expected.packageAssetName)?.absoluteString
-                == "https://github.com/robinhoo1973/Vita-Liber/releases/download/medical-data/" + expected.packageAssetName)
+                == "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/" + expected.packageAssetName)
         #expect(MedicalCatalogReleaseProtocol.packageURL(assetName: "medical-catalog.sqlite") == nil)
     }
 
     @Test("package transfer only follows HTTPS release hosts")
     func transferURLPolicy() throws {
         let allowed = [
-            "https://github.com/robinhoo1973/Vita-Liber/releases/download/medical-data/x.bin",
-            "https://release-assets.githubusercontent.com/github-production-release-asset/1",
-            "https://objects.githubusercontent.com/github-production-release-asset-2e65be/1",
+            "https://asset.cnb.cool/robinhoo1973/Resources/1",
+            "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/x.bin",
         ]
         let rejected = [
-            "http://github.com/robinhoo1973/Vita-Liber/releases/download/medical-data/x.bin",
+            "http://asset.cnb.cool/x.bin",
             "https://evil.example.com/x.bin",
-            "https://github.com.evil.example.com/x.bin",
-            "https://user:pass@github.com/x.bin",
-            "https://github.com:8443/x.bin",
+            "https://asset.cnb.cool.evil.example.com/x.bin",
+            "https://user:pass@asset.cnb.cool/x.bin",
+            "https://asset.cnb.cool:8443/x.bin",
             "file:///tmp/x.bin",
+            "https://github.com/robinhoo1973/Vita-Liber/releases/download/medical-data/x.bin",
         ]
         for value in allowed { #expect(MedicalCatalogReleaseProtocol.allowsTransferURL(try #require(URL(string: value)))) }
         for value in rejected { #expect(!MedicalCatalogReleaseProtocol.allowsTransferURL(try #require(URL(string: value)))) }
@@ -311,12 +312,12 @@ struct MedicalCatalogUpdateTests {
         let pointer = try GoMedicalFixture.data(expected.installablePointer)
         let candidate = VerifiedMedicalCatalogCandidate(
             verified: try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer))
-        let same = MedicalCatalogInstalledVersion(schemaVersion: 5, dataVersion: expected.dataVersion)
+        let same = MedicalCatalogInstalledVersion(schemaVersion: 7, dataVersion: expected.dataVersion)
         #expect(MedicalCatalogUpdateService.sameDataVersion(local: same, candidate: candidate))
         #expect(!MedicalCatalogUpdateService.sameDataVersion(
-            local: MedicalCatalogInstalledVersion(schemaVersion: 4, dataVersion: expected.dataVersion), candidate: candidate))
+            local: MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: expected.dataVersion), candidate: candidate))
         #expect(!MedicalCatalogUpdateService.sameDataVersion(
-            local: MedicalCatalogInstalledVersion(schemaVersion: 5, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
+            local: MedicalCatalogInstalledVersion(schemaVersion: 7, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
     }
 
     // 夹具 MedicalCatalogFixture 依赖 CryptoKit 签名（定义于 macOS-only 的
@@ -327,13 +328,13 @@ struct MedicalCatalogUpdateTests {
         let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
         defer { fixture.cleanUp() }
         let candidate = try fixture.candidate()
-        #expect(candidate.schemaVersion == 6)
+        #expect(candidate.schemaVersion == 7)
         #expect(MedicalCatalogUpdateService.sameDataVersion(
+            local: MedicalCatalogInstalledVersion(schemaVersion: 7, dataVersion: candidate.dataVersion), candidate: candidate))
+        #expect(!MedicalCatalogUpdateService.sameDataVersion(
             local: MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: candidate.dataVersion), candidate: candidate))
         #expect(!MedicalCatalogUpdateService.sameDataVersion(
-            local: MedicalCatalogInstalledVersion(schemaVersion: 5, dataVersion: candidate.dataVersion), candidate: candidate))
-        #expect(!MedicalCatalogUpdateService.sameDataVersion(
-            local: MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
+            local: MedicalCatalogInstalledVersion(schemaVersion: 7, dataVersion: String(repeating: "0", count: 64)), candidate: candidate))
     }
     #endif
 
