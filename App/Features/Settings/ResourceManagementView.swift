@@ -32,7 +32,9 @@ struct ResourceManagementView: View {
                     Text(L10n.voiceLabEntryHint)
                 }
             }
-            .navigationTitle(L10n.resourceManagementTitle)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.resourceManagementTitle)
             .navigationBarTitleDisplayMode(.inline)
         }
     }

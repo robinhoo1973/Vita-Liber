@@ -55,7 +55,9 @@ struct ProOutputHubView: View {
                     .accessibilityIdentifier("SP-61.output.\(product.capability)")
                 }
             }
-            .navigationTitle(L10n.proOutputTitle)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.proOutputTitle)
             .alert(L10n.proOutputPreview, isPresented: Binding(
                 get: { previewProduct != nil },
                 set: { if !$0 { previewProduct = nil } })) {

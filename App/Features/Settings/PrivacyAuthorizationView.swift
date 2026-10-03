@@ -53,7 +53,9 @@ struct PrivacyAuthorizationView: View {
                     .accessibilityIdentifier("FR14.1.location.settings")
                 }
             }
-            .navigationTitle(L10n.privacyAuthTitle)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.privacyAuthTitle)
             .task { await settings.load() }
         }
     }

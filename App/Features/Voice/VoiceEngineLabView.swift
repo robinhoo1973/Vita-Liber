@@ -142,6 +142,13 @@ struct VoiceEngineLabView: View {
                                 .foregroundStyle(Color("semantic-warning", bundle: .main))
                                 .accessibilityIdentifier("SP-62.test.fallbackNote")
                         }
+                    } else if rebuildTask != nil {
+                        // V4.13 呈现评审：注释自 V3.66 起声称「诚实呈现构建中」
+                        // 但从未实现——重建期补齐可见的构建中态。
+                        ProgressView()
+                        Text(L10n.voiceLabBuilding)
+                            .font(.caption).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-62.test.building")
                     }
                 } header: {
                     Text(L10n.voiceLabTestSection)
@@ -211,7 +218,8 @@ struct VoiceEngineLabView: View {
         // 2026-09-19 审查修复（业主实测「换引擎后按压跑的还是旧引擎」）：构建窗口内
         // 旧引擎必须**立即停用**——此前 model 保留到新引擎装配完，期间按压启动的是
         // 已 stopForDisappear 但仍可重启的旧引擎，对照测试静默跑错引擎。取消在途
-        // 构建 + 清空引用，按压区随 `if let model` 消失，诚实呈现「构建中」。
+        // 构建 + 清空引用，按压区随 `if let model` 消失；「构建中」可见态 V4.13 补齐
+        // （测试区 `rebuildTask != nil` 分支）。
         rebuildTask?.cancel()
         model?.stopForDisappear()
         model = nil

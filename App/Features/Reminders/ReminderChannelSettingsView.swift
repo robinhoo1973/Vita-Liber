@@ -56,7 +56,9 @@ struct ReminderChannelSettingsView: View {
                     Text(L10n.remchBannerFooter)
                 }
             }
-            .navigationTitle(L10n.remchTitle)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.remchTitle)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("SP-26.remch.list")
         }

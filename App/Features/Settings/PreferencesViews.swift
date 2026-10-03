@@ -95,7 +95,9 @@ struct PreferencesView: View {
                     }
                 }
             }
-            .navigationTitle(L10n.settings_habits)
+                        .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
+.navigationTitle(L10n.settings_habits)
             .task {
                 await settings.load()
                 loadValues()

@@ -14,6 +14,8 @@ struct FeedbackView: View {
     @State private var attachOriginalText = false
     @State private var attachMedia = false
     @State private var submitted = false
+    /// V4.13 呈现评审：提交中反馈——此前点击后无任何进行态/防重入。
+    @State private var submitting = false
 
     // FR22.5 六类反馈（名称经 L10n 三文件；分类 key 落审计用索引）
     private var categories: [String] { (0..<6).map { L10n.feedbackCategoryName($0) } }
@@ -43,16 +45,28 @@ struct FeedbackView: View {
                     Text(L10n.feedbackAttachmentHint)
                 }
                 Section {
-                    Button(L10n.feedbackSubmit) {
+                    Button {
+                        guard !submitting else { return }
+                        submitting = true
                         app.reportFeedback(category: categories[category],
                                            detail: detail,
                                            attachments: [attachScreenshot, attachOriginalText, attachMedia])
+                        submitting = false
                         submitted = true
+                    } label: {
+                        if submitting {
+                            ProgressView()
+                        } else {
+                            Text(L10n.feedbackSubmit)
+                        }
                     }
-                    .disabled(detail.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .frame(minHeight: 44)
+                    .disabled(detail.trimmingCharacters(in: .whitespaces).isEmpty || submitting)
                     .accessibilityIdentifier("SP-46.feedback.submit")
                 }
             }
+            .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .tintedCanvas()
             .navigationTitle(L10n.feedbackTitle)
             .alert(L10n.feedbackSubmitted, isPresented: $submitted) {
                 Button(L10n.onboard_gotIt, role: .cancel) { }

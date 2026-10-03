@@ -25,7 +25,7 @@ enum AppearanceRules {
     }
 }
 
-/// 设置绑定统一工厂（ThemeSettingsView / SettingsView 共用）：
+/// 设置绑定统一工厂（SettingsView 用；V4.13 清理死引用——ThemeSettingsView 已于 V4.12 删除）：
 /// 三处同款「DB 值 → 绑定」复制收敛一处，避免布尔口径与主题回落逻辑漂移。
 /// @MainActor：引用 AppSettingsStore.values（@MainActor 状态）——非隔离枚举下
 /// 闭包失去视图上下文的 MainActor 继承（CI 35413799823 实证）。
