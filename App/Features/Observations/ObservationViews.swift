@@ -468,6 +468,10 @@ struct LockedMediaStrip: View {
     let memberId: UUID
     @Environment(ObservationStoreState.self) private var state
     @State private var blurImages: [UIImage] = []
+    /// 2026-10-03 评审修复（错位照片）：blur 解码失败项被静默丢弃后数组压缩，
+    /// 点击回调按渲染位置取 `assetIds[index]` 会打开**相邻照片**的原图——
+    /// 保留与 assetIds 对齐的真实下标（非类型化 (index, images) 耦合的显式化）。
+    @State private var blurAssetIndices: [Int] = []
     /// 评审修正 U3：点击解锁查看原图（§5.7.1）——此前媒体条无任何手势，
     /// 原图在 UI 层不可达（SensitiveMediaOriginalView 零调用方，违背
     /// 永久免费「原图/离线访问」红线）。查看器承载逐次认证 + 30s 空闲重锁。
@@ -487,8 +491,10 @@ struct LockedMediaStrip: View {
         WithPerceptionTracking {
             MediaThumbRow(images: blurImages, size: 56) { index in
                 // 逐张打开原图（审查修复：原条级点击只开第一张，其余资产不可达）
-                guard assetIds.indices.contains(index),
-                      let assetId = UUID(uuidString: assetIds[index]) else { return }
+                // 2026-10-03 评审修复（错位照片）：渲染位置 → 真实 assetIds 下标
+                guard blurAssetIndices.indices.contains(index),
+                      assetIds.indices.contains(blurAssetIndices[index]),
+                      let assetId = UUID(uuidString: assetIds[blurAssetIndices[index]]) else { return }
                 openOriginal(assetId: assetId)
             }
                 .frame(height: 64)
@@ -518,10 +524,11 @@ struct LockedMediaStrip: View {
                         for await (index, img) in group {
                             if let img { out.append((index, img)) }
                         }
-                        return out.sorted { $0.0 < $1.0 }.map(\.1)
+                        return out.sorted { $0.0 < $1.0 }
                     }
                     guard !Task.isCancelled else { return }
-                    blurImages = results
+                    blurAssetIndices = results.map(\.0)
+                    blurImages = results.map(\.1)
                 }
         }
     }
