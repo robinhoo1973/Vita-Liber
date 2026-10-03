@@ -35,10 +35,24 @@ public enum MediaUnlockPolicy: Sendable {
     /// 计时任务每帧重启。1 秒粒度足够表达「仍在活跃」，对 30s 阈值无可感差异。
     public static let activityCoalescingWindow: TimeInterval = 1
 
-    /// 解锁成功后、宽限窗口内收到 inactive 是否应当重锁。
+    /// 解锁成功后收到 inactive 是否应当重锁。
     /// 纯谓词进 Domain（架构规则 4）：视图只报事件与时刻，判定不落 UI。
-    public static func shouldRelockOnInactive(lastUnlockAt: Date, now: Date) -> Bool {
-        now.timeIntervalSince(lastUnlockAt) >= postUnlockInactiveGrace
+    ///
+    /// 2026-10-03 评审修复（慢设备/瞬态 inactive 秒回锁）：
+    /// - 认证成功 → **首次回到 .active 之前**不因 inactive 重锁——浮层收起
+    ///   的 stray .inactive 可能晚于认证续体送达（顺序无契约），固定 5 秒
+    ///   窗口在慢收起（密码回退键盘/慢动画）时不足；
+    /// - 回到 .active 之后，再按 5 秒宽限判定（此后 inactive = 拉通知栏/
+    ///   控制中心等真实瞬态，业主「最低认证要求至少 5 秒」口径不变）；
+    /// - **绝对兜底**：未回到 active 的 inactive 持续超过 idleTTL（30s）
+    ///   视为真离开按重锁处理——防「认证后 lifecycle 通知永不送达」
+    ///   （Apple 论坛 788367 实报）造成永久解锁回归。
+    public static func shouldRelockOnInactive(lastUnlockAt: Date, now: Date,
+                                              hasReturnedToActive: Bool = true) -> Bool {
+        if !hasReturnedToActive {
+            return now.timeIntervalSince(lastUnlockAt) >= idleTTL
+        }
+        return now.timeIntervalSince(lastUnlockAt) >= postUnlockInactiveGrace
     }
 
     /// 是否应当重锁（以最后一次交互为起点）

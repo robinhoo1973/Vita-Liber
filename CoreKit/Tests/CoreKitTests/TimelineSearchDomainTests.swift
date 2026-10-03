@@ -639,6 +639,28 @@ struct MediaUnlockPolicyTests {
         #expect(MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
                                                          now: unlockedAt.addingTimeInterval(30)))
     }
+
+    /// 2026-10-03 评审修复：宽限锚定「首次回 active」——回 active 前不因
+    /// inactive 重锁（慢设备浮层收起 >5s 的秒回锁修复）；绝对兜底 idleTTL
+    /// 防「认证后 lifecycle 通知永不送达」造成永久解锁回归。
+    @Test func inactiveGraceAnchoredToFirstReturnToActive() {
+        let unlockedAt = Date(timeIntervalSince1970: 1_000_000)
+        // 未回 active:10s 的 stray inactive 不重锁(旧 5s 窗口会秒回锁)
+        #expect(!MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                          now: unlockedAt.addingTimeInterval(10),
+                                                          hasReturnedToActive: false))
+        // 未回 active:超过 idleTTL(30s)视为真离开,兜底重锁
+        #expect(MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                         now: unlockedAt.addingTimeInterval(30),
+                                                         hasReturnedToActive: false))
+        // 已回 active:维持业主「至少 5 秒」口径
+        #expect(!MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                          now: unlockedAt.addingTimeInterval(4),
+                                                          hasReturnedToActive: true))
+        #expect(MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt,
+                                                         now: unlockedAt.addingTimeInterval(5),
+                                                         hasReturnedToActive: true))
+    }
 }
 
 // binds: SU-M15-TREND — 无障碍与可见文本的医学数字必须一致
