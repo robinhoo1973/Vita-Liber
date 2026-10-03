@@ -44,11 +44,28 @@ struct PendingCardResumeRouteView: View {
                 } else if loadFailed {
                     VLUnavailableView {
                         Label(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                    } actions: { Button(L10n.retry) { Task { await load() } } }
+                    } actions: {
+                        Button(L10n.retry) { Task { await load() } }
+                            .accessibilityIdentifier("SP-53.resume.retry")
+                    }
                 } else if loaded {
                     VLUnavailableView(L10n.pendingCardNotFound, systemImage: "tray")
-                } else { ProgressView() }
+                } else {
+                    // §6 骨架屏（2026-10-03 评审 R1-8c）：页级加载态禁用菊花。
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(0..<3, id: \.self) { _ in
+                            RoundedRectangle(cornerRadius: 14)
+                                .fill(Color(.systemGray5))
+                                .frame(height: 56)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("SP-53.resume.loading")
+                }
             }
+            // 2026-10-03 评审 R1-8b：页面容器补标识（容器级标识必须 .contain，L0 §17 掩蔽纪律）
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("SP-53.resume")
             .task(id: cardId) { await load() }
             .ocrImportReviewHost(enabled: retainedImportID != nil && docs.activeImport?.id == retainedImportID,
                                  advanceQueuedImports: false) { _ in dismiss() }
