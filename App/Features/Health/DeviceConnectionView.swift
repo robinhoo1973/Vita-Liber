@@ -191,9 +191,11 @@ final class F16DeviceState {
                         // C6（2026-10-03 评审修复）：每轮上报 completedUnitCount——
                         // 此前全程 0/20，系统优先终止无进度任务（BGContinuedProcessingTask 文档）。
                         // L1 编译修复：ValueBox 为无参 init，先建盒再装值
-                        // （CI #640 注解实证：argument passed to call that takes no arguments）
-                        let progressBox = ValueBox<NSProgress?>()
-                        progressBox.value = progress
+                        // （CI #640 注解实证：argument passed to call that takes no arguments）。
+                        // 盒装非可选 NSProgress：装可选会叠出 NSProgress?? 双可选层
+                        // （CI #641 注解实证：must be unwrapped to refer to member）
+                        let progressBox = ValueBox<NSProgress>()
+                        if let progress { progressBox.value = progress }
                         let report = try await service.performSyncAll(
                             quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds,
                             onRound: { round in
