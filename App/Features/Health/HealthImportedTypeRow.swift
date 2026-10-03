@@ -12,8 +12,10 @@ import Perception
 struct HealthImportedTypeRow: View {
     @Environment(F16DeviceState.self) private var deviceState
 
-    let type: HealthImportRow
-    let patientId: String
+    /// 行元素类型 = 两处调用点 ForEach 的真实元素 `HealthTypeSummary`
+    /// （详情页行 HealthImportRow 只在明细页用——首版误用其类型,macOS CI 编译红实证）
+    let type: HealthTypeSummary
+    let patientId: UUID
     let accessibilityPrefix: String
     /// 同步进度条的 a11y 前缀（健康 Tab 契约 `SP-29.health.home.progress.*`，
     /// 与行前缀 `…home.data.*` 不同——保持既有 XCUITest 契约不变）
