@@ -79,4 +79,16 @@ struct MemberProfileCompletenessTests {
         let today = MemberProfileCompleteness.birthDateString(from: Date(), in: shanghai)
         #expect(MemberProfileCompleteness.isValidBirthDate(today, in: shanghai))
     }
+
+    @Test func missingVoiceInterviewStepsListsInFixedSemanticOrder() {
+        // 2026-10-03 评审 R2-1：缺项行数据源——固定 FR17.11 列序，未完成才出现。
+        let empty = MemberProfileCompleteness.missingVoiceInterviewSteps(interviewCompleted: [])
+        #expect(empty == ["allergy", "pastHistory", "currentMeds", "emergencyContact"])
+        let partial = MemberProfileCompleteness.missingVoiceInterviewSteps(
+            interviewCompleted: ["allergy", "emergencyContact"])
+        #expect(partial == ["pastHistory", "currentMeds"])
+        let done = MemberProfileCompleteness.missingVoiceInterviewSteps(
+            interviewCompleted: ["allergy", "pastHistory", "currentMeds", "emergencyContact"])
+        #expect(done.isEmpty, "四段齐备时缺项行为空——卡片不渲染该行")
+    }
 }

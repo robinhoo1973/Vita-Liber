@@ -83,4 +83,11 @@ public enum MemberProfileCompleteness {
         } ?? false
         return (done + (birthDone ? 1 : 0) + interviewCompleted.intersection(voiceInterviewKeys).count, total)
     }
+
+    /// 缺失的语音访谈步骤键（2026-10-03 评审 R2-1：档案完善卡缺项行数据源——
+    /// 固定语义序（过敏/既往史/当前用药/紧急联系人，FR17.11 列序），
+    /// 供首页一行纯事实提示「缺：… · 补全后急救卡可用」（FR2.1b V4.11 增补口径）。
+    public static func missingVoiceInterviewSteps(interviewCompleted: Set<String>) -> [String] {
+        ["allergy", "pastHistory", "currentMeds", "emergencyContact"].filter { !interviewCompleted.contains($0) }
+    }
 }
