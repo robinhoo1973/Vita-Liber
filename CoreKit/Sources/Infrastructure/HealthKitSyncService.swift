@@ -343,7 +343,9 @@ public actor HealthKitSyncService {
                     group.addTask {
                         do {
                             try Task.checkCancellation()
-                            return (idx, .success(try await provider.snapshot(for: window, calendar: binding.calendar)))
+                            // macOS CI 修复：actor 内逃逸闭包引用属性须显式 self
+                            // （SE-0365 显式捕获语义；Linux 平台守卫桩全盲，CI #636 注解实证）
+                            return (idx, .success(try await self.provider.snapshot(for: window, calendar: binding.calendar)))
                         } catch { return (idx, .failure(error)) }
                     }
                 }
