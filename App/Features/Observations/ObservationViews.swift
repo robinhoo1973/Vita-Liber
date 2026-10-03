@@ -534,7 +534,8 @@ struct LockedMediaStrip: View {
                     }
                     guard !Task.isCancelled else { return }
                     blurAssetIndices = indices
-                    blurImages = indices.compactMap { imageCache.object(forKey: ids[$0] as NSString) }
+                    // 静态成员经 Self 前缀（实例上下文引用 static 成员 L1 编译错，CI #643 注解实证）
+                    blurImages = indices.compactMap { Self.imageCache.object(forKey: ids[$0] as NSString) }
                 }
         }
     }
