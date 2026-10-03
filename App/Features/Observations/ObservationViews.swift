@@ -516,19 +516,25 @@ struct LockedMediaStrip: View {
                     let state = state
                     let member = memberId
                     let ids = assetIds
-                    let results = await withTaskGroup(of: (Int, UIImage?).self) { group in
+                    // 2026-10-03 CI 修复：@Sendable 任务组闭包**不得返回非 Sendable 值**——
+                    // 上一修复返回 [(Int, UIImage)]（元组含非 Sendable 成员）在 macOS L1
+                    // 报 'UIImage does not conform to Sendable'（Linux swiftc -swift-version 6
+                    // 同判；纯 [UIImage] 数组形态反而通过——形态差异，勿再试）。改为闭包
+                    // 只返回成功下标 [Int]（Sendable），UIImage 经 thumb 的静态缓存
+                    // 在 MainActor 侧取回（成功项必已入缓存）。
+                    let indices = await withTaskGroup(of: (Int, UIImage?).self) { group in
                         for (index, id) in ids.enumerated() {
                             group.addTask { (index, await Self.thumb(id: id, memberId: member, state: state)) }
                         }
-                        var out: [(Int, UIImage)] = []
+                        var succeeded: [Int] = []
                         for await (index, img) in group {
-                            if let img { out.append((index, img)) }
+                            if img != nil { succeeded.append(index) }
                         }
-                        return out.sorted { $0.0 < $1.0 }
+                        return succeeded.sorted()
                     }
                     guard !Task.isCancelled else { return }
-                    blurAssetIndices = results.map(\.0)
-                    blurImages = results.map(\.1)
+                    blurAssetIndices = indices
+                    blurImages = indices.compactMap { imageCache.object(forKey: ids[$0] as NSString) }
                 }
         }
     }
