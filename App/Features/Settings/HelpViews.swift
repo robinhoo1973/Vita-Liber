@@ -199,11 +199,12 @@ private struct PermissionRow: View {
 
     var body: some View {
         WithPerceptionTracking {
-            HStack {
-                Label(name, systemImage: icon)
-                Spacer()
+            // T3 呈现评审:手写 Text+Spacer+值 行 → LabeledContent(标准行形态)
+            LabeledContent {
                 Text(status)
                     .foregroundStyle(status.contains(L10n.helpStatusAuthorized) ? Color("semantic-success", bundle: .main) : .secondary)
+            } label: {
+                Label(name, systemImage: icon)
             }
         }
     }
@@ -223,17 +224,13 @@ struct HelpReminderDiagnostics: View {
         WithPerceptionTracking {
             Form {
                 Section(L10n.helpReminderSection) {
-                    HStack {
-                        Text(L10n.helpReminderPermission)
-                        Spacer()
+                    LabeledContent(L10n.helpReminderPermission) {
                         Text(notificationStatus)
                             .foregroundStyle(notificationStatus.contains(L10n.helpStatusAuthorized) ? Color("semantic-success", bundle: .main) : .secondary)
                     }
                 }
                 Section(L10n.helpReminderTodaySection) {
-                    HStack {
-                        Text(L10n.helpReminderPendingDoses)
-                        Spacer()
+                    LabeledContent(L10n.helpReminderPendingDoses) {
                         Text("\(reminderStore.pendingCount)")
                             .foregroundStyle(reminderStore.pendingCount > 0 ? Color("semantic-warning", bundle: .main) : .secondary)
                     }
@@ -280,26 +277,19 @@ struct HelpDataHealth: View {
         WithPerceptionTracking {
             Form {
                 Section(L10n.helpDataDbSection) {
-                    HStack {
-                        Text(L10n.helpDataIntegrity)
-                        Spacer()
+                    LabeledContent(L10n.helpDataIntegrity) {
                         Text(dbIntegrity)
                             .foregroundStyle(dbIntegrity.contains(L10n.helpDataNormal) ? Color("semantic-success", bundle: .main) : .secondary)
                     }
                 }
                 Section(L10n.helpDataStorageSection) {
-                    HStack {
-                        Text(L10n.helpDataDbSize)
-                        Spacer()
-                        Text(storageSize)
-                    }
+                    LabeledContent(L10n.helpDataDbSize, value: storageSize)
                 }
                 Section(L10n.helpDataBackupSection) {
-                    HStack {
+                    LabeledContent {
+                        Text(lastBackup).foregroundStyle(.secondary)
+                    } label: {
                         Text(L10n.helpDataLastBackup)
-                        Spacer()
-                        Text(lastBackup)
-                            .foregroundStyle(.secondary)
                     }
                 }
             }
