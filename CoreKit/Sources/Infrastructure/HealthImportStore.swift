@@ -101,6 +101,22 @@ public actor HealthImportStore {
         }
     }
 
+    /// C7（2026-10-03 评审修复）：空推进页直接落锚点——recent 道稀疏扫描的断点持久化。
+    /// 只推进「已覆盖」扫描位置（无 added/deleted），不触碰批次物化语义；
+    /// 锚点键与 commit 推进同一 upsert 形态。
+    public func saveAnchor(binding: Binding, kind: HealthDataKind, lane: HealthFetchLane, anchor: Data) async throws {
+        try Task.checkCancellation()
+        try await writer.write { db in
+            try Task.checkCancellation()
+            try Self.requireEnabled(db)
+            try Self.requireBinding(binding, db: db)
+            try db.execute(sql: """
+                INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value, updated_at = excluded.updated_at
+                """, arguments: [Self.anchorKey(binding, kind, lane), anchor.base64EncodedString(), Date().timeIntervalSince1970])
+        }
+    }
+
     /// Append one bounded page. Missing identities never prevent fetching its successor.
     public func stage(binding: Binding, kind: HealthDataKind, scope: HealthFetchScope, previousAnchor: Data?,
                       page: HealthChangeBatch) async throws -> PendingBatch {
