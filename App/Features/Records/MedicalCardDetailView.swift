@@ -266,11 +266,7 @@ private struct DiagnosisRow: View {
                 HStack(spacing: 8) {
                     Text(diagnosis.name).font(.body.bold())
                     Spacer()
-                    Text(DocumentsDisplay.fieldValueDisplay(forKey: "diagnosis_type", value: diagnosis.diagnosisType))
-                        .font(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    PillBadge(text: DocumentsDisplay.fieldValueDisplay(forKey: "diagnosis_type", value: diagnosis.diagnosisType), style: .brand, size: .regular)
                 }
                 let meta = DiagnosisRow.meta(diagnosis)
                 if !meta.isEmpty {
@@ -307,11 +303,7 @@ struct ClinicalConclusionRow: View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .top, spacing: 8) {
-                    Text(L10n.conclusionTypeName(conclusion.conclusionType))
-                        .font(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    PillBadge(text: L10n.conclusionTypeName(conclusion.conclusionType), style: .brand, size: .regular)
                     Spacer()
                     if let severity = conclusion.severityText?.trimmingCharacters(in: .whitespacesAndNewlines), !severity.isEmpty {
                         Text(DocumentsDisplay.fieldLabel(forKey: "severity") + ": " + severity)

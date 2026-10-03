@@ -8,20 +8,28 @@ import SwiftUI
 /// - brand:brand-primary 0.15 底 + brand 前景（主语言/主标签类）
 /// - neutral:bg-grouped 底 + text-secondary 前景（尽力识别/从属标注类）
 /// - warning / danger:semantic-warning/danger 0.15 底 + 同色前景（状态警示类）
-/// 统一不透明度 0.15（原 0.12 变体视觉并入）；字体 caption2、内边距 6/2 与旧形态一致。
+/// 统一不透明度 0.15（原 0.12 变体视觉并入）。
+/// 两档尺寸与旧形态一致:small = caption2/6/2(行内徽标),regular = caption/8/4(卡片类别徽章)。
 struct PillBadge: View {
     enum Style {
         case brand, neutral, warning, danger
     }
 
+    enum Sizing {
+        case small, regular
+    }
+
     let text: String
     var style: Style = .brand
+    var size: Sizing = .small
+    var bold: Bool = false
 
     var body: some View {
         Text(text)
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .font(size == .regular ? .caption : .caption2)
+            .fontWeight(bold ? .bold : nil)
+            .padding(.horizontal, size == .regular ? 8 : 6)
+            .padding(.vertical, size == .regular ? 4 : 2)
             .background(Capsule().fill(background(for: style)))
             .foregroundStyle(foreground(for: style))
     }

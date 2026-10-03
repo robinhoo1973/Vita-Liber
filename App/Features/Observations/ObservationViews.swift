@@ -447,9 +447,7 @@ struct ObservationListView: View {
                         // 审查修复（L10n 单出口）：severity 是库里的规范值
                         // （mild/moderate/severe），此前直出上屏——中文界面显示「mild」。
                         // 展示出口 L10n.allergySeverity 已存在且被 AllergyViews 使用。
-                        Text(L10n.allergySeverity(a.severity)).font(.caption)
-                            .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.15)))
+                        PillBadge(text: L10n.allergySeverity(a.severity), style: .warning, size: .regular)
                     }
                     .accessibilityIdentifier("SP-50.allergy.row")
                 }

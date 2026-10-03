@@ -37,10 +37,7 @@ struct MemberManagementView: View {
                                 }
                                 Spacer()
                                 if member.id == app.currentPatientId {
-                                    Text(L10n.member_current).font(.caption).bold()
-                                        .padding(.horizontal, 8).padding(.vertical, 4)
-                                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
-                                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                                    PillBadge(text: L10n.member_current, style: .brand, size: .regular, bold: true)
                                 } else {
                                     Button(L10n.member_switch) {
                                         app.setCurrentPatient(member.id)

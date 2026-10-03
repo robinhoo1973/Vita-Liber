@@ -56,11 +56,7 @@ struct TimelineHubRowView: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Text(L10n.timelineKindName(item.entry.kind))
-                            .font(.caption)
-                            .padding(.horizontal, 8).padding(.vertical, 4)
-                            .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                        PillBadge(text: L10n.timelineKindName(item.entry.kind), style: .brand, size: .regular)
                         Text(headline).font(.subheadline).lineLimit(1)
                     }
                     if let subline, !subline.isEmpty {

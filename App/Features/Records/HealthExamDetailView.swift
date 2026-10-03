@@ -176,11 +176,7 @@ struct HealthExamDetailView: View {
             Image(systemName: spec.symbol).foregroundStyle(spec.tint)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(L10n.entityCardKindName(kind))
-                        .font(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    PillBadge(text: L10n.entityCardKindName(kind), style: .brand, size: .regular)
                     if let date = report.reportDate {
                         Text(date.formatted(date: .abbreviated, time: .omitted)).font(.caption2).foregroundStyle(.secondary)
                     }

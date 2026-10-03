@@ -83,11 +83,7 @@ struct PendingOcrQueueView: View {
                                     // 关怀模式/高对比主题下不随语义令牌重映射）
                                     GradeBadge(grade: "D")
                                     if row.overdue {
-                                        Text(L10n.ocrQueue72h)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6).padding(.vertical, 2)
-                                            .background(Capsule().fill(Color("semantic-danger", bundle: .main).opacity(0.12)))
-                                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                                        PillBadge(text: L10n.ocrQueue72h, style: .danger)
                                     }
                                     Spacer()
                                     // FR6.8 一键跳回来源文档原文（BR-002）

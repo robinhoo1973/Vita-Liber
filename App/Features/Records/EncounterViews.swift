@@ -264,11 +264,7 @@ struct EncounterDetailView: View {
                     Text(current?.hospital ?? encounter.hospital ?? L10n.encounterUntitled)
                         .font(.title2.bold())
                     Spacer()
-                    Text(encounterKindDisplayName(current?.kind ?? encounter.kind))
-                        .font(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    PillBadge(text: encounterKindDisplayName(current?.kind ?? encounter.kind), style: .brand, size: .regular)
                 }
                 if let dept = current?.department ?? encounter.department {
                     Text(dept).font(.subheadline)
@@ -542,11 +538,7 @@ struct EncounterDetailView: View {
                     // 审查修复：与同页头部「就诊类型胶囊」同一形态（8/4 内距、
                     // brand-primary 12% 底 + brand-primary 前景）——旧实现为
                     // bg-grouped 底 6/2 内距的第二种胶囊，同屏两种徽章形态漂移。
-                    Text(L10n.entityCardKindName(card.kind.cardKind))
-                        .font(.caption)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.12)))
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    PillBadge(text: L10n.entityCardKindName(card.kind.cardKind), style: .brand, size: .regular)
                     if let date = card.date {
                         Text(date.formatted(date: .abbreviated, time: .omitted))
                             .font(.caption2).foregroundStyle(.secondary)
