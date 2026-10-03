@@ -303,13 +303,6 @@ public actor HealthKitSyncService {
         // Even a previously drained but incomplete batch can discover later tombstones on this page.
         let page = try await provider.changes(for: kind, scope: scope, anchor: previous, limit: 500)
         report.receivedChanges += page.added.count + page.deleted.count
-        // C7（2026-10-03）：空推进页（稀疏类型断点扫描封顶返回）——stage 门卫
-        // 拒绝空页（hasMore 必带内容），改经 saveAnchor 直接落锚点；
-        // hasMore 透传使 performSyncAll 在预算内续扫下一段。
-        if page.added.isEmpty, page.deleted.isEmpty, page.anchor != previous {
-            try await imports.saveAnchor(binding: binding, kind: kind, lane: scope.lane, anchor: page.anchor)
-            return DrainOutcome(hadWork: true, hasMore: page.hasMore)
-        }
         let pending = try await imports.stage(binding: binding, kind: kind, scope: scope, previousAnchor: previous, page: page)
         var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
             .filter { !pending.completedWindows.contains($0) }
@@ -333,40 +326,15 @@ public actor HealthKitSyncService {
         var queries = report.perKindQueries ?? [:]
         queries[kind.rawValue] = (queries[kind.rawValue] ?? 0) + 1 + attempted.count
         report.perKindQueries = queries
-        // C2 快照并发化（2026-10-03）：窗口间无依赖，分块 ≤4 并发——
-        // provider 为 actor 但查询经 continuation 挂起（actor 重入），
-        // HK 往返真实重叠；提交仍串行单事务，checkpoint 语义不变。
-        guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
-        let chunkSize = 4
-        var chunkStart = 0
-        while chunkStart < attempted.count {
-            let chunkEnd = min(chunkStart + chunkSize, attempted.count)
-            let chunk = Array(attempted[chunkStart..<chunkEnd])
-            var results: [(Int, Result<HealthWindowSnapshot, Error>)] = []
-            await withTaskGroup(of: (Int, Result<HealthWindowSnapshot, Error>).self) { group in
-                for (i, window) in chunk.enumerated() {
-                    let idx = chunkStart + i
-                    group.addTask {
-                        do {
-                            try Task.checkCancellation()
-                            // macOS CI 修复：actor 内逃逸闭包引用属性须显式 self
-                            // （SE-0365 显式捕获语义；Linux 平台守卫桩全盲，CI #636 注解实证）
-                            return (idx, .success(try await self.provider.snapshot(for: window, calendar: binding.calendar)))
-                        } catch { return (idx, .failure(error)) }
-                    }
-                }
-                for await pair in group { results.append(pair) }
-            }
-            for (_, result) in results.sorted(by: { $0.0 < $1.0 }) {
-                switch result {
-                case .success(let snap): snapshots.append(snap)
-                case .failure(let error):
-                    if error is CancellationError { throw CancellationError() }
-                    queryFailed = true
-                }
-            }
-            chunkStart = chunkEnd
-            if queryFailed { break }   // 已失败的类型不再空跑后续窗口查询
+        // C2 分块并发快照与 C7 空页落锚已回退（2026-10-04 CI #652 三例契约回归：
+        // 取消/错误传播与锚点时序与既有测试契约冲突）——恢复串行窗口快照循环，
+        // 逐窗口 checkCancellation/isEnabled 与失败继续语义；优化项登记重做。
+        for window in attempted {
+            try Task.checkCancellation()
+            guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+            do { snapshots.append(try await provider.snapshot(for: window, calendar: binding.calendar)) }
+            catch is CancellationError { throw CancellationError() }
+            catch { queryFailed = true }
         }
         let committed = try await imports.commit(binding: binding, kind: kind, pending: pending,
                                                  snapshots: snapshots, attemptedWindows: attempted)
