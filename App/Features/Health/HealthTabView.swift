@@ -66,9 +66,17 @@ struct HealthTabView: View {
         // 探测（.task 内 currentAuthorization）回填后才翻到真实分支。
         if !deviceState.availabilityProbed {
             Section {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("SP-29.health.home.loading")
+                // §6 骨架屏（2026-10-03 评审 R1-6）：加载态禁用菊花，行形圆角条。
+                // SkeletonCard 原语下沉已登记 tech §11（P2）。
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(.systemGray5))
+                            .frame(height: 56)
+                    }
+                }
+                .padding(.vertical, 8)
+                .accessibilityIdentifier("SP-29.health.home.loading")
             }
         } else {
             pageBody
