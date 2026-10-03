@@ -242,6 +242,9 @@ extension L10n {
 
     static var settings_audit: String { t("settings.audit") }
 
+    /// 审计页空态（V4.13 呈现评审：补空态说明）
+    static var settings_auditEmpty: String { t("settings.auditEmpty") }
+
     static var settings_restoreDefaults: String { t("settings.restoreDefaults") }
 
     static var settings_help: String { t("settings.help") }
