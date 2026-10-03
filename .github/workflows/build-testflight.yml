@@ -432,6 +432,19 @@ jobs:
           mkdir -p Build
           cd CoreKit
           swift test 2>&1 | tee ../Build/corekit-swift-test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 2026-10-03 审计（CI #629-#632 排障盲区）：job 日志需登录、诊断产物需 auth，
+            # 失败时唯一公开可读的通道 = step summary——把错误族行与失败测试名落盘，
+            # 否则远端失败只能盲猜根因（「缺证据被当成有证据」同族）。
+            {
+              echo "### CoreKit swift test 失败摘要（自动截取 tail 80）"
+              echo '```'
+              grep -E "error:|✘|failed" ../Build/corekit-swift-test.log | tail -80 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
           echo "CoreKit 域层测试通过 ✓"
 
       - name: 校验随包 ASR 基线与签名目录
@@ -484,6 +497,18 @@ jobs:
             COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
             OTHER_SWIFT_FLAGS='-Xfrontend -warn-long-expression-type-checking=500 -Xfrontend -warn-long-function-bodies=1000' \
             2>&1 | tee Build/xcodebuild-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            # 2026-10-03 审计：编译失败摘要落 step summary（公开可读），
+            # 与本步 tee 的完整日志互补——远端排障不再盲猜（CI #629-#632 盲区复盘）。
+            {
+              echo "### xcodebuild 编译失败摘要（自动截取 tail 60）"
+              echo '```'
+              grep -E "error:" Build/xcodebuild-build.log | tail -60 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
           echo "编译门禁通过 ✓"
 
       # 型检预算报告（仅告警）：即使编译失败也出报告——失败时最需要它。
