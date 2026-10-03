@@ -226,8 +226,9 @@ struct VitaLiberApp: App {
                 let end = try await healthSettings.value(for: .quietHoursEnd)
                 // C3（2026-10-03 评审修复）：后台每唤醒此前只跑 1 轮（1 页/类），
                 // 20s 预算只用 2-7s——改多轮排空（预算内 ≤8 轮），唤醒次数 3-5× 降。
+                // 实参顺序必须与声明一致（maxRounds 先于 timeBudget）——L1 编译修复 CI #646
                 let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
-                                                             timeBudget: .seconds(18), maxRounds: 8)
+                                                             maxRounds: 8, timeBudget: .seconds(18))
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
