@@ -377,6 +377,9 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
 
     /// 首填完成边界：窗口下沿越过 cutoff 再留 48h 余量（跨窗睡眠样本的 start 可早于
     /// cutoff——道谓词 end >= cutoff 会滤掉无跨窗者，余量窗口恒返回空页/跨窗者）。
+    /// C7：单调用空窗推进上限（稀疏类型后台重扫断点；每调用最多 48 次空查询，
+    /// 到顶带游标返回由服务层落盘续扫）
+    private static let maxEmptyAdvancesPerCall = 48
     private static let fillStraddleMargin: TimeInterval = 172_800
     /// 增量窄谓词的下界余量：newestStart − 7d——首填期间的迟达样本（Watch 晚同步/
     /// 回填时间戳）在 7 天窗口内由转锚点查询兜住；更深回填登记为已知边界。
@@ -395,6 +398,7 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     }
 
     private func recentLaneChanges(kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
+        var emptyAdvances = 0
         var cursor: RecentLaneCursor?
         if let anchor {
             cursor = try? JSONDecoder().decode(RecentLaneCursor.self, from: anchor)   // try?-ok: 解码失败回落首填（幂等自愈）
@@ -470,7 +474,19 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             var nextCursor = next
             nextCursor.newestStart = newestStart
             if refs.isEmpty {
-                // 空窗口（无样本/全为自身回声）：同调用内推进，不落空页
+                // 空窗口（无样本/全为自身回声）：同调用内推进，不落空页。
+                // C7（2026-10-03 评审修复）：封顶 48 窗/调用——此前无界推进，
+                // 稀疏类型（近一年无数据）单调用连发数百空查询且取消不落盘，
+                // 后台每次唤醒从头重扫。到顶带游标返回（hasMore=false），
+                // 服务层比对锚点差异后经 saveAnchor 落盘，下次从断点续扫。
+                emptyAdvances += 1
+                if emptyAdvances >= Self.maxEmptyAdvancesPerCall {
+                    // hasMore=true 仅作「断点续扫」信号——服务层比对锚点差异后经
+                    // saveAnchor 落盘（空页不 stage，stage 门卫的「hasMore 必带内容」
+                    // 语义不参与）
+                    return HealthChangeBatch(added: [], deleted: [],
+                                             anchor: try Self.encodeCursor(nextCursor), hasMore: true)
+                }
                 windowEnd = next.windowEnd ?? windowEnd
                 windowStart = next.windowStart ?? windowStart
                 dayStart = next.dayStart ?? dayStart
@@ -637,7 +653,7 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             guard let contributing = bySource[sourceID] else { continue }
             var points: [HourWindowSample] = []
             for sample in contributing {
-                for point in try await quantityPoints(sample, unit: unit, useEndDate: false) {
+                for point in try await quantityPoints(sample, unit: unit, useEndDate: false, within: window) {
                     guard point.at >= window.start, point.at < window.end else { continue }
                     points.append(HourWindowSample(value: point.value, at: point.at))
                 }
@@ -675,7 +691,7 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         var rejected = 0
         for case let sample as HKQuantitySample in samples {
             let source = sample.sourceRevision
-            for point in try await quantityPoints(sample, unit: unit, useEndDate: true) {
+            for point in try await quantityPoints(sample, unit: unit, useEndDate: true, within: window) {
                 guard point.at >= window.start, point.at < window.end else { continue }
                 let value = point.value * factor
                 guard value.isFinite else { rejected += 1; continue }
@@ -699,15 +715,26 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     /// A condensed quantity sample is a container, not one independent reading. `ordinal` is nil for a
     /// single-quantity sample and the series entry index otherwise (identity = sample UUID + ordinal).
     private func quantityPoints(_ sample: HKQuantitySample, unit: HKUnit,
-                                 useEndDate: Bool) async throws -> [(ordinal: Int?, value: Double, at: Date)] {
+                                 useEndDate: Bool,
+                                 within window: HealthImportWindow) async throws -> [(ordinal: Int?, value: Double, at: Date)] {
         try Task.checkCancellation()
         guard sample.count > 0 else { throw ReaderError.incompleteSnapshot }
         if sample.count == 1 {
             return [(nil, sample.quantity.doubleValue(for: unit),
                      useEndDate ? sample.endDate : sample.startDate)]
         }
+        // C5（2026-10-03 评审修复）：序列查询加窗口时间谓词——此前跨多小时
+        // 序列对其覆盖的每个小时窗**整取全序列**（O(窗数×序列长) 放大，
+        // 密集序列用户后台预算主要耗损点）。窗口完整覆盖样本时校验维持
+        // 原「点数==count」不变量；部分覆盖时只校验边界合法性（窗口内点数
+        // 无法单独与 count 对账，跨窗完整性由各窗合计 + 身份幂等 upsert 兜底）。
+        let coversWholeSample = sample.startDate >= window.start && sample.endDate <= window.end
+        let windowPredicate = HKQuery.predicateForSamples(withStart: window.start, end: window.end, options: [])
         let query = HKQuantitySeriesSampleQueryDescriptor(
-            predicate: .quantitySample(type: sample.quantityType, predicate: HKQuery.predicateForObject(with: sample.uuid)),
+            predicate: .quantitySample(type: sample.quantityType,
+                                       predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [
+                                           HKQuery.predicateForObject(with: sample.uuid), windowPredicate
+                                       ])),
             options: .orderByQuantitySampleStartDate)
         var points: [(ordinal: Int?, value: Double, at: Date)] = []
         for try await entry in query.results(for: store) {
@@ -720,7 +747,7 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             points.append((points.count, entry.quantity.doubleValue(for: unit),
                            useEndDate ? entry.dateInterval.end : entry.dateInterval.start))
         }
-        guard points.count == sample.count else { throw ReaderError.incompleteSnapshot }
+        guard coversWholeSample ? points.count == sample.count : true else { throw ReaderError.incompleteSnapshot }
         return points
     }
 
