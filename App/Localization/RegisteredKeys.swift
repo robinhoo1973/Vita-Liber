@@ -859,7 +859,7 @@ extension L10n {
         "home.capture.shoot",
         "home.disclaimer",
         "home.profileContinue",
-        "home.profileProgress",
+        "home.profileProgress", "home.profileMissingFmt", "home.profileMissingMoreFmt",
         "home.model.downloadTitle", "home.model.downloadView",
         "home.profileProgressFmt",
         "inventory.tier0",

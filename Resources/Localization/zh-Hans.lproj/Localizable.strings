@@ -1660,6 +1660,8 @@
 "home.model.downloadView" = "查看下载";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 项";
 "home.profileContinue" = "继续完善";
+"home.profileMissingFmt" = "缺：%1$@ · 补全后急救卡可用";
+"home.profileMissingMoreFmt" = "等 %1$d 项";
 "home.disclaimer" = "本地医疗档案 · 不联网 · 不诊断";
 "timeline.quickEntry" = "快捷入口";
 "settings.offlineNote" = "本机离线模式 · 未注册云账户";

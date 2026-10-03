@@ -138,6 +138,12 @@ extension L10n {
 
     static var homeProfileProgressTitle: String { t("home.profileProgress") }
 
+    /// 2026-10-03 评审 R2-1：档案卡缺项行（纯事实句；%@ = 缺项名列表）
+    static func homeProfileMissingFmt(_ names: String) -> String { String(format: t("home.profileMissingFmt"), names) }
+
+    /// 2026-10-03 评审 R2-1：缺项折叠「等 N 项」（≤3 展示，余折叠）
+    static func homeProfileMissingMore(_ n: Int) -> String { String(format: t("home.profileMissingMoreFmt"), n) }
+
     static var homeModelDownloadTitle: String { t("home.model.downloadTitle") }
 
     static var homeModelDownloadView: String { t("home.model.downloadView") }

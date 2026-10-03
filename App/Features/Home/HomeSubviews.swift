@@ -131,6 +131,8 @@ struct HomeWindowMenu: View {
 /// FR2.1b/FR17.11：实时资料状态，不伪装成「刚发生」的通知时间。
 struct HomeProfileProgressCard: View {
     let progress: (done: Int, total: Int)
+    /// 缺失的急救相关访谈步骤键（Domain 固定语义序；空 = 不渲染缺项行）
+    let missingSteps: [String]
     let onContinue: () -> Void
 
     var body: some View {
@@ -154,6 +156,12 @@ struct HomeProfileProgressCard: View {
                         .font(.caption).foregroundStyle(.secondary)
                     ProgressView(value: Double(progress.done), total: Double(progress.total))
                         .tint(Color("brand-primary", bundle: .main))
+                    // 2026-10-03 评审 R2-1：一行纯事实缺项提示（FR2.1b V4.11 增补）——
+                    // 仅列急救相关访谈缺项（≤3，余折叠），无新增交互、无压力话术。
+                    if !missingSteps.isEmpty {
+                        Text(L10n.homeProfileMissingFmt(missingLineText))
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
@@ -164,9 +172,34 @@ struct HomeProfileProgressCard: View {
         }
         .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityLabel(L10n.homeProfileProgressTitle)
-        .accessibilityValue(L10n.homeProfileProgressFmt(progress.done, progress.total))
+        .accessibilityValue(accessibilityValueText)
         .accessibilityHint(L10n.homeProfileContinue)
         .accessibilityIdentifier("SP-04.home.profileProgress")
+    }
+
+    /// 缺项行文案（≤3 展示，余折叠「等 N 项」）
+    private var missingLineText: String {
+        let names = missingSteps.map(missingStepName)
+        let shown = names.count > 3 ? Array(names.prefix(3)) + [L10n.homeProfileMissingMore(names.count - 3)] : names
+        return shown.joined(separator: " · ")
+    }
+
+    /// 访谈步骤键 → SP-58 语音引导同源名称（单一出口）
+    private func missingStepName(_ key: String) -> String {
+        switch key {
+        case "allergy": return L10n.voiceguide_noteAllergy
+        case "pastHistory": return L10n.voiceguide_noteHistory
+        case "currentMeds": return L10n.voiceguide_noteMeds
+        case "emergencyContact": return L10n.voiceguide_noteContact
+        default: return key
+        }
+    }
+
+    /// 朗读值 = X/8 + 缺项句（缺项行并入朗读，VoiceOver 不丢内容）
+    private var accessibilityValueText: String {
+        var s = L10n.homeProfileProgressFmt(progress.done, progress.total)
+        if !missingSteps.isEmpty { s += " " + L10n.homeProfileMissingFmt(missingLineText) }
+        return s
     }
 }
 

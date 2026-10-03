@@ -1660,6 +1660,8 @@
 "home.model.downloadView" = "檢視下載";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
 "home.profileContinue" = "繼續完善";
+"home.profileMissingFmt" = "缺：%1$@ · 補全後急救卡可用";
+"home.profileMissingMoreFmt" = "等 %1$d 項";
 "home.disclaimer" = "本機醫療檔案 · 不聯網 · 不診斷";
 "timeline.quickEntry" = "快捷入口";
 "settings.offlineNote" = "本機離線模式 · 未註冊雲端帳號";
