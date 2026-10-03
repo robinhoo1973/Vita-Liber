@@ -323,9 +323,9 @@ struct MedicalCatalogUpdateTests {
     // 夹具 MedicalCatalogFixture 依赖 CryptoKit 签名（定义于 macOS-only 的
     // AcceptanceTests 文件）；本测试与该夹具同平台面，Linux 上随文件守卫一并缺位。
     #if os(iOS) || os(macOS)
-    @Test("v6 candidate is up-to-date only with a matching local v6 schema and data version")
-    func sameDataVersionSupportsPhysicalV6() throws {
-        let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+    @Test("v7 candidate is up-to-date only with a matching local v7 schema and data version")
+    func sameDataVersionSupportsPhysicalV7() throws {
+        let fixture = try MedicalCatalogFixture.make(schemaVersion: 7)
         defer { fixture.cleanUp() }
         let candidate = try fixture.candidate()
         #expect(candidate.schemaVersion == 7)

@@ -519,7 +519,7 @@ struct MedicalCatalogFixture {
     static func date(_ value: String) -> Date { MedicalCatalogReleaseProtocol.timestamp(value) ?? .distantPast }
 
     static func make(rootSignerCount: Int = 2, catalogSignerCount: Int = 2, installable: Bool = true,
-                     database: Database = .valid, schemaVersion: Int = 5) throws -> MedicalCatalogFixture {
+                     database: Database = .valid, schemaVersion: Int = 7) throws -> MedicalCatalogFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("medical-acceptance-\(UUID().uuidString)", isDirectory: true)
         let catalogDirectory = directory.appendingPathComponent("MedicalCatalog", isDirectory: true)
