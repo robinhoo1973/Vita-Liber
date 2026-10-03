@@ -790,7 +790,7 @@ extension L10n {
         "observation.followUp.set",
         "f16.title", "f16.authSection", "f16.authHint", "f16.requestAuth", "f16.authGranted",
         "f16.authDisabled", "f16.authFailed", "f16.syncSection", "f16.syncHint",
-        "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed",
+        "f16.syncNow", "f16.syncing", "f16.syncDoneFmt", "f16.syncFailed", "health.rowSyncing",
         "health.importSubject", "health.noReadableData", "health.importPartial", "health.importMore",
         "health.notificationRetry", "health.medicalReviewPending",
         "health.aggregation.sample", "health.aggregation.hourlyAverage",

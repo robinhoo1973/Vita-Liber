@@ -50,6 +50,9 @@ struct HealthImportedTypeRow: View {
                     if showsSyncProgress, deviceState.isSyncing,
                        let fraction = deviceState.kindProgress[type.kind.rawValue] {
                         ProgressView(value: fraction)
+                            // 2026-10-03 评审 R1-9：补任务上下文标签（此前 VoiceOver 只念
+                            // 百分比不念哪个类别；百分比值仍由 ProgressView 自带 a11y 提供）
+                            .accessibilityLabel("\(L10n.metricName(type.kind.primaryMetric)) · \(L10n.healthRowSyncing)")
                             .accessibilityIdentifier("\(syncProgressPrefix ?? accessibilityPrefix).\(type.kind.rawValue)")
                     }
                 }

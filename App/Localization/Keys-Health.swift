@@ -152,6 +152,9 @@ extension L10n {
 
     static var f16Syncing: String { t("f16.syncing") }
 
+    /// 2026-10-03 评审 R1-9：类别行同步进度条的任务上下文标签（逐行朗读用紧凑句）
+    static var healthRowSyncing: String { t("health.rowSyncing") }
+
     static var f16SyncFailed: String { t("f16.syncFailed") }
 
     static var healthNoReadableData: String { t("health.noReadableData") }

@@ -1576,6 +1576,7 @@
 "f16.syncDoneFmt" = "Alert notifications scheduled in this sync: %ld (not confirmed delivered)";
 "f16.noRangeFmt" = "%ld device readings have no available reference range and generated no alerts; their device origin is retained.";
 "f16.syncFailed" = "Health data sync did not complete. Please retry later; saved data is kept.";
+"health.rowSyncing" = "syncing";
 "health.importSubject" = "Import target: %@ (the device owner's own profile). Switching the viewed member does not change the import target.";
 "health.noReadableData" = "No new readable changes in this sync. This does not indicate denied read access or an absence of historical data.";
 "health.importPartial" = "Import did not complete for %ld data types. Completed changes are kept; retry to continue.";

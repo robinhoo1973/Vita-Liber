@@ -1576,6 +1576,7 @@
 "f16.syncDoneFmt" = "本次同步已安排 %ld 則預警通知（不代表已送達）";
 "f16.noRangeFmt" = "%ld 筆裝置讀數暫無可用參考範圍，未產生預警；裝置來源標註保留。";
 "f16.syncFailed" = "健康資料同步未完成，請稍後重試；已儲存的資料保留。";
+"health.rowSyncing" = "同步中";
 "health.importSubject" = "匯入對象：%@（機主本人檔案）；切換查看成員不會改變匯入歸屬。";
 "health.noReadableData" = "本次同步未讀取到新的可讀資料變更；這不能說明讀取權限被拒絕，也不代表沒有歷史資料。";
 "health.importPartial" = "有 %ld 類資料本次未完成匯入；已完成的變更會保留，可重試未完成的類型。";

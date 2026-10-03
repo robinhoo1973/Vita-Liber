@@ -1576,6 +1576,7 @@
 "f16.syncDoneFmt" = "本次同步已安排 %ld 条预警通知（不代表已送达）";
 "f16.noRangeFmt" = "%ld 条设备读数暂无可用参考范围，未生成预警；设备来源标注保留。";
 "f16.syncFailed" = "健康数据同步未完成，请稍后重试；已保存的数据保留。";
+"health.rowSyncing" = "同步中";
 "health.importSubject" = "导入对象：%@（机主本人档案）；切换查看成员不会改变导入归属。";
 "health.noReadableData" = "本次同步未读取到新的可读数据变更；这不能说明读取权限被拒绝，也不代表没有历史数据。";
 "health.importPartial" = "有 %ld 类数据本次未完成导入；已完成的变更会保留，可重试未完成的类型。";
