@@ -561,6 +561,8 @@ jobs:
         run: |
           set -o pipefail
           echo "destination: ${DEST}"
+          # 同 CoreKit/编译门禁步：诊断先关 errexit，失败摘要/注解可达
+          set +e
           xcodebuild test-without-building \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
@@ -569,6 +571,20 @@ jobs:
             -only-testing:VitaLiberTests \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-test.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### L1 单元测试失败摘要（自动截取 tail 60 行原文）"
+              echo '```'
+              tail -60 Build/xcodebuild-test.log || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            tail -12 Build/xcodebuild-test.log | while IFS= read -r line; do
+              echo "::error::xcodebuild-test: $line"
+            done || true
+            exit "$status"
+          fi
           echo "L1 单元测试通过 ✓"
 
       # ── L1 UI 测试（XCUITest，CLAUDE.md L1 第二条命令）────────
@@ -591,6 +607,8 @@ jobs:
           # 且每次迭代都重启一次 App——恰好**增加**了本项要防御的启动超时抖动的暴露
           # 次数（每次启动是独立抖动机会），与防御目标相抵。`-retry-tests-on-failure`
           # 单独即达成「容忍单次抖动」，且只在真的失败时才多跑一次。
+          # 同族诊断：先关 errexit，失败摘要/注解可达（bash -e 杀诊断块族）
+          set +e
           xcodebuild test-without-building \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
@@ -600,6 +618,20 @@ jobs:
             -retry-tests-on-failure \
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee Build/xcodebuild-uitest.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### L1 UI 测试失败摘要（自动截取 tail 60 行原文）"
+              echo '```'
+              tail -60 Build/xcodebuild-uitest.log || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            tail -12 Build/xcodebuild-uitest.log | while IFS= read -r line; do
+              echo "::error::xcodebuild-uitest: $line"
+            done || true
+            exit "$status"
+          fi
           if grep -qE "with [1-9][0-9]* failure" Build/xcodebuild-uitest.log; then
             echo "::warning::UI 测试曾失败并被重试后通过——请核对 Build/xcodebuild-uitest.log 是启动抖动还是真实缺陷。重试只容忍环境抖动，不容忍产品缺陷。"
             grep -nE "Timed out while launching|with [1-9][0-9]* failure" Build/xcodebuild-uitest.log | head -10
@@ -620,6 +652,8 @@ jobs:
           HASH="${{ needs.version.outputs.hash }}"
           ARCH="Build/VitaLiber.xcarchive"
           rm -rf "$ARCH" Build/export
+          # 同族诊断：先关 errexit（bash -e 杀诊断块族）
+          set +e
           xcodebuild archive \
             -skipMacroValidation \
             -project "$XCODEPROJ" -scheme "$SCHEME" \
@@ -633,6 +667,20 @@ jobs:
             DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD" VITA_LIBER_CODE_HASH="$HASH" \
             2>&1 | tee Build/xcodebuild-archive.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### xcodebuild archive 失败摘要（自动截取 tail 60 行原文）"
+              echo '```'
+              tail -60 Build/xcodebuild-archive.log || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            tail -12 Build/xcodebuild-archive.log | while IFS= read -r line; do
+              echo "::error::xcodebuild-archive: $line"
+            done || true
+            exit "$status"
+          fi
           echo "archive 完成 ✓"
           echo "=== archive Info.plist ==="
           plutil -p "$ARCH/Info.plist" 2>/dev/null || cat "$ARCH/Info.plist"
@@ -666,11 +714,26 @@ jobs:
           </dict>
           </plist>
           PLIST
+          set +e
           xcodebuild -exportArchive \
             -archivePath "$ARCH" \
             -exportOptionsPlist exportOptions.plist \
             -exportPath Build/export \
             2>&1 | tee Build/xcodebuild-export.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### xcodebuild exportArchive 失败摘要（自动截取 tail 60 行原文）"
+              echo '```'
+              tail -60 Build/xcodebuild-export.log || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            tail -12 Build/xcodebuild-export.log | while IFS= read -r line; do
+              echo "::error::xcodebuild-export: $line"
+            done || true
+            exit "$status"
+          fi
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
 
       - name: 校验 IPA 框架 minOS 与 ASR 随包完整性
