@@ -2,6 +2,7 @@
 // linux-blind: （平台守卫：BackgroundTasks 仅 iOS） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import BackgroundTasks
+import UIKit
 import Domain
 
 /// 后台作业（round5 Q2）：作业只实现 `run(budget:)`，注册/提交/重排/过期取消由 `BackgroundWorkScheduler` 统一承担。
@@ -208,6 +209,18 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         }
     }
 
+    /// 前台直跑路径（更早系统/提交失败/超时回落）的体面收尾（C4 评审修复 2026-10-03）：
+    /// 注释曾声称「beginBackgroundTask ≈30 秒宽限」但从未请求——切后台即挂起
+    /// （业主「不稳定不持续」直接机制）。现如实请求宽限（iOS 13+ 事实 ≈30s，
+    /// 只够收尾一段），对齐 ASRInstallCenter 先例；expiration 回调在系统线程，
+    /// 结束动作线程安全。
+    private static func runForegroundWithAssertion(operation: @escaping ContinuedOperation) async -> Bool {
+        let box = BackgroundAssertionBox()
+        await MainActor.run { box.begin(name: "vitaliber-continued-fallback") }
+        defer { Task { @MainActor in box.end() } }
+        return await operation(nil) { Task.isCancelled }
+    }
+
     /// 用户动作发起的长任务**单一入口**（手动健康同步 / ASR 模型下载解压）：
     /// - iOS 26 且标识符已登记：提交 `BGContinuedProcessingTaskRequest`（系统 Live Activity 显示 `title/subtitle` 与进度、
     ///   切后台续跑、用户可取消），operation 在系统回调里执行；提交失败或 `startTimeout` 内系统未启动 → 回落前台直接执行；
@@ -217,7 +230,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                              startTimeout: Duration = .seconds(8),
                              operation: @escaping ContinuedOperation) async -> Bool {
         guard #available(iOS 26, *), isContinuedRegistered(identifier) else {
-            return await operation(nil) { Task.isCancelled }
+            return await Self.runForegroundWithAssertion(operation: operation)
         }
         let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
         request.strategy = .queue
@@ -233,14 +246,14 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                 lastSubmitFailureKind[identifier] = kind
                 lock.unlock()
                 guard let taken = takePending(identifier) else { return }
-                Task { taken.completion.resume(returning: await taken.operation(nil) { Task.isCancelled }) }
+                Task { taken.completion.resume(returning: await Self.runForegroundWithAssertion(operation: taken.operation)) }
                 return
             }
             // 系统迟迟不启动（排队/资源受限）→ 不让用户干等：回落前台执行；谁先 take 谁执行，另一方看到 nil 即退出
             Task {
                 try? await Task.sleep(for: startTimeout)   // try?-ok: 取消即不回落
                 guard let taken = self.takePending(identifier) else { return }
-                taken.completion.resume(returning: await taken.operation(nil) { Task.isCancelled })
+                taken.completion.resume(returning: await Self.runForegroundWithAssertion(operation: taken.operation))
             }
         }
     }
@@ -267,4 +280,25 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         }
     }
 }
+/// beginBackgroundTask 断言句柄盒（C4）：identifier 须在过期回调与 defer 间共享，
+/// 锁串行化（过期回调线程未知）。
+private final class BackgroundAssertionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    func begin(name: String) {
+        lock.lock(); defer { lock.unlock() }
+        id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
+            self?.end()
+        }
+    }
+
+    func end() {
+        lock.lock(); defer { lock.unlock() }
+        guard id != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(id)
+        id = .invalid
+    }
+}
+
 #endif
