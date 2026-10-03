@@ -113,9 +113,8 @@ struct VoiceQuickLaunchView: View {
                             HStack(spacing: 6) {
                                 Text(L10n.voiceRecognizedAs(resolved))
                                 if model.isBestEffortFallback {
-                                    Text(L10n.voiceLangBestEffort)
-                                        .padding(.horizontal, 6).padding(.vertical, 2)
-                                        .background(Capsule().fill(Color(.systemGray5)))
+                                    // T3 呈现评审：systemGray5 胶囊 → PillBadge(.neutral)
+                                    PillBadge(text: L10n.voiceLangBestEffort, style: .neutral)
                                 }
                             }
                             .font(.caption2).foregroundStyle(.secondary)

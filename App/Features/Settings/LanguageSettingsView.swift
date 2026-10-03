@@ -135,18 +135,13 @@ struct VoiceLanguageSettingsView: View {
                                         }
                                     }
                                     if isPrimary {
-                                        Text(L10n.voicePrimaryLanguage)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6).padding(.vertical, 2)
-                                            .background(Capsule().fill(Color("brand-primary", bundle: .main).opacity(0.15)))
-                                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                                        // T3 呈现评审：淡色胶囊统一出口 PillBadge（原手写 0.15 品牌胶囊）
+                                        PillBadge(text: L10n.voicePrimaryLanguage, style: .brand)
                                             .accessibilityIdentifier("SP-25.voiceInputLang.primary")
                                     }
                                     if lang.tier == .bestEffort || (resolved != nil && inputCapability.locale(matching: lang.locale) == nil) {
-                                        Text(L10n.voiceLangBestEffort)
-                                            .font(.caption2)
-                                            .padding(.horizontal, 6).padding(.vertical, 2)
-                                            .background(Capsule().fill(Color(.systemGray5)))
+                                        // T3 呈现评审：systemGray5 硬编码胶囊 → PillBadge(.neutral)
+                                        PillBadge(text: L10n.voiceLangBestEffort, style: .neutral)
                                     }
                                     Spacer()
                                     if isSelected {
