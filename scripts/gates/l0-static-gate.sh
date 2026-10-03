@@ -962,7 +962,7 @@ PYEOF
 fi
 
 # ---------- [15] 类型层启发式门禁 ----------
-section "15/18" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/条件绑定解包非可选 as 转型下标读/非转义函数型参数赋存储属性/顶层类型嵌套成员误引/CoreKitTests 缺 import Foundation/四域参考目录 DDL 三拷贝面漂移/测试内改 NSTimeZone.default 全局状态/App 引用传输实现四符号（十七族 CI 实证左移）"
+section "15/18" "类型层启发式 —— 跨层 import 覆盖/Date·Double 混比/iOS 专用符号守卫/Linux 桩守卫外使用/any X? 拼写/nil→String 实参/长链高阶表达式/MainActor 跨隔离调用/Swift Charts 不存在符号/iOS 17 专用符号越界/条件绑定解包非可选 as 转型下标读/非转义函数型参数赋存储属性/顶层类型嵌套成员误引/CoreKitTests 缺 import Foundation/四域参考目录 DDL 三拷贝面漂移/测试内改 NSTimeZone.default 全局状态/App 引用传输实现四符号/some View 计算属性多语句缺 @ViewBuilder（十八族 CI 实证左移）"
 # 背景：App/（SwiftUI）在 Linux 无法编译，swiftc -parse 只查语法不查语义，
 # 以下十七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证）：
 #   跨层引用缺 import（d0c1008）/ Date 与 Double 混比较（34032245120）
