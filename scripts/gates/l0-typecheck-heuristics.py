@@ -1161,12 +1161,86 @@ def main():
                     )
                     break
 
+    # ---- 家族 R：some View 计算属性多语句缺 @ViewBuilder —— CI 35068918836 实证
+    # HomeSubviews 拆分 modelDownloadCard 时私有 `content` 属性掉了 @ViewBuilder：
+    # 函数在视图表达式前有 let 语句、无 return → macOS L1 报
+    # "function declares an opaque return type 'some View', but has no return
+    # statements in its body from which to infer an underlying type"；
+    # swiftc -parse 静默放行（Linux 零型检盲区）。
+    # 判定（零误报口径）：App/ 内 `var <name>: some View {`（name != body——
+    # View.body 协议自带 @ViewBuilder），声明行及紧邻上方连续属性行均无
+    # @ViewBuilder，且花括号块内首个代码语句为 let/var、块内无 return。
+    # 首语句为 let 且带显式 return 的合法形态不判；单表达式 body 不判。
+    r_files = list(a_files)
+    scanned["R"] = len(r_files)
+    some_view_decl = re.compile(r"\bvar\s+(\w+)\s*:\s*some\s+View\s*\{")
+    for f in r_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        raw_lines = txt.splitlines()
+        code_by_line = dict(code_lines(txt))
+        for idx, raw in enumerate(raw_lines):
+            lineno = idx + 1
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("//"):
+                continue
+            m = some_view_decl.search(raw)
+            if not m or exempted(raw_lines, lineno):
+                continue
+            name = m.group(1)
+            if name == "body":
+                continue
+            has_vb = "@ViewBuilder" in raw
+            j = idx - 1
+            while j >= 0 and not has_vb:
+                prev = raw_lines[j].strip()
+                if not prev or prev.startswith("//"):
+                    j -= 1
+                    continue
+                if prev.startswith("@"):
+                    if "@ViewBuilder" in prev:
+                        has_vb = True
+                    j -= 1
+                    continue
+                break
+            if has_vb:
+                continue
+            depth = 0
+            first_let = False
+            has_return = False
+            for i in range(idx, len(raw_lines)):
+                code = code_by_line.get(i + 1, "")
+                if i == idx:
+                    depth += code.count("{") - code.count("}")
+                    continue
+                cs = code.strip()
+                if depth >= 1 and re.search(r"\breturn\b", cs):
+                    has_return = True
+                if not cs:
+                    continue
+                if depth == 1 and not first_let:
+                    first_let = cs.startswith(("let ", "var "))
+                depth += code.count("{") - code.count("}")
+                if depth < 1:
+                    break
+            if first_let and not has_return:
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: some View 计算属性 `{name}` 多语句缺 @ViewBuilder"
+                    f"——视图表达式前有 let/var 语句且无 return，macOS L1 必报"
+                    f"'function declares an opaque return type … but has no return statements'"
+                    f"（CI 35068918836 同族；swiftc -parse 静默）——加 @ViewBuilder，"
+                    f"或加 // tius-ok: 豁免"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
           f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
-          f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)} Q={scanned.get('Q',0)}")
+          f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)} Q={scanned.get('Q',0)} "
+          f"R={scanned.get('R',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
