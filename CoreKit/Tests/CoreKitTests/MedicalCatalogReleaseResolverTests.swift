@@ -653,7 +653,7 @@ struct MedicalCatalogReleaseResolverTests {
     @Test("ETag 缓存：单条超 limit 拒存")
     func etagStoreRejectsEntryOverLimit() {
         let cache = MedicalCatalogETagCache()
-        let url = URL(string: "https://api.github.com/x")!
+        let url = URL(string: "https://api.cnb.cool/x")!
         cache.store(etag: "e", body: Data(repeating: 0, count: 10), for: url, limit: 5)
         #expect(cache.entry(for: url) == nil)
     }
@@ -661,8 +661,8 @@ struct MedicalCatalogReleaseResolverTests {
     @Test("ETag 缓存：总量超限拒存且不驱逐旧条目（304 语义优先稳定）")
     func etagStoreKeepsOldEntryOnOverflow() {
         let cache = MedicalCatalogETagCache(maxTotalBytes: 100)
-        let first = URL(string: "https://api.github.com/a")!
-        let second = URL(string: "https://api.github.com/b")!
+        let first = URL(string: "https://api.cnb.cool/a")!
+        let second = URL(string: "https://api.cnb.cool/b")!
         cache.store(etag: "e1", body: Data(repeating: 0, count: 80), for: first, limit: 200)
         cache.store(etag: "e2", body: Data(repeating: 0, count: 30), for: second, limit: 200)
         #expect(cache.entry(for: second) == nil)
@@ -672,12 +672,12 @@ struct MedicalCatalogReleaseResolverTests {
     @Test("ETag 缓存：同键替换修正记账、后续写入按新总量判定")
     func etagStoreReplaceUpdatesTotalBytes() {
         let cache = MedicalCatalogETagCache(maxTotalBytes: 100)
-        let url = URL(string: "https://api.github.com/a")!
+        let url = URL(string: "https://api.cnb.cool/a")!
         cache.store(etag: "e1", body: Data(repeating: 0, count: 30), for: url, limit: 200)
         cache.store(etag: "e2", body: Data(repeating: 0, count: 50), for: url, limit: 200)
         #expect(cache.entry(for: url)?.body.count == 50)
         // 30+50 已替换为 50：再放 60（总计 110 > 100）应拒，50 保留
-        let other = URL(string: "https://api.github.com/b")!
+        let other = URL(string: "https://api.cnb.cool/b")!
         cache.store(etag: "e3", body: Data(repeating: 0, count: 60), for: other, limit: 200)
         #expect(cache.entry(for: other) == nil)
         #expect(cache.entry(for: url)?.body.count == 50)
@@ -686,7 +686,7 @@ struct MedicalCatalogReleaseResolverTests {
     @Test("ETag 缓存：未知 URL 返回 nil")
     func etagEntryReturnsNilForUnknownURL() {
         let cache = MedicalCatalogETagCache()
-        #expect(cache.entry(for: URL(string: "https://api.github.com/none")!) == nil)
+        #expect(cache.entry(for: URL(string: "https://api.cnb.cool/none")!) == nil)
     }
 }
 #endif

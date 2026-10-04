@@ -66,10 +66,10 @@ final class URLProtocolStub: URLProtocol {
 
     /// 2026-09-27 CI 36305107324：两传输套件虽各 .serialized，但**彼此仍并行**且共享
     /// 全表——A 套件 reset 擦掉 B 套件脚本（badResponse(618)=协议类不处理请求的
-    /// 合成状态）。改为按主机作用域清表。**主机属主表（2026-09-27 SP-64 评审更新）**：
-    /// release-assets.githubusercontent.com=ASR 套件 · github.com=医疗目录 fetcher
-    /// 传输套件（独占）· api.github.com + objects.githubusercontent.com=医疗目录
-    /// 检查 resolver 套件（独占）。新套件必须登记新主机，不得复用已有属主。
+    /// 合成状态）。改为按主机作用域清表。**主机属主表（2026-10-04 CNB 迁移更新）**：
+    /// release-assets.githubusercontent.com=ASR 套件（ASR 链仍 GitHub）·
+    /// github.com=医疗目录 fetcher 传输套件（独占）· api.cnb.cool + asset.cnb.cool
+    /// =医疗目录检查 resolver 套件（独占）。新套件必须登记新主机，不得复用已有属主。
     static func reset(host: String? = nil) {
         lock.lock(); defer { lock.unlock() }
         if let host {
