@@ -123,7 +123,7 @@ struct BackgroundWorkSchedulerTests {
         let scheduler = makeJobScheduler(fake, job)
         let handle = FakeHandle()
         fake.launch(identifier: "com.test.job", with: handle)
-        try? await Task.sleep(for: .milliseconds(50))   // 让 work Task 落定
+        try? await Task.sleep(for: .milliseconds(50))   // try?-ok: 测试同步等待,取消即提前返回 // 让 work Task 落定
         #expect(handle.completions() == [true])
         #expect(fake.submitted().count == 1)   // reschedule:true → 重排一次
     }
@@ -140,10 +140,10 @@ struct BackgroundWorkSchedulerTests {
                                                        title: "t", subtitle: "s",
                                                        startTimeout: .seconds(1)) { _, _ in
             firstRan = true
-            try? await Task.sleep(for: .milliseconds(30))
+            try? await Task.sleep(for: .milliseconds(30))   // try?-ok: 测试同步等待,取消即提前返回
             return true
         }
-        try? await Task.sleep(for: .milliseconds(5))   // 让第一个先安装 pending
+        try? await Task.sleep(for: .milliseconds(5))   // try?-ok: 测试同步等待,取消即提前返回 // 让第一个先安装 pending
         async let second: Bool = scheduler.runContinued(identifier: "com.test.continued",
                                                         title: "t", subtitle: "s",
                                                         startTimeout: .seconds(1)) { _, _ in
@@ -184,7 +184,7 @@ struct BackgroundWorkSchedulerTests {
                 return true
             }
         }
-        try? await Task.sleep(for: .milliseconds(10))
+        try? await Task.sleep(for: .milliseconds(10))   // try?-ok: 测试同步等待,取消即提前返回
         task.cancel()
         let ok = await task.value
         #expect(ok == false)
@@ -204,13 +204,13 @@ struct BackgroundWorkSchedulerTests {
                 true
             }
         }
-        try? await Task.sleep(for: .milliseconds(10))
+        try? await Task.sleep(for: .milliseconds(10))   // try?-ok: 测试同步等待,取消即提前返回
         fake.launch(identifier: "com.test.continued", with: handle)   // 系统先取走
         let ok = await op.value
         #expect(ok == true)
         #expect(handle.completions() == [true])
         // 超时回落 Task 见 takePending 为 nil 即退出——无二次 resume（崩溃即失败）
-        try? await Task.sleep(for: .milliseconds(30))
+        try? await Task.sleep(for: .milliseconds(30))   // try?-ok: 测试同步等待,取消即提前返回
     }
 
     @Test("过期回调：expirationHandler 触发即取消作业并回报失败")
@@ -221,9 +221,9 @@ struct BackgroundWorkSchedulerTests {
         let scheduler = makeJobScheduler(fake, slow)
         let handle = FakeHandle()
         fake.launch(identifier: "com.test.job", with: handle)
-        try? await Task.sleep(for: .milliseconds(20))
+        try? await Task.sleep(for: .milliseconds(20))   // try?-ok: 测试同步等待,取消即提前返回
         handle.fireExpiration()
-        try? await Task.sleep(for: .milliseconds(250))
+        try? await Task.sleep(for: .milliseconds(250))   // try?-ok: 测试同步等待,取消即提前返回
         #expect(handle.completions() == [false])   // Task.isCancelled → success 折叠为 false
     }
 }
