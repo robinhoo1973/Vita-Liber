@@ -408,6 +408,10 @@ public actor HealthKitSyncService {
     /// 最近一次后台投递注册的分类结果（诊断用；`armedTypes` 为空 = 真正不可用）。
     public private(set) var lastDeliveryOutcome: HealthKitReader.BackgroundDeliveryOutcome?
     nonisolated(unsafe) public static var backgroundSyncHandler: (@Sendable () async -> Bool)?
+    /// 投递唤醒专用执行体（2026-10-04 评审 C1-6：HealthKit 后台投递每次唤醒仅约 15s，
+    /// 与 refresh 共用 8 轮/18s 处理器系统性跑不完——分槽后投递走轻量预算
+    /// 「先排期 refresh 再受限排空」；缺省回落 backgroundSyncHandler 保测试/装配兼容）。
+    nonisolated(unsafe) public static var backgroundObserverHandler: (@Sendable () async -> Bool)?
     /// 回填执行体（App 装配：读静默时段设置 → `performSyncAll(maxRounds: 按预算, timeBudget: 预算)`）。
     nonisolated(unsafe) public static var backgroundBackfillHandler: (@Sendable (Duration) async -> BackgroundJobOutcome)?
     nonisolated(unsafe) public static var backgroundCancelHandler: (@Sendable () async -> Void)?
@@ -447,7 +451,9 @@ public actor HealthKitSyncService {
         do {
             let enabled = try await canAutomaticallySync()
             let outcome = await reader.observeChanges(handler: {
-                (await Self.backgroundSyncHandler?()) ?? false
+                // C1-6：投递唤醒优先走专用轻量处理器；未装配时回落共享处理器（测试/兼容）
+                if let observer = Self.backgroundObserverHandler { return await observer() }
+                return (await Self.backgroundSyncHandler?()) ?? false
             }, enableDelivery: enabled)
             lastDeliveryOutcome = outcome
             // 2026-09-23 修复（横幅假警报根治）：判死条件从「全部类型逐一成功」改为
