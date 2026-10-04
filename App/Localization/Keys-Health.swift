@@ -92,6 +92,9 @@ extension L10n {
 
     static var metricOverviewTitle: String { t("metric.overview.title") }
 
+    /// round2 ⑤b：指标总览右上角手动录入入口（次级描边按钮文案）。
+    static var metricOverviewAdd: String { t("metric.overview.add") }
+
     static var metricOverviewEmpty: String { t("metric.overview.empty") }
 
     static var metricOverviewEmptyHint: String { t("metric.overview.emptyHint") }

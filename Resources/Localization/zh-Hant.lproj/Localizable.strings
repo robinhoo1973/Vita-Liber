@@ -1083,6 +1083,7 @@
 "observation.colorDisclaimer" = "照片顏色受光線、白平衡與容器影響，不能用於自我診斷";
 "nc.archive" = "封存";
 "metric.overview.title" = "指標";
+"metric.overview.add" = "錄入";
 "metric.overview.empty" = "還沒有指標記錄";
 "metric.overview.emptyHint" = "點右上角 + 快速錄入第一條自測讀數";
 "showcase.title" = "給醫生看";

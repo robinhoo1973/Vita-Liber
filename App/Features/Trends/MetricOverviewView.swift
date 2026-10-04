@@ -79,11 +79,15 @@ struct MetricOverviewView: View {
                     .frame(width: 96)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    // round2 ⑤b：plus 图标裸按钮无文案、与 [按住说话] 同目的地双入口——
+                    // 改带文案次级描边按钮（主行动唯一性：语音按钮为主）。
                     Button {
                         router.navigate(to: .metricQuickEntry)
                     } label: {
-                        Image(systemName: "plus.circle")
+                        Label(L10n.metricOverviewAdd, systemImage: "plus")
+                            .labelStyle(.titleAndIcon)
                     }
+                    .buttonStyle(.bordered)
                     .accessibilityIdentifier("SP-13.overview.quickEntry")
                 }
             }
