@@ -111,25 +111,22 @@ struct MedicalCatalogReleaseResolverTests {
         }
         #expect(candidate.catalogVersion == 30)
         #expect(candidate.dataVersion == fixture.signedExpectation.dataVersion)
-        #expect(candidate.schemaVersion == 5)
+        #expect(candidate.schemaVersion == 7)   // CNB v7-only 契约（2026-10-03 迁移）
         let expected = try fixture.candidate()
         #expect(outcome.candidate == expected)
     }
 
-    @Test("resolver accepts a verified physical v6 pointer")
-    func checkFindsPhysicalV6Update() async throws {
+    @Test("resolver rejects a physical v6 pointer under the v7-only contract")
+    func checkRejectsPhysicalV6Update() async throws {
+        // CNB 单写者 v7-only（2026-10-03）：v6 指针按 invalidField 拒绝，
+        // 解析器归 verificationFailed——旧「接受 v6」契约已废止。
         let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
         defer { fixture.cleanUp() }
         Self.resetStubs()
         Self.apply(Self.installRoutes(fixture))
         let resolver = Self.makeResolver(fixture: fixture)
         let outcome = try await resolver.check()
-        guard case .updateAvailable(let candidate) = outcome.state else {
-            Issue.record("v6 pointer should produce updateAvailable, actual=\(outcome.state)")
-            return
-        }
-        #expect(candidate.schemaVersion == 6)
-        #expect(candidate.dataVersion == fixture.signedExpectation.dataVersion)
+        #expect(outcome.state == .verificationFailed, "v6 pointer must be rejected, actual=\(outcome.state)")
     }
 
     @Test("本地 (schemaVersion,dataVersion) 一致 → upToDate，不重复下载")
@@ -138,7 +135,7 @@ struct MedicalCatalogReleaseResolverTests {
         defer { fixture.cleanUp() }
         Self.resetStubs()
         Self.apply(Self.installRoutes(fixture))
-        let local = MedicalCatalogInstalledVersion(schemaVersion: 5,
+        let local = MedicalCatalogInstalledVersion(schemaVersion: 7,   // CNB v7-only 契约
                                                    dataVersion: fixture.signedExpectation.dataVersion)
         let resolver = Self.makeResolver(fixture: fixture, local: local)
         let outcome = try await resolver.check()
@@ -148,8 +145,8 @@ struct MedicalCatalogReleaseResolverTests {
         }
     }
 
-    @Test("matching local physical v6 schema and data version reports upToDate")
-    func checkReportsUpToDateForPhysicalV6() async throws {
+    @Test("physical v6 pointer is rejected under the v7-only contract")
+    func checkRejectsUpToDateForPhysicalV6() async throws {
         let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
         defer { fixture.cleanUp() }
         Self.resetStubs()
@@ -157,8 +154,7 @@ struct MedicalCatalogReleaseResolverTests {
         let local = MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: fixture.signedExpectation.dataVersion)
         let resolver = Self.makeResolver(fixture: fixture, local: local)
         let outcome = try await resolver.check()
-        #expect(outcome.state == .upToDate)
-        #expect(outcome.candidate == nil)
+        #expect(outcome.state == .verificationFailed, "v6 pointer must be rejected, actual=\(outcome.state)")
     }
 
     @Test("Release 只有 progress pointer → noInstallableAvailable，不误报最新/更新")
@@ -554,7 +550,7 @@ struct MedicalCatalogReleaseResolverTests {
         Self.apply(Self.installRoutes(fixture))
         let trust = MedicalCatalogTrustStore(fileURL: fixture.directory.appendingPathComponent("floor.json"))
         try trust.accept(try fixture.candidate { $0["catalogVersion"] = 31 })
-        let local = MedicalCatalogInstalledVersion(schemaVersion: 5,
+        let local = MedicalCatalogInstalledVersion(schemaVersion: 7,   // CNB v7-only 契约
                                                    dataVersion: fixture.signedExpectation.dataVersion)
         let resolver = Self.makeResolver(fixture: fixture, trust: trust, local: local)
         #expect(try await resolver.check().state == .upToDate)

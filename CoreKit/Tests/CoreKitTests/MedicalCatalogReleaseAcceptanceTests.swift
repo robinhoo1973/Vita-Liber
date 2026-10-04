@@ -558,7 +558,7 @@ struct MedicalCatalogFixture {
             "contentSha256": dataVersion, "manifestSha256": hasher.sha256Hex(Data("manifest".utf8)),
             "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
             "releaseTag": "medical-data", "repository": "robinhoo1973/Resources",
-            "planSetSha256": hasher.sha256Hex(Data("plan-set".utf8)),
+            "planSetSHA256": hasher.sha256Hex(Data("plan-set".utf8)),   // 与 Go json 标签逐字节一致（迁移夹具漏大小写——CI #654）
         ]
         let signers = Array(catalogKeys.prefix(catalogSignerCount))
         let pointerJSON = try sign(fields, with: signers)
