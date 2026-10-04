@@ -31,7 +31,9 @@ public final class BGTaskSchedulerAdapter: BackgroundTaskScheduling, @unchecked 
             bgRequest = processing
         case .continued:
             // continued 即时启动语义（系统可行即开始；startTimeout 回落由门面承担），
-            // 不设 earliestBeginDate。
+            // 不设 earliestBeginDate。iOS 26-only 符号必须带编译期守卫（部署目标 iOS 16
+            // ——CI 37189703793 实证:守卫随 seam 迁移丢失,编译器在每个使用点强制要求）。
+            guard #available(iOS 26, *) else { throw BackgroundTaskSubmitError.unavailable }
             let continued = BGContinuedProcessingTaskRequest(identifier: request.identifier,
                                                              title: request.title ?? "",
                                                              subtitle: request.subtitle ?? "")
@@ -76,7 +78,11 @@ private final class BGTaskHandleBox: BackgroundTaskHandle, @unchecked Sendable {
         task.expirationHandler = handler
     }
 
-    var progress: Progress? { (task as? BGContinuedProcessingTask)?.progress }
+    var progress: Progress? {
+        // iOS 26-only 符号使用点守卫（CI 37189703793 同族）
+        if #available(iOS 26, *) { return (task as? BGContinuedProcessingTask)?.progress }
+        return nil
+    }
 }
 
 #endif

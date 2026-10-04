@@ -64,6 +64,10 @@
 #      + iOS 16 编译实证：HomeView.swift:46 随 539.1 全绿、HomeSubviews.swift:517 随
 #      09-26 各轮，委员会 D1 引证）、
 #      #Preview（iOS 13）。
+#   J-4. iOS 26 专用符号（BGContinuedProcessingTask/BGContinuedProcessingTaskRequest）
+#      越过 iOS 16.0 部署目标——CI 37189703793 实证（seam 迁移时守卫随文件搬迁丢失，
+#      Linux 空单元看不见、J-1 符号表无此条目）：使用行上方 5 行窗口内须有
+#      `#available(iOS 26`（guard/if 开口即保护其后语句），否则 // ios26-ok: 豁免。
 #   K. 条件绑定直接解包非可选 as-转型的下标读 —— CI 35488987944 实证：
 #      OCRCardStore+Edit.swift:175 `guard let raw = row["raw_blocks"] as String`
 #      （GRDB Row 非可选泛型下标 `try! decode`，NULL 时崩溃）；`Optional<T> as T`
@@ -882,6 +886,28 @@ def main():
                 f"@Perceptible 但未 import Perception（仅 macOS L1 报 cannot find in scope / "
                 f"ambiguous use of 'environment'）——在 import 块末尾补 `import Perception`"
             )
+        # J-4：iOS 26 专用符号（BGContinuedProcessingTask*）越过 iOS 16.0 部署目标
+        # —— CI 37189703793 实证：seam 迁移把符号搬进 BGTaskSchedulerAdapter 时守卫
+        # 丢失，Linux 空单元看不见、家族 J 符号表无此条目，首见即 macOS CI 红。
+        # 判定：使用行上方 4 行内有 `#available(iOS 26`（guard 或 if 块开口即保护
+        # 其后语句）即放行；否则须 // ios26-ok: 豁免。
+        IOS26_ONLY = {
+            "BGContinuedProcessingTaskRequest": r"\bBGContinuedProcessingTaskRequest\b",
+            "BGContinuedProcessingTask": r"\bBGContinuedProcessingTask\b",
+        }
+        for lineno, code in codes:
+            if not code.strip() or "ios26-ok" in raw_lines[lineno - 1]:
+                continue
+            window = "\n".join(raw_lines[max(0, lineno - 5):lineno])
+            if re.search(r"#available\(\s*iOS 26", window):
+                continue
+            for label, pat in IOS26_ONLY.items():
+                if re.search(pat, code):
+                    fails.append(
+                        f"{rel}:{lineno}: iOS 26 专用 `{label}` 越过 iOS 16.0 部署目标"
+                        f"（仅 macOS L1 报 'is only available in iOS 26.0 or newer'，parse 放行）——"
+                        f"置于 `#available(iOS 26` 守卫之后，或加 // ios26-ok: 豁免"
+                    )
 
     # ---- 家族 K：条件绑定直接解包非可选 as-转型的下标读 —— CI 35488987944 实证
     # GRDB Row 的非可选泛型下标（try! decode，NULL 崩溃）与 Optional<T> as T
