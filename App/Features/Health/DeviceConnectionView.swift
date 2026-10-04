@@ -172,6 +172,19 @@ final class F16DeviceState {
             }
         }
         defer { poller.cancel() }
+        // C1-5 owner 看门狗（2026-10-04 评审）：健康路径 ≤30s 预算（performSyncAll
+        // timeBudget 默认 30s）+ 15s 余量 = 45s 阈值。到期未终态 = 疑似悬挂——
+        // 用 owner 的合法取消权取消共享轮次并降级呈现（先置 degraded 再取消：
+        // 取消路径的 catch 只覆盖 .syncing，不吞已置的降级态）；epoch 守卫防
+        // 迟到看门狗误杀下一轮同步。
+        let watchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(45))   // try?-ok: 取消即结束
+            guard let self, !Task.isCancelled else { return }
+            guard self.syncEpoch == epoch else { return }
+            if self.phase == .syncing { self.phase = .degraded(L10n.f16SyncFailed) }
+            await self.syncService.cancelSync()
+        }
+        defer { watchdog.cancel() }
         do {
             // I2 审查修复：轮询与聚合下沉 HealthKitSyncService.performSyncAll
             // （服务语义不进视图状态对象），本层只消费一次终态报告。
