@@ -156,21 +156,25 @@ struct MetricTile: View {
                 // 2026-10-03 评审 R1-4：4 处 caption2 元信息压 2 行——聚合与来源并入一行
                 // （设备来源以「设备」前缀标注），一瞥只给 值/方向/来源/时间
                 // （iOS 27.2 Health 改版同向的「信息分层收敛」，迁移的是分层非控件）。
+                // round2 ⑤a：固定四槽骨架（标题/数值/元信息恒一行/迷你图槽恒 32pt）——
+                // 槽位恒定即瓦片等高；元信息缺失时该行仅时间（时间并入此行）；
+                // 迷你图无数据渲染空槽（可选元素不再撑出高低差）。
                 let metaParts = [item.aggregation.map { L10n.healthAggregation($0) },
                                  item.sourceName.map { item.origin == "device" ? "\(L10n.trendOriginDevice) · \($0)" : $0 }].compactMap { $0 }
-                if !metaParts.isEmpty {
-                    Text(metaParts.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
-                }
-                Text(item.measuredAt.formatted(date: .abbreviated, time: .shortened))
+                Text((metaParts + [item.measuredAt.formatted(date: .abbreviated, time: .shortened)])
+                        .joined(separator: " · "))
                     .font(.caption2).foregroundStyle(.secondary)
-                if let spark, !spark.points.isEmpty {
-                    Chart(spark.points) { p in
-                        PointMark(x: .value("t", p.measuredAt), y: .value("v", p.value))
+                    .lineLimit(1)
+                Group {
+                    if let spark, !spark.points.isEmpty {
+                        Chart(spark.points) { p in
+                            PointMark(x: .value("t", p.measuredAt), y: .value("v", p.value))
+                        }
+                        .chartXAxis(.hidden)
+                        .chartYAxis(.hidden)
                     }
-                    .chartXAxis(.hidden)
-                    .chartYAxis(.hidden)
-                    .frame(height: 32)
                 }
+                .frame(height: 32)
             }
             .padding(12)
             .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
