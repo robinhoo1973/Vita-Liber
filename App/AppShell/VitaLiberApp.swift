@@ -244,6 +244,33 @@ struct VitaLiberApp: App {
                 return false
             }
         }
+        // C1-6（2026-10-04 评审）：投递唤醒专用轻量执行体——先排期 refresh（被系统
+        // 切断也有兜底通道）再受限排空（2 轮/10s，Domain 唤醒源分型背板）；积压由
+        // backfill 承接。预算依据：HealthKit 后台投递每次唤醒仅约 15s（社区实测，
+        // 待 L2 复核）；refresh 作业保持 8 轮/18s 不变。
+        HealthKitSyncService.backgroundObserverHandler = { [dataChange] in
+            do {
+                guard try await bgSync.canAutomaticallySync() else { return false }
+                await bgSync.scheduleBackgroundRefresh()
+                let source = BackgroundJobPolicy.WakeupSource.observerDelivery
+                let start = try await healthSettings.value(for: .quietHoursStart)
+                let end = try await healthSettings.value(for: .quietHoursEnd)
+                let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
+                                                             maxRounds: source.roundsCap,
+                                                             timeBudget: source.defaultTimeBudget)
+                await MainActor.run {
+                    if report.persistedRows > 0 { dataChange.metricsChanged() }
+                    dataChange.alertsChanged()
+                }
+                return report.failedTypes.isEmpty
+            } catch {
+                await MainActor.run {
+                    dataChange.metricsChanged()
+                    dataChange.alertsChanged()
+                }
+                return false
+            }
+        }
         // 2026-09-23 修复：启动入口改为统一维护（观察注册复核 + 刷新/回填请求重排）
         Task { await container.healthSync.maintainBackgroundAutomation() }
     }
