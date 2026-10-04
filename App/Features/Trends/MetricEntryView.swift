@@ -68,14 +68,16 @@ struct MetricQuickEntryView: View {
                                          .temperature, .heartRate, .bloodOxygen]
 
     var body: some View {
+        // round2 ⑤c：本页以 in-place push 挂载（AppRouter isInPlacePage），内嵌
+        // NavigationStack = 嵌套导航栈（双导航栏/标题错位/dismiss 语义歧义）——
+        // Form 与 navigationTitle/toolbar 直落外层栈，push 语义下 dismiss 即出栈。
         WithPerceptionTracking {
-            NavigationStack {
-                Form {
-                    if step == 1 {
-                        Section {
-                            // 类型宫格（FR7.5 预设 + 记忆上次选择——本入口默认高亮当前 metric）
-                            ForEach(metrics, id: \.rawValue) { m in
-                                Button {
+            Form {
+                if step == 1 {
+                    Section {
+                        // 类型宫格（FR7.5 预设 + 记忆上次选择——本入口默认高亮当前 metric）
+                        ForEach(metrics, id: \.rawValue) { m in
+                            Button {
                                     metric = m
                                 } label: {
                                     HStack {
@@ -138,62 +140,61 @@ struct MetricQuickEntryView: View {
                         }
                     }
                 }
-                .navigationTitle(L10n.metricEntryTitle)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(L10n.commonCancel) { dismiss() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        if step == 1 {
-                            Button(L10n.allergyNext) { step = 2 }
-                        } else {
-                            Button(L10n.reminder_save) { save() }
-                                .disabled(primaryText.isEmpty)
-                                .accessibilityIdentifier("SP-13.metric.save")
-                        }
+            .navigationTitle(L10n.metricEntryTitle)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonCancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if step == 1 {
+                        Button(L10n.allergyNext) { step = 2 }
+                    } else {
+                        Button(L10n.reminder_save) { save() }
+                            .disabled(primaryText.isEmpty)
+                            .accessibilityIdentifier("SP-13.metric.save")
                     }
                 }
-                .alert(L10n.metricSaved, isPresented: $saved) {
-                    Button(L10n.metricViewTrend) {
-                        router.navigate(to: .trendChart(patientId: app.currentPatientId,
-                                                        metric: metric.rawValue))
-                        dismiss()
-                    }
-                    Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            }
+            .alert(L10n.metricSaved, isPresented: $saved) {
+                Button(L10n.metricViewTrend) {
+                    router.navigate(to: .trendChart(patientId: app.currentPatientId,
+                                                    metric: metric.rawValue))
+                    dismiss()
                 }
-                // 解析失败/写失败可见反馈（FR7.5：绝不静默丢弃读数）
-                // 统一失败弹窗（设计系统 SaveFailedAlert——此前为视图内复制的
-                // alert 三元组，全仓第七个表单入口已收敛至该修饰器）
-                .saveFailedAlert(title: L10n.metricEntryErrorTitle,
-                                 hint: entryError ?? "",
-                                 isPresented: Binding(get: { entryError != nil },
-                                                      set: { if !$0 { entryError = nil } }))
-                .onAppear {
-                    // §5.13 记忆上次选择（V3.72）：此前恒为血糖，六类指标每次都要重选。
-                    // 键构造收敛 Domain SettingsRules（与单位记忆键同族单一事实源）
-                    if let last = UserDefaults.standard.string(forKey: SettingsRules.lastSelectedMetricKey),
-                       let m = MetricType(rawValue: last) {
-                        metric = m
-                    }
-                    // 单位记忆（FR7.8：每种指标记忆上次单位）
-                    unitText = state.rememberedUnit(for: metric)
-                    // FR17.9 面板确认草稿预填（类型化 pendingVoiceIntent 一次性投递）
-                    if let draft = router.pendingVoiceIntent {
-                        router.pendingVoiceIntent = nil
-                        applyDraft(draft.keyedValues)
-                    }
-                    routeMonitor.start()
+                Button(L10n.onboard_gotIt, role: .cancel) { dismiss() }
+            }
+            // 解析失败/写失败可见反馈（FR7.5：绝不静默丢弃读数）
+            // 统一失败弹窗（设计系统 SaveFailedAlert——此前为视图内复制的
+            // alert 三元组，全仓第七个表单入口已收敛至该修饰器）
+            .saveFailedAlert(title: L10n.metricEntryErrorTitle,
+                             hint: entryError ?? "",
+                             isPresented: Binding(get: { entryError != nil },
+                                                  set: { if !$0 { entryError = nil } }))
+            .onAppear {
+                // §5.13 记忆上次选择（V3.72）：此前恒为血糖，六类指标每次都要重选。
+                // 键构造收敛 Domain SettingsRules（与单位记忆键同族单一事实源）
+                if let last = UserDefaults.standard.string(forKey: SettingsRules.lastSelectedMetricKey),
+                   let m = MetricType(rawValue: last) {
+                    metric = m
                 }
-                .onChangeCompat(of: metric) { _, newMetric in
-                    unitText = state.rememberedUnit(for: newMetric)
-                    UserDefaults.standard.set(newMetric.rawValue, forKey: SettingsRules.lastSelectedMetricKey)
+                // 单位记忆（FR7.8：每种指标记忆上次单位）
+                unitText = state.rememberedUnit(for: metric)
+                // FR17.9 面板确认草稿预填（类型化 pendingVoiceIntent 一次性投递）
+                if let draft = router.pendingVoiceIntent {
+                    router.pendingVoiceIntent = nil
+                    applyDraft(draft.keyedValues)
                 }
-                .onDisappear { routeMonitor.stop() }
-                // FR17.13-entry：指标语音草稿 —— 统一确认模板，不自建确认逻辑
-                .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
-                    applyConfirmed(confirmed)
-                    confirmSet = nil
-                }
+                routeMonitor.start()
+            }
+            .onChangeCompat(of: metric) { _, newMetric in
+                unitText = state.rememberedUnit(for: newMetric)
+                UserDefaults.standard.set(newMetric.rawValue, forKey: SettingsRules.lastSelectedMetricKey)
+            }
+            .onDisappear { routeMonitor.stop() }
+            // FR17.13-entry：指标语音草稿 —— 统一确认模板，不自建确认逻辑
+            .voiceConfirmSheet($confirmSet, route: routeMonitor.route) { confirmed in
+                applyConfirmed(confirmed)
+                confirmSet = nil
             }
         }
     }
