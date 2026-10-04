@@ -500,10 +500,9 @@ struct HomeView: View {
 
     /// 多任务分组下载卡（2026-10-04 业主反馈②）——渲染原子为 HomeModelDownloadGroupCard
     /// （折叠头零 progress 读取纪律随迁：只传 let 数组与回调，进度读取全落卡内/行内域）。
+    /// round2 ④：展开行行内详情、不跳转——组卡不再接 onOpen（单任务卡保持跳转，D4 裁定）。
     private func modelDownloadGroupCard(_ installs: [ASRInstallCenter.Install]) -> some View {
-        HomeModelDownloadGroupCard(installs: installs) {
-            router.navigate(to: .resourceManagement)
-        } onCancel: { install in
+        HomeModelDownloadGroupCard(installs: installs) { install in
             installCenter.cancel(install.choice)
         }
     }

@@ -517,6 +517,11 @@ extension L10n {
         String(format: t("asr.model.modeSegmentedFmt"), segments)
     }
 
+    /// round2 2026-10-04：分组卡展开行数据包介绍的大小行（%@ = 字节格式化大小）。
+    static func asrModelIntroSizeFmt(_ size: String) -> String {
+        String(format: t("asr.model.introSizeFmt"), size)
+    }
+
     static func voiceEngineName(_ choice: VoiceEngineChoice) -> String {
         switch choice {
         case .auto: return voiceEngineAuto

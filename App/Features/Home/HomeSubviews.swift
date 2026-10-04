@@ -538,13 +538,16 @@ struct HomeModelDownloadCard: View {
     }
 }
 
-/// 多任务分组下载卡（2026-10-04 业主反馈②；五角色评审见 discussions/2026-10-04-home-download-card-round1.md）：
-/// ≥2 任务合并为单行分组卡，默认折叠（DisclosureGroup 内部状态自持——视图销毁即重置 =
-/// 新会话默认折叠；任务数在 ≥2 内变化不偷袭用户展开态），展开逐任务行与单任务卡
-/// 同构同标识（`SP-04.home.modelDownload.<choice>` 原样保留）。
+/// 多任务分组下载卡（2026-10-04 业主反馈②；round2 2026-10-04 自绘展开头）：
+/// ≥2 任务合并为单行分组卡，默认折叠（@State 视图销毁即重置 = 新会话默认折叠；
+/// 任务数在 ≥2 内变化不偷袭用户展开态），展开逐任务行（行内详情，不跳转——round2 ④）。
+/// round2 ①：自绘展开头替代系统 DisclosureGroup——系统 label 行高/内容区默认边距
+/// 与自绘卡紧凑 padding 叠加出大段空白带（DisclosureGroup 无边距收口 API；round1
+/// 技术债⑥ 预登记路径达成）。头为 Button（PressScaleButtonStyle 按压反馈统一），
+/// chevron 旋转 ≤350ms 状态迁移；VoiceOver 以 accessibilityValue 报展开/折叠态。
 ///
-/// **观察域纪律（2026-09-16 根因同族，勿破坏）**：label 只读 `choice`（let 不变）与
-/// `waiting`（每任务仅翻转一次、低频）——**严禁在 label 读 progress/phase**：5 Hz 进度写入
+/// **观察域纪律（2026-09-16 根因同族，勿破坏）**：头只读 `choice`（let 不变）与
+/// `waiting`（每任务仅翻转一次、低频）——**严禁在头读 progress/phase**：5 Hz 进度写入
 /// 会让整张组卡（含展开行容器）重渲染。逐任务进度读取全部落在行卡自己的内层
 /// WithPerceptionTracking（嵌套域：父 body 只构造子视图值、子 body 才读属性——inner 屏蔽 outer，
 /// HomeView:216 外层包首页 body 已含此嵌套形态）。折叠头不展示聚合百分比/聚合条：
@@ -552,8 +555,8 @@ struct HomeModelDownloadCard: View {
 /// 单任务才显示 NN%（复用 per-task 逻辑）。
 struct HomeModelDownloadGroupCard: View {
     let installs: [ASRInstallCenter.Install]
-    let onOpen: () -> Void
     let onCancel: (ASRInstallCenter.Install) -> Void
+    @State private var isExpanded = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -566,39 +569,125 @@ struct HomeModelDownloadGroupCard: View {
         // 图标动效激活 = 任一任务非排队（混合队列态：first 排队而 second 下载中时图标仍应动——
         // 不可用 first.phase 判定）；waiting 低频，落组卡域安全。
         let animating = installs.contains { !$0.waiting }
-        DisclosureGroup {
-            ForEach(installs) { install in
-                HomeModelDownloadCard(install: install) {
-                    onOpen()
-                } onCancel: {
-                    onCancel(install)
-                }
-                // 展开行同处一个 List 行内，行背景覆盖整行但不分格——行间补分隔（打磨项，round2 C-5）
-                if install.id != installs.last?.id {
-                    Divider()
-                }
-            }
-        } label: {
-            HStack(spacing: 10) {
-                VLDownloadActivityIcon(isActive: animating)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.homeModelDownloadGroupFmt(installs.count))
-                        .font(.subheadline.bold()).foregroundStyle(.primary)
-                    Text(installs.map { L10n.voiceEngineName($0.choice) }.joined(separator: " · "))
+        VStack(spacing: 0) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    VLDownloadActivityIcon(isActive: animating)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                        .frame(width: 36)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.homeModelDownloadGroupFmt(installs.count))
+                            .font(.subheadline.bold()).foregroundStyle(.primary)
+                        Text(installs.map { L10n.voiceEngineName($0.choice) }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.down")
                         .font(.caption).foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                        .animation(.easeInOut(duration: 0.35), value: isExpanded)   // ≤350ms 状态迁移（§10）
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 44)   // 折叠头触点 ≥44pt（§7.1）
+                .contentShape(Rectangle())
             }
-            .frame(minHeight: 44)   // 折叠头触点 ≥44pt（§7.1）
-            .contentShape(Rectangle())
+            .buttonStyle(PressScaleButtonStyle())
+            .accessibilityValue(isExpanded
+                                ? L10n.homeModelDownloadGroupExpandedValue
+                                : L10n.homeModelDownloadGroupCollapsedValue)
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(installs) { install in
+                        HomeModelDownloadGroupRow(install: install) {
+                            onCancel(install)
+                        }
+                        // 展开行同处一个 List 行内，行背景覆盖整行但不分格——行间补分隔（打磨项，round1 C-5）
+                        if install.id != installs.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
         }
         // 容器标识必须配 .contain（§17 掩蔽纪律；CareTransientTaskCard 同款先例）——
-        // 注意 l0-container-id-mask.py 不含 DisclosureGroup 且跨结构体子树不分析（双盲区），
-        // 此 .contain 是唯一防线，不可省。
+        // l0-container-id-mask.py 跨结构体子树不分析，此 .contain 是唯一防线，不可省。
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("SP-04.home.modelDownload.group")
+    }
+}
+
+/// 分组卡展开行（round2 2026-10-04 裁定③④）：
+/// ③ leading = 44pt 语义红取消图标（替代原下载图标——状态语义由条/百分比/阶段文案
+/// 承担；折叠头的动效图标已答「在做吗」，行内不重复），trailing「取消」文字按钮删除。
+/// ④ 行内直接展示数据包介绍（用途 = voiceEngineHint 既有键；大小 = progress.totalBytes，
+/// HEAD 未回前不渲染大小行），主体不可点、不跳转 SP-64（单任务卡保持跳转——D4 裁定）；
+/// 版本字段待目录元数据管线（跟进项：勿在 5 Hz 重渲视图体做文件 I/O）。
+///
+/// **独立观察域**：与 HomeModelDownloadCard 同纪律——progress/phase 读取只准落在
+/// 本行内层 WithPerceptionTracking（父组卡 body 只构造子视图值）。
+struct HomeModelDownloadGroupRow: View {
+    let install: ASRInstallCenter.Install
+    let onCancel: () -> Void
+
+    var body: some View {
+        WithPerceptionTracking {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        let brief = install.phase
+        // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
+        // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」。
+        let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
+        let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
+        HStack(alignment: .top, spacing: 10) {
+            Button {
+                onCancel()
+            } label: {
+                Image(systemName: "xmark.circle")
+                    .font(.title3)
+                    .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    .frame(width: 36, height: 44)   // 触点 ≥44pt（§7.1）
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressScaleButtonStyle())
+            .accessibilityLabel(L10n.commonCancel)
+            .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(L10n.voiceEngineName(install.choice))
+                        .font(.subheadline.bold()).foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    if showFraction {
+                        Text("\(Int(fraction * 100))%")
+                            .font(.caption).monospacedDigit()
+                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                    }
+                }
+                if showFraction {
+                    ProgressView(value: fraction)
+                        .tint(Color("brand-primary", bundle: .main))
+                }
+                let modeLabel = downloadModeText(install.progress?.mode)
+                Text(modeLabel.isEmpty
+                     ? detailText(install)
+                     : "\(detailText(install)) · \(modeLabel)")
+                    .font(.caption2).foregroundStyle(.secondary)
+                // 数据包介绍（round2 ④）：用途一句话（既有键）+ 大小（HEAD 未回前不渲染）。
+                Text(L10n.voiceEngineHint(install.choice))
+                    .font(.caption).foregroundStyle(.secondary)
+                if let total = install.progress?.totalBytes {
+                    Text(L10n.asrModelIntroSizeFmt(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 6)
     }
 }
 

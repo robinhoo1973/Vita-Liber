@@ -861,6 +861,7 @@ extension L10n {
         "home.profileContinue",
         "home.profileProgress", "home.profileMissingFmt", "home.profileMissingMoreFmt",
         "home.model.downloadTitle", "home.model.downloadView", "home.model.downloadGroupFmt",
+        "home.model.downloadGroupExpandedValue", "home.model.downloadGroupCollapsedValue",
         "home.profileProgressFmt",
         "inventory.tier0",
         "member.relation.child",
@@ -983,7 +984,7 @@ extension L10n {
         "asr.model.progressFmt", "asr.model.phaseVerifying", "asr.model.phaseUnpacking",
         "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint", "asr.model.foregroundHint",
         // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
-        "asr.model.modeSegmentedFmt", "asr.model.modeSingle",
+        "asr.model.modeSegmentedFmt", "asr.model.modeSingle", "asr.model.introSizeFmt",
         "asr.qwen3", "asr.qwen3.hint",
         "asr.preparing",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",

@@ -151,6 +151,10 @@ extension L10n {
     /// 2026-10-04 业主反馈②：多任务下载分组卡折叠头计数（%d = 任务数）。
     static func homeModelDownloadGroupFmt(_ n: Int) -> String { String(format: t("home.model.downloadGroupFmt"), n) }
 
+    /// round2 2026-10-04：自绘展开头的 VoiceOver 展开/折叠态 value（替代系统 DisclosureGroup 朗读）。
+    static var homeModelDownloadGroupExpandedValue: String { t("home.model.downloadGroupExpandedValue") }
+    static var homeModelDownloadGroupCollapsedValue: String { t("home.model.downloadGroupCollapsedValue") }
+
     static var homeProfileContinue: String { t("home.profileContinue") }
 
     static var homeDisclaimer: String { t("home.disclaimer") }

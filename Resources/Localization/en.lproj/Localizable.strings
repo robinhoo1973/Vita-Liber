@@ -1659,6 +1659,8 @@
 "home.model.downloadTitle" = "Downloading voice model";
 "home.model.downloadView" = "View download";
 "home.model.downloadGroupFmt" = "%1$d downloads in progress";
+"home.model.downloadGroupExpandedValue" = "Expanded";
+"home.model.downloadGroupCollapsedValue" = "Collapsed";
 "home.profileProgressFmt" = "%1$d of %2$d items completed";
 "home.profileContinue" = "Continue";
 "home.profileMissingFmt" = "Missing: %1$@ · complete them to enable the emergency card";
@@ -1867,6 +1869,7 @@
 "asr.model.checkUpdatesFmt" = "%d updates available";
 "asr.model.progressFmt" = "Downloaded %@ of %@";
 "asr.model.modeSegmentedFmt" = "%d concurrent";
+"asr.model.introSizeFmt" = "Size %1$@";
 "asr.model.modeSingle" = "single stream";
 "asr.model.phaseVerifying" = "Verifying integrity…";
 "asr.model.phaseUnpacking" = "Unpacking…";

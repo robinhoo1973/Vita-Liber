@@ -1659,6 +1659,8 @@
 "home.model.downloadTitle" = "正在下載語音模型";
 "home.model.downloadView" = "檢視下載";
 "home.model.downloadGroupFmt" = "%1$d 個下載任務";
+"home.model.downloadGroupExpandedValue" = "已展開";
+"home.model.downloadGroupCollapsedValue" = "已摺疊";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
 "home.profileContinue" = "繼續完善";
 "home.profileMissingFmt" = "缺：%1$@ · 補全後急救卡可用";
@@ -1867,6 +1869,7 @@
 "asr.model.checkUpdatesFmt" = "發現 %d 個可更新";
 "asr.model.progressFmt" = "已下載 %@ / %@";
 "asr.model.modeSegmentedFmt" = "%d 路並行";
+"asr.model.introSizeFmt" = "大小 %1$@";
 "asr.model.modeSingle" = "單流";
 "asr.model.phaseVerifying" = "校驗完整性…";
 "asr.model.phaseUnpacking" = "解壓中…";

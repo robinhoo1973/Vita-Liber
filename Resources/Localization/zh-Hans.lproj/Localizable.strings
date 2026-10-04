@@ -1659,6 +1659,8 @@
 "home.model.downloadTitle" = "正在下载语音模型";
 "home.model.downloadView" = "查看下载";
 "home.model.downloadGroupFmt" = "%1$d 个下载任务";
+"home.model.downloadGroupExpandedValue" = "已展开";
+"home.model.downloadGroupCollapsedValue" = "已折叠";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 项";
 "home.profileContinue" = "继续完善";
 "home.profileMissingFmt" = "缺：%1$@ · 补全后急救卡可用";
@@ -1867,6 +1869,7 @@
 "asr.model.checkUpdatesFmt" = "发现 %d 个可更新";
 "asr.model.progressFmt" = "已下载 %@ / %@";
 "asr.model.modeSegmentedFmt" = "%d 路并发";
+"asr.model.introSizeFmt" = "大小 %1$@";
 "asr.model.modeSingle" = "单流";
 "asr.model.phaseVerifying" = "校验完整性…";
 "asr.model.phaseUnpacking" = "解压中…";
