@@ -150,6 +150,16 @@ public actor HealthKitSyncService {
                     for f in failures where !merged.contains(f) { merged.append(f) }
                     aggregate.lastFailures = merged
                 }
+                // C1-8d（2026-10-04 评审）：三遥测字段随「末轮为准」律合并——
+                // 失败原因并集去重、合并加入计数累计（与 lastFailures 同律）。
+                if let reasons = result.failureReasons {
+                    var merged = aggregate.failureReasons ?? []
+                    for r in reasons where !merged.contains(r) { merged.append(r) }
+                    aggregate.failureReasons = merged
+                }
+                if result.coalescedJoiners != nil || aggregate.coalescedJoiners != nil {
+                    aggregate.coalescedJoiners = (aggregate.coalescedJoiners ?? 0) + (result.coalescedJoiners ?? 0)
+                }
                 total = aggregate
             } else {
                 total = result
@@ -158,15 +168,22 @@ public actor HealthKitSyncService {
         }
         // maxRounds ≥ 1 时首轮必产出；守卫兜底无绑定（missingOwner 与
         // performSync 内部缺失绑定的失败语义一致）。
-        guard let total else { throw HealthImportStore.ImportError.missingOwner }
+        guard var total else { throw HealthImportStore.ImportError.missingOwner }
+        // C1-8d：总墙钟时长（诊断「慢」的每唤醒归因；ContinuousClock 起止差）
+        let elapsed = start.duration(to: .now)
+        total.wallTime = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
         return total
     }
 
     public func performSync(quietStart: String, quietEnd: String) async throws -> SyncReport {
         try Task.checkCancellation()
         if let inFlight {
-            let report = try await inFlight.value
+            var report = try await inFlight.value
             try Task.checkCancellation()
+            // C1-8c（2026-10-04 评审）：合并加入计数——「四路撞车」频率的量化事实
+            // （observer/refresh/backfill/回前台并发时共享同一轮次是预期行为，
+            // 计数使合并频率可观测，为唤醒源分型的收益评估供数）。
+            report.coalescedJoiners = (report.coalescedJoiners ?? 0) + 1
             return report
         }
         let id = UUID()
@@ -254,6 +271,12 @@ public actor HealthKitSyncService {
                 var failures = report.lastFailures ?? []
                 if !failures.contains(kind.rawValue) { failures.append(kind.rawValue) }
                 report.lastFailures = failures
+                // C1-8b（2026-10-04 评审）：lastFailures 只记 kind 名「哪种类型失败」，
+                // 补「为什么失败」——错误描述去重截断入 failureReasons（与 kind 名并集互补）。
+                var reasons = report.failureReasons ?? []
+                let reason = String(String(describing: error).prefix(200))
+                if !reason.isEmpty && !reasons.contains(reason) { reasons.append(reason) }
+                report.failureReasons = reasons
             }
             report.hasMore = report.hasMore || hasPending
             // 审查修复（共享轮次取消不丢进度）：每类页处理完即落盘报告——
