@@ -239,6 +239,7 @@ extension VerifiedMedicalCatalogCandidate {
             "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
             "releaseTag": MedicalCatalogReleaseProtocol.releaseTag,
             "repository": MedicalCatalogReleaseProtocol.repository,
+            "planSetSHA256": signedPointerDigest,   // v7-only 契约必带（CI #655 扫盲：缺失即 decode 抛）
         ]
         let payload = try JSONSerialization.data(withJSONObject: fields)
         let pointer = try MedicalCatalogSignedPointer.decode(payload)
