@@ -544,9 +544,15 @@ extension HealthKitSyncServiceTests {
             if await !gated.requests.isEmpty { break }
             try await Task.sleep(for: .milliseconds(5))
         }
-        let joiner = try await svc.performSync(quietStart: "22:00", quietEnd: "07:00")
-        XCTAssertEqual(joiner.coalescedJoiners, 1, "合并加入必须计数（C1-8c）")
+        // 死锁修复（2026-10-04 CI 实证）：joiner 直接 await = 循环等待——owner 等
+        // release、join 等 owner（默认 120s 阈值不触发 staleFlight）、release 在 join
+        // 返回后才执行 → 三方永久挂起。改为先起 joiner 任务、待其进入 inFlight 等待
+        // 支路（有界轮询）后放行 owner，再取 join 结果。
+        let joinerTask = Task { try await svc.performSync(quietStart: "22:00", quietEnd: "07:00") }
+        for _ in 0..<20 { try await Task.sleep(for: .milliseconds(5)) }
         await release.open()
+        let joiner = try await joinerTask.value
+        XCTAssertEqual(joiner.coalescedJoiners, 1, "合并加入必须计数（C1-8c）")
         _ = try await owner.value
     }
 }
