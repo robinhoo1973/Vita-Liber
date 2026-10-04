@@ -460,3 +460,93 @@ extension HealthKitSyncServiceTests {
         XCTAssertEqual(unspecified, 0, "归零键行必须删除——合并后的总量行才是该窗口真相")
     }
 }
+
+// 2026-10-04 后台任务专项评审 C1-5/C1-8 断言锁
+// （discussions/2026-10-04-background-tasks-council.md）：join 陈旧检测与三遥测字段
+// 的 macOS 契约测试——Linux 平台守卫空单元，此处是行为唯一机器闸。
+extension HealthKitSyncServiceTests {
+
+    /// C1-5：共享轮次悬挂时，join 者收到 staleFlight（只记账不杀共享任务）；
+    /// 释放闸门后 owner 正常完成——「只有创建者持取消权」契约不受检测影响。
+    func test_joinersOfAStalledFlightReceiveStaleFlight() async throws {
+        let (db, imports, binding) = try await makeStore()
+        let fixture = discreteFixture(days: 1)
+        let entered = HealthSyncTestGate()
+        let release = HealthSyncTestGate()
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen,
+            pages: [HealthChangeBatch(added: fixture.samples, deleted: [], anchor: Data([1]), hasMore: false)],
+            snapshots: fixture.snapshots, entered: entered, release: release)
+        let svc = service(db, imports: imports, provider: provider)
+
+        let owner = Task { try await svc.performSync(quietStart: "22:00", quietEnd: "07:00") }
+        // 等待 owner 进入取数并挂在闸门上
+        for _ in 0..<400 {
+            if await !provider.requests.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let oldThreshold = HealthKitSyncService.joinStaleThresholdSeconds
+        HealthKitSyncService.joinStaleThresholdSeconds = 0.05
+        defer { HealthKitSyncService.joinStaleThresholdSeconds = oldThreshold }
+        try await Task.sleep(for: .milliseconds(60))
+        do {
+            _ = try await svc.performSync(quietStart: "22:00", quietEnd: "07:00")
+            XCTFail("join 者应收到 staleFlight 而非排队到悬挂轮次")
+        } catch let error as HealthImportStore.ImportError {
+            guard case .staleFlight = error else {
+                XCTFail("期望 staleFlight,收到 \(error)")
+                return
+            }
+        }
+        // 释放 owner，验证共享轮次未被检测杀死
+        await release.open()
+        let report = try await owner.value
+        XCTAssertTrue(report.failedTypes.isEmpty)
+        _ = binding
+    }
+
+    /// C1-8d：performSyncAll 聚合置 wallTime 总时长（>0）。
+    func test_performSyncAllFillsWallTime() async throws {
+        let (db, imports, _) = try await makeStore()
+        let fixture = discreteFixture(days: 1)
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen,
+            pages: [HealthChangeBatch(added: fixture.samples, deleted: [], anchor: Data([1]), hasMore: false)],
+            snapshots: fixture.snapshots)
+        let report = try await service(db, imports: imports, provider: provider)
+            .performSyncAll(quietStart: "22:00", quietEnd: "07:00", maxRounds: 1, timeBudget: .seconds(30))
+        XCTAssertNotNil(report.wallTime)
+        XCTAssertGreaterThan(report.wallTime ?? 0, 0)
+    }
+
+    /// C1-8b/c：失败轮次补 failureReasons（与 lastFailures kind 名互补）；
+    /// 并发 join 者计数 coalescedJoiners。
+    func test_telemetryFailureReasonsAndCoalescedJoiners() async throws {
+        let (db, imports, _) = try await makeStore()
+        let fixture = discreteFixture(days: 2)
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen,
+            pages: [HealthChangeBatch(added: fixture.samples, deleted: [], anchor: Data([1]), hasMore: false)],
+            snapshots: fixture.snapshots)
+        await provider.failSnapshots([fixture.snapshots[1].window])
+        let report = try await service(db, imports: imports, provider: provider)
+            .performSyncAll(quietStart: "22:00", quietEnd: "07:00", maxRounds: 1, timeBudget: .seconds(30))
+        XCTAssertEqual(report.failedTypes, [.bloodOxygen])
+        XCTAssertNotNil(report.failureReasons, "失败轮次必须补错误描述（C1-8b）")
+        XCTAssertFalse(report.failureReasons?.isEmpty ?? true)
+
+        // 并发合并：第二个调用者在首个轮次在途时 join，计数 +1
+        let entered = HealthSyncTestGate()
+        let release = HealthSyncTestGate()
+        let gated = HealthSyncFixtureProvider(kind: .bloodOxygen,
+            pages: [HealthChangeBatch(added: fixture.samples, deleted: [], anchor: Data([1]), hasMore: false)],
+            snapshots: fixture.snapshots, entered: entered, release: release)
+        let svc = service(db, imports: imports, provider: gated)
+        let owner = Task { try await svc.performSync(quietStart: "22:00", quietEnd: "07:00") }
+        for _ in 0..<400 {
+            if await !gated.requests.isEmpty { break }
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let joiner = try await svc.performSync(quietStart: "22:00", quietEnd: "07:00")
+        XCTAssertEqual(joiner.coalescedJoiners, 1, "合并加入必须计数（C1-8c）")
+        await release.open()
+        _ = try await owner.value
+    }
+}
