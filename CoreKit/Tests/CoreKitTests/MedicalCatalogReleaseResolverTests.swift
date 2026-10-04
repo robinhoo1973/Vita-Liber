@@ -120,10 +120,13 @@ struct MedicalCatalogReleaseResolverTests {
     func checkRejectsPhysicalV6Update() async throws {
         // CNB 单写者 v7-only（2026-10-03）：v6 指针按 invalidField 拒绝，
         // 解析器归 verificationFailed——旧「接受 v6」契约已废止。
-        let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+        // `make(schemaVersion: 6)` 在 expectation 门即抛（acceptance 套件钉住该
+        // 形态）——改以 v7 夹具 + catalog 私钥重签 sqliteSchemaVersion=6 的指针体。
+        let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
+        let v6Pointer = try fixture.signedPointer { $0["sqliteSchemaVersion"] = 6 }
         Self.resetStubs()
-        Self.apply(Self.installRoutes(fixture))
+        Self.apply(Self.installRoutes(fixture, pointerBody: v6Pointer))
         let resolver = Self.makeResolver(fixture: fixture)
         let outcome = try await resolver.check()
         #expect(outcome.state == .verificationFailed, "v6 pointer must be rejected, actual=\(outcome.state)")
@@ -147,10 +150,13 @@ struct MedicalCatalogReleaseResolverTests {
 
     @Test("physical v6 pointer is rejected under the v7-only contract")
     func checkRejectsUpToDateForPhysicalV6() async throws {
-        let fixture = try MedicalCatalogFixture.make(schemaVersion: 6)
+        // 同 checkRejectsPhysicalV6Update：v7 夹具 + 重签 v6 指针体；本地版本号
+        // 即便自称 v6 也不影响解码门拒绝（拒绝先于本地比较）。
+        let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
+        let v6Pointer = try fixture.signedPointer { $0["sqliteSchemaVersion"] = 6 }
         Self.resetStubs()
-        Self.apply(Self.installRoutes(fixture))
+        Self.apply(Self.installRoutes(fixture, pointerBody: v6Pointer))
         let local = MedicalCatalogInstalledVersion(schemaVersion: 6, dataVersion: fixture.signedExpectation.dataVersion)
         let resolver = Self.makeResolver(fixture: fixture, local: local)
         let outcome = try await resolver.check()
