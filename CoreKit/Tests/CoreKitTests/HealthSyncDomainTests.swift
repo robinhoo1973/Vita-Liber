@@ -471,7 +471,7 @@ struct SyncReportTelemetryTests {
         // 漏非 Optional 键，反而测的是自造形状不是兼容契约）。
         var report = base()
         report.persistedRows = 3
-        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
+        var object = try #require(try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as? [String: Any])
         for key in ["wallTime", "failureReasons", "coalescedJoiners"] { object.removeValue(forKey: key) }
         let legacy = try JSONSerialization.data(withJSONObject: object)
         let decoded = try JSONDecoder().decode(SyncReport.self, from: legacy)
