@@ -48,6 +48,10 @@ public enum MedicalCatalogReleaseProtocol {
 
     /// v2 时间戳名解析:返回 (installable, catalogVersion, 名内时间戳字符串)。
     /// 亦兼容 legacy 纯数字名(仅作候选定位;校验层的重算名只出 v2 形)。
+    /// 逐项对齐 Go `names.go` pointerNamePattern / ParsePointerAssetName:
+    /// 版本段 `[1-9][0-9]{0,18}`;stamp 段 `[0-9]{8}T[0-9]{6}Z`(**16 字节,含 T**)
+    /// 且经 time.Parse 回环——CI #655 实证旧 15 字节门把全部 v2 名滤出候选,
+    /// resolver 恒呈 noInstallableAvailable。
     public static func parsePointerAssetName(_ name: String) -> (installable: Bool, catalogVersion: Int64, timestamp: String?)? {
         let prefix = "medical-data-catalog-"
         let suffix = ".json"
@@ -57,14 +61,27 @@ public enum MedicalCatalogReleaseProtocol {
         let installable = body.hasPrefix("installable-")
         let rest = body.dropFirst(installable ? "installable-".count : "progress-".count)
         let parts = rest.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let first = parts.first, first.allSatisfy(\.isNumber),
+        guard let first = parts.first, (1...19).contains(first.count),
+              first.first != "0", first.allSatisfy(\.isNumber),
               let version = Int64(first), version > 0 else { return nil }
         if parts.count == 2 {
             let ts = String(parts[1])
-            guard ts.utf8.count == 15, ts.allSatisfy({ $0.isNumber || $0 == "T" || $0 == "Z" }) else { return nil }
+            guard timestampNameDate(ts) != nil else { return nil }
             return (installable, version, ts)
         }
         return (installable, version, nil)   // legacy 形,仅定位用
+    }
+
+    /// Go `time.Parse("20060102T150405Z")` 回环镜像:`[0-9]{8}T[0-9]{6}Z` 且为合法
+    /// UTC 日历(形状合规但日历非法者——如 20261340T999999Z——回环即拒)。
+    static func timestampNameDate(_ stamp: String) -> Date? {
+        guard stamp.utf8.count == 16 else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+        guard let date = formatter.date(from: stamp), formatter.string(from: date) == stamp else { return nil }
+        return date
     }
 
     public static func packageAssetName(sqliteSHA256: String, packageSHA256: String) -> String {
