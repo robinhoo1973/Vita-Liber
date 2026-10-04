@@ -1,9 +1,9 @@
-#if os(iOS)
-// linux-blind: （平台守卫：BackgroundTasks 仅 iOS） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
-import BackgroundTasks
-import UIKit
 import Domain
+import Protocols
+#if os(iOS)
+import UIKit
+#endif
 
 /// 后台作业（round5 Q2）：作业只实现 `run(budget:)`，注册/提交/重排/过期取消由 `BackgroundWorkScheduler` 统一承担。
 /// `run` 必须协作式响应 `Task` 取消（到期即取消），并在预算内自行落盘进度——系统不保证准时、不保证完整时长。
@@ -45,11 +45,25 @@ public enum SubmitFailureKind: Sendable, Equatable {
 ///
 /// 此前三处各自为政：HealthKit 只用 `BGAppRefreshTask`（30 秒级）、ASR 下载用 `beginBackgroundTask`（实为 30 秒，注释误记
 /// 30 分钟）、HK 观察者另行注册——`processing` 模式声明了却从未使用。
+///
+/// 2026-10-04 评审 C1-4 seam（discussions/2026-10-04-background-tasks-council.md）：平台原语
+/// 全部经 `BackgroundTaskScheduling` 端口（生产 `BGTaskSchedulerAdapter`），本类移出
+/// `#if os(iOS)`——Linux 获完整型检，调度契约经注入桩测试（CoreKitTests）。
 public final class BackgroundWorkScheduler: @unchecked Sendable {
-    public static let shared = BackgroundWorkScheduler()
+    #if os(iOS)
+    public static let shared = BackgroundWorkScheduler(system: BGTaskSchedulerAdapter.shared)
+    #else
+    public static let shared = BackgroundWorkScheduler(system: NoopTaskScheduler())
+    #endif
+
     /// ASR 模型下载解压（用户动作）的 continued processing 标识符（Info.plist 已登记）。
     public static let asrInstallContinuedIdentifier = "com.vitaliber.continued.asr-install"
 
+    private let system: any BackgroundTaskScheduling
+    /// iOS 26 continued processing 平台可用性（生产按 #available 判定；测试注入覆盖）。
+    /// continued 请求的运行时门禁在门面（适配器假定已门控——iOS <26 不存在
+    /// BGContinuedProcessingTaskRequest 类）。
+    var continuedPlatformAvailable: Bool
     private let lock = NSLock()
     private var jobs: [String: any BackgroundJob] = [:]
     private var registered = false
@@ -62,7 +76,21 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     /// （标识符未登记/重复注册），此后一切提交必然失败——注册级缺陷的唯一在架证据。
     public private(set) var registrationResults: [String: Bool] = [:]
 
-    private init() {}
+    init(system: any BackgroundTaskScheduling) {
+        self.system = system
+        #if os(iOS)
+        self.continuedPlatformAvailable = Self.platformSupportsContinued
+        #else
+        self.continuedPlatformAvailable = false
+        #endif
+    }
+
+    #if os(iOS)
+    private static let platformSupportsContinued: Bool = {
+        if #available(iOS 26, *) { return true }
+        return false
+    }()
+    #endif
 
     /// 登记作业（启动前调用；`registerAll()` 之后再登记的作业不会被系统唤起——响亮失败：返回 false）。
     @discardableResult
@@ -73,7 +101,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         return true
     }
 
-    /// 向 `BGTaskScheduler` 注册全部作业（App init 唯一调用点；重复调用无效）。
+    /// 向调度端口注册全部作业（App init 唯一调用点；重复调用无效）。
     public func registerAll() {
         lock.lock()
         guard !registered else { lock.unlock(); return }
@@ -82,8 +110,8 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         lock.unlock()
         for (identifier, job) in snapshot {
             // 2026-09-23：回执不再丢弃——false 即系统拒绝注册，是「注册失败」判定的第一手证据。
-            let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
-                self?.handle(task, job: job)
+            let ok = system.register(identifier: identifier) { [weak self] launch in
+                self?.handle(launch, job: job)
             }
             lock.lock(); registrationResults[identifier] = ok; lock.unlock()
         }
@@ -96,27 +124,19 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         let job = jobs[identifier]
         lock.unlock()
         guard let job else { return false }
-        let request: BGTaskRequest
-        switch job.descriptor.kind {
-        case .refresh:
-            request = BGAppRefreshTaskRequest(identifier: identifier)
-        case .processing(let network, let power):
-            let processing = BGProcessingTaskRequest(identifier: identifier)
-            processing.requiresNetworkConnectivity = network
-            processing.requiresExternalPower = power
-            request = processing
-        }
-        request.earliestBeginDate = job.descriptor.earliestBeginDate(from: now)
+        let request = BackgroundTaskRequest(identifier: identifier,
+                                            kind: job.descriptor.kind.requestKind,
+                                            earliestBeginDate: job.descriptor.earliestBeginDate(from: now))
         // 同名重排 = 先撤旧请求再提交（2026-09-23）：不撤旧就重提是排队族错误
         // （`tooManyPendingTaskRequests`）的经典成因。撤销只影响**挂起**请求，
         // 对正在运行的作业无影响（运行中的请求已被系统消费）。
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+        system.cancel(identifier: identifier)
         do {
-            try BGTaskScheduler.shared.submit(request)
+            try system.submit(request)
             lock.lock(); lastSubmitFailure[identifier] = nil; lastSubmitFailureKind[identifier] = nil; lock.unlock()
             return true
         } catch {
-            let kind = Self.classify(error)
+            let kind = Self.submitKind(from: error)
             lock.lock()
             lastSubmitFailure[identifier] = String(describing: error)
             lastSubmitFailureKind[identifier] = kind
@@ -126,7 +146,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     }
 
     public func cancel(_ identifier: String) {
-        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+        system.cancel(identifier: identifier)
     }
 
     /// 某标识符最近一次提交失败的分类（nil = 无失败记录）。
@@ -141,26 +161,29 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         return registrationResults[identifier] == false
     }
 
-    private static func classify(_ error: Error) -> SubmitFailureKind {
-        guard let bgError = error as? BGTaskScheduler.Error else { return .other }
-        let code = bgError.code
-        if code == .notPermitted { return .notPermitted }
-        if code == .unavailable { return .unavailable }
-        if code == .tooManyPendingTaskRequests { return .tooManyPending }
-        return .other
+    /// 平台无关提交错误 → 分类（适配器已把 BGTaskScheduler.Error 映射为
+    /// `BackgroundTaskSubmitError`；未知错误按 .other 记账）。
+    private static func submitKind(from error: Error) -> SubmitFailureKind {
+        guard let mapped = error as? BackgroundTaskSubmitError else { return .other }
+        switch mapped {
+        case .notPermitted: return .notPermitted
+        case .unavailable: return .unavailable
+        case .tooManyPending: return .tooManyPending
+        case .other: return .other
+        }
     }
 
     /// 系统唤起：预算按作业种类给（刷新 ≈20s / 处理默认 4 分钟），到期 → 协作取消；作业返回后回报并按 outcome 重排。
-    private func handle(_ task: BGTask, job: any BackgroundJob) {
+    private func handle(_ launch: any BackgroundTaskHandle, job: any BackgroundJob) {
         let budget: Duration = job.descriptor.kind.isProcessing
             ? BackgroundJobPolicy.runBudget(now: Date(), expiresAt: nil)
             : BackgroundJobPolicy.refreshBudget
         let work = Task { [weak self] in
             let outcome = await job.run(budget: budget)
-            task.setTaskCompleted(success: outcome.success && !Task.isCancelled)
+            launch.setTaskCompleted(success: outcome.success && !Task.isCancelled)
             if outcome.reschedule { self?.submit(job.descriptor.identifier) }
         }
-        task.expirationHandler = { work.cancel() }
+        launch.setExpirationHandler { work.cancel() }
     }
 
     // MARK: - iOS 26 continued processing（用户发起、切后台续跑）
@@ -197,21 +220,20 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
 
     /// 与 `registerAll` 同时机：向系统注册全部 continued 标识符（iOS 26）。系统回调时取出该标识符待执行的 operation 运行。
     public func registerContinuedAll() {
-        guard #available(iOS 26, *) else { return }
+        guard continuedPlatformAvailable else { return }
         lock.lock()
         let identifiers = continuedIdentifiers
         lock.unlock()
         for identifier in identifiers {
-            let ok = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { [weak self] task in
-                guard let self, let continuedTask = task as? BGContinuedProcessingTask,
-                      let pending = self.takePending(identifier) else { task.setTaskCompleted(success: false); return }
+            let ok = system.register(identifier: identifier) { [weak self] launch in
+                guard let self, let pending = self.takePending(identifier) else { launch.setTaskCompleted(success: false); return }
                 let expired = ExpiryFlag()
                 let work = Task {
-                    let ok = await pending.operation(continuedTask.progress) { expired.value }
-                    continuedTask.setTaskCompleted(success: ok && !expired.value)
+                    let ok = await pending.operation(launch.progress) { expired.value }
+                    launch.setTaskCompleted(success: ok && !expired.value)
                     pending.completion.resume(returning: .done(ok))
                 }
-                continuedTask.expirationHandler = { expired.value = true; work.cancel() }
+                launch.setExpirationHandler { expired.value = true; work.cancel() }
             }
             lock.lock(); registrationResults[identifier] = ok; lock.unlock()
         }
@@ -223,14 +245,19 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     /// 只够收尾一段），对齐 ASRInstallCenter 先例；expiration 回调在系统线程，
     /// 结束动作线程安全。
     private static func runForegroundWithAssertion(operation: @escaping ContinuedOperation) async -> Bool {
+        #if os(iOS)
         let box = BackgroundAssertionBox()
         await MainActor.run { box.begin(name: "vitaliber-continued-fallback") }
         defer { Task { @MainActor in box.end() } }
         return await operation(nil) { Task.isCancelled }
+        #else
+        // Linux 无 UIApplication：门面在非 iOS 平台不执行真实操作（测试经注入桩直测状态机）。
+        return await operation(nil) { Task.isCancelled }
+        #endif
     }
 
     /// 用户动作发起的长任务**单一入口**（手动健康同步 / ASR 模型下载解压）：
-    /// - iOS 26 且标识符已登记：提交 `BGContinuedProcessingTaskRequest`（系统 Live Activity 显示 `title/subtitle` 与进度、
+    /// - iOS 26 且标识符已登记：提交 continued 请求（系统 Live Activity 显示 `title/subtitle` 与进度、
     ///   切后台续跑、用户可取消），operation 在系统回调里执行；提交失败或 `startTimeout` 内系统未启动 → 回落前台直接执行；
     /// - 更早系统：直接前台执行（此时只有 `beginBackgroundTask` 的 ≈30 秒宽限，调用方文案须如实）。
     /// 返回 operation 的结果。
@@ -238,20 +265,18 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     /// 2026-10-04 评审 C1-1/C1-2/C1-3（discussions/2026-10-04-background-tasks-council.md）三处契约修复：
     /// - C1-1 单飞：同 identifier 已有在途 pending 时不覆盖（覆盖曾使第一调用方的
     ///   continuation 永不 resume、双装场景永久「安装中」），本调用方回落前台直跑；
-    /// - C1-2 孤儿撤销：回落执行前撤掉系统队列中的挂起同名请求（官方语义只撤挂起，
-    ///   不伤运行中任务）——此前超时回落遗留孤儿请求，下一轮同 identifier 提交可能
-    ///   撞 tooManyPendingTaskRequests；
+    /// - C1-2 孤儿撤销：先撤后提（与 submit(_:now:) 同纪律）+ 回落执行前撤挂起请求；
     /// - C1-3 取消穿透：调用方取消且系统尚未取走 pending 时，撤销系统请求并以 false
     ///   确定性收尾；系统已取走则不杀工作（工作保全，系统侧由到期/进度机制管控）。
     ///   三条路径对 continuation 恰一次 resume（takePending 的 taken 标志保证）。
     public func runContinued(identifier: String, title: String, subtitle: String,
                              startTimeout: Duration = .seconds(8),
                              operation: @escaping ContinuedOperation) async -> Bool {
-        guard #available(iOS 26, *), isContinuedRegistered(identifier) else {
+        guard continuedPlatformAvailable, isContinuedRegistered(identifier) else {
             return await Self.runForegroundWithAssertion(operation: operation)
         }
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
-        request.strategy = .queue
+        let request = BackgroundTaskRequest(identifier: identifier, kind: .continued,
+                                            earliestBeginDate: Date(), title: title, subtitle: subtitle)
         return await withTaskCancellationHandler {
             let resolution = await withCheckedContinuation { (completion: CheckedContinuation<ContinuedResolution, Never>) in
                 let pending = PendingContinued(operation: operation, completion: completion)
@@ -260,12 +285,12 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                     return
                 }
                 do {
-                    // C1-2：先撤后提（与 submit(_:now:) 同纪律;官方同名重提=替换,
+                    // C1-2：先撤后提（与 submit(_:now:) 同纪律；官方同名重提=替换，
                     // 保守对齐——进程重启后遗留的陈旧同名请求在此被清）
-                    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
-                    try BGTaskScheduler.shared.submit(request)
+                    system.cancel(identifier: identifier)
+                    try system.submit(request)
                 } catch {
-                    let kind = Self.classify(error)
+                    let kind = Self.submitKind(from: error)
                     lock.lock()
                     lastSubmitFailure[identifier] = String(describing: error)
                     lastSubmitFailureKind[identifier] = kind
@@ -278,7 +303,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                 Task {
                     try? await Task.sleep(for: startTimeout)   // try?-ok: 取消即不回落
                     guard let taken = self.takePending(identifier) else { return }
-                    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)   // C1-2：孤儿撤销
+                    system.cancel(identifier: identifier)   // C1-2：孤儿撤销
                     taken.completion.resume(returning: .runForeground)
                 }
             }
@@ -289,7 +314,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         } onCancel: {
             // C1-3：调用方取消——系统未取走则撤请求并以 false 收尾；已取走则不杀工作
             guard let taken = self.takePending(identifier) else { return }
-            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+            system.cancel(identifier: identifier)
             taken.completion.resume(returning: .done(false))
         }
     }
@@ -325,6 +350,26 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         }
     }
 }
+
+/// 非 iOS 平台的空调度端口（Linux 门面型检用；真实作业只在 iOS 运行）。
+private final class NoopTaskScheduler: BackgroundTaskScheduling, @unchecked Sendable {
+    func register(identifier: String, launch: @escaping @Sendable (any BackgroundTaskHandle) -> Void) -> Bool { false }
+    func submit(_ request: BackgroundTaskRequest) throws {}
+    func cancel(identifier: String) {}
+}
+
+/// Domain 作业种类 → 平台无关请求种类（seam 映射）。
+private extension BackgroundJobDescriptor.Kind {
+    var requestKind: BackgroundTaskRequest.Kind {
+        switch self {
+        case .refresh: return .refresh
+        case .processing(let network, let power): return .processing(requiresNetwork: network, requiresExternalPower: power)
+        }
+    }
+}
+
+#if os(iOS)
+// linux-blind: （平台守卫：UIKit 仅 iOS） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 /// beginBackgroundTask 断言句柄盒（C4）：identifier 须在过期回调与 defer 间共享，
 /// 锁串行化（过期回调线程未知）。C1-7a（2026-10-04 评审）自 private 提级为共享类型：
 /// 医疗目录更新等「无系统续跑通道的前台收尾」场景复用（iOS ≤25 只有 ≈30s 宽限）。
@@ -346,5 +391,4 @@ final class BackgroundAssertionBox: @unchecked Sendable {
         id = .invalid
     }
 }
-
 #endif
