@@ -370,12 +370,19 @@ public actor HealthKitSyncService {
         // C2 分块并发快照与 C7 空页落锚已回退（2026-10-04 CI #652 三例契约回归：
         // 取消/错误传播与锚点时序与既有测试契约冲突）——恢复串行窗口快照循环，
         // 逐窗口 checkCancellation/isEnabled 与失败继续语义；优化项登记重做。
+        var firstSnapshotError: Error? = nil
         for window in attempted {
             try Task.checkCancellation()
             guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
             do { snapshots.append(try await provider.snapshot(for: window, calendar: binding.calendar)) }
             catch is CancellationError { throw CancellationError() }
-            catch { queryFailed = true }
+            catch {
+                queryFailed = true
+                // C1-8b 补埋（CI 37200329449 实证）：failureReasons 此前只覆盖 run() 的
+                // 抛出通道——快照窗口失败在 drain 内部被 queryFailed 吞掉，failedTypes
+                // 记了类型、原因却为空。捕获首个错误描述，与抛出通道同口径入账。
+                if firstSnapshotError == nil { firstSnapshotError = error }
+            }
         }
         let committed = try await imports.commit(binding: binding, kind: kind, pending: pending,
                                                  snapshots: snapshots, attemptedWindows: attempted)
@@ -390,6 +397,13 @@ public actor HealthKitSyncService {
         report.perKindRemaining = report.perKindRemaining ?? [:]
         report.perKindRemaining?[kind.rawValue] = remaining.count - attempted.count + committed.deferredWindows
         if queryFailed || committed.deferredWindows > 0 { report.failedTypes.append(kind) }
+        if queryFailed {
+            // C1-8b（同上一处）：queryFailed 通道的失败原因入账（去重截断）。
+            var reasons = report.failureReasons ?? []
+            let reason = "window snapshot query failed: \(String(String(describing: firstSnapshotError).prefix(160)))"
+            if !reasons.contains(reason) { reasons.append(reason) }
+            report.failureReasons = reasons
+        }
         let hadWork = existing != nil || !page.added.isEmpty || !page.deleted.isEmpty || page.hasMore
         if hadWork { report.backfillLane = scope.lane }
         return DrainOutcome(hadWork: hadWork, hasMore: committed.hasMore)
