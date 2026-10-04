@@ -206,8 +206,12 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            // 2026-10-04 业主反馈（tab 页顶部留空过大）：同 HomeView 先例
+            .contentMarginsCompat(.top, 0, for: .scrollContent)
+            .listSectionSpacingCompat(.compact)
             .tintedCanvas()   // 与全部设置子页视觉基底统一（此前本页 Form 裸白）
             .navigationTitle(L10n.navMe)
+            .navigationBarTitleDisplayMode(.inline)   // 2026-10-04 业主反馈：tab 根统一 inline（同 HomeView 先例）
             .task { await settings.load() }
         }
     }

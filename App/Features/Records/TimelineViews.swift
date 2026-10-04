@@ -259,6 +259,10 @@ struct TimelineFullView: View {
                         }
                     }
                     .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+                    // 2026-10-04 业主反馈（tab 页顶部留空过大）：与 HomeView 聚合区同款——
+                    // 顶部内容边距归零 + 紧凑分段（HIG：列表内容与导航栏间无死区）
+                    .contentMarginsCompat(.top, 0, for: .scrollContent)
+                    .listSectionSpacingCompat(.compact)
                     .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("SP-19.timeline.list")
@@ -270,6 +274,7 @@ struct TimelineFullView: View {
             .frame(maxWidth: 672)
             .safeAreaInset(edge: .top) { filterBar }
             .navigationTitle(L10n.timelineTitle)
+            .navigationBarTitleDisplayMode(.inline)   // 2026-10-04 业主反馈：tab 根统一 inline（同 HomeView 先例），大标题带宽不再占首屏
             .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
             // FR17.18 保存后跨页刷新（V3.49）：文档确认保存（含健康问题懒创建）
             // 后按类型化版本计数重载——时间轴/健康问题条目即时反映新文档/新问题

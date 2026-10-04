@@ -34,8 +34,12 @@ struct HealthTabView: View {
                 }
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            // 2026-10-04 业主反馈（tab 页顶部留空过大）：同 HomeView 先例
+            .contentMarginsCompat(.top, 0, for: .scrollContent)
+            .listSectionSpacingCompat(.compact)
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.navHealth)
+            .navigationBarTitleDisplayMode(.inline)   // 2026-10-04 业主反馈：tab 根统一 inline（同 HomeView 先例）
             // 2026-09-15 审查修复（效率）：设置装载与 metricsVersion 无关——原与指标
             // 版本共用同一 task，设备每次落库都白跑一轮 app_settings 全表读（磁盘往返
             // + 字典重建）。独立 task，页面出现时跑一次即可。

@@ -138,8 +138,12 @@ struct RemindersView: View {
                 }
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+            // 2026-10-04 业主反馈（tab 页顶部留空过大）：同 HomeView 先例
+            .contentMarginsCompat(.top, 0, for: .scrollContent)
+            .listSectionSpacingCompat(.compact)
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.navReminders)
+            .navigationBarTitleDisplayMode(.inline)   // 2026-10-04 业主反馈：tab 根统一 inline（同 HomeView 先例）
             .task(id: currentPatientId) {
                 await reminders.refreshTriggered(patientId: currentPatientId)
             }
