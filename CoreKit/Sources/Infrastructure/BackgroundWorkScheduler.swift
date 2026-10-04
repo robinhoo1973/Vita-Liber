@@ -173,11 +173,19 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
 
     private final class PendingContinued: @unchecked Sendable {
         let operation: ContinuedOperation
-        let completion: CheckedContinuation<Bool, Never>
+        let completion: CheckedContinuation<ContinuedResolution, Never>
         var taken = false
-        init(operation: @escaping ContinuedOperation, completion: CheckedContinuation<Bool, Never>) {
+        init(operation: @escaping ContinuedOperation, completion: CheckedContinuation<ContinuedResolution, Never>) {
             self.operation = operation; self.completion = completion
         }
+    }
+
+    /// pending 的收尾裁决（2026-10-04 评审 C1-1/C1-3）：`runForeground` = 系统路径
+    /// 不可用（已有在途/提交失败/启动超时/调用方取消），调用方回落前台断言直跑；
+    /// `done` = 系统路径执行完毕（或取消穿透的确定性收尾）。
+    private enum ContinuedResolution: Sendable {
+        case done(Bool)
+        case runForeground
     }
 
     /// 登记一个 continued processing 标识符（启动前；须同时在 `BGTaskSchedulerPermittedIdentifiers`）。更早系统空操作。
@@ -201,7 +209,7 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                 let work = Task {
                     let ok = await pending.operation(continuedTask.progress) { expired.value }
                     continuedTask.setTaskCompleted(success: ok && !expired.value)
-                    pending.completion.resume(returning: ok)
+                    pending.completion.resume(returning: .done(ok))
                 }
                 continuedTask.expirationHandler = { expired.value = true; work.cancel() }
             }
@@ -226,6 +234,16 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     ///   切后台续跑、用户可取消），operation 在系统回调里执行；提交失败或 `startTimeout` 内系统未启动 → 回落前台直接执行；
     /// - 更早系统：直接前台执行（此时只有 `beginBackgroundTask` 的 ≈30 秒宽限，调用方文案须如实）。
     /// 返回 operation 的结果。
+    ///
+    /// 2026-10-04 评审 C1-1/C1-2/C1-3（discussions/2026-10-04-background-tasks-council.md）三处契约修复：
+    /// - C1-1 单飞：同 identifier 已有在途 pending 时不覆盖（覆盖曾使第一调用方的
+    ///   continuation 永不 resume、双装场景永久「安装中」），本调用方回落前台直跑；
+    /// - C1-2 孤儿撤销：回落执行前撤掉系统队列中的挂起同名请求（官方语义只撤挂起，
+    ///   不伤运行中任务）——此前超时回落遗留孤儿请求，下一轮同 identifier 提交可能
+    ///   撞 tooManyPendingTaskRequests；
+    /// - C1-3 取消穿透：调用方取消且系统尚未取走 pending 时，撤销系统请求并以 false
+    ///   确定性收尾；系统已取走则不杀工作（工作保全，系统侧由到期/进度机制管控）。
+    ///   三条路径对 continuation 恰一次 resume（takePending 的 taken 标志保证）。
     public func runContinued(identifier: String, title: String, subtitle: String,
                              startTimeout: Duration = .seconds(8),
                              operation: @escaping ContinuedOperation) async -> Bool {
@@ -234,28 +252,55 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
         }
         let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
         request.strategy = .queue
-        return await withCheckedContinuation { (completion: CheckedContinuation<Bool, Never>) in
-            let pending = PendingContinued(operation: operation, completion: completion)
-            lock.lock(); pendingContinued[identifier] = pending; lock.unlock()
-            do {
-                try BGTaskScheduler.shared.submit(request)
-            } catch {
-                let kind = Self.classify(error)
-                lock.lock()
-                lastSubmitFailure[identifier] = String(describing: error)
-                lastSubmitFailureKind[identifier] = kind
-                lock.unlock()
-                guard let taken = takePending(identifier) else { return }
-                Task { taken.completion.resume(returning: await Self.runForegroundWithAssertion(operation: taken.operation)) }
-                return
+        return await withTaskCancellationHandler {
+            let resolution = await withCheckedContinuation { (completion: CheckedContinuation<ContinuedResolution, Never>) in
+                let pending = PendingContinued(operation: operation, completion: completion)
+                guard installPending(identifier, pending) else {
+                    completion.resume(returning: .runForeground)   // C1-1：已有在途，不安装不提交
+                    return
+                }
+                do {
+                    // C1-2：先撤后提（与 submit(_:now:) 同纪律;官方同名重提=替换,
+                    // 保守对齐——进程重启后遗留的陈旧同名请求在此被清）
+                    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+                    try BGTaskScheduler.shared.submit(request)
+                } catch {
+                    let kind = Self.classify(error)
+                    lock.lock()
+                    lastSubmitFailure[identifier] = String(describing: error)
+                    lastSubmitFailureKind[identifier] = kind
+                    lock.unlock()
+                    guard let taken = takePending(identifier) else { return }
+                    Task { taken.completion.resume(returning: .runForeground) }
+                    return
+                }
+                // 系统迟迟不启动（排队/资源受限）→ 不让用户干等：回落前台执行；谁先 take 谁执行，另一方看到 nil 即退出
+                Task {
+                    try? await Task.sleep(for: startTimeout)   // try?-ok: 取消即不回落
+                    guard let taken = self.takePending(identifier) else { return }
+                    BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)   // C1-2：孤儿撤销
+                    taken.completion.resume(returning: .runForeground)
+                }
             }
-            // 系统迟迟不启动（排队/资源受限）→ 不让用户干等：回落前台执行；谁先 take 谁执行，另一方看到 nil 即退出
-            Task {
-                try? await Task.sleep(for: startTimeout)   // try?-ok: 取消即不回落
-                guard let taken = self.takePending(identifier) else { return }
-                taken.completion.resume(returning: await Self.runForegroundWithAssertion(operation: taken.operation))
+            switch resolution {
+            case .done(let ok): return ok
+            case .runForeground: return await Self.runForegroundWithAssertion(operation: operation)
             }
+        } onCancel: {
+            // C1-3：调用方取消——系统未取走则撤请求并以 false 收尾；已取走则不杀工作
+            guard let taken = self.takePending(identifier) else { return }
+            BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
+            taken.completion.resume(returning: .done(false))
         }
+    }
+
+    /// 安装 pending（C1-1 单飞）：identifier 已有在途即失败返回 false（锁内判定，
+    /// 杜绝覆盖——覆盖曾使第一调用方的 continuation 永不 resume）。
+    private func installPending(_ identifier: String, _ pending: PendingContinued) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard pendingContinued[identifier] == nil else { return false }
+        pendingContinued[identifier] = pending
+        return true
     }
 
     private func isContinuedRegistered(_ identifier: String) -> Bool {
