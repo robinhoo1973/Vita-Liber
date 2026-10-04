@@ -25,7 +25,7 @@ struct MedicalCatalogFetcherTransportTests {
     @Test func successfulFetchDeliversExactBytes() async throws {
         let body = Data((0..<16384).map { UInt8($0 % 251) })
         let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset(host: "github.com")
+        URLProtocolStub.reset(host: "cnb.cool")
         URLProtocolStub.setScript(URLProtocolStub.Script(body: body), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
@@ -45,7 +45,7 @@ struct MedicalCatalogFetcherTransportTests {
         let body = Data((0..<16384).map { UInt8($0 % 251) })
         let name = "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin"
         let url = assetURL(name)
-        URLProtocolStub.reset(host: "github.com")
+        URLProtocolStub.reset(host: "cnb.cool")
         URLProtocolStub.setScript(URLProtocolStub.Script(body: body, failEveryRequest: true), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
@@ -60,7 +60,7 @@ struct MedicalCatalogFetcherTransportTests {
 
     @Test func sizeMismatchThrowsChecksumError() async throws {
         let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset(host: "github.com")
+        URLProtocolStub.reset(host: "cnb.cool")
         URLProtocolStub.setScript(URLProtocolStub.Script(body: Data(repeating: 0, count: 100)), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
