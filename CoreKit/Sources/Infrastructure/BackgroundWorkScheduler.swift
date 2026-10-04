@@ -374,18 +374,20 @@ private extension BackgroundJobDescriptor.Kind {
 /// beginBackgroundTask 断言句柄盒（C4）：identifier 须在过期回调与 defer 间共享，
 /// 锁串行化（过期回调线程未知）。C1-7a（2026-10-04 评审）自 private 提级为共享类型：
 /// 医疗目录更新等「无系统续跑通道的前台收尾」场景复用（iOS ≤25 只有 ≈30s 宽限）。
-final class BackgroundAssertionBox: @unchecked Sendable {
+public final class BackgroundAssertionBox: @unchecked Sendable {
+    /// App 跨模块消费（MedicalCatalogUpdateCoordinator）要求公开可见。
+    public init() {}
     private let lock = NSLock()
     private var id: UIBackgroundTaskIdentifier = .invalid
 
-    func begin(name: String) {
+    public func begin(name: String) {
         lock.lock(); defer { lock.unlock() }
         id = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
             self?.end()
         }
     }
 
-    func end() {
+    public func end() {
         lock.lock(); defer { lock.unlock() }
         guard id != .invalid else { return }
         UIApplication.shared.endBackgroundTask(id)
