@@ -599,8 +599,10 @@ struct MedicalCatalogReleaseResolverTests {
         let first = Task { try await resolver.check() }
         try await waitForRequest(MedicalCatalogReleaseResolver.inventoryURL)
         #expect(try await resolver.check().state == .checking)
-        guard case .updateAvailable = (try await first.value).state else {
-            Issue.record("首个检查应最终返回 updateAvailable，实际 \(String(describing: (try? await first.value)?.state))")
+        // 一次取值再断言：诊断信息取真实 state，避免第二次 await 与 try?（L0 [1/18] try? 禁令）
+        let firstOutcome = try await first.value
+        guard case .updateAvailable = firstOutcome.state else {
+            Issue.record("首个检查应最终返回 updateAvailable，实际 \(String(describing: firstOutcome.state))")
             return
         }
         #expect(inventoryHits() == 1)
