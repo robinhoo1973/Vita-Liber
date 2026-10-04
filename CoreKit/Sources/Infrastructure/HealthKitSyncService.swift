@@ -28,7 +28,10 @@ public actor HealthKitSyncService {
     private var inFlightStartedAt: Date?
     /// join 陈旧阈值（默认 120s；测试注入小值）——超阈值抛 staleFlight，
     /// 只记账不杀共享任务（「只有创建者持取消权」契约不变）。
-    nonisolated(unsafe) static var joinStaleThresholdSeconds: TimeInterval = 120
+    /// public：App 级测试目标（VitaLiberTests，无 Infrastructure @testable 面）注入小值
+    /// 所需（同 BackgroundAssertionBox 公开先例——Linux 平台守卫零编译信号，访问级别错
+    /// 只 L1 可见）。
+    public nonisolated(unsafe) static var joinStaleThresholdSeconds: TimeInterval = 120
     public private(set) var latestReport: SyncReport?
 
     public init(provider: any HealthReadingProvider, writer: (any HealthWritingProvider)? = nil,
