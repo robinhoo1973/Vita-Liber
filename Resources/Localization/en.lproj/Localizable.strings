@@ -1658,6 +1658,7 @@
 "home.profileProgress" = "Profile Completion";
 "home.model.downloadTitle" = "Downloading voice model";
 "home.model.downloadView" = "View download";
+"home.model.downloadGroupFmt" = "%1$d downloads in progress";
 "home.profileProgressFmt" = "%1$d of %2$d items completed";
 "home.profileContinue" = "Continue";
 "home.profileMissingFmt" = "Missing: %1$@ · complete them to enable the emergency card";

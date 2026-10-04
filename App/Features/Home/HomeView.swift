@@ -416,10 +416,19 @@ struct HomeView: View {
                                  profileCompletion: (done: Int, total: Int)?) -> some View {
         // 后台任务进度（2026-09-16 业主）：模型下载进行中时显示——形如档案完善进度卡
         // （图标 + 标题 + 进度条 + 取消），数据源 = App 层安装中心（离开设置页/切后台仍可见）。
-        ForEach(installCenter.active) { install in
-            modelDownloadCard(install)
+        // 2026-10-04 业主反馈②：≥2 任务合并为单行分组卡默认折叠（节省纵向空间）；
+        // 单任务保持现卡形态（最常见场景零回归、进度一眼可见）。count 只读 active（低频）。
+        let installs = installCenter.active
+        if installs.count >= 2 {
+            modelDownloadGroupCard(installs)
                 .listRowBackground(Color(.secondarySystemGroupedBackground))
                 .listRowInsets(cardRowInsets)
+        } else {
+            ForEach(installs) { install in
+                modelDownloadCard(install)
+                    .listRowBackground(Color(.secondarySystemGroupedBackground))
+                    .listRowInsets(cardRowInsets)
+            }
         }
         // 失败终态（2026-09-16 评审）：下载失败在首页可见（此前失败只在设置页
         // 三跳外、首页卡片静默消失）——含 [重试] 与关闭。
@@ -485,6 +494,16 @@ struct HomeView: View {
             // 「查看下载」落点必须跟着走（语音语言页只剩跳转行，看不到进度条与取消）。
             router.navigate(to: .resourceManagement)
         } onCancel: {
+            installCenter.cancel(install.choice)
+        }
+    }
+
+    /// 多任务分组下载卡（2026-10-04 业主反馈②）——渲染原子为 HomeModelDownloadGroupCard
+    /// （折叠头零 progress 读取纪律随迁：只传 let 数组与回调，进度读取全落卡内/行内域）。
+    private func modelDownloadGroupCard(_ installs: [ASRInstallCenter.Install]) -> some View {
+        HomeModelDownloadGroupCard(installs: installs) {
+            router.navigate(to: .resourceManagement)
+        } onCancel: { install in
             installCenter.cancel(install.choice)
         }
     }
@@ -608,7 +627,10 @@ struct HomeView: View {
                 .accessibilityAction { showSOS = true }
                 // 2026-10-03 评审 R2-2：进行中长任务瞬态卡（FR18.5 V4.11 增补）——
                 // 仅活动任务存在时渲染，零任务零痕迹；进度可见可取消（§6）。
-                if let active = installCenter.active.first {
+                // 2026-10-04 评审：并行任务逐任务平铺（原 .first 只渲染首任务——第二任务
+                // 不可见不可取消，违反瞬态卡「保持可见可取消」语义）；关怀模式不做折叠分组
+                // （§7.1 大触控纪律：≥72pt 取消恒直达）。
+                ForEach(installCenter.active) { active in
                     CareTransientTaskCard(install: active) {
                         router.navigate(to: .resourceManagement)
                     } onCancel: {

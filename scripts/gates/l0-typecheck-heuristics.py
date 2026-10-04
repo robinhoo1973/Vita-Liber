@@ -816,7 +816,7 @@ def main():
         "ContentUnavailableView（用 VLUnavailableView）": r"\bContentUnavailableView\b",
         ".contentMargins(（用 contentMarginsCompat）": r"\.contentMargins\(",
         ".listSectionSpacing(（用 listSectionSpacingCompat）": r"\.listSectionSpacing\(",
-        ".symbolEffect(（用 recordingPulseCompat）": r"\.symbolEffect\(",
+        ".symbolEffect(（用 App/Compat 垫片：recordingPulseCompat / VLDownloadActivityIcon）": r"\.symbolEffect\(",
         ".chartScrollableAxes（用 chartWindowCompat）": r"\.chartScrollableAxes\b",
         ".chartXVisibleDomain（用 chartWindowCompat）": r"\.chartXVisibleDomain\b",
         ".chartXSelection（用 chartWindowCompat）": r"\.chartXSelection\b",

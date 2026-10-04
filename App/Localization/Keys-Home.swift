@@ -148,6 +148,9 @@ extension L10n {
 
     static var homeModelDownloadView: String { t("home.model.downloadView") }
 
+    /// 2026-10-04 业主反馈②：多任务下载分组卡折叠头计数（%d = 任务数）。
+    static func homeModelDownloadGroupFmt(_ n: Int) -> String { String(format: t("home.model.downloadGroupFmt"), n) }
+
     static var homeProfileContinue: String { t("home.profileContinue") }
 
     static var homeDisclaimer: String { t("home.disclaimer") }

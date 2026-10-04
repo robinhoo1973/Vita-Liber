@@ -860,7 +860,7 @@ extension L10n {
         "home.disclaimer",
         "home.profileContinue",
         "home.profileProgress", "home.profileMissingFmt", "home.profileMissingMoreFmt",
-        "home.model.downloadTitle", "home.model.downloadView",
+        "home.model.downloadTitle", "home.model.downloadView", "home.model.downloadGroupFmt",
         "home.profileProgressFmt",
         "inventory.tier0",
         "member.relation.child",

@@ -1658,6 +1658,7 @@
 "home.profileProgress" = "檔案完善進度";
 "home.model.downloadTitle" = "正在下載語音模型";
 "home.model.downloadView" = "檢視下載";
+"home.model.downloadGroupFmt" = "%1$d 個下載任務";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
 "home.profileContinue" = "繼續完善";
 "home.profileMissingFmt" = "缺：%1$@ · 補全後急救卡可用";

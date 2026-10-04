@@ -396,8 +396,7 @@ struct CareTransientTaskCard: View {
         let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
         Button(action: onOpen) {
             HStack(spacing: 20) {
-                Image(systemName: "arrow.down.circle")
-                    .font(VLFont.homeActionIcon)
+                VLDownloadActivityIcon(isActive: !install.waiting, font: VLFont.homeActionIcon)
                     .foregroundStyle(Color("brand-primary", bundle: .main))
                     .frame(width: 64, height: 64)
                     .background(RoundedRectangle(cornerRadius: 16)
@@ -408,18 +407,19 @@ struct CareTransientTaskCard: View {
                         .foregroundStyle(.primary)
                     Text(L10n.voiceEngineName(install.choice))
                         .font(.caption).foregroundStyle(.secondary)
+                    // 不确定阶段（激活/清理/排队）不再渲染独立 spinner 行（2026-10-04 业主反馈①）：
+                    // 进行态反馈由图标动效 + 阶段文案承担——不确定阶段不再被 spinner 行撑高；
+                    // 与确定阶段（条）仍存在条宽差，属确定/不确定两态的既有高度形态。
                     if showFraction {
                         ProgressView(value: install.progress?.fraction ?? 0)
                             .tint(Color("brand-primary", bundle: .main))
-                    } else {
-                        ProgressView()
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Button(L10n.commonCancel) { onCancel() }
                     .buttonStyle(.bordered)
                     .frame(minHeight: 72)   // 关怀模式关键动作 ≥72pt（§7.1）
-                    .accessibilityIdentifier("SP-04.home.careMode.task.cancel")
+                    .accessibilityIdentifier("SP-04.home.careMode.task.cancel.\(install.choice.rawValue)")
             }
             .padding(20)
             .frame(maxWidth: .infinity)
@@ -429,7 +429,7 @@ struct CareTransientTaskCard: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.homeModelDownloadTitle)
         .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
-        .accessibilityIdentifier("SP-04.home.careMode.task")
+        .accessibilityIdentifier("SP-04.home.careMode.task.\(install.choice.rawValue)")
     }
 }
 
@@ -485,8 +485,7 @@ struct HomeModelDownloadCard: View {
                 onOpen()
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.title3)
+                    VLDownloadActivityIcon(isActive: !install.waiting)
                         .foregroundStyle(Color("brand-primary", bundle: .main))
                         .frame(width: 36)
                     VStack(alignment: .leading, spacing: 4) {
@@ -502,11 +501,12 @@ struct HomeModelDownloadCard: View {
                         }
                         Text(L10n.voiceEngineName(install.choice))
                             .font(.caption).foregroundStyle(.secondary)
+                        // 不确定阶段（激活/清理/排队）不再渲染独立 spinner 行（2026-10-04 业主反馈①）：
+                        // 进行态反馈由图标动效 + 阶段文案（detailText）承担——不确定阶段不再被
+                        // spinner 行撑高；与确定阶段（条）仍存在条宽差，属确定/不确定两态的既有高度形态。
                         if showFraction {
                             ProgressView(value: fraction)
                                 .tint(Color("brand-primary", bundle: .main))
-                        } else {
-                            ProgressView()
                         }
                         // 传输形态（2026-09-16 诊断「下载慢」）：分段 N 路 / 单流退化。
                         // 单流意味着服务端没给 `Accept-Ranges` 或吞了 Range——那是
@@ -535,6 +535,70 @@ struct HomeModelDownloadCard: View {
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
         }
+    }
+}
+
+/// 多任务分组下载卡（2026-10-04 业主反馈②；五角色评审见 discussions/2026-10-04-home-download-card-round1.md）：
+/// ≥2 任务合并为单行分组卡，默认折叠（DisclosureGroup 内部状态自持——视图销毁即重置 =
+/// 新会话默认折叠；任务数在 ≥2 内变化不偷袭用户展开态），展开逐任务行与单任务卡
+/// 同构同标识（`SP-04.home.modelDownload.<choice>` 原样保留）。
+///
+/// **观察域纪律（2026-09-16 根因同族，勿破坏）**：label 只读 `choice`（let 不变）与
+/// `waiting`（每任务仅翻转一次、低频）——**严禁在 label 读 progress/phase**：5 Hz 进度写入
+/// 会让整张组卡（含展开行容器）重渲染。逐任务进度读取全部落在行卡自己的内层
+/// WithPerceptionTracking（嵌套域：父 body 只构造子视图值、子 body 才读属性——inner 屏蔽 outer，
+/// HomeView:216 外层包首页 body 已含此嵌套形态）。折叠头不展示聚合百分比/聚合条：
+/// 跨任务求和/均值在任务移出或阶段清基线时回跳（2026-09-18/19/20 修掉的 bug 族），
+/// 单任务才显示 NN%（复用 per-task 逻辑）。
+struct HomeModelDownloadGroupCard: View {
+    let installs: [ASRInstallCenter.Install]
+    let onOpen: () -> Void
+    let onCancel: (ASRInstallCenter.Install) -> Void
+
+    var body: some View {
+        WithPerceptionTracking {
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        // 图标动效激活 = 任一任务非排队（混合队列态：first 排队而 second 下载中时图标仍应动——
+        // 不可用 first.phase 判定）；waiting 低频，落组卡域安全。
+        let animating = installs.contains { !$0.waiting }
+        DisclosureGroup {
+            ForEach(installs) { install in
+                HomeModelDownloadCard(install: install) {
+                    onOpen()
+                } onCancel: {
+                    onCancel(install)
+                }
+                // 展开行同处一个 List 行内，行背景覆盖整行但不分格——行间补分隔（打磨项，round2 C-5）
+                if install.id != installs.last?.id {
+                    Divider()
+                }
+            }
+        } label: {
+            HStack(spacing: 10) {
+                VLDownloadActivityIcon(isActive: animating)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .frame(width: 36)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.homeModelDownloadGroupFmt(installs.count))
+                        .font(.subheadline.bold()).foregroundStyle(.primary)
+                    Text(installs.map { L10n.voiceEngineName($0.choice) }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 44)   // 折叠头触点 ≥44pt（§7.1）
+            .contentShape(Rectangle())
+        }
+        // 容器标识必须配 .contain（§17 掩蔽纪律；CareTransientTaskCard 同款先例）——
+        // 注意 l0-container-id-mask.py 不含 DisclosureGroup 且跨结构体子树不分析（双盲区），
+        // 此 .contain 是唯一防线，不可省。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-04.home.modelDownload.group")
     }
 }
 

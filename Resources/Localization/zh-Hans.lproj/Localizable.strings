@@ -1658,6 +1658,7 @@
 "home.profileProgress" = "档案完善进度";
 "home.model.downloadTitle" = "正在下载语音模型";
 "home.model.downloadView" = "查看下载";
+"home.model.downloadGroupFmt" = "%1$d 个下载任务";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 项";
 "home.profileContinue" = "继续完善";
 "home.profileMissingFmt" = "缺：%1$@ · 补全后急救卡可用";
