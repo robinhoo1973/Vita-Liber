@@ -198,7 +198,12 @@ final class F16DeviceState {
                 let service = syncService
                 _ = await BackgroundWorkScheduler.shared.runContinued(
                     identifier: HealthKitSyncService.continuedSyncIdentifier,
-                    title: L10n.f16Syncing, subtitle: L10n.f16SyncHint) { progress, _ in
+                    title: L10n.f16Syncing, subtitle: L10n.f16SyncHint,
+                    // 2026-10-04 评审 V6：手动同步是短负载（≤30s 预算）——startTimeout
+                    // 收窄到 2s：系统可行时前台提交本就立即开始（官方语义），2s 只是
+                    // 「系统暂不可行」的回落上限；此前 8s 让每次点击最多空转 8s 才
+                    // 开始跑。ASR 长负载保持默认 8s（必须保住系统续跑通道）。
+                    startTimeout: .seconds(2)) { progress, _ in
                     do {
                         progress?.totalUnitCount = Int64(maxRounds)
                         // C6（2026-10-03 评审修复）：每轮上报 completedUnitCount——
