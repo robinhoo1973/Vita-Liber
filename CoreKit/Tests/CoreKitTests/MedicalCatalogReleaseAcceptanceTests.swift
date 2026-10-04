@@ -111,7 +111,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
                     sqliteSHA256: other, packageSHA256: fields["packageSha256"] as? String ?? "")
             }),
             ("dataVersion", { $0["dataVersion"] = other }),
-            ("sqliteSchemaVersion", { $0["sqliteSchemaVersion"] = 7 }),
+            ("sqliteSchemaVersion", { $0["sqliteSchemaVersion"] = 6 }),   // ≠ 默认 7（旧值 7 与默认相同=零变异，CI #655）
             ("rootVersion", { $0["rootVersion"] = 2 }),
         ]
         let verifier = fixture.verifier()
