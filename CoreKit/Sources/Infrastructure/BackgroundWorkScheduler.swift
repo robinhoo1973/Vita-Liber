@@ -326,8 +326,9 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
     }
 }
 /// beginBackgroundTask 断言句柄盒（C4）：identifier 须在过期回调与 defer 间共享，
-/// 锁串行化（过期回调线程未知）。
-private final class BackgroundAssertionBox: @unchecked Sendable {
+/// 锁串行化（过期回调线程未知）。C1-7a（2026-10-04 评审）自 private 提级为共享类型：
+/// 医疗目录更新等「无系统续跑通道的前台收尾」场景复用（iOS ≤25 只有 ≈30s 宽限）。
+final class BackgroundAssertionBox: @unchecked Sendable {
     private let lock = NSLock()
     private var id: UIBackgroundTaskIdentifier = .invalid
 
