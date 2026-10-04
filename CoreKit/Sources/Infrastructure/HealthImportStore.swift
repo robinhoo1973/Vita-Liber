@@ -21,6 +21,9 @@ public actor HealthImportStore {
 
     public enum ImportError: Error {
         case disabled, missingOwner, bindingChanged, staleAnchor, incompleteSnapshot, invalidValue
+        /// C1-5（2026-10-04 后台任务专项评审）：共享轮次超过陈旧阈值仍无终态——
+        /// join 者返回此错误而非无限排队（只记账不杀共享任务）。
+        case staleFlight
     }
 
     /// Fetch progress is durable but is not a materialization checkpoint.
