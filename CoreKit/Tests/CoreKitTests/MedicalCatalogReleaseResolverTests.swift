@@ -697,4 +697,66 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(cache.entry(for: URL(string: "https://api.cnb.cool/none")!) == nil)
     }
 }
+
+/// SU-M15-MEDCATALOG · pointer 名文法钉：Swift 侧 `parsePointerAssetName` 是
+/// Go `names.go`（pointerNamePattern / ParsePointerAssetName）的逐项镜像。
+/// CI #655 实证：15/16 字节 stamp 门差一字节时 resolver 恒呈
+/// noInstallableAvailable，且本文件在 Linux 编译为空（零本地信号）——
+/// 文法必须有自己的 macOS 直测钉，而不是只由 resolver 集成路径间接触达。
+@Suite("SU-M15-MEDCATALOG · pointer 名文法钉（Go names.go 镜像）", .serialized)
+struct MedicalCatalogPointerNameTests {
+
+    @Test("v2 时间戳名解析（16 字节 stamp 含 T）", arguments: [
+        ("medical-data-catalog-installable-30-20260926T120000Z.json", true, Int64(30), "20260926T120000Z"),
+        ("medical-data-catalog-progress-21-20261001T120000Z.json", false, Int64(21), "20261001T120000Z"),
+        ("medical-data-catalog-installable-1-20260101T000000Z.json", true, Int64(1), "20260101T000000Z"),
+    ])
+    func parsesV2Names(_ name: String, _ installable: Bool, _ version: Int64, _ stamp: String) {
+        let parsed = MedicalCatalogReleaseProtocol.parsePointerAssetName(name)
+        #expect(parsed?.installable == installable)
+        #expect(parsed?.catalogVersion == version)
+        #expect(parsed?.timestamp == stamp)
+    }
+
+    @Test("legacy 纯数字名仅作候选定位（无 stamp）", arguments: [
+        ("medical-data-catalog-installable-30.json", true, Int64(30)),
+        ("medical-data-catalog-progress-9.json", false, Int64(9)),
+    ])
+    func parsesLegacyNames(_ name: String, _ installable: Bool, _ version: Int64) {
+        let parsed = MedicalCatalogReleaseProtocol.parsePointerAssetName(name)
+        #expect(parsed?.installable == installable)
+        #expect(parsed?.catalogVersion == version)
+        #expect(parsed?.timestamp == nil)
+    }
+
+    @Test("形状违规拒绝（Go 正则锚定镜像）", arguments: [
+        "README.md",
+        "medical-data-catalog-installable-30-20260926T120000Z.txt",
+        "medical-data-catalog-installable-30-20260926T120000Z.json-extra",
+        "medical-data-catalog-installable-30-20260926T120000Z",
+        "medical-data-catalog-installable--30-20260926T120000Z.json",
+        "medical-data-catalog-installable-0-20260926T120000Z.json",
+        "medical-data-catalog-installable-007-20260926T120000Z.json",
+        "medical-data-catalog-installable-30-20260926T12000Z.json",   // 15 字节旧形
+        "medical-data-catalog-installable-30-20260926120000Z.json",  // 无 T
+        "medical-data-catalog-installable-30-20260926T120000ZZ.json",
+        "medical-data-catalog-other-30-20260926T120000Z.json",
+        "medical-data-catalog-installable-30-.json",
+        "medical-data-catalog-installable-30-20260926T120000Z-extra.json",
+        "medical-data-catalog-installable-99999999999999999999-20260926T120000Z.json",   // 20 位版本
+    ])
+    func rejectsMalformedNames(_ name: String) {
+        #expect(MedicalCatalogReleaseProtocol.parsePointerAssetName(name) == nil)
+    }
+
+    @Test("日历非法 stamp 拒绝（Go time.Parse 回环镜像）", arguments: [
+        "medical-data-catalog-installable-30-20261340T120000Z.json",   // 月 13
+        "medical-data-catalog-installable-30-20260926T240000Z.json",   // 时 24
+        "medical-data-catalog-installable-30-20260926T126000Z.json",   // 分 60
+        "medical-data-catalog-installable-30-20260926T120060Z.json",   // 秒 60
+    ])
+    func rejectsInvalidCalendarStamps(_ name: String) {
+        #expect(MedicalCatalogReleaseProtocol.parsePointerAssetName(name) == nil)
+    }
+}
 #endif
