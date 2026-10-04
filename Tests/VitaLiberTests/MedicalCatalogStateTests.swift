@@ -114,7 +114,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         return try VerifiedMedicalCatalogCandidate.testing(
             catalogVersion: 42,
             dataVersion: String(repeating: "c", count: 64),
-            schemaVersion: 5,
+            schemaVersion: 7,   // CNB v7-only 契约（5/6 在 decode 门即拒）
             packageAssetName: MedicalCatalogReleaseProtocol.packageAssetName(
                 sqliteSHA256: sqliteSHA, packageSHA256: packageSHA),
             packageSize: 1024,
