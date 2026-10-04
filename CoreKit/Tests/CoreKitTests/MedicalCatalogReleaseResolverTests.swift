@@ -600,7 +600,7 @@ struct MedicalCatalogReleaseResolverTests {
         try await waitForRequest(MedicalCatalogReleaseResolver.inventoryURL)
         #expect(try await resolver.check().state == .checking)
         guard case .updateAvailable = (try await first.value).state else {
-            Issue.record("首个检查应最终返回 updateAvailable")
+            Issue.record("首个检查应最终返回 updateAvailable，实际 \(String(describing: (try? await first.value)?.state))")
             return
         }
         #expect(inventoryHits() == 1)
