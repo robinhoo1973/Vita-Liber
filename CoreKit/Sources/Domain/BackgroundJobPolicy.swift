@@ -44,6 +44,61 @@ public enum BackgroundJobPolicy {
         let seconds = Int64(expiresAt.timeIntervalSince(now).rounded(.down)) - completionMarginSeconds
         return .seconds(max(0, seconds))
     }
+
+    /// 扣除完成余量后的执行预算（与 `runBudget` 同律；唤醒源分型后各处理器按此取时长）。
+    public static func timeBudget(for budget: Duration) -> Duration {
+        let seconds = durationSeconds(budget) - Double(completionMarginSeconds)
+        return .seconds(max(0, seconds))
+    }
+
+    // MARK: - 唤醒源分型（2026-10-04 后台任务专项评审 C1-9）
+
+    /// 同步四唤醒源：预算与轮数背板因源而异（此前 observer 投递复用 refresh 处理器，
+    /// 18s/8 轮超配——HealthKit 投递每次唤醒仅约 15s，见 discussions/2026-10-04-background-tasks-council.md）。
+    public enum WakeupSource: Equatable, Sendable {
+        /// BGAppRefresh（官方 ≤30s；本仓预算 20s，8 轮/18s）
+        case appRefresh
+        /// HealthKit 后台投递唤醒（实测 ≈15s → 2 轮/10s；积压移交 processingBackfill）
+        case observerDelivery
+        /// BGProcessingTask 回填（预算 runBudget 推导；roundsCap 为背板）
+        case processingBackfill
+        /// iOS 26 continued processing 手动同步（用户发起；20 轮上限）
+        case continuedSync
+
+        /// 轮数背板（每源上限）。
+        public var roundsCap: Int {
+            switch self {
+            case .appRefresh: return 8
+            case .observerDelivery: return 2
+            case .processingBackfill: return HealthSyncBacklogPolicy.roundsCap
+            case .continuedSync: return 20
+            }
+        }
+
+        /// 默认执行时长（timeBudget 输出；处理器无更精确依据时取此值）。
+        public var defaultTimeBudget: Duration {
+            switch self {
+            case .appRefresh: return .seconds(18)
+            case .observerDelivery: return .seconds(10)
+            case .processingBackfill: return BackgroundJobPolicy.defaultProcessingBudget
+            case .continuedSync: return .seconds(30)
+            }
+        }
+    }
+
+    /// 预算 → 轮数：密度计价（实测每轮秒数覆盖经验常数；下限 0.3s 防病态值）+ 源背板上限 + ≥1。
+    /// `measuredSecondsPerRound` = nil 时回落经验常数（`HealthSyncBacklogPolicy.secondsPerRound`）。
+    public static func maxRounds(for budget: Duration, source: WakeupSource,
+                                 measuredSecondsPerRound: TimeInterval? = nil) -> Int {
+        let density = max(0.3, measuredSecondsPerRound ?? HealthSyncBacklogPolicy.secondsPerRound)
+        let computed = max(1, Int(durationSeconds(budget) / density))
+        return min(source.roundsCap, computed)
+    }
+
+    /// Duration → 秒（attoseconds 折算）。
+    private static func durationSeconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
+    }
 }
 
 /// HealthKit 回填专用策略（round5 Q2）：此前后台每次唤醒每类只排 1 页（500 样本 + 32 窗），一年心率需数百次唤醒；

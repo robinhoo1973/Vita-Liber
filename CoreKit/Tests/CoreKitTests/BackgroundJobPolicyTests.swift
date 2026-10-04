@@ -52,4 +52,37 @@ struct BackgroundJobPolicyTests {
         // 回前台轻量对账：此前 1 轮（每类 1 页）；改 3 轮——仍有界（30s 预算内），但不再「每次回前台只前进一页」
         #expect(HealthSyncBacklogPolicy.foregroundActiveRounds == 3)
     }
+
+    // MARK: 唤醒源分型（2026-10-04 评审 C1-9：observer 投递不再复用 refresh 的 8 轮/18s）
+
+    @Test func wakeupSourceRoundsCaps() {
+        #expect(BackgroundJobPolicy.WakeupSource.appRefresh.roundsCap == 8)
+        #expect(BackgroundJobPolicy.WakeupSource.observerDelivery.roundsCap == 2)
+        #expect(BackgroundJobPolicy.WakeupSource.processingBackfill.roundsCap == HealthSyncBacklogPolicy.roundsCap)
+        #expect(BackgroundJobPolicy.WakeupSource.continuedSync.roundsCap == 20)
+    }
+
+    @Test func wakeupSourceDefaultBudgets() {
+        #expect(BackgroundJobPolicy.WakeupSource.appRefresh.defaultTimeBudget == .seconds(18))
+        #expect(BackgroundJobPolicy.WakeupSource.observerDelivery.defaultTimeBudget == .seconds(10))
+        #expect(BackgroundJobPolicy.WakeupSource.continuedSync.defaultTimeBudget == .seconds(30))
+    }
+
+    @Test func maxRoundsHonorsSourceCapAndDensity() {
+        // 无实测密度 → 经验常数 1.5s：10s 预算 ≈ 6 轮，但 observer 背板 2 封顶
+        #expect(BackgroundJobPolicy.maxRounds(for: .seconds(10), source: .observerDelivery) == 2)
+        // 18s / 1.5 ≈ 12 → appRefresh 背板 8 封顶
+        #expect(BackgroundJobPolicy.maxRounds(for: .seconds(18), source: .appRefresh) == 8)
+        // 实测密度覆盖经验常数：18s / 6s = 3 轮
+        #expect(BackgroundJobPolicy.maxRounds(for: .seconds(18), source: .appRefresh, measuredSecondsPerRound: 6) == 3)
+        // 病态密度（0.01s）→ 下限 0.3s：18/0.3 = 60 → 背板 8
+        #expect(BackgroundJobPolicy.maxRounds(for: .seconds(18), source: .appRefresh, measuredSecondsPerRound: 0.01) == 8)
+        // 零预算 → 至少 1 轮
+        #expect(BackgroundJobPolicy.maxRounds(for: .seconds(0), source: .observerDelivery) == 1)
+    }
+
+    @Test func timeBudgetLeavesCompletionMarginAndNeverNegative() {
+        #expect(BackgroundJobPolicy.timeBudget(for: .seconds(30)) == .seconds(30 - BackgroundJobPolicy.completionMarginSeconds))
+        #expect(BackgroundJobPolicy.timeBudget(for: .seconds(3)) == .seconds(0))
+    }
 }
