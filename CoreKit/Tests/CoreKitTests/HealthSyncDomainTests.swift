@@ -455,3 +455,43 @@ struct HealthSyncDomainTests {
         #expect(HealthImportWindow.covering(ref, calendar: calendar).isEmpty)
     }
 }
+
+/// 2026-10-04 后台任务专项评审 C1-8（discussions/2026-10-04-background-tasks-council.md）：
+/// SyncReport 遥测字段的契约锁——新字段全 Optional（旧 report_json 无键可解码）、
+/// 往返相等、显式 init 可设。
+@Suite("SU-M2-HEALTHSYNC · SyncReport 遥测字段契约")
+struct SyncReportTelemetryTests {
+    private func base() -> SyncReport {
+        SyncReport(lastSyncAt: Date(timeIntervalSinceReferenceDate: 721_699_200))
+    }
+
+    @Test("新字段缺省 nil，旧 JSON 无键可解码")
+    func legacyJSONWithoutNewKeysDecodes() throws {
+        // 真实旧形模拟：编码当前值后剥掉三个新键（而非手工拼 JSON——手工拼会
+        // 漏非 Optional 键，反而测的是自造形状不是兼容契约）。
+        var report = base()
+        report.persistedRows = 3
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(report)) as! [String: Any]
+        for key in ["wallTime", "failureReasons", "coalescedJoiners"] { object.removeValue(forKey: key) }
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(SyncReport.self, from: legacy)
+        #expect(decoded.wallTime == nil)
+        #expect(decoded.failureReasons == nil)
+        #expect(decoded.coalescedJoiners == nil)
+        #expect(decoded.persistedRows == 3)
+    }
+
+    @Test("新字段显式设值后编解码往返相等")
+    func newFieldsRoundTrip() throws {
+        var report = base()
+        report.wallTime = 12.5
+        report.failureReasons = ["HealthKit query stalled", "write conflict"]
+        report.coalescedJoiners = 3
+        let data = try JSONEncoder().encode(report)
+        let decoded = try JSONDecoder().decode(SyncReport.self, from: data)
+        #expect(decoded == report)
+        #expect(decoded.wallTime == 12.5)
+        #expect(decoded.failureReasons == ["HealthKit query stalled", "write conflict"])
+        #expect(decoded.coalescedJoiners == 3)
+    }
+}

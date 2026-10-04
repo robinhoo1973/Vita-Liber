@@ -204,6 +204,14 @@ public struct SyncReport: Sendable, Equatable, Codable {
     public var perKindQueries: [String: Int]? = nil
     /// 失败类型与错误摘要（去重，诊断用）
     public var lastFailures: [String]? = nil
+    // 2026-10-04 后台任务专项评审 C1-8（discussions/2026-10-04-background-tasks-council.md）：
+    // C1 埋点半交付补全——「为何停/多慢」此前不可见。全部 Optional，旧 report_json 无键可解码。
+    /// 本次同步总墙钟时长（performSyncAll 聚合时置；诊断「慢」的每唤醒归因）
+    public var wallTime: TimeInterval? = nil
+    /// 失败原因描述（与 lastFailures 的 kind 名并集互补；去重、截断）
+    public var failureReasons: [String]? = nil
+    /// 合并加入次数（performSync join 支路计数；「四路撞车」频率的量化事实）
+    public var coalescedJoiners: Int? = nil
 
     /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
     /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
@@ -215,7 +223,9 @@ public struct SyncReport: Sendable, Equatable, Codable {
                 bindingId: UUID? = nil, patientId: UUID? = nil,
                 sparseWindows: Int? = nil, remainingWindows: Int? = nil,
                 backfillLane: HealthFetchLane? = nil,
-                perKindRemaining: [String: Int]? = nil) {
+                perKindRemaining: [String: Int]? = nil,
+                wallTime: TimeInterval? = nil, failureReasons: [String]? = nil,
+                coalescedJoiners: Int? = nil) {
         self.elevated = elevated; self.noRangeCount = noRangeCount
         self.persistedRows = persistedRows; self.preservedRows = preservedRows
         self.deferredWindows = deferredWindows; self.receivedChanges = receivedChanges
@@ -225,6 +235,8 @@ public struct SyncReport: Sendable, Equatable, Codable {
         self.sparseWindows = sparseWindows; self.remainingWindows = remainingWindows
         self.backfillLane = backfillLane
         self.perKindRemaining = perKindRemaining
+        self.wallTime = wallTime; self.failureReasons = failureReasons
+        self.coalescedJoiners = coalescedJoiners
     }
 }
 
