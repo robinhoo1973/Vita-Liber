@@ -131,6 +131,13 @@ final class MedicalCatalogUpdateCoordinator {
         updateProgress = .downloading(receivedBytes: 0, totalBytes: candidate.packageSize)
         updateTask = Task { [weak self] in
             guard let self else { return }
+            // C1-7a（2026-10-04 后台任务专项评审）：目录更新此前零后台保护——GB 级
+            // 下载在裸 Task 里跑，切后台数秒即挂起（下载会话为 ephemeral，无系统
+            // 续跑通道）。如实请求 ≈30s 宽限收尾（iOS 13+ 事实，只够收尾一段）；
+            // 锁屏整夜级下载属 tech §11 技术债，待产品裁定（P1/P3）。
+            let box = BackgroundAssertionBox()
+            await MainActor.run { box.begin(name: "vitaliber-catalog-update") }
+            defer { Task { @MainActor in box.end() } }
             do {
                 guard let opener = self.opener else {
                     self.updateError = .catalogNotConfigured
