@@ -22,6 +22,13 @@ public actor HealthKitSyncService {
     private static let windowsPerRound = 32
     private var inFlight: Task<SyncReport, Error>?
     private var inFlightID: UUID?
+    /// C1-5（2026-10-04 评审）：共享轮次启动时刻——join 者陈旧检测用；
+    /// 仅在 inFlight 非 nil 时有意义，创建时随 inFlight 同置，读只发生在 join 支路
+    /// （轮次结束后的旧时钟不会再被读——新轮次创建时必重写）。
+    private var inFlightStartedAt: Date?
+    /// join 陈旧阈值（默认 120s；测试注入小值）——超阈值抛 staleFlight，
+    /// 只记账不杀共享任务（「只有创建者持取消权」契约不变）。
+    nonisolated(unsafe) static var joinStaleThresholdSeconds: TimeInterval = 120
     public private(set) var latestReport: SyncReport?
 
     public init(provider: any HealthReadingProvider, writer: (any HealthWritingProvider)? = nil,
@@ -178,6 +185,13 @@ public actor HealthKitSyncService {
     public func performSync(quietStart: String, quietEnd: String) async throws -> SyncReport {
         try Task.checkCancellation()
         if let inFlight {
+            // C1-5 join 陈旧检测：共享轮次超过阈值仍无终态（疑似 HK 查询悬挂）时，
+            // 本 join 者返回 staleFlight 而非无限排队——此前四路（observer/refresh/
+            // backfill/回前台）全部合并排队到同一个死任务、每唤醒预算打水漂。
+            if let startedAt = inFlightStartedAt,
+               Date().timeIntervalSince(startedAt) >= Self.joinStaleThresholdSeconds {
+                throw HealthImportStore.ImportError.staleFlight
+            }
             var report = try await inFlight.value
             try Task.checkCancellation()
             // C1-8c（2026-10-04 评审）：合并加入计数——「四路撞车」频率的量化事实
@@ -188,6 +202,7 @@ public actor HealthKitSyncService {
         }
         let id = UUID()
         inFlightID = id
+        inFlightStartedAt = Date()   // C1-5：随新轮次同置（join 支路陈旧检测的时间基准）
         let task = Task { try await self.runAndRecord(id: id, quietStart: quietStart, quietEnd: quietEnd) }
         inFlight = task
         // Only the creator owns cancellation of shared work. Registration also closes the startup race.
