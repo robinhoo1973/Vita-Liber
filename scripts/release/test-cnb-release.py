@@ -250,6 +250,28 @@ class CNBReleaseTests(unittest.TestCase):
                     with self.assertRaises(CNBReleaseError):
                         client.upload_immutable("asr-models", path, "model.zip", digest)
 
+    def test_presigned_query_tokens_are_allowed_on_grant_urls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = b"presigned"
+            path = Path(directory) / "model.zip"
+            path.write_bytes(payload)
+            digest = hashlib.sha256(payload).hexdigest()
+            transport = ScriptedCNBTransport(
+                api_responses=[
+                    CNBResponse(404, {}, b"{}"),
+                    CNBResponse(201, {}, json.dumps({"id": "r1", "tag_name": "asr-models", "assets": []}).encode()),
+                    CNBResponse(201, {}, json.dumps({"upload_url": "https://asset.cnb.cool/put/u1?token=abc",
+                                                     "verify_url": "https://api.cnb.cool/confirm/u1?token=abc"}).encode()),
+                    CNBResponse(200, {}, b"{}"),
+                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
+                                                     "assets": [asset_payload("model.zip", payload)]}).encode()),
+                ],
+                put_responses=[CNBResponse(200, {}, b"")],
+            )
+            client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+            receipt = client.upload_immutable("asr-models", path, "model.zip", digest)
+            self.assertEqual(receipt.sha256, digest)
+
     def test_verify_url_outside_api_host_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = b"bad-verify"

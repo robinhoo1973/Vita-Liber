@@ -138,12 +138,16 @@ def release_notes_for_tag(tag):
     return title, body
 
 
-def validate_https_url(url, *, require_host=None, purpose):
+def validate_https_url(url, *, require_host=None, purpose, allow_query=False):
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise CNBReleaseError("CNB " + purpose + " URL must be HTTPS with a host")
-    if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise CNBReleaseError("CNB " + purpose + " URL must not carry credentials/query/fragment")
+    if parsed.username or parsed.password or parsed.fragment:
+        raise CNBReleaseError("CNB " + purpose + " URL must not carry credentials/fragment")
+    if parsed.query and not allow_query:
+        # 预签名上传/确认 URL 的 query 是能力令牌(实测 2026-10-05:verify_url 带
+        # query 才可确认)——仅对这两类 grant URL 放行;自构造下载 URL 仍禁 query。
+        raise CNBReleaseError("CNB " + purpose + " URL must not carry a query string")
     if parsed.port not in (None, 443):
         raise CNBReleaseError("CNB " + purpose + " URL must use the default port")
     if require_host is not None and parsed.hostname != require_host:
@@ -264,7 +268,8 @@ class CNBReleaseClient:
 
     def _api_absolute(self, method, url, body=None):
         """POST/PUT-style call to an API-issued absolute URL (verify/confirm hop)."""
-        validate_https_url(url, require_host=urllib.parse.urlsplit(self.api_base).hostname, purpose="API")
+        validate_https_url(url, require_host=urllib.parse.urlsplit(self.api_base).hostname,
+                           purpose="API", allow_query=True)
         payload = json.dumps(body).encode() if body is not None else None
         headers = self._api_headers()
         if payload is not None:
@@ -329,8 +334,9 @@ class CNBReleaseClient:
         upload_url = grant.get("upload_url") or ""
         verify_url = grant.get("verify_url") or ""
         # 先验后传:两个 URL 都在 PUT 之前校验,坏 grant 不允许流出任何字节。
-        validate_https_url(upload_url, purpose="upload")
-        validate_https_url(verify_url, require_host=urllib.parse.urlsplit(self.api_base).hostname, purpose="verify")
+        validate_https_url(upload_url, purpose="upload", allow_query=True)
+        validate_https_url(verify_url, require_host=urllib.parse.urlsplit(self.api_base).hostname,
+                           purpose="verify", allow_query=True)
         # 上传主机不硬编码(设计文档:upload_url 是不透明串,前缀由业主探针定);
         # 只保证 HTTPS/无凭据/默认端口,且绝不携带 bearer。
         self.transport.put(upload_url, {}, path, size)
