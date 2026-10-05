@@ -18,6 +18,7 @@ import os
 from pathlib import Path
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 UA = "vitaliber-cnb-probe/1"
@@ -91,6 +92,18 @@ def attachment_range(repository, tag, name):
 
 def upload_roundtrip(repository, tag, token):
     from cnb_release import CNBReleaseClient, UrllibCNBTransport
+
+    class RecordingTransport(UrllibCNBTransport):
+        """记录 PUT 上传 URL(前缀推导数据源);令牌值只进内存,输出时掩码。"""
+
+        def __init__(self):
+            super().__init__()
+            self.upload_url = None
+
+        def put(self, url, headers, file_path, size):
+            self.upload_url = url
+            return super().put(url, headers, file_path, size)
+
     payload = b"vitaliber-cnb-probe-asset"
     name = "probe-" + hashlib.sha256(payload).hexdigest()[:12] + ".bin"
     import tempfile
@@ -98,7 +111,8 @@ def upload_roundtrip(repository, tag, token):
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / name
         path.write_bytes(payload)
-        client = CNBReleaseClient(repository, token, UrllibCNBTransport())
+        transport = RecordingTransport()
+        client = CNBReleaseClient(repository, token, transport)
         try:
             receipt = client.upload_immutable(tag, path, name, hashlib.sha256(payload).hexdigest())
             print(json.dumps({"name": receipt.name, "size": receipt.size,
@@ -106,6 +120,18 @@ def upload_roundtrip(repository, tag, token):
         except Exception as error:  # 探针面:任何失败都打印为可读诊断
             print("upload-roundtrip failed: " + str(error), file=sys.stderr)
             return 1
+        if transport.upload_url:
+            parsed = urllib.parse.urlsplit(transport.upload_url)
+            segments = parsed.path.split("/")
+            # 前缀候选 = scheme://host + 路径前两段(稳定目录面);余段按 token 面掩码。
+            prefix_candidate = parsed.scheme + "://" + parsed.netloc + "/".join(
+                [""] + segments[1:3])
+            masked = "/".join(segments[:3]) + "/" + "/".join("<redacted>" for _ in segments[3:])
+            print("observed upload_url:")
+            print("  host: " + parsed.netloc)
+            print("  masked path: " + masked + ("?" + parsed.query.split("&")[0].split("=")[0] + "=<redacted>" if parsed.query else ""))
+            print("  UPLOAD_PATH_PREFIX candidate: " + prefix_candidate)
+            print("  设置方式: gh variable set CNB_RESOURCE_UPLOAD_PATH_PREFIX -R robinhoo1973/Vita-Liber -b " + prefix_candidate)
     print("probe asset uploaded (删除=独立破坏性动作,人工执行;本脚本不删除)")
     return 0
 
