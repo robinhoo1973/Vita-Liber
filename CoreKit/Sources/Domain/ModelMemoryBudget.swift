@@ -43,6 +43,31 @@ public enum ModelMemoryBudget {
         if available - required < preloadHeadroomBytes { return .tight }
         return .ok
     }
+
+    /// 预算内**首个**可载候选下标（2026-10-05 业主反馈修复批：OOM 自动回落）——
+    /// 输入顺序即调用方优先序（质量/覆盖优先），返回第一个 `allowsLoad` 的下标；
+    /// 全部不足返回 nil（调用方决定回落基线轨或如实报错）。探针不可用 fail-open：
+    /// 返回首个候选（与 `verdict` 的 fail-open 语义同源）。
+    public static func firstLoadableIndex(modelBytes: [Int64], availableBytes: Int64?,
+                                          peakFactor: Double = loadPeakFactor) -> Int? {
+        guard let available = availableBytes else { return modelBytes.indices.first }
+        for index in modelBytes.indices
+        where verdict(modelBytes: modelBytes[index], availableBytes: available, peakFactor: peakFactor).allowsLoad {
+            return index
+        }
+        return nil
+    }
+
+    /// 预算内可载的**最大档**下标（2026-10-05 业主反馈修复批：系统推荐 = 可装最大档，
+    /// 与 auto 档「完整解码模型优先」语义对齐）。探针不可用 fail-open：返回最大下标；
+    /// 全部不足返回 nil（下载面据此给内存警示）。
+    public static func largestLoadableIndex(modelBytes: [Int64], availableBytes: Int64?,
+                                            peakFactor: Double = loadPeakFactor) -> Int? {
+        guard let available = availableBytes else { return modelBytes.indices.max() }
+        return modelBytes.indices.reversed().first {
+            verdict(modelBytes: modelBytes[$0], availableBytes: available, peakFactor: peakFactor).allowsLoad
+        }
+    }
 }
 
 /// 崩溃环断路标记（round5 Q3）：加载前落盘、加载成功后清除；下次启动若仍在且指向同一模型身份 → 上次加载未完成

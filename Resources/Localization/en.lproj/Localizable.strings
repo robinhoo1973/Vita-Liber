@@ -1219,6 +1219,7 @@
 "pendingCard.notFound" = "This pending card was already handled or no longer exists";
 "voice.primaryLanguage" = "Primary";
 "voice.recognizedAsFmt" = "Recognized as: %@";
+"voice.engineFallbackFmt" = "Recognition served by the %@ engine (switched automatically due to memory)";
 "voice.bestEffortActive" = "Best effort: this language has no available on-device model. An available recognition language is in use; please review each field.";
 "voice.version.native" = "Native transcript";
 "voice.version.refined" = "LLM-refined";

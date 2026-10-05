@@ -325,6 +325,10 @@ extension L10n {
 
     static func voiceRecognizedAs(_ locale: String) -> String { String(format: t("voice.recognizedAsFmt"), locale) }
 
+    /// 2026-10-05 业主反馈修复批（第 8 项合同更新）：显式选定档因内存不足自动
+    /// 回落时，面板明示实际服务引擎（不得冒充所选档——FR17.15 诚实性延续）。
+    static func voiceEngineFallback(_ engine: String) -> String { String(format: t("voice.engineFallbackFmt"), engine) }
+
     static func ocrCardsRemaining(_ n: Int) -> String { String(format: t("ocr.cards.remaining"), n) }
 
     static func ocrCardFieldCount(_ n: Int) -> String { String(format: t("ocr.cards.fieldCount"), n) }

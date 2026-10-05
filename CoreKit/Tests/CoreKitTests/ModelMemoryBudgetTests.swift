@@ -80,4 +80,34 @@ struct ModelMemoryBudgetTests {
         // os_proc_available_memory 仅 iOS；非 iOS 恒 nil → 策略 fail-open（未知不拒）。
         #expect(ProcessMemory.availableBytes() == nil)
     }
+
+    /// 2026-10-05 业主反馈修复批（第 8 项）：首个可载候选按传入优先序。
+    @Test func firstLoadableIndexFollowsPriorityOrder() {
+        // 大档不足 → 跳过；中档可载 → 中档
+        #expect(ModelMemoryBudget.firstLoadableIndex(
+            modelBytes: [3 * gb, 500 * mb, 200 * mb], availableBytes: 2 * gb) == 1)
+        // 探针不可用 fail-open：首个候选
+        #expect(ModelMemoryBudget.firstLoadableIndex(
+            modelBytes: [3 * gb, 500 * mb], availableBytes: nil) == 0)
+        // 全不足 → nil（调用方决定回落基线轨或如实报错）
+        #expect(ModelMemoryBudget.firstLoadableIndex(
+            modelBytes: [3 * gb, 4 * gb], availableBytes: 2 * gb) == nil)
+        #expect(ModelMemoryBudget.firstLoadableIndex(modelBytes: [], availableBytes: 2 * gb) == nil)
+    }
+
+    /// 2026-10-05 业主反馈修复批（第 9 项）：推荐 = 可装最大档。
+    @Test func largestLoadableIndexPrefersBiggestLoadable() {
+        // 大档可载 → 大档
+        #expect(ModelMemoryBudget.largestLoadableIndex(
+            modelBytes: [200 * mb, 500 * mb, 900 * mb], availableBytes: 4 * gb) == 2)
+        // 大档不足（900mb 峰值 ≈2.10GB > 1.93GB）、中档可载（500mb 峰值 ≈1.26GB）→ 中档
+        #expect(ModelMemoryBudget.largestLoadableIndex(
+            modelBytes: [200 * mb, 500 * mb, 900 * mb], availableBytes: 18 * gb / 10) == 1)
+        // 全不足 → nil
+        #expect(ModelMemoryBudget.largestLoadableIndex(
+            modelBytes: [3 * gb, 4 * gb], availableBytes: 2 * gb) == nil)
+        // 探针不可用 fail-open：最大下标（与 verdict 同语义；推荐层会改走 RAM 建议）
+        #expect(ModelMemoryBudget.largestLoadableIndex(
+            modelBytes: [200 * mb, 500 * mb, 900 * mb], availableBytes: nil) == 2)
+    }
 }

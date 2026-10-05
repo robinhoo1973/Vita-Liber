@@ -406,6 +406,17 @@ struct VoiceDictationButton: View {
                                 Text(L10n.voiceLangBestEffort).font(.caption2).foregroundStyle(.secondary)
                             }
                         }
+                        // FR17.15 合同更新（2026-10-05 业主指令）：显式选定档因内存不足
+                        // 自动回落时必须明示实际服务引擎（不得冒充所选档；auto/平台档
+                        // 的引擎选择本是系统行为，不提示）。
+                        if let engineID = model.resolvedEngineID,
+                           let served = VoiceEngineChoice(rawValue: engineID),
+                           served != VoiceEngineChoice.resolve(settings.values[.voiceEngine]),
+                           VoiceEngineChoice.resolve(settings.values[.voiceEngine]).isBundledModel {
+                            Text(L10n.voiceEngineFallback(L10n.voiceEngineName(served)))
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("voice.dictation.fallbackEngine")
+                        }
                     }
                 }
             }

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(os)
+import os   // 可诊断事件（仅 Apple 平台；Linux 包测试回落 no-op）
+#endif
 import Domain
 import Protocols
 
@@ -7,6 +10,7 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
     private enum Stop { case finish, cancel }
     private let choiceProvider: @Sendable () -> VoiceEngineChoice
     private let builder: @Sendable (VoiceEngineChoice) -> any TranscriptionEngine
+    private let fallbackResolver: @Sendable (VoiceEngineChoice, String) -> VoiceEngineChoice?
     private var serving: [UUID: any TranscriptionEngine] = [:]
     private var stops: [UUID: Stop] = [:]
     private var retired: [UUID] = []
@@ -22,9 +26,13 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         StubTranscriptionEngine(capability: .longForm(locales: []), scripted: [])
         // Linux 包测试：不装配真实语音引擎
         #endif
+    },
+         fallbackResolver: @escaping @Sendable (VoiceEngineChoice, String) -> VoiceEngineChoice? = { choice, locale in
+        asrDefaultFallbackResolver(choice, locale)
     }) {
         self.choiceProvider = choiceProvider
         self.builder = builder
+        self.fallbackResolver = fallbackResolver
     }
 
     /// 同步只读能力面：代理实际服务长音频引擎（sherpa/平台轨），同步属性
@@ -62,10 +70,9 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         }
         // 审计修正（round3）：auto 解析改用 builder 的**过闸**版本（缺件随包模型回落
         // 平台轨/基线轨），绝不把缺件引擎交给会话（否则每次必抛 engineUnavailable）。
-        let choice = resolvedChoice(for: request.localeIdentifier)
-        let engine = delegate(for: choice)
+        // 2026-10-05：按压级解析吃全部已选语种（混说多语种选择），单语行为不变。
+        let choice = resolvedChoice(for: request)
         let previous = captureOwner.flatMap { serving[$0].map { ($0, captureOwner) } }
-        serving[id] = engine
         captureOwner = id
         defer {
             serving[id] = nil
@@ -80,18 +87,45 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         // 真正被新会话接管（captureOwner = 他者且无 finish）→ 取消。
         if captureOwner != id, stops[id] != .finish { throw CancellationError() }
         if stops[id] == .cancel { throw CancellationError() }
-        if stops[id] == .finish { await engine.finish(sessionID: id) }
-        var result: TranscriptionResult
-        if let reporting = engine as? any TranscriptionCaptureReporting {
-            result = try await reporting.transcribe(request, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
-        } else {
-            onCaptureStarted()
-            result = try await engine.transcribe(request, onPartial: onPartial)
+        // FR17.15 合同更新（2026-10-05 业主指令）：OOM 加载失败（insufficientMemory）
+        // 自动回落可用模型。三条件（R2 交叉质询裁决，勿破坏）：
+        // ① 本循环**不重入**本方法——接管/取消逻辑只执行一次，循环内直调回落
+        //    引擎的 transcribe（其 coordinator 为实例级状态，同 sessionID 可入会）；
+        // ② `serving[id]` 每迭代更新——否则用户中途松手的 finish/cancel 会路由到
+        //    已 settle 的死引擎，麦克风不关；
+        // ③ 回落档必须 ≠ 失败档（delegate 按 choice 缓存，同档重试必再抛）。
+        // 结果 engineID 由回落引擎自设（诚实性：不冒充所选档）。
+        var current = choice
+        while true {
+            try Task.checkCancellation()
+            let engine = delegate(for: current)
+            serving[id] = engine
+            if stops[id] == .finish { await engine.finish(sessionID: id) }
+            do {
+                var result: TranscriptionResult
+                if let reporting = engine as? any TranscriptionCaptureReporting {
+                    result = try await reporting.transcribe(request, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
+                } else {
+                    onCaptureStarted()
+                    result = try await engine.transcribe(request, onPartial: onPartial)
+                }
+                try Task.checkCancellation()
+                guard stops[id] != .cancel else { throw CancellationError() }
+                result.engineID = result.engineID ?? current.rawValue
+                return result
+            } catch let error as TranscriptionError {
+                guard case .insufficientMemory = error else { throw error }
+                // 失败时刻用户已松手（stop 意图在途）→ 不启动回落采音，按意图收尾。
+                if let intent = stops[id] {
+                    if intent == .cancel { throw CancellationError() }
+                    return .init(text: "", confidence: 0, resolvedLocale: request.localeIdentifier, segmented: false)
+                }
+                guard let next = fallbackResolver(current, request.localeIdentifier),
+                      next != current else { throw error }
+                Self.recordFallback(from: current, to: next)
+                current = next
+            }
         }
-        try Task.checkCancellation()
-        guard stops[id] != .cancel else { throw CancellationError() }
-        result.engineID = result.engineID ?? choice.rawValue
-        return result
     }
 
     func finish(sessionID: UUID) async {
@@ -154,6 +188,20 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         #endif
     }
 
+    /// FR17.15（2026-10-05 业主反馈修复批）：按压级解析——混说模式把**全部已选语种**
+    /// 交给过闸多语种选择（引擎必须覆盖方言+外语并集），单语保持旧单语种路径（零变）。
+    private func resolvedChoice(for request: TranscriptionRequest) -> VoiceEngineChoice {
+        let selected = choiceProvider()
+        #if os(iOS) || os(macOS)
+        return selected == .auto
+            ? TranscriptionEngineBuilder.automaticChoice(locales: request.allLocales,
+                                                         mixed: request.languageMode == .mixed)
+            : selected
+        #else
+        return selected   // Linux 包测试：无 auto 档资产解析
+        #endif
+    }
+
     private func delegate(for choice: VoiceEngineChoice) -> any TranscriptionEngine {
         #if os(iOS) || os(macOS)
         let identity = choice.isBundledModel ? ASRModelAssets.resolve(for: choice).identity : nil
@@ -168,9 +216,47 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
         return engine
     }
 
+    /// 引擎实例缓存逐出（2026-10-05 删除模型流程；R2 交叉质询裁决 c）：
+    /// 用户删除已装模型后，本代理缓存的引擎实例仍持有该目录租约——不逐出则
+    /// 目录残留整会话、GB 级空间不释放。逐出只清缓存引用 + 驱逐运行时池
+    /// （在用会话由池的 evictOnRelease 在会话结束后释放）。下次按压按新
+    /// identity（指针已断 → 随包/缺件）重建，删除语义立即生效。
+    func evictEngine(_ choice: VoiceEngineChoice) {
+        if cached?.0 == choice {
+            cached = nil
+            cachedAssetIdentity = nil
+        }
+        #if os(iOS) || os(macOS)
+        if choice.isBundledModel { SherpaOnnxTranscriber.unloadWhenIdle() }
+        #endif
+    }
+
     private func retire(_ id: UUID) {
         stops[id] = nil
         if !retired.contains(id) { retired.append(id) }
         if retired.count > 256 { retired.removeFirst(retired.count - 256) }
     }
+
+    /// 可诊断事件出口（产品验收「记可诊断事件」——回落事实对售后可查）。
+    /// Apple 平台落 os.Logger；Linux 包测试无 os 模块（回落解析器为 nil，路径不可达）。
+    #if canImport(os)
+    private static let logger = Logger(subsystem: "com.vitaliber", category: "asr.engine")
+    #endif
+    private static func recordFallback(from failed: VoiceEngineChoice, to next: VoiceEngineChoice) {
+        #if canImport(os)
+        logger.info("ASR engine fallback: \(failed.rawValue, privacy: .public) rejected by memory budget, serving \(next.rawValue, privacy: .public)")
+        #endif
+    }
+}
+
+/// 回落候选解析器（2026-10-05 业主反馈修复批）。生产默认 = builder 的
+/// 资产+内存双重闸门（iOS/macOS）；Linux 包测试无资产 → nil（抛原错）。
+/// 测试可注入自定义解析器（Linux 即可覆盖重试循环）。
+/// 文件级函数：Swift 默认实参不得引用类型成员（covariant 'Self' 限制）。
+private func asrDefaultFallbackResolver(_ choice: VoiceEngineChoice, _ locale: String) -> VoiceEngineChoice? {
+    #if os(iOS) || os(macOS)
+    return TranscriptionEngineBuilder.loadFallback(after: choice, locale: locale)
+    #else
+    return nil
+    #endif
 }

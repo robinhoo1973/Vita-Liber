@@ -123,6 +123,8 @@ extension L10n {
     "voice.primaryLanguage",
     "voice.langInputFooter",
     "voice.recognizedAsFmt",
+    // 2026-10-05 业主反馈修复批（第 8 项合同更新）：OOM 自动回落的面板明示。
+    "voice.engineFallbackFmt",
     "voice.bestEffortActive",
     "voice.version.native",
     "voice.version.refined",

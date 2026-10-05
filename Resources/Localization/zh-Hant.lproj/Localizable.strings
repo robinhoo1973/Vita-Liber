@@ -1219,6 +1219,7 @@
 "pendingCard.notFound" = "該待辦卡已處理或不存在";
 "voice.primaryLanguage" = "主語言";
 "voice.recognizedAsFmt" = "辨識語言：%@";
+"voice.engineFallbackFmt" = "本次辨識由 %@ 引擎完成（記憶體不足，已自動切換）";
 "voice.bestEffortActive" = "盡力辨識：所選語言目前無裝置端模型，已使用可用的辨識語言；請逐項核對。";
 "voice.version.native" = "原生轉譯版";
 "voice.version.refined" = "LLM 修正版";
