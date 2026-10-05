@@ -18,6 +18,7 @@
 - **`index.models[]`**：发布条目——同 `id` 可多档（`variant`: tiny/base/small/medium/turbo/large，按体积升序加权）；每档携带 `tierName`（档位短标签）与 `tierHint`（参数/性能说明）本地化文案。App 下载信息卡按 `families[]` 生成行、按 `models[]` 生成档位选择器与下载/更新/换档按钮。
 - **App 侧兜底**：旧目录缺 families/tierName/tierHint 时，UI 回落到 L10n 通用文案（不内置任何型号名称/性能声称）。`asr_package.py validate_index` 强制 families 覆盖全部模型 id（客户端 `ModelCatalogTrustStore` 收单处同检，fail-closed）。
 - **预告家族（2026-10-05 业主指令）**：`index.families[]` 条目可携带 `availability: "upcoming"`——零档位预告（后期评估入列的家族随目录呈现，下载卡显示「即将上线」并隐藏下载控件）。发布侧闸：families 多于模型集的 id 必须全部标记 upcoming，常规家族缺档位 = 硬错；客户端接受闸镜像同一规则（App 不内置任何家族清单，标记语义完全来自目录）。
+- **当期矩阵（2026-10-05 钉版，按上游可得性如实矩阵化）**：whisper base/small/medium（3 档）+ dolphin base/small（2 档）+ qwen3 medium + zipformer large（双语上游仅一档）= 7 档。zipformer 14M 小模型不在本期矩阵——其上游仓库无 bpe.vocab 而运行时 zipformer 装配硬写 cjkchar+bpe（`ASRModelAssets.runtimeRoles` 含 bpe），纳入需运行时改造，登记为后续决定；sense-voice/fire-red/moonshine 以 `availability: "upcoming"` 零档位预告（iOS 适用性评估后扩档，7 族 13 档 ≈5.2GiB 目标）。新档位权重钉版数据步产物见 `scripts/release/` 同族纪律（HF resolve 直链 + revision 哈希 + 实测 sha256/bytes，Xet CAS 非文件 sha256 不得用作钉版哈希——2026-10-05 实测教训）。仓库数据文件由 `test-asr-assets.py` 实文件门禁守护（解析 + validate_index + index↔manifest 档位对齐 + bundledModels 声明）。
 - 引擎支持集合（`VoiceEngineChoice` 枚举）只是渲染上限：目录新增家族需先发 App 版本加入枚举；未知 id 被旧 App 静默跳过。
 
 ## 工作流

@@ -90,5 +90,47 @@ class ASRAssetsTests(unittest.TestCase):
                 assets.ensure_archive(root, {"id": "qwen3", "archive": config}, {"models": [old]}, check_only=True)
 
 
+class RealDataFileGateTests(unittest.TestCase):
+    """实文件门禁(2026-10-05 refactor-61 盲区发现):夹具测试全绿放走过无效 JSON——
+    仓库钉版数据文件必须可解析、模板必须过 validate_index、index↔manifest 档位
+    互相对齐(build 按 (id, variant) 匹配源清单,漏一侧 = 构建期红)。"""
+
+    ROOT = Path(__file__).resolve().parents[2]
+    MANIFEST = ROOT / "Resources" / "ASRModels" / "manifest.json"
+    INDEX = ROOT / "Resources" / "ASRModelUpdates" / "index.json"
+
+    def test_real_manifest_and_index_parse(self):
+        manifest = json.loads(self.MANIFEST.read_text(encoding="utf-8"))
+        index = json.loads(self.INDEX.read_text(encoding="utf-8"))
+        self.assertEqual(manifest.get("formatVersion"), 1)
+        self.assertIsInstance(manifest.get("models"), list)
+        self.assertIsInstance(index.get("models"), list)
+
+    def test_real_index_template_passes_validate_index(self):
+        from asr_package import validate_index
+        index = json.loads(self.INDEX.read_text(encoding="utf-8"))
+        validate_index(index, complete=False)
+
+    def test_index_and_manifest_variants_align(self):
+        manifest = json.loads(self.MANIFEST.read_text(encoding="utf-8"))
+        index = json.loads(self.INDEX.read_text(encoding="utf-8"))
+        manifest_variants = {(m["id"], m.get("variant")) for m in manifest["models"]}
+        index_variants = {(m["id"], m.get("variant")) for m in index["models"]}
+        self.assertEqual(index_variants, manifest_variants,
+                         "index 发布条目与 manifest 源条目必须 (id, variant) 一一对齐")
+
+    def test_bundled_models_declared_in_manifest(self):
+        manifest = json.loads(self.MANIFEST.read_text(encoding="utf-8"))
+        declared = manifest.get("bundledModels")
+        self.assertIsInstance(declared, list)
+        self.assertTrue(declared)
+        variants = {(m["id"], m.get("variant")) for m in manifest["models"]}
+        for entry in declared:
+            self.assertIn((entry["id"], entry.get("variant")), variants,
+                          f"bundledModels 声明档位 {(entry['id'], entry.get('variant'))} 不在源清单中")
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
