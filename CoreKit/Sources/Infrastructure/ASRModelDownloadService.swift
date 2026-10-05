@@ -233,7 +233,9 @@ public actor ASRModelDownloadService {
             let waiterID = UUID()
             await withTaskCancellationHandler {
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    slotWaiters.append((id: waiterID, continuation: continuation))
+                    // 2026-10-05 删除守卫（R2 交叉质询 f3）：排队者登记 release.id——
+                    // 同家族安装排队中时删除不得放行（否则删除后排队安装完成又装回）。
+                    slotWaiters.append((id: waiterID, releaseID: release.id, continuation: continuation))
                     // 追加后再查取消（2026-09-19 扫尾发现 #5）：onCancel 的
                     // removeWaiter 经非结构化 Task 跳回 actor，可能先于追加执行
                     // （未命中即空转）——取消悬在追加前的窗口会让等待者滞留到
@@ -261,8 +263,9 @@ public actor ASRModelDownloadService {
         return try await performInstall(release, baseURL: baseURL, progress: progress, onPhase: onPhase)
     }
 
-    /// 排队等待槽位的续体（actor 串行化；UUID 键——取消唤醒按 id 定位）。
-    private var slotWaiters: [(id: UUID, continuation: CheckedContinuation<Void, Never>)] = []
+    /// 排队等待槽位的续体（actor 串行化；UUID 键——取消唤醒按 id 定位；
+    /// releaseID = 排队中安装的模型家族，删除守卫据此拒绝「排队中删除」）。
+    private var slotWaiters: [(id: UUID, releaseID: String, continuation: CheckedContinuation<Void, Never>)] = []
 
     /// 取消排队：从队列移除并唤醒（resume 恰好一次；已由槽位释放唤醒者不在队列，
     /// 直接返回不 resume）。只在 actor 上执行（经 onCancel 的 Task hop）。
@@ -423,6 +426,98 @@ public actor ASRModelDownloadService {
                 guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
                 try ASRModelAssets.removeIfUnused(stale)
             } catch { /* 清理失败只保留旧资源，不改变当前激活版本。 */ }
+        }
+    }
+
+    // MARK: - 删除（2026-10-05 业主反馈修复批：下载后无删除功能）
+
+    /// 删除某模型家族的**全部**已装版本/档位（家族级删除——单档家族为当前数据面
+    /// 现实；按档删除的 isDeletable 语义已备，多档发布后可作为后续分层）。
+    /// 顺序（R2 交叉质询裁决，勿改）：
+    /// ① 守卫：安装中或**排队中**的同家族安装拒绝（排队者登记 releaseID——删除
+    ///    放行会让排队安装完成后又把模型装回来）；
+    /// ② 回收崩溃残留暂存（顺带，含续传点）；
+    /// ③ **先断指针**（active.json 删除 + 指针缓存失效）——`ASRModelAssets.resolve`
+    ///    立即回落随包/缺件，新会话不再加载已删权重；
+    /// ④ 逐目录移除（租约感知）：被租用的目录登记 `.pending-removal.json`，
+    ///    租约释放后由 retryPendingRemovals（同会话）或启动清扫（跨会话）补删；
+    /// ⑤ 逐根 invalidateCaches(forRoot:)（推进分代 + 逐出 presence/manifest/validated）；
+    /// ⑥ 驱逐运行时池（unloadWhenIdle）。全程 actor/后台执行，不在主线程做 GB 级删除。
+    public func remove(_ choice: VoiceEngineChoice) async throws {
+        guard !installing.contains(choice.rawValue),
+              !slotWaiters.contains(where: { $0.releaseID == choice.rawValue }) else {
+            throw Failure.installInProgress
+        }
+        let modelRoot = Self.applicationSupportRoot()
+            .appendingPathComponent(choice.rawValue, isDirectory: true)
+        ActivePointerStore.removeStaleStaging(in: modelRoot, fileManager: fileManager)
+        ActivePointerStore.invalidatePointerCache()
+        try? fileManager.removeItem(at: modelRoot.appendingPathComponent("active.json"))   // try?-ok: 指针本可缺失（已回落随包态）
+        var deferred: [String] = []
+        if let entries = try? fileManager.contentsOfDirectory(   // try?-ok: 目录不可读=无可删内容，指针已断，删除语义已达成
+            at: modelRoot, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]) {
+            for entry in entries {
+                guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),   // try?-ok: 属性不可读则跳过该项
+                      values.isDirectory == true, values.isSymbolicLink != true else { continue }
+                do {
+                    try ASRModelAssets.removeIfUnused(entry)
+                } catch { /* 删除失败不阻断其余目录 */ }
+                if fileManager.fileExists(atPath: entry.path) { deferred.append(entry.lastPathComponent) }
+                ASRModelAssets.invalidateCaches(forRoot: entry)
+            }
+        }
+        if !deferred.isEmpty {
+            ActivePointerStore.writePendingRemovals(deferred, in: modelRoot, fileManager: fileManager)
+        }
+        SherpaOnnxTranscriber.unloadWhenIdle()
+    }
+
+    /// 同会话补删（App 层逐出引擎缓存后调用）：重试标记内目录（租约已释放则删除，
+    /// 仍被在用会话租用则保留标记），全部清除后移除标记文件。
+    public func retryPendingRemovals(for choice: VoiceEngineChoice) {
+        let modelRoot = Self.applicationSupportRoot()
+            .appendingPathComponent(choice.rawValue, isDirectory: true)
+        var remaining: [String] = []
+        for name in ActivePointerStore.readPendingRemovals(in: modelRoot, fileManager: fileManager) {
+            let url = modelRoot.appendingPathComponent(name, isDirectory: true)
+            do {
+                try ASRModelAssets.removeIfUnused(url)
+            } catch { /* 单目录失败不影响其余 */ }
+            if fileManager.fileExists(atPath: url.path) { remaining.append(name) }
+        }
+        if remaining.isEmpty {
+            ActivePointerStore.clearPendingRemovals(in: modelRoot, fileManager: fileManager)
+        } else {
+            ActivePointerStore.writePendingRemovals(remaining, in: modelRoot, fileManager: fileManager)
+        }
+    }
+
+    /// 启动清扫（2026-10-05；R2 交叉质询裁决 f1）：补删上一会话被租约挡住的
+    /// 显式删除目录（启动时租约=0）。**只处理标记内目录**——绝不触碰用户
+    /// 刻意保留的多档共存目录（ASRInstallLayout ①）。同步非隔离，调用方
+    /// 自行放后台执行（启动路径不得阻塞主线程）。
+    public nonisolated static func sweepPendingRemovals(fileManager: FileManager = .default) {
+        let root = applicationSupportRoot()
+        guard let families = try? fileManager.contentsOfDirectory(   // try?-ok: 根不存在/不可读=无待清扫
+            at: root, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]) else { return }
+        for family in families {
+            guard let values = try? family.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),   // try?-ok: 属性不可读则跳过该家族
+                  values.isDirectory == true, values.isSymbolicLink != true else { continue }
+            var remaining: [String] = []
+            for name in ActivePointerStore.readPendingRemovals(in: family, fileManager: fileManager) {
+                let url = family.appendingPathComponent(name, isDirectory: true)
+                do {
+                    try ASRModelAssets.removeIfUnused(url)
+                } catch { /* 单目录失败不影响其余 */ }
+                if fileManager.fileExists(atPath: url.path) { remaining.append(name) }
+            }
+            if remaining.isEmpty {
+                ActivePointerStore.clearPendingRemovals(in: family, fileManager: fileManager)
+            } else {
+                ActivePointerStore.writePendingRemovals(remaining, in: family, fileManager: fileManager)
+            }
         }
     }
 }

@@ -987,6 +987,8 @@ extension L10n {
         "asr.model.phaseActivating", "asr.model.phasePruning", "asr.model.backgroundHint", "asr.model.foregroundHint",
         // 2026-10-05 业主反馈修复批（第 1/6 项）：完成态文案 + 删除模型。
         "asr.model.phaseCompleted",
+        "asr.model.delete", "asr.model.deleteTitle", "asr.model.deleteMessage",
+        "asr.model.deleteConfirm", "asr.model.deleteFailed",
         // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
         "asr.model.modeSegmentedFmt", "asr.model.modeSingle", "asr.model.introSizeFmt",
         "asr.qwen3", "asr.qwen3.hint",

@@ -33,6 +33,10 @@ struct ASREngineSettingsSection: View {
 
     @State private var index: ASRModelReleaseIndex?
     @State private var checkState: IndexCheckState = .idle
+    /// 2026-10-05 删除确认（第 6 项）：待确认的模型家族。
+    @State private var pendingDelete: VoiceEngineChoice?
+    /// 删除失败提示（如实呈现，可重试）。
+    @State private var deleteFailed: Set<String> = []
 
     /// 每档位的派生结论（已装版本 / 最新发布 / 可更新目标）。
     ///
@@ -216,6 +220,20 @@ struct ASREngineSettingsSection: View {
                 }
             } header: { Text(L10n.voiceLabEngineSection) }
               footer: { Text(L10n.asrSelectionHint) }
+              // 2026-10-05 删除确认（第 6 项）：删除释放空间，语音识别回落到随包模型
+              // （如有）或需重新下载——确认是显式动作（防误删 GB 级资产）。
+              .confirmationDialog(L10n.asrModelDeleteTitle,
+                                  isPresented: Binding(get: { pendingDelete != nil },
+                                                       set: { if !$0 { pendingDelete = nil } }),
+                                  titleVisibility: .visible) {
+                Button(L10n.asrModelDeleteConfirm, role: .destructive) {
+                    if let choice = pendingDelete { deleteModel(choice) }
+                    pendingDelete = nil
+                }
+                Button(L10n.commonCancel, role: .cancel) { pendingDelete = nil }
+              } message: {
+                Text(L10n.asrModelDeleteMessage)
+              }
             // 派生结论在渲染路径之外算（见 `availability` 的说明）。
               // **必须挂在追踪闭包内**：`derivationKey` 读 `installCenter.active`，
               // 挂到闭包外则读值不被追踪，安装开始/结束时 id 不变、任务不重跑，
@@ -247,18 +265,31 @@ struct ASREngineSettingsSection: View {
                     .font(.caption2).foregroundStyle(.secondary)
                     .accessibilityIdentifier("\(accessibilityPrefix).model.installed.\(choice.rawValue)")
             }
-            if variants.count > 1 {
-                Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants)) {
-                    ForEach(variants) { v in
-                        Text(L10n.asrModelVariantName(v.variant ?? "")).tag(v.variant ?? "")
+            if !variants.isEmpty {
+                if variants.count > 1 {
+                    Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants)) {
+                        ForEach(variants) { v in
+                            Text(L10n.asrModelVariantName(v.variant ?? "")).tag(v.variant ?? "")
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("\(accessibilityPrefix).model.variant.\(choice.rawValue)")
                 }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("\(accessibilityPrefix).model.variant.\(choice.rawValue)")
+                // 2026-10-05 业主反馈修复批（第 9 项）：系统推荐尺寸——单档发布时也显示
+                // （此前选择器与建议双双缺席，用户既无选择也无推荐）；推荐 = 内存预算
+                // 可装的最大档（与 auto 档「完整解码模型优先」同语义），探针不可用回落
+                // RAM 档位建议（D6）→ 最小档。
                 if let hint = variantHint(for: variants) {
                     Text(hint)
                         .font(.caption2).foregroundStyle(.secondary)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.variantHint.\(choice.rawValue)")
+                }
+                // 单档且内存预算不可载：如实预警并禁用下载（防「下载完不可用」——
+                // 预算门在按压时还会拒绝加载，先下载只是浪费 GB 级流量与空间）。
+                if let warning = memoryWarning(for: variants) {
+                    Text(warning)
+                        .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                        .accessibilityIdentifier("\(accessibilityPrefix).model.memoryWarning.\(choice.rawValue)")
                 }
             }
             if let active = installCenter.install(choice) {
@@ -284,6 +315,7 @@ struct ASREngineSettingsSection: View {
                     if needsInstall {
                         Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
                             .buttonStyle(.bordered).frame(minHeight: 44)
+                            .disabled(memoryWarning(for: variants) != nil)
                             .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
                     }
                 } else if let update {
@@ -293,16 +325,46 @@ struct ASREngineSettingsSection: View {
                 } else if let latest, installed == nil {
                     Button(L10n.asrModelDownload) { startInstall(latest) }
                         .buttonStyle(.bordered).frame(minHeight: 44)
+                        .disabled(memoryWarning(for: variants) != nil)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.download.\(choice.rawValue)")
+                }
+                // 2026-10-05 删除（第 6 项）：已装模型可删（家族级，含全部档位与版本），
+                // 释放空间；随包模型无 installed 行不显示。删除失败如实提示可重试。
+                if installed != nil {
+                    Button(L10n.asrModelDelete) { pendingDelete = choice }
+                        .buttonStyle(.bordered)
+                        .tint(Color("semantic-danger", bundle: .main))
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("\(accessibilityPrefix).model.delete.\(choice.rawValue)")
+                    if deleteFailed.contains(choice.rawValue) {
+                        Text(L10n.asrModelDeleteFailed)
+                            .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .accessibilityIdentifier("\(accessibilityPrefix).model.deleteFailed.\(choice.rawValue)")
+                    }
                 }
             }
         }
     }
 
-    /// 尺寸选择绑定（默认取清单首个 = 最小档；选择记忆在页内）
+    /// 删除执行（经安装中心：服务删除 → 引擎逐出 → deferred 补删 → 资产广播）。
+    private func deleteModel(_ choice: VoiceEngineChoice) {
+        deleteFailed.remove(choice.rawValue)
+        Task {
+            do {
+                try await installCenter.delete(choice)
+                derivationEpoch += 1   // 重算派生结论（installed 行消失）
+            } catch {
+                deleteFailed.insert(choice.rawValue)
+            }
+        }
+    }
+
+    /// 尺寸选择绑定（2026-10-05 第 9 项：默认 = 系统推荐档——内存预算可装的最大档，
+    /// 探针不可用回落 RAM 建议 → 最小档；此前恒默认最小档，≥4GB 设备也要手动改选；
+    /// 选择记忆在页内）。
     private func variantBinding(_ choice: VoiceEngineChoice, _ variants: [ASRModelRelease]) -> Binding<String> {
         Binding(get: {
-            selectedVariant[choice.rawValue] ?? variants.first?.variant ?? ""
+            selectedVariant[choice.rawValue] ?? variants[recommendedIndex(for: variants)].variant ?? ""
         }, set: { v in
             selectedVariant[choice.rawValue] = v
         })
@@ -316,12 +378,31 @@ struct ASREngineSettingsSection: View {
         if #available(iOS 26, *) { return true } else { return false }
     }
 
+    /// 推荐档下标（2026-10-05 第 9 项）：Domain 纯函数 `recommendedIndex`——
+    /// 预算可装最大档优先，探针不可用回落 RAM 建议（D6），再回落最小档。
+    /// 未知体积按 Int64.max（预算判定不可载、不误推荐）。
+    private func recommendedIndex(for variants: [ASRModelRelease]) -> Int {
+        ASRVariantRecommendation.recommendedIndex(
+            expandedBytes: variants.map { $0.expandedBytes ?? Int64.max },
+            availableBytes: ProcessMemory.availableBytes(),
+            ramBytes: ProcessInfo.processInfo.physicalMemory)
+    }
+
     private func variantHint(for variants: [ASRModelRelease]) -> String? {
         let ramBytes = ProcessInfo.processInfo.physicalMemory
-        guard let index = ASRVariantRecommendation.variantIndex(ramBytes: ramBytes,
-                                                                variantCount: variants.count),
-              let rec = variants[index].variant else { return nil }
+        guard let rec = variants[recommendedIndex(for: variants)].variant else { return nil }
         return L10n.asrModelVariantHint(rec, "\(ramBytes / 1024 / 1024 / 1024)")
+    }
+
+    /// 单档家族的内存预算预警（2026-10-05 第 9 项）：唯一可下载档不可载时
+    /// 如实预警 + 禁用下载——防「下载完才在按压时报内存不足」（与预算门同源判定）。
+    private func memoryWarning(for variants: [ASRModelRelease]) -> String? {
+        guard variants.count == 1, let bytes = variants[0].expandedBytes, bytes > 0,
+              case .insufficient(let required, let available) = ModelMemoryBudget.verdict(
+                modelBytes: bytes, availableBytes: ProcessMemory.availableBytes()) else { return nil }
+        return L10n.voicenoteDictationInsufficientMemory(
+            requiredGB: String(format: "%.1f", Double(required) / 1_073_741_824),
+            availableGB: String(format: "%.1f", Double(available) / 1_073_741_824))
     }
 
     /// 进行态视图：下载 = 分数进度 + 字节数字（慢链路下条位移缓慢，数字给确定反馈）；

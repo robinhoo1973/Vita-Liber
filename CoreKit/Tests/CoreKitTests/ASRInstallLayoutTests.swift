@@ -129,4 +129,24 @@ struct ASRInstallLayoutTests {
         #expect(ASRVariantRecommendation.variantIndex(ramBytes: 3 * 1024 * 1024 * 1024, variantCount: 3) == 0)
         #expect(ASRVariantRecommendation.variantIndex(ramBytes: 3 * 1024 * 1024 * 1024, variantCount: 1) == nil)
     }
+
+    /// 2026-10-05 业主反馈修复批（第 9 项）：系统推荐 = 预算可装最大档，
+    /// 探针不可用回落 RAM 建议（D6）→ 最小档。
+    @Test("系统推荐档：预算可装最大档 / 探针不可用回落 RAM 建议")
+    func recommendedVariantIndexByBudgetThenRAM() {
+        let gb = UInt64(1024) * 1024 * 1024
+        let bytes: [Int64] = [300 * 1024 * 1024, 700 * 1024 * 1024, 1_200 * 1024 * 1024]   // 升序三档
+        // 预算可载最大 = 中档（1.2GB 峰值 ≈2.71GB > 2GB；0.7GB 峰值 ≈1.67GB ≤ 2GB）
+        #expect(ASRVariantRecommendation.recommendedIndex(
+            expandedBytes: bytes, availableBytes: 2 * Int64(gb), ramBytes: 8 * gb) == 1)
+        // 预算全不足（最小档峰值 ≈0.83GB > 0.5GB）→ 回落 RAM 建议（8GB → 最大档）
+        #expect(ASRVariantRecommendation.recommendedIndex(
+            expandedBytes: bytes, availableBytes: Int64(gb) / 2, ramBytes: 8 * gb) == 2)
+        // 探针不可用 → 不得按预算 fail-open 推大档，回落 RAM 建议（3GB → 最小档）
+        #expect(ASRVariantRecommendation.recommendedIndex(
+            expandedBytes: bytes, availableBytes: nil, ramBytes: 3 * gb) == 0)
+        // 单档也给出建议（此前 ≤1 档无任何反馈）
+        #expect(ASRVariantRecommendation.recommendedIndex(
+            expandedBytes: [500 * 1024 * 1024], availableBytes: 2 * Int64(gb), ramBytes: 3 * gb) == 0)
+    }
 }

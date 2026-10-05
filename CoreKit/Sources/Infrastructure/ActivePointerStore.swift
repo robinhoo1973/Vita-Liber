@@ -142,5 +142,35 @@ enum ActivePointerStore {
             try? ASRModelAssets.removeIfUnused(entry) // try?-ok: 残留回收失败只占空间，不影响本次安装主流程
         }
     }
+
+    // MARK: - 延后删除标记（2026-10-05 删除模型流程；R2 交叉质询裁决 c/f）
+
+    /// 删除时被租约挡住的目录登记于此：租约释放后由 `retryPendingRemovals`
+    /// （同会话）或启动清扫 `sweepPendingRemovals`（跨会话）补删。标记是
+    /// **显式删除意愿**的唯一持久凭据——启动清扫只删标记内目录，绝不误删
+    /// 用户刻意保留的多档共存目录（ASRInstallLayout ① 多档可同时下载）。
+    static func pendingRemovalsURL(in modelRoot: URL) -> URL {
+        modelRoot.appendingPathComponent(".pending-removal.json")
+    }
+
+    static func writePendingRemovals(_ names: [String], in modelRoot: URL,
+                                     fileManager: FileManager = .default) {
+        do {
+            try fileManager.createDirectory(at: modelRoot, withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(names)
+            try data.write(to: pendingRemovalsURL(in: modelRoot), options: .atomic)
+        } catch { /* 标记写入失败只意味着跨会话补删失效，删除主流程不受影响（do-catch 形态，豁免语义同源） */ }
+    }
+
+    static func readPendingRemovals(in modelRoot: URL,
+                                    fileManager: FileManager = .default) -> [String] {
+        guard let data = try? Data(contentsOf: pendingRemovalsURL(in: modelRoot)),   // try?-ok: 无标记=无待补删
+              let names = try? JSONDecoder().decode([String].self, from: data) else { return [] }   // try?-ok: 标记损坏视为无标记
+        return names
+    }
+
+    static func clearPendingRemovals(in modelRoot: URL, fileManager: FileManager = .default) {
+        try? fileManager.removeItem(at: pendingRemovalsURL(in: modelRoot))   // try?-ok: 标记清除失败=下次清扫重试删除，幂等
+    }
 }
 #endif

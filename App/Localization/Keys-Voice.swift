@@ -371,6 +371,12 @@ extension L10n {
     static var asrModelPhasePruning: String { t("asr.model.phasePruning") }
     /// 2026-10-05 业主反馈修复批（第 1 项）：完成行文案（安装成功终态；非阶段——.pruning 后才有终态）。
     static var asrModelPhaseCompleted: String { t("asr.model.phaseCompleted") }
+    /// 2026-10-05 业主反馈修复批（第 6 项）：删除已装模型。
+    static var asrModelDelete: String { t("asr.model.delete") }
+    static var asrModelDeleteTitle: String { t("asr.model.deleteTitle") }
+    static var asrModelDeleteMessage: String { t("asr.model.deleteMessage") }
+    static var asrModelDeleteConfirm: String { t("asr.model.deleteConfirm") }
+    static var asrModelDeleteFailed: String { t("asr.model.deleteFailed") }
 
     static var asrModelBackgroundHint: String { t("asr.model.backgroundHint") }
     /// round5 Q2：iOS ≤25 下载期如实提示（`beginBackgroundTask` 仅约 30 秒宽限，切后台即暂停）；iOS 26 用 backgroundHint。

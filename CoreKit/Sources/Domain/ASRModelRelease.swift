@@ -181,4 +181,22 @@ public enum ASRVariantRecommendation {
         if ramGB >= 4 { return variantCount / 2 }   // 中档
         return 0                                    // 最小档
     }
+
+    /// 系统推荐档下标（2026-10-05 业主反馈修复批「系统推荐可用模型尺寸」）：
+    /// ① 内存探针可用 → 预算内可载的**最大档**（`ModelMemoryBudget.largestLoadableIndex`，
+    ///    与 auto 档「完整解码模型优先」同语义；全不足 → 回落 ②）；
+    /// ② 探针不可用/全不足 → RAM 档位建议（D6，只提示不拦截的既有口径——
+    ///    探针不可用时**不得**按预算 fail-open 推最大档：未知内存推大档有风险，
+    ///    建议与拒绝的 fail-open 语义不同）；
+    /// ③ 均无 → 最小档（0）。输入 `expandedBytes` 须与档位顺序一致（升序清单）；
+    /// 未知体积传 `Int64.max`（预算判定为不可载、不误推荐）。
+    public static func recommendedIndex(expandedBytes: [Int64], availableBytes: Int64?,
+                                        ramBytes: UInt64) -> Int {
+        if let available = availableBytes,
+           let byBudget = ModelMemoryBudget.largestLoadableIndex(modelBytes: expandedBytes,
+                                                                 availableBytes: available) {
+            return byBudget
+        }
+        return variantIndex(ramBytes: ramBytes, variantCount: expandedBytes.count) ?? 0
+    }
 }
