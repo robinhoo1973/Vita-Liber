@@ -510,6 +510,27 @@ extension L10n {
     static func asrModelUpdate(_ version: String) -> String { String(format: t("asr.model.update"), version) }
 
     static func asrModelInstalled(_ version: String) -> String { String(format: t("asr.model.installed"), version) }
+    /// 体积文案出口(ByteCountFormatter 本地化,与下载进度同口径)。
+    static func asrModelBytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: max(0, bytes), countStyle: .file)
+    }
+    /// 换档确认消息(档名+体积;消息里档名出现两次——「将下载 X 并删除已装的 X」)。
+    static func asrModelSwitchConfirmMessage(_ tier: String, _ size: String, _ installedTier: String) -> String {
+        String(format: t("asr.model.switchConfirmMessage"), tier, size, installedTier, installedTier)
+    }
+    /// 未装家族按档下载标签:「下载「X」档(约 N)」。
+    static func asrModelDownloadTier(_ tier: String, _ size: String) -> String {
+        String(format: t("asr.model.downloadTier"), tier, size)
+    }
+    /// 每档参数/性能说明(业主 2026-10-05):下载/解压体积 + 内存需求
+    /// (Domain 峰值口径)+ 档位相对性能的诚实陈述(不给未校准数字)。
+    static func asrModelVariantDetail(_ download: String, _ expanded: String, _ memory: String) -> String {
+        String(format: t("asr.model.variantDetail"), download, expanded, memory)
+    }
+    /// 换档按钮标签:「切换到「X」档(约 N)」。
+    static func asrModelSwitchTier(_ tier: String, _ size: String) -> String {
+        String(format: t("asr.model.switchTier"), tier, size)
+    }
 
     static func asrModelCheckUpdates(_ count: Int) -> String { String(format: t("asr.model.checkUpdatesFmt"), count) }
 

@@ -1847,9 +1847,9 @@
 "encounter.linkedCards.empty" = "暂无关联的处方或收费卡片";
 "asr.zipformer" = "Zipformer · 中英流式";
 "asr.zipformer.hint" = "普通话、英语及中英混说；原生流式。支持热词，不能替代方言模型。";
-"asr.dolphin" = "Dolphin-small · 中文方言";
+"asr.dolphin" = "Dolphin · 中文方言";
 "asr.dolphin.hint" = "覆盖多种中文方言及东方语言；CTC 分段识别，不含英语。具体口音效果请在本机核对。";
-"asr.whisper" = "Whisper-small · 多语种";
+"asr.whisper" = "Whisper · 多语种";
 "asr.whisper.hint" = "多语外语识别，含英语、法语、德语等；分段预览，不是原生流式，也不是专用中文方言模型。";
 "asr.bundledOffline" = "免费 · 本机推理 · 安装后离线可用";
 "asr.selectionHint" = "自主选择用于所有语音入口的引擎，下一次按压生效。随包模型不下载、不上传录音。显式选定的模型不可用时会提示失败，不会悄悄更换模型。";
@@ -1864,6 +1864,13 @@
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安装 %@";
 "asr.model.variantReplaces" = "切换档位将删除已装档,切回需重新下载";
+"asr.model.variantDetail" = "下载约 %1$@ · 解压约 %2$@ · 内存需求约 %3$@";
+"asr.model.singleTier" = "此模型仅提供一档";
+"asr.model.switchConfirmTitle" = "切换档位";
+"asr.model.switchConfirmAction" = "开始下载";
+"asr.model.switchConfirmMessage" = "将下载「%1$@」档(约 %2$@)并删除已装的「%3$@」档。下载期间旧档继续可用,安装成功后自动切换;切回「%4$@」档需重新下载。";
+"asr.model.downloadTier" = "下载「%@」档(约 %@)";
+"asr.model.switchTier" = "切换到「%@」档(约 %@)";
 "asr.model.downloading" = "下载中…";
 "asr.model.queued" = "排队等待下载槽位（同时最多下载 2 个模型）…";
 "asr.model.downloadFailed" = "下载失败，请检查网络后重试";

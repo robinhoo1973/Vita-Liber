@@ -33,8 +33,42 @@ struct ASREngineSettingsSection: View {
 
     @State private var index: ASRModelReleaseIndex?
     @State private var checkState: IndexCheckState = .idle
-    /// 2026-10-05 删除确认（第 6 项）：待确认的模型家族。
-    @State private var pendingDelete: VoiceEngineChoice?
+    /// 破坏性/高成本动作确认载荷（2026-10-05 委员会）：删除家族 / 换档切换
+    /// （单保留语义 = 删旧档 + GB 级下载，条件确认仅对替换已装档时弹）。
+    private enum PendingConfirm: Identifiable {
+        case delete(VoiceEngineChoice)
+        case switchTier(VoiceEngineChoice, ASRModelRelease)
+
+        var id: String {
+            switch self {
+            case .delete(let choice): return "delete-\(choice.rawValue)"
+            case .switchTier(let choice, let release): return "switch-\(choice.rawValue)-\(release.sha256)"
+            }
+        }
+        var title: String {
+            switch self {
+            case .delete: return L10n.asrModelDeleteTitle
+            case .switchTier: return L10n.asrModelSwitchConfirmTitle
+            }
+        }
+        var confirmLabel: String {
+            switch self {
+            case .delete: return L10n.asrModelDeleteConfirm
+            case .switchTier: return L10n.asrModelSwitchConfirmAction
+            }
+        }
+        var message: String {
+            switch self {
+            case .delete:
+                return L10n.asrModelDeleteMessage
+            case .switchTier(_, let chosen):
+                let tier = L10n.asrModelVariantName(chosen.variant ?? "")
+                let size = L10n.asrModelBytes(chosen.bytes ?? 0)
+                return L10n.asrModelSwitchConfirmMessage(tier, size, tier)
+            }
+        }
+    }
+    @State private var pendingConfirm: PendingConfirm?
     /// 删除失败提示（如实呈现，可重试）。
     @State private var deleteFailed: Set<String> = []
 
@@ -222,17 +256,21 @@ struct ASREngineSettingsSection: View {
               footer: { Text(L10n.asrSelectionHint) }
               // 2026-10-05 删除确认（第 6 项）：删除释放空间，语音识别回落到随包模型
               // （如有）或需重新下载——确认是显式动作（防误删 GB 级资产）。
-              .confirmationDialog(L10n.asrModelDeleteTitle,
-                                  isPresented: Binding(get: { pendingDelete != nil },
-                                                       set: { if !$0 { pendingDelete = nil } }),
+              .confirmationDialog(pendingConfirm?.title ?? "",
+                                  isPresented: Binding(get: { pendingConfirm != nil },
+                                                       set: { if !$0 { pendingConfirm = nil } }),
                                   titleVisibility: .visible) {
-                Button(L10n.asrModelDeleteConfirm, role: .destructive) {
-                    if let choice = pendingDelete { deleteModel(choice) }
-                    pendingDelete = nil
+                Button(pendingConfirm?.confirmLabel ?? "", role: .destructive) {
+                    switch pendingConfirm {
+                    case .delete(let choice): deleteModel(choice)
+                    case .switchTier(let choice, let release): startInstall(release)
+                    case nil: break
+                    }
+                    pendingConfirm = nil
                 }
-                Button(L10n.commonCancel, role: .cancel) { pendingDelete = nil }
+                Button(L10n.commonCancel, role: .cancel) { pendingConfirm = nil }
               } message: {
-                Text(L10n.asrModelDeleteMessage)
+                Text(pendingConfirm?.message ?? "")
               }
             // 派生结论在渲染路径之外算（见 `availability` 的说明）。
               // **必须挂在追踪闭包内**：`derivationKey` 读 `installCenter.active`，
@@ -283,14 +321,33 @@ struct ASREngineSettingsSection: View {
                     .pickerStyle(.segmented)
                     .accessibilityIdentifier("\(accessibilityPrefix).model.variant.\(choice.rawValue)")
                 }
-                // 2026-10-05 业主反馈修复批（第 9 项）：系统推荐尺寸——单档发布时也显示
-                // （此前选择器与建议双双缺席，用户既无选择也无推荐）；推荐 = 内存预算
-                // 可装的最大档（与 auto 档「完整解码模型优先」同语义），探针不可用回落
-                // RAM 档位建议（D6）→ 最小档。
-                if let hint = variantHint(for: variants) {
-                    Text(hint)
+                if variants.count > 1 {
+                    // 系统推荐（2026-10-05 第 9 项）：推荐 = 内存预算可装的最大档
+                    // （与 auto 档「完整解码模型优先」同语义），探针不可用回落
+                    // RAM 档位建议（D6）→ 最小档。只对多档家族显示——单档家族
+                    // 「建议选择」是空命题（无选择控件），且制造不存在的档位期待
+                    // （2026-10-05 委员会：qwen3 单档标 medium 时文案直出「中」）。
+                    if let hint = variantHint(for: variants) {
+                        Text(hint)
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("\(accessibilityPrefix).model.variantHint.\(choice.rawValue)")
+                    }
+                } else if !variants.isEmpty {
+                    // 单档家族「仅一档」徽标：如实缺省的呈现面（缺档不虚构）。
+                    Text(L10n.asrModelSingleTier)
                         .font(.caption2).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("\(accessibilityPrefix).model.variantHint.\(choice.rawValue)")
+                        .accessibilityIdentifier("\(accessibilityPrefix).model.singleTier.\(choice.rawValue)")
+                }
+                // 每档参数说明(业主 2026-10-05):列出所选档的下载/解压体积与内存
+                // 需求(Domain 峰值口径)——只给可核实参数,不定义大/中/小。
+                // 每模型性能/专长 = 引擎行 voiceEngineHint(既有)。
+                if let detailVariant = variants.count > 1 ? chosenVariant : variants.first {
+                    Text(L10n.asrModelVariantDetail(
+                        L10n.asrModelBytes(detailVariant.bytes ?? 0),
+                        L10n.asrModelBytes(detailVariant.expandedBytes ?? 0),
+                        L10n.asrModelBytes(ModelMemoryBudget.peakBytes(modelBytes: detailVariant.expandedBytes ?? 0))))
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("\(accessibilityPrefix).model.variantDetail.\(choice.rawValue)")
                 }
                 // 单档且内存预算不可载：如实预警并禁用下载（防「下载完不可用」——
                 // 预算门在按压时还会拒绝加载，先下载只是浪费 GB 级流量与空间）。
@@ -321,16 +378,40 @@ struct ASREngineSettingsSection: View {
                         installedVersion: installed,
                         installedVariant: row.installedVariant)
                     if needsInstall {
-                        Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
-                            .buttonStyle(.bordered).frame(minHeight: 44)
-                            .disabled(memoryWarning(for: variants) != nil)
-                            .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
-                        // 切换档位(已装另一档)时如实提示:旧档将被删除,切回需重下
-                        // (业主 2026-10-05 裁定「每家族最多保留一个已装档」)。
-                        if let installedVariant = row.installedVariant, installedVariant != chosenVariant.variant {
+                        // 按钮标签三分支(2026-10-05 委员会):未装=「下载 X 档(体积)」/
+                        // 同档新版本=「更新到 vX」/ 换档=「切换到 X 档(体积)」+ 条件确认
+                        // (仅替换已装档时弹;纯新装/同档更新不弹——HIG 破坏性确认,
+                        // 单保留裁定封死了 undo,确认是缺失 undo 的补偿控制)。
+                        let tierName = L10n.asrModelVariantName(chosenVariant.variant ?? "")
+                        let tierSize = L10n.asrModelBytes(chosenVariant.bytes ?? 0)
+                        if installed == nil {
+                            Button(L10n.asrModelDownloadTier(tierName, tierSize)) { startInstall(chosenVariant) }
+                                .buttonStyle(.bordered).frame(minHeight: 44)
+                                .disabled(memoryWarning(for: variants) != nil)
+                                .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
+                        } else if chosenVariant.variant == row.installedVariant {
+                            Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
+                                .buttonStyle(.bordered).frame(minHeight: 44)
+                                .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
+                        } else {
+                            Button(L10n.asrModelSwitchTier(tierName, tierSize)) {
+                                pendingConfirm = .switchTier(choice, chosenVariant)
+                            }
+                                .buttonStyle(.bordered).frame(minHeight: 44)
+                                .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
+                            // 切换成本预教育(2026-10-05 委员会):旧档将被删除,切回需重下
+                            // (业主 2026-10-05 裁定「每家族最多保留一个已装档」)。
                             Text(L10n.asrModelVariantReplaces)
                                 .font(.caption2).foregroundStyle(.secondary)
                                 .accessibilityIdentifier("\(accessibilityPrefix).model.variantReplaces.\(choice.rawValue)")
+                        }
+                        // R3(2026-10-05 委员会):多档家族按所选档内存预警——只预警
+                        // 不禁用(与 D6「用户自行决定,不做硬限制」一致);单档禁用在
+                        // memoryWarning(for:) 内保留。
+                        if let warning = selectedMemoryWarning(for: chosenVariant) {
+                            Text(warning)
+                                .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                                .accessibilityIdentifier("\(accessibilityPrefix).model.selectedMemoryWarning.\(choice.rawValue)")
                         }
                     }
                 } else if let update {
@@ -346,7 +427,7 @@ struct ASREngineSettingsSection: View {
                 // 2026-10-05 删除（第 6 项）：已装模型可删（家族级，含全部档位与版本），
                 // 释放空间；随包模型无 installed 行不显示。删除失败如实提示可重试。
                 if installed != nil {
-                    Button(L10n.asrModelDelete) { pendingDelete = choice }
+                    Button(L10n.asrModelDelete) { pendingConfirm = .delete(choice) }
                         .buttonStyle(.bordered)
                         .tint(Color("semantic-danger", bundle: .main))
                         .frame(minHeight: 44)
@@ -413,6 +494,17 @@ struct ASREngineSettingsSection: View {
         let ramBytes = ProcessInfo.processInfo.physicalMemory
         guard let rec = variants[recommendedIndex(for: variants)].variant else { return nil }
         return L10n.asrModelVariantHint(rec, "\(ramBytes / 1024 / 1024 / 1024)")
+    }
+
+    /// 多档家族按所选档的内存预算预警（R3，2026-10-05 委员会）：只预警不禁用，
+    /// 与 D6「用户自行决定，不做硬限制」一致；单档家族的禁用语义留在 memoryWarning(for:)。
+    private func selectedMemoryWarning(for release: ASRModelRelease) -> String? {
+        guard let bytes = release.expandedBytes, bytes > 0,
+              case .insufficient(let required, let available) = ModelMemoryBudget.verdict(
+                modelBytes: bytes, availableBytes: ProcessMemory.availableBytes()) else { return nil }
+        return L10n.voicenoteDictationInsufficientMemory(
+            requiredGB: String(format: "%.1f", Double(required) / 1_073_741_824),
+            availableGB: String(format: "%.1f", Double(available) / 1_073_741_824))
     }
 
     /// 单档家族的内存预算预警（2026-10-05 第 9 项）：唯一可下载档不可载时

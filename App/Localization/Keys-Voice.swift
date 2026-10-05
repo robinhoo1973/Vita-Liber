@@ -341,6 +341,11 @@ extension L10n {
     static var asrModelVariantTitle: String { t("asr.model.variantTitle") }
     /// 切换档位提示(业主 2026-10-05 裁定:每家族最多保留一个已装档,切回需重下)。
     static var asrModelVariantReplaces: String { t("asr.model.variantReplaces") }
+    /// 单档家族「仅一档」徽标(2026-10-05 委员会:取消空转推荐,徽标即如实缺省的解释面)。
+    static var asrModelSingleTier: String { t("asr.model.singleTier") }
+    /// 换档确认(2026-10-05 委员会:仅替换已装档时弹,单保留=删旧+GB 下载)。
+    static var asrModelSwitchConfirmTitle: String { t("asr.model.switchConfirmTitle") }
+    static var asrModelSwitchConfirmAction: String { t("asr.model.switchConfirmAction") }
 
     static var asrModelVariantSmall: String { t("asr.model.variantSmall") }
 

@@ -1847,9 +1847,9 @@
 "encounter.linkedCards.empty" = "No linked prescriptions or receipts yet";
 "asr.zipformer" = "Zipformer · Chinese/English streaming";
 "asr.zipformer.hint" = "Mandarin, English and mixed Chinese/English; native streaming with hotwords. Not a Chinese-dialect model.";
-"asr.dolphin" = "Dolphin-small · Chinese dialects";
+"asr.dolphin" = "Dolphin · Chinese dialects";
 "asr.dolphin.hint" = "Several Chinese dialects and Eastern languages; segment-based CTC recognition. English is not supported. Check your accent on this device.";
-"asr.whisper" = "Whisper-small · Multilingual";
+"asr.whisper" = "Whisper · Multilingual";
 "asr.whisper.hint" = "Includes English, French, German and more. Segment previews, not native streaming or a dedicated Chinese-dialect model.";
 "asr.bundledOffline" = "Free · On-device · Offline when installed";
 "asr.selectionHint" = "Choose the engine used by all voice entry points. Changes apply to the next press. Bundled models never download or upload audio. An unavailable explicitly selected model reports failure rather than silently changing engines.";
@@ -1864,6 +1864,13 @@
 "asr.model.update" = "Update to %@";
 "asr.model.installed" = "Installed %@";
 "asr.model.variantReplaces" = "Switching tiers deletes the installed tier; switching back re-downloads it";
+"asr.model.variantDetail" = "About %1$@ download · %2$@ unpacked · %3$@ memory required";
+"asr.model.singleTier" = "This model offers a single tier";
+"asr.model.switchConfirmTitle" = "Switch Tier";
+"asr.model.switchConfirmAction" = "Start Download";
+"asr.model.switchConfirmMessage" = "This downloads the %1$@ tier (about %2$@) and deletes the installed %3$@ tier. The old tier stays available during download and the switch happens after install; switching back to %4$@ requires downloading it again.";
+"asr.model.downloadTier" = "Download %@ tier (about %@)";
+"asr.model.switchTier" = "Switch to %@ tier (about %@)";
 "asr.model.downloading" = "Downloading…";
 "asr.model.queued" = "Queued for a download slot (max 2 simultaneous downloads)…";
 "asr.model.downloadFailed" = "Download failed. Check your network and retry.";
