@@ -37,7 +37,7 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
     /// 语言码回译为标准 locale 标识（zh→zh-Hans-CN 等），避免「尽力识别」
     /// 徽章把普通普通话误标为降级方言（round10 实测误报）。
     var resolvedLocale: String {
-        guard let model = ASRModelCatalog.model(for: choice),
+        guard let model = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex()),
               let code = model.languageCode(for: request.localeIdentifier) else { return request.localeIdentifier }
         switch code {
         case "zh": return "zh-Hans-CN"
@@ -57,7 +57,7 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
     /// 预热（round2 A-N2）：把当前档位模型提前装入推理池，按压时直接进入采集。
     /// 不设 owner、不打断在用会话；池键已匹配则为空操作。返回是否已就位。
     static func preload(choice: VoiceEngineChoice, request: TranscriptionRequest, assets: ASRModelAssets) async -> Bool {
-        guard let language = ASRModelCatalog.model(for: choice)?
+        guard let language = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex())?
             .decoderLanguage(for: request.localeIdentifier, mode: request.languageMode) else { return false }
         return await withCheckedContinuation { continuation in
             inferenceQueue.async {
@@ -94,7 +94,7 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
         do {
             // 语言提示按模式产出（round2 A-N1）：单语 = 该模型协议下的语言标记（qwen3 官方名称 /
             // whisper ISO 码），混说 = 空（启用模型自带语种识别）；nil = 该模型不支持此 locale。
-            guard let model = ASRModelCatalog.model(for: choice),
+            guard let model = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex()),
                   let language = model.decoderLanguage(for: request.localeIdentifier, mode: request.languageMode) else {
                 throw TranscriptionError.engineUnavailable
             }

@@ -49,9 +49,11 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
 
     public var capability: TranscriptionCapability {
         #if canImport(SherpaOnnxC)
-        guard assets.isPresent(choice), let model = ASRModelCatalog.model(for: choice) else { return .baseline(locales: []) }
+        guard assets.isPresent(choice),
+              let model = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex()) else { return .baseline(locales: []) }
         return .init(supportsLongForm: true, maxSegmentSeconds: 30, availableLocales: model.availableLocales,
-                     allowsDialectFallback: false, matchesLanguageCode: true)
+                     allowsDialectFallback: false, matchesLanguageCode: true,
+                     dialectLocales: Set(model.dialectLocales.map(TranscriptionLocale.normalizedIdentifier)))
         #else
         return .baseline(locales: [])
         #endif
@@ -65,7 +67,8 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
                            onCaptureStarted: @escaping @Sendable () -> Void) async throws -> TranscriptionResult {
         #if canImport(SherpaOnnxC)
         try assets.checkPackageAuthorization()
-        guard ASRModelCatalog.model(for: choice)?.languageCode(for: request.localeIdentifier) != nil else { throw TranscriptionError.engineUnavailable }
+        guard ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex())?
+            .languageCode(for: request.localeIdentifier) != nil else { throw TranscriptionError.engineUnavailable }
         var result = try await coordinator.transcribe(request, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
         result.engineID = choice.rawValue
         result.confidence = 0
@@ -80,7 +83,8 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
     /// 只预热、绝不联网（离线优先）；随包模型的「可下载」态由 `VoiceEngineAvailability` 层承担。
     public func localeAssetStatus(_ localeIdentifier: String) async -> VoiceLocaleAssetStatus {
         #if canImport(SherpaOnnxC)
-        guard ASRModelCatalog.model(for: choice)?.languageCode(for: localeIdentifier) != nil,
+        guard ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex())?
+            .languageCode(for: localeIdentifier) != nil,
               assets.isPresent(choice) else { return .unavailable }
         return .installed
         #else

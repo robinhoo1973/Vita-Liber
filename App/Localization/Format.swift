@@ -565,10 +565,10 @@ extension L10n {
         case .classic: return voiceEngineClassic
         case .advanced: return voiceEngineAdvanced
         case .dictation: return voiceEngineDictation
-        case .zipformer: return t("asr.zipformer")
-        case .qwen3: return t("asr.qwen3")
-        case .dolphin: return t("asr.dolphin")
-        case .whisper: return t("asr.whisper")
+        // 2026-10-05 业主裁定：模型家族名**全部**由 CI 生成的目录 JSON 提供——
+        // 无目录文案时只回显目录 id（引擎能力枚举 rawValue），App 零内置模型名称。
+        case .qwen3, .zipformer, .dolphin, .whisper, .senseVoice, .fireRed, .moonshine:
+            return choice.rawValue
         }
     }
 
@@ -578,10 +578,10 @@ extension L10n {
         case .classic: return voiceEngineClassicHint
         case .advanced: return voiceEngineAdvancedHint
         case .dictation: return voiceEngineDictationHint
-        case .zipformer: return t("asr.zipformer.hint")
-        case .qwen3: return t("asr.qwen3.hint")
-        case .dolphin: return t("asr.dolphin.hint")
-        case .whisper: return t("asr.whisper.hint")
+        // 2026-10-05 业主裁定：模型简介同样全由目录 JSON 提供——无目录文案时
+        // 给通用中性句（不含任何型号/语言/性能声称）。
+        case .qwen3, .zipformer, .dolphin, .whisper, .senseVoice, .fireRed, .moonshine:
+            return t("asr.familyHintFallback")
         }
     }
 

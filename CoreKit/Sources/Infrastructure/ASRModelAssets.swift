@@ -194,7 +194,7 @@ public struct ASRModelAssets: Sendable {
 
     private func files(_ choice: VoiceEngineChoice, hash: Bool) throws -> Validated {
         try checkPackageAuthorization()
-        guard let root, let descriptor = ASRModelCatalog.model(for: choice) else { throw TranscriptionError.engineUnavailable }
+        guard let root, let descriptor = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex()) else { throw TranscriptionError.engineUnavailable }
         let manifest = try readManifest(root)
         guard manifest.formatVersion == 1, let model = manifest.models.first(where: { $0.id == choice.rawValue }),
               model.license == descriptor.license, !model.files.isEmpty else { throw TranscriptionError.engineUnavailable }
@@ -258,6 +258,9 @@ public struct ASRModelAssets: Sendable {
         // dolphin/whisper 走 `assets.path("tokens")`（仅 qwen3 以空串替代 tokens）
         case .whisper: return ["encoder", "decoder", "tokens", "vad"]
         case .dolphin: return ["model", "tokens", "vad"]
+        case .senseVoice: return ["model", "tokens", "vad"]
+        case .fireRed: return ["model", "tokens", "vad"]
+        case .moonshine: return ["preprocessor", "encoder", "uncachedDecoder", "cachedDecoder", "tokens", "vad"]
         case .auto, .classic, .advanced, .dictation: return []
         }
     }

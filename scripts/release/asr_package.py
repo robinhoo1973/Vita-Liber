@@ -7,20 +7,25 @@ import stat
 import unicodedata
 import zipfile
 
-MODELS = {"qwen3", "zipformer", "dolphin", "whisper"}
+MODELS = {"qwen3", "zipformer", "dolphin", "whisper", "sense-voice", "fire-red", "moonshine"}
 ROLES = {
     "qwen3": {"frontend", "encoder", "decoder", "vocab", "merges", "tokenizerConfig"},
     "zipformer": {"encoder", "decoder", "joiner", "tokens", "bpe"},
     "dolphin": {"model", "tokens"},
     "whisper": {"encoder", "decoder", "tokens"},
+    "sense-voice": {"model", "tokens"},
+    "fire-red": {"model", "tokens"},
+    "moonshine": {"preprocessor", "encoder", "uncachedDecoder", "cachedDecoder", "tokens"},
 }
-# 尺寸档位(FR17.15):每模型家族 1..3 档,上游缺档如实缺省(2026-10-05 委员会)。
-VARIANTS = {"small", "medium", "large"}
-MAX_TIERS_PER_MODEL = 3
-# 目录聚合预算:下载目录所有包 zip 字节合计的上限。ADR-023「2GB 资源预算」口径
-# 仅限随包基线(fetch-asr-models.py 断言),运行时下载目录此前无聚合闸——委员会
-# 2026-10-05 建议 4GiB(多档矩阵 ≈2.6GiB 有余量),值待业主裁定后可在本行收紧。
-ASR_CATALOG_BUDGET_BYTES = 4 * 1024**3
+# 尺寸档位(FR17.15):按上游真实档名(whisper tiny/base/small/medium/turbo 等),
+# 每模型家族 1..5 档,上游缺档如实缺省(2026-10-05 委员会:iOS 适用性评估后扩档)。
+VARIANTS = {"tiny", "base", "small", "medium", "large", "turbo"}
+MAX_TIERS_PER_MODEL = 5
+# 各家族许可:MIT 家族逐名登记,其余默认 Apache-2.0。
+LICENSES = {"whisper": "MIT", "sense-voice": "MIT", "fire-red": "MIT"}
+# 目录聚合预算:下载目录所有包 zip 字节合计的上限。2026-10-05 iOS 适用性评估后
+# 矩阵定为 7 族 13 档 ≈5.2GiB(4GiB 装不下),业主裁决「评估后可纳入」→ 提至 6GiB。
+ASR_CATALOG_BUDGET_BYTES = 6 * 1024**3
 MAX_PACKAGE = 2 * 1024**3 - 1
 MAX_EXPANDED = 4 * 1024**3
 MAX_MANIFEST = 1024**2
@@ -61,6 +66,17 @@ def slug(value):
     return value
 
 
+def _validate_localized(text):
+    # 目录文案(2026-10-05 业主定:模型文字描述由 CI 目录 JSON 提供,App 只渲染)。
+    if not isinstance(text, dict):
+        raise ValueError("Localized text must be an object")
+    for key, value in text.items():
+        if key not in ("zh-Hans", "zh-Hant", "en"):
+            raise ValueError("Unknown locale key: " + str(key))
+        if not isinstance(value, str) or not value or len(value.encode()) > 4096:
+            raise ValueError("Invalid localized text for locale " + key)
+
+
 def safe_path(value):
     if (not isinstance(value, str) or not value or len(value.encode()) > 1024
             or value.startswith("/") or "\\" in value or ":" in value
@@ -77,10 +93,10 @@ def validate_index(index, *, complete=True):
     if index.get("schemaVersion") != 1 or index.get("app") != "vitaliber" or index.get("assetKind") != "asr":
         raise ValueError("Unexpected ASR index scope/version")
     models = index.get("models", [])
-    # 四家族齐备,但每家族可为 1..3 档(variant 区分)——「每 id 一条」硬断言随
+    # 七家族齐备,但每家族可为 1..5 档(variant 区分)——「每 id 一条」硬断言随
     # 多档数据面退役(2026-10-05 委员会:身份键 = (id, version, artifactRevision, variant))。
     if {m["id"] for m in models} != MODELS:
-        raise ValueError("All four adopted ASR model families are required")
+        raise ValueError("All %d adopted ASR model families are required" % len(MODELS))
     for model_id in MODELS:
         tiers = [m for m in models if m["id"] == model_id]
         if not 1 <= len(tiers) <= MAX_TIERS_PER_MODEL:
@@ -89,9 +105,9 @@ def validate_index(index, *, complete=True):
     for model in models:
         variant = model.get("variant")
         if variant not in VARIANTS:
-            raise ValueError("Model variant must be small/medium/large: " + model["id"])
+            raise ValueError("Unknown model variant: " + model["id"] + "/" + str(variant))
         slug(model["version"])
-        if model.get("license") != ("MIT" if model["id"] == "whisper" else "Apache-2.0"):
+        if model.get("license") != LICENSES.get(model["id"], "Apache-2.0"):
             raise ValueError("Unexpected model license")
         identity = (model["id"], model["version"], model.get("artifactRevision"), variant)
         if identity in identities:
@@ -104,6 +120,9 @@ def validate_index(index, *, complete=True):
             if model["url"] in urls:
                 raise ValueError("Duplicate package URL across entries: " + model["url"])
             urls.add(model["url"])
+        for key in ("tierName", "tierHint"):
+            if model.get(key) is not None:
+                _validate_localized(model[key])
         if complete:
             if type(model.get("bytes")) is not int or not 0 < model["bytes"] <= MAX_PACKAGE:
                 raise ValueError("Invalid package byte count")
@@ -111,6 +130,34 @@ def validate_index(index, *, complete=True):
                 raise ValueError("A real package SHA-256 is required")
             if safe_path(model["url"]) != Path(model["url"]).name or not model["url"].endswith(".zip"):
                 raise ValueError("Package URL must be a relative ZIP filename")
+    families = index.get("families")
+    if families is not None:
+        seen_families = set()
+        for family in families:
+            if family.get("id") not in MODELS:
+                raise ValueError("Unknown family id: " + str(family.get("id")))
+            if family["id"] in seen_families:
+                raise ValueError("Duplicate family entry: " + family["id"])
+            seen_families.add(family["id"])
+            for key in ("name", "hint"):
+                if family.get(key) is not None:
+                    _validate_localized(family[key])
+            # 语言/方言覆盖(2026-10-05 目录驱动):App 路由判定唯一数据源——
+            # 语言码 ISO 639 小写形态,方言为 locale 标识。
+            for code in family.get("languages") or []:
+                if not isinstance(code, str) or not re.fullmatch(r"[a-z]{2,3}", code):
+                    raise ValueError("Invalid language code: " + str(code))
+            for locale in family.get("dialects") or []:
+                if not isinstance(locale, str) or not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})+", locale):
+                    raise ValueError("Invalid dialect locale: " + str(locale))
+    if complete:
+        # 发布目录必须携带全部文案与覆盖表(App 渲染的唯一数据源;App 侧容忍缺字段
+        # 仅为旧目录兼容,新发布不得再产出缺字段目录)。
+        if families is None or {f["id"] for f in families} != MODELS:
+            raise ValueError("Published catalog must declare every family (name/hint/languages/dialects)")
+        for model in models:
+            if model.get("tierName") is None or model.get("tierHint") is None:
+                raise ValueError("Published entries require tierName and tierHint: " + model["id"])
     if complete:
         total = sum(m["bytes"] for m in models)
         if total > ASR_CATALOG_BUDGET_BYTES:

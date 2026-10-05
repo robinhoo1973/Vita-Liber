@@ -78,8 +78,12 @@ public struct EngineCapabilityProfile: Sendable, Equatable {
     /// （T2 尽力识别徽标）。I6 审查修复：该派生此前驻留 App 视图
     /// （LanguageSettingsView）——选项生成收敛为 Domain 单出口，
     /// 与 sixLanguages 同源放置，其它消费方（实验室/后续入口）不再重派生。
-    public static func inputLanguageOptions(choice: VoiceEngineChoice) -> [(locale: String, nativeName: String, tier: Tier)] {
-        let models = choice == .auto ? ASRModelCatalog.models : ASRModelCatalog.models.filter { $0.choice == choice }
+    /// 2026-10-05 目录驱动：语言覆盖取自路由目录（`ASRModelCatalog.descriptors(from:)`），
+    /// 零硬编码模型语种表。
+    public static func inputLanguageOptions(choice: VoiceEngineChoice,
+                                            index: ASRModelReleaseIndex?) -> [(locale: String, nativeName: String, tier: Tier)] {
+        let descriptors = ASRModelCatalog.descriptors(from: index)
+        let models = choice == .auto ? descriptors : descriptors.filter { $0.choice == choice }
         let extras = Set(models.flatMap(\.languageCodes)).subtracting(["zh", "en"])
         return sixLanguages + extras.sorted().map { code in
             (code, Locale(identifier: code).localizedString(forLanguageCode: code) ?? code, .bestEffort)

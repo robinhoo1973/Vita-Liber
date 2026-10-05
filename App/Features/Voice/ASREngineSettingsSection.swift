@@ -66,7 +66,7 @@ struct ASREngineSettingsSection: View {
             case .delete:
                 return L10n.asrModelDeleteMessage
             case .switchTier(_, let chosen):
-                let tier = L10n.asrModelVariantName(chosen.variant ?? "")
+                let tier = chosen.tierName?.resolved() ?? L10n.asrModelVariantName(chosen.variant ?? "")
                 let size = L10n.asrModelBytes(chosen.bytes ?? 0)
                 return L10n.asrModelSwitchConfirmMessage(tier, size, tier)
             }
@@ -105,8 +105,17 @@ struct ASREngineSettingsSection: View {
         /// 且带 variant 键；单档/历史条目为空（UI 保持旧形态）。在重算预算内
         /// 一并算出——渲染路径不得再取锁。
         var variants: [ASRModelRelease] = []
+        /// 许可文案（2026-10-05 目录驱动：取自目录条目，App 不再内置模型数据表）。
+        var license: String?
     }
     @State private var availability: [String: ChoiceAvailability] = [:]
+    /// 目录家族清单（2026-10-05 业主定：下载列表由签名索引**自动生成**，App 不写死
+    /// 家族清单——`VoiceEngineChoice` 引擎支持集合只是渲染上限，行集/行序随目录）。
+    @State private var catalogFamilies: [VoiceEngineChoice] = []
+    /// 目录文案（家族名/简介，2026-10-05 业主定：模型文字描述由 CI 生成的目录 JSON
+    /// 提供；旧目录缺字段时回落到内置 L10n 兜底）。
+    @State private var familyNames: [String: String] = [:]
+    @State private var familyHints: [String: String] = [:]
     /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
     @State private var derivationEpoch = 0
     /// 尺寸选择记忆（choice → variant 键；默认取清单首个=最小档）
@@ -134,7 +143,8 @@ struct ASREngineSettingsSection: View {
     private func rebuildAvailability() async {
         let pageIndex = index
         let version = appVersion
-        let computed = await Task.detached(priority: .userInitiated) { () -> [String: ChoiceAvailability] in
+        let preferred = Locale.preferredLanguages
+        let computed = await Task.detached(priority: .userInitiated) { () -> ([String: ChoiceAvailability], [VoiceEngineChoice], [String: String], [String: String]) in
             let availableIndex = pageIndex
                 ?? ModelCatalogTrustStore.shared.currentIndex
                 ?? ModelCatalogTrustStore.shared.baselineIndex
@@ -149,10 +159,10 @@ struct ASREngineSettingsSection: View {
                         ASRModelDownloadService.updateAvailable(for: choice, index: $0, appVersion: version)
                     } : nil,
                     availability: TranscriptionEngineBuilder.availability(of: choice),
-                    // 资产字节数只对随包档位展示（`ASRModelCatalog.model(for:)` 同款条件）
-                    bytes: ASRModelCatalog.model(for: choice) == nil
-                        ? nil
-                        : ASRModelAssets.resolve(for: choice).byteCount(choice),
+                    // 资产字节数只对随包档位展示（`isBundledModel` 同款条件）
+                    bytes: choice.isBundledModel
+                        ? ASRModelAssets.resolve(for: choice).byteCount(choice)
+                        : nil,
                     installedVariant: choice.isBundledModel ? ASRModelDownloadService.installedVariant(for: choice) : nil,
                     // 变体清单（尺寸选择数据源）：同 id 已发布、带 variant、本版本兼容
                     variants: availableIndex.map { idx in
@@ -162,11 +172,34 @@ struct ASREngineSettingsSection: View {
                             // 与大小序相反——此前清单首位是大档（默认选中大档、低 RAM
                             // 设备被推荐大档）。统一按 Domain variantWeight 大小升序。
                             .sorted { ASRModelRelease.variantWeight($0.variant) < ASRModelRelease.variantWeight($1.variant) }
-                    } ?? [])
+                    } ?? [],
+                    // 许可文案取自目录条目（2026-10-05 目录驱动：App 零模型数据硬编码）
+                    license: availableIndex?.models.first {
+                        $0.id == choice.rawValue && $0.isPublished && $0.isCompatible(appVersion: version)
+                    }?.license)
             }
-            return next
+            // 目录家族清单：按索引发布序去重，只保留本 App 引擎可运行的家族
+            // （rawValue 可解析且属于随包模型档）；未知 id = 新目录对旧 App，跳过。
+            var seen = Set<String>()
+            var families: [VoiceEngineChoice] = []
+            for release in availableIndex?.models ?? [] where !seen.contains(release.id) {
+                seen.insert(release.id)
+                if let choice = VoiceEngineChoice(rawValue: release.id), choice.isBundledModel {
+                    families.append(choice)
+                }
+            }
+            var names: [String: String] = [:]
+            var hints: [String: String] = [:]
+            for family in availableIndex?.families ?? [] {
+                if let value = family.name?.resolved(preferredLanguages: preferred) { names[family.id] = value }
+                if let value = family.hint?.resolved(preferredLanguages: preferred) { hints[family.id] = value }
+            }
+            return (next, families, names, hints)
         }.value
-        availability = computed
+        availability = computed.0
+        catalogFamilies = computed.1
+        familyNames = computed.2
+        familyHints = computed.3
     }
 
     var body: some View {
@@ -213,49 +246,11 @@ struct ASREngineSettingsSection: View {
                     EmptyView()
                 }
 
-                ForEach(VoiceEngineChoice.allCases, id: \.self) { choice in
-                    // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
-                    WithPerceptionTracking {
-                        // 可用性与字节数只读 `.task` 预算好的结果——它们是本页最重的
-                        // 两次取锁/读盘（`TranscriptionEngineBuilder.availability` 读信任库、
-                        // `ASRModelAssets.byteCount` 读 manifest + 逐文件 stat），
-                        // 此前每帧、每档位各来一次（见 `availability` 的说明）
-                        let row = availability[choice.rawValue] ?? ChoiceAvailability()
-                        Button {
-                            Task { await settings.set(choice.rawValue, for: .voiceEngine) }
-                        } label: {
-                            HStack(alignment: .top) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(L10n.voiceEngineName(choice))
-                                    Text(L10n.voiceEngineHint(choice)).font(.caption).foregroundStyle(.secondary)
-                                    if let model = ASRModelCatalog.model(for: choice) {
-                                        Text(model.license + " · " + L10n.asrBundledOffline)
-                                            .font(.caption2).foregroundStyle(.secondary)
-                                        if let bytes = row.bytes {
-                                            Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
-                                                .font(.caption2).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    if let note = L10n.asrAvailability(row.availability) {
-                                        Text(note).font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
-                                    }
-                                }
-                                Spacer()
-                                if VoiceEngineChoice.resolve(settings.values[.voiceEngine]) == choice {
-                                    // T3 呈现评审：选中标记收敛为纯 checkmark（与此前语言页/
-                                    // 实验室三处同形态；checkmark.circle.fill 为唯一异形）
-                                    Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
-                                }
-                            }.frame(minHeight: metrics.touchTarget)
-                        }
-                        .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-                        .accessibilityIdentifier("\(accessibilityPrefix).engine.\(choice.rawValue)")
-
-                        if choice.isBundledModel {
-                            downloadControls(choice)
-                        }
-                    }
-                }
+                // 平台档（本地引擎轨，非目录内容）固定呈现；模型家族行由签名索引
+                // 自动生成（2026-10-05 业主定：下载列表不写死，目录有哪家就列哪家）。
+                ForEach([VoiceEngineChoice.auto], id: \.self) { engineRow($0) }
+                ForEach(catalogFamilies, id: \.self) { engineRow($0) }
+                ForEach([VoiceEngineChoice.advanced, .dictation, .classic], id: \.self) { engineRow($0) }
             } header: { Text(L10n.voiceLabEngineSection) }
               footer: { Text(L10n.asrSelectionHint) }
               // 2026-10-05 删除确认（第 6 项）：删除释放空间，语音识别回落到随包模型
@@ -285,6 +280,56 @@ struct ASREngineSettingsSection: View {
         }
     }
 
+    /// 引擎行（平台档与目录家族共用同一形态）。家族名/简介优先取目录 JSON 文案
+    /// （2026-10-05 业主定：文字描述由 CI 目录提供），旧目录缺字段回落到内置 L10n。
+    @ViewBuilder
+    private func engineRow(_ choice: VoiceEngineChoice) -> some View {
+        // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
+        WithPerceptionTracking {
+            // 可用性与字节数只读 `.task` 预算好的结果——它们是本页最重的
+            // 两次取锁/读盘（`TranscriptionEngineBuilder.availability` 读信任库、
+            // `ASRModelAssets.byteCount` 读 manifest + 逐文件 stat），
+            // 此前每帧、每档位各来一次（见 `availability` 的说明）
+            let row = availability[choice.rawValue] ?? ChoiceAvailability()
+            Button {
+                Task { await settings.set(choice.rawValue, for: .voiceEngine) }
+            } label: {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(familyNames[choice.rawValue] ?? L10n.voiceEngineName(choice))
+                        Text(familyHints[choice.rawValue] ?? L10n.voiceEngineHint(choice))
+                            .font(.caption).foregroundStyle(.secondary)
+                        if choice.isBundledModel {
+                            if let license = row.license {
+                                Text(license + " · " + L10n.asrBundledOffline)
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if let bytes = row.bytes {
+                                Text(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let note = L10n.asrAvailability(row.availability) {
+                            Text(note).font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
+                        }
+                    }
+                    Spacer()
+                    if VoiceEngineChoice.resolve(settings.values[.voiceEngine]) == choice {
+                        // T3 呈现评审：选中标记收敛为纯 checkmark（与此前语言页/
+                        // 实验室三处同形态；checkmark.circle.fill 为唯一异形）
+                        Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
+                    }
+                }.frame(minHeight: metrics.touchTarget)
+            }
+            .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
+            .accessibilityIdentifier("\(accessibilityPrefix).engine.\(choice.rawValue)")
+
+            if choice.isBundledModel {
+                downloadControls(choice)
+            }
+        }
+    }
+
     // MARK: - 运行时下载（FR17.15 业主 2026-09-12 决定）
 
     @ViewBuilder
@@ -304,11 +349,12 @@ struct ASREngineSettingsSection: View {
         VStack(alignment: .leading, spacing: 4) {
             if let installed {
                 // 已装行如实显示生效档位(2026-10-05 委员会):多档共存时「已安装 vX」
-                // 不足以让用户知道 active 是哪一档——复用既有 L10n 键,零新增文案面。
+                // 不足以让用户知道 active 是哪一档——档位名优先取目录 JSON 文案,
+                // 旧目录回落到既有 L10n 键(零新增文案面)。
                 HStack(spacing: 4) {
                     Text(L10n.asrModelInstalled(installed))
                     if let installedVariant = row.installedVariant {
-                        Text(L10n.asrModelVariantName(installedVariant))
+                        Text(tierDisplayName(installedVariant, variants: variants))
                     }
                 }
                 .font(.caption2).foregroundStyle(.secondary)
@@ -319,7 +365,7 @@ struct ASREngineSettingsSection: View {
                 if variants.count > 1 {
                     Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants, installedVariant: row.installedVariant)) {
                         ForEach(variants) { v in
-                            Text(L10n.asrModelVariantName(v.variant ?? "")).tag(v.variant ?? "")
+                            Text(tierDisplayName(v.variant, variants: variants)).tag(v.variant ?? "")
                         }
                     }
                     .pickerStyle(.segmented)
@@ -342,10 +388,15 @@ struct ASREngineSettingsSection: View {
                         .font(.caption2).foregroundStyle(.secondary)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.singleTier.\(choice.rawValue)")
                 }
-                // 每档参数说明(业主 2026-10-05):列出所选档的下载/解压体积与内存
-                // 需求(Domain 峰值口径)——只给可核实参数,不定义大/中/小。
-                // 每模型性能/专长 = 引擎行 voiceEngineHint(既有)。
+                // 每档参数说明(业主 2026-10-05):档位性能/专长文案由目录 JSON 提供
+                // (CI 生成,App 只渲染);参数行列出所选档的下载/解压体积与内存需求
+                // (Domain 峰值口径)——只给可核实参数,不定义大/中/小。
                 if let detailVariant = variants.count > 1 ? chosenVariant : variants.first {
+                    if let hint = detailVariant.tierHint?.resolved() {
+                        Text(hint)
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .accessibilityIdentifier("\(accessibilityPrefix).model.tierHint.\(choice.rawValue)")
+                    }
                     Text(L10n.asrModelVariantDetail(
                         L10n.asrModelBytes(detailVariant.bytes ?? 0),
                         L10n.asrModelBytes(detailVariant.expandedBytes ?? 0),
@@ -386,7 +437,8 @@ struct ASREngineSettingsSection: View {
                         // 同档新版本=「更新到 vX」/ 换档=「切换到 X 档(体积)」+ 条件确认
                         // (仅替换已装档时弹;纯新装/同档更新不弹——HIG 破坏性确认,
                         // 单保留裁定封死了 undo,确认是缺失 undo 的补偿控制)。
-                        let tierName = L10n.asrModelVariantName(chosenVariant.variant ?? "")
+                        // 档位名优先目录 JSON 文案,旧目录回落 L10n 映射。
+                        let tierName = tierDisplayName(chosenVariant.variant, variants: variants)
                         let tierSize = L10n.asrModelBytes(chosenVariant.bytes ?? 0)
                         if installed == nil {
                             Button(L10n.asrModelDownloadTier(tierName, tierSize)) { startInstall(chosenVariant) }
@@ -444,6 +496,13 @@ struct ASREngineSettingsSection: View {
                 }
             }
         }
+    }
+
+    /// 档位显示名：目录 JSON 的 `tierName` 优先（2026-10-05 业主定：文字描述由 CI
+    /// 目录提供），旧目录/缺字段回落 L10n small/medium/large 映射；两者皆无回显原始档名。
+    private func tierDisplayName(_ variant: String?, variants: [ASRModelRelease]) -> String {
+        variants.first { $0.variant == variant }?.tierName?.resolved()
+            ?? L10n.asrModelVariantName(variant ?? "")
     }
 
     /// 删除执行（经安装中心：服务删除 → 引擎逐出 → deferred 补删 → 资产广播）。

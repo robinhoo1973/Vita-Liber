@@ -14,6 +14,9 @@ public enum VoiceEngineChoice: String, Sendable, CaseIterable, Codable {
     case dolphin
     case zipformer
     case whisper
+    case senseVoice = "sense-voice"
+    case fireRed = "fire-red"
+    case moonshine
     case advanced
     case dictation
     case classic
@@ -28,14 +31,20 @@ public enum VoiceEngineChoice: String, Sendable, CaseIterable, Codable {
     public var usesPlatformAnalyzer: Bool {
         switch self {
         case .advanced, .dictation: return true
-        case .auto, .classic, .qwen3, .zipformer, .dolphin, .whisper: return false
+        case .auto, .classic, .qwen3, .zipformer, .dolphin, .whisper,
+             .senseVoice, .fireRed, .moonshine: return false
         }
     }
 
     /// 需要下载语言资源包的档位（平台分析器家族按 locale 安装；基线轨零资产）。
     public var requiresLocaleAssets: Bool { self == .advanced || self == .dictation }
 
-    public var isBundledModel: Bool { self == .qwen3 || self == .zipformer || self == .dolphin || self == .whisper }
+    public var isBundledModel: Bool {
+        switch self {
+        case .qwen3, .zipformer, .dolphin, .whisper, .senseVoice, .fireRed, .moonshine: return true
+        case .auto, .advanced, .dictation, .classic: return false
+        }
+    }
 }
 
 /// FR17.15 V3.66：识别引擎档位在当前设备/系统上的可用性（Infrastructure 层运行时探测，App 只呈现）。

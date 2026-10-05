@@ -85,6 +85,20 @@ final class SherpaASRRuntime {
                 // 热词改 per-stream SetOption("hotwords")（decode 内）：config 级热词会把运行时
                 // 绑死在一份词表上，且占用 max_total_len 提示预算（round2 A-N4/A-N7）。
                 config.model_config.qwen3_asr.hotwords = strings.add("")
+            } else if choice == .senseVoice {
+                // language 固定 "auto"：模型自带语种识别（zh/en/ja/ko/yue），不走构造期语言注入。
+                // use_itn：逆文本归一化（口语数字→书写数字），医疗读数受益；不启用热词（无此协议）。
+                config.model_config.sense_voice.model = try strings.add(assets.path("model"))
+                config.model_config.sense_voice.language = strings.add("auto")
+                config.model_config.sense_voice.use_itn = 1
+            } else if choice == .fireRed {
+                // FireRedASR2-CTC 单模型文件，无语言/热词注入字段（中英双语固定分布）。
+                config.model_config.fire_red_asr_ctc.model = try strings.add(assets.path("model"))
+            } else if choice == .moonshine {
+                config.model_config.moonshine.preprocessor = try strings.add(assets.path("preprocessor"))
+                config.model_config.moonshine.encoder = try strings.add(assets.path("encoder"))
+                config.model_config.moonshine.uncached_decoder = try strings.add(assets.path("uncachedDecoder"))
+                config.model_config.moonshine.cached_decoder = try strings.add(assets.path("cachedDecoder"))
             } else { throw TranscriptionError.engineUnavailable }
             offline = SherpaOnnxCreateOfflineRecognizer(&config)
             guard offline != nil else { throw TranscriptionError.engineUnavailable }

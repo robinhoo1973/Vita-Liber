@@ -170,11 +170,16 @@ def verify_catalog(root_envelope, catalog_envelope, *, previous=None, now=None, 
 
 def build_baseline(root_envelope, catalog_envelope):
     catalog = verify_catalog(root_envelope, catalog_envelope)
-    return {"schemaVersion": 1, "generatedAt": datetime.now(timezone.utc).date().isoformat(),
-            "rootVersion": catalog["rootVersion"], "catalogVersion": catalog["catalogVersion"],
-            "catalogSHA256": hashlib.sha256(payload_bytes(catalog_envelope)).hexdigest(),
-            "sourceIndexSha256": hashlib.sha256(json_bytes(catalog["index"])).hexdigest(),
-            # S-M2：基线随 App 签名嵌入，须携带签名目录已知的撤销摘要，
-            # 使擦除本机信任状态后已安装的被撤销包仍被拒绝。
-            "revokedHashes": sorted(catalog.get("revokedHashes", [])),
-            "entries": catalog["index"]["models"]}
+    baseline = {"schemaVersion": 1, "generatedAt": datetime.now(timezone.utc).date().isoformat(),
+                "rootVersion": catalog["rootVersion"], "catalogVersion": catalog["catalogVersion"],
+                "catalogSHA256": hashlib.sha256(payload_bytes(catalog_envelope)).hexdigest(),
+                "sourceIndexSha256": hashlib.sha256(json_bytes(catalog["index"])).hexdigest(),
+                # S-M2：基线随 App 签名嵌入，须携带签名目录已知的撤销摘要，
+                # 使擦除本机信任状态后已安装的被撤销包仍被拒绝。
+                "revokedHashes": sorted(catalog.get("revokedHashes", [])),
+                "entries": catalog["index"]["models"]}
+    # 2026-10-05 目录驱动：基线必须携带 families（家族文案+语言/方言覆盖）——
+    # 离线/未拉取签名目录时 App 路由判定全部落在基线，缺 families 则离线路由退化。
+    if catalog["index"].get("families") is not None:
+        baseline["families"] = catalog["index"]["families"]
+    return baseline

@@ -65,6 +65,14 @@ public enum SpeechSynthesisFactory: EngineFactory {
 /// Linux 侧整枚举不可编译（成员引用 ASRModelAssets/SpeechAnalyzerSupport/
 /// SFSpeechTranscriber/SherpaOnnxTranscriber 等 Apple 专用类型）——包测试
 /// 经 SwitchableTranscriptionEngine 的桩 builder 兜底。
+/// 路由目录快照（2026-10-05 业主裁定：模型信息全由 CI 生成的签名目录 JSON 提供）——
+/// 已验签 currentIndex 优先、回落随包基线（离线优先：无网络/未检查更新时全部路由判定仍可用）。
+public enum ASRFamilyIndexStore {
+    public static func routingIndex() -> ASRModelReleaseIndex? {
+        ModelCatalogTrustStore.shared.currentIndex ?? ModelCatalogTrustStore.shared.baselineIndex
+    }
+}
+
 public enum TranscriptionEngineBuilder {
     /// FR17.15/FR17.17 审计修正（2026-09-11 round3）：**auto 解析必须过资产闸门**。
     /// 目录的 `automaticChoice` 只做语言匹配（Domain 零框架，不能读 Bundle），会把中文
@@ -74,11 +82,12 @@ public enum TranscriptionEngineBuilder {
     /// ① 随包模型文件齐备才选用；② 缺件时回落平台升级轨（iOS 26 且标准轨可用）——
     /// 平台轨自身在语言资产未装时按会话回落基线轨；③ 均不可用则经典基线轨（零资产恒可用）。
     public static func automaticChoice(locale: String) -> VoiceEngineChoice {
-        let preferred = ASRModelCatalog.automaticChoice(locale: locale)
+        let index = ASRFamilyIndexStore.routingIndex()
+        let preferred = ASRModelCatalog.automaticChoice(locale: locale, in: index)
         guard preferred.isBundledModel else { return preferred }
         guard !ASRModelAssets.resolve(for: preferred).isPresent(preferred) else { return preferred }
         // 能力表与候选选择同源：已有离线基线不能被缺件 Qwen 遮蔽。
-        for model in ASRModelCatalog.models where model.languageCode(for: locale) != nil {
+        for model in ASRModelCatalog.descriptors(from: index) where model.languageCode(for: locale) != nil {
             if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
         }
         return fallbackForMissingBundledModel()
@@ -90,7 +99,8 @@ public enum TranscriptionEngineBuilder {
     public static func automaticChoice(locales: [String], mixed: Bool) -> VoiceEngineChoice {
         let primary = locales.first ?? TranscriptionSegmentation.fallbackLocale
         guard mixed else { return automaticChoice(locale: primary) }
-        for model in ASRModelCatalog.models where locales.allSatisfy({ model.languageCode(for: $0) != nil }) {
+        let index = ASRFamilyIndexStore.routingIndex()
+        for model in ASRModelCatalog.descriptors(from: index) where locales.allSatisfy({ model.languageCode(for: $0) != nil }) {
             if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
         }
         return automaticChoice(locale: primary)
@@ -103,7 +113,8 @@ public enum TranscriptionEngineBuilder {
     /// （零资产基线轨恒可用）。显式选定档同样适用（业主指令构成合同更新：
     /// 「不得换引擎冒充」只约束缺件/校验失败；OOM 回落必须明示实际引擎）。
     public static func loadFallback(after failed: VoiceEngineChoice, locale: String) -> VoiceEngineChoice? {
-        for model in ASRModelCatalog.models where model.choice != failed && model.languageCode(for: locale) != nil {
+        for model in ASRModelCatalog.descriptors(from: ASRFamilyIndexStore.routingIndex())
+        where model.choice != failed && model.languageCode(for: locale) != nil {
             let assets = ASRModelAssets.resolve(for: model.choice)
             guard assets.isPresent(model.choice), let bytes = assets.byteCount(model.choice) else { continue }
             guard ModelMemoryBudget.firstLoadableIndex(modelBytes: [bytes],
@@ -166,7 +177,8 @@ public enum TranscriptionEngineBuilder {
 
     public static func automaticCapability() async -> TranscriptionCapability {
         var locales = Set<String>()
-        for model in ASRModelCatalog.models where ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) {
+        for model in ASRModelCatalog.descriptors(from: ASRFamilyIndexStore.routingIndex())
+        where ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) {
             locales.formUnion(model.availableLocales)
         }
         // 回落目标的能力必须并在表内（缺资产时 auto 由平台轨/基线轨服务）：否则
@@ -178,7 +190,8 @@ public enum TranscriptionEngineBuilder {
         }
         #endif
         return .init(supportsLongForm: true, maxSegmentSeconds: 30, availableLocales: locales,
-                     allowsDialectFallback: false, matchesLanguageCode: true)
+                     allowsDialectFallback: false, matchesLanguageCode: true,
+                     dialectLocales: ASRModelCatalog.dialectLocales(in: ASRFamilyIndexStore.routingIndex()))
     }
 
     /// 冻结键读取版本（组装根与其它调用方共用；非法值回落 auto）。
@@ -192,7 +205,7 @@ public enum TranscriptionEngineBuilder {
         case .classic, .auto: return .available
         case .advanced: return SpeechAnalyzerSupport.availability(of: .standard)
         case .dictation: return SpeechAnalyzerSupport.availability(of: .dictation)
-        case .qwen3, .zipformer, .dolphin, .whisper:
+        case .qwen3, .zipformer, .dolphin, .whisper, .senseVoice, .fireRed, .moonshine:
             // round2 A-N6：旧实现仅 `isPresent` 布尔——随包只含 zipformer，Qwen3/Dolphin
             // 未下载即显示「缺失或不完整」（一态两义）。此处拆为三态：
             // ① 资产齐备 → 可用；② 未装但信任目录（已持久化的未过期签名目录，缺则回退

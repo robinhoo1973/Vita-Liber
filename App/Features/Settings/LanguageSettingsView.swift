@@ -105,8 +105,10 @@ struct VoiceLanguageSettingsView: View {
     private var inputLanguageOptions: [(locale: String, nativeName: String, tier: EngineCapabilityProfile.Tier)] {
         // I6 审查修复：选项派生收敛 Domain 单出口（EngineCapabilityProfile
         // .inputLanguageOptions，sixLanguages 亦随之下沉）——视图不再内联
-        // 模型目录→语种表派生。
-        EngineCapabilityProfile.inputLanguageOptions(choice: VoiceEngineChoice.resolve(settings.values[.voiceEngine]))
+        // 模型目录→语种表派生。2026-10-05 目录驱动：语种覆盖取自路由目录。
+        EngineCapabilityProfile.inputLanguageOptions(
+            choice: VoiceEngineChoice.resolve(settings.values[.voiceEngine]),
+            index: ASRFamilyIndexStore.routingIndex())
     }
 
     var body: some View {

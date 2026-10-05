@@ -23,7 +23,7 @@ on:
         description: App 离线基线模型资源
         value: ${{ jobs.models.outputs.bundle_artifact }}
       packages_artifact:
-        description: 四个完整模型 ZIP、索引和校验回执
+        description: 全部模型家族 ZIP、索引和校验回执
         value: ${{ jobs.models.outputs.packages_artifact }}
       metadata_artifact:
         description: 供本地离线签名的轻量索引与校验回执
@@ -77,7 +77,7 @@ jobs:
             --cache "$RUNNER_TEMP/asr-cache" \
             --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}"
 
-      - name: 构建四个完整 ZIP 与离线基线 bundle
+      - name: 构建全部模型 ZIP 与离线基线 bundle
         run: |
           python3 scripts/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \

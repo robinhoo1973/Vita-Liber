@@ -976,8 +976,8 @@ extension L10n {
         "voiceLab.fallback.asset", "voiceLab.fallback.unavailable", "voiceLab.fallback.missing",
         "voiceLab.result.section", "voiceLab.result.empty", "voiceLab.result.meta",
         "voiceLab.result.footer", "voiceLab.entry.hint",
-        "asr.zipformer", "asr.zipformer.hint", "asr.dolphin", "asr.dolphin.hint",
-        "asr.whisper", "asr.whisper.hint", "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
+        "asr.familyHintFallback",
+        "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
         "asr.downloadable",
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.variantTitle", "asr.model.variantSmall", "asr.model.variantMedium", "asr.model.variantLarge",
@@ -997,7 +997,6 @@ extension L10n {
         "asr.model.deleteConfirm", "asr.model.deleteFailed",
         // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
         "asr.model.modeSegmentedFmt", "asr.model.modeSingle", "asr.model.introSizeFmt",
-        "asr.qwen3", "asr.qwen3.hint",
         "asr.preparing",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
         "ocr.cards.previous", "ocr.cards.next", "ocr.cards.remaining", "ocr.cards.fieldCount",

@@ -21,13 +21,18 @@ public struct TranscriptionCapability: Sendable, Equatable {
     public var availableLocales: Set<String>
     public var allowsDialectFallback: Bool
     public var matchesLanguageCode: Bool
+    /// 方言 locale 集合（2026-10-05 目录驱动：方言 locale 不得按语言码前缀回落，
+    /// 由调用方从路由目录注入 `ASRModelCatalog.dialectLocales(in:)`）。
+    public var dialectLocales: Set<String>
     public init(supportsLongForm: Bool, maxSegmentSeconds: Int, availableLocales: Set<String>,
-                allowsDialectFallback: Bool = true, matchesLanguageCode: Bool = false) {
+                allowsDialectFallback: Bool = true, matchesLanguageCode: Bool = false,
+                dialectLocales: Set<String> = []) {
         self.supportsLongForm = supportsLongForm
         self.maxSegmentSeconds = maxSegmentSeconds
         self.availableLocales = availableLocales
         self.allowsDialectFallback = allowsDialectFallback
         self.matchesLanguageCode = matchesLanguageCode
+        self.dialectLocales = dialectLocales
     }
 
     /// 基线轨（SFSpeechRecognizer）默认能力
@@ -46,7 +51,7 @@ public struct TranscriptionCapability: Sendable, Equatable {
         if let matched = availableLocales.sorted().first(where: {
             TranscriptionLocale.normalizedIdentifier($0) == normalized
         }) { return matched }
-        if matchesLanguageCode, !ASRModelCatalog.dialectLocales.contains(normalized),
+        if matchesLanguageCode, !dialectLocales.contains(normalized),
            let code = normalized.split(separator: "-").first.map(String.init), availableLocales.contains(code) { return identifier }
         return nil
     }

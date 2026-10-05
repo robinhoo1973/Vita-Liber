@@ -19,10 +19,18 @@ ROLES = {
     "zipformer": ["encoder", "decoder", "joiner", "tokens", "bpe", "notice"],
     "dolphin": ["model", "tokens", "notice"],
     "whisper": ["encoder", "decoder", "tokens", "notice"],
+    "sense-voice": ["model", "tokens", "notice"],
+    "fire-red": ["model", "tokens", "notice"],
+    "moonshine": ["preprocessor", "encoder", "uncachedDecoder", "cachedDecoder", "tokens", "notice"],
 }
-# 与真实目录 index.json 的档位标注一致(2026-10-05 多档数据面)。
-VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small"}
+# 与真实目录 index.json 的档位标注一致(2026-10-05 多档数据面;iOS 适用性评估后 7 家族)。
+VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small",
+            "sense-voice": "small", "fire-red": "large", "moonshine": "base"}
 
+
+def fixture_families():
+    return [{"id": model_id, "name": {"zh-Hans": model_id}, "hint": {"zh-Hans": "fixture hint"},
+             "languages": ["zh"], "dialects": []} for model_id in VARIANTS]
 
 class PackageTests(unittest.TestCase):
     def setUp(self):
@@ -33,7 +41,9 @@ class PackageTests(unittest.TestCase):
         self.source.mkdir()
         self.output = self.root / "output"
         self.index = self.root / "index.json"
-        manifest = {"formatVersion": 1, "models": [], "shared": []}
+        manifest = {"formatVersion": 1,
+                     "bundledModels": [{"id": "zipformer", "variant": VARIANTS["zipformer"]}],
+                     "models": [], "shared": []}
         releases = []
         for model_id, roles in ROLES.items():
             files = []
@@ -41,13 +51,14 @@ class PackageTests(unittest.TestCase):
                 extension = {"notice": ".md", "vocab": ".json", "tokenizerConfig": ".json",
                              "tokens": ".txt", "merges": ".txt", "bpe": ".vocab"}.get(role, ".onnx")
                 files.append(self.file_entry(f"{model_id}/{role}{extension}", role, f"fixture:{model_id}:{role}".encode()))
-            license_name = "MIT" if model_id == "whisper" else "Apache-2.0"
+            license_name = "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0"
             manifest["models"].append({"id": model_id, "variant": VARIANTS[model_id],
                                        "revision": f"pinned-{model_id}",
                                        "license": license_name, "files": files})
             releases.append({"id": model_id, "variant": VARIANTS[model_id], "version": "1.0.0",
                              "builtAt": "20260912", "artifactRevision": 1,
-                             "license": license_name, "minAppVersion": "0.0.1"})
+                             "license": license_name, "minAppVersion": "0.0.1",
+                             "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
         manifest["shared"] = [self.file_entry("silero/vad.onnx", "vad", b"vad"),
                               self.file_entry("silero/LICENSE", "notice", b"vad license")]
         (self.source / "LICENSE-APACHE-2.0.txt").write_text("fixture Apache license")
@@ -56,6 +67,7 @@ class PackageTests(unittest.TestCase):
         self.manifest = manifest
         self.index.write_text(json.dumps({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
                                          "baseUrl": "https://github.com/fixture/app/releases/download/asr-models",
+                                         "families": fixture_families(),
                                          "models": releases}))
 
     def file_entry(self, name, role, data):
@@ -245,7 +257,7 @@ class PackageTests(unittest.TestCase):
 
 
 class MultiVariantPackageTests(PackageTests):
-    """同家族多档管线回归:每家族两档(8 包),整套单档用例在 (id, variant) 形态下复跑。"""
+    """同家族多档管线回归:每家族两档(14 包),整套单档用例在 (id, variant) 形态下复跑。"""
 
     def setUp(self):
         super().setUp()
@@ -257,7 +269,7 @@ class MultiVariantPackageTests(PackageTests):
                              "tokens": ".txt", "merges": ".txt", "bpe": ".vocab"}.get(role, ".onnx")
                 files.append(self.file_entry(f"{model_id}-{second}/{role}{extension}", role,
                                              f"fixture:{model_id}:{second}:{role}".encode()))
-            license_name = "MIT" if model_id == "whisper" else "Apache-2.0"
+            license_name = "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0"
             self.manifest["models"].append({"id": model_id, "variant": second,
                                             "revision": f"pinned-{model_id}-{second}",
                                             "license": license_name, "files": files})
@@ -265,9 +277,11 @@ class MultiVariantPackageTests(PackageTests):
         for model in self.manifest["models"]:
             releases.append({"id": model["id"], "variant": model["variant"], "version": "1.0.0",
                              "builtAt": "20260912", "artifactRevision": 1,
-                             "license": model["license"], "minAppVersion": "0.0.1"})
+                             "license": model["license"], "minAppVersion": "0.0.1",
+                             "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
         self.index.write_text(json.dumps({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
                                           "baseUrl": "https://github.com/fixture/app/releases/download/asr-models",
+                                          "families": fixture_families(),
                                           "models": releases}))
         (self.source / "manifest.json").write_text(json.dumps(self.manifest))
 
@@ -290,14 +304,14 @@ class MultiVariantPackageTests(PackageTests):
 
     def test_multi_variant_packages_get_distinct_names_and_receipts(self):
         index = self.built_index()
-        self.assertEqual(len(index["models"]), 8)
+        self.assertEqual(len(index["models"]), 14)
         urls = [m["url"] for m in index["models"]]
         self.assertEqual(len(set(urls)), len(urls))
         for model in index["models"]:
             self.assertIn("-" + model["variant"] + "-", model["url"])
         self.assertEqual(self.verify().returncode, 0)
         receipt = json.loads((self.root / "receipt.json").read_text())
-        self.assertEqual(len(receipt["models"]), 8)
+        self.assertEqual(len(receipt["models"]), 14)
         self.assertEqual({(m["id"], m["variant"]) for m in receipt["models"]},
                          {(m["id"], m["variant"]) for m in index["models"]})
 
@@ -307,19 +321,23 @@ class MultiVariantValidationTests(unittest.TestCase):
 
     def base_index(self):
         models = []
-        for model_id in ("qwen3", "zipformer", "dolphin", "whisper"):
+        for model_id in VARIANTS:
             models.append({"id": model_id, "variant": VARIANTS[model_id], "version": "1.0.0",
-                           "url": f"{model_id}-{VARIANTS[model_id]}.zip", "bytes": 123, "sha256": "a" * 64})
-        return {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "models": models}
+                           "url": f"{model_id}-{VARIANTS[model_id]}.zip", "bytes": 123, "sha256": "a" * 64,
+                           "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
+        return {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
+                "families": fixture_families(), "models": models}
 
-    def test_twelve_entry_catalog_is_accepted(self):
+    def test_twenty_one_entry_catalog_is_accepted(self):
         models = []
-        for model_id in ("qwen3", "zipformer", "dolphin", "whisper"):
+        for model_id in VARIANTS:
             for variant in ("small", "medium", "large"):
                 models.append({"id": model_id, "variant": variant, "version": "1.0.0",
                                "url": f"{model_id}-{variant}.zip", "bytes": 123, "sha256": "a" * 64,
-                               "license": "MIT" if model_id == "whisper" else "Apache-2.0"})
-        validate_index({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "models": models})
+                               "license": "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                               "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
+        validate_index({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
+                        "families": fixture_families(), "models": models})
 
     def test_same_identity_across_variants_is_rejected(self):
         index = self.base_index()
@@ -337,13 +355,15 @@ class MultiVariantValidationTests(unittest.TestCase):
 
     def test_unknown_variant_is_rejected(self):
         index = self.base_index()
-        index["models"][0]["variant"] = "tiny"
+        index["models"][0]["variant"] = "gigantic"
         with self.assertRaises(ValueError):
             validate_index(index)
 
-    def test_four_tiers_per_family_is_rejected(self):
+    def test_six_tiers_per_family_is_rejected(self):
         index = self.base_index()
-        index["models"].append(dict(index["models"][0], variant="small", url="extra.zip"))
+        for variant in ("tiny", "base", "small", "turbo", "large"):
+            index["models"].append(dict(index["models"][0], variant=variant,
+                                        url=f"extra-{variant}.zip"))
         with self.assertRaises(ValueError):
             validate_index(index)
 
@@ -362,7 +382,7 @@ class MultiVariantValidationTests(unittest.TestCase):
         # 单包上限内但聚合超预算:预算常量才是多档目录的盖帽。
         index = self.base_index()
         for model in index["models"]:
-            model["bytes"] = ASR_CATALOG_BUDGET_BYTES // 4 + 1
+            model["bytes"] = ASR_CATALOG_BUDGET_BYTES // 6 + 1
         with self.assertRaises(ValueError):
             validate_index(index)
 

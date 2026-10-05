@@ -82,7 +82,7 @@ struct VoiceQuickLaunchView: View {
         // （round2 A-N2 首句丢失症状在下载→可用转换点复发）。
         let choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine] ?? "")
         let locale = model.preferredLocale ?? TranscriptionSegmentation.fallbackLocale
-        let resolved = choice == .auto ? ASRModelCatalog.automaticChoice(locale: locale) : choice
+        let resolved = choice == .auto ? ASRModelCatalog.automaticChoice(locale: locale, in: ASRFamilyIndexStore.routingIndex()) : choice
         let assetIdentity = resolved.isBundledModel ? ASRModelAssets.resolve(for: resolved).identity : ""
         return locale + "|" + (settings.values[.voiceEngine] ?? "") + "|" + assetIdentity
     }

@@ -1,5 +1,8 @@
 {
   "formatVersion": 1,
+  "bundledModels": [
+    {"id": "zipformer", "variant": "large"}
+  ],
   "models": [
     {
       "id":"qwen3", "variant":"medium", "license":"Apache-2.0", "revision":"0.6B-int8-2026-03-25",

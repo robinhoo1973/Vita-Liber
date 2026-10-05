@@ -49,12 +49,17 @@ class TrustTests(unittest.TestCase):
                              "catalogKeyIDs": [k[0] for k in self.keys[3:]], "catalogThreshold": 2,
                              "assetBaseURL": "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models",
                              "allowedHosts": ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]}
+        variants = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small",
+                    "sense-voice": "small", "fire-red": "large", "moonshine": "base"}
         index = {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "baseUrl": self.root_payload["assetBaseURL"],
-                 "models": [{"id": m, "variant": {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small"}[m],
+                 "families": [{"id": m, "name": {"zh-Hans": m}, "hint": {"zh-Hans": "fixture hint"},
+                               "languages": ["zh"], "dialects": []} for m in variants],
+                 "models": [{"id": m, "variant": variants[m],
                              "version": "1.0.0", "url": m + ".zip", "bytes": 123, "sha256": "a" * 64,
                              "expandedBytes": 456, "packaging": "zip", "minAppVersion": "0.0.1", "runtime": "sherpa-onnx-1.13.4",
-                             "license": "MIT" if m == "whisper" else "Apache-2.0"}
-                            for m in ["qwen3", "zipformer", "dolphin", "whisper"]]}
+                             "license": "MIT" if m in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                             "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}}
+                            for m in variants]}
         self.catalog_payload = {"schemaVersion": 1, "role": "catalog", "app": "vitaliber", "assetKind": "asr",
                                 "rootVersion": 1, "catalogVersion": 3, "issuedAt": date(now - timedelta(minutes=1)),
                                 "expiresAt": date(now + timedelta(days=29)), "index": index, "revokedHashes": []}
@@ -126,7 +131,10 @@ class TrustTests(unittest.TestCase):
                                  "--catalog", str(catalog), "--output", str(output)], text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         baseline = json.loads(output.read_text())
-        self.assertEqual(len(baseline["entries"]), 4)
+        self.assertEqual(len(baseline["entries"]), 7)
+        # 2026-10-05 目录驱动:基线必须携带 families(离线路由数据源)
+        self.assertEqual([f["id"] for f in baseline["families"]],
+                         ["qwen3", "zipformer", "dolphin", "whisper", "sense-voice", "fire-red", "moonshine"])
         self.assertEqual(baseline["entries"][0]["sha256"], "a" * 64)
         self.assertEqual(baseline["entries"][0]["minAppVersion"], "0.0.1")
         self.assertEqual(baseline["catalogVersion"], 3)
@@ -179,7 +187,7 @@ class TrustTests(unittest.TestCase):
         self.assertEqual(copied.returncode, 0, copied.stdout + copied.stderr)
         data = json.loads((bundle / "TrustedModelHashes.json").read_text())
         self.assertEqual(data["catalogVersion"], 3)
-        self.assertEqual(len(data["entries"]), 4)
+        self.assertEqual(len(data["entries"]), 7)
 
 
 if __name__ == "__main__":

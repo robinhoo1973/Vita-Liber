@@ -16,7 +16,8 @@ from types import SimpleNamespace
 
 TOOL = Path(__file__).with_name("publish-asr-release.py")
 CNB_BASE = "https://cnb.cool/robinhoo1973/Resources/-/releases/download/asr-models"
-VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small"}
+VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small",
+            "sense-voice": "small", "fire-red": "large", "moonshine": "base"}
 
 
 class FakeCNBReleaseClient:
@@ -87,11 +88,15 @@ class PublicationTests(unittest.TestCase):
     def plan(self, assets):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            index = {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "models": [
+            index = {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
+                     "families": [{"id": m, "name": {"zh-Hans": m}, "hint": {"zh-Hans": "fixture hint"},
+                                   "languages": ["zh"], "dialects": []} for m in VARIANTS],
+                     "models": [
                 {"id": m, "variant": VARIANTS[m], "version": "1.0.0", "url": m + ".zip",
                  "bytes": 123, "sha256": "a" * 64,
-                 "license": "MIT" if m == "whisper" else "Apache-2.0"}
-                for m in ["qwen3", "zipformer", "dolphin", "whisper"]]}
+                 "license": "MIT" if m in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                 "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}}
+                for m in VARIANTS]}
             (root / "index.json").write_text(json.dumps(index))
             (root / "assets.json").write_text(json.dumps(assets))
             return subprocess.run(["python3", str(TOOL), "plan", "--index", str(root / "index.json"),
@@ -106,7 +111,9 @@ class PublicationTests(unittest.TestCase):
         result = self.plan([])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout), {"qwen3.zip": "upload", "zipformer.zip": "upload",
-                                                     "dolphin.zip": "upload", "whisper.zip": "upload"})
+                                                     "dolphin.zip": "upload", "whisper.zip": "upload",
+                                                     "sense-voice.zip": "upload", "fire-red.zip": "upload",
+                                                     "moonshine.zip": "upload"})
 
     def test_same_content_is_reused(self):
         result = self.plan([self.cnb_asset("qwen3.zip", 123, "a" * 64)])

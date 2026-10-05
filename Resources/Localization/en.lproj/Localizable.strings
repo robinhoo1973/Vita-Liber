@@ -1845,12 +1845,7 @@
 "entityCard.confirmAllHint" = "Confirm & Save also approves the card's other fields. Low-confidence fields still need individual review; rows missing required fields stay as to-dos.";
 "encounter.linkedCards" = "Linked cards";
 "encounter.linkedCards.empty" = "No linked prescriptions or receipts yet";
-"asr.zipformer" = "Zipformer · Chinese/English streaming";
-"asr.zipformer.hint" = "Mandarin, English and mixed Chinese/English; native streaming with hotwords. Not a Chinese-dialect model.";
-"asr.dolphin" = "Dolphin · Chinese dialects";
-"asr.dolphin.hint" = "Several Chinese dialects and Eastern languages; segment-based CTC recognition. English is not supported. Check your accent on this device.";
-"asr.whisper" = "Whisper · Multilingual";
-"asr.whisper.hint" = "Includes English, French, German and more. Segment previews, not native streaming or a dedicated Chinese-dialect model.";
+"asr.familyHintFallback" = "On-device speech model. Model names, languages and performance details follow the catalog after Check for Updates.";
 "asr.bundledOffline" = "Free · On-device · Offline when installed";
 "asr.selectionHint" = "Choose the engine used by all voice entry points. Changes apply to the next press. Bundled models never download or upload audio. An unavailable explicitly selected model reports failure rather than silently changing engines.";
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";
@@ -1904,8 +1899,6 @@
 "home.swipe.viewEvidence" = "View evidence";
 "home.swipe.view" = "View";
 "home.swipe.failed" = "Action failed";
-"asr.qwen3" = "Qwen3-ASR · Dialect-first";
-"asr.qwen3.hint" = "Bundled 0.6B model for Chinese dialects and 30 languages, with hotwords and local segment-based recognition. Public benchmarks do not establish accuracy for medical dictation on this device; check wording and numbers.";
 "ocr.cards.overview" = "Prefilled information cards";
 "ocr.cards.none" = "Not enough fields to form a card yet. The original and recognized text will be retained for later completion.";
 "ocr.cards.hint" = "After saving the original, switch between cards to check prefilled content and complete missing fields. Confirm and save each card.";

@@ -24,6 +24,9 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         let catalogVersion: Int?
         let catalogSHA256: String?
         let revokedHashes: [String]?
+        /// 2026-10-05 目录驱动：家族文案与语言/方言覆盖随基线嵌入（可选——
+        /// 旧基线无此键，离线路由退化到目录检查更新后恢复）。
+        let families: [ASRModelFamily]?
     }
     private var baselineFloor: (root: Int, catalog: Int, digest: String)?
     /// 撤销摘要统一小写存放：目录/状态/基线可能出现大写 hex（`isSHA256` 接受大小写），
@@ -56,7 +59,9 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         root = initial
         if let initial, let baselineData,
            let baseline = try? JSONDecoder().decode(Baseline.self, from: baselineData), baseline.schemaVersion == 1 { // try?-ok: 签名 App 资源缺失/损坏则无离线基线授权
-            baselineIndex = ASRModelReleaseIndex(baseUrl: initial.assetBaseURL, models: baseline.entries)
+            baselineIndex = ASRModelReleaseIndex(baseUrl: initial.assetBaseURL,
+                                                 models: baseline.entries,
+                                                 families: baseline.families)
             if let root = baseline.rootVersion, let catalog = baseline.catalogVersion,
                let digest = baseline.catalogSHA256, root > 0, catalog > 0, ModelResourcePolicy.isSHA256(digest) {
                 baselineFloor = (root, catalog, digest)

@@ -6,23 +6,26 @@ import Testing
 
 @Suite("FR17.15 随包模型选择与会话归属")
 struct ASRSelectionTests {
+    /// 与 ASRLanguageProtocolTests 共用的 CI 模板同构夹具（目录驱动：覆盖表来自目录 JSON）。
+    private static let index: ASRModelReleaseIndex = ASRLanguageProtocolTests.fixtureIndex
+
     /// 原名：方言不会被当作英语或普通话模型支持
     @Test func dialectsNotOfferedAsEnglishOrMandarinSupport() {
-        #expect(ASRModelCatalog.model(for: .dolphin)?.languageCode(for: "wuu-CN") == "zh")
-        #expect(ASRModelCatalog.model(for: .dolphin)?.languageCode(for: "en-US") == nil)
-        #expect(ASRModelCatalog.model(for: .zipformer)?.languageCode(for: "yue-Hant-HK") == nil)
-        #expect(ASRModelCatalog.model(for: .whisper)?.languageCode(for: "yue-Hant-HK") == nil)
-        #expect(ASRModelCatalog.model(for: .whisper)?.languageCode(for: "fr-FR") == "fr")
+        #expect(ASRModelCatalog.model(for: .dolphin, in: Self.index)?.languageCode(for: "wuu-CN") == "zh")
+        #expect(ASRModelCatalog.model(for: .dolphin, in: Self.index)?.languageCode(for: "en-US") == nil)
+        #expect(ASRModelCatalog.model(for: .zipformer, in: Self.index)?.languageCode(for: "yue-Hant-HK") == nil)
+        #expect(ASRModelCatalog.model(for: .whisper, in: Self.index)?.languageCode(for: "yue-Hant-HK") == nil)
+        #expect(ASRModelCatalog.model(for: .whisper, in: Self.index)?.languageCode(for: "fr-FR") == "fr")
     }
 
     /// 原名：自动选择依据请求语言而不修改显式选择
     @Test func automaticChoiceFollowsRequestLocaleWithoutOverridingExplicitChoice() {
-        #expect(ASRModelCatalog.automaticChoice(locale: "nan-TW") == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locale: "zh-Hans-CN") == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locale: "nan-TW", in: Self.index) == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locale: "zh-Hans-CN", in: Self.index) == .qwen3)
         // round2 A-N5：完整解码模型优先——英语/外语由 Qwen3 承担，缺件回落在 builder 门控。
-        #expect(ASRModelCatalog.automaticChoice(locale: "en-US") == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE") == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locale: "ur-PK") == .dolphin)
+        #expect(ASRModelCatalog.automaticChoice(locale: "en-US", in: Self.index) == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE", in: Self.index) == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locale: "ur-PK", in: Self.index) == .dolphin)
         #expect(VoiceEngineChoice.resolve("dolphin") == .dolphin)
         #expect(VoiceEngineChoice.resolve("classic") == .classic)
     }
@@ -31,24 +34,24 @@ struct ASRSelectionTests {
     /// 的模型取目录序首个；无全量覆盖回落主语言单语种逻辑。
     @Test func automaticChoiceOverAllSelectedLocales() {
         // qwen3 同时覆盖普通话+英语/粤语+日语 → qwen3
-        #expect(ASRModelCatalog.automaticChoice(locales: ["zh-Hans-CN", "en-US"]) == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locales: ["yue-Hant-HK", "ja-JP"]) == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locales: ["zh-Hans-CN", "en-US"], in: Self.index) == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locales: ["yue-Hant-HK", "ja-JP"], in: Self.index) == .qwen3)
         // zh+ur：qwen3 不盖 ur、zipformer 不盖 ur → dolphin（亚洲语种 CTC）
-        #expect(ASRModelCatalog.automaticChoice(locales: ["zh-Hans-CN", "ur-PK"]) == .dolphin)
+        #expect(ASRModelCatalog.automaticChoice(locales: ["zh-Hans-CN", "ur-PK"], in: Self.index) == .dolphin)
         // en+la：qwen3/zipformer/dolphin 均不盖 la → whisper
-        #expect(ASRModelCatalog.automaticChoice(locales: ["en-US", "la-VA"]) == .whisper)
+        #expect(ASRModelCatalog.automaticChoice(locales: ["en-US", "la-VA"], in: Self.index) == .whisper)
         // 单语种特例与旧路径一致；空列表回落 classic（无主语言可依）
-        #expect(ASRModelCatalog.automaticChoice(locales: ["zh-Hans-CN"]) == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locales: []) == .classic)
+        #expect(ASRModelCatalog.automaticChoice(locales: ["zh-Hans-CN"], in: Self.index) == .qwen3)
+        #expect(ASRModelCatalog.automaticChoice(locales: [], in: Self.index) == .classic)
     }
 
     /// 2026-10-05 业主反馈修复批（第 7 项）：whisper 混说不再强制主语言——
     /// 空串 = sherpa whisper 自带语种自动检测（此前恒返回 ISO 码，混说开关对 whisper 无效）。
     @Test func whisperMixedModeEnablesAutoDetection() {
-        #expect(ASRModelCatalog.model(for: .whisper)?.decoderLanguage(for: "en-US", mode: .mixed) == "")
-        #expect(ASRModelCatalog.model(for: .whisper)?.decoderLanguage(for: "en-US", mode: .single) == "en")
-        #expect(ASRModelCatalog.model(for: .qwen3)?.decoderLanguage(for: "zh-Hans-CN", mode: .mixed) == "")
-        #expect(ASRModelCatalog.model(for: .qwen3)?.decoderLanguage(for: "zh-Hans-CN", mode: .single) == "Chinese")
+        #expect(ASRModelCatalog.model(for: .whisper, in: Self.index)?.decoderLanguage(for: "en-US", mode: .mixed) == "")
+        #expect(ASRModelCatalog.model(for: .whisper, in: Self.index)?.decoderLanguage(for: "en-US", mode: .single) == "en")
+        #expect(ASRModelCatalog.model(for: .qwen3, in: Self.index)?.decoderLanguage(for: "zh-Hans-CN", mode: .mixed) == "")
+        #expect(ASRModelCatalog.model(for: .qwen3, in: Self.index)?.decoderLanguage(for: "zh-Hans-CN", mode: .single) == "Chinese")
     }
 
     /// 2026-10-05 业主反馈修复批（第 7 项）：请求携带全部已选语种（向后兼容默认空）。

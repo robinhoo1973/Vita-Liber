@@ -34,7 +34,7 @@ def source_manifest(root):
     else:
         resolved = original
     if {m["id"] for m in resolved["models"]} != MODELS:
-        raise ValueError("Four resolved models are required")
+        raise ValueError("All %d resolved model families are required" % len(MODELS))
     for model in resolved["models"]:
         expected = next((m for m in original["models"]
                          if m["id"] == model["id"] and m.get("variant") == model.get("variant")), None)
@@ -85,7 +85,7 @@ def build_packages(root, template, output, reuse=None):
     result["sourceManifestSHA256"] = source_digest
     result["packagingProfile"] = "zip-deflate9-v2"
     prepared = []
-    # Validate all four source trees before creating any deliverable.
+    # Validate every source tree before creating any deliverable.
     for release in result["models"]:
         model_id = release["id"]
         model = resolved_model(resolved, model_id, release.get("variant"))
@@ -155,20 +155,24 @@ def build_packages(root, template, output, reuse=None):
     (output / "package-validation.json").write_bytes(json_bytes(receipt))
 
     # Explicit baseline profile: offline Mandarin/English works before optional model downloads.
-    # bundledModels 按 (id, variant) 声明(2026-10-05):源清单多档化后随包只取
-    # zipformer large 一份,避免随包基线体积随目录档数膨胀。
+    # 离线基线剖面由数据文件声明（2026-10-05 目录驱动：源清单 bundledModels 是唯一事实源，
+    # 脚本不再写死随包档位——多档化后随包只取声明档，避免基线体积随目录档数膨胀）。
     bundle = output / "bundle/ASRModels"
     bundle.mkdir(parents=True, exist_ok=True)
     bundle_manifest = copy.deepcopy(original)
-    bundle_manifest["bundledModels"] = [{"id": "zipformer", "variant": "large"}]
+    declared = original.get("bundledModels")
+    if not isinstance(declared, list) or not declared:
+        raise ValueError("Source manifest must declare bundledModels")
+    bundle_manifest["bundledModels"] = declared
     (bundle / "manifest.json").write_bytes(json_bytes(bundle_manifest))
     for name in ("LICENSE-APACHE-2.0.txt", "NOTICE.md"):
         shutil.copyfile(root / name, bundle / name)
-    zipformer = resolved_model(resolved, "zipformer", "large")
-    for item in zipformer["files"]:
-        target = bundle / item["path"]
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(checked_source(root, item), target)
+    for declaration in declared:
+        bundled = resolved_model(resolved, declaration["id"], declaration.get("variant"))
+        for item in bundled.get("files", []):
+            target = bundle / item["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(checked_source(root, item), target)
     return result
 
 

@@ -10,17 +10,76 @@ public struct ASRModelReleaseIndex: Codable, Sendable, Equatable {
     public var schemaVersion: Int
     public var baseUrl: String?
     public var models: [ASRModelRelease]
+    /// 家族级本地化文案（2026-10-05 业主定：模型文字描述全部由 CI 生成的签名目录
+    /// JSON 提供，App 不写死；缺失 = 旧目录，UI 回落到内置 L10n 兜底）。
+    public var families: [ASRModelFamily]?
 
-    public init(schemaVersion: Int = 1, baseUrl: String? = nil, models: [ASRModelRelease]) {
+    public init(schemaVersion: Int = 1, baseUrl: String? = nil, models: [ASRModelRelease],
+                families: [ASRModelFamily]? = nil) {
         self.schemaVersion = schemaVersion
         self.baseUrl = baseUrl
         self.models = models
+        self.families = families
     }
 
     /// 客户端支持的结构版本（未知版本必须拒绝——防按未知语义误装）。
     public static let supportedSchemaVersion = 1
 
     public var isSupported: Bool { schemaVersion == Self.supportedSchemaVersion }
+
+    public func family(for id: String) -> ASRModelFamily? {
+        (families ?? []).first { $0.id == id }
+    }
+}
+
+/// 目录内的本地化文案（三语键与 App 资源 locale 对齐；任意语言可缺省）。
+public struct ASRLocalizedText: Codable, Sendable, Equatable {
+    public var zhHans: String?
+    public var zhHant: String?
+    public var en: String?
+
+    enum CodingKeys: String, CodingKey {
+        case zhHans = "zh-Hans"
+        case zhHant = "zh-Hant"
+        case en
+    }
+
+    public init(zhHans: String? = nil, zhHant: String? = nil, en: String? = nil) {
+        self.zhHans = zhHans; self.zhHant = zhHant; self.en = en
+    }
+
+    /// 按 App 首选语言解析：繁体系 → zh-Hant；简体/其他 zh → zh-Hans；en → en；
+    /// 首选语言缺该文时按 zh-Hans → zh-Hant → en 兜底（目录文案不为空的原则）。
+    public func resolved(preferredLanguages: [String]? = nil) -> String? {
+        let languages = preferredLanguages ?? Locale.preferredLanguages
+        for language in languages {
+            if language.hasPrefix("zh-Hant") || language.hasPrefix("zh-TW")
+                || language.hasPrefix("zh-HK") || language.hasPrefix("zh-MO") {
+                if let zhHant { return zhHant }
+                continue
+            }
+            if language.hasPrefix("zh") { if let zhHans { return zhHans }; continue }
+            if language.hasPrefix("en") { if let en { return en }; continue }
+        }
+        return zhHans ?? zhHant ?? en
+    }
+}
+
+/// 家族级条目（id 与 `ASRModelRelease.id` 对齐）。2026-10-05 业主裁定：模型信息
+/// （名称/简介/语言覆盖/方言覆盖）全由 CI 生成的目录 JSON 提供，App 不写死；
+/// 旧目录缺字段解码得 nil（语言覆盖为空 → auto 链回落 classic，检查更新即修复）。
+public struct ASRModelFamily: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: ASRLocalizedText?
+    public var hint: ASRLocalizedText?
+    public var languages: [String]?
+    public var dialects: [String]?
+
+    public init(id: String, name: ASRLocalizedText? = nil, hint: ASRLocalizedText? = nil,
+                languages: [String]? = nil, dialects: [String]? = nil) {
+        self.id = id; self.name = name; self.hint = hint
+        self.languages = languages; self.dialects = dialects
+    }
 }
 
 /// 单个模型发布条目。
@@ -44,30 +103,41 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     /// （不新增 `VoiceEngineChoice` case），故 **无需 schema 版本变更**、
     /// `ASRModelReleaseIndex.supportedSchemaVersion` 保持 1、旧客户端忽略该键照常工作。
     public var variant: String?
+    /// 档位短标签（选择器/按钮文案，如「超轻」「标准」，2026-10-05 业主定：
+    /// 由 CI 目录 JSON 提供；缺失 = 旧目录，回落到 L10n small/medium/large 映射）。
+    public var tierName: ASRLocalizedText?
+    /// 档位说明文案（参数/性能说明，2026-10-05 业主定：由 CI 目录 JSON 提供；
+    /// 缺失 = 旧目录，UI 只呈现本地计算的字节/峰值参数行）。
+    public var tierHint: ASRLocalizedText?
 
     public init(id: String, version: String, bytes: Int64? = nil, sha256: String, url: String,
                 minAppVersion: String? = nil, license: String? = nil,
                 expandedBytes: Int64? = nil, runtime: String? = nil, packaging: String? = nil,
-                artifactRevision: Int? = nil, variant: String? = nil) {
+                artifactRevision: Int? = nil, variant: String? = nil,
+                tierName: ASRLocalizedText? = nil, tierHint: ASRLocalizedText? = nil) {
         self.id = id; self.version = version
         self.bytes = bytes; self.sha256 = sha256
         self.url = url; self.minAppVersion = minAppVersion; self.license = license
         self.expandedBytes = expandedBytes; self.runtime = runtime
         self.packaging = packaging; self.artifactRevision = artifactRevision
         self.variant = variant
+        self.tierName = tierName
+        self.tierHint = tierHint
     }
 
-    /// 档位权重（业主裁决 D6 修复）：variant 档名 "small"/"medium"/"large" 的
-    /// 字典序恰好与大小序**相反**（"large" < "medium" < "small"）——清单排序、
-    /// 默认选择与 RAM 建议此前全部颠倒（3GB 设备被推荐大档、默认选中大档）。
-    /// 大小序单一事实源：small=0 < medium=1 < large=2；未知/缺失档按最大权重
-    /// 处理（排末尾，绝不误推荐给低 RAM 设备）。
+    /// 档位权重（业主裁决 D6 修复）：variant 档名的字典序与大小序不一致——
+    /// 清单排序、默认选择与 RAM 建议不得依赖字典序。大小序单一事实源
+    /// （2026-10-05 iOS 适用性评估后扩档：tiny<base<small<medium<turbo<large，
+    /// 按体积升序）；未知/缺失档按最大权重处理（排末尾，绝不误推荐给低 RAM 设备）。
     public static func variantWeight(_ variant: String?) -> Int {
         switch variant {
-        case "small": return 0
-        case "medium": return 1
-        case "large": return 2
-        default: return 3
+        case "tiny": return 0
+        case "base": return 1
+        case "small": return 2
+        case "medium": return 3
+        case "turbo": return 4
+        case "large": return 5
+        default: return 6
         }
     }
 

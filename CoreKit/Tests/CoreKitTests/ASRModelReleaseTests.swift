@@ -74,4 +74,76 @@ struct ASRModelReleaseTests {
         #expect(resolved?.host == httpsBase.host)
         #expect(resolved?.scheme == "https")
     }
+
+    /// 档位权重按体积升序（2026-10-05 iOS 适用性评估后扩档）：
+    /// tiny<base<small<medium<turbo<large，未知/缺失排末尾。
+    @Test func variantWeightOrdersBySizeNotLexicographic() {
+        let ordered = ["tiny", "base", "small", "medium", "turbo", "large"]
+        let weights = ordered.map { ASRModelRelease.variantWeight($0) }
+        #expect(weights == [0, 1, 2, 3, 4, 5])
+        #expect(ASRModelRelease.variantWeight(nil) > ASRModelRelease.variantWeight("large"))
+        #expect(ASRModelRelease.variantWeight("gigantic") > ASRModelRelease.variantWeight("large"))
+    }
+}
+
+/// 目录本地化文案与家族条目（2026-10-05 业主裁定：模型文字描述由 CI 目录 JSON 提供）。
+@Suite("目录文案 schema")
+struct ASRCatalogTextTests {
+    /// 首选语言解析：繁体系→zh-Hant；简体/其他 zh→zh-Hans；en→en；
+    /// 缺首选语言时按 zh-Hans→zh-Hant→en 兜底。
+    @Test func localizedTextResolvesByPreferredLanguage() {
+        let text = ASRLocalizedText(zhHans: "简体", zhHant: "繁體", en: "English")
+        #expect(text.resolved(preferredLanguages: ["zh-Hant-TW", "en"]) == "繁體")
+        #expect(text.resolved(preferredLanguages: ["zh-HK", "en"]) == "繁體")
+        #expect(text.resolved(preferredLanguages: ["zh-Hans-CN"]) == "简体")
+        #expect(text.resolved(preferredLanguages: ["zh", "en"]) == "简体")
+        #expect(text.resolved(preferredLanguages: ["en-US"]) == "English")
+        #expect(text.resolved(preferredLanguages: ["fr-FR"]) == "简体")
+        #expect(ASRLocalizedText(zhHant: "繁體").resolved(preferredLanguages: ["fr"]) == "繁體")
+        #expect(ASRLocalizedText().resolved(preferredLanguages: ["fr"]) == nil)
+    }
+
+    /// 索引解码：families/tierName/tierHint 三语键；旧目录缺字段 → nil/空，零回归。
+    @Test func indexDecodesFamiliesAndTierTextsWithLegacyFallback() throws {
+        let json = """
+        {
+          "schemaVersion": 1,
+          "baseUrl": "https://cnb.cool/robinhoo1973/Resources/-/releases/download/asr-models",
+          "families": [
+            {"id": "whisper", "name": {"zh-Hans": "Whisper · 多语种", "en": "Whisper · Multilingual"},
+             "hint": {"zh-Hans": "多语外语识别"}}
+          ],
+          "models": [
+            {"id": "whisper", "variant": "turbo", "version": "2024-09-30", "bytes": 1,
+             "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "url": "whisper-turbo.zip",
+             "tierName": {"zh-Hans": "高速", "zh-Hant": "高速", "en": "Turbo"},
+             "tierHint": {"zh-Hans": "质量接近大档、速度快约两倍"}}
+          ]
+        }
+        """
+        let index = try JSONDecoder().decode(ASRModelReleaseIndex.self, from: Data(json.utf8))
+        #expect(index.families?.first?.id == "whisper")
+        #expect(index.family(for: "whisper")?.name?.resolved(preferredLanguages: ["zh-Hans"]) == "Whisper · 多语种")
+        let turbo = index.models.first { $0.variant == "turbo" }
+        #expect(turbo?.tierName?.resolved(preferredLanguages: ["en"]) == "Turbo")
+        #expect(turbo?.tierHint?.resolved(preferredLanguages: ["zh-Hans"]) == "质量接近大档、速度快约两倍")
+        #expect(turbo?.tierHint?.resolved(preferredLanguages: ["en"]) == "质量接近大档、速度快约两倍")
+        #expect(turbo?.tierHint?.resolved(preferredLanguages: ["fr"]) == "质量接近大档、速度快约两倍")
+
+        let legacy = """
+        {
+          "schemaVersion": 1,
+          "models": [
+            {"id": "qwen3", "version": "0.6b", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+             "url": "qwen3.zip"}
+          ]
+        }
+        """
+        let old = try JSONDecoder().decode(ASRModelReleaseIndex.self, from: Data(legacy.utf8))
+        #expect(old.families == nil)
+        #expect(old.family(for: "qwen3") == nil)
+        #expect(old.models.first?.tierName == nil)
+        #expect(old.models.first?.tierHint == nil)
+    }
 }

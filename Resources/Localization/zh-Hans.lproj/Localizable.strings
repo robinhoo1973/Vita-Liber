@@ -1845,12 +1845,7 @@
 "entityCard.confirmAllHint" = "点[确认保存]将一并确认卡内其余字段；低置信字段需逐项确认，缺必填的行保留为待办。";
 "encounter.linkedCards" = "关联卡片";
 "encounter.linkedCards.empty" = "暂无关联的处方或收费卡片";
-"asr.zipformer" = "Zipformer · 中英流式";
-"asr.zipformer.hint" = "普通话、英语及中英混说；原生流式。支持热词，不能替代方言模型。";
-"asr.dolphin" = "Dolphin · 中文方言";
-"asr.dolphin.hint" = "覆盖多种中文方言及东方语言；CTC 分段识别，不含英语。具体口音效果请在本机核对。";
-"asr.whisper" = "Whisper · 多语种";
-"asr.whisper.hint" = "多语外语识别，含英语、法语、德语等；分段预览，不是原生流式，也不是专用中文方言模型。";
+"asr.familyHintFallback" = "本地语音模型。型号、语言与性能说明以「检查更新」后的目录信息为准。";
 "asr.bundledOffline" = "免费 · 本机推理 · 安装后离线可用";
 "asr.selectionHint" = "自主选择用于所有语音入口的引擎，下一次按压生效。随包模型不下载、不上传录音。显式选定的模型不可用时会提示失败，不会悄悄更换模型。";
 "asr.missingAssets" = "此构建的模型资源缺失或不完整";
@@ -1904,8 +1899,6 @@
 "home.swipe.viewEvidence" = "查看证据";
 "home.swipe.view" = "查看";
 "home.swipe.failed" = "操作失败";
-"asr.qwen3" = "Qwen3-ASR · 方言优先";
-"asr.qwen3.hint" = "0.6B 随包模型：覆盖中文方言及30种语言，支持热词；本地分段识别。公开评测不等于本机医疗语句准确率，仍须核对原话与数值。";
 "ocr.cards.overview" = "已填好的信息卡";
 "ocr.cards.none" = "尚无足够字段形成信息卡。原件和识别文字将保留，可稍后补充。";
 "ocr.cards.hint" = "保存原件后可切换各张信息卡，检查预填内容并补充缺失项；按卡确认保存。";
