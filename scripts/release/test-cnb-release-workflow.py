@@ -62,6 +62,19 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
                          "${{ secrets.CNB_RESOURCE_TOKEN }}")
         self.assertNotEqual(asr.get("permissions", {}).get("contents"), "write")
 
+    def test_seed_workflow_is_the_only_github_release_read_face(self):
+        text = workflow_text("seed-cnb-assets.yml")
+        self.assertIn("CNB_RESOURCE_TOKEN", text)
+        self.assertNotIn("gh release upload", text)
+        self.assertNotIn("gh release create", text)
+        # GitHub 读取面只在一次性 seed 脚本内(定案 Task 5:gh release download 仅限此处)
+        seed_text = (Path(__file__).with_name("seed-cnb-model-assets.py")).read_text(encoding="utf-8")
+        self.assertIn('"gh", "release", "download"', seed_text)
+        workflow = workflow_yaml("seed-cnb-assets.yml")
+        steps = workflow["jobs"]["seed"]["steps"]
+        run_step = next(s for s in steps if "seed-cnb-model-assets" in s.get("run", ""))
+        self.assertEqual(run_step["env"]["CNB_TOKEN"], "${{ secrets.CNB_RESOURCE_TOKEN }}")
+
 
 if __name__ == "__main__":
     unittest.main()
