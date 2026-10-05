@@ -91,10 +91,11 @@ class UrllibCNBTransport(CNBTransport):
 
 
 class FakeCNBCall:
-    def __init__(self, method, url, headers):
+    def __init__(self, method, url, headers, body=None):
         self.method = method
         self.url = url
         self.headers = dict(headers)
+        self.body = body
 
 
 class ScriptedCNBTransport(CNBTransport):
@@ -112,7 +113,7 @@ class ScriptedCNBTransport(CNBTransport):
     def request(self, method, url, headers, body=None):
         if not self.api_responses:
             raise AssertionError("Unexpected extra CNB API call: " + method + " " + url)
-        self.calls.append(FakeCNBCall(method, url, headers))
+        self.calls.append(FakeCNBCall(method, url, headers, body))
         return self.api_responses.pop(0)
 
     def put(self, url, headers, file_path, size):
@@ -272,8 +273,14 @@ class CNBReleaseClient:
             raise CNBReleaseError("CNB API %s failed with HTTP %d" % (method, response.status))
         return response
 
-    def upload_immutable(self, tag, path, asset_name, expected_sha256):
-        """Upload one asset; same name+digest reuses, same name+different digest is a hard collision.
+    def upload_immutable(self, tag, path, asset_name, expected_sha256, overwrite=False):
+        """Upload one asset with hash-compare semantics.
+
+        Same name + same digest → skip the upload entirely (read-back only).
+        Same name + different digest: `overwrite=False` (seed/immutable contexts)
+        raises a hard collision; `overwrite=True` (owner rule 2026-10-05, ASR
+        publish path: 生成的下载文件与 CNB 已有最新文件 hash 比对,不同才更新
+        上传、相同跳过) updates the asset in place.
 
         Call sequence for a fresh release: GET tag (404) → POST release → POST
         upload-url → PUT (no bearer) → POST confirmation → GET read-back.
@@ -304,7 +311,8 @@ class CNBReleaseClient:
                 algo, value = _asset_digest(asset)
                 if algo == "sha256" and value == expected_sha256 and int(asset.get("size") or -1) == size:
                     return self._verify_read_back(tag, asset_name, size, expected_sha256)
-                raise CNBReleaseError("CNB collision: " + asset_name + " exists with different content")
+                if not overwrite:
+                    raise CNBReleaseError("CNB collision: " + asset_name + " exists with different content")
         else:
             title, body = release_notes_for_tag(tag)
             response = self._api("POST", "/-/releases", {
@@ -315,7 +323,7 @@ class CNBReleaseClient:
                 raise CNBReleaseError("CNB release creation returned no id")
 
         response = self._api("POST", "/-/releases/" + str(release["id"]) + "/asset-upload-url", {
-            "asset_name": asset_name, "size": size, "overwrite": False, "ttl": 0})
+            "asset_name": asset_name, "size": size, "overwrite": overwrite, "ttl": 0})
         grant = _json(response, "upload-url grant")
         upload_url = grant.get("upload_url") or ""
         verify_url = grant.get("verify_url") or ""

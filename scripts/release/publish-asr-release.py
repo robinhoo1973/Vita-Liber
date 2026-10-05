@@ -113,8 +113,11 @@ def publish(args, client):
     publication_plan(index, normalize_assets(remote))
     check_remote_catalog_chain(client, args, catalog)
 
+    # 业主规则(2026-10-05):与 CNB 已有最新文件 hash 比对——相同跳过上传,
+    # 不同则更新上传(overwrite)。App 侧始终按签名目录 sha256 校验,同名异内容
+    # 的中间态 fail-closed,不构成安全放松。
     for model in index["models"]:
-        client.upload_immutable(TAG, args.directory / model["url"], model["url"], model["sha256"])
+        client.upload_immutable(TAG, args.directory / model["url"], model["url"], model["sha256"], overwrite=True)
 
     root_files = sorted(args.catalog.parent.glob("[0-9]*.root.json"), key=lambda p: int(p.name.split(".")[0]))
     if not root_files:
@@ -126,7 +129,7 @@ def publish(args, client):
         if root_file.name != f"{checked['version']}.root.json":
             raise ValueError("Root asset name/version mismatch")
         client.upload_immutable(TAG, root_file, root_file.name,
-                                hashlib.sha256(root_file.read_bytes()).hexdigest())
+                                hashlib.sha256(root_file.read_bytes()).hexdigest(), overwrite=True)
         previous = envelope
 
     with tempfile.TemporaryDirectory() as temporary:
@@ -134,11 +137,11 @@ def publish(args, client):
         versioned_catalog = temporary / f"{catalog['catalogVersion']}.catalog.json"
         versioned_catalog.write_bytes(args.catalog.read_bytes())
         client.upload_immutable(TAG, versioned_catalog, versioned_catalog.name,
-                                hashlib.sha256(args.catalog.read_bytes()).hexdigest())
+                                hashlib.sha256(args.catalog.read_bytes()).hexdigest(), overwrite=True)
         validation = temporary / f"{catalog['catalogVersion']}.package-validation.json"
         validation.write_bytes(json_bytes(receipt))
         client.upload_immutable(TAG, validation, validation.name,
-                                hashlib.sha256(validation.read_bytes()).hexdigest())
+                                hashlib.sha256(validation.read_bytes()).hexdigest(), overwrite=True)
     current_assets = client.list_assets(TAG)
     if any(value == "upload" for value in publication_plan(index, normalize_assets(current_assets)).values()):
         raise ValueError("A required model asset is still missing")

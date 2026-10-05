@@ -32,7 +32,7 @@ class FakeCNBReleaseClient:
                  "path": "/robinhoo1973/Resources/-/releases/download/" + tag + "/" + a["name"]}
                 for a in self.assets]
 
-    def upload_immutable(self, tag, path, asset_name, expected_sha256):
+    def upload_immutable(self, tag, path, asset_name, expected_sha256, overwrite=False):
         payload = Path(path).read_bytes()
         digest = hashlib.sha256(payload).hexdigest()
         if digest != expected_sha256:

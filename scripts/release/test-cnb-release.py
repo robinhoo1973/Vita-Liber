@@ -178,6 +178,55 @@ class CNBReleaseTests(unittest.TestCase):
                 client.upload_immutable("asr-models", path, "model.zip", digest)
         self.assertEqual([call.method for call in transport.calls], ["GET"])
 
+    def test_same_name_different_digest_updates_when_overwrite_allowed(self):
+        # 业主规则(2026-10-05):hash 比对不同 → 更新上传;grant 请求带 overwrite:true。
+        with tempfile.TemporaryDirectory() as directory:
+            payload = b"updated-bytes"
+            path = Path(directory) / "model.zip"
+            path.write_bytes(payload)
+            digest = hashlib.sha256(payload).hexdigest()
+            existing = asset_payload("model.zip", b"old-bytes")
+            transport = ScriptedCNBTransport(
+                api_responses=[
+                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
+                                                     "assets": [existing]}).encode()),
+                    CNBResponse(201, {}, json.dumps({"upload_url": "https://asset.cnb.cool/put/u1",
+                                                     "verify_url": "https://api.cnb.cool/confirm/u1"}).encode()),
+                    CNBResponse(200, {}, b"{}"),
+                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
+                                                     "assets": [asset_payload("model.zip", payload)]}).encode()),
+                ],
+                put_responses=[CNBResponse(200, {}, b"")],
+            )
+            client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+            receipt = client.upload_immutable("asr-models", path, "model.zip", digest, overwrite=True)
+            self.assertEqual(receipt.sha256, digest)
+        self.assertEqual([call.method for call in transport.calls],
+                         ["GET", "POST", "PUT", "POST", "GET"])
+        grant_call = transport.calls[1]
+        grant_body = json.loads(grant_call.body)
+        self.assertTrue(grant_body["overwrite"])
+
+    def test_same_name_different_digest_skips_nothing_and_uploads(self):
+        # 相同摘要 → 完全跳过上传(PUT 零次);不同摘要且 overwrite=True → 走上传。
+        with tempfile.TemporaryDirectory() as directory:
+            payload = b"same-bytes"
+            path = Path(directory) / "model.zip"
+            path.write_bytes(payload)
+            digest = hashlib.sha256(payload).hexdigest()
+            transport = ScriptedCNBTransport(
+                api_responses=[
+                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
+                                                     "assets": [asset_payload("model.zip", payload)]}).encode()),
+                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
+                                                     "assets": [asset_payload("model.zip", payload)]}).encode()),
+                ],
+                put_responses=[],
+            )
+            client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+            client.upload_immutable("asr-models", path, "model.zip", digest, overwrite=True)
+        self.assertEqual([call.method for call in transport.calls], ["GET", "GET"])
+
     def test_insecure_or_credentialed_upload_url_is_rejected(self):
         for upload_url in ("http://asset.cnb.cool/put/u1",
                            "https://user:pass@asset.cnb.cool/put/u1",

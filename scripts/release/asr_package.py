@@ -151,7 +151,7 @@ def manifest_files(manifest, model_id, variant=None):
     return selected
 
 
-def verify_package(model, directory):
+def verify_package(model, directory, *, legacy_inner_manifest_ok=False):
     path = Path(directory) / model["url"]
     if path.is_symlink() or not path.is_file() or path.stat().st_size != model["bytes"]:
         raise ValueError("Missing/truncated package: " + model["url"])
@@ -182,10 +182,15 @@ def verify_package(model, directory):
         if "manifest.json" not in members or members["manifest.json"].file_size > MAX_MANIFEST:
             raise ValueError("Missing or oversized package manifest")
         manifest = decode_json(archive.read(members["manifest.json"]))
-        if len(manifest.get("models", [])) != 1 or manifest["models"][0].get("license") != model["license"] \
-                or manifest["models"][0].get("variant") != model.get("variant"):
+        inner = manifest["models"][0]
+        # World A(2026-10-05 委员会):单档家族的遗留包内清单无 variant 键——
+        # 该家族目录只有一条条目,遗留包无歧义地属于唯一档;放行避免重打包
+        # (zlib 不确定性会破坏已签名 sha 复用)。多档家族内清单必须带 variant。
+        legacy_variant = legacy_inner_manifest_ok and inner.get("variant") is None
+        if len(manifest.get("models", [])) != 1 or inner.get("license") != model["license"] \
+                or (inner.get("variant") != model.get("variant") and not legacy_variant):
             raise ValueError("Package model identity/license/variant mismatch")
-        selected = manifest_files(manifest, model["id"], model.get("variant"))
+        selected = manifest_files(manifest, model["id"], None if legacy_variant else model.get("variant"))
         allowed = {item["path"] for item in selected} | ROOT_FILES
         if set(members) - allowed:
             raise ValueError("Undeclared ZIP payload")
@@ -219,4 +224,9 @@ def verify_package(model, directory):
 
 def verify_packages(index, directory):
     validate_index(index)
-    return {"schemaVersion": 1, "models": [verify_package(m, directory) for m in index["models"]]}
+    tier_counts = {}
+    for model in index["models"]:
+        tier_counts[model["id"]] = tier_counts.get(model["id"], 0) + 1
+    return {"schemaVersion": 1, "models": [
+        verify_package(m, directory, legacy_inner_manifest_ok=(tier_counts[m["id"]] == 1))
+        for m in index["models"]]}

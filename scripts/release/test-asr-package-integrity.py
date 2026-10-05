@@ -65,6 +65,27 @@ class PackageTests(unittest.TestCase):
         return {"role": role, "path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                 "url": "https://example.test/" + name}
 
+    def rewrite_inner_manifest_without_variant(self, model_id):
+        """把已构建包的内清单剥掉 variant 键并更新索引(World A 遗留包形态)。"""
+        index = json.loads((self.output / "index.json").read_text())
+        model = next(m for m in index["models"] if m["id"] == model_id)
+        package = self.output / model["url"]
+        with zipfile.ZipFile(package, "r") as archive:
+            contents = {name: archive.read(name) for name in archive.namelist()}
+            infos = {name: archive.getinfo(name).file_size for name in archive.namelist()}
+        manifest = json.loads(contents["manifest.json"])
+        del manifest["models"][0]["variant"]
+        contents["manifest.json"] = json.dumps(manifest).encode()
+        with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for name in sorted(contents):
+                archive.writestr(name, contents[name])
+        infos["manifest.json"] = len(contents["manifest.json"])
+        model["sha256"] = hashlib.sha256(package.read_bytes()).hexdigest()
+        model["bytes"] = package.stat().st_size
+        model["expandedBytes"] = sum(infos.values())
+        (self.output / "index.json").write_text(json.dumps(index))
+        return model
+
     def build(self):
         return subprocess.run(["python3", str(TOOLS / "build-asr-packages.py"), "--source-root", str(self.source),
                                "--index", str(self.index), "--output", str(self.output)], text=True, capture_output=True)
@@ -118,6 +139,13 @@ class PackageTests(unittest.TestCase):
         (self.source / "dolphin/model.onnx").unlink()
         result = self.build()
         self.assertNotEqual(result.returncode, 0)
+
+    def test_legacy_inner_manifest_accepted_for_single_tier_family(self):
+        # World A(2026-10-05 委员会):单档家族遗留包内清单无 variant 键——
+        # 目录该家族仅一条条目,遗留包无歧义,放行以复用旧资产字节/旧 sha。
+        self.built_index()
+        self.rewrite_inner_manifest_without_variant("qwen3")
+        self.assertEqual(self.verify().returncode, 0)
 
     def test_bad_archive_hash_fails(self):
         index = self.built_index()
@@ -242,6 +270,23 @@ class MultiVariantPackageTests(PackageTests):
                                           "baseUrl": "https://github.com/fixture/app/releases/download/asr-models",
                                           "models": releases}))
         (self.source / "manifest.json").write_text(json.dumps(self.manifest))
+
+    def test_legacy_inner_manifest_accepted_for_single_tier_family(self):
+        # 子类夹具每族双档:临时把 qwen3 裁成单档家族,验证 World A 放行语义
+        # (基类同名用例在单档夹具上已覆盖)。
+        self.built_index()
+        index = json.loads((self.output / "index.json").read_text())
+        index["models"] = [m for m in index["models"]
+                           if not (m["id"] == "qwen3" and m["variant"] == "small")]
+        (self.output / "index.json").write_text(json.dumps(index))
+        self.rewrite_inner_manifest_without_variant("qwen3")
+        self.assertEqual(self.verify().returncode, 0)
+
+    def test_legacy_inner_manifest_rejected_for_multi_tier_family(self):
+        # 多档家族的内清单必须带 variant——遗留形态在双档下无法无歧义归属。
+        self.built_index()
+        self.rewrite_inner_manifest_without_variant("qwen3")
+        self.assertNotEqual(self.verify().returncode, 0)
 
     def test_multi_variant_packages_get_distinct_names_and_receipts(self):
         index = self.built_index()
