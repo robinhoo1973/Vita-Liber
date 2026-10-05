@@ -12,22 +12,23 @@ on:
     secrets:
       # 2026-10-03 cutover 定案:CNB 是唯一发布目的地;发布步骤缺失该令牌 = 硬红
       # (跳过发布 = 新签名目录从未进 CNB inventory,比红更糟的静默坏)。
+      # 2026-10-05 审查:required 从 true 降为 false——required:true 在调用时
+      # 空值会让父工作流 0-3 秒 startup_failure 且无日志(12:08/12:29 实证,
+      # elizaOS 同族修复最佳实践);硬红语义移入 job 内「发布前置校验」步,
+      # 红得可见、可定位。
       CNB_RESOURCE_TOKEN:
-        required: true
+        required: false
       # 2026-10-05 业主指令:目录签名密钥入 secrets(轮换时生成候选签名目录,
       # 人工提交后再跑验证链)——缺失只跳过候选签名,不阻断构建/验证。
       ASR_SIGNING_KEYS_JSON:
         required: false
       # 2026-10-05 业主 R1:下载包必须加密——32 字节 hex 主密钥(与 App 内嵌
       # ASRPackageCrypto 常量同值,test-asr-package-integrity 断言一致)。
-      # 缺失 = 构建/缓存解密硬红(绝不静默发明文包);workflow_dispatch 引导步
-      # 会自动生成并注册(见「引导 ASR 包加密密钥」步)。
+      # 缺失 = 构建/缓存解密硬红(绝不静默发明文包)。引导已本地脚本化
+      # (scripts/release/init_asr_secrets.py,初始化阶段执行过);CI 只校验
+      # 有值(见「包加密密钥前置校验」步)。required 降为 false 消除无日志
+      # startup_failure 族(elizaOS 同族修复最佳实践)。
       ASR_PACKAGE_KEY:
-        required: true
-      # 2026-10-05 业主指令:ASR_PACKAGE_KEY 缺失时由 CI 自动生成并注册 secret。
-      # ASR_ADMIN_TOKEN 是唯一需人工预置的管理 PAT(Actions secrets 读写权限);
-      # 仅 workflow_dispatch 引导需要,调用方可不传(调用路径要求 secret 已存在)。
-      ASR_ADMIN_TOKEN:
         required: false
     outputs:
       bundle_artifact:
@@ -50,18 +51,12 @@ concurrency:
 jobs:
   models:
     name: 构建、校验与发布 ASR 下载文件
-    # contents: write 仅服务于「写回自动生成的 App 内嵌密钥」一步的 git push
-    # (GITHUB_TOKEN 临时凭据;发布面仍走 CNB_TOKEN 且仅注入发布步)。被
-    # workflow_call 调用时以调用方权限为准(build-testflight 为 read——调用
-    # 路径要求 secret 已存在,永不触发写回)。
-    permissions:
-      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       # 包加密主密钥注入整个 job(prepare 缓存解密 / build 加密 / publish 校验
-      # 共用;非 CNB 写令牌,不受「令牌仅注入发布步」约束)。secret 缺失时由
-      # 「引导 ASR 包加密密钥」步生成并经 GITHUB_ENV 覆盖注入(同源语义)。
+      # 共用;非 CNB 写令牌,不受「令牌仅注入发布步」约束)。缺失/为空由
+      # 「包加密密钥前置校验」步带日志硬红。
       ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
     outputs:
       # 2026-10-05 审查:packages/metadata 两个输出无任何下游消费(artifact
@@ -77,43 +72,30 @@ jobs:
       - name: 安装公开校验工具依赖（哈希钉版，S-M6）
         run: python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
 
-      # 2026-10-05 业主指令:ASR_PACKAGE_KEY 不存在时自动生成、注册 secret 并
-      # 改写 App 内嵌密钥与测试常量;生成值写 0600 文件,本步 add-mask 后注入
-      # GITHUB_ENV(后续步骤与既有 secret 注入路径完全同源)。secret 已存在且
-      # 与内嵌一致 = 空操作;不一致 = 硬错(发布 App 解不开的包比红更糟)。
-      - name: 引导 ASR 包加密密钥（缺失时自动生成并注册 secret）
+      # 2026-10-05 业主指令:密钥引导为本地脚本(scripts/release/init_asr_secrets.py,
+      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
+      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
+      - name: 包加密密钥前置校验（必须有值）
         env:
-          ASR_ADMIN_TOKEN: ${{ secrets.ASR_ADMIN_TOKEN }}
+          ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
         run: |
-          key_file="$RUNNER_TEMP/asr-package-key"
-          python3 scripts/release/init_asr_secrets.py \
-            --repo "${{ github.repository }}" \
-            --key-out "$key_file"
-          if [ -f "$key_file" ]; then
-            key="$(cat "$key_file")"
-            echo "::add-mask::$key"
-            echo "ASR_PACKAGE_KEY=$key" >> "$GITHUB_ENV"
-            rm -f "$key_file"
+          if [ -z "$ASR_PACKAGE_KEY" ]; then
+            echo "::error::ASR_PACKAGE_KEY 缺失/为空——无法构建加密包。本地执行 python3 scripts/release/init_asr_secrets.py --repo robinhoo1973/Vita-Liber 引导后重跑" >&2
+            exit 1
           fi
 
-      # 生成过密钥的运行:把两处内嵌值写回仓库并推送;推送失败 = 硬红(secret
-      # 已注册但内嵌值未入库,下一次运行仍会红——恢复 = 删除 secret 后重跑,
-      # 或人工提交本次运行 checkout 里的两个文件)。
-      - name: 写回自动生成的 App 内嵌密钥
+      # 2026-10-05 审查修复:CNB_RESOURCE_TOKEN required 降级后,硬红语义在此
+      # 显式落回——startup_failure 换成带日志的 job 内硬错(快速失败,不烧
+      # 构建分钟)。
+      - name: 发布前置校验（publish=true 必须有 CNB 令牌）
+        if: ${{ inputs.publish }}
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
         run: |
-          if git diff --quiet -- CoreKit/Sources/Infrastructure/ASRPackageCrypto.swift \
-                                scripts/release/test-asr-package-integrity.py; then
-            echo "内嵌密钥未变化——无需写回"
-            exit 0
+          if [ -z "$CNB_TOKEN" ]; then
+            echo "::error::publish=true 但 CNB_RESOURCE_TOKEN 缺失/为空——新签名目录将永远进不了 CNB inventory（比红更糟的静默坏）；补建 secret 后重跑" >&2
+            exit 1
           fi
-          git config user.name "VitaLiber ASR CI"
-          git config user.email "noreply@github.com"
-          git add CoreKit/Sources/Infrastructure/ASRPackageCrypto.swift \
-                  scripts/release/test-asr-package-integrity.py
-          git commit -m "chore(asr): embed CI-provisioned ASR package key
-
-          Co-Authored-By: Claude Code <noreply@anthropic.com>"
-          git push origin HEAD
 
       - name: 校验构建、签名及版本规则
         run: |

@@ -86,17 +86,11 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish
 
 下载包加密主密钥与 App 内嵌 `ASRPackageCrypto.masterKeyHex` 同值；`test-asr-package-integrity.py` 断言三处一致（CI secret / App 内嵌 / 测试常量），漏改任何一侧 CI 即红。
 
-**引导（一次性，全自动）**：唯一需人工预置的 secret 是 `ASR_ADMIN_TOKEN`——具有 Actions secrets 读写权限的管理 PAT。此后任意一次 `workflow_dispatch` 运行：
+**引导（本地脚本，一次性）**：`gh auth login` 后执行 `python3 scripts/release/init_asr_secrets.py --repo robinhoo1973/Vita-Liber`——自动生成 32 字节密钥、注册 `ASR_PACKAGE_KEY` secret、改写 App 内嵌常量与测试常量；随后提交推送两处改写。CI 不参与生成与注册，只在「包加密密钥前置校验」步判断有值（缺失/为空 = 带日志硬错）。
 
-1. secret 不存在 → `scripts/release/init_asr_secrets.py` 自动生成 32 字节密钥：注册 `ASR_PACKAGE_KEY` secret、改写 App 内嵌常量与测试常量；
-2. workflow 用 `GITHUB_TOKEN` 把两处改写提交并推送回默认分支；
-3. 若推送被分支保护挡住（运行硬红）：删除 `ASR_PACKAGE_KEY` secret 后重跑即可（此时尚未发布任何包，无损失）。
+**轮换语义**：删除 secret 后重跑脚本 = 新密钥。旧密钥加密的已发布包对新 App 全部不可解，必须随后全量重发布（新目录版本 + 全部包重加密）；因此除非密钥泄露，否则不轮换。secret 已存在但与内嵌值不一致时同样硬错（发布 App 解不开的包比红更糟）——恢复路径同上：删除 secret 后重跑自动对齐。
 
-secret 已存在但与内嵌值不一致时同样硬红（发布 App 解不开的包比红更糟）——恢复路径同上：删除 secret 后重跑自动对齐。
-
-**轮换语义**：删除 secret 后重跑 = 新密钥。旧密钥加密的已发布包对新 App 全部不可解，必须随后全量重发布（新目录版本 + 全部包重加密）；因此除非密钥泄露，否则不轮换。
-
-**签名密钥例外**：`ASR_SIGNING_KEYS_JSON` 不做 CI 自动生成——目录签名私钥与提交入仓的信任根强耦合（新密钥必须伴随新根 envelope 人工提交，否则 App 拒绝候选目录），保持 `generate-asr-signing-keys.py` 本地生成 + 人工提交的流程。
+**签名密钥例外**：`ASR_SIGNING_KEYS_JSON` 不做自动生成——目录签名私钥与提交入仓的信任根强耦合（新密钥必须伴随新根 envelope 人工提交，否则 App 拒绝候选目录），保持 `generate-asr-signing-keys.py` 本地生成 + 人工提交的流程。
 
 ## 验证边界
 
@@ -104,5 +98,5 @@ secret 已存在但与内嵌值不一致时同样硬红（发布 App 解不开�
 
 ## 变更记录
 
-- V1.1（2026-10-05）：ASR_PACKAGE_KEY CI 自动引导（ASR_ADMIN_TOKEN 唯一人工预置；生成 → 注册 secret → 改写内嵌密钥 → 写回推送）+ 轮换语义与签名密钥例外说明；签名流程更新为 CI 候选签名 + 人工提交目录。
+- V1.1（2026-10-05）：ASR_PACKAGE_KEY 本地脚本引导（`init_asr_secrets.py`：生成 → 注册 secret → 改写内嵌密钥，CI 只做有值校验）+ 轮换语义与签名密钥例外说明；签名流程更新为 CI 候选签名 + 人工提交目录；`workflow_call.secrets` 的 `required: true` 降级为 job 内前置校验（消除无日志 startup_failure 族）。
 - V1.0（2026-09-12）：Releases-only、version.txt、独立/可调用 ASR 构建、runner 临时产物与签名动态更新合同。
