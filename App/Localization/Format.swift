@@ -284,6 +284,18 @@ extension L10n {
         }
     }
 
+    /// 生理性别展示映射（2026-10-05 业主反馈：Health 候选行直显 male/female/other）——
+    /// 数据层 canonical 值不变（HealthKitReader V3.71 透传纪律），呈现与 onboarding
+    /// 三键同源（同一呈现值单一出口）；未知值如实透传（不臆断）。
+    static func healthGenderValue(_ raw: String) -> String {
+        switch raw {
+        case "male": return onboardGenderMale
+        case "female": return onboardGenderFemale
+        case "other": return onboardGenderOther
+        default: return raw
+        }
+    }
+
     static func memberRelationDisplayName(_ raw: String) -> String {
         switch raw {
         case "本人": return member_relationSelf

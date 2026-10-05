@@ -489,6 +489,12 @@ struct DeviceConnectionView: View {
                 candidates: deviceState.characteristicCandidates,
                 adoptingField: adoptingField,
                 fieldLabel: fieldLabel(_:),
+                valueText: { field, raw in
+                    switch field {
+                    case .gender: return L10n.healthGenderValue(raw)   // male/female/other → 本地化
+                    case .bloodType, .birthDate: return raw            // ABO/Rh 符号与 yyyy-MM-dd 为跨语言标准形
+                    }
+                },
                 onAdopt: { adopt($0) }
             )
         }

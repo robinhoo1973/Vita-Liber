@@ -17,6 +17,10 @@ struct HealthCharacteristicCandidateSectionView: View {
     let candidates: [HealthCharacteristicImport.Candidate]
     let adoptingField: HealthCharacteristicImport.Field?
     let fieldLabel: (HealthCharacteristicImport.Field) -> String
+    /// 值展示映射（2026-10-05 业主反馈：性别 canonical male/female/other 直显英文）——
+    /// 展示层单一出口（V3.71 纪律，同 memberRelationDisplayName 先例）；
+    /// 数据层 canonical 值不变，仅呈现本地化。
+    let valueText: (HealthCharacteristicImport.Field, String) -> String
     let onAdopt: (HealthCharacteristicImport.Candidate) -> Void
 
     var body: some View {
@@ -26,7 +30,7 @@ struct HealthCharacteristicCandidateSectionView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(fieldLabel(candidate.field))
                         if let existing = candidate.existing {
-                            Text(L10n.healthCandidateExisting(existing))
+                            Text(L10n.healthCandidateExisting(valueText(candidate.field, existing)))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -37,7 +41,7 @@ struct HealthCharacteristicCandidateSectionView: View {
                             .disabled(adoptingField == candidate.field)
                             .accessibilityIdentifier("SP-29.health.candidate.adopt.\(candidate.field.rawValue)")
                     } else {
-                        Text(candidate.proposed).foregroundStyle(.secondary)
+                        Text(valueText(candidate.field, candidate.proposed)).foregroundStyle(.secondary)
                     }
                 }
                 .frame(minHeight: 44)
