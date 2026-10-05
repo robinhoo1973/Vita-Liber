@@ -24,8 +24,22 @@ struct MetricOverviewView: View {
         WithPerceptionTracking {
             Group {
                 if state.latestMetrics.isEmpty {
-                    VLUnavailableView(L10n.metricOverviewEmpty, systemImage: "waveform.path.ecg",
-                                           description: Text(L10n.metricOverviewEmptyHint))
+                    VLUnavailableView {
+                        Label(L10n.metricOverviewEmpty, systemImage: "waveform.path.ecg")
+                    } description: {
+                        Text(L10n.metricOverviewEmptyHint)
+                    } actions: {
+                        // 2026-10-05 业主反馈：去掉右上角增加按钮后，新用户空态仍须
+                        // 能发起第一条记录（§5.45 空态引导约束；语音非人人可用）。
+                        Button {
+                            router.navigate(to: .metricQuickEntry)
+                        } label: {
+                            Label(L10n.metricOverviewAdd, systemImage: "plus")
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("SP-13.overview.empty.quickEntry")
+                    }
                         .accessibilityIdentifier("SP-13.overview.empty")
                 } else {
                     ScrollView {
@@ -67,6 +81,9 @@ struct MetricOverviewView: View {
             .navigationTitle(L10n.metricOverviewTitle)
             .toolbar {
                 // §5.13 [按住说话] 顶部常驻（老年模式默认路径）——转写→确认→预填录入
+                // 2026-10-05 业主反馈：去掉右上角 [录入] 增加按钮（导航栏单主行动；
+                // 手输入口仍在时间轴/语音面板，空态保留引导按钮）——
+                // 路由 metricQuickEntry 保留：语音确认流仍落它（FR17.13）。
                 ToolbarItem(placement: .topBarTrailing) {
                     VoiceDictationButton { text, confidence in
                         let drafts = VoiceStructuringEngine.extractMetric(
@@ -77,18 +94,6 @@ struct MetricOverviewView: View {
                                 : drafts)
                     }
                     .frame(width: 96)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    // round2 ⑤b：plus 图标裸按钮无文案、与 [按住说话] 同目的地双入口——
-                    // 改带文案次级描边按钮（主行动唯一性：语音按钮为主）。
-                    Button {
-                        router.navigate(to: .metricQuickEntry)
-                    } label: {
-                        Label(L10n.metricOverviewAdd, systemImage: "plus")
-                            .labelStyle(.titleAndIcon)
-                    }
-                    .buttonStyle(.bordered)
-                    .accessibilityIdentifier("SP-13.overview.quickEntry")
                 }
             }
             .onAppear { routeMonitor.start() }
@@ -141,14 +146,16 @@ struct MetricTile: View {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     // 医学数值显示单一出口（审查修复：此前内联 .formatted，
                     // 与趋势页 oneDecimal 双规则漂移——同一值宫格显示 62、
-                    // 趋势页显示 62.0）；大数字字号收敛 VLFont 令牌
-                    Text(MedicalNumberFormat.quantity(item.value))
+                    // 趋势页显示 62.0）；2026-10-05 业主反馈修复批：位数定义
+                    // 收敛 `MedicalNumberFormat.metricDisplay`（MetricType 键控表，
+                    // 默认 2 位——「小数位数有个定义的地方」）。大数字字号收敛 VLFont 令牌。
+                    Text(MedicalNumberFormat.metricDisplay(item.value, metric: MetricType(rawValue: item.metricKey)))
                         .font(VLFont.metricTileValue)
                         .monospacedDigit()
                     // 血压双值变体（ui-ux 4.10：收缩压/舒张压同瓦片）
                     if let secondary = item.secondaryValue,
                        MetricType(rawValue: item.metricKey) == .bloodPressureSys {
-                        Text("/ \(MedicalNumberFormat.quantity(secondary))")
+                        Text("/ \(MedicalNumberFormat.metricDisplay(secondary, metric: .bloodPressureDia))")
                             .font(VLFont.metricTileValue)
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
@@ -157,6 +164,11 @@ struct MetricTile: View {
                         Text(unit).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                // 2026-10-05 业主反馈修复批（瓦片等高）：值行是四槽骨架唯一无 lineLimit 的槽——
+                // 长值（血压双值+单位）换行撑高瓦片，行间/屏间高低差即由此而来。缩放是
+                // 布局手段，不触 §10/§3.3 缩放禁令（该禁令约束 scaleEffect 按压/持续动效）。
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 // 2026-10-03 评审 R1-4：4 处 caption2 元信息压 2 行——聚合与来源并入一行
                 // （设备来源以「设备」前缀标注），一瞥只给 值/方向/来源/时间
                 // （iOS 27.2 Health 改版同向的「信息分层收敛」，迁移的是分层非控件）。
@@ -200,12 +212,13 @@ struct MetricTile: View {
         }
     }
 
-    /// 朗读值（血压双值/单位同视觉行——纯事实，无判断词）
+    /// 朗读值（血压双值/单位同视觉行——纯事实，无判断词）；
+    /// 2026-10-05：与可见文本同用 metricDisplay 出口（同 oneDecimal 纪律——二者不得漂移）。
     private var accessibilityValue: String {
-        var s = MedicalNumberFormat.quantity(item.value)
+        var s = MedicalNumberFormat.metricDisplay(item.value, metric: MetricType(rawValue: item.metricKey))
         if let secondary = item.secondaryValue,
            MetricType(rawValue: item.metricKey) == .bloodPressureSys {
-            s += " / \(MedicalNumberFormat.quantity(secondary))"
+            s += " / \(MedicalNumberFormat.metricDisplay(secondary, metric: .bloodPressureDia))"
         }
         if let unit = item.unit, !unit.isEmpty { s += " \(unit)" }
         return s

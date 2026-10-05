@@ -700,6 +700,34 @@ struct MedicalNumberFormatTests {
         #expect(!MedicalNumberFormat.oneDecimal(1.5).contains(","))
         #expect(!MedicalNumberFormat.quantity(1.5).contains(","))
     }
+
+    /// 2026-10-05 业主反馈修复批（第 4 项）：指标读数小数位数的单一定义处，默认 2 位。
+    @Test func metricDisplayDefaultsToTwoDigits() {
+        #expect(MedicalNumberFormat.defaultMetricDigits == 2)
+        // 默认 2 位（体重与未来新指标）：补零到定义位数，不再由数值大小决定
+        #expect(MedicalNumberFormat.metricDisplay(62, metric: .weight) == "62.00")
+        #expect(MedicalNumberFormat.metricDisplay(3.14159, metric: .weight) == "3.14")
+        #expect(MedicalNumberFormat.metricDisplay(3.1, metric: .weight) == "3.10")
+        #expect(MedicalNumberFormat.metricDisplay(-0.004, metric: .weight) == "-0.00")
+        #expect(MedicalNumberFormat.metricDisplay(1e6, metric: nil) == "1000000.00", "不得科学计数（%g 边界回归）")
+    }
+
+    /// 2026-10-05 业主反馈修复批（第 4 项）：例外表按「显示精度 ≤ 测量精度」收敛。
+    @Test func metricDisplayHonorsPerMetricDigits() {
+        // 整数类量纲 0 位
+        #expect(MedicalNumberFormat.metricDisplay(72, metric: .heartRate) == "72")
+        #expect(MedicalNumberFormat.metricDisplay(72.4568, metric: .heartRate) == "72")
+        #expect(MedicalNumberFormat.metricDisplay(120, metric: .bloodPressureSys) == "120")
+        #expect(MedicalNumberFormat.metricDisplay(80, metric: .bloodPressureDia) == "80")
+        #expect(MedicalNumberFormat.metricDisplay(9800, metric: .steps) == "9800")
+        #expect(MedicalNumberFormat.metricDisplay(16, metric: .respiratoryRate) == "16")
+        #expect(MedicalNumberFormat.metricDisplay(58, metric: .restingHeartRate) == "58")
+        // 1 位惯例量纲
+        #expect(MedicalNumberFormat.metricDisplay(36.62, metric: .temperature) == "36.6")
+        #expect(MedicalNumberFormat.metricDisplay(98, metric: .bloodOxygen) == "98.0")
+        #expect(MedicalNumberFormat.metricDisplay(5.63, metric: .glucose) == "5.6")
+        #expect(MedicalNumberFormat.metricDisplay(7.42, metric: .sleepTotal) == "7.4")
+    }
 }
 
 // binds: 审查修复锚点（2026-09-07 全源码轮）——新增 Domain 单一事实源断言

@@ -23,4 +23,32 @@ public enum MedicalNumberFormat: Sendable {
     public static func quantity(_ v: Double) -> String {
         String(format: "%g", v)
     }
+
+    /// 指标读数小数位数的**单一定义处**（2026-10-05 业主反馈修复批：默认 2 位）。
+    /// 无任何处内联精度——视图与无障碍标签一律经 `metricDisplay` 取数。
+    public static let defaultMetricDigits = 2
+
+    /// 指标 → 显示位数（例外表）。默认 2 位（业主口径）；例外按
+    /// 「显示精度 ≤ 测量精度」收敛（数据诚实纪律，ui-ux §5.45）：
+    /// 整数类量纲（心率/呼吸/步数/血压）0 位；1 位惯例量纲（体温/血氧/
+    /// 血糖/睡眠时长族）1 位。表即「定义的地方」——业主若坚持全 2 位，
+    /// 删表即整体回退，调用面零改动。
+    public static func metricDigits(_ metric: MetricType?) -> Int {
+        switch metric {
+        case .bloodPressureSys, .bloodPressureDia, .heartRate, .restingHeartRate,
+             .respiratoryRate, .steps:
+            return 0
+        case .temperature, .bloodOxygen, .glucose,
+             .sleepTotal, .sleepDeep, .sleepREM, .sleepAwake, .sleepCore, .sleepUnspecified:
+            return 1
+        case .weight, nil:
+            return defaultMetricDigits
+        }
+    }
+
+    /// 指标读数显示（固定小数位；同 `oneDecimal` 纪律：可见文本与无障碍
+    /// 标签必须共用本出口，二者才不可能漂移）。
+    public static func metricDisplay(_ value: Double, metric: MetricType?) -> String {
+        String(format: "%.\(metricDigits(metric))f", value)
+    }
 }

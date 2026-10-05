@@ -1085,7 +1085,7 @@
 "metric.overview.title" = "指标";
 "metric.overview.add" = "录入";
 "metric.overview.empty" = "还没有指标记录";
-"metric.overview.emptyHint" = "点右上角 + 快速录入第一条自测读数";
+"metric.overview.emptyHint" = "点下方按钮录入第一条自测读数，或按住说话开始记录";
 "showcase.title" = "给医生看";
 "showcase.exit" = "退出展示";
 "showcase.empty" = "暂无观察记录";

@@ -1085,7 +1085,7 @@
 "metric.overview.title" = "Metrics";
 "metric.overview.add" = "Log";
 "metric.overview.empty" = "No metrics yet";
-"metric.overview.emptyHint" = "Tap + to record your first reading";
+"metric.overview.emptyHint" = "Tap the button below to record your first reading, or hold to talk";
 "showcase.title" = "Show Doctor";
 "showcase.exit" = "Exit";
 "showcase.empty" = "No observations yet";
