@@ -14,6 +14,10 @@ on:
       # (跳过发布 = 新签名目录从未进 CNB inventory,比红更糟的静默坏)。
       CNB_RESOURCE_TOKEN:
         required: true
+      # 2026-10-05 业主指令:目录签名密钥入 secrets(轮换时生成候选签名目录,
+      # 人工提交后再跑验证链)——缺失只跳过候选签名,不阻断构建/验证。
+      ASR_SIGNING_KEYS_JSON:
+        required: false
     outputs:
       bundle_artifact:
         description: App 离线基线模型资源
@@ -83,6 +87,25 @@ jobs:
           python3 scripts/release/fetch-asr-models.py \
             --root "$RUNNER_TEMP/asr-packages/bundle/ASRModels" --check
 
+      - name: 生成候选签名目录（轮换时人工提交后进验证链）
+        if: ${{ inputs.publish }}
+        env:
+          ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
+        run: |
+          if [ -z "$ASR_SIGNING_KEYS_JSON" ]; then
+            echo "ASR_SIGNING_KEYS_JSON 未注入——跳过候选签名（目录不变无需轮换）"
+            exit 0
+          fi
+          root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
+          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/catalog.json"))["payload"]))["catalogVersion"] + 1)')
+          python3 scripts/release/sign-asr-catalog.py \
+            --root Resources/ModelTrustRoot.json \
+            --index "$RUNNER_TEMP/asr-packages/index.json" \
+            --root-version "$root_version" \
+            --catalog-version "$catalog_version" \
+            --output "$RUNNER_TEMP/asr-packages/candidate-catalog.json"
+          echo "candidate-catalog.json 已生成（catalogVersion=$catalog_version）——下载本步产物、核对后提交 Resources/ASRModelUpdates/catalog.json 与版本化副本"
+
       - name: 核对公开签名与实际生成的包索引
         if: ${{ inputs.publish }}
         run: |
@@ -105,6 +128,7 @@ jobs:
           path: |
             ${{ runner.temp }}/asr-packages/index.json
             ${{ runner.temp }}/asr-packages/package-validation.json
+            ${{ runner.temp }}/asr-packages/candidate-catalog.json
           retention-days: 7
           if-no-files-found: error
 

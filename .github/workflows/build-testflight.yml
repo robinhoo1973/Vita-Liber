@@ -121,6 +121,7 @@ jobs:
       contents: read
     secrets:
       CNB_RESOURCE_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
+      ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
     with:
       publish: true
 
