@@ -23,6 +23,7 @@ struct HealthTabView: View {
     @Environment(F16DeviceState.self) private var deviceState
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppDataChangeCenter.self) private var dataChange
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
         WithPerceptionTracking {
@@ -164,11 +165,26 @@ struct HealthTabView: View {
                         }
                     }
                 }
-                NavigationLink(value: AppRoute.deviceConnection) {
-                    Label(L10n.f16Title, systemImage: "arrow.triangle.2.circlepath")
-                        .frame(minHeight: 44)
+                // 2026-10-05 业主反馈修复批（第 3 项）：原「健康设备与数据」信息卡
+                // 替换为**立即同步**主行动按钮——已连接用户一键同步（本页与 SP-29
+                // 消费同一 F16DeviceState 状态机，不复制第二写面）；管理入口降级为
+                // footer 次级链接（SP-29 承载授权/开关/写回区，入口不可删除——
+                // ADR-021「状态源唯一、触点可多」增补）。首次同步（未连接）由
+                // pageBody 的 .notConnected 分支引导到 SP-29 开始认证。
+                Button {
+                    if deviceState.connected {
+                        Task { await syncNow() }
+                    } else {
+                        router.navigate(to: .deviceConnection)
+                    }
+                } label: {
+                    Label(deviceState.isSyncing ? L10n.f16Syncing : L10n.f16SyncNow,
+                          systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .accessibilityIdentifier("SP-29.health.home.manage")
+                .buttonStyle(.borderedProminent)
+                .disabled(deviceState.isSyncing)
+                .accessibilityIdentifier("SP-29.health.home.syncNow")
             }
         } header: { Text(L10n.healthImportedData) } footer: {
             VStack(alignment: .leading, spacing: 4) {
@@ -179,8 +195,24 @@ struct HealthTabView: View {
                 Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? L10n.commonMember))
                     .accessibilityIdentifier("SP-29.health.home.importSubject")
                 Text(L10n.healthImportedDataHint)
+                // 管理入口（2026-10-05 迁入 footer）：保留原标识不破既有 XCUITest 契约。
+                NavigationLink(value: AppRoute.deviceConnection) {
+                    Text(L10n.f16Title)
+                        .font(.footnote)
+                        .frame(minHeight: 44)
+                }
+                .accessibilityIdentifier("SP-29.health.home.manage")
             }
         }
+    }
+
+    /// 手动同步（与 SP-29 同一状态机与参数口径——quiet hours 经 SettingsRules 解析，
+    /// userInitiated=true 走 iOS 26 continued processing 后台续跑通道）。
+    private func syncNow() async {
+        await deviceState.sync(authEnabled: healthEnabled,
+            quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
+            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd),
+            userInitiated: true)
     }
 
     // MARK: - 检索与总览入口
