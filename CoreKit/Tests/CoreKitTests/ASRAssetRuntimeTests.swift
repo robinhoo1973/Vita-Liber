@@ -5,7 +5,7 @@ import Testing
 @testable import Domain
 @testable import Infrastructure
 
-@Suite("ASR 完整资源运行时校验")
+@Suite("ASR 完整资源运行时校验", .serialized)
 struct ASRAssetRuntimeTests {
     /// 原名：在用模型租约阻止删除目录
     @Test func activeModelLeasePreventsDirectoryRemoval() throws {
@@ -24,6 +24,15 @@ struct ASRAssetRuntimeTests {
     @Test(arguments: [VoiceEngineChoice.qwen3, .dolphin, .whisper])
     /// 原名：模型与VAD的说明文件均验证而不冲突
     func modelAndVADManifestsVerifyWithoutConflict(_ choice: VoiceEngineChoice) throws {
+        // 2026-10-06 macOS CI 37350981011 实证:测试宿主 bundle 无 App 资源,
+        // 共享信任库无种子 → routingIndex() 恒 nil → 校验目录描述符闸恒
+        // engineUnavailable。注入含本测试全部 choice 的签名目录夹具
+        // (SignedModelCatalogTests.Fixture 恰为 qwen3/zipformer/dolphin/whisper)。
+        let fixture = try Fixture()
+        let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
+        let seededIndex = try store.acceptCatalog(fixture.catalog(version: 1))
+        ASRFamilyIndexStore.routingIndexOverride = seededIndex
+        defer { ASRFamilyIndexStore.routingIndexOverride = nil }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) } // try?-ok: 隔离校验夹具清理

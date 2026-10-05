@@ -72,8 +72,14 @@ public enum SpeechSynthesisFactory: EngineFactory {
 /// 路由目录快照（2026-10-05 业主裁定：模型信息全由 CI 生成的签名目录 JSON 提供）——
 /// 已验签 currentIndex 优先、回落随包基线（离线优先：无网络/未检查更新时全部路由判定仍可用）。
 public enum ASRFamilyIndexStore {
+    /// 测试注入缝(2026-10-06 macOS CI 37350981011 实证):swift test 进程无 Bundle
+    /// 资源,共享信任库无种子,routingIndex() 恒 nil → 资产校验的目录描述符闸
+    /// 恒 engineUnavailable。生产装配永不设置——App 启动经 ModelCatalogTrustStore
+    /// 引导真实目录/基线。unsafe 标注同 ValueBox 先例:写入面只在测试进程。
+    public nonisolated(unsafe) static var routingIndexOverride: ASRModelReleaseIndex?
+
     public static func routingIndex() -> ASRModelReleaseIndex? {
-        ModelCatalogTrustStore.shared.currentIndex ?? ModelCatalogTrustStore.shared.baselineIndex
+        routingIndexOverride ?? ModelCatalogTrustStore.shared.currentIndex ?? ModelCatalogTrustStore.shared.baselineIndex
     }
 }
 
