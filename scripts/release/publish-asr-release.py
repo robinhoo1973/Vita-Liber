@@ -18,6 +18,30 @@ import tempfile
 
 from asr_package import decode_json, json_bytes, validate_index, verify_packages
 from cnb_release import CNBReleaseClient, CNBReleaseError, UrllibCNBTransport
+import urllib.parse
+
+
+class PrefixRecordingTransport(UrllibCNBTransport):
+    """记录 PUT 上传宿主/路径(掩码),发布末尾打印一次——UPLOAD_PATH_PREFIX 数据源
+    (业主 2026-10-05 指令:根据 ASR 输出自行定义创建)。"""
+
+    def __init__(self):
+        super().__init__()
+        self.upload_url = None
+
+    def put(self, url, headers, file_path, size):
+        self.upload_url = url
+        return super().put(url, headers, file_path, size)
+
+
+def print_masked_upload_prefix(transport):
+    if transport.upload_url is None:
+        return
+    parsed = urllib.parse.urlsplit(transport.upload_url)
+    segments = [s for s in parsed.path.split("/") if s]
+    prefix = parsed.scheme + "://" + parsed.netloc + "/" + "/".join(segments[:2])
+    print("observed upload host: " + parsed.netloc, flush=True)
+    print("UPLOAD_PATH_PREFIX candidate: " + prefix, flush=True)
 from model_trust import payload, trusted_root, verify_catalog, verify_envelope
 
 TAG = "asr-models"
@@ -175,8 +199,10 @@ def main():
                 raise ValueError("--repository or CNB_RESOURCE_REPOSITORY is required")
             if not token:
                 raise ValueError("CNB_TOKEN is required for publish")
-            client = CNBReleaseClient(repository, token, UrllibCNBTransport())
+            transport = PrefixRecordingTransport()
+            client = CNBReleaseClient(repository, token, transport)
             publish(args, client)
+            print_masked_upload_prefix(transport)
         return 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, CNBReleaseError) as error:
         print(f"ASR-RELEASE-ERROR: {error}", file=sys.stderr)

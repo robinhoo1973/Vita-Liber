@@ -29,6 +29,25 @@ jobs:
         with:
           python-version: '3.13.5'
 
+      - name: 确保 CNB 仓有初始提交(空仓引导 README,定案 §2.1)
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git ls-remote "https://cnb.cool/${{ vars.CNB_RESOURCE_REPOSITORY }}.git" HEAD | grep -q .; then
+            echo "CNB repo already has commits; skipping bootstrap"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/cnb-bootstrap"
+          cp scripts/release/cnb-resource-repository-readme.md "$RUNNER_TEMP/cnb-bootstrap/README.md"
+          cd "$RUNNER_TEMP/cnb-bootstrap"
+          git init -q -b main
+          git -c user.name=vitaliber-ci -c user.email=ci@vitaliber.local add README.md
+          git -c user.name=vitaliber-ci -c user.email=ci@vitaliber.local commit -q -m "bootstrap resource-only repository"
+          git -c "credential.helper=!f() { echo username=robinhoo1973; echo password=$CNB_TOKEN; }; f" \
+              push -q "https://cnb.cool/${{ vars.CNB_RESOURCE_REPOSITORY }}.git" main:main
+          echo "CNB repo bootstrapped with README on branch main"
+
       - name: 校验并上传(asr-models:签名目录为期望源,旧索引为 GitHub 名映射)
         env:
           CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}

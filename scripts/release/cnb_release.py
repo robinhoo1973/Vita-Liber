@@ -202,7 +202,8 @@ class CNBReleaseClient:
             headers["Content-Type"] = "application/json"
         response = self.transport.request(method, url, headers, payload)
         if not 200 <= response.status < 300:
-            raise CNBReleaseError("CNB API %s %s failed with HTTP %d" % (method, path, response.status))
+            detail = response.body[:200].decode("utf-8", errors="replace") if response.body else ""
+            raise CNBReleaseError("CNB API %s %s failed with HTTP %d: %s" % (method, path, response.status, detail))
         return response
 
     def get_release(self, tag):
