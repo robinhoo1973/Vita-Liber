@@ -9,6 +9,8 @@ import tempfile
 import unittest
 import zipfile
 
+from asr_package import ASR_CATALOG_BUDGET_BYTES, MAX_PACKAGE, validate_index
+
 
 TOOLS = Path(__file__).resolve().parent
 ROLES = {
@@ -17,6 +19,8 @@ ROLES = {
     "dolphin": ["model", "tokens", "notice"],
     "whisper": ["encoder", "decoder", "tokens", "notice"],
 }
+# 与真实目录 index.json 的档位标注一致(2026-10-05 多档数据面)。
+VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small"}
 
 
 class PackageTests(unittest.TestCase):
@@ -37,9 +41,11 @@ class PackageTests(unittest.TestCase):
                              "tokens": ".txt", "merges": ".txt", "bpe": ".vocab"}.get(role, ".onnx")
                 files.append(self.file_entry(f"{model_id}/{role}{extension}", role, f"fixture:{model_id}:{role}".encode()))
             license_name = "MIT" if model_id == "whisper" else "Apache-2.0"
-            manifest["models"].append({"id": model_id, "revision": f"pinned-{model_id}",
+            manifest["models"].append({"id": model_id, "variant": VARIANTS[model_id],
+                                       "revision": f"pinned-{model_id}",
                                        "license": license_name, "files": files})
-            releases.append({"id": model_id, "version": "1.0.0", "builtAt": "20260912", "artifactRevision": 1,
+            releases.append({"id": model_id, "variant": VARIANTS[model_id], "version": "1.0.0",
+                             "builtAt": "20260912", "artifactRevision": 1,
                              "license": license_name, "minAppVersion": "0.0.1"})
         manifest["shared"] = [self.file_entry("silero/vad.onnx", "vad", b"vad"),
                               self.file_entry("silero/LICENSE", "notice", b"vad license")]
@@ -78,11 +84,14 @@ class PackageTests(unittest.TestCase):
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         receipt = json.loads((self.root / "receipt.json").read_text())
-        self.assertEqual(len(receipt["models"]), 4)
+        self.assertEqual(len(receipt["models"]), len(index["models"]))
         for model in index["models"]:
             with zipfile.ZipFile(self.output / model["url"]) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
-                self.assertEqual(manifest["models"][0]["revision"], "pinned-" + model["id"])
+                expected = next(m["revision"] for m in self.manifest["models"]
+                                if m["id"] == model["id"] and m.get("variant") == model.get("variant"))
+                self.assertEqual(manifest["models"][0]["revision"], expected)
+                self.assertEqual(manifest["models"][0].get("variant"), model.get("variant"))
                 if model["id"] != "zipformer":
                     self.assertIn("silero/LICENSE", archive.namelist())
 
@@ -195,6 +204,112 @@ class PackageTests(unittest.TestCase):
                                  "--repository", "fixture/app"], env=env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((target / "qwen3/encoder.onnx").read_bytes(), b"fixture:qwen3:encoder")
+
+
+class MultiVariantPackageTests(PackageTests):
+    """同家族多档管线回归:每家族两档(8 包),整套单档用例在 (id, variant) 形态下复跑。"""
+
+    def setUp(self):
+        super().setUp()
+        for model_id, roles in ROLES.items():
+            second = "small" if VARIANTS[model_id] != "small" else "medium"
+            files = []
+            for role in roles:
+                extension = {"notice": ".md", "vocab": ".json", "tokenizerConfig": ".json",
+                             "tokens": ".txt", "merges": ".txt", "bpe": ".vocab"}.get(role, ".onnx")
+                files.append(self.file_entry(f"{model_id}-{second}/{role}{extension}", role,
+                                             f"fixture:{model_id}:{second}:{role}".encode()))
+            license_name = "MIT" if model_id == "whisper" else "Apache-2.0"
+            self.manifest["models"].append({"id": model_id, "variant": second,
+                                            "revision": f"pinned-{model_id}-{second}",
+                                            "license": license_name, "files": files})
+        releases = []
+        for model in self.manifest["models"]:
+            releases.append({"id": model["id"], "variant": model["variant"], "version": "1.0.0",
+                             "builtAt": "20260912", "artifactRevision": 1,
+                             "license": model["license"], "minAppVersion": "0.0.1"})
+        self.index.write_text(json.dumps({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
+                                          "baseUrl": "https://github.com/fixture/app/releases/download/asr-models",
+                                          "models": releases}))
+        (self.source / "manifest.json").write_text(json.dumps(self.manifest))
+
+    def test_multi_variant_packages_get_distinct_names_and_receipts(self):
+        index = self.built_index()
+        self.assertEqual(len(index["models"]), 8)
+        urls = [m["url"] for m in index["models"]]
+        self.assertEqual(len(set(urls)), len(urls))
+        for model in index["models"]:
+            self.assertIn("-" + model["variant"] + "-", model["url"])
+        self.assertEqual(self.verify().returncode, 0)
+        receipt = json.loads((self.root / "receipt.json").read_text())
+        self.assertEqual(len(receipt["models"]), 8)
+        self.assertEqual({(m["id"], m["variant"]) for m in receipt["models"]},
+                         {(m["id"], m["variant"]) for m in index["models"]})
+
+
+class MultiVariantValidationTests(unittest.TestCase):
+    """validate_index 的多档规则单元面:身份/URL/档数/预算(2026-10-05 委员会)。"""
+
+    def base_index(self):
+        models = []
+        for model_id in ("qwen3", "zipformer", "dolphin", "whisper"):
+            models.append({"id": model_id, "variant": VARIANTS[model_id], "version": "1.0.0",
+                           "url": f"{model_id}-{VARIANTS[model_id]}.zip", "bytes": 123, "sha256": "a" * 64})
+        return {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "models": models}
+
+    def test_twelve_entry_catalog_is_accepted(self):
+        models = []
+        for model_id in ("qwen3", "zipformer", "dolphin", "whisper"):
+            for variant in ("small", "medium", "large"):
+                models.append({"id": model_id, "variant": variant, "version": "1.0.0",
+                               "url": f"{model_id}-{variant}.zip", "bytes": 123, "sha256": "a" * 64,
+                               "license": "MIT" if model_id == "whisper" else "Apache-2.0"})
+        validate_index({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "models": models})
+
+    def test_same_identity_across_variants_is_rejected(self):
+        index = self.base_index()
+        clone = dict(index["models"][0], url="qwen3-medium-other.zip")
+        index["models"].append(clone)
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_duplicate_url_across_entries_is_rejected(self):
+        index = self.base_index()
+        for model in index["models"]:
+            model["url"] = "same.zip"
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_unknown_variant_is_rejected(self):
+        index = self.base_index()
+        index["models"][0]["variant"] = "tiny"
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_four_tiers_per_family_is_rejected(self):
+        index = self.base_index()
+        index["models"].append(dict(index["models"][0], variant="small", url="extra.zip"))
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_missing_family_is_rejected(self):
+        index = self.base_index()
+        index["models"] = [m for m in index["models"] if m["id"] != "whisper"]
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_catalog_aggregate_budget_is_enforced(self):
+        index = self.base_index()
+        for model in index["models"]:
+            model["bytes"] = MAX_PACKAGE
+        with self.assertRaises(ValueError):
+            validate_index(index)
+        # 单包上限内但聚合超预算:预算常量才是多档目录的盖帽。
+        index = self.base_index()
+        for model in index["models"]:
+            model["bytes"] = ASR_CATALOG_BUDGET_BYTES // 4 + 1
+        with self.assertRaises(ValueError):
+            validate_index(index)
 
 
 if __name__ == "__main__":

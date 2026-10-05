@@ -14,6 +14,13 @@ ROLES = {
     "dolphin": {"model", "tokens"},
     "whisper": {"encoder", "decoder", "tokens"},
 }
+# 尺寸档位(FR17.15):每模型家族 1..3 档,上游缺档如实缺省(2026-10-05 委员会)。
+VARIANTS = {"small", "medium", "large"}
+MAX_TIERS_PER_MODEL = 3
+# 目录聚合预算:下载目录所有包 zip 字节合计的上限。ADR-023「2GB 资源预算」口径
+# 仅限随包基线(fetch-asr-models.py 断言),运行时下载目录此前无聚合闸——委员会
+# 2026-10-05 建议 4GiB(多档矩阵 ≈2.6GiB 有余量),值待业主裁定后可在本行收紧。
+ASR_CATALOG_BUDGET_BYTES = 4 * 1024**3
 MAX_PACKAGE = 2 * 1024**3 - 1
 MAX_EXPANDED = 4 * 1024**3
 MAX_MANIFEST = 1024**2
@@ -70,12 +77,33 @@ def validate_index(index, *, complete=True):
     if index.get("schemaVersion") != 1 or index.get("app") != "vitaliber" or index.get("assetKind") != "asr":
         raise ValueError("Unexpected ASR index scope/version")
     models = index.get("models", [])
-    if len(models) != 4 or {m["id"] for m in models} != MODELS:
-        raise ValueError("All four adopted ASR models are required")
+    # 四家族齐备,但每家族可为 1..3 档(variant 区分)——「每 id 一条」硬断言随
+    # 多档数据面退役(2026-10-05 委员会:身份键 = (id, version, artifactRevision, variant))。
+    if {m["id"] for m in models} != MODELS:
+        raise ValueError("All four adopted ASR model families are required")
+    for model_id in MODELS:
+        tiers = [m for m in models if m["id"] == model_id]
+        if not 1 <= len(tiers) <= MAX_TIERS_PER_MODEL:
+            raise ValueError("Model family tier count out of range: " + model_id)
+    identities, urls = set(), set()
     for model in models:
+        variant = model.get("variant")
+        if variant not in VARIANTS:
+            raise ValueError("Model variant must be small/medium/large: " + model["id"])
         slug(model["version"])
         if model.get("license") != ("MIT" if model["id"] == "whisper" else "Apache-2.0"):
             raise ValueError("Unexpected model license")
+        identity = (model["id"], model["version"], model.get("artifactRevision"), variant)
+        if identity in identities:
+            raise ValueError("Duplicate (id, version, artifactRevision, variant) entry")
+        identities.add(identity)
+        if model.get("url") is not None:
+            # 打包文件名含 variant 段后同串碰撞不可再发生;此处把碰撞从「后写覆盖」
+            # 升级为发布侧硬错(此前 validate_index 无跨条目 url 唯一性,静默互覆)。
+            # 构建模板期(complete=False)允许缺 url——build-asr-packages 随后按公式赋名。
+            if model["url"] in urls:
+                raise ValueError("Duplicate package URL across entries: " + model["url"])
+            urls.add(model["url"])
         if complete:
             if type(model.get("bytes")) is not int or not 0 < model["bytes"] <= MAX_PACKAGE:
                 raise ValueError("Invalid package byte count")
@@ -83,14 +111,19 @@ def validate_index(index, *, complete=True):
                 raise ValueError("A real package SHA-256 is required")
             if safe_path(model["url"]) != Path(model["url"]).name or not model["url"].endswith(".zip"):
                 raise ValueError("Package URL must be a relative ZIP filename")
+    if complete:
+        total = sum(m["bytes"] for m in models)
+        if total > ASR_CATALOG_BUDGET_BYTES:
+            raise ValueError("Catalog aggregate exceeds the download budget")
 
 
-def manifest_files(manifest, model_id):
+def manifest_files(manifest, model_id, variant=None):
     if manifest.get("formatVersion") != 1:
         raise ValueError("Unsupported model manifest")
-    matches = [m for m in manifest.get("models", []) if m["id"] == model_id]
+    matches = [m for m in manifest.get("models", [])
+               if m["id"] == model_id and m.get("variant") == variant]
     if len(matches) != 1:
-        raise ValueError("Missing or duplicate model in manifest: " + model_id)
+        raise ValueError("Missing or duplicate (model, variant) in manifest: " + model_id)
     model = matches[0]
     files = model.get("files", [])
     runtime = [f["role"] for f in files if f["role"] != "notice"]
@@ -149,9 +182,10 @@ def verify_package(model, directory):
         if "manifest.json" not in members or members["manifest.json"].file_size > MAX_MANIFEST:
             raise ValueError("Missing or oversized package manifest")
         manifest = decode_json(archive.read(members["manifest.json"]))
-        if len(manifest.get("models", [])) != 1 or manifest["models"][0].get("license") != model["license"]:
-            raise ValueError("Package model identity/license mismatch")
-        selected = manifest_files(manifest, model["id"])
+        if len(manifest.get("models", [])) != 1 or manifest["models"][0].get("license") != model["license"] \
+                or manifest["models"][0].get("variant") != model.get("variant"):
+            raise ValueError("Package model identity/license/variant mismatch")
+        selected = manifest_files(manifest, model["id"], model.get("variant"))
         allowed = {item["path"] for item in selected} | ROOT_FILES
         if set(members) - allowed:
             raise ValueError("Undeclared ZIP payload")
@@ -177,7 +211,8 @@ def verify_package(model, directory):
             if members[name].file_size > MAX_MANIFEST:
                 raise ValueError("Oversized package metadata")
             archive.read(members[name])
-        return {"id": model["id"], "version": model["version"], "url": model["url"],
+        return {"id": model["id"], "version": model["version"], "variant": model["variant"],
+                "url": model["url"],
                 "bytes": model["bytes"], "sha256": model["sha256"], "expandedBytes": total,
                 "files": [{k: f[k] for k in ("role", "path", "bytes", "sha256")} for f in selected]}
 

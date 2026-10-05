@@ -11,6 +11,8 @@ import tarfile
 import shutil
 import time
 
+from asr_package import MODELS, VARIANTS
+
 # 仓库根探测:从脚本所在目录逐级向上找 CoreKit/Sources/Domain 锚点
 # (与 l0-container-id-mask.py 同纪律——禁止按固定层级假设;
 # 2026-09-12 实证 parents[N] 随脚本位置漂移会静默扫错目录)
@@ -116,7 +118,8 @@ def extract_parts(root, archive_path, config):
 
 
 def ensure_archive(root, model, previous, check_only):
-    old = next((item for item in previous.get("models", []) if item["id"] == model["id"]), None)
+    old = next((item for item in previous.get("models", [])
+                if item["id"] == model["id"] and item.get("variant") == model.get("variant")), None)
     if old and old.get("archive", {}).get("sha256") == model["archive"]["sha256"] and old["files"]:
         expected = {(item["role"], item["path"]) for item in model["archive"]["parts"]}
         actual = {(item["role"], item["path"]) for item in old["files"]}
@@ -164,11 +167,25 @@ def main():
     # A signed App can explicitly ship the offline Zipformer baseline while larger models
     # are installed from Releases. Check every declared bundled model; never silently skip it.
     bundled = manifest.get("bundledModels") if args.check else None
-    if bundled is not None and (not isinstance(bundled, list) or "zipformer" not in bundled
-                                or len(set(bundled)) != len(bundled)
-                                or not set(bundled) <= {"qwen3", "zipformer", "dolphin", "whisper"}):
-        raise ValueError("Invalid bundled ASR profile")
-    selected = [model for model in manifest["models"] if bundled is None or model["id"] in bundled]
+    pairs = None
+    if bundled is not None:
+        # bundledModels 按 (id, variant) 声明(2026-10-05):源清单多档化后随包
+        # 只取声明的档位;遗留字符串形态等价 (id, None),仅匹配无 variant 键的旧清单。
+        if not isinstance(bundled, list) or not bundled:
+            raise ValueError("Invalid bundled ASR profile")
+        pairs = set()
+        for entry in bundled:
+            if isinstance(entry, str):
+                pairs.add((entry, None))
+            elif isinstance(entry, dict) and isinstance(entry.get("id"), str) and entry.get("variant") in VARIANTS:
+                pairs.add((entry["id"], entry["variant"]))
+            else:
+                raise ValueError("Invalid bundledModels entry")
+        if len(pairs) != len(bundled) or not {pair[0] for pair in pairs} <= MODELS \
+                or "zipformer" not in {pair[0] for pair in pairs}:
+            raise ValueError("Invalid bundled ASR profile")
+    selected = [model for model in manifest["models"]
+                if pairs is None or (model["id"], model.get("variant")) in pairs]
     shared = manifest["shared"] if any(model["id"] != "zipformer" for model in selected) else []
     entries = [entry for model in selected for entry in model["files"]] + shared
     validate_entries(entries)

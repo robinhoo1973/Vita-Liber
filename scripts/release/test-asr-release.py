@@ -9,13 +9,16 @@ import unittest
 
 TOOL = Path(__file__).with_name("publish-asr-release.py")
 
+VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small"}
+
 
 class PublicationTests(unittest.TestCase):
     def plan(self, assets):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             index = {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "models": [
-                {"id": m, "version": "1.0.0", "url": m + ".zip", "bytes": 123, "sha256": "a" * 64,
+                {"id": m, "variant": VARIANTS[m], "version": "1.0.0", "url": m + ".zip",
+                 "bytes": 123, "sha256": "a" * 64,
                  "license": "MIT" if m == "whisper" else "Apache-2.0"}
                 for m in ["qwen3", "zipformer", "dolphin", "whisper"]]}
             (root / "index.json").write_text(json.dumps(index))

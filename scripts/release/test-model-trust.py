@@ -50,7 +50,8 @@ class TrustTests(unittest.TestCase):
                              "assetBaseURL": "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models",
                              "allowedHosts": ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]}
         index = {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr", "baseUrl": self.root_payload["assetBaseURL"],
-                 "models": [{"id": m, "version": "1.0.0", "url": m + ".zip", "bytes": 123, "sha256": "a" * 64,
+                 "models": [{"id": m, "variant": {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small"}[m],
+                             "version": "1.0.0", "url": m + ".zip", "bytes": 123, "sha256": "a" * 64,
                              "expandedBytes": 456, "packaging": "zip", "minAppVersion": "0.0.1", "runtime": "sherpa-onnx-1.13.4",
                              "license": "MIT" if m == "whisper" else "Apache-2.0"}
                             for m in ["qwen3", "zipformer", "dolphin", "whisper"]]}

@@ -18,7 +18,10 @@ def materialize(index_path, directory, source_manifest, root):
     pins = decode_json(raw)
     resolved = copy.deepcopy(pins)
     for release in index["models"]:
-        pin = next(m for m in resolved["models"] if m["id"] == release["id"])
+        pin = next((m for m in resolved["models"]
+                    if m["id"] == release["id"] and m.get("variant") == release.get("variant")), None)
+        if pin is None:
+            raise ValueError("Pinned manifest has no entry for (id, variant): " + release["id"])
         with zipfile.ZipFile(directory / release["url"]) as archive:
             package = decode_json(archive.read("manifest.json"))
             model = package["models"][0]
@@ -37,7 +40,7 @@ def materialize(index_path, directory, source_manifest, root):
             if [(f["path"], f["sha256"], f["bytes"]) for f in package.get("shared", [])] != [
                     (f["path"], f["sha256"], f["bytes"]) for f in shared]:
                 raise ValueError("Release VAD does not match pinned source")
-            for item in manifest_files(package, release["id"]):
+            for item in manifest_files(package, release["id"], release.get("variant")):
                 destination = root / item["path"]
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 if not destination.resolve().is_relative_to(root.resolve()) or destination.is_symlink():

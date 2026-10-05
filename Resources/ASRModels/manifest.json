@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "models": [
     {
-      "id":"qwen3", "license":"Apache-2.0", "revision":"0.6B-int8-2026-03-25",
+      "id":"qwen3", "variant":"medium", "license":"Apache-2.0", "revision":"0.6B-int8-2026-03-25",
       "source":"https://github.com/QwenLM/Qwen3-ASR", "files":[],
       "archive": {
         "url":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
@@ -21,7 +21,7 @@
       }
     },
     {
-      "id": "zipformer", "license": "Apache-2.0", "revision": "98590b7ed6443e77b714204da2757d75e1a642f4",
+      "id": "zipformer", "variant": "large", "license": "Apache-2.0", "revision": "98590b7ed6443e77b714204da2757d75e1a642f4",
       "source": "https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed",
       "files": [
         {"role":"encoder","path":"zipformer/encoder-epoch-99-avg-1.int8.onnx","bytes":181895032,"sha256":"8fa764187a261844f859d7143ebaa563af5d10adfece4c18a8f414c88cba2a9b","url":"https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20/resolve/98590b7ed6443e77b714204da2757d75e1a642f4/encoder-epoch-99-avg-1.int8.onnx"},
@@ -33,7 +33,7 @@
       ]
     },
     {
-      "id":"dolphin", "license":"Apache-2.0", "revision":"c8b6689509acfcd744c04e5e169164f9ac4cae32",
+      "id":"dolphin", "variant":"small", "license":"Apache-2.0", "revision":"c8b6689509acfcd744c04e5e169164f9ac4cae32",
       "source":"https://github.com/DataoceanAI/Dolphin",
       "files":[
         {"role":"model","path":"dolphin/model.int8.onnx","bytes":249658954,"sha256":"c1afcb9265de0ebd853eb8f570b371f399a6f9b2b9af9a3cb17c2e509171e697","url":"https://huggingface.co/csukuangfj/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02/resolve/c8b6689509acfcd744c04e5e169164f9ac4cae32/model.int8.onnx"},
@@ -42,7 +42,7 @@
       ]
     },
     {
-      "id":"whisper", "license":"MIT", "revision":"8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
+      "id":"whisper", "variant":"small", "license":"MIT", "revision":"8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
       "source":"https://github.com/openai/whisper",
       "files":[
         {"role":"encoder","path":"whisper/small-encoder.int8.onnx","bytes":112442483,"sha256":"4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9","url":"https://huggingface.co/csukuangfj/sherpa-onnx-whisper-small/resolve/8f3c18b358db4d1f2fc1eae49d75cd20989e4309/small-encoder.int8.onnx"},

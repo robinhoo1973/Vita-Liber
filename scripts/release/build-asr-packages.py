@@ -15,6 +15,14 @@ from asr_package import (MAX_PACKAGE, MODELS, decode_json, digest_file, json_byt
                          manifest_files, safe_path, slug, validate_index, verify_packages)
 
 
+def resolved_model(resolved, model_id, variant):
+    match = next((m for m in resolved["models"]
+                  if m["id"] == model_id and m.get("variant") == variant), None)
+    if match is None:
+        raise ValueError("Resolved model missing for (id, variant): " + model_id + "/" + str(variant))
+    return match
+
+
 def source_manifest(root):
     raw = (root / "manifest.json").read_bytes()
     original = decode_json(raw)
@@ -28,7 +36,10 @@ def source_manifest(root):
     if {m["id"] for m in resolved["models"]} != MODELS:
         raise ValueError("Four resolved models are required")
     for model in resolved["models"]:
-        expected = next(m for m in original["models"] if m["id"] == model["id"])
+        expected = next((m for m in original["models"]
+                         if m["id"] == model["id"] and m.get("variant") == model.get("variant")), None)
+        if expected is None:
+            raise ValueError("Resolved model missing from pinned manifest: " + model["id"])
         inventory = expected.get("archive", {}).get("parts", expected["files"])
         if ({(f["role"], f["path"]) for f in model["files"]}
                 != {(f["role"], f["path"]) for f in inventory} or model["revision"] != expected["revision"]):
@@ -77,7 +88,7 @@ def build_packages(root, template, output, reuse=None):
     # Validate all four source trees before creating any deliverable.
     for release in result["models"]:
         model_id = release["id"]
-        model = next(m for m in resolved["models"] if m["id"] == model_id)
+        model = resolved_model(resolved, model_id, release.get("variant"))
         if model["license"] != release["license"]:
             raise ValueError("Source/release license mismatch")
         manifest = {"formatVersion": 1, "models": [copy.deepcopy(model)],
@@ -86,7 +97,7 @@ def build_packages(root, template, output, reuse=None):
         # identity when a cache is reconstructed from an already verified Release.
         manifest["models"][0]["files"] = [{k: f[k] for k in ("role", "path", "bytes", "sha256")} for f in model["files"]]
         manifest["shared"] = [{k: f[k] for k in ("role", "path", "bytes", "sha256")} for f in manifest["shared"]]
-        files = {f["path"]: checked_source(root, f) for f in manifest_files(manifest, model_id)}
+        files = {f["path"]: checked_source(root, f) for f in manifest_files(manifest, model_id, release.get("variant"))}
         files["manifest.json"] = json_bytes(manifest)
         files["NOTICE.md"] = (root / "NOTICE.md").read_bytes()
         if release["license"] == "MIT":
@@ -100,7 +111,9 @@ def build_packages(root, template, output, reuse=None):
         revision = max(2, revision)  # v2 canonical manifest profile never overwrites an r1 package identity.
         built_at = release["builtAt"].replace("-", "")
         datetime.strptime(built_at, "%Y%m%d")
-        name = f"{model_id}-{slug(release['version'])}-{built_at}-r{revision}.zip"
+        # 文件名含 variant 段:同 id 多档同名互覆在打包公式层即被排除
+        # (2026-10-05 委员会;validate_index 的跨条目 url 唯一性是第二道闸)。
+        name = f"{model_id}-{slug(release['variant'])}-{slug(release['version'])}-{built_at}-r{revision}.zip"
         release.update(url=name, packaging="zip", builtAt=built_at, artifactRevision=revision,
                        upstreamRevision=model["revision"], runtime="sherpa-onnx-1.13.4")
         release["expandedBytes"] = sum(len(v) if isinstance(v, bytes) else v.stat().st_size for v in files.values())
@@ -136,14 +149,16 @@ def build_packages(root, template, output, reuse=None):
     (output / "package-validation.json").write_bytes(json_bytes(receipt))
 
     # Explicit baseline profile: offline Mandarin/English works before optional model downloads.
+    # bundledModels 按 (id, variant) 声明(2026-10-05):源清单多档化后随包只取
+    # zipformer large 一份,避免随包基线体积随目录档数膨胀。
     bundle = output / "bundle/ASRModels"
     bundle.mkdir(parents=True, exist_ok=True)
     bundle_manifest = copy.deepcopy(original)
-    bundle_manifest["bundledModels"] = ["zipformer"]
+    bundle_manifest["bundledModels"] = [{"id": "zipformer", "variant": "large"}]
     (bundle / "manifest.json").write_bytes(json_bytes(bundle_manifest))
     for name in ("LICENSE-APACHE-2.0.txt", "NOTICE.md"):
         shutil.copyfile(root / name, bundle / name)
-    zipformer = next(m for m in resolved["models"] if m["id"] == "zipformer")
+    zipformer = resolved_model(resolved, "zipformer", "large")
     for item in zipformer["files"]:
         target = bundle / item["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
