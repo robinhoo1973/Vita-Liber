@@ -43,22 +43,73 @@ class CNBTransport:
         raise NotImplementedError
 
 
-class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Fail closed on every redirect: the client validates each hop itself.
+class CNBRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Redirect policy(2026-10-06 修订):匿名公开请求白名单跟随,带凭据请求一律拒跳。
 
-    urllib forwards custom headers (including Authorization) across redirects;
-    a cross-host redirect would leak the bearer token, so redirects are refused
-    at the transport layer and never replayed.
+    urllib 会把自定义头(含 Authorization)转发到重定向目标——跨主机跳转必须
+    拒绝,否则泄漏 bearer token(原始语义,保持不变)。修订依据:CNB 下载端点
+    cnb.cool/.../releases/download/... 对匿名 GET 一律 302 → asset.cnb.cool
+    (每次请求不同临时 token,不可预计算;发布回读核对三连败 37343613767
+    实证)。该 302 与 App 真机下载链同构(URLSession 默认跟随),跟随它让回读
+    验证的正是 App 实际走的链路。约束:①原请求带 Authorization/X-Authorization/
+    Cookie → 一律拒跳(fail-closed);②目标主机必须在 ALLOWED_REDIRECT_HOSTS;
+    ③单请求最多 MAX_REDIRECT_HOPS 跳(handler 实例随 opener 每次请求新建,
+    计数器天然按请求隔离,防白名单内循环)。
+    """
+
+    ALLOWED_REDIRECT_HOSTS = {"cnb.cool", "asset.cnb.cool", "cos.cnb.cool"}
+    MAX_REDIRECT_HOPS = 3
+
+    def __init__(self):
+        super().__init__()
+        self._hops = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # 可观测性(2026-10-06 发布三连败定位):错误携带被拒跳的源/目标
+        # netloc+path(不含 query——预签名上传 URL 的 query 含签名参数,
+        # 不得入日志);Authorization 只存在于 headers,本消息不触碰。
+        from urllib.parse import urlsplit
+        source = urlsplit(req.full_url)
+        target = urlsplit(newurl)
+        sensitive = any(h.lower() in ("authorization", "x-authorization", "cookie")
+                        for h in (req.headers or {}))
+        self._hops += 1
+        if sensitive or target.netloc not in self.ALLOWED_REDIRECT_HOSTS \
+                or self._hops > self.MAX_REDIRECT_HOPS:
+            raise CNBReleaseError(
+                "CNB API redirect refused: {} {} -> {} {}".format(
+                    req.get_method(), source.netloc + source.path,
+                    code, target.netloc + target.path))
+        new_request = super().redirect_request(req, fp, code, msg, headers, newurl)
+        # urllib 会把原请求头合并进新请求——防御性剥离全部敏感头后再放行。
+        for header in list(getattr(new_request, "headers", {}) or {}):
+            if header.lower() in ("authorization", "x-authorization", "cookie"):
+                del new_request.headers[header]
+        return new_request
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """预签名 PUT 专用:一律拒跳(签名在 URL query 里,跨主机重放即泄漏上传授权)。
+
+    上传 URL 是 API 签发的不透明串,其签名参数不得出现在日志,更不得随跳转
+    转发到未授权主机。CNB 观测到的 302 只发生在匿名 GET 下载端点(由
+    CNBRedirectHandler 白名单跟随),PUT 保持 fail-closed。
     """
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        raise CNBReleaseError("CNB API redirect refused")
+        from urllib.parse import urlsplit
+        source = urlsplit(req.full_url)
+        target = urlsplit(newurl)
+        raise CNBReleaseError(
+            "CNB API redirect refused: {} {} -> {} {}".format(
+                req.get_method(), source.netloc + source.path,
+                code, target.netloc + target.path))
 
 
 class UrllibCNBTransport(CNBTransport):
     def request(self, method, url, headers, body=None):
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
-        opener = urllib.request.build_opener(NoRedirectHandler)
+        opener = urllib.request.build_opener(CNBRedirectHandler)
         try:
             with opener.open(request, timeout=120) as response:
                 data = response.read(MAX_RESPONSE_BYTES + 1)
