@@ -100,11 +100,12 @@ struct SignedModelCatalogTests {
                                                        sha256: catalogRevoked.lowercased(), url: "qwen3.zip")))
     }
 
-    /// 原名：served-name 绑定——目录资产名必须等于重算名(2026-10-05 委员会)
+    /// 原名：served-name 绑定——目录资产名必须等于固定名 index.json
+    /// (2026-10-06 业主单一 JSON 架构:TUF fixed-name 形态,单调版本在载荷内)。
     @Test func servedNameBindingMatchesComputedCatalogName() throws {
         let fixture = try Fixture()
         let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
-        _ = try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "3.catalog.json")
+        _ = try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "index.json")
     }
 
     /// 原名：served-name 不匹配或缺省形状被整体拒绝

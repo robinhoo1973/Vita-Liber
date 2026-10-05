@@ -51,7 +51,7 @@ class TrustTests(unittest.TestCase):
                  "models": [{"id": m, "variant": variants[m],
                              "version": "1.0.0", "url": m + ".zip", "bytes": 123, "sha256": "a" * 64,
                              "expandedBytes": 456, "packaging": "zip", "minAppVersion": "0.0.1", "runtime": "sherpa-onnx-1.13.4",
-                             "license": "MIT" if m in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                             "license": {"whisper": "MIT", "sense-voice": "model-license"}.get(m, "Apache-2.0"),
                              "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}}
                             for m in variants]}
         self.catalog_payload = {"schemaVersion": 1, "role": "catalog", "app": "vitaliber", "assetKind": "asr",

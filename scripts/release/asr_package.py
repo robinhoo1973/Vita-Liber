@@ -26,8 +26,10 @@ ROLES = {
 # 每模型家族 1..5 档,上游缺档如实缺省(2026-10-05 委员会:iOS 适用性评估后扩档)。
 VARIANTS = {"tiny", "base", "small", "medium", "large", "turbo"}
 MAX_TIERS_PER_MODEL = 5
-# 各家族许可:MIT 家族逐名登记,其余默认 Apache-2.0。
-LICENSES = {"whisper": "MIT", "sense-voice": "MIT", "fire-red": "MIT"}
+# 各家族许可:非 Apache-2.0 家族逐名登记(2026-10-06 钉版实测:
+# sense-voice 权重为 FunASR 模型开源许可协议 v1.1,fire-red 为 Apache-2.0
+# 取默认;whisper MIT)。
+LICENSES = {"whisper": "MIT", "sense-voice": "model-license"}
 # 目录聚合预算:下载目录所有包 zip 字节合计的上限。2026-10-05 iOS 适用性评估后
 # 矩阵定为 7 族 13 档 ≈5.2GiB(4GiB 装不下),业主裁决「评估后可纳入」→ 提至 6GiB。
 ASR_CATALOG_BUDGET_BYTES = 6 * 1024**3

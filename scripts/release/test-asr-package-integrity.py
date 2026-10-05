@@ -59,7 +59,7 @@ class PackageTests(unittest.TestCase):
                 extension = {"notice": ".md", "vocab": ".json", "tokenizerConfig": ".json",
                              "tokens": ".txt", "merges": ".txt", "bpe": ".vocab"}.get(role, ".onnx")
                 files.append(self.file_entry(f"{model_id}/{role}{extension}", role, f"fixture:{model_id}:{role}".encode()))
-            license_name = "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0"
+            license_name = {"whisper": "MIT", "sense-voice": "model-license"}.get(model_id, "Apache-2.0")
             manifest["models"].append({"id": model_id, "variant": VARIANTS[model_id],
                                        "revision": f"pinned-{model_id}",
                                        "license": license_name, "files": files})
@@ -350,7 +350,7 @@ class MultiVariantPackageTests(PackageTests):
                              "tokens": ".txt", "merges": ".txt", "bpe": ".vocab"}.get(role, ".onnx")
                 files.append(self.file_entry(f"{model_id}-{second}/{role}{extension}", role,
                                              f"fixture:{model_id}:{second}:{role}".encode()))
-            license_name = "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0"
+            license_name = {"whisper": "MIT", "sense-voice": "model-license"}.get(model_id, "Apache-2.0")
             self.manifest["models"].append({"id": model_id, "variant": second,
                                             "revision": f"pinned-{model_id}-{second}",
                                             "license": license_name, "files": files})
@@ -405,7 +405,7 @@ class MultiVariantValidationTests(unittest.TestCase):
         for model_id in VARIANTS:
             models.append({"id": model_id, "variant": VARIANTS[model_id], "version": "1.0.0",
                            "url": f"{model_id}-{VARIANTS[model_id]}.zip", "bytes": 123, "sha256": "a" * 64,
-                           "license": "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                           "license": {"whisper": "MIT", "sense-voice": "model-license"}.get(model_id, "Apache-2.0"),
                            "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
         return {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
                 "families": fixture_families(), "models": models}
@@ -416,7 +416,7 @@ class MultiVariantValidationTests(unittest.TestCase):
             for variant in ("small", "medium", "large"):
                 models.append({"id": model_id, "variant": variant, "version": "1.0.0",
                                "url": f"{model_id}-{variant}.zip", "bytes": 123, "sha256": "a" * 64,
-                               "license": "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                               "license": {"whisper": "MIT", "sense-voice": "model-license"}.get(model_id, "Apache-2.0"),
                                "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
         validate_index({"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
                         "families": fixture_families(), "models": models})

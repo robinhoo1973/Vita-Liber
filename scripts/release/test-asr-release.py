@@ -102,7 +102,7 @@ class PublicationTests(unittest.TestCase):
                      "models": [
                 {"id": m, "variant": VARIANTS[m], "version": "1.0.0", "url": m + ".zip",
                  "bytes": 123, "sha256": "a" * 64,
-                 "license": "MIT" if m in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
+                 "license": {"whisper": "MIT", "sense-voice": "model-license"}.get(m, "Apache-2.0"),
                  "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}}
                 for m in VARIANTS]}
             (root / "index.json").write_text(json.dumps(index))
