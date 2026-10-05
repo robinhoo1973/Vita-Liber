@@ -48,26 +48,22 @@ struct ASRInstallLayoutTests {
         }
     }
 
-    @Test("保留规则：每个变体各留最新一个——旧规则会删掉另一档")
-    /// 原名：保留按变体分组
-    func preservesVariantGrouping() {
+    @Test("保留规则：每家族最多保留一个已装档——新装即删旧档（业主 2026-10-05 裁定）")
+    /// 原名：保留按变体分组（2026-10-05 裁定后改为单保留语义）
+    func keepsOnlyNewlyInstalledPerFamily() {
         let candidates: [(name: String, version: String, variant: String?)] = [
             ("full~v2-a1b2c3d4e5f6-\(uuid)",   "v2", "full"),
             ("full~v1-ffeeddccbbaa-\(uuid)",   "v1", "full"),     // 同变体旧版 → 该删
-            ("small~v2-111122223333-\(uuid)",  "v2", "small"),    // 另一档 → 必须留
-            ("v1-444455556666-\(uuid)",        "v1", nil),        // 单档家族 → 自成一档
+            ("small~v2-111122223333-\(uuid)",  "v2", "small"),    // 另一档 → 切换即删（切回需重下）
+            ("v1-444455556666-\(uuid)",        "v1", nil),        // 历史布局 → 该删
         ]
         let keeping = ASRInstallLayout.keepingForPrune(
             candidates: candidates,
             newlyInstalled: "full~v2-a1b2c3d4e5f6-\(uuid)",
             activeName: "small~v2-111122223333-\(uuid)")
 
-        #expect(keeping.contains("small~v2-111122223333-\(uuid)"),
-                "另一档仍在保留集里——这是「多档共存」的核心断言")
-        #expect(keeping.contains("v1-444455556666-\(uuid)"), "单档家族自成一档，不受影响")
-        #expect(keeping.contains("full~v2-a1b2c3d4e5f6-\(uuid)"))
-        #expect(!keeping.contains("full~v1-ffeeddccbbaa-\(uuid)"), "同变体旧版应被清理")
-        #expect(keeping.count == 3, "实得 \(keeping.sorted())")
+        #expect(keeping == ["full~v2-a1b2c3d4e5f6-\(uuid)"],
+                "只保留新装档——旧档/其它变体/历史布局全部清出,实得 \(keeping.sorted())")
     }
 
     @Test("保留规则在单档家族下与旧行为等价（回归保护）")

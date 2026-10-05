@@ -1863,6 +1863,7 @@
 "asr.model.variantHint" = "根據您的裝置（%2$@ GB 記憶體），建議選擇「%@」檔。";
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安裝 %@";
+"asr.model.variantReplaces" = "切換檔位將刪除已裝檔,切回需重新下載";
 "asr.model.downloading" = "下載中…（保持應用於前景）";
 "asr.model.queued" = "排隊等待下載槽位（同時間最多下載 2 個模型）…";
 "asr.model.downloadFailed" = "下載失敗，請檢查網路後重試";

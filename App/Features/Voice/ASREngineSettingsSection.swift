@@ -325,6 +325,13 @@ struct ASREngineSettingsSection: View {
                             .buttonStyle(.bordered).frame(minHeight: 44)
                             .disabled(memoryWarning(for: variants) != nil)
                             .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
+                        // 切换档位(已装另一档)时如实提示:旧档将被删除,切回需重下
+                        // (业主 2026-10-05 裁定「每家族最多保留一个已装档」)。
+                        if let installedVariant = row.installedVariant, installedVariant != chosenVariant.variant {
+                            Text(L10n.asrModelVariantReplaces)
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("\(accessibilityPrefix).model.variantReplaces.\(choice.rawValue)")
+                        }
                     }
                 } else if let update {
                     Button(L10n.asrModelUpdate(update.version)) { startInstall(update) }

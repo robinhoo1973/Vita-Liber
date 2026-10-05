@@ -1863,6 +1863,7 @@
 "asr.model.variantHint" = "Based on your device (%2$@ GB RAM), \"%@\" is recommended.";
 "asr.model.update" = "Update to %@";
 "asr.model.installed" = "Installed %@";
+"asr.model.variantReplaces" = "Switching tiers deletes the installed tier; switching back re-downloads it";
 "asr.model.downloading" = "Downloading…";
 "asr.model.queued" = "Queued for a download slot (max 2 simultaneous downloads)…";
 "asr.model.downloadFailed" = "Download failed. Check your network and retry.";

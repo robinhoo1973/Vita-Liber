@@ -339,6 +339,8 @@ extension L10n {
     static var asrModelDownload: String { t("asr.model.download") }
 
     static var asrModelVariantTitle: String { t("asr.model.variantTitle") }
+    /// 切换档位提示(业主 2026-10-05 裁定:每家族最多保留一个已装档,切回需重下)。
+    static var asrModelVariantReplaces: String { t("asr.model.variantReplaces") }
 
     static var asrModelVariantSmall: String { t("asr.model.variantSmall") }
 

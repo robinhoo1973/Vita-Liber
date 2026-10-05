@@ -1863,6 +1863,7 @@
 "asr.model.variantHint" = "根据您的设备（%2$@ GB 内存），建议选择「%@」档。";
 "asr.model.update" = "更新到 %@";
 "asr.model.installed" = "已安装 %@";
+"asr.model.variantReplaces" = "切换档位将删除已装档,切回需重新下载";
 "asr.model.downloading" = "下载中…";
 "asr.model.queued" = "排队等待下载槽位（同时最多下载 2 个模型）…";
 "asr.model.downloadFailed" = "下载失败，请检查网络后重试";

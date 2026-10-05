@@ -981,6 +981,7 @@ extension L10n {
         "asr.downloadable",
         "asr.model.download", "asr.model.update", "asr.model.installed",
         "asr.model.variantTitle", "asr.model.variantSmall", "asr.model.variantMedium", "asr.model.variantLarge",
+        "asr.model.variantReplaces",
         "asr.model.variantHint",
         "asr.model.downloading", "asr.model.queued", "asr.model.downloadFailed",
         "asr.model.checkUpdate", "asr.index.fetchFailed",

@@ -1,11 +1,13 @@
 import Foundation
 
-/// 模型安装目录布局与保留规则（业主 2026-09-16 多档模型定案）。
+/// 模型安装目录布局与保留规则（业主 2026-09-16 多档模型定案；2026-10-05 修订）。
 ///
-/// 三条语义**正交**，此前被混成一条，故 `pruneOldVersions` 只留一份：
-///   ① **可同时下载多档** —— 同一家族的不同变体各有独立目录，互不覆盖；
+/// 语义（2026-10-05 业主裁定修订）：
+///   ① **可切换档位** —— 同一家族的不同变体各有独立目录，互不覆盖；
 ///   ② **同一时刻只有一档生效** —— `active.json` 指针指向哪一档，引擎只加载一份权重；
-///   ③ **可按档删除释放空间** —— 删某档只删它的目录（在用 / 被租用则拒）。
+///   ③ **每家族最多保留一个已装档** —— 安装新档即删除旧档（含其它变体；被租用时
+///      登记延后删除），切换回旧档需重新下载。目录粒度 prune 在家族根内执行，
+///      保留集 = 新装目录。
 ///
 /// 目录名：`<variant>~<version>-<sha12>-<uuid>`；**变体缺省时不带变体段**，
 /// 退回历史布局 `<version>-<sha12>-<uuid>` —— 故既有安装**零迁移**、单档家族行为不变。
@@ -60,31 +62,18 @@ public enum ASRInstallLayout {
         return (variant, String(version))
     }
 
-    /// 保留集：**每个变体各自的最新一个**，外加刚装成的与当前生效的。
+    /// 保留集（业主 2026-10-05 裁定：**每家族最多保留一个已装档**）。
     ///
-    /// 旧规则 `keeping: [新目录, 旧激活目录]` 在单档家族下等价、在多档下**会删掉另一档**
-    /// ——业主 2026-09-16 明确「可以同时下载多档」，故保留粒度必须是 (家族, 变体) 而非家族。
-    /// 空变体（单档家族 / 历史布局）自成一档，行为与旧规则一致。
+    /// 新装即生效，旧档（含同家族其它变体、历史布局目录）一律清出——切换档位
+    /// 后旧档不在盘上，切回需重新下载。租用中的旧档由 Infrastructure 的
+    /// `removeIfUnused` 登记延后删除，不被本函数硬删。
+    /// 单档家族的版本更新行为不变（保留新装）。
     public static func keepingForPrune(
         candidates: [(name: String, version: String, variant: String?)],
         newlyInstalled: String,
         activeName: String?
     ) -> Set<String> {
-        var newestPerVariant: [String: (name: String, version: String)] = [:]
-        for candidate in candidates {
-            let key = candidate.variant ?? ""
-            guard let current = newestPerVariant[key] else {
-                newestPerVariant[key] = (candidate.name, candidate.version)
-                continue
-            }
-            if ASRVersion.isNewer(candidate.version, than: current.version) {
-                newestPerVariant[key] = (candidate.name, candidate.version)
-            }
-        }
-        var keeping = Set(newestPerVariant.values.map(\.name))
-        keeping.insert(newlyInstalled)
-        if let activeName { keeping.insert(activeName) }
-        return keeping
+        [newlyInstalled]
     }
 
     /// 可删除性（业主第 ③ 条）：正在生效的一档不可删——引擎正加载它；
