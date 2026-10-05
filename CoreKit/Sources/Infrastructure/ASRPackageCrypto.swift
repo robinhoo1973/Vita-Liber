@@ -6,7 +6,9 @@ import Foundation
 /// ASR 下载包加密信封（2026-10-05 业主 R1：包必须加密+压缩）。
 /// 与 scripts/release/asr_envelope.py 的 `aes256gcm-v1` 信封逐字节对齐：
 /// 头 = magic "VLASR\x01"(6) + u8 version + u32 BE chunk_size + u64 BE plaintext_size + u32 BE chunk_count；
-/// 每块 = u32 BE cipher_len + (nonce12 + ct + tag16)。
+/// 每块 = u32 BE cipher_len + (ct + tag16)——nonce 由块序号经 HKDF 派生，
+/// **不入帧**（2026-10-05 审查修正：两侧原 docstring 声称帧内含 nonce12，
+/// 与两侧实现均不符——帧内只有密文+tag，nonce 是派生参数）。
 ///
 /// key/nonce 由 HKDF-SHA256 自主密钥与包身份 (id-variant-version-r{artifactRevision})
 /// 派生——同内容同信封字节（R2 哈希比对与 reuse 缓存成立）；不同内容
@@ -74,17 +76,29 @@ enum ASRPackageCrypto {
     }
 
     private static func derivedKey(master: SymmetricKey, identity: String) -> SymmetricKey {
-        HKDF<SHA256>.deriveKey(inputKeyMaterial: master, salt: nil,
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: master, salt: Data?.none,
                                info: Data("vitaliber/asr/aes256gcm/v1/key/\(identity)".utf8),
                                outputByteCount: 32)
     }
 
     private static func nonceData(master: SymmetricKey, identity: String, index: UInt32) throws -> AES.GCM.Nonce {
+        // 信封合同按 python 侧派生 12 字节 nonce——利用 HKDF 前缀性质
+        // (长输出前缀 == 短输出, RFC 5869)派生 32 字节取前 12,与
+        // scripts/release/asr_envelope.py 逐字节一致(两侧 salt=None 均归一为
+        // 全零盐, HMAC 补零后同字节)。显式字节拷贝而非 `Data($0)` 内联构造:
+        // 该形态在 macOS CI(37315378507)实证无法命中初始化器,显式拷贝为
+        // 已验证可编译形态——未经本仓工具链实证的简化不得回退。
         let derived = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: master, salt: nil,
+            inputKeyMaterial: master, salt: Data?.none,
             info: Data("vitaliber/asr/aes256gcm/v1/nonce/\(identity)/\(index)".utf8),
-            outputByteCount: nonceSize)
-        return try AES.GCM.Nonce(data: derived.withUnsafeBytes { Data($0) })
+            outputByteCount: 32)
+        var bytes = [UInt8](repeating: 0, count: nonceSize)
+        derived.withUnsafeBytes { raw in
+            bytes.withUnsafeMutableBytes { buffer in
+                buffer.copyBytes(from: raw.prefix(nonceSize))
+            }
+        }
+        return try AES.GCM.Nonce(data: Data(bytes))
     }
 
     /// 信封解密：块式 AES-GCM（每块 ≤ chunkSize，流式落盘，内存有界）。
@@ -126,7 +140,9 @@ enum ASRPackageCrypto {
                 throw Failure.malformedEnvelope
             }
             let cipherLength = beUInt32(Array(frame), at: 0)
-            guard cipherLength >= 1, UInt64(cipherLength) <= UInt64(chunkSize) + UInt64(nonceSize + tagSize),
+            // 帧内只有 ct+tag(nonce 不入帧)——上界 = chunkSize + tagSize(2026-10-05 审查修正:
+            // 旧上界含幻影 nonce12,与两侧实现的帧合同不符)。
+            guard cipherLength >= 1, UInt64(cipherLength) <= UInt64(chunkSize) + UInt64(tagSize),
                   let ciphertext = try reader.read(upToCount: Int(cipherLength)),
                   ciphertext.count == Int(cipherLength) else { throw Failure.malformedEnvelope }
             let nonce = try nonceData(master: master, identity: identity, index: index)

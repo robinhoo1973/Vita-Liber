@@ -55,10 +55,14 @@ public enum SpeechSynthesisFactory: EngineFactory {
 /// FR17.15 V3.66：识别引擎档位 → 具体引擎的**唯一构建出口**（生产工厂与模型实验室共用）。
 ///
 /// 档位语义（`VoiceEngineChoice`）：
-/// - `auto`：iOS 26+ 且平台升级轨可用 → `SpeechAnalyzerTranscriber`（SpeechTranscriber）；
+/// - `auto`：目录优选随包模型（资产在位的目录序首选，见 automaticChoice），
+///   随包模型全缺件时——iOS 26+ 且平台升级轨可用 → `SpeechAnalyzerTranscriber`；
 ///   否则回落基线轨 `SFSpeechTranscriber`（零资产、全 iOS 17+）。
 /// - `advanced` / `dictation`：强制平台升级轨（系统版本不足回落基线轨，绝不崩）。
 /// - `classic`：强制基线轨。
+/// - 随包模型档（qwen3/zipformer/dolphin/whisper/senseVoice/fireRed/moonshine）：
+///   交付 SherpaOnnxTranscriber；语言覆盖由签名目录 JSON（families[]）提供，
+///   App 零内置模型能力表。
 /// 组装期**不**触发语言资源下载（离线优先红线）——资源安装只经「识别引擎实验室」显式触发；
 /// 资产未安装的 locale 在平台轨内整会话回落基线轨（FR17.17 资产供应契约）。
 #if os(iOS) || os(macOS)
@@ -107,7 +111,8 @@ public enum TranscriptionEngineBuilder {
     }
 
     /// FR17.15 合同更新（2026-10-05 业主指令，function-spec V4.13）：OOM 加载失败
-    /// （`insufficientMemory`）的**自动回落候选**——目录序（qwen3→zipformer→dolphin→whisper）
+    /// （`insufficientMemory`）的**自动回落候选**——目录 families 发布序
+    /// （= auto 链优先序；2026-10-05 目录驱动后不再写死 qwen3→… 模板序）
     /// 排除失败档，判据 = 语言支持 ∧ 资产在位 ∧ 内存预算可载（重试时刻重算，
     /// 不用解析期快照——verdict 会漂移）。随包模型全不可用回落 `.classic`
     /// （零资产基线轨恒可用）。显式选定档同样适用（业主指令构成合同更新：
@@ -156,7 +161,7 @@ public enum TranscriptionEngineBuilder {
             case .advanced: return SpeechAnalyzerTranscriber(flavor: .standard)
             case .dictation: return SpeechAnalyzerTranscriber(flavor: .dictation)
             case .classic: return SFSpeechTranscriber()
-            case .auto, .qwen3, .zipformer, .dolphin, .whisper: break // 在上方按模型目录分派
+            case .auto, .qwen3, .zipformer, .dolphin, .whisper, .senseVoice, .fireRed, .moonshine: break // 在上方按模型目录分派
             }
         }
         #endif
@@ -230,7 +235,8 @@ public enum TranscriptionEngineBuilder {
         switch choice {
         case .dictation: flavor = .dictation
         case .advanced, .auto: flavor = .standard
-        case .classic, .qwen3, .zipformer, .dolphin, .whisper: return []
+        case .classic, .qwen3, .zipformer, .dolphin, .whisper, .senseVoice, .fireRed, .moonshine:
+            return []
         }
         return await SpeechAnalyzerSupport.supportedLocales(of: flavor)
     }
