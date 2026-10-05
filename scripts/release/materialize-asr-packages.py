@@ -40,7 +40,10 @@ def materialize(index_path, directory, source_manifest, root):
             if [(f["path"], f["sha256"], f["bytes"]) for f in package.get("shared", [])] != [
                     (f["path"], f["sha256"], f["bytes"]) for f in shared]:
                 raise ValueError("Release VAD does not match pinned source")
-            for item in manifest_files(package, release["id"], release.get("variant")):
+            # World A(2026-10-05):遗留包内清单无 variant 键——身份绑定由
+            # 文件清单与 pin 的 (role,path,bytes,sha256) 全等校验承担,内清单
+            # 档位键缺失时按 None 匹配(与 verify_package 同源容差)。
+            for item in manifest_files(package, release["id"], model.get("variant")):
                 destination = root / item["path"]
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 if not destination.resolve().is_relative_to(root.resolve()) or destination.is_symlink():
