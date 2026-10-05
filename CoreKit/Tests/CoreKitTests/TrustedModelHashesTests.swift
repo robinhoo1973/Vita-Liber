@@ -55,4 +55,28 @@ struct TrustedModelHashesTests {
     @Test func unknownSchemaVersionTreatedAsEmptyTable() {
         #expect(!TrustedModelHashes(schemaVersion: 99, entries: table.entries).isTrusted(release()))
     }
+
+    /// 原名：多档条目按 (id, version, variant) 精确匹配(2026-10-05 委员会)
+    @Test func variantScopedEntriesMatchExactly() {
+        let medium = TrustedModelHashes(entries: [
+            .init(id: "qwen3", version: "0.6b-int8-v2026.03.25", variant: "medium", bytes: 1, sha256: shaA)
+        ])
+        let releaseMedium = ASRModelRelease(id: "qwen3", version: "0.6b-int8-v2026.03.25",
+                                            bytes: 1, sha256: shaA, url: "x.zip", variant: "medium")
+        #expect(medium.isTrusted(releaseMedium))
+        let releaseSmall = ASRModelRelease(id: "qwen3", version: "0.6b-int8-v2026.03.25",
+                                           bytes: 1, sha256: shaA, url: "x.zip", variant: "small")
+        #expect(!medium.isTrusted(releaseSmall))
+    }
+
+    /// 原名：无 variant 的旧条目不得跨界命中带 variant 的条目(fail closed)
+    @Test func legacyEntriesNeverMatchVariantedReleases() {
+        let legacy = TrustedModelHashes(entries: [
+            .init(id: "qwen3", version: "0.6b-int8-v2026.03.25", bytes: 1, sha256: shaA)
+        ])
+        let releaseMedium = ASRModelRelease(id: "qwen3", version: "0.6b-int8-v2026.03.25",
+                                            bytes: 1, sha256: shaA, url: "x.zip", variant: "medium")
+        #expect(!legacy.isTrusted(releaseMedium))
+        #expect(legacy.isTrusted(release()))
+    }
 }

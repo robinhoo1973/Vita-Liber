@@ -44,5 +44,22 @@ struct ASRModelDownloadServiceTests {
         let untouched = ModelResourceTransfer().resolve(URLError(.timedOut))
         #expect((untouched as? URLError)?.code == .timedOut)
     }
+
+    /// 原名：更新判定只比较同档位条目(2026-10-05 委员会)——大档版本更高不得
+    /// 计为已装档的「更新」;旧指针无 variant 时只保留无 variant 的遗留条目。
+    @Test func variantScopingKeepsOnlyInstalledVariantEntries() {
+        let models = [
+            ASRModelRelease(id: "zipformer", version: "2023-02-20", sha256: String(repeating: "a", count: 64),
+                            url: "zipformer-large.zip", variant: "large"),
+            ASRModelRelease(id: "zipformer", version: "2023-02-16", sha256: String(repeating: "b", count: 64),
+                            url: "zipformer-small.zip", variant: "small"),
+            ASRModelRelease(id: "qwen3", version: "0.6b", sha256: String(repeating: "c", count: 64),
+                            url: "qwen3.zip")
+        ]
+        let index = ASRModelReleaseIndex(models: models)
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, variant: "small").models.map(\.id) == ["zipformer"])
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, variant: "large").models.map(\.id) == ["zipformer"])
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, variant: nil).models.map(\.id) == ["qwen3"])
+    }
 }
 #endif

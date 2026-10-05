@@ -18,11 +18,16 @@ public struct TrustedModelHashes: Codable, Sendable, Equatable {
     public struct Entry: Codable, Sendable, Equatable {
         public var id: String
         public var version: String
+        /// 尺寸档位(small/medium/large);旧条目缺键解码为 nil,零迁移。
+        /// 多档目录下同 (id, version) 的两档是两个条目,首配错档会让正确
+        /// 的下载被拒(fail-closed)——匹配必须带档位(2026-10-05 委员会)。
+        public var variant: String?
         public var bytes: Int64
         public var sha256: String
 
-        public init(id: String, version: String, bytes: Int64, sha256: String) {
-            self.id = id; self.version = version; self.bytes = bytes; self.sha256 = sha256
+        public init(id: String, version: String, variant: String? = nil, bytes: Int64, sha256: String) {
+            self.id = id; self.version = version; self.variant = variant
+            self.bytes = bytes; self.sha256 = sha256
         }
     }
 
@@ -46,14 +51,14 @@ public struct TrustedModelHashes: Codable, Sendable, Equatable {
 
     public var isEmpty: Bool { entries.isEmpty }
 
-    public func entry(id: String, version: String) -> Entry? {
-        entries.first { $0.id == id && $0.version == version }
+    public func entry(id: String, version: String, variant: String? = nil) -> Entry? {
+        entries.first { $0.id == id && $0.version == version && $0.variant == variant }
     }
 
     /// 该发布条目是否可安装：必须命中信任锚且哈希/字节一致。
     public func isTrusted(_ release: ASRModelRelease) -> Bool {
         guard schemaVersion == Self.supportedSchemaVersion,
-              let trusted = entry(id: release.id, version: release.version),
+              let trusted = entry(id: release.id, version: release.version, variant: release.variant),
               trusted.sha256.caseInsensitiveCompare(release.sha256) == .orderedSame else {
             return false
         }

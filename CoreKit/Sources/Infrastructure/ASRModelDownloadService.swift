@@ -192,13 +192,26 @@ public actor ASRModelDownloadService {
     /// 是否存在可更新版本（已装版本由 active.json 记录）。
     /// 未安装时不视为「可更新」——新装走独立的下载按钮分支（否则新装
     /// 恒显示「更新到 X」且下载按钮/失败提示分支永远不可达）。
+    /// 2026-10-05 委员会:候选按已装档位过滤——多档家族里大档版本更高时
+    /// 不得被计为「发现更新」误导用户去下 GB 级包(徽标直接走本判定);
+    /// 换档诉求由设置页尺寸选择器分支承担(needsInstall 同版本换档)。
     public nonisolated static func updateAvailable(for choice: VoiceEngineChoice,
                                                    index: ASRModelReleaseIndex,
                                                    appVersion: String) -> ASRModelRelease? {
         guard let installed = installedVersion(for: choice) else { return nil }
-        guard let latest = latest(for: choice, in: index, appVersion: appVersion) else { return nil }
+        let installedVariant = ActivePointerStore.activePointer(for: choice)?.variant
+        guard let latest = latest(for: choice, in: scopedToInstalledVariant(index, variant: installedVariant),
+                                  appVersion: appVersion) else { return nil }
         let newerPackage = latest.version == installed && (latest.artifactRevision ?? 0) > (ActivePointerStore.activePointer(for: choice)?.artifactRevision ?? 0)
         return latest.isNewer(than: installed) || newerPackage ? latest : nil
+    }
+
+    /// 档位过滤纯函数(updateAvailable 的数据面):只保留与已装档同 variant 的条目,
+    /// 旧指针无 variant(nil)时只保留无 variant 的遗留条目——档位是可选键的
+    /// 相等语义,不做跨界宽松匹配(2026-10-05 委员会)。
+    static func scopedToInstalledVariant(_ index: ASRModelReleaseIndex, variant: String?) -> ASRModelReleaseIndex {
+        ASRModelReleaseIndex(schemaVersion: index.schemaVersion, baseUrl: index.baseUrl,
+                             models: index.models.filter { $0.variant == variant })
     }
 
     // MARK: - 安装

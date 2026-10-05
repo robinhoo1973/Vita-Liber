@@ -287,7 +287,10 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                   let minimum = model.minAppVersion, minimum.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+$"#, options: .regularExpression) != nil,
                   model.resolvedURL(baseURL: URL(string: root.assetBaseURL)) != nil,
                   !Self.normalizedRevocations(value.revokedHashes).contains(model.sha256.lowercased()),
-                  identities.insert("\(model.id)/\(model.version)/\(model.artifactRevision ?? 0)").inserted else { throw Failure.invalidMetadata }
+                  // 身份键含 variant(2026-10-05 委员会):同 id/version/revision 的
+                  // 小/中/大三档是三个合法资产,不是同身份两种内容——歧义由
+                  // 跨条目 url 唯一性(发布侧 validate_index)与每包 sha 绑定兜底。
+                  identities.insert("\(model.id)/\(model.version)/\(model.artifactRevision ?? 0)/\(model.variant ?? "")").inserted else { throw Failure.invalidMetadata }
         }
         return value
     }

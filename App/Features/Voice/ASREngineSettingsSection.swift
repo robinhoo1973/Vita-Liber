@@ -261,13 +261,21 @@ struct ASREngineSettingsSection: View {
             : nil
         VStack(alignment: .leading, spacing: 4) {
             if let installed {
-                Text(L10n.asrModelInstalled(installed))
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("\(accessibilityPrefix).model.installed.\(choice.rawValue)")
+                // 已装行如实显示生效档位(2026-10-05 委员会):多档共存时「已安装 vX」
+                // 不足以让用户知道 active 是哪一档——复用既有 L10n 键,零新增文案面。
+                HStack(spacing: 4) {
+                    Text(L10n.asrModelInstalled(installed))
+                    if let installedVariant = row.installedVariant {
+                        Text(L10n.asrModelVariantName(installedVariant))
+                    }
+                }
+                .font(.caption2).foregroundStyle(.secondary)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("\(accessibilityPrefix).model.installed.\(choice.rawValue)")
             }
             if !variants.isEmpty {
                 if variants.count > 1 {
-                    Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants)) {
+                    Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants, installedVariant: row.installedVariant)) {
                         ForEach(variants) { v in
                             Text(L10n.asrModelVariantName(v.variant ?? "")).tag(v.variant ?? "")
                         }
@@ -361,10 +369,16 @@ struct ASREngineSettingsSection: View {
 
     /// 尺寸选择绑定（2026-10-05 第 9 项：默认 = 系统推荐档——内存预算可装的最大档，
     /// 探针不可用回落 RAM 建议 → 最小档；此前恒默认最小档，≥4GB 设备也要手动改选；
-    /// 选择记忆在页内）。
-    private func variantBinding(_ choice: VoiceEngineChoice, _ variants: [ASRModelRelease]) -> Binding<String> {
+    /// 选择记忆在页内）。2026-10-05 委员会增补:已装档优先于推荐档——picker 语义是
+    /// 「当前状态选择器」,已装 small 的设备进页默认选中 large 会诱导 GB 级误下载;
+    /// 推荐职责由 variantHint 行独立承担,回退序 = 页内选择 → 已装档 → 推荐档。
+    private func variantBinding(_ choice: VoiceEngineChoice, _ variants: [ASRModelRelease],
+                                installedVariant: String?) -> Binding<String> {
         Binding(get: {
-            selectedVariant[choice.rawValue] ?? variants[recommendedIndex(for: variants)].variant ?? ""
+            selectedVariant[choice.rawValue]
+                ?? variants.first { $0.variant == installedVariant }?.variant
+                ?? variants[recommendedIndex(for: variants)].variant
+                ?? ""
         }, set: { v in
             selectedVariant[choice.rawValue] = v
         })

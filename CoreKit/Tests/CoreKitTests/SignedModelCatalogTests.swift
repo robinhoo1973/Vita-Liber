@@ -100,6 +100,25 @@ struct SignedModelCatalogTests {
                                                        sha256: catalogRevoked.lowercased(), url: "qwen3.zip")))
     }
 
+    /// 原名：同 id/版本/修订的多档条目是三个合法身份(2026-10-05 委员会)
+    @Test func sameVersionVariantsAreDistinctCatalogIdentities() throws {
+        let fixture = try Fixture()
+        let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
+        let index = try store.acceptCatalog(fixture.catalogWithVariants(version: 2))
+        #expect(index.models.count == 6)
+        #expect(index.models.filter { $0.id == "zipformer" }.count == 3)
+        #expect(index.models.filter { $0.id == "zipformer" }.allSatisfy(store.isAuthorized))
+    }
+
+    /// 原名：同身份同 variant 的重复条目仍被整体拒绝
+    @Test func duplicateVariantEntryIsStillRejected() throws {
+        let fixture = try Fixture()
+        let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
+        #expect(throws: (any Error).self) {
+            try store.acceptCatalog(fixture.catalogWithVariants(version: 2, duplicateVariant: true))
+        }
+    }
+
     /// 原名：重启后状态文件中的大写撤销摘要仍命中
     @Test func uppercaseRevokedDigestInStateFileStillMatchesAfterRestart() throws {
         let fixture = try Fixture()
@@ -141,6 +160,34 @@ struct SignedModelCatalogTests {
                 "expiresAt": Self.timestamp(expired ? -10 : 29 * 86400), "revokedHashes": revoked,
                 "index": ["schemaVersion": 1, "baseUrl": "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models", "models": models]]
             return try Self.sign(value, indices: duplicate ? [3, 3] : [3, 4], keys: keys, identifiers: identifiers)
+        }
+
+        /// 同 id/版本/修订的小中大三档条目(2026-10-05 委员会:variant 是目录身份的一部分)。
+        func catalogWithVariants(version: Int, duplicateVariant: Bool = false) throws -> Data {
+            var models: [[String: Any]] = []
+            for variant in ["small", "medium", "large"] {
+                models.append(["id": "zipformer", "variant": variant, "version": "9.0.0",
+                               "url": "zipformer-\(variant).zip", "bytes": 123, "expandedBytes": 456,
+                               "sha256": String(repeating: "a", count: 64), "runtime": "sherpa-onnx-1.13.4",
+                               "packaging": "zip", "minAppVersion": "0.0.1", "license": "Apache-2.0"])
+            }
+            if duplicateVariant {
+                models.append(["id": "zipformer", "variant": "large", "version": "9.0.0",
+                               "url": "zipformer-large-other.zip", "bytes": 123, "expandedBytes": 456,
+                               "sha256": String(repeating: "a", count: 64), "runtime": "sherpa-onnx-1.13.4",
+                               "packaging": "zip", "minAppVersion": "0.0.1", "license": "Apache-2.0"])
+            }
+            for other in ["qwen3", "dolphin", "whisper"] {
+                models.append(["id": other, "version": "9.0.0", "url": other + ".zip", "bytes": 123,
+                               "expandedBytes": 456, "sha256": String(repeating: "a", count: 64),
+                               "runtime": "sherpa-onnx-1.13.4", "packaging": "zip",
+                               "minAppVersion": "0.0.1", "license": other == "whisper" ? "MIT" : "Apache-2.0"])
+            }
+            let value: [String: Any] = ["schemaVersion": 1, "role": "catalog", "app": "vitaliber", "assetKind": "asr",
+                "rootVersion": 1, "catalogVersion": version, "issuedAt": Self.timestamp(-60),
+                "expiresAt": Self.timestamp(29 * 86400), "revokedHashes": [],
+                "index": ["schemaVersion": 1, "baseUrl": "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models", "models": models]]
+            return try Self.sign(value, indices: [3, 4], keys: keys, identifiers: identifiers)
         }
         static func timestamp(_ offset: TimeInterval) -> String {
             ISO8601DateFormatter().string(from: Date().addingTimeInterval(offset))
