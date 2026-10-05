@@ -101,9 +101,6 @@ def main():
             if len(apps) != 1:
                 raise ValueError("Expected one app in IPA")
             inspect_app(apps[0])
-            require_embedded_baseline(apps[0])
-            subprocess.run(["python3", str(Path(__file__).with_name("fetch-asr-models.py")),
-                "--root", str(apps[0] / "ASRModels"), "--check"], check=True)
     else:
         inspect_app(args.app, args.repair)
 

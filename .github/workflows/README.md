@@ -50,7 +50,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 
 | 文件 | 触发 | 职责 | 调用簇 |
 |---|---|---|---|
-| `build-testflight.yml` | push master / `v*` tag / dispatch | 版本号→构建→L0 门禁→测试→打包→ASC 上传 | gates / release / requirements |
+| `build-testflight.yml` | push master / `v*` tag / dispatch | 版本号→构建（L0 门禁→编译→L1 单元/UI→签名归档）→IPA 校验→ASC 上传（2026-10-06 业主指令：ASR/LLAMA 构建步骤已解耦至 release-asr-models.yml，App 随包模型改运行时按签名目录自 CNB 下载） | gates / requirements |
 | `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 GitHub Releases | release / requirements |
 | `distill-llm.yml` | workflow_dispatch | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release(checkpoint Release 化随 P2 train job) | distill / requirements |
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |

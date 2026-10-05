@@ -28,12 +28,11 @@
 `.github/workflows/build-testflight.yml`：
 
 ```
-version.txt 校验 → 调用 ASR workflow → 获取离线基线 bundle
-  → L0 → macOS CoreKit 测试 → iOS 编译/单元/UI
-  → 每次编译生成并嵌入模型哈希基线 → 签名归档 → 上传 TestFlight
+version.txt 校验 → L0 → macOS CoreKit 测试 → iOS 编译/单元/UI
+  → 签名归档 → IPA 校验（框架 minOS/路径安全）→ 上传 TestFlight
 ```
 
-离线基线按源清单 `bundledModels` 声明裁剪（`build-asr-packages.py` 基线剖面：只随包声明档文件；随包清单与钉版源清单逐字段一致——S-M7 硬约束，App 侧按 bundledModels 声明定位随包条目，多档源清单不因首匹配命中未随包档位）；较大模型按需从 Release 下载。只有明确声明的 bundledModels 通过逐文件校验后，IPA 资源检查才通过。
+2026-10-06 业主指令：ASR/LLAMA 构建步骤已自 TestFlight 链删除——模型构建与发布由本工作流（release-asr-models.yml）独立承担（CNB 发布面 + 目录驱动矩阵），App 随包模型改为运行时按签名目录自 CNB 下载，IPA 不再内置基线模型；ASR 数据校验（test-asr-assets.py / fetch-asr-models.py --manifest-only）随之收口到本工作流的「校验构建、签名及版本规则」步。
 
 ### 独立或可调用的 ASR 构建
 

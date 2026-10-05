@@ -1,8 +1,7 @@
 # ============================================================================
-# 构建 + TestFlight 发布 CI（version → ASR 资源 → build → upload）
+# 构建 + TestFlight 发布 CI（version → build → upload）
 #
 # version：从 version.txt 读取 App release 版本（与资源 Release/tag 独立）
-# asr-models：调用可独立运行的 ASR 构建/校验/发布工作流
 # build：L0 门禁 → 编译 → L1 单元/UI 测试（26 个门禁套件真实执行）→
 #         签名归档 → 导出 IPA → 上传 artifact
 # upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
@@ -70,7 +69,7 @@ on:
 concurrency:
   group: testflight-${{ github.ref }}
   # 2026-09-27 委员会裁决 P9：发布路径取消语义 → 排队——新 push 取消进行中的
-  # TestFlight 上传会造成半上传态 + build 号已占（重跑 90189 终态）+ ASR 资源半发布。
+  # TestFlight 上传会造成半上传态 + build 号已占（重跑 90189 终态）+ 发布面半成品。
   cancel-in-progress: false
 
 permissions:
@@ -111,27 +110,11 @@ jobs:
             --output "$GITHUB_OUTPUT"
 
   # ═══════════════════════════════════════════════════════════════
-  # ASR 下载文件的唯一构建面：workflow_call / workflow_dispatch 共用。
-  # App 版本已校验后再开始资源工作，避免无效 version.txt 浪费大模型构建。
-  # ═══════════════════════════════════════════════════════════════
-  asr-models:
-    needs: version
-    uses: ./.github/workflows/release-asr-models.yml
-    permissions:
-      contents: read
-    secrets:
-      CNB_RESOURCE_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
-      ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
-      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
-    with:
-      publish: true
-
-  # ═══════════════════════════════════════════════════════════════
   # 编译 + 签名归档 + 导出 IPA
   # ═══════════════════════════════════════════════════════════════
   build:
     name: '编译 + 导出 IPA'
-    needs: [version, asr-models]
+    needs: version
     outputs:
       # 2026-09-27 委员会裁决 P6：产物存在性输出（不信任 env 布尔，信任产物文件）
       ipa_ready: ${{ steps.ipa-ready.outputs.ipa_ready }}
@@ -171,33 +154,6 @@ jobs:
           restore-keys: |
             spm-v2-${{ runner.os }}-
 
-      - name: 准备构建期模型信任校验
-        run: |
-          # 哈希钉版（安全复审 S-M6）：版本钉不能阻止同版本号的替换发布物。
-          python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
-          echo "MODEL_PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
-          # S-M7：artifact 会覆盖 Resources/ASRModels/manifest.json，先保存提交内清单供后续比对。
-          cp Resources/ASRModels/manifest.json "$RUNNER_TEMP/manifest.git.json"
-
-      - name: 获取已验证的离线 ASR 基线资源
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
-        with:
-          name: ${{ needs.asr-models.outputs.bundle_artifact }}
-          path: Resources
-
-      - name: 缓存 T2 llama 模型（随包内置）
-        id: llama-cache
-        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2
-        with:
-          path: Resources/LLMModels
-          # 键 = catalog.json 内容哈希——模型换版即失效重取（同 ASR 哈希先行纪律）
-          key: llama-model-${{ hashFiles('Resources/LLMModels/catalog.json') }}
-
-      - name: 取模 T2 llama 模型（sha256 校验，随包内置）
-        # 2026-09-20 恢复（业主第 5 项：取消首启下载、模型随包内置）——
-        # b8d6c4f 曾随「首启下载」裁决移除本步骤，冷缓存下 CI 包内无模型。
-        run: python3 scripts/release/materialize-llama-model.py
-
       - name: 环境与工具链
         run: |
           xcodebuild -version
@@ -233,8 +189,6 @@ jobs:
         run: |
           bash scripts/gates/l0-static-gate.sh
           python3 scripts/gates/test-schema-integrity.py
-          python3 scripts/release/test-asr-assets.py
-          python3 scripts/release/fetch-asr-models.py --manifest-only
 
       # ── 签名材料到期预警（审计 2026-09-10 新增）──────────────
       # 证书/PP 到期是「静默悬崖」：平时一切绿色，到期日归档/导出突然失败，
@@ -463,15 +417,6 @@ jobs:
             exit "$status"
           fi
           echo "CoreKit 域层测试通过 ✓"
-
-      - name: 校验随包 ASR 基线与签名目录
-        run: |
-          # S-M7：随包档位清单只允许比本提交的钉版清单多出 bundledModels，--check 才是在核对本提交的来源。
-          python3 scripts/release/fetch-asr-models.py --check --source-manifest "$RUNNER_TEMP/manifest.git.json"
-          python3 scripts/release/model-trust.py verify \
-            --root Resources/ModelTrustRoot.json \
-            --catalog Resources/ASRModelUpdates/catalog.json \
-            --index Resources/ASRModelUpdates/index.json
 
       # ── 编译门禁（build-for-testing）：失败即停 ───────
       - name: 编译门禁（build-for-testing）
@@ -751,7 +696,7 @@ jobs:
           fi
           test -f Build/export/VitaLiber.ipa && echo "ipa 导出成功 ✓"
 
-      - name: 校验 IPA 框架 minOS 与 ASR 随包完整性
+      - name: 校验 IPA 框架 minOS 与路径安全
         if: ${{ env.HAS_CERTS == 'true' }}
         run: python3 scripts/release/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
 
