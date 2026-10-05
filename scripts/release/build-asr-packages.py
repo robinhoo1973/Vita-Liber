@@ -116,7 +116,6 @@ def build_packages(root, template, output, reuse=None):
         name = f"{model_id}-{slug(release['variant'])}-{slug(release['version'])}-{built_at}-r{revision}.zip"
         release.update(url=name, packaging="zip", builtAt=built_at, artifactRevision=revision,
                        upstreamRevision=model["revision"], runtime="sherpa-onnx-1.13.4")
-        release["expandedBytes"] = sum(len(v) if isinstance(v, bytes) else v.stat().st_size for v in files.values())
         prepared.append((release, files))
     for release, files in prepared:
         # 复用已验证 Release ZIP（2026-09-13 审查加固）：重建的字节取决于
@@ -130,6 +129,9 @@ def build_packages(root, template, output, reuse=None):
                     and digest_file(cached) == release["sha256"]):
                 shutil.copyfile(cached, output / release["url"])
                 release["bytes"] = cached.stat().st_size
+                # expandedBytes 保留签名模板值,不按现源树重算(CI 37266485372
+                # 实证:遗留 zip 内清单无 variant 键,现源树 manifest 已带
+                # variant,重算差字节致「Expanded byte count mismatch」)。
                 print("Reusing verified Release ZIP " + release["url"], flush=True)
                 continue
         with tempfile.NamedTemporaryFile(dir=output, suffix=".zip", delete=False) as temporary:
@@ -138,6 +140,10 @@ def build_packages(root, template, output, reuse=None):
             print("Building " + release["url"], flush=True)
             write_zip(temporary_path, files, release["builtAt"])
             release["bytes"] = temporary_path.stat().st_size
+            # 构建分支:expandedBytes 按实际写入的 zip 条目字节和计算
+            # (files 即条目内容,与 write_zip 同源)。
+            release["expandedBytes"] = sum(
+                len(v) if isinstance(v, bytes) else v.stat().st_size for v in files.values())
             if release["bytes"] > MAX_PACKAGE:
                 raise ValueError("Model package exceeds Release budget")
             release["sha256"] = digest_file(temporary_path)
