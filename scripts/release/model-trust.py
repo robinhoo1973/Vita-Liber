@@ -7,6 +7,16 @@ from asr_package import decode_json, json_bytes
 from model_trust import build_baseline, verify_catalog
 
 
+def strip_package_signatures(index):
+    """比较豁免面(2026-10-06 包级签名):built 索引无签名密钥,packageSignature
+    仅存在于签名目录载荷——逐条目剥离后比较,其余字段必须逐字段一致。"""
+    import copy
+    stripped = copy.deepcopy(index)
+    for model in stripped.get("models", []):
+        model.pop("packageSignature", None)
+    return stripped
+
+
 def _index_diff(expected, actual):
     """返回 signed(expected) 与 built(actual) 的第一条字段级差异路径(模型 id 先行)。"""
     def walk(a, b, path):
@@ -54,13 +64,18 @@ def main():
         catalog = verify_catalog(root, envelope, previous=previous, asset_kind=args.asset_kind)
         if args.content_sha256 and catalog.get("contentSha256") != args.content_sha256:
             raise ValueError("Signed catalog contentSha256 mismatch")
-        if args.index and catalog["index"] != decode_json(args.index.read_bytes()):
-            # 字段级差异定位（2026-10-05 World A 排障）：报出第一条不一致路径，
-            # 避免「整索引不等」盲猜（此前连红三轮各修一处才露下一处）。
-            detail = _index_diff(catalog["index"], decode_json(args.index.read_bytes()))
-            raise ValueError(
-                "Built model index differs from the signed catalog (first diff: %s); "
-                "generate a candidate and sign it first" % detail)
+        if args.index:
+            # 2026-10-06 包级签名:签名器在载荷内为每包附加 packageSignature
+            # (构建侧无密钥,built 索引不携带)——比较豁免该键,其余逐字段一致;
+            # 差异定位(2026-10-05 World A 排障):报出第一条不一致路径,
+            # 避免「整索引不等」盲猜(此前连红三轮各修一处才露下一处)。
+            published = strip_package_signatures(catalog["index"])
+            built = strip_package_signatures(decode_json(args.index.read_bytes()))
+            if published != built:
+                detail = _index_diff(published, built)
+                raise ValueError(
+                    "Built model index differs from the signed catalog (first diff: %s); "
+                    "generate a candidate and sign it first" % detail)
         if args.action == "build":
             if not args.output:
                 raise ValueError("--output is required for build")

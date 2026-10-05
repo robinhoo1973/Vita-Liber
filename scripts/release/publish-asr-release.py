@@ -59,7 +59,11 @@ def normalize_assets(cnb_assets):
 
 
 def highest_remote_catalog(cnb_assets):
-    """Highest numeric versioned catalog name (N.catalog.json), None when none exist."""
+    """Highest numeric versioned catalog name (N.catalog.json), None when none exist.
+
+    2026-10-06 单一 JSON 架构后仅用于历史资产面(旧 N.catalog.json)兼容
+    判读;新架构远端目录资产为固定名 index.json,见 remote_catalog_name。
+    """
     pattern = re.compile(r"^([1-9][0-9]*)\.catalog\.json$")
     candidates = []
     for asset in cnb_assets:
@@ -69,15 +73,21 @@ def highest_remote_catalog(cnb_assets):
     return max(candidates)[1] if candidates else None
 
 
-def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
-    """Reject rollback/equivocation against the newest remote versioned catalog.
+def remote_catalog_name(cnb_assets):
+    """固定名数据文件(2026-10-06 业主单一 JSON 架构):index.json 是唯一目录资产。"""
+    return "index.json" if any((a.get("name") or "") == "index.json" for a in cnb_assets) else None
 
-    Mirrors the old GitHub draft-resume check: the newest remote N.catalog.json is
-    downloaded anonymously, verified against its local root, then compared with the
-    catalog being published.
+
+def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
+    """Reject rollback/equivocation against the remote fixed-name index.json.
+
+    2026-10-06 单一 JSON 架构:远端固定名 index.json(签名信封)匿名下载、
+    对本地根验签后比对单调性——TUF fixed-name 形态(无版本化副本),回滚
+    防护由 payload 内 rootVersion/catalogVersion 单调闸 + 客户端持久化
+    回滚守卫共同承担;同版本异字节 = 等价歧义硬错(语义不变)。
     """
     remote = client.list_assets(TAG) if remote_assets is None else remote_assets
-    name = highest_remote_catalog(remote)
+    name = remote_catalog_name(remote)
     if name is None:
         return  # 首个发布:无可比对基线
     with tempfile.TemporaryDirectory() as temporary:
@@ -129,34 +139,18 @@ def publish(args, client):
     for model in index["models"]:
         client.upload_immutable(TAG, args.directory / model["url"], model["url"], model["sha256"], overwrite=True)
 
-    root_files = sorted(args.catalog.parent.glob("[0-9]*.root.json"), key=lambda p: int(p.name.split(".")[0]))
-    if not root_files:
-        raise ValueError("Versioned trust root assets are required")
-    previous = None
-    for root_file in root_files:
-        envelope = decode_json(root_file.read_bytes())
-        checked = trusted_root(envelope, previous=previous)
-        if root_file.name != f"{checked['version']}.root.json":
-            raise ValueError("Root asset name/version mismatch")
-        # 信任资产(根/目录/校验回执)是**只增**面(2026-10-05 审查):同版本
-        # 异字节的静默覆写会拆散客户端信任链(已装客户端按旧根字节验 N+1),
-        # 相同内容仍按哈希比对跳过,内容变化必须升版本——碰撞即硬错。
-        client.upload_immutable(TAG, root_file, root_file.name,
-                                hashlib.sha256(root_file.read_bytes()).hexdigest(), overwrite=False)
-        previous = envelope
-
-    with tempfile.TemporaryDirectory() as temporary:
-        temporary = Path(temporary)
-        versioned_catalog = temporary / f"{catalog['catalogVersion']}.catalog.json"
-        versioned_catalog.write_bytes(args.catalog.read_bytes())
-        client.upload_immutable(TAG, versioned_catalog, versioned_catalog.name,
-                                hashlib.sha256(args.catalog.read_bytes()).hexdigest(), overwrite=False)
-        validation = temporary / f"{catalog['catalogVersion']}.package-validation.json"
-        validation.write_bytes(json_bytes(receipt))
-        client.upload_immutable(TAG, validation, validation.name,
-                                hashlib.sha256(validation.read_bytes()).hexdigest(), overwrite=False)
+    # 单一 JSON 架构(2026-10-06 业主裁定):CNB 只承载模型包 + index.json
+    # (签名信封,固定名,payload 内单调 catalogVersion——TUF fixed-name
+    # 形态)。包级签名验证由载荷内逐条目 packageSignature(Ed25519 对包
+    # sha256 摘要的 2-of-3 多重签名)承担,App 侧验摘要签名 + 摘要匹配。
+    # 固定名 + overwrite:远端同名存在时 check_remote_catalog_chain 的单调
+    # 闸保证新版本号更高;客户端持久化回滚守卫防重放。
+    client.upload_immutable(TAG, args.catalog, "index.json",
+                            hashlib.sha256(args.catalog.read_bytes()).hexdigest(), overwrite=True)
     current_names = {a["name"] for a in normalize_assets(client.list_assets(TAG))}
     missing = [m["url"] for m in index["models"] if m["url"] not in current_names]
+    if "index.json" not in current_names:
+        missing.append("index.json")
     if missing:
         raise ValueError("A required model asset is still missing: " + missing[0])
     print(f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}", flush=True)

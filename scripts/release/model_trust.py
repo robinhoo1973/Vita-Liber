@@ -170,6 +170,38 @@ def verify_catalog(root_envelope, catalog_envelope, *, previous=None, now=None, 
         if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", model.get("minAppVersion", "")):
             raise ValueError("Signed minimum App version is required")
         slug(model["runtime"])
+    # 包级签名验证(2026-10-06 业主指令:zip 文件也需要签名验证)——逐条目
+    # Ed25519 对包 sha256 摘要的多重签名(域分离前缀 + 32 字节摘要),签名
+    # 密钥与目录信封同源(catalogKeyIDs/catalogThreshold)。App 下载后重算
+    # sha256 先验此签名再比对摘要——与目录信封构成双链。
+    package_keys = {k["id"]: base64.b64decode(k["publicKey"])
+                    for k in root.get("keys", []) if k["id"] in set(root.get("catalogKeyIDs", []))}
+    package_threshold = root.get("catalogThreshold", 2)
+    for model in index["models"]:
+        signature = model.get("packageSignature")
+        # 有则验真(新目录逐包必带,由签名器附加);无则容忍(旧目录/过渡面,
+        # 仅目录 sha256 绑定——App 侧 Swift 收单同款语义)。
+        if signature is None:
+            continue
+        if not isinstance(signature, dict) or signature.get("scheme") != "ed25519-sha256-v1":
+            raise ValueError("Package signature missing or unknown scheme: " + model["url"])
+        message = b"vitaliber/asr/package-sha256/v1/" + bytes.fromhex(model["sha256"])
+        seen, verified = set(), 0
+        for entry in signature.get("signatures", []):
+            identity = entry.get("keyId")
+            if identity in seen or identity not in package_keys:
+                continue
+            seen.add(identity)
+            raw_signature = base64.b64decode(entry.get("value", ""), validate=True)
+            if len(raw_signature) != 64:
+                continue
+            try:
+                Ed25519PublicKey.from_public_bytes(package_keys[identity]).verify(raw_signature, message)
+                verified += 1
+            except InvalidSignature:
+                pass
+        if verified < package_threshold:
+            raise ValueError("Package signature threshold not satisfied: " + model["url"])
     revoked = catalog.get("revokedHashes", [])
     if len(revoked) > 128 or any(not re.fullmatch(r"[0-9a-f]{64}", h) for h in revoked):
         raise ValueError("Invalid revocation list")

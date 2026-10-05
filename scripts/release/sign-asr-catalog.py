@@ -102,6 +102,21 @@ def main() -> int:
         return 2
     envelope = sign_envelope(payload, signers[:threshold])
 
+    # 包级签名(2026-10-06 业主指令:zip 文件也需要签名验证)——逐条目对包
+    # sha256 摘要做域分离 Ed25519 多重签名,签名密钥与目录信封同源
+    # (catalogKeyIDs,阈值同 catalogThreshold)。App 下载后重算 sha256,
+    # 先验摘要签名(防伪造哈希绑定)再比对摘要——与目录信封构成双链。
+    for model in payload["index"].get("models", []):
+        digest = bytes.fromhex(model["sha256"])
+        message = b"vitaliber/asr/package-sha256/v1/" + digest
+        model["packageSignature"] = {
+            "scheme": "ed25519-sha256-v1",
+            "signatures": [
+                {"keyId": identity, "value": b64(key.sign(message))}
+                for identity, key in signers[:threshold]
+            ],
+        }
+
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(envelope, f, ensure_ascii=False, indent=1)
         f.write("\n")

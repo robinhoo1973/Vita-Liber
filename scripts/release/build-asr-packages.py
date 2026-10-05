@@ -11,7 +11,7 @@ import sys
 import tempfile
 import zipfile
 
-from asr_package import (MAX_PACKAGE, MODELS, decode_json, digest_file, json_bytes,
+from asr_package import (MAX_PACKAGE, MODELS, decode_json, decode_index_data_file, digest_file, json_bytes,
                          manifest_files, safe_path, slug, validate_index, verify_packages)
 from asr_envelope import ENCRYPTION_SCHEME, encrypt_package, env_package_key, identity_string, is_envelope_file
 
@@ -205,7 +205,7 @@ def main():
     parser.add_argument("--reuse-directory", type=Path)
     args = parser.parse_args()
     try:
-        result = build_packages(args.source_root, decode_json(args.index.read_bytes()), args.output,
+        result = build_packages(args.source_root, decode_index_data_file(args.index), args.output,
                                 reuse=args.reuse_directory)
         print(f"Built and verified {len(result['models'])} complete ASR packages", flush=True)
         return 0

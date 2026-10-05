@@ -149,9 +149,12 @@ class PublicationTests(unittest.TestCase):
             client = FakeCNBReleaseClient()
             module["publish"](options, client)
             names = {asset for asset, _ in client.uploads}
-            self.assertTrue({"1.root.json", "3.catalog.json", "3.package-validation.json"} <= names)
-            for model in json.loads(options.index.read_text())["models"]:
-                self.assertIn(model["url"], names)
+            models = json.loads(options.index.read_text())["models"]
+            # 单一 JSON 架构(2026-10-06 业主裁定):资产面 = 模型包 + index.json;
+            # 根/版本化目录/回执不再上传。
+            self.assertTrue({m["url"] for m in models} | {"index.json"} <= names)
+            self.assertFalse(any(name.endswith(".root.json") or name.endswith(".catalog.json")
+                                 or name.endswith("package-validation.json") for name in names))
 
     def test_publish_overwrites_same_name_different_content_model(self):
         # 业主 R2(2026-10-05/06):同名异内容模型资产按 overwrite 更新上传——
@@ -178,8 +181,9 @@ class PublicationTests(unittest.TestCase):
             updated = next(a for a in client.assets if a["name"] == target)
             self.assertEqual(updated["sha256"], tampered["sha256"])
 
-    def test_publish_rejects_same_version_different_root_bytes(self):
-        # 信任资产只增(2026-10-05 审查):同版本根异字节 = 硬错,不静默覆写。
+    def test_publish_rejects_tampered_remote_index_bytes(self):
+        # 单一 JSON 架构(2026-10-06 业主裁定):远端 index.json 被篡改 = 验签
+        # 硬错(同版本异字节等价歧义闸亦在链校验内),不静默覆写。
         module = runpy.run_path(str(TOOL))
         with tempfile.TemporaryDirectory() as directory:
             packages, trust, _, options = make_signed_asr_fixture(Path(directory))
@@ -187,11 +191,11 @@ class PublicationTests(unittest.TestCase):
             self.addCleanup(trust.doCleanups)
             client = FakeCNBReleaseClient()
             module["publish"](options, client)
-            tampered = next(a for a in client.assets if a["name"] == "1.root.json")
-            tampered["content"] = b"tampered-root"
+            tampered = next(a for a in client.assets if a["name"] == "index.json")
+            tampered["content"] = b"tampered-index"
             tampered["size"] = len(tampered["content"])
             tampered["sha256"] = hashlib.sha256(tampered["content"]).hexdigest()
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises((RuntimeError, ValueError)):
                 module["publish"](options, client)
 
     def test_second_publish_is_idempotent_reuse(self):
@@ -216,9 +220,9 @@ class PublicationTests(unittest.TestCase):
             tampered["index"]["models"] = tampered["index"]["models"][:-1]
             equivocation = trust_module["envelope"](tampered, trust.keys[3:5])
             equivocation_bytes = json.dumps(equivocation).encode()
-            client = FakeCNBReleaseClient(downloads={"3.catalog.json": equivocation_bytes})
+            client = FakeCNBReleaseClient(downloads={"index.json": equivocation_bytes})
             # 远程清单必须可见该目录资产,链校验才进入比对分支
-            client.assets.append({"name": "3.catalog.json", "size": len(equivocation_bytes),
+            client.assets.append({"name": "index.json", "size": len(equivocation_bytes),
                                   "sha256": hashlib.sha256(equivocation_bytes).hexdigest(),
                                   "content": equivocation_bytes})
             with self.assertRaises(ValueError):

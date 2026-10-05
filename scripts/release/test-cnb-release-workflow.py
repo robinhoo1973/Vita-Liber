@@ -60,12 +60,16 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn("GH_TOKEN", prepare.get("env", {}) or {})
         self.assertIn("CNB_RESOURCE_REPOSITORY", prepare["run"])
 
-    def test_testflight_caller_passes_the_token_explicitly(self):
+    def test_asr_workflow_decoupled_from_testflight(self):
+        # 2026-10-06 业主指令:ASR 构建从 TestFlight 链退役(模型运行时下载),
+        # build-testflight 不再调用 release-asr-models;调用面仅剩 workflow_dispatch,
+        # CNB 令牌只经 release-asr-models 自身的发布步。
         workflow = workflow_yaml("build-testflight.yml")
-        asr = next(j for name, j in workflow["jobs"].items() if name == "asr-models")
-        self.assertEqual(asr["secrets"]["CNB_RESOURCE_TOKEN"],
-                         "${{ secrets.CNB_RESOURCE_TOKEN }}")
-        self.assertNotEqual(asr.get("permissions", {}).get("contents"), "write")
+        self.assertFalse(any(job.get("uses") for job in workflow.get("jobs", {}).values()),
+                         "build-testflight 不得再调用 ASR 构建工作流")
+        callable_workflow = workflow_yaml("release-asr-models.yml")
+        call = callable_workflow.get(True, {}).get("workflow_call", {})
+        self.assertIn("CNB_RESOURCE_TOKEN", call.get("secrets", {}))
 
     def test_seed_workflow_is_the_only_github_release_read_face(self):
         text = workflow_text("seed-cnb-assets.yml")

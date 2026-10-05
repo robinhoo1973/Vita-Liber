@@ -62,6 +62,17 @@ def decode_json(data):
     return json.loads(data, object_pairs_hook=unique_object)
 
 
+def decode_index_data_file(path):
+    """数据文件两态读取(2026-10-06 业主单一 JSON 架构):Resources/ASRModelUpdates/
+    index.json 是唯一数据文件——签名信封形态(payload+signatures)时返回
+    payload["index"],裸索引形态(构建模板期/历史文件)原样返回。"""
+    raw = decode_json(Path(path).read_bytes())
+    if isinstance(raw, dict) and "payload" in raw and "signatures" in raw:
+        import base64
+        return decode_json(base64.b64decode(raw["payload"]))["index"]
+    return raw
+
+
 def digest_file(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as stream:
@@ -144,6 +155,18 @@ def validate_index(index, *, complete=True, expected_families=None):
         # 明文条目只可能来自冻结的旧目录。
         if model.get("encryption") not in (None, ENCRYPTION_SCHEME):
             raise ValueError("Unknown package encryption scheme: " + str(model.get("encryption")))
+        # 包级签名合同(2026-10-06 业主指令:zip 文件也需要签名验证)——有则验形
+        # (签名只由签名器附加进签名目录载荷;built 索引与旧目录无此键合法),
+        # 验真由 model_trust.verify_catalog / App 信任库收单处承担。
+        signature = model.get("packageSignature")
+        if signature is not None:
+            if not isinstance(signature, dict) or signature.get("scheme") != "ed25519-sha256-v1" \
+                    or not isinstance(signature.get("signatures"), list) or not signature["signatures"]:
+                raise ValueError("Malformed ed25519-sha256-v1 packageSignature: " + model["url"])
+            for entry in signature["signatures"]:
+                if not re.fullmatch(r"[0-9a-f]{64}", str(entry.get("keyId", ""))) \
+                        or not re.fullmatch(r"[A-Za-z0-9+/]{86,88}={0,2}", str(entry.get("value", ""))):
+                    raise ValueError("Invalid package signature entry: " + model["url"])
         if complete:
             if type(model.get("bytes")) is not int or not 0 < model["bytes"] <= MAX_PACKAGE:
                 raise ValueError("Invalid package byte count")
