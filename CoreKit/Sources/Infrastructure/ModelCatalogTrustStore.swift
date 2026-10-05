@@ -292,7 +292,7 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         let value = try JSONDecoder().decode(SignedModelCatalog.self, from: envelope.payload)
         guard value.schemaVersion == 1, value.role == "catalog", value.app == "vitaliber", value.assetKind == "asr",
               value.rootVersion == root.version, value.catalogVersion > 0,
-              servedAs == nil || servedAs == ASRModelReleaseProtocol.catalogAssetName(version: value.catalogVersion),
+              servedAs == nil || servedAs == ASRModelReleaseProtocol.catalogAssetFixedName,
               let issued = date(value.issuedAt), let expiry = date(value.expiresAt), let rootExpiry = date(root.expiresAt),
               expiry > issued, expiry.timeIntervalSince(issued) <= 31 * 86400,
               value.index.isSupported, value.index.baseUrl == root.assetBaseURL,
@@ -329,7 +329,76 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                 throw Failure.invalidMetadata
             }
         }
+        // 包级签名验证(2026-10-06 业主指令:zip 文件也需要签名验证):目录载荷
+        // 逐条目携带对包 sha256 摘要的 Ed25519 多重签名——收单处验真,任何一包
+        // 不达标 = invalidMetadata(fail-closed)。下载侧(ASRModelDownloadService)
+        // 对实际下载字节重算摘要后再验一次(实例方法 verifyPackageSignature)。
+        try Self.verifyPackageSignatures(in: value.index, root: root)
         return value
+    }
+
+    /// 逐条目包级签名验真(接受闸面):阈值与密钥面 = root 的 catalogKeyIDs/
+    /// catalogThreshold,消息 = 域分离前缀 + 32 字节 sha256 摘要。
+    static func verifyPackageSignatures(in index: ASRModelReleaseIndex, root: ModelTrustRoot) throws {
+        var catalogKeys: [String: Data] = [:]
+        for key in root.keys where root.catalogKeyIDs.contains(key.id) { catalogKeys[key.id] = key.publicKey }
+        let threshold = max(1, root.catalogThreshold)
+        for model in index.models {
+            guard let signature = model.packageSignature else { continue }  // 旧目录条目:仅目录 sha 绑定
+            guard signature.scheme == ASRPackageSignature.schemeName,
+                  let digest = Self.sha256Digest(fromHex: model.sha256) else { throw Failure.invalidMetadata }
+            let message = Data("vitaliber/asr/package-sha256/v1/".utf8) + digest
+            var seen = Set<String>()
+            var verified = 0
+            for entry in signature.signatures {
+                guard !seen.contains(entry.keyId),
+                      let publicBytes = catalogKeys[entry.keyId],
+                      let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicBytes),  // try?-ok: 畸形公钥条目=无效票跳过计票(签名集来自已验根,坏条目不崩溃)
+                      let raw = Data(base64Encoded: entry.value), raw.count == 64 else { continue }
+                seen.insert(entry.keyId)
+                if publicKey.isValidSignature(raw, for: message) { verified += 1 }
+            }
+            guard verified >= threshold else { throw Failure.invalidMetadata }
+        }
+    }
+
+    /// 下载侧包级签名验证(2026-10-06 业主指令:App 下载文件后签名验证通过
+    /// 才能使用)——对实际下载字节的 sha256 摘要验多重签名,密钥面取当前
+    /// 已验根;无签名条目(旧目录)返回 true(仅目录 sha 绑定,由调用方已验)。
+    public func verifyPackageSignature(_ signature: ASRPackageSignature?, sha256Hex: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let signature, let root else { return signature == nil }
+        guard signature.scheme == ASRPackageSignature.schemeName,
+              let digest = Self.sha256Digest(fromHex: sha256Hex) else { return false }
+        var catalogKeys: [String: Data] = [:]
+        for key in root.keys where root.catalogKeyIDs.contains(key.id) { catalogKeys[key.id] = key.publicKey }
+        let threshold = max(1, root.catalogThreshold)
+        let message = Data("vitaliber/asr/package-sha256/v1/".utf8) + digest
+        var seen = Set<String>()
+        var verified = 0
+        for entry in signature.signatures {
+            guard !seen.contains(entry.keyId),
+                  let publicBytes = catalogKeys[entry.keyId],
+                  let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicBytes),  // try?-ok: 畸形公钥条目=无效票跳过计票(签名集来自已验根,坏条目不崩溃)
+                  let raw = Data(base64Encoded: entry.value), raw.count == 64 else { continue }
+            seen.insert(entry.keyId)
+            if publicKey.isValidSignature(raw, for: message) { verified += 1 }
+        }
+        return verified >= threshold
+    }
+
+    private static func sha256Digest(fromHex hex: String) -> Data? {
+        guard hex.count == 64 else { return nil }
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(32)
+        var index = hex.startIndex
+        while index < hex.endIndex {
+            let next = hex.index(index, offsetBy: 2)
+            guard let value = UInt8(hex[index..<next], radix: 16) else { return nil }
+            bytes.append(value)
+            index = next
+        }
+        return Data(bytes)
     }
 }
 #endif

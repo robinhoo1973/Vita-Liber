@@ -138,38 +138,24 @@ public actor ASRModelDownloadService {
             }
             catch Failure.badResponse(404) { break }
         }
-        // tag 页清单只是候选定位(设计文档 §3.1):所选资产名必须等于重算名,
-        // 下载地址由基址构造——页面自报 path 只做解析期作用域校验,不作下载源。
+        // 2026-10-06 单一 JSON 架构:目录资产 = 固定名 index.json(TUF
+        // fixed-name 形态,单调版本在签名载荷 catalogVersion)。tag 页清单
+        // 只做 index.json 存在性确认,下载地址由基址构造;served-name 绑定
+        // = index.json。回滚防护 = 载荷单调闸 + 信任库持久化回滚守卫。
         let page = try await metadata(from: url, maxBytes: CNBReleasePageInventoryParser.maxPageBytes)
         let assets = try CNBReleasePageInventoryParser.assets(fromPage: page,
                                                               repository: ASRModelReleaseProtocol.repository,
                                                               tag: ASRModelReleaseProtocol.releaseTag)
-        let catalogCandidates = assets.compactMap { asset -> (version: Int, name: String)? in
-            guard let version = ASRModelReleaseProtocol.catalogVersion(fromAssetName: asset.name) else { return nil }
-            return (version, asset.name)
-        }
-        // 2026-10-05 审查修复:根轮换后 tag 页上最高数字版本目录可能仍由旧根
-        // 签名(acceptRoot 已清空本机目录状态)——此前单点取最高名,验签失败即
-        // 整面「检查不可用」,且已持久化的末次好目录已被清掉。改为按版本降序
-        // 逐个尝试:每个候选独立验签(签名/回滚/楼层闸不变),首个可接受者即
-        // 生效;全败才抛(保留末个错误)。
-        let ordered = catalogCandidates.sorted { $0.version > $1.version }
-        var lastError: Error = Failure.badIndex
-        for candidate in ordered {
-            guard let catalogURL = URL(string: ASRModelReleaseProtocol.releaseBaseURL + "/" + candidate.name),
-                  ModelResourcePolicy.allowedURL(catalogURL) else { continue }
-            do {
-                let data = try await metadata(from: catalogURL)
-                let index = try trust.acceptCatalog(data, servedAs: candidate.name)
-                // 2026-09-19 审查修复：索引刷新只清缓存不推分代——旧全量推进使所有档位
-                // identity 变化，检查一次更新即触发全引擎重载+全文件重哈希。
-                ASRModelAssets.clearCaches()
-                return index
-            } catch {
-                lastError = error
-            }
-        }
-        throw lastError
+        let fixedName = ASRModelReleaseProtocol.catalogAssetFixedName
+        guard assets.contains(where: { $0.name == fixedName }),
+              let catalogURL = URL(string: ASRModelReleaseProtocol.releaseBaseURL + "/" + fixedName),
+              ModelResourcePolicy.allowedURL(catalogURL) else { throw Failure.badIndex }
+        let data = try await metadata(from: catalogURL)
+        let index = try trust.acceptCatalog(data, servedAs: fixedName)
+        // 2026-09-19 审查修复：索引刷新只清缓存不推分代——旧全量推进使所有档位
+        // identity 变化，检查一次更新即触发全引擎重载+全文件重哈希。
+        ASRModelAssets.clearCaches()
+        return index
     }
 
     private func metadata(from url: URL, maxBytes: Int = ModelResourcePolicy.metadataBytes) async throws -> Data {
@@ -430,6 +416,14 @@ public actor ASRModelDownloadService {
         }
         // release 的整份描述已匹配受信任授权。
         guard digest.caseInsensitiveCompare(expectedSHA) == .orderedSame else {
+            throw Failure.checksumMismatch
+        }
+        // 2026-10-06 业主指令:App 下载后必须签名验证通过才能使用——对实际
+        // 下载字节的 sha256 摘要验 Ed25519 多重签名(密钥面 = 已验根,
+        // 阈值 = catalogThreshold);带签名的条目验不过 = 硬错,旧目录无签名
+        // 条目仅目录 sha 绑定(向后兼容面)。
+        if release.packageSignature != nil,
+           !ModelCatalogTrustStore.shared.verifyPackageSignature(release.packageSignature, sha256Hex: digest) {
             throw Failure.checksumMismatch
         }
 

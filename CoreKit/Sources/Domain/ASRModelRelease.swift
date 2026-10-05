@@ -99,6 +99,29 @@ public struct ASRModelFamily: Codable, Sendable, Equatable, Identifiable {
     public var isUpcoming: Bool { availability == "upcoming" }
 }
 
+/// 包级签名(2026-10-06 业主指令:zip 文件也需要签名验证)——Ed25519 对包
+/// sha256 摘要(32 字节)的域分离多重签名,密钥与目录信封同源
+/// (root.catalogKeyIDs,阈值同 catalogThreshold)。App 下载后重算 sha256,
+/// 先验此签名(防伪造哈希绑定)再比对摘要,通过才允许解密/安装/使用。
+public struct ASRPackageSignatureEntry: Codable, Sendable, Equatable {
+    public var keyId: String
+    public var value: String   // base64 Ed25519 签名(64 字节)
+
+    public init(keyId: String, value: String) {
+        self.keyId = keyId; self.value = value
+    }
+}
+
+public struct ASRPackageSignature: Codable, Sendable, Equatable {
+    public static let schemeName = "ed25519-sha256-v1"
+    public var scheme: String
+    public var signatures: [ASRPackageSignatureEntry]
+
+    public init(scheme: String, signatures: [ASRPackageSignatureEntry]) {
+        self.scheme = scheme; self.signatures = signatures
+    }
+}
+
 /// 单个模型发布条目。
 public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public var id: String
@@ -131,12 +154,15 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     /// 档位说明文案（参数/性能说明，2026-10-05 业主定：由 CI 目录 JSON 提供；
     /// 缺失 = 旧目录，UI 只呈现本地计算的字节/峰值参数行）。
     public var tierHint: ASRLocalizedText?
+    /// 包级签名（2026-10-06 业主指令）：缺失 = 旧目录条目（仅目录 sha256 绑定）。
+    public var packageSignature: ASRPackageSignature?
 
     public init(id: String, version: String, bytes: Int64? = nil, sha256: String, url: String,
                 minAppVersion: String? = nil, license: String? = nil,
                 expandedBytes: Int64? = nil, runtime: String? = nil, packaging: String? = nil,
                 encryption: String? = nil, artifactRevision: Int? = nil, variant: String? = nil,
-                tierName: ASRLocalizedText? = nil, tierHint: ASRLocalizedText? = nil) {
+                tierName: ASRLocalizedText? = nil, tierHint: ASRLocalizedText? = nil,
+                packageSignature: ASRPackageSignature? = nil) {
         self.id = id; self.version = version
         self.bytes = bytes; self.sha256 = sha256
         self.url = url; self.minAppVersion = minAppVersion; self.license = license
@@ -145,6 +171,7 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
         self.variant = variant
         self.tierName = tierName
         self.tierHint = tierHint
+        self.packageSignature = packageSignature
     }
 
     /// 档位权重（业主裁决 D6 修复）：variant 档名的字典序与大小序不一致——

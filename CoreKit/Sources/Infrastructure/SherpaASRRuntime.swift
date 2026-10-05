@@ -44,8 +44,14 @@ final class SherpaASRRuntime {
             config.model_config.num_threads = 2
             config.model_config.provider = strings.add("cpu")
             config.model_config.model_type = strings.add("zipformer")
-            config.model_config.modeling_unit = strings.add("cjkchar+bpe")
-            config.model_config.bpe_vocab = try strings.add(assets.path("bpe"))
+            // 2026-10-06 zipformer-14M 支持:bpe 随资产存在性装配——双语大模型
+            // 携带 bpe.vocab(cjkchar+bpe),14M 中文小模型上游无 bpe(纯 cjkchar)。
+            if let bpe = assets.optionalPath("bpe") {
+                config.model_config.modeling_unit = strings.add("cjkchar+bpe")
+                config.model_config.bpe_vocab = strings.add(bpe)
+            } else {
+                config.model_config.modeling_unit = strings.add("cjkchar")
+            }
             config.decoding_method = strings.add("modified_beam_search")
             config.max_active_paths = 4
             config.hotwords_score = 1.5

@@ -24,6 +24,10 @@ public struct ASRModelAssets: Sendable {
             guard let path = paths[role] else { throw TranscriptionError.engineUnavailable }
             return path
         }
+
+        /// 可选角色查询(2026-10-06 zipformer-14M 支持):bpe 随资产存在性装配——
+        /// 有则 cjkchar+bpe,无则纯 cjkchar(14M 中文小模型上游无 bpe.vocab)。
+        func optionalPath(_ role: String) -> String? { paths[role] }
     }
     private let root: URL?
     private let packageSHA256: String?
@@ -292,8 +296,9 @@ public struct ASRModelAssets: Sendable {
     /// vad 为 sherpa 轨共用组件）。
     private static func runtimeRoles(for choice: VoiceEngineChoice) -> Set<String> {
         switch choice {
-        // zipformer 走在线流式分支，不装配 VAD（SherpaASRRuntime init 的 else 分支才加载 vad）
-        case .zipformer: return ["tokens", "encoder", "decoder", "joiner", "bpe"]
+        // zipformer 走在线流式分支，不装配 VAD（SherpaASRRuntime init 的 else 分支才加载 vad）；
+        // bpe 为可选角色（2026-10-06 zipformer-14M 支持:双语档有 bpe.vocab,14M 档无）。
+        case .zipformer: return ["tokens", "encoder", "decoder", "joiner"]
         case .qwen3: return ["frontend", "encoder", "decoder", "vocab", "vad"]
         // dolphin/whisper 走 `assets.path("tokens")`（仅 qwen3 以空串替代 tokens）
         case .whisper: return ["encoder", "decoder", "tokens", "vad"]

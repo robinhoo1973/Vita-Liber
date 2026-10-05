@@ -14,12 +14,18 @@ public enum ASRModelReleaseProtocol {
     /// GitHub 旧基址(旧内测包冻结面):新 App 根校验仍接受两个已知基址
     /// 精确匹配之一,使在途 GitHub 域根与 CNB 域根轮换共享同一套验证。
     public static let legacyGitHubBaseURL = "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models"
-    /// tag 页:目录发现的唯一面;固定别名 catalog.json 非权威(设计文档 §2.2)。
+    /// tag 页:目录发现的唯一面;目录资产为固定名 index.json(2026-10-06 业主
+    /// 单一 JSON 架构:TUF fixed-name 形态,单调版本在签名载荷 catalogVersion,
+    /// 回滚防护由客户端持久化守卫承担;不再有版本化副本)。
     public static var tagPageURL: URL {
         URL(string: "https://cnb.cool/" + repository + "/-/releases/tag/" + releaseTag)!
     }
 
-    /// 数字版本目录/根资产名(N.catalog.json / N.root.json,N 为正整数、无前导零)。
+    /// 固定名数据文件:index.json(签名信封)——CNB 唯一目录资产与 App 唯一下载面。
+    public static let catalogAssetFixedName = "index.json"
+
+    /// 历史版本化目录/根资产名文法(N.catalog.json / N.root.json,旧 CNB 面
+    /// 判读兼容用;新架构不再产生这些资产)。
     public static func catalogAssetName(version: Int) -> String { String(version) + ".catalog.json" }
     public static func rootAssetName(version: Int) -> String { String(version) + ".root.json" }
 
