@@ -1,5 +1,5 @@
 {
-  "catalogSHA256": "3f3c84d5c6c911c4e3db182bf471dc57434dee7a32fd15a95c689704190507ff",
+  "catalogSHA256": "fae9d6d1bf7ee6d748226f3f80c75953f66399c600debdda781e32d214c7753b",
   "catalogVersion": 4,
   "entries": [
     {
@@ -71,5 +71,5 @@
   "revokedHashes": [],
   "rootVersion": 2,
   "schemaVersion": 1,
-  "sourceIndexSha256": "51e32451d67200bd5f00e95527ab9d5fb086dc368b3bc9446c35329d7e2709f2"
+  "sourceIndexSha256": "30b0524831c763bba509c886b71890aa87be16783bfd51d44dd691a79f74957c"
 }
