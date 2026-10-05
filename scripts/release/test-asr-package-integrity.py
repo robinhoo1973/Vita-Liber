@@ -405,6 +405,7 @@ class MultiVariantValidationTests(unittest.TestCase):
         for model_id in VARIANTS:
             models.append({"id": model_id, "variant": VARIANTS[model_id], "version": "1.0.0",
                            "url": f"{model_id}-{VARIANTS[model_id]}.zip", "bytes": 123, "sha256": "a" * 64,
+                           "license": "MIT" if model_id in {"whisper", "sense-voice", "fire-red"} else "Apache-2.0",
                            "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}})
         return {"schemaVersion": 1, "app": "vitaliber", "assetKind": "asr",
                 "families": fixture_families(), "models": models}
@@ -455,6 +456,32 @@ class MultiVariantValidationTests(unittest.TestCase):
         # (2026-10-05:校验器不再硬断言全家族,历史 v4 目录验证路径须兼容)。
         with self.assertRaises(ValueError):
             validate_index(index, expected_families=set(VARIANTS))
+
+    def test_family_without_tiers_must_be_marked_upcoming(self):
+        index = self.base_index()
+        index["models"] = [m for m in index["models"] if m["id"] != "sense-voice"]
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_upcoming_family_without_tiers_is_accepted(self):
+        index = self.base_index()
+        index["models"] = [m for m in index["models"] if m["id"] != "sense-voice"]
+        for family in index["families"]:
+            if family["id"] == "sense-voice":
+                family["availability"] = "upcoming"
+        validate_index(index)
+
+    def test_model_missing_family_descriptor_is_rejected(self):
+        index = self.base_index()
+        index["families"] = [f for f in index["families"] if f["id"] != "dolphin"]
+        with self.assertRaises(ValueError):
+            validate_index(index)
+
+    def test_unknown_family_availability_is_rejected(self):
+        index = self.base_index()
+        index["families"][0]["availability"] = "beta"
+        with self.assertRaises(ValueError):
+            validate_index(index)
 
     def test_catalog_aggregate_budget_is_enforced(self):
         index = self.base_index()

@@ -160,6 +160,9 @@ def validate_index(index, *, complete=True, expected_families=None):
             if family["id"] in seen_families:
                 raise ValueError("Duplicate family entry: " + family["id"])
             seen_families.add(family["id"])
+            availability = family.get("availability")
+            if availability not in (None, "upcoming"):
+                raise ValueError("Unknown family availability: " + str(availability))
             for key in ("name", "hint"):
                 if family.get(key) is not None:
                     _validate_localized(family[key])
@@ -171,13 +174,26 @@ def validate_index(index, *, complete=True, expected_families=None):
             for locale in family.get("dialects") or []:
                 if not isinstance(locale, str) or not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})+", locale):
                     raise ValueError("Invalid dialect locale: " + str(locale))
+        # families↔models 覆盖合同(2026-10-05 业主指令:后期家族随目录呈现,
+        # 客户端接受闸镜像):每个模型 id 必须有家族描述(否则 descriptors 落空、
+        # 装完仍 engineUnavailable);families 里多余 id 只允许 upcoming 标记
+        # (零档位预告),常规家族缺档位 = 发布侧硬错。
+        model_ids = {m["id"] for m in index.get("models", [])}
+        upcoming_ids = {f["id"] for f in families if f.get("availability") == "upcoming"}
+        if not model_ids <= seen_families:
+            raise ValueError("Model id missing a family descriptor: " + ", ".join(sorted(model_ids - seen_families)))
+        if not seen_families - model_ids <= upcoming_ids:
+            raise ValueError("Family without tiers must be marked upcoming: "
+                             + ", ".join(sorted(seen_families - model_ids - upcoming_ids)))
     if complete:
         # 文案/覆盖表合同(2026-10-05 目录驱动,self-consistent 口径):目录一旦携带
         # families 段即必须完整——覆盖全部家族、每条目必带 tierName/tierHint(App
         # 渲染的唯一数据源;App 侧容忍缺字段仅为旧目录兼容)。无 families 段的历史
         # 目录(v4 形态)放行——其数据面已冻结,新发布由数据文件落地自然携带。
         if families is not None:
-            if {f["id"] for f in families} != ids:
+            # 覆盖方向 = 模型 ⊆ 家族(每个模型必须有描述符);家族多于模型的
+            # 部分仅允许 upcoming 标记(上方闸),预告家族无档位合法。
+            if not ids <= {f["id"] for f in families}:
                 raise ValueError("Published catalog families must cover every model id")
             for model in models:
                 if model.get("tierName") is None or model.get("tierHint") is None:

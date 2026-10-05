@@ -977,6 +977,7 @@ extension L10n {
         "voiceLab.result.section", "voiceLab.result.empty", "voiceLab.result.meta",
         "voiceLab.result.footer", "voiceLab.entry.hint",
         "asr.familyHintFallback",
+        "asr.familyUpcoming",
         "asr.bundledOffline", "asr.selectionHint", "asr.missingAssets",
         "asr.downloadable",
         "asr.model.download", "asr.model.update", "asr.model.installed",

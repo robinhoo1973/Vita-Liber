@@ -81,12 +81,22 @@ public struct ASRModelFamily: Codable, Sendable, Equatable, Identifiable {
     public var hint: ASRLocalizedText?
     public var languages: [String]?
     public var dialects: [String]?
+    /// 数据驱动的可得性标记（2026-10-05 业主指令：后期家族随目录 JSON 呈现）。
+    /// "upcoming" = 目录声明该家族、暂无下载档位——下载卡显示「即将上线」，
+    /// 目录接受闸允许其零模型条目（否则 families↔models 双向覆盖闸会拒绝）。
+    /// nil/其他值 = 常规家族。App 侧不内置任何家族清单，标记语义完全来自目录。
+    public var availability: String?
 
     public init(id: String, name: ASRLocalizedText? = nil, hint: ASRLocalizedText? = nil,
-                languages: [String]? = nil, dialects: [String]? = nil) {
+                languages: [String]? = nil, dialects: [String]? = nil,
+                availability: String? = nil) {
         self.id = id; self.name = name; self.hint = hint
         self.languages = languages; self.dialects = dialects
+        self.availability = availability
     }
+
+    /// 该家族是否仅预告、尚无任何可下载档位。
+    public var isUpcoming: Bool { availability == "upcoming" }
 }
 
 /// 单个模型发布条目。

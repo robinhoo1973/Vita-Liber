@@ -1846,6 +1846,7 @@
 "encounter.linkedCards" = "关联卡片";
 "encounter.linkedCards.empty" = "暂无关联的处方或收费卡片";
 "asr.familyHintFallback" = "本地语音模型。型号、语言与性能说明以「检查更新」后的目录信息为准。";
+"asr.familyUpcoming" = "即将上线";
 "asr.bundledOffline" = "免费 · 本机推理 · 安装后离线可用";
 "asr.selectionHint" = "自主选择用于所有语音入口的引擎，下一次按压生效。随包模型不下载、不上传录音。显式选定的模型不可用时会提示失败，不会悄悄更换模型。";
 "asr.missingAssets" = "此构建的模型资源缺失或不完整";

@@ -112,6 +112,9 @@ struct ASREngineSettingsSection: View {
     /// 提供；旧目录缺字段时回落到内置 L10n 兜底）。
     @State private var familyNames: [String: String] = [:]
     @State private var familyHints: [String: String] = [:]
+    /// 目录标记的预告家族（availability=upcoming，零档位）——行内显示「即将上线」
+    /// 并隐藏下载控件；标记完全来自目录 JSON，App 不内置任何家族清单。
+    @State private var upcomingFamilyIDs: Set<String> = []
     /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
     @State private var derivationEpoch = 0
     /// 尺寸选择记忆（choice → variant 键；默认 = 已装档 → 系统推荐档，
@@ -200,12 +203,14 @@ struct ASREngineSettingsSection: View {
                 if let value = family.name?.resolved(preferredLanguages: preferred) { names[family.id] = value }
                 if let value = family.hint?.resolved(preferredLanguages: preferred) { hints[family.id] = value }
             }
-            return (next, families, names, hints)
+            let upcoming = Set((availableIndex?.families ?? []).filter(\.isUpcoming).map(\.id))
+            return (next, families, names, hints, upcoming)
         }.value
         availability = computed.0
         catalogFamilies = computed.1
         familyNames = computed.2
         familyHints = computed.3
+        upcomingFamilyIDs = computed.4
     }
 
     var body: some View {
@@ -315,7 +320,9 @@ struct ASREngineSettingsSection: View {
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                         }
-                        if let note = L10n.asrAvailability(row.availability) {
+                        if upcomingFamilyIDs.contains(choice.rawValue) {
+                            Text(L10n.asrFamilyUpcoming).font(.caption).foregroundStyle(.secondary)
+                        } else if let note = L10n.asrAvailability(row.availability) {
                             Text(note).font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                         }
                     }
@@ -330,7 +337,7 @@ struct ASREngineSettingsSection: View {
             .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
             .accessibilityIdentifier("\(accessibilityPrefix).engine.\(choice.rawValue)")
 
-            if choice.isBundledModel {
+            if choice.isBundledModel && !upcomingFamilyIDs.contains(choice.rawValue) {
                 downloadControls(choice)
             }
         }

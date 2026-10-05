@@ -17,6 +17,7 @@
 - **`index.families[]`**：家族级条目——`id`（与 App `VoiceEngineChoice.rawValue` 对齐：`qwen3`/`zipformer`/`dolphin`/`whisper`/`sense-voice`/`fire-red`/`moonshine`）、本地化名称 `name`、简介 `hint`、语言覆盖 `languages`、方言覆盖 `dialects`。声明序 = auto 链优先序（下载卡行序同源）。
 - **`index.models[]`**：发布条目——同 `id` 可多档（`variant`: tiny/base/small/medium/turbo/large，按体积升序加权）；每档携带 `tierName`（档位短标签）与 `tierHint`（参数/性能说明）本地化文案。App 下载信息卡按 `families[]` 生成行、按 `models[]` 生成档位选择器与下载/更新/换档按钮。
 - **App 侧兜底**：旧目录缺 families/tierName/tierHint 时，UI 回落到 L10n 通用文案（不内置任何型号名称/性能声称）。`asr_package.py validate_index` 强制 families 覆盖全部模型 id（客户端 `ModelCatalogTrustStore` 收单处同检，fail-closed）。
+- **预告家族（2026-10-05 业主指令）**：`index.families[]` 条目可携带 `availability: "upcoming"`——零档位预告（后期评估入列的家族随目录呈现，下载卡显示「即将上线」并隐藏下载控件）。发布侧闸：families 多于模型集的 id 必须全部标记 upcoming，常规家族缺档位 = 硬错；客户端接受闸镜像同一规则（App 不内置任何家族清单，标记语义完全来自目录）。
 - 引擎支持集合（`VoiceEngineChoice` 枚举）只是渲染上限：目录新增家族需先发 App 版本加入枚举；未知 id 被旧 App 静默跳过。
 
 ## 工作流
@@ -107,6 +108,6 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish
 
 ## 变更记录
 
-- V1.2（2026-10-05）：模型家族与档位改为目录驱动（families[]/tierName/tierHint 单一事实源，App 零内置模型数据表；引擎支持枚举只是渲染上限）；基线剖面按 bundledModels 声明裁剪；加密信封帧合同修正（nonce 不入帧）与 nonce 派生长度合同（python len=12 == Swift 32 字节派生前缀 12，RFC 5869 前缀性质）。
+- V1.2（2026-10-05）：模型家族与档位改为目录驱动（families[]/tierName/tierHint 单一事实源，App 零内置模型数据表；引擎支持枚举只是渲染上限）；基线剖面按 bundledModels 声明裁剪；加密信封帧合同修正（nonce 不入帧）与 nonce 派生长度合同（python len=12 == Swift 32 字节派生前缀 12，RFC 5869 前缀性质）；HKDF 改为 HMAC 原语手动展开（CryptoKit 泛型糖 macOS CI 两轮过载解析失败 37315378507/37327812812，已记录例外，金样测试钉字节一致）。
 - V1.1（2026-10-05）：ASR_PACKAGE_KEY 本地脚本引导（`init_asr_secrets.py`：生成 → 注册 secret → 改写内嵌密钥，CI 只做有值校验）+ 轮换语义与签名密钥例外说明；签名流程更新为 CI 候选签名 + 人工提交目录；`workflow_call.secrets` 的 `required: true` 降级为 job 内前置校验（消除无日志 startup_failure 族）。
 - V1.0（2026-09-12）：Releases-only、version.txt、独立/可调用 ASR 构建、runner 临时产物与签名动态更新合同。

@@ -1846,6 +1846,7 @@
 "encounter.linkedCards" = "Linked cards";
 "encounter.linkedCards.empty" = "No linked prescriptions or receipts yet";
 "asr.familyHintFallback" = "On-device speech model. Model names, languages and performance details follow the catalog after Check for Updates.";
+"asr.familyUpcoming" = "Coming soon";
 "asr.bundledOffline" = "Free · On-device · Offline when installed";
 "asr.selectionHint" = "Choose the engine used by all voice entry points. Changes apply to the next press. Bundled models never download or upload audio. An unavailable explicitly selected model reports failure rather than silently changing engines.";
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";

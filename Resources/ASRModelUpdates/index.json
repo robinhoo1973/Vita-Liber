@@ -214,6 +214,66 @@
     "en"
    ],
    "dialects": []
+  },
+  {
+   "id": "sense-voice",
+   "availability": "upcoming",
+   "name": {
+    "zh-Hans": "SenseVoice 多语种",
+    "zh-Hant": "SenseVoice 多語種",
+    "en": "SenseVoice Multilingual"
+   },
+   "hint": {
+    "zh-Hans": "FunAudioLLM 多语种小模型：中文、英语、粤语、日语、韩语高精度转写（即将上线）",
+    "zh-Hant": "FunAudioLLM 多語種小模型：中文、英語、粵語、日語、韓語高精度轉寫（即將上線）",
+    "en": "FunAudioLLM multilingual small model: high-accuracy transcription for Chinese, English, Cantonese, Japanese and Korean (coming soon)"
+   },
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ja",
+    "ko"
+   ],
+   "dialects": [
+    "yue-HK"
+   ]
+  },
+  {
+   "id": "fire-red",
+   "availability": "upcoming",
+   "name": {
+    "zh-Hans": "FireRed 中文",
+    "zh-Hant": "FireRed 中文",
+    "en": "FireRed Chinese"
+   },
+   "hint": {
+    "zh-Hans": "中文语音识别模型（即将上线）",
+    "zh-Hant": "中文語音辨識模型（即將上線）",
+    "en": "Chinese speech recognition model (coming soon)"
+   },
+   "languages": [
+    "zh"
+   ],
+   "dialects": []
+  },
+  {
+   "id": "moonshine",
+   "availability": "upcoming",
+   "name": {
+    "zh-Hans": "Moonshine 轻量",
+    "zh-Hant": "Moonshine 輕量",
+    "en": "Moonshine Light"
+   },
+   "hint": {
+    "zh-Hans": "英语轻量实时转写模型（即将上线）",
+    "zh-Hant": "英語輕量即時轉寫模型（即將上線）",
+    "en": "Lightweight English real-time transcription model (coming soon)"
+   },
+   "languages": [
+    "en"
+   ],
+   "dialects": []
   }
  ]
 }

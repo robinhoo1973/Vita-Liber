@@ -318,10 +318,14 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         // 发布侧 validate_index(complete=True)已同检,但发布侧闸门之外(手建
         // 目录/发布器回归)漏检的目录会让该家族 descriptors 派生落空、
         // 装完仍 engineUnavailable,零诊断。fail-closed 于检查更新收单处。
+        // 2026-10-05 业主指令放宽:families 里多余 id 若标记 upcoming
+        // (零档位预告,后期家族随目录呈现)合法——其余多余 id 仍拒。
         if let families = value.index.families, !families.isEmpty {
             let familyIDs = Set(families.map(\.id))
             let modelIDs = Set(value.index.models.map(\.id))
-            guard modelIDs.subtracting(familyIDs).isEmpty, familyIDs.subtracting(modelIDs).isEmpty else {
+            let upcomingIDs = Set(families.filter(\.isUpcoming).map(\.id))
+            guard modelIDs.subtracting(familyIDs).isEmpty,
+                  familyIDs.subtracting(modelIDs).subtracting(upcomingIDs).isEmpty else {
                 throw Failure.invalidMetadata
             }
         }

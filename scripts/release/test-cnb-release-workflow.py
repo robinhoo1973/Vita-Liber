@@ -38,7 +38,12 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
                 env = step.get("env", {}) or {}
                 if "CNB_TOKEN" in env:
                     self.assertEqual(env["CNB_TOKEN"], "${{ secrets.CNB_RESOURCE_TOKEN }}")
-                    self.assertEqual(step["name"], "发布 ASR Release 至 CNB（不可变资产；回读核对；无需签名私钥）")
+                    # 合法注入面 = 发布步 + 发布前置校验步(2026-10-05 required 降级后
+                    # 空值硬错移入 job 内,前置校验必须可见令牌才能判空)。
+                    self.assertIn(step["name"], (
+                        "发布 ASR Release 至 CNB（不可变资产；回读核对；无需签名私钥）",
+                        "发布前置校验（publish=true 必须有 CNB 令牌）",
+                    ))
                 else:
                     self.assertNotIn("CNB_TOKEN", env)
 

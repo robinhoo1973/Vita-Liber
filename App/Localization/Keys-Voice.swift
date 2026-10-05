@@ -335,6 +335,7 @@ extension L10n {
     static var voiceLabEntryHint: String { t("voiceLab.entry.hint") }
 
     static var asrBundledOffline: String { t("asr.bundledOffline") }
+    static var asrFamilyUpcoming: String { t("asr.familyUpcoming") }
 
     static var asrModelDownload: String { t("asr.model.download") }
 
