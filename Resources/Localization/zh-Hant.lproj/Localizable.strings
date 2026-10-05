@@ -1660,6 +1660,8 @@
 "home.model.downloadTitle" = "正在下載語音模型";
 "home.model.downloadView" = "檢視下載";
 "home.model.downloadGroupFmt" = "%1$d 個下載任務";
+"home.model.downloadGroupDoneFmt" = "%1$d 個模型已下載完成";
+"home.model.downloadRemove" = "移除";
 "home.model.downloadGroupExpandedValue" = "已展開";
 "home.model.downloadGroupCollapsedValue" = "已摺疊";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
@@ -1876,6 +1878,12 @@
 "asr.model.phaseUnpacking" = "解壓中…";
 "asr.model.phaseActivating" = "安裝中…";
 "asr.model.phasePruning" = "清理舊版本…";
+"asr.model.phaseCompleted" = "已完成";
+"asr.model.delete" = "刪除模型";
+"asr.model.deleteTitle" = "刪除模型";
+"asr.model.deleteMessage" = "刪除後將釋放該模型佔用的空間，語音辨識會回落到隨包模型（如有）或需要重新下載。確定刪除嗎？";
+"asr.model.deleteConfirm" = "刪除";
+"asr.model.deleteFailed" = "刪除失敗，請稍後重試";
 "asr.model.backgroundHint" = "可切到背景繼續下載（系統會顯示進度，可隨時取消）";
 "asr.model.foregroundHint" = "請保持 App 在前景直到完成：切到背景約 30 秒後系統會暫停下載，回到前景可續傳";
 "asr.index.fetchFailed" = "檢查更新失敗，請重試";

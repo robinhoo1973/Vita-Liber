@@ -540,22 +540,26 @@ struct HomeModelDownloadCard: View {
 
 /// 多任务分组下载卡（2026-10-04 业主反馈②；round2 2026-10-04 自绘展开头）：
 /// ≥2 任务合并为单行分组卡，默认折叠（@State 视图销毁即重置 = 新会话默认折叠；
-/// 任务数在 ≥2 内变化不偷袭用户展开态），展开逐任务行（行内详情，不跳转——round2 ④）。
+/// 任务数变化不偷袭用户展开态），展开逐任务行（行内详情，不跳转——round2 ④）。
 /// round2 ①：自绘展开头替代系统 DisclosureGroup——系统 label 行高/内容区默认边距
 /// 与自绘卡紧凑 padding 叠加出大段空白带（DisclosureGroup 无边距收口 API；round1
 /// 技术债⑥ 预登记路径达成）。头为 Button（PressScaleButtonStyle 按压反馈统一），
 /// chevron 旋转 ≤350ms 状态迁移；VoiceOver 以 accessibilityValue 报展开/折叠态。
 ///
-/// **观察域纪律（2026-09-16 根因同族，勿破坏）**：头只读 `choice`（let 不变）与
-/// `waiting`（每任务仅翻转一次、低频）——**严禁在头读 progress/phase**：5 Hz 进度写入
+/// 2026-10-05 业主反馈修复批（第 1/2 项）：组卡 = 进行中 + 最近完成（`installs`
+/// 已含完成行）——完成行保留于子信息卡、取消图标变完成图标、未完成继续；
+/// 行内恢复动效下载图标（round2 ③「行内不重复动效」被本次反馈推翻，规格升版）。
+///
+/// **观察域纪律（2026-09-16 根因同族，勿破坏）**：头只读 `choice`/`waiting`/
+/// `isFinished`（低频一次性翻转）——**严禁在头读 progress/phase**：5 Hz 进度写入
 /// 会让整张组卡（含展开行容器）重渲染。逐任务进度读取全部落在行卡自己的内层
 /// WithPerceptionTracking（嵌套域：父 body 只构造子视图值、子 body 才读属性——inner 屏蔽 outer，
 /// HomeView:216 外层包首页 body 已含此嵌套形态）。折叠头不展示聚合百分比/聚合条：
-/// 跨任务求和/均值在任务移出或阶段清基线时回跳（2026-09-18/19/20 修掉的 bug 族），
-/// 单任务才显示 NN%（复用 per-task 逻辑）。
+/// 跨任务求和/均值在任务移出或阶段清基线时回跳（2026-09-18/19/20 修掉的 bug 族）。
 struct HomeModelDownloadGroupCard: View {
     let installs: [ASRInstallCenter.Install]
     let onCancel: (ASRInstallCenter.Install) -> Void
+    let onRemove: (ASRInstallCenter.Install) -> Void
     @State private var isExpanded = false
 
     var body: some View {
@@ -566,9 +570,11 @@ struct HomeModelDownloadGroupCard: View {
 
     @ViewBuilder
     private var content: some View {
-        // 图标动效激活 = 任一任务非排队（混合队列态：first 排队而 second 下载中时图标仍应动——
-        // 不可用 first.phase 判定）；waiting 低频，落组卡域安全。
-        let animating = installs.contains { !$0.waiting }
+        // 图标动效激活 = 任一**未完成**任务非排队（混合队列态：first 排队而 second 下载中时
+        // 图标仍应动——不可用 first.phase 判定；完成行不驱动动效，否则全完成态图标空转，
+        // 违反如实呈现纪律）；waiting/isFinished 低频，落组卡域安全。
+        let animating = installs.contains { !$0.waiting && !$0.isFinished }
+        let inFlight = installs.filter { !$0.isFinished }.count
         VStack(spacing: 0) {
             Button {
                 isExpanded.toggle()
@@ -578,7 +584,11 @@ struct HomeModelDownloadGroupCard: View {
                         .foregroundStyle(Color("brand-primary", bundle: .main))
                         .frame(width: 36)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(L10n.homeModelDownloadGroupFmt(installs.count))
+                        // 2026-10-05：在飞计数与完成计数分键——英文原文 in progress
+                        // 语义决定完成行不得计入原键（三语 .strings 同源核实）。
+                        Text(inFlight > 0
+                             ? L10n.homeModelDownloadGroupFmt(inFlight)
+                             : L10n.homeModelDownloadGroupDoneFmt(installs.count))
                             .font(.subheadline.bold()).foregroundStyle(.primary)
                         Text(installs.map { L10n.voiceEngineName($0.choice) }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
@@ -601,6 +611,8 @@ struct HomeModelDownloadGroupCard: View {
                     ForEach(installs) { install in
                         HomeModelDownloadGroupRow(install: install) {
                             onCancel(install)
+                        } onRemove: {
+                            onRemove(install)
                         }
                         // 展开行同处一个 List 行内，行背景覆盖整行但不分格——行间补分隔（打磨项，round1 C-5）
                         if install.id != installs.last?.id {
@@ -618,18 +630,23 @@ struct HomeModelDownloadGroupCard: View {
     }
 }
 
-/// 分组卡展开行（round2 2026-10-04 裁定③④）：
-/// ③ leading = 44pt 语义红取消图标（替代原下载图标——状态语义由条/百分比/阶段文案
-/// 承担；折叠头的动效图标已答「在做吗」，行内不重复），trailing「取消」文字按钮删除。
+/// 分组卡展开行（round2 2026-10-04 裁定③④；2026-10-05 业主反馈修复批修订）：
+/// ③ 修订：leading = 进行态动效下载图标（VLDownloadActivityIcon——第 2 项：
+/// 「下载图标按动画形式显示」），**完成态 = `checkmark.circle.fill`（semantic-success，
+/// §3.1 令牌用途「已确认/已完成」，状态图标豁免交互色纪律——取消图标变完成图标）；
+/// 取消按钮迁 trailing 44pt 描边文字按钮（进行行保留——V4.18 行内取消是组卡唯一取消面，
+/// 完成行隐藏并代以 [移除] 处置）。
 /// ④ 行内直接展示数据包介绍（用途 = voiceEngineHint 既有键；大小 = progress.totalBytes，
 /// HEAD 未回前不渲染大小行），主体不可点、不跳转 SP-64（单任务卡保持跳转——D4 裁定）；
 /// 版本字段待目录元数据管线（跟进项：勿在 5 Hz 重渲视图体做文件 I/O）。
+/// 完成行隐藏进度条/百分比/大小/模式（100% 满条无信息量——完成即完成，不重复度量）。
 ///
 /// **独立观察域**：与 HomeModelDownloadCard 同纪律——progress/phase 读取只准落在
 /// 本行内层 WithPerceptionTracking（父组卡 body 只构造子视图值）。
 struct HomeModelDownloadGroupRow: View {
     let install: ASRInstallCenter.Install
     let onCancel: () -> Void
+    let onRemove: () -> Void
 
     var body: some View {
         WithPerceptionTracking {
@@ -642,21 +659,24 @@ struct HomeModelDownloadGroupRow: View {
         let brief = install.phase
         // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
         // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」。
-        let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
+        // 完成行不画确定条（isFinished 与 progress 互斥呈现）。
+        let showFraction = !install.isFinished
+            && ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
         let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
         HStack(alignment: .top, spacing: 10) {
-            Button {
-                onCancel()
-            } label: {
-                Image(systemName: "xmark.circle")
+            // leading 状态图标（2026-10-05）：进行 = 动效下载图标；完成 = ✓。
+            // waiting 读取低频，落在行内层观察域安全（与 :399 关怀卡同款）。
+            if install.isFinished {
+                Image(systemName: "checkmark.circle.fill")
                     .font(.title3)
-                    .foregroundStyle(Color("semantic-danger", bundle: .main))
-                    .frame(width: 36, height: 44)   // 触点 ≥44pt（§7.1）
-                    .contentShape(Rectangle())
+                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                    .frame(width: 36, height: 44)
+                    .accessibilityHidden(true)   // 状态语义由行文案「已完成」承担
+            } else {
+                VLDownloadActivityIcon(isActive: !install.waiting)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .frame(width: 36, height: 44)
             }
-            .buttonStyle(PressScaleButtonStyle())
-            .accessibilityLabel(L10n.commonCancel)
-            .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text(L10n.voiceEngineName(install.choice))
@@ -672,22 +692,44 @@ struct HomeModelDownloadGroupRow: View {
                     ProgressView(value: fraction)
                         .tint(Color("brand-primary", bundle: .main))
                 }
-                let modeLabel = downloadModeText(install.progress?.mode)
-                Text(modeLabel.isEmpty
-                     ? detailText(install)
-                     : "\(detailText(install)) · \(modeLabel)")
-                    .font(.caption2).foregroundStyle(.secondary)
-                // 数据包介绍（round2 ④）：用途一句话（既有键）+ 大小（HEAD 未回前不渲染）。
-                Text(L10n.voiceEngineHint(install.choice))
-                    .font(.caption).foregroundStyle(.secondary)
-                if let total = install.progress?.totalBytes {
-                    Text(L10n.asrModelIntroSizeFmt(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
+                if install.isFinished {
+                    Text(L10n.asrModelPhaseCompleted)
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else {
+                    let modeLabel = downloadModeText(install.progress?.mode)
+                    Text(modeLabel.isEmpty
+                         ? detailText(install)
+                         : "\(detailText(install)) · \(modeLabel)")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    // 数据包介绍（round2 ④）：用途一句话（既有键）+ 大小（HEAD 未回前不渲染）。
+                    Text(L10n.voiceEngineHint(install.choice))
                         .font(.caption).foregroundStyle(.secondary)
+                    if let total = install.progress?.totalBytes {
+                        Text(L10n.asrModelIntroSizeFmt(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if install.isFinished {
+                // 完成行处置：trailing [移除]（失败卡 [关闭] 同构先例；不做自动消失——
+                // 定时器与 5 Hz 观察域纪律叠加复杂度，且剥夺 VoiceOver 用户听到完成事实的机会）。
+                Button(L10n.homeModelDownloadRemove) { onRemove() }
+                    .font(.caption)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("SP-04.home.modelDownload.remove.\(install.choice.rawValue)")
+            } else {
+                Button(L10n.commonCancel) { onCancel() }
+                    .font(.caption)
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
+            }
         }
         .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(install.isFinished
+                            ? L10n.asrModelPhaseCompleted
+                            : detailText(install))
     }
 }
 

@@ -1660,6 +1660,8 @@
 "home.model.downloadTitle" = "正在下载语音模型";
 "home.model.downloadView" = "查看下载";
 "home.model.downloadGroupFmt" = "%1$d 个下载任务";
+"home.model.downloadGroupDoneFmt" = "%1$d 个模型已下载完成";
+"home.model.downloadRemove" = "移除";
 "home.model.downloadGroupExpandedValue" = "已展开";
 "home.model.downloadGroupCollapsedValue" = "已折叠";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 项";
@@ -1876,6 +1878,12 @@
 "asr.model.phaseUnpacking" = "解压中…";
 "asr.model.phaseActivating" = "安装中…";
 "asr.model.phasePruning" = "清理旧版本…";
+"asr.model.phaseCompleted" = "已完成";
+"asr.model.delete" = "删除模型";
+"asr.model.deleteTitle" = "删除模型";
+"asr.model.deleteMessage" = "删除后将释放该模型占用的空间，语音识别会回落到随包模型（如有）或需要重新下载。确定删除吗？";
+"asr.model.deleteConfirm" = "删除";
+"asr.model.deleteFailed" = "删除失败，请稍后重试";
 "asr.model.backgroundHint" = "可切到后台继续下载（系统会显示进度，可随时取消）";
 "asr.model.foregroundHint" = "请保持应用在前台直到完成：切到后台约 30 秒后系统会暂停下载，回到前台可续传";
 "asr.index.fetchFailed" = "检查更新失败，请重试";

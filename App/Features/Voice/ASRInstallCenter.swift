@@ -1,5 +1,6 @@
 import Foundation
 import Domain
+import Protocols
 import Infrastructure
 import Perception
 #if os(iOS)
@@ -47,11 +48,18 @@ final class ASRInstallCenter {
         /// 尚无任何阶段/进度回调）；首个阶段回调到达即翻转。等待态如实呈现
         /// 「排队中」，不再把本机并发上限误报成网络错误。
         var waiting = true
+        /// 2026-10-05 业主反馈修复批（完成态保留）：安装成功终态标记——
+        /// `.pruning` 是真实进行阶段不可当终态，故独立标志一次性翻转
+        /// （低频，与 waiting 同频级——组卡头观察域纪律不受破坏）。
+        private(set) var isFinished = false
 
         init(id: UUID, choice: VoiceEngineChoice) {
             self.id = id
             self.choice = choice
         }
+
+        /// 仅安装中心在成功分支标记（失败/取消不标记）。
+        fileprivate func markFinished() { isFinished = true }
 
         /// 进度写入（下载线程可调，内部 hop 主 actor）。
         /// **单调守卫**：原实现每次回调新建一个无序 `Task{}` 跳主线程，乱序到达会让
@@ -98,6 +106,12 @@ final class ASRInstallCenter {
     }
 
     private(set) var active: [Install] = []
+    /// 2026-10-05 业主反馈修复批（第 1 项）：**最近完成**的安装保留列表——
+    /// 组卡子信息卡继续显示完成项（完成图标），未完成继续；`active` 语义
+    /// 「进行中」不变（isInstalling/失败卡门控/关怀卡全读 active，不污染）。
+    /// 驻留至用户显式移除（或新批次开始）；跨重启不持久化（App 层状态，
+    /// 与 active 同生命周期）。
+    private(set) var finished: [Install] = []
     private(set) var failed: Set<VoiceEngineChoice> = []
     /// 最近一次失败（2026-09-16 委员会评审）：此前失败只在设置页三跳外可见、
     /// 首页卡片静默消失——用户从首页发起下载后失败无任何反馈。留到用户
@@ -117,6 +131,11 @@ final class ASRInstallCenter {
 
     init(dataChange: AppDataChangeCenter) {
         self.dataChange = dataChange
+        // 启动清扫（2026-10-05 删除模型流程）：补删上一会话被租约挡住的
+        // 显式删除目录——后台执行，绝不阻塞启动（R2 交叉质询裁决 f1）。
+        Task.detached(priority: .utility) {
+            ASRModelDownloadService.sweepPendingRemovals()
+        }
     }
 
     func isInstalling(_ choice: VoiceEngineChoice) -> Bool {
@@ -134,9 +153,17 @@ final class ASRInstallCenter {
         active.append(install)
         failed.remove(choice)
         lastFailure = nil
+        // 新批次开始（无其他进行中任务）时清空上一批的完成行——防陈旧完成项
+        // 混入新批次组卡（跨批次驻留无意义，批内可见即够）。
+        if active.count == 1 { finished.removeAll() }
         tasks[choice] = Task { [weak self] in
             await self?.run(release, choice: choice, install: install, baseURL: baseURL)
         }
+    }
+
+    /// 移除单个完成行（组卡完成行的显式处置）。
+    func removeFinished(_ choice: VoiceEngineChoice) {
+        finished.removeAll { $0.choice == choice }
     }
 
     /// 首页失败卡关闭（用户已看到并处置）。
@@ -195,6 +222,12 @@ final class ASRInstallCenter {
         }
         switch outcome.value ?? .success(()) {
         case .success:
+            // 2026-10-05 业主反馈修复批（第 1 项）：完成态保留——标记终态并移入
+            // finished（组卡子信息卡继续显示，完成图标；未完成继续）。defer 已把
+            // 本安装移出 active，两列表互斥。
+            install.markFinished()
+            finished.append(install)
+            if finished.count > 8 { finished.removeFirst(finished.count - 8) }
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()
         case .failure(let error) where error is CancellationError:
@@ -203,5 +236,20 @@ final class ASRInstallCenter {
             failed.insert(choice)
             lastFailure = LastFailure(choice: choice, release: release, baseURL: baseURL)
         }
+    }
+
+    /// 删除已装模型（2026-10-05 业主反馈修复批，第 6 项）：
+    /// 服务层删除 → 引擎缓存/运行时池逐出（释放目录租约，R2 交叉质询）→
+    /// 同会话补删 deferred 目录 → 资产广播（语言页/设置页可用性重算）。
+    func delete(_ choice: VoiceEngineChoice) async throws {
+        try await service.remove(choice)
+        if let switchable = EngineRegistry.shared.resolve(TranscriptionEngineFactory.self) as? SwitchableTranscriptionEngine {
+            await switchable.evictEngine(choice)
+        }
+        await service.retryPendingRemovals(for: choice)
+        failed.remove(choice)
+        if lastFailure?.choice == choice { lastFailure = nil }
+        finished.removeAll { $0.choice == choice }
+        dataChange.assetsChanged()
     }
 }

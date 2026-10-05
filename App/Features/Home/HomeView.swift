@@ -418,9 +418,12 @@ struct HomeView: View {
         // （图标 + 标题 + 进度条 + 取消），数据源 = App 层安装中心（离开设置页/切后台仍可见）。
         // 2026-10-04 业主反馈②：≥2 任务合并为单行分组卡默认折叠（节省纵向空间）；
         // 单任务保持现卡形态（最常见场景零回归、进度一眼可见）。count 只读 active（低频）。
+        // 2026-10-05 业主反馈修复批（第 1 项）：完成行保留——组卡 = 进行中 + 最近完成，
+        // 任务完成不再把组卡塌缩成单卡（单卡仅「1 进行中且无完成行」时出现）。
         let installs = installCenter.active
-        if installs.count >= 2 {
-            modelDownloadGroupCard(installs)
+        let finished = installCenter.finished
+        if installs.count + finished.count >= 2 || !finished.isEmpty {
+            modelDownloadGroupCard(installs + finished)
                 .listRowBackground(Color(.secondarySystemGroupedBackground))
                 .listRowInsets(cardRowInsets)
         } else {
@@ -501,9 +504,12 @@ struct HomeView: View {
     /// 多任务分组下载卡（2026-10-04 业主反馈②）——渲染原子为 HomeModelDownloadGroupCard
     /// （折叠头零 progress 读取纪律随迁：只传 let 数组与回调，进度读取全落卡内/行内域）。
     /// round2 ④：展开行行内详情、不跳转——组卡不再接 onOpen（单任务卡保持跳转，D4 裁定）。
+    /// 2026-10-05：完成行移除回调（组卡完成行显式处置）。
     private func modelDownloadGroupCard(_ installs: [ASRInstallCenter.Install]) -> some View {
         HomeModelDownloadGroupCard(installs: installs) { install in
             installCenter.cancel(install.choice)
+        } onRemove: { install in
+            installCenter.removeFinished(install.choice)
         }
     }
 

@@ -150,6 +150,10 @@ extension L10n {
 
     /// 2026-10-04 业主反馈②：多任务下载分组卡折叠头计数（%d = 任务数）。
     static func homeModelDownloadGroupFmt(_ n: Int) -> String { String(format: t("home.model.downloadGroupFmt"), n) }
+    /// 2026-10-05 业主反馈修复批（第 1 项）：全完成组卡标题（原键英文含 in progress，完成行不得计入）。
+    static func homeModelDownloadGroupDoneFmt(_ n: Int) -> String { String(format: t("home.model.downloadGroupDoneFmt"), n) }
+    /// 2026-10-05 完成行处置按钮（失败卡 [关闭] 同构先例）。
+    static var homeModelDownloadRemove: String { t("home.model.downloadRemove") }
 
     /// round2 2026-10-04：自绘展开头的 VoiceOver 展开/折叠态 value（替代系统 DisclosureGroup 朗读）。
     static var homeModelDownloadGroupExpandedValue: String { t("home.model.downloadGroupExpandedValue") }
