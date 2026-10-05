@@ -118,7 +118,9 @@ jobs:
     needs: version
     uses: ./.github/workflows/release-asr-models.yml
     permissions:
-      contents: write
+      contents: read
+    secrets:
+      CNB_RESOURCE_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
     with:
       publish: true
 

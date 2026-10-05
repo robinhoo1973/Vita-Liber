@@ -69,6 +69,15 @@ class CNBTagPageParserTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_cnb_tag_page(tag_page(release), "owner/resources", "asr-models")
 
+    def test_pending_state_with_null_release_is_rejected(self):
+        # 实测形态(2026-10-05 探针,robinhoo1973/Resources):Release 未创建时
+        # releaseDetailStatus="pending" 且 releasesDetailData=null。
+        data = {"props": {"pageProps": {"releaseDetailStatus": "pending",
+                                        "releasesDetailData": None}}}
+        html = ('<script id="__NEXT_DATA__">' + json.dumps(data) + "</script>").encode()
+        with self.assertRaises(ValueError):
+            parse_cnb_tag_page(html, "robinhoo1973/Resources", "asr-models")
+
 
 def asset_payload(name, payload, path=None):
     return {"name": name, "size": len(payload),

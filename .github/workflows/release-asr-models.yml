@@ -6,9 +6,14 @@ on:
   workflow_call:
     inputs:
       publish:
-        description: 验证已签名目录后发布至 asr-models（false 仅产候选 artifact）
+        description: 验证已签名目录后发布至 CNB asr-models（false 仅产候选 artifact）
         type: boolean
         default: true
+    secrets:
+      # 2026-10-03 cutover 定案:CNB 是唯一发布目的地;发布步骤缺失该令牌 = 硬红
+      # (跳过发布 = 新签名目录从未进 CNB inventory,比红更糟的静默坏)。
+      CNB_RESOURCE_TOKEN:
+        required: true
     outputs:
       bundle_artifact:
         description: App 离线基线模型资源
@@ -27,7 +32,7 @@ on:
         default: true
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: asr-models-${{ github.repository }}
@@ -59,16 +64,14 @@ jobs:
           python3 scripts/release/test-model-trust.py
           python3 scripts/release/test-asr-release.py
 
-      - name: 准备完整钉版权重（优先复用已验证 Release）
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
           python3 scripts/release/prepare-asr-source.py \
             --index Resources/ASRModelUpdates/index.json \
             --source Resources/ASRModels \
             --root "$RUNNER_TEMP/asr-source" \
             --cache "$RUNNER_TEMP/asr-cache" \
-            --repository "$GITHUB_REPOSITORY"
+            --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}"
 
       - name: 构建四个完整 ZIP 与离线基线 bundle
         run: |
@@ -126,14 +129,30 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: 发布 ASR Release（不可变 ZIP；无需签名私钥）
+      - name: 发布 ASR Release 至 CNB（不可变资产；回读核对；无需签名私钥）
         if: ${{ inputs.publish }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          # 令牌仅注入本步骤(定案约束 17):读取/构建步骤无 CNB 写面。
+          CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
+          CNB_RESOURCE_REPOSITORY: ${{ vars.CNB_RESOURCE_REPOSITORY }}
         run: |
-          python3 scripts/release/publish-asr-release.py publish \
-            --index "$RUNNER_TEMP/asr-packages/index.json" \
-            --directory "$RUNNER_TEMP/asr-packages" \
-            --root Resources/ModelTrustRoot.json \
-            --catalog Resources/ASRModelUpdates/catalog.json \
-            --repository "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+          set -euo pipefail
+          # 有界重试防 CNB 资产表最终一致性误杀:发布成功但回读暂不可见是分布式
+          # 系统常态;上传幂等(同名同摘要=复用),重试安全。重试仍失败 = 硬红阻断
+          # TestFlight(回读失败不得降级为 warning——发布完整性唯一守门点)。
+          for attempt in 1 2 3; do
+            if python3 scripts/release/publish-asr-release.py publish \
+                --index "$RUNNER_TEMP/asr-packages/index.json" \
+                --directory "$RUNNER_TEMP/asr-packages" \
+                --root Resources/ModelTrustRoot.json \
+                --catalog Resources/ASRModelUpdates/catalog.json \
+                --repository "$CNB_RESOURCE_REPOSITORY"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::CNB publish attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::CNB publish failed after 3 attempts" >&2
+          exit 1

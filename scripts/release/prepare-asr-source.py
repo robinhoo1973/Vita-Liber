@@ -44,8 +44,11 @@ def parse_cnb_tag_page(html, repository, tag):
         raise ValueError("CNB tag page __NEXT_DATA__ is not JSON")
     props = data.get("props", {}).get("pageProps", {})
     if props.get("releaseDetailStatus") != "success":
+        # 实测(2026-10-05 探针):Release 未创建时真实页面为 "pending" 且
+        # releasesDetailData=null——fail-closed 语义,不猜测部分解析。
         raise ValueError("CNB tag page release state is not success")
-    release = props.get("releasesDetailData", {}).get("release")
+    release_data = props.get("releasesDetailData")
+    release = release_data.get("release") if isinstance(release_data, dict) else None
     if not isinstance(release, dict) or release.get("tagRef") != "refs/tags/" + tag:
         raise ValueError("CNB tag page release/tagRef mismatch")
     assets = release.get("assets")
