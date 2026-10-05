@@ -12,28 +12,14 @@ catalog 密钥签（sign-asr-catalog.py）。密钥轮换 = 新根（version+1�
 """
 import argparse
 import base64
-import hashlib
 import json
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-
-def key_id(public_key: bytes) -> str:
-    return hashlib.sha256(public_key).hexdigest()
-
-
-def b64(data: bytes) -> str:
-    return base64.b64encode(data).decode()
-
-
-def sign_envelope(payload: dict, signers) -> dict:
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    signatures = []
-    for identity, key in signers:
-        signatures.append({"keyId": identity, "signature": b64(key.sign(raw))})
-    return {"payload": b64(raw), "signatures": signatures}
+from asr_signing import b64, key_id, sign_envelope
 
 
 def main() -> int:
@@ -42,7 +28,9 @@ def main() -> int:
     parser.add_argument("--catalog-count", type=int, default=3)
     parser.add_argument("--threshold", type=int, default=2)
     parser.add_argument("--root-version", type=int, required=True)
-    parser.add_argument("--expires-at", default="2028-09-11T11:43:13Z")
+    parser.add_argument("--expires-at", default=None,
+                        help="ISO UTC;缺省 = 当前时刻 + 730 天(2026-10-05 审查:旧硬编码默认"
+                             "2028-09-11 过期后新根出生即失效,全目录被 App 拒绝)")
     parser.add_argument("--asset-base-url",
                         default="https://cnb.cool/robinhoo1973/Resources/-/releases/download/asr-models")
     parser.add_argument("--allowed-hosts", default="cnb.cool,asset.cnb.cool")
@@ -52,6 +40,12 @@ def main() -> int:
 
     if args.threshold < 1 or args.threshold > min(args.root_count, args.catalog_count):
         parser.error("threshold must be 1..min(root-count, catalog-count)")
+
+    expires_at = args.expires_at
+    if expires_at is None:
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=730)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if datetime.fromisoformat(expires_at.replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+        parser.error("--expires-at must be in the future (an already-expired root is rejected by every App)")
 
     root_keys = [Ed25519PrivateKey.generate() for _ in range(args.root_count)]
     catalog_keys = [Ed25519PrivateKey.generate() for _ in range(args.catalog_count)]
@@ -67,7 +61,7 @@ def main() -> int:
         "app": "vitaliber",
         "assetKind": "asr",
         "version": args.root_version,
-        "expiresAt": args.expires_at,
+        "expiresAt": expires_at,
         "keys": keys_public,
         "rootKeyIDs": [key_id(k.public_key().public_bytes_raw()) for k in root_keys],
         "rootThreshold": args.threshold,

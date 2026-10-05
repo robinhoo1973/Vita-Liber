@@ -13,7 +13,6 @@ envelope。签完即用 model_trust.verify_catalog 公开路径自校验（fail 
 """
 import argparse
 import base64
-import hashlib
 import json
 import os
 import sys
@@ -21,20 +20,9 @@ from datetime import datetime, timedelta, timezone
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from model_trust import decode_json, json_bytes, verify_catalog
-
-
-def b64(data: bytes) -> str:
-    return base64.b64encode(data).decode()
-
-
-def sign_envelope(payload: dict, signers) -> dict:
-    raw = json_bytes(payload)
-    return {
-        "payload": b64(raw),
-        "signatures": [{"keyId": identity, "signature": b64(key.sign(raw))}
-                       for identity, key in signers],
-    }
+from asr_package import decode_json
+from asr_signing import key_id, sign_envelope
+from model_trust import verify_catalog
 
 
 def main() -> int:
@@ -60,13 +48,19 @@ def main() -> int:
         raw = base64.b64decode(entry["privateKey"])
         private = Ed25519PrivateKey.from_private_bytes(raw)
         public_raw = private.public_key().public_bytes_raw()
-        catalog_keys[hashlib.sha256(public_raw).hexdigest()] = private
+        catalog_keys[key_id(public_raw)] = private
 
     issued = args.issued_at
     if issued:
         issued_dt = datetime.fromisoformat(issued.replace("Z", "+00:00"))
     else:
         issued_dt = datetime.now(timezone.utc).replace(microsecond=0)
+    # 归一 UTC(2026-10-05 审查):带显式偏移的输入此前被丢弃偏移、按墙钟时间
+    # 硬标 Z——+08:00 输入会签发一个「未来 8 小时」的目录,App 侧
+    # issued <= now+300s 直接判过期,新目录对所有设备即时失效。
+    if issued_dt.tzinfo is None:
+        issued_dt = issued_dt.replace(tzinfo=timezone.utc)
+    issued_dt = issued_dt.astimezone(timezone.utc)
     payload = {
         "schemaVersion": 1,
         "role": "catalog",
@@ -79,6 +73,21 @@ def main() -> int:
         "index": decode_json(open(args.index, "rb").read()),
         "revokedHashes": json.loads(args.revoked),
     }
+
+    # R3 签名闸(2026-10-05 审查):新目录必须携带能力数据面——families 段
+    # 覆盖全部家族、每条目带 tierName/tierHint(App 下载页文案的唯一数据源)。
+    # 旧目录的放行只存在于 verify 侧(历史 v4 冻结面),签名点一律拒绝缺数据
+    # 的新目录,防止 R3 数据随模板漂移静默消失。
+    index = payload["index"]
+    ids = {m["id"] for m in index.get("models", [])}
+    families = index.get("families")
+    if not families or {f.get("id") for f in families} != ids:
+        print("ERROR: 新签名目录必须携带覆盖全部家族的 families 段", file=sys.stderr)
+        return 2
+    for model in index.get("models", []):
+        if model.get("tierName") is None or model.get("tierHint") is None:
+            print(f"ERROR: 条目 {model['id']} 缺 tierName/tierHint(下载页文案数据源)", file=sys.stderr)
+            return 2
 
     root_envelope = decode_json(open(args.root, "rb").read())
     root_payload = decode_json(base64.b64decode(root_envelope["payload"]))

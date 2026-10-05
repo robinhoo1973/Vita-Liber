@@ -20,10 +20,17 @@ import urllib.error
 import urllib.request
 
 from asr_package import decode_json, validate_index
+from cnb_release import public_download_url
 
 TOOLS = Path(__file__).resolve().parent
 TAG = "asr-models"
 MAX_PAGE_BYTES = 8 << 20
+
+# 仓库根探测:逐级向上找 CoreKit/Sources/Domain 锚点(与 fetch-asr-models.py
+# 同纪律——禁止按固定层级 parents[N] 假设;2026-10-05 审查整改)。
+REPO_ROOT = TOOLS
+while REPO_ROOT != REPO_ROOT.parent and not (REPO_ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    REPO_ROOT = REPO_ROOT.parent
 
 
 def parse_cnb_tag_page(html, repository, tag):
@@ -82,16 +89,33 @@ def fetch_cnb_inventory(repository):
 
 
 def download_cnb_asset(repository, asset, destination, expected_sha256, expected_size):
-    url = "https://cnb.cool/" + repository + "/-/releases/download/" + TAG + "/" + asset["name"]
+    url = public_download_url(repository, TAG, asset["name"])
     request = urllib.request.Request(url, headers={"User-Agent": "vitaliber-asr-cache/1"})
-    with urllib.request.urlopen(request, timeout=600) as response:
-        data = response.read(expected_size + 1)
-    if len(data) != expected_size or hashlib.sha256(data).hexdigest() != expected_sha256:
-        raise ValueError("CNB cached package digest/size mismatch: " + asset["name"])
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix(destination.suffix + ".downloading")
-    temporary.write_bytes(data)
+    # 流式落盘+哈希单趟(2026-10-05 审查):旧实现整包读入内存,1.7GB 级包
+    # 峰值 ~3x 内存;有界读取 + 落盘即哈希,坏下载绝不落终名。
+    digest = hashlib.sha256()
+    received = 0
+    try:
+        with urllib.request.urlopen(request, timeout=600) as response:
+            with temporary.open("wb") as target:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    received += len(chunk)
+                    if received > expected_size:
+                        raise ValueError("CNB cached package exceeds the declared size: " + asset["name"])
+                    digest.update(chunk)
+                    target.write(chunk)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    if received != expected_size or digest.hexdigest() != expected_sha256:
+        temporary.unlink(missing_ok=True)
+        raise ValueError("CNB cached package digest/size mismatch: " + asset["name"])
     temporary.replace(destination)
     return destination
 
@@ -99,7 +123,11 @@ def download_cnb_asset(repository, asset, destination, expected_sha256, expected
 def prepare(index, index_path, source, root, cache, repository, *,
             inventory=fetch_cnb_inventory, download=download_cnb_asset):
     """Restore the pinned source tree from the CNB cache, or fall back to upstream fetch."""
-    validate_index(index)
+    # complete=False(2026-10-05 审查):首次新增档位的模板条目还没有真实
+    # sha256/bytes(build 步骤才计算)——prepare 用 complete=True 会把「先建
+    # 后签」的候选流掐死在第一步(鸡生蛋);缓存路径的 materialize/下载各自
+    # 仍按完整校验(缺 sha 条目自然回落上游抓取,不放松任何缓存验证)。
+    validate_index(index, complete=False)
     root.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
     for name in ("manifest.json", "NOTICE.md", "LICENSE-APACHE-2.0.txt"):
@@ -109,7 +137,7 @@ def prepare(index, index_path, source, root, cache, repository, *,
         for model in index["models"]:
             asset = assets[model["url"]]
             download(repository, asset, cache / model["url"], model["sha256"], model["bytes"])
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
         print("CNB Release cache unavailable; using pinned upstream resources: " + str(error), flush=True)
     else:
         result = subprocess.run([sys.executable, str(TOOLS / "materialize-asr-packages.py"),
@@ -125,7 +153,7 @@ def prepare(index, index_path, source, root, cache, repository, *,
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--index", type=Path, required=True)
-    parser.add_argument("--source", type=Path, default=TOOLS.parents[1] / "Resources/ASRModels")
+    parser.add_argument("--source", type=Path, default=REPO_ROOT / "Resources" / "ASRModels")
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--cache", type=Path, required=True)
     parser.add_argument("--repository", required=True)

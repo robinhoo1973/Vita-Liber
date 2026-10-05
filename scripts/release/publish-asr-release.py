@@ -17,32 +17,8 @@ import sys
 import tempfile
 
 from asr_package import decode_json, json_bytes, validate_index, verify_packages
-from cnb_release import CNBReleaseClient, CNBReleaseError, UrllibCNBTransport
-import urllib.parse
-
-
-class PrefixRecordingTransport(UrllibCNBTransport):
-    """记录 PUT 上传宿主/路径(掩码),发布末尾打印一次——UPLOAD_PATH_PREFIX 数据源
-    (业主 2026-10-05 指令:根据 ASR 输出自行定义创建)。"""
-
-    def __init__(self):
-        super().__init__()
-        self.upload_url = None
-
-    def put(self, url, headers, file_path, size):
-        self.upload_url = url
-        return super().put(url, headers, file_path, size)
-
-
-def print_masked_upload_prefix(transport):
-    if transport.upload_url is None:
-        return
-    parsed = urllib.parse.urlsplit(transport.upload_url)
-    segments = [s for s in parsed.path.split("/") if s]
-    prefix = parsed.scheme + "://" + parsed.netloc + "/" + "/".join(segments[:2])
-    print("observed upload host: " + parsed.netloc, flush=True)
-    print("UPLOAD_PATH_PREFIX candidate: " + prefix, flush=True)
-from model_trust import payload, trusted_root, verify_catalog, verify_envelope
+from cnb_release import CNBReleaseClient, CNBReleaseError, print_masked_upload_prefix, RecordingUploadTransport
+from model_trust import payload, payload_bytes, trusted_root, verify_catalog, verify_envelope
 
 TAG = "asr-models"
 
@@ -93,14 +69,14 @@ def highest_remote_catalog(cnb_assets):
     return max(candidates)[1] if candidates else None
 
 
-def check_remote_catalog_chain(client, args, catalog):
+def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
     """Reject rollback/equivocation against the newest remote versioned catalog.
 
     Mirrors the old GitHub draft-resume check: the newest remote N.catalog.json is
     downloaded anonymously, verified against its local root, then compared with the
     catalog being published.
     """
-    remote = client.list_assets(TAG)
+    remote = client.list_assets(TAG) if remote_assets is None else remote_assets
     name = highest_remote_catalog(remote)
     if name is None:
         return  # 首个发布:无可比对基线
@@ -114,6 +90,15 @@ def check_remote_catalog_chain(client, args, catalog):
         verify_envelope(old_envelope, old_root, "catalog")
         if old_payload["rootVersion"] > catalog["rootVersion"]:
             raise ValueError("Release root rollback rejected")
+        # 目录版本号是 CI 全局单调计数(与根轮换无关)——跨根轮换也不得回退:
+        # 旧根签的旧目录被重签进新根若沿用更小/相同版本号,客户端同根回滚门
+        # 与基线楼层都拦不住条目回滚(2026-10-05 审查;发布侧补上这道门)。
+        if old_payload.get("catalogVersion", 0) > catalog["catalogVersion"]:
+            raise ValueError("Catalog version rollback rejected across root rotation")
+        if old_payload.get("catalogVersion", 0) == catalog["catalogVersion"]:
+            local_envelope = decode_json(args.catalog.read_bytes())
+            if payload_bytes(local_envelope) != payload_bytes(old_envelope):
+                raise ValueError("Catalog same-version equivocation rejected across root rotation")
         if old_payload["rootVersion"] == catalog["rootVersion"]:
             verify_catalog(decode_json(args.root.read_bytes()), decode_json(args.catalog.read_bytes()),
                            previous=old_envelope)
@@ -134,12 +119,13 @@ def publish(args, client):
     receipt = verify_packages(index, args.directory)
     # All validation above precedes the first mutating remote operation.
     remote = client.list_assets(TAG)
-    publication_plan(index, normalize_assets(remote))
-    check_remote_catalog_chain(client, args, catalog)
+    check_remote_catalog_chain(client, args, catalog, remote_assets=remote)
 
     # 业主规则(2026-10-05):与 CNB 已有最新文件 hash 比对——相同跳过上传,
     # 不同则更新上传(overwrite)。App 侧始终按签名目录 sha256 校验,同名异内容
-    # 的中间态 fail-closed,不构成安全放松。
+    # 的中间态 fail-closed,不构成安全放松。计划计算(publication_plan)只服务
+    # `plan` 子命令;发布路径以 upload_immutable 为唯一规则owner——
+    # 此前的 pre-flight 硬错会把「不同才更新上传」路径变成永久红(2026-10-05 审查)。
     for model in index["models"]:
         client.upload_immutable(TAG, args.directory / model["url"], model["url"], model["sha256"], overwrite=True)
 
@@ -152,8 +138,11 @@ def publish(args, client):
         checked = trusted_root(envelope, previous=previous)
         if root_file.name != f"{checked['version']}.root.json":
             raise ValueError("Root asset name/version mismatch")
+        # 信任资产(根/目录/校验回执)是**只增**面(2026-10-05 审查):同版本
+        # 异字节的静默覆写会拆散客户端信任链(已装客户端按旧根字节验 N+1),
+        # 相同内容仍按哈希比对跳过,内容变化必须升版本——碰撞即硬错。
         client.upload_immutable(TAG, root_file, root_file.name,
-                                hashlib.sha256(root_file.read_bytes()).hexdigest(), overwrite=True)
+                                hashlib.sha256(root_file.read_bytes()).hexdigest(), overwrite=False)
         previous = envelope
 
     with tempfile.TemporaryDirectory() as temporary:
@@ -161,14 +150,15 @@ def publish(args, client):
         versioned_catalog = temporary / f"{catalog['catalogVersion']}.catalog.json"
         versioned_catalog.write_bytes(args.catalog.read_bytes())
         client.upload_immutable(TAG, versioned_catalog, versioned_catalog.name,
-                                hashlib.sha256(args.catalog.read_bytes()).hexdigest(), overwrite=True)
+                                hashlib.sha256(args.catalog.read_bytes()).hexdigest(), overwrite=False)
         validation = temporary / f"{catalog['catalogVersion']}.package-validation.json"
         validation.write_bytes(json_bytes(receipt))
         client.upload_immutable(TAG, validation, validation.name,
-                                hashlib.sha256(validation.read_bytes()).hexdigest(), overwrite=True)
-    current_assets = client.list_assets(TAG)
-    if any(value == "upload" for value in publication_plan(index, normalize_assets(current_assets)).values()):
-        raise ValueError("A required model asset is still missing")
+                                hashlib.sha256(validation.read_bytes()).hexdigest(), overwrite=False)
+    current_names = {a["name"] for a in normalize_assets(client.list_assets(TAG))}
+    missing = [m["url"] for m in index["models"] if m["url"] not in current_names]
+    if missing:
+        raise ValueError("A required model asset is still missing: " + missing[0])
     print(f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}", flush=True)
     return f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}"
 
@@ -182,7 +172,6 @@ def main():
     parser.add_argument("--root", type=Path)
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--repository")
-    parser.add_argument("--target")
     args = parser.parse_args()
     try:
         if args.action == "plan":
@@ -199,7 +188,7 @@ def main():
                 raise ValueError("--repository or CNB_RESOURCE_REPOSITORY is required")
             if not token:
                 raise ValueError("CNB_TOKEN is required for publish")
-            transport = PrefixRecordingTransport()
+            transport = RecordingUploadTransport()
             client = CNBReleaseClient(repository, token, transport)
             publish(args, client)
             print_masked_upload_prefix(transport)

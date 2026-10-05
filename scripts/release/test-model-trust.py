@@ -17,15 +17,9 @@ import yaml
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from asr_signing import sign_envelope as envelope
 
 TOOLS = Path(__file__).resolve().parent
-
-
-def envelope(payload, signers):
-    data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    return {"payload": base64.b64encode(data).decode(), "signatures": [
-        {"keyId": identity, "signature": base64.b64encode(key.sign(data)).decode()} for identity, key in signers
-    ]}
 
 
 class TrustTests(unittest.TestCase):
@@ -170,7 +164,7 @@ class TrustTests(unittest.TestCase):
         helper_rel = re.search(r'\$SRCROOT/([^"\s]+\.py)', script).group(1)
         helpers = self.root / Path(helper_rel).parent
         helpers.mkdir(parents=True)
-        for name in ("model-trust.py", "model_trust.py", "asr_package.py"):
+        for name in ("model-trust.py", "model_trust.py", "asr_package.py", "asr_envelope.py", "asr_signing.py"):
             shutil.copyfile(TOOLS / name, helpers / name)
         derived = self.root / "derived"
         bundle = self.root / "build/Example.app"

@@ -40,8 +40,16 @@ class FakeCNBReleaseClient:
             raise RuntimeError("digest mismatch for " + asset_name)
         for asset in self.assets:
             if asset["name"] == asset_name:
-                if asset["sha256"] != digest or asset["size"] != len(payload):
+                if asset["sha256"] == digest and asset["size"] == len(payload):
+                    return SimpleNamespace(name=asset_name, size=len(payload), sha256=digest)
+                if not overwrite:
                     raise RuntimeError("collision for " + asset_name)
+                # 2026-10-05 审查:发布路径以 overwrite=True 更新同名异内容
+                # 模型资产(业主 R2:不同才更新上传)。
+                asset["sha256"] = digest
+                asset["size"] = len(payload)
+                asset["content"] = payload
+                self.uploads.append((asset_name, digest))
                 return SimpleNamespace(name=asset_name, size=len(payload), sha256=digest)
         self.assets.append({"name": asset_name, "size": len(payload), "sha256": digest, "content": payload})
         self.uploads.append((asset_name, digest))
@@ -144,6 +152,47 @@ class PublicationTests(unittest.TestCase):
             self.assertTrue({"1.root.json", "3.catalog.json", "3.package-validation.json"} <= names)
             for model in json.loads(options.index.read_text())["models"]:
                 self.assertIn(model["url"], names)
+
+    def test_publish_overwrites_same_name_different_content_model(self):
+        # 业主 R2(2026-10-05/06):同名异内容模型资产按 overwrite 更新上传——
+        # 发布路径不再被 publication_plan 的硬错挡住(plan 子命令仍保
+        # 规划期拒绝语义,见 plan 用例)。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient()
+            module["publish"](options, client)
+            first_uploads = list(client.uploads)
+            target = next(m["url"] for m in json.loads(options.index.read_text())["models"])
+            tampered = next(a for a in client.assets if a["name"] == target)
+            tampered["content"] = b"rebuilt-with-different-bytes"
+            tampered["size"] = len(tampered["content"])
+            tampered["sha256"] = hashlib.sha256(tampered["content"]).hexdigest()
+            # 目录/根/回执同名同内容 → 跳过;模型同名异内容 → 走更新上传。
+            module["publish"](options, client)
+            second = [name for name, _ in client.uploads]
+            self.assertEqual(len(second), len(first_uploads) + 1)
+            self.assertIn(target, second)
+            updated = next(a for a in client.assets if a["name"] == target)
+            self.assertEqual(updated["sha256"], tampered["sha256"])
+
+    def test_publish_rejects_same_version_different_root_bytes(self):
+        # 信任资产只增(2026-10-05 审查):同版本根异字节 = 硬错,不静默覆写。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient()
+            module["publish"](options, client)
+            tampered = next(a for a in client.assets if a["name"] == "1.root.json")
+            tampered["content"] = b"tampered-root"
+            tampered["size"] = len(tampered["content"])
+            tampered["sha256"] = hashlib.sha256(tampered["content"]).hexdigest()
+            with self.assertRaises(RuntimeError):
+                module["publish"](options, client)
 
     def test_second_publish_is_idempotent_reuse(self):
         module = runpy.run_path(str(TOOL))

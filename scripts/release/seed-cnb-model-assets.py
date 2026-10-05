@@ -7,7 +7,6 @@ write; --execute uploads only after the whole set verified. GitHub Release is
 read-only here and is not used by any active pipeline afterwards.
 """
 import argparse
-import base64
 import hashlib
 import json
 import os
@@ -16,9 +15,8 @@ import subprocess
 import sys
 import tempfile
 
-from cnb_release import CNBReleaseClient, CNBReleaseError, UrllibCNBTransport
-
-ALLOWED_TAGS = {"asr-models", "llama-models", "llama-xcframework"}
+from cnb_release import ALLOWED_TAGS, CNBReleaseClient, CNBReleaseError, UrllibCNBTransport
+from model_trust import payload
 
 
 class SeedAssetError(RuntimeError):
@@ -50,10 +48,13 @@ def legacy_github_name(cnb_name, variant):
 def asr_expectations(catalog_path, legacy_index_path):
     """签名目录模型条目 → {(cnb 名): (github 旧名, size, sha256)},按 sha 联结旧索引。"""
     catalog = json.loads(Path(catalog_path).read_bytes())
-    payload = json.loads(base64.b64decode(catalog["payload"]))
+    # 信封解码走 model_trust.payload(2026-10-05 审查):1MiB 上限/base64
+    # validate/重复键拒绝与验签路径同闸——seed 曾旁路该合同,坏信封在此
+    # 会静默 last-wins 解析出验签侧永远拒绝的期望表。
+    payload_data = payload(catalog)
     legacy = {m["sha256"]: m for m in json.loads(Path(legacy_index_path).read_bytes())["models"]}
     expectations = {}
-    for model in payload["index"]["models"]:
+    for model in payload_data["index"]["models"]:
         legacy_model = legacy.get(model["sha256"])
         if legacy_model is None:
             raise SeedAssetError("No legacy GitHub asset matches " + model["id"] + " " + model["url"])

@@ -91,18 +91,7 @@ def attachment_range(repository, tag, name):
 
 
 def upload_roundtrip(repository, tag, token):
-    from cnb_release import CNBReleaseClient, UrllibCNBTransport
-
-    class RecordingTransport(UrllibCNBTransport):
-        """记录 PUT 上传 URL(前缀推导数据源);令牌值只进内存,输出时掩码。"""
-
-        def __init__(self):
-            super().__init__()
-            self.upload_url = None
-
-        def put(self, url, headers, file_path, size):
-            self.upload_url = url
-            return super().put(url, headers, file_path, size)
+    from cnb_release import CNBReleaseClient, RecordingUploadTransport
 
     payload = b"vitaliber-cnb-probe-asset"
     name = "probe-" + hashlib.sha256(payload).hexdigest()[:12] + ".bin"
@@ -111,7 +100,7 @@ def upload_roundtrip(repository, tag, token):
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / name
         path.write_bytes(payload)
-        transport = RecordingTransport()
+        transport = RecordingUploadTransport()
         client = CNBReleaseClient(repository, token, transport)
         try:
             receipt = client.upload_immutable(tag, path, name, hashlib.sha256(payload).hexdigest())

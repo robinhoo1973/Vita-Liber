@@ -1,11 +1,16 @@
 """Shared ASR package contract for build, publish and CI verification (no signing keys)."""
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import tempfile
 import unicodedata
 import zipfile
+
+from asr_envelope import (ENCRYPTION_SCHEME, decrypt_package, env_package_key,
+                          identity_string, is_envelope_file)
 
 MODELS = {"qwen3", "zipformer", "dolphin", "whisper", "sense-voice", "fire-red", "moonshine"}
 ROLES = {
@@ -28,6 +33,11 @@ LICENSES = {"whisper": "MIT", "sense-voice": "MIT", "fire-red": "MIT"}
 ASR_CATALOG_BUDGET_BYTES = 6 * 1024**3
 MAX_PACKAGE = 2 * 1024**3 - 1
 MAX_EXPANDED = 4 * 1024**3
+# 源树预算(2026-10-05 审查):fetch-asr-models 旧 2GB 硬上限与 6GiB 矩阵矛盾,
+# 多档数据面落地即红;单文件/归档成员 ≤ MAX_EXPANDED,全源树展开 ≤ 12GiB
+# (13 档展开总量留裕量;CI 磁盘预算外另有清理策略)。
+ASR_SOURCE_ENTRY_BUDGET_BYTES = MAX_EXPANDED
+ASR_SOURCE_UNPACKED_BUDGET_BYTES = 12 * 1024**3
 MAX_MANIFEST = 1024**2
 MAX_ENTRIES = 512
 ROOT_FILES = {"manifest.json", "resolved-manifest.json", "LICENSE-APACHE-2.0.txt", "LICENSE-MIT.txt", "NOTICE.md"}
@@ -129,6 +139,11 @@ def validate_index(index, *, complete=True, expected_families=None):
         for key in ("tierName", "tierHint"):
             if model.get(key) is not None:
                 _validate_localized(model[key])
+        # R1 加密合同(2026-10-05):目录条目可声明加密信封方案;未知方案拒绝
+        # (App 无法解密),缺省 = 明文 zip(历史目录)。发布侧(build)一律加密,
+        # 明文条目只可能来自冻结的旧目录。
+        if model.get("encryption") not in (None, ENCRYPTION_SCHEME):
+            raise ValueError("Unknown package encryption scheme: " + str(model.get("encryption")))
         if complete:
             if type(model.get("bytes")) is not int or not 0 < model["bytes"] <= MAX_PACKAGE:
                 raise ValueError("Invalid package byte count")
@@ -207,13 +222,55 @@ def manifest_files(manifest, model_id, variant=None):
     return selected
 
 
-def verify_package(model, directory, *, legacy_inner_manifest_ok=False):
+def _package_source(model, directory, package_key):
+    """包字节 → 可读 zip 源:加密信封解密到临时文件(校验后自清),明文直通。
+
+    index sha256/bytes 始终覆盖**下载所得字节**(信封字节);信封声明与目录
+    声明必须一致,否则拒绝——明文包带 encryption 声明或信封包缺声明都是
+    数据面错误。
+    """
     path = Path(directory) / model["url"]
     if path.is_symlink() or not path.is_file() or path.stat().st_size != model["bytes"]:
         raise ValueError("Missing/truncated package: " + model["url"])
     if digest_file(path) != model["sha256"]:
         raise ValueError("Package checksum mismatch: " + model["url"])
-    with zipfile.ZipFile(path) as archive:
+    declared = model.get("encryption")
+    if is_envelope_file(path) != (declared == ENCRYPTION_SCHEME):
+        raise ValueError("Package envelope/encryption declaration mismatch: " + model["url"])
+    if declared == ENCRYPTION_SCHEME:
+        key = package_key if package_key is not None else env_package_key()
+        temporary = tempfile.NamedTemporaryFile(prefix="asr-verify-", suffix=".zip", delete=False)
+        temporary_path = Path(temporary.name)
+        try:
+            decrypt_package(key, identity_string(model["id"], model.get("variant"), model["version"], model.get("artifactRevision")),
+                            path, temporary_path)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
+        return temporary_path
+    return path
+
+
+def verify_package(model, directory, *, legacy_inner_manifest_ok=False, package_key=None):
+    path = Path(directory) / model["url"]
+    source = _package_source(model, directory, package_key)
+    decrypted = source != path
+    try:
+        return _verify_package_zip(model, source, legacy_inner_manifest_ok=legacy_inner_manifest_ok)
+    finally:
+        if decrypted:
+            source.unlink(missing_ok=True)
+
+
+def _verify_package_zip(model, path, *, legacy_inner_manifest_ok=False):
+    # BadZipFile/LargeZipFile 直承 Exception,不在各 main() 的
+    # (OSError, ValueError, …) 处理面内——统一转 ValueError,保住
+    # ASR-*-ERROR 结构化错误合同(2026-10-05 扫尾审查)。
+    try:
+        archive = zipfile.ZipFile(path)
+    except (zipfile.BadZipFile, zipfile.LargeZipFile) as error:
+        raise ValueError("Invalid ZIP package: " + model["url"]) from error
+    with archive:
         entries = archive.infolist()
         if not 0 < len(entries) <= MAX_ENTRIES:
             raise ValueError("Invalid ZIP member count")
@@ -278,11 +335,12 @@ def verify_package(model, directory, *, legacy_inner_manifest_ok=False):
                 "files": [{k: f[k] for k in ("role", "path", "bytes", "sha256")} for f in selected]}
 
 
-def verify_packages(index, directory, expected_families=None):
+def verify_packages(index, directory, expected_families=None, package_key=None):
     validate_index(index, expected_families=expected_families)
     tier_counts = {}
     for model in index["models"]:
         tier_counts[model["id"]] = tier_counts.get(model["id"], 0) + 1
     return {"schemaVersion": 1, "models": [
-        verify_package(m, directory, legacy_inner_manifest_ok=(tier_counts[m["id"]] == 1))
+        verify_package(m, directory, legacy_inner_manifest_ok=(tier_counts[m["id"]] == 1),
+                       package_key=package_key)
         for m in index["models"]]}

@@ -12,6 +12,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -179,6 +180,37 @@ class CNBAssetReceipt:
         self.path = path
 
 
+class RecordingUploadTransport(UrllibCNBTransport):
+    """记录 PUT 上传宿主/路径(掩码),发布末尾打印一次——UPLOAD_PATH_PREFIX 数据源
+    (业主 2026-10-05 指令:根据 ASR 输出自行定义创建)。publish 与 probe 共用
+    (2026-10-05 审查收敛:此前两份实现前缀推导已出现分叉)。"""
+
+    def __init__(self):
+        super().__init__()
+        self.upload_url = None
+
+    def put(self, url, headers, file_path, size):
+        self.upload_url = url
+        return super().put(url, headers, file_path, size)
+
+
+def print_masked_upload_prefix(transport):
+    if transport.upload_url is None:
+        return
+    parsed = urllib.parse.urlsplit(transport.upload_url)
+    segments = [s for s in parsed.path.split("/") if s]
+    prefix = parsed.scheme + "://" + parsed.netloc + "/" + "/".join(segments[:2])
+    print("observed upload host: " + parsed.netloc, flush=True)
+    print("UPLOAD_PATH_PREFIX candidate: " + prefix, flush=True)
+
+
+def public_download_url(repository, tag, asset_name):
+    """匿名公开下载 URL(CNB Release 资产交付路径的单一文法出口)。"""
+    url = DOWNLOAD_BASE + "/" + repository + "/-/releases/download/" + tag + "/" + asset_name
+    validate_https_url(url, purpose="download")
+    return url
+
+
 class CNBReleaseClient:
     """Authenticated CNB Release publisher.
 
@@ -226,6 +258,10 @@ class CNBReleaseClient:
             if existing.get("tag_name") != tag:
                 raise CNBReleaseError("CNB release tag mismatch")
             return existing
+        return self._create_release(tag, title, body)
+
+    def _create_release(self, tag, title, body):
+        """Release 创建唯一出口(ensure_release 与 upload_immutable 共用)。"""
         if tag not in ALLOWED_TAGS:
             raise CNBReleaseError("Unknown resource tag: " + tag)
         response = self._api("POST", "/-/releases", {
@@ -251,8 +287,9 @@ class CNBReleaseClient:
                 return asset
         return None
 
-    def _verify_read_back(self, tag, asset_name, expected_size, expected_sha256):
-        asset = self._asset_in(tag, asset_name)
+    def _verify_read_back(self, tag, asset_name, expected_size, expected_sha256, release=None):
+        asset = self._asset_in(tag, asset_name) if release is None else next(
+            (a for a in release.get("assets") or [] if a.get("name") == asset_name), None)
         if asset is None:
             raise CNBReleaseError("CNB read-back: asset missing from inventory: " + asset_name)
         if int(asset.get("size") or -1) != expected_size:
@@ -307,26 +344,31 @@ class CNBReleaseClient:
         if actual != expected_sha256:
             raise CNBReleaseError("CNB upload refused: local digest mismatch for " + asset_name)
 
-        release = self.get_release(tag)
-        if release is not None:
-            if release.get("tag_name") != tag:
+        existing = self.get_release(tag)
+        if existing is not None:
+            if existing.get("tag_name") != tag:
                 raise CNBReleaseError("CNB release tag mismatch")
-            for asset in release.get("assets") or []:
+            for asset in existing.get("assets") or []:
                 if asset.get("name") != asset_name:
                     continue
                 algo, value = _asset_digest(asset)
                 if algo == "sha256" and value == expected_sha256 and int(asset.get("size") or -1) == size:
-                    return self._verify_read_back(tag, asset_name, size, expected_sha256)
+                    # 相同内容跳过上传(业主 R2):清单已含本资产,直接以本次
+                    # 已取回的清单核对,省一次整清单 GET。
+                    return self._verify_read_back(tag, asset_name, size, expected_sha256, release=existing)
+                if algo != "sha256" or not value:
+                    # 清单缺哈希的历史/种子资产:无法证明相同,按 overwrite 语义
+                    # 上传覆盖(只增资产则硬错)——显式打点,避免静默重复上传
+                    # 或静默放行(2026-10-05 审查)。
+                    print("CNB inventory has no digest for " + asset_name +
+                          "; hash-compare skip unavailable, uploading", flush=True)
                 if not overwrite:
                     raise CNBReleaseError("CNB collision: " + asset_name + " exists with different content")
-        else:
+        if existing is None:
             title, body = release_notes_for_tag(tag)
-            response = self._api("POST", "/-/releases", {
-                "tag_name": tag, "target_commitish": os.environ.get("CNB_RESOURCE_TARGET_COMMITISH", "main"),
-                "name": title, "body": body, "draft": False, "prerelease": False})
-            release = _json(response, "release creation")
-            if not release.get("id"):
-                raise CNBReleaseError("CNB release creation returned no id")
+            release = self._create_release(tag, title, body)
+        else:
+            release = existing
 
         response = self._api("POST", "/-/releases/" + str(release["id"]) + "/asset-upload-url", {
             "asset_name": asset_name, "size": size, "overwrite": overwrite, "ttl": 0})
@@ -339,14 +381,18 @@ class CNBReleaseClient:
                            purpose="verify", allow_query=True)
         # 上传主机不硬编码(设计文档:upload_url 是不透明串,前缀由业主探针定);
         # 只保证 HTTPS/无凭据/默认端口,且绝不携带 bearer。
-        self.transport.put(upload_url, {}, path, size)
+        put_response = self.transport.put(upload_url, {}, path, size)
+        # PUT 非 2xx 即上传失败(过期 grant 403 / 超大 413 / 服务端 5xx)——
+        # 此前丢弃该响应、继续 confirm 跳,错误只以误导性的「read-back 缺失」
+        # 浮出且白跑一次变异的确认请求(2026-10-05 审查:先验后传的顺序不变)。
+        if not 200 <= put_response.status < 300:
+            raise CNBReleaseError("CNB upload PUT failed with HTTP %d" % put_response.status)
         self._api_absolute("POST", verify_url)
         return self._verify_read_back(tag, asset_name, size, expected_sha256)
 
     def download_asset(self, tag, asset_name, destination, max_bytes):
         """Anonymous public download (no token): App-facing delivery path, bounded."""
-        url = DOWNLOAD_BASE + "/" + self.repository + "/-/releases/download/" + tag + "/" + asset_name
-        validate_https_url(url, purpose="download")
+        url = public_download_url(self.repository, tag, asset_name)
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
         response = self.transport.request("GET", url, {})

@@ -11,7 +11,8 @@ import tarfile
 import shutil
 import time
 
-from asr_package import MODELS, VARIANTS
+from asr_package import (ASR_SOURCE_ENTRY_BUDGET_BYTES, ASR_SOURCE_UNPACKED_BUDGET_BYTES,
+                         MODELS, VARIANTS, digest_file)
 
 # 仓库根探测:从脚本所在目录逐级向上找 CoreKit/Sources/Domain 锚点
 # (与 l0-container-id-mask.py 同纪律——禁止按固定层级假设;
@@ -29,7 +30,7 @@ def validate_entries(entries):
             raise ValueError("Invalid or duplicate resource path: " + item["path"])
         if not item["url"].startswith("https://") or not re.fullmatch(r"[a-f0-9]{64}", item["sha256"]):
             raise ValueError("Expected HTTPS and a pinned SHA-256: " + item["path"])
-        if type(item["bytes"]) is not int or not 0 < item["bytes"] <= 1_100_000_000:
+        if type(item["bytes"]) is not int or not 0 < item["bytes"] <= ASR_SOURCE_ENTRY_BUDGET_BYTES:
             raise ValueError("Invalid size: " + item["path"])
         seen.add(str(path))
 
@@ -37,11 +38,7 @@ def validate_entries(entries):
 def valid_file(path, item):
     if not path.is_file() or path.is_symlink() or path.stat().st_size != item["bytes"]:
         return False
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest() == item["sha256"]
+    return digest_file(path) == item["sha256"]
 
 
 def ensure_file(root, item, check_only=False):
@@ -97,7 +94,7 @@ def extract_parts(root, archive_path, config):
             name = config["root"] + "/" + part["member"]
             member = archive.getmember(name)
             destination = root / part["path"]
-            if not member.isfile() or not 0 < member.size <= 1_100_000_000 or not destination.resolve().is_relative_to(root.resolve()):
+            if not member.isfile() or not 0 < member.size <= ASR_SOURCE_ENTRY_BUDGET_BYTES or not destination.resolve().is_relative_to(root.resolve()):
                 raise ValueError("Invalid ASR archive member: " + name)
             destination.parent.mkdir(parents=True, exist_ok=True)
             temporary = destination.with_suffix(destination.suffix + ".extracting")
@@ -185,14 +182,22 @@ def main():
         if len(pairs) != len(bundled) or not {pair[0] for pair in pairs} <= MODELS \
                 or "zipformer" not in {pair[0] for pair in pairs}:
             raise ValueError("Invalid bundled ASR profile")
+        # 声明的 (id, variant) 必须命中真实清单条目(2026-10-05 扫尾审查):
+        # 档位拼写错(bundled zipformer/base,清单只有 large)时旧逻辑选中
+        # 空集,0 字节「全绿」放行——随包基线静默为空,违反「绝不静默跳过」。
+        manifest_pairs = {(m["id"], m.get("variant")) for m in manifest["models"]}
+        missing = pairs - manifest_pairs
+        if missing:
+            raise ValueError("Bundled profile declares no matching manifest model: " + repr(sorted(missing)))
     selected = [model for model in manifest["models"]
                 if pairs is None or (model["id"], model.get("variant")) in pairs]
     shared = manifest["shared"] if any(model["id"] != "zipformer" for model in selected) else []
     entries = [entry for model in selected for entry in model["files"]] + shared
     validate_entries(entries)
     total = sum(entry["bytes"] for entry in entries)
-    if total > 2_000_000_000:
-        raise ValueError("ASR asset budget exceeds 2 GB; re-evaluate the pinned model set")
+    if total > ASR_SOURCE_UNPACKED_BUDGET_BYTES:
+        raise ValueError("ASR asset budget exceeds %d bytes; re-evaluate the pinned model set"
+                         % ASR_SOURCE_UNPACKED_BUDGET_BYTES)
     archives = [m for m in selected if "archive" in m]
     for model in archives:
         validate_entries([dict(model["archive"], path="model.tar.bz2", role="archive")])
@@ -211,8 +216,8 @@ def main():
     all_files = [file for model in selected for file in model["files"]] + shared
     validate_entries(all_files)
     unpacked = sum(file["bytes"] for file in all_files)
-    if unpacked > 2_000_000_000:
-        raise ValueError("Unpacked ASR assets exceed 2 GB")
+    if unpacked > ASR_SOURCE_UNPACKED_BUDGET_BYTES:
+        raise ValueError("Unpacked ASR assets exceed %d bytes" % ASR_SOURCE_UNPACKED_BUDGET_BYTES)
     if not args.check:
         manifest["sourceDigest"] = source_digest
         temporary = resolved_path.with_suffix(".tmp")

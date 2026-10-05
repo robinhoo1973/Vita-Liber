@@ -151,15 +151,14 @@ class CNBReleaseTests(unittest.TestCase):
                 api_responses=[
                     CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
                                                      "assets": [asset_payload("model.zip", payload)]}).encode()),
-                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
-                                                     "assets": [asset_payload("model.zip", payload)]}).encode()),
                 ],
                 put_responses=[],
             )
             client = CNBReleaseClient("owner/resources", "fixture-token", transport)
             receipt = client.upload_immutable("asr-models", path, "model.zip", digest)
             self.assertEqual(receipt.sha256, digest)
-        self.assertEqual([call.method for call in transport.calls], ["GET", "GET"])
+        # 2026-10-05 审查:跳过路径复用已取回的清单核对,只 1 次 GET。
+        self.assertEqual([call.method for call in transport.calls], ["GET"])
 
     def test_same_name_different_digest_is_a_hard_collision(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -218,14 +217,12 @@ class CNBReleaseTests(unittest.TestCase):
                 api_responses=[
                     CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
                                                      "assets": [asset_payload("model.zip", payload)]}).encode()),
-                    CNBResponse(200, {}, json.dumps({"id": "r1", "tag_name": "asr-models",
-                                                     "assets": [asset_payload("model.zip", payload)]}).encode()),
                 ],
                 put_responses=[],
             )
             client = CNBReleaseClient("owner/resources", "fixture-token", transport)
             client.upload_immutable("asr-models", path, "model.zip", digest, overwrite=True)
-        self.assertEqual([call.method for call in transport.calls], ["GET", "GET"])
+        self.assertEqual([call.method for call in transport.calls], ["GET"])
 
     def test_insecure_or_credentialed_upload_url_is_rejected(self):
         for upload_url in ("http://asset.cnb.cool/put/u1",

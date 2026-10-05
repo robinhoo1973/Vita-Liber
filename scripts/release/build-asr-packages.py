@@ -13,6 +13,7 @@ import zipfile
 
 from asr_package import (MAX_PACKAGE, MODELS, decode_json, digest_file, json_bytes,
                          manifest_files, safe_path, slug, validate_index, verify_packages)
+from asr_envelope import ENCRYPTION_SCHEME, encrypt_package, env_package_key, identity_string
 
 
 def resolved_model(resolved, model_id, variant):
@@ -138,20 +139,32 @@ def build_packages(root, template, output, reuse=None):
                 continue
         with tempfile.NamedTemporaryFile(dir=output, suffix=".zip", delete=False) as temporary:
             temporary_path = Path(temporary.name)
+        encrypted_path = Path(str(temporary_path) + ".enc")
         try:
             print("Building " + release["url"], flush=True)
             write_zip(temporary_path, files, release["builtAt"])
-            release["bytes"] = temporary_path.stat().st_size
             # 构建分支:expandedBytes 按实际写入的 zip 条目字节和计算
             # (files 即条目内容,与 write_zip 同源)。
             release["expandedBytes"] = sum(
                 len(v) if isinstance(v, bytes) else v.stat().st_size for v in files.values())
-            if release["bytes"] > MAX_PACKAGE:
+            if temporary_path.stat().st_size > MAX_PACKAGE:
                 raise ValueError("Model package exceeds Release budget")
-            release["sha256"] = digest_file(temporary_path)
-            temporary_path.replace(output / release["url"])
+            # R1(2026-10-05 业主指令):下载包必须加密+压缩。zip 整体进
+            # aes256gcm-v1 信封(确定性——同内容同信封字节,R2 哈希比对与
+            # reuse 缓存都不受 runner zlib 差异影响);index sha256/bytes 覆盖
+            # 信封字节,App 侧先验 sha 再解密再解压。缺 ASR_PACKAGE_KEY = 硬红。
+            key = env_package_key()
+            encrypt_package(key, identity_string(release["id"], release.get("variant"), release["version"], release.get("artifactRevision")),
+                            temporary_path, encrypted_path)
+            release["encryption"] = ENCRYPTION_SCHEME
+            release["bytes"] = encrypted_path.stat().st_size
+            if release["bytes"] > MAX_PACKAGE:
+                raise ValueError("Encrypted model package exceeds Release budget")
+            release["sha256"] = digest_file(encrypted_path)
+            encrypted_path.replace(output / release["url"])
         finally:
             temporary_path.unlink(missing_ok=True)
+            encrypted_path.unlink(missing_ok=True)
     receipt = verify_packages(result, output, expected_families={m["id"] for m in original["models"]})
     (output / "index.json").write_bytes(json_bytes(result))
     (output / "package-validation.json").write_bytes(json_bytes(receipt))
@@ -165,7 +178,6 @@ def build_packages(root, template, output, reuse=None):
     declared = original.get("bundledModels")
     if not isinstance(declared, list) or not declared:
         raise ValueError("Source manifest must declare bundledModels")
-    bundle_manifest["bundledModels"] = declared
     (bundle / "manifest.json").write_bytes(json_bytes(bundle_manifest))
     for name in ("LICENSE-APACHE-2.0.txt", "NOTICE.md"):
         shutil.copyfile(root / name, bundle / name)

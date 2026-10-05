@@ -140,8 +140,14 @@ def verify_catalog(root_envelope, catalog_envelope, *, previous=None, now=None, 
     if expires <= now or issued > now + timedelta(minutes=5) or expires <= issued or expires - issued > timedelta(days=31):
         raise ValueError("Catalog expired or outside validity window")
     if previous is not None:
-        old = verify_envelope(previous, root, "catalog", asset_kind)
-        if old.get("rootVersion") == root["version"]:
+        # 先读旧目录载荷再决定是否比对(2026-10-05 扫尾审查):旧实现先对
+        # **当前根**验旧目录——跨根轮换的 previous 用旧 catalogKeyIDs 签名,
+        # 在新根下必然「Signature threshold not satisfied」,rootVersion 守卫
+        # 永远不可达。跨根单调性由发布侧 check_remote_catalog_chain 承担,
+        # 本函数只做同根回滚/同版本异文拒绝。
+        old_payload = payload(previous)
+        if old_payload.get("rootVersion") == root["version"]:
+            old = verify_envelope(previous, root, "catalog", asset_kind)
             if catalog["catalogVersion"] < old["catalogVersion"]:
                 raise ValueError("Catalog rollback rejected")
             if catalog["catalogVersion"] == old["catalogVersion"] and payload_bytes(catalog_envelope) != payload_bytes(previous):
@@ -157,6 +163,10 @@ def verify_catalog(root_envelope, catalog_envelope, *, previous=None, now=None, 
     for model in index["models"]:
         if model.get("packaging") != "zip" or type(model.get("expandedBytes")) is not int or not 0 < model["expandedBytes"] <= MAX_EXPANDED:
             raise ValueError("Invalid signed package format/expanded budget")
+        # 加密信封方案白名单(2026-10-05 R1):与 validate_index 同闸;未知方案
+        # 拒绝(App 无法解密),缺省 = 明文 zip(历史目录冻结面)。
+        if model.get("encryption") not in (None, "aes256gcm-v1"):
+            raise ValueError("Unknown signed package encryption scheme")
         if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", model.get("minAppVersion", "")):
             raise ValueError("Signed minimum App version is required")
         slug(model["runtime"])

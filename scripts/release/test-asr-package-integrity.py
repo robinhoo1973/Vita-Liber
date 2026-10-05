@@ -4,16 +4,21 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import runpy
 import subprocess
 import tempfile
 import unittest
 import zipfile
 
+from asr_envelope import ENCRYPTION_SCHEME, decrypt_package, encrypt_package, identity_string
 from asr_package import ASR_CATALOG_BUDGET_BYTES, MAX_PACKAGE, validate_index
 
 
 TOOLS = Path(__file__).resolve().parent
+# 测试主密钥:与 App 内嵌 ASRPackageCrypto.masterKeyHex 同值(生产 CI 用
+# secret 覆盖;此处保证 Python 测试与 App 侧解密合同逐字节一致)。
+TEST_PACKAGE_KEY = "f9a6257f9bea35e831de960e964460aebe06ebfca1e076b1968fe37682049d39"
 ROLES = {
     "qwen3": ["frontend", "encoder", "decoder", "vocab", "merges", "tokenizerConfig", "notice"],
     "zipformer": ["encoder", "decoder", "joiner", "tokens", "bpe", "notice"],
@@ -37,6 +42,9 @@ class PackageTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        # 构建/校验子进程经 env 拿加密主密钥;setdefault 保留 CI 注入的 secret
+        # (生产轮换时测试仍按注入密钥验证)。
+        os.environ.setdefault("ASR_PACKAGE_KEY", TEST_PACKAGE_KEY)
         self.source = self.root / "source"
         self.source.mkdir()
         self.output = self.root / "output"
@@ -77,11 +85,20 @@ class PackageTests(unittest.TestCase):
         return {"role": role, "path": name, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
                 "url": "https://example.test/" + name}
 
+    def plaintext_package(self, model):
+        """把加密信封包解密为明文 zip(遗留/篡改测试的形态变换起点)。"""
+        package = self.output / model["url"]
+        plain = package.with_suffix(".plain.zip")
+        decrypt_package(bytes.fromhex(os.environ["ASR_PACKAGE_KEY"]),
+                        identity_string(model["id"], model.get("variant"), model["version"], model.get("artifactRevision")),
+                        package, plain)
+        return plain
+
     def rewrite_inner_manifest_without_variant(self, model_id):
         """把已构建包的内清单剥掉 variant 键并更新索引(World A 遗留包形态)。"""
         index = json.loads((self.output / "index.json").read_text())
         model = next(m for m in index["models"] if m["id"] == model_id)
-        package = self.output / model["url"]
+        package = self.plaintext_package(model)
         with zipfile.ZipFile(package, "r") as archive:
             contents = {name: archive.read(name) for name in archive.namelist()}
             infos = {name: archive.getinfo(name).file_size for name in archive.namelist()}
@@ -92,9 +109,12 @@ class PackageTests(unittest.TestCase):
             for name in sorted(contents):
                 archive.writestr(name, contents[name])
         infos["manifest.json"] = len(contents["manifest.json"])
+        # 遗留包 = 明文 zip:清掉 encryption 声明(信封/声明一致是校验合同)。
+        model["encryption"] = None
         model["sha256"] = hashlib.sha256(package.read_bytes()).hexdigest()
         model["bytes"] = package.stat().st_size
         model["expandedBytes"] = sum(infos.values())
+        package.replace(self.output / model["url"])
         (self.output / "index.json").write_text(json.dumps(index))
         return model
 
@@ -120,7 +140,9 @@ class PackageTests(unittest.TestCase):
         receipt = json.loads((self.root / "receipt.json").read_text())
         self.assertEqual(len(receipt["models"]), len(index["models"]))
         for model in index["models"]:
-            with zipfile.ZipFile(self.output / model["url"]) as archive:
+            self.assertEqual(model["encryption"], ENCRYPTION_SCHEME)
+            plain = self.plaintext_package(model)
+            with zipfile.ZipFile(plain) as archive:
                 manifest = json.loads(archive.read("manifest.json"))
                 expected = next(m["revision"] for m in self.manifest["models"]
                                 if m["id"] == model["id"] and m.get("variant") == model.get("variant"))
@@ -128,6 +150,7 @@ class PackageTests(unittest.TestCase):
                 self.assertEqual(manifest["models"][0].get("variant"), model.get("variant"))
                 if model["id"] != "zipformer":
                     self.assertIn("silero/LICENSE", archive.namelist())
+            plain.unlink(missing_ok=True)
 
     def test_rebuild_ignores_input_mtime(self):
         first = self.built_index()
@@ -171,16 +194,20 @@ class PackageTests(unittest.TestCase):
             with self.subTest(name=name):
                 index = self.built_index()
                 model = next(m for m in index["models"] if m["id"] == "dolphin")
-                package = self.output / model["url"]
+                package = self.plaintext_package(model)
                 with zipfile.ZipFile(package, "a") as archive:
                     info = zipfile.ZipInfo(name)
                     if symlink:
                         info.create_system = 3
                         info.external_attr = (0o120777 << 16)
                     archive.writestr(info, b"bad")
+                # 篡改针对明文 zip:清 encryption 声明并落回明文形态
+                # (信封/声明一致是校验合同)。
+                model["encryption"] = None
                 data = package.read_bytes()
                 model["sha256"] = hashlib.sha256(data).hexdigest()
                 model["bytes"] = len(data)
+                package.replace(self.output / model["url"])
                 (self.output / "index.json").write_text(json.dumps(index))
                 self.assertNotEqual(self.verify().returncode, 0)
 
@@ -254,6 +281,60 @@ class PackageTests(unittest.TestCase):
         check = subprocess.run(["python3", str(TOOLS / "fetch-asr-models.py"), "--root", str(target), "--check"],
                                text=True, capture_output=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+
+
+    # --- R1 加密信封合同(2026-10-05) ---
+
+    def test_envelope_roundtrip_rejects_tamper_and_wrong_key(self):
+        index = self.built_index()
+        model = index["models"][0]
+        package = self.output / model["url"]
+        envelope_bytes = package.read_bytes()
+        self.assertTrue(envelope_bytes.startswith(b"VLASR\x01"))
+        identity = identity_string(model["id"], model.get("variant"), model["version"],
+                                   model.get("artifactRevision"))
+        # 同内容重建 → 同信封字节(R2 哈希比对与 reuse 缓存的前提)
+        plain = self.plaintext_package(model)
+        rebuilt = plain.with_suffix(".rebuilt.env")
+        encrypt_package(bytes.fromhex(os.environ["ASR_PACKAGE_KEY"]), identity, plain, rebuilt)
+        self.assertEqual(rebuilt.read_bytes(), envelope_bytes)
+        # 篡改 → 认证失败拒绝
+        tampered = bytearray(envelope_bytes)
+        tampered[-10] ^= 0xFF
+        package.write_bytes(bytes(tampered))
+        self.assertNotEqual(self.verify().returncode, 0)
+        # 恢复原信封;错误密钥 → 拒绝
+        package.write_bytes(envelope_bytes)
+        os.environ["ASR_PACKAGE_KEY"] = "cd" * 32
+        try:
+            self.assertNotEqual(self.verify().returncode, 0)
+        finally:
+            os.environ["ASR_PACKAGE_KEY"] = TEST_PACKAGE_KEY
+
+    def test_encryption_declaration_must_match_envelope(self):
+        index = self.built_index()
+        model = index["models"][0]
+        model["encryption"] = None  # 信封在盘上、声明为明文 → 合同破裂
+        (self.output / "index.json").write_text(json.dumps(index))
+        self.assertNotEqual(self.verify().returncode, 0)
+
+    def test_missing_package_key_hard_fails_build(self):
+        env = dict(os.environ)
+        env.pop("ASR_PACKAGE_KEY", None)
+        result = subprocess.run(["python3", str(TOOLS / "build-asr-packages.py"), "--source-root", str(self.source),
+                                 "--index", str(self.index), "--output", str(self.root / "nokey")],
+                                text=True, capture_output=True, env=env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ASR_PACKAGE_KEY", result.stderr)
+
+    def test_app_embedded_key_matches_env_key(self):
+        # App 侧 ASRPackageCrypto 内嵌主密钥必须与 CI/测试密钥同值——轮换漏改
+        # 任何一侧,新包在设备上全部解密失败(fail-closed 但通道全灭)。
+        crypto_path = TOOLS.parents[1] / "CoreKit" / "Sources" / "Infrastructure" / "ASRPackageCrypto.swift"
+        source = crypto_path.read_text(encoding="utf-8")
+        match = re.search(r'masterKeyHex\s*=\s*"([0-9a-fA-F]{64})"', source)
+        self.assertIsNotNone(match, "ASRPackageCrypto.masterKeyHex missing")
+        self.assertEqual(match.group(1).lower(), os.environ["ASR_PACKAGE_KEY"].lower())
 
 
 class MultiVariantPackageTests(PackageTests):

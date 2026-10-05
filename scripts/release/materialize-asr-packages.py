@@ -1,14 +1,41 @@
 #!/usr/bin/env python3
 """Reuse verified Release ZIPs as a pinned build cache, without trusting their source claims."""
 import argparse
+import contextlib
 import copy
 import hashlib
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import zipfile
 
 from asr_package import decode_json, digest_file, json_bytes, manifest_files, verify_packages
+from asr_envelope import decrypt_package, env_package_key, identity_string
+
+
+@contextlib.contextmanager
+def _package_zip(index, directory, release):
+    """打开包为 zip:加密信封(2026-10-05 R1)先解密到临时文件,明文直通。"""
+    path = directory / release["url"]
+    if release.get("encryption") != "aes256gcm-v1":
+        try:
+            archive = zipfile.ZipFile(path)
+        except (zipfile.BadZipFile, zipfile.LargeZipFile) as error:
+            raise ValueError("Invalid ZIP package: " + release["url"]) from error
+        with archive:
+            yield archive
+        return
+    temporary = tempfile.NamedTemporaryFile(prefix="asr-materialize-", suffix=".zip", delete=False)
+    temporary_path = Path(temporary.name)
+    try:
+        decrypt_package(env_package_key(),
+                        identity_string(release["id"], release.get("variant"), release["version"], release.get("artifactRevision")),
+                        path, temporary_path)
+        with zipfile.ZipFile(temporary_path) as archive:
+            yield archive
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def materialize(index_path, directory, source_manifest, root):
@@ -22,7 +49,7 @@ def materialize(index_path, directory, source_manifest, root):
                     if m["id"] == release["id"] and m.get("variant") == release.get("variant")), None)
         if pin is None:
             raise ValueError("Pinned manifest has no entry for (id, variant): " + release["id"])
-        with zipfile.ZipFile(directory / release["url"]) as archive:
+        with _package_zip(index, directory, release) as archive:
             package = decode_json(archive.read("manifest.json"))
             model = package["models"][0]
             expected = pin.get("archive", {}).get("parts", pin["files"])
@@ -37,8 +64,10 @@ def materialize(index_path, directory, source_manifest, root):
                 if any(expected_files[(f["role"], f["path"])] != (f["bytes"], f["sha256"]) for f in model["files"]):
                     raise ValueError("Release weights do not match pinned source hashes")
             shared = pins["shared"] if release["id"] != "zipformer" else []
-            if [(f["path"], f["sha256"], f["bytes"]) for f in package.get("shared", [])] != [
-                    (f["path"], f["sha256"], f["bytes"]) for f in shared]:
+            # VAD 清单是文件**集合**身份(与上方模型文件集合口径一致)——按
+            # 元组集合比对,源清单顺序调整不得误拒已验证缓存(2026-10-05 审查)。
+            if {(f["path"], f["sha256"], f["bytes"]) for f in package.get("shared", [])} != {
+                    (f["path"], f["sha256"], f["bytes"]) for f in shared}:
                 raise ValueError("Release VAD does not match pinned source")
             # World A(2026-10-05):遗留包内清单无 variant 键——身份绑定由
             # 文件清单与 pin 的 (role,path,bytes,sha256) 全等校验承担,内清单
