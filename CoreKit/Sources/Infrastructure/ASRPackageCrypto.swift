@@ -76,29 +76,49 @@ enum ASRPackageCrypto {
     }
 
     private static func derivedKey(master: SymmetricKey, identity: String) -> SymmetricKey {
-        HKDF<SHA256>.deriveKey(inputKeyMaterial: master, salt: Data?.none,
-                               info: Data("vitaliber/asr/aes256gcm/v1/key/\(identity)".utf8),
-                               outputByteCount: 32)
+        SymmetricKey(data: hkdfSHA256(master: master, salt: [],
+                                      info: Data("vitaliber/asr/aes256gcm/v1/key/\(identity)".utf8),
+                                      length: 32))
     }
 
     private static func nonceData(master: SymmetricKey, identity: String, index: UInt32) throws -> AES.GCM.Nonce {
-        // 信封合同按 python 侧派生 12 字节 nonce——利用 HKDF 前缀性质
-        // (长输出前缀 == 短输出, RFC 5869)派生 32 字节取前 12,与
-        // scripts/release/asr_envelope.py 逐字节一致(两侧 salt=None 均归一为
-        // 全零盐, HMAC 补零后同字节)。显式字节拷贝而非 `Data($0)` 内联构造:
-        // 该形态在 macOS CI(37315378507)实证无法命中初始化器,显式拷贝为
-        // 已验证可编译形态——未经本仓工具链实证的简化不得回退。
-        let derived = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: master, salt: Data?.none,
-            info: Data("vitaliber/asr/aes256gcm/v1/nonce/\(identity)/\(index)".utf8),
-            outputByteCount: 32)
-        var bytes = [UInt8](repeating: 0, count: nonceSize)
-        derived.withUnsafeBytes { raw in
-            bytes.withUnsafeMutableBytes { buffer in
-                buffer.copyBytes(from: raw.prefix(nonceSize))
-            }
+        let nonceBytes = hkdfSHA256(master: master, salt: [],
+                                    info: Data("vitaliber/asr/aes256gcm/v1/nonce/\(identity)/\(index)".utf8),
+                                    length: nonceSize)
+        return try AES.GCM.Nonce(data: nonceBytes)
+    }
+
+    /// RFC 5869 HKDF-SHA256 手动展开(成熟实现优先的已记录例外):CryptoKit 的
+    /// `HKDF.deriveKey` 泛型糖在 macOS CI 两轮实证过载解析失败——37315378507
+    /// 「generic parameter 'Salt' could not be inferred」(`salt: nil`)与
+    /// 37327812812 「value of optional type 'Data?' must be unwrapped」
+    /// (`salt: Data?.none`);本文件受 `#if os(iOS)||os(macOS)` 守卫,Linux 侧
+    /// 零编译信号,无法本地迭代过载形态。手写展开只用 HMAC 原语(无过载歧义),
+    /// 与 scripts/release/asr_envelope.py 的 `HKDF(salt=None)` 逐字节同构:
+    /// 缺省盐 = HashLen 个 0x00,PRK = HMAC(盐, IKM),OKM 逐块
+    /// HMAC(PRK, T_i-1 || info || counter),输出取前 length 字节。金样测试
+    /// ASREnvelopeGoldenTests 在 macOS CI 钉死与 python 信封的字节一致。
+    private static func hkdfSHA256(master: SymmetricKey, salt: [UInt8], info: Data, length: Int) -> Data {
+        let hashLength = SHA256.Digest.byteCount
+        let effectiveSalt = salt.isEmpty ? [UInt8](repeating: 0, count: hashLength) : salt
+        var masterBytes = [UInt8]()
+        master.withUnsafeBytes { masterBytes.append(contentsOf: $0) }
+        let prk = HMAC<SHA256>.authenticationCode(for: Data(masterBytes),
+                                                  using: SymmetricKey(data: effectiveSalt))
+        let prkData = Data(bytes: prk.withUnsafeBytes { Array($0) })
+        var output = Data()
+        var previous = Data()
+        var counter: UInt8 = 1
+        while output.count < length {
+            var block = previous
+            block.append(info)
+            block.append(counter)
+            let code = HMAC<SHA256>.authenticationCode(for: block, using: SymmetricKey(data: prkData))
+            previous = Data(bytes: code.withUnsafeBytes { Array($0) })
+            output.append(previous)
+            counter &+= 1
         }
-        return try AES.GCM.Nonce(data: Data(bytes))
+        return output.prefix(length)
     }
 
     /// 信封解密：块式 AES-GCM（每块 ≤ chunkSize，流式落盘，内存有界）。
