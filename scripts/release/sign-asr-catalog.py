@@ -75,13 +75,16 @@ def main() -> int:
     }
 
     # R3 签名闸(2026-10-05 审查):新目录必须携带能力数据面——families 段
-    # 覆盖全部家族、每条目带 tierName/tierHint(App 下载页文案的唯一数据源)。
+    # 覆盖全部模型家族、每条目带 tierName/tierHint(App 下载页文案的唯一数据源)。
     # 旧目录的放行只存在于 verify 侧(历史 v4 冻结面),签名点一律拒绝缺数据
-    # 的新目录,防止 R3 数据随模板漂移静默消失。
+    # 的新目录,防止 R3 数据随模板漂移静默消失。2026-10-06 放宽:families
+    # 多于模型集的部分仅允许 upcoming 标记(后期家族预告,validate_index 同闸)。
     index = payload["index"]
     ids = {m["id"] for m in index.get("models", [])}
     families = index.get("families")
-    if not families or {f.get("id") for f in families} != ids:
+    family_ids = {f.get("id") for f in families} if families else set()
+    upcoming_ids = {f["id"] for f in families or [] if f.get("availability") == "upcoming"}
+    if not families or not ids <= family_ids or not family_ids - ids <= upcoming_ids:
         print("ERROR: 新签名目录必须携带覆盖全部家族的 families 段", file=sys.stderr)
         return 2
     for model in index.get("models", []):

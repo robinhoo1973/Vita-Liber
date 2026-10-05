@@ -107,6 +107,77 @@
     "en": "Classic general-purpose model with strong generalization"
    }
   }
+,
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261005",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+   "en": "Whisper base tier: smaller memory footprint, slightly lower accuracy",
+   "zh-Hans": "Whisper 基础档：内存占用更小，精度略低于轻量档",
+   "zh-Hant": "Whisper 基礎檔：記憶體佔用更小，精度略低於輕量檔"
+   },
+   "tierName": {
+   "en": "Base",
+   "zh-Hans": "基础",
+   "zh-Hant": "基礎"
+   },
+   "upstreamRevision": "bb53ee204431c90d314c1cc08d28d23e5b7927cc",
+   "url": "whisper-base-base-int8-2024-07-13-20261005-r1.zip",
+   "variant": "base",
+   "version": "base-int8-2024-07-13"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261005",
+   "id": "dolphin",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+   "en": "Lightest CTC Chinese model: smallest memory footprint",
+   "zh-Hans": "更轻量的 CTC 中文模型：内存占用最小",
+   "zh-Hant": "更輕量的 CTC 中文模型：記憶體佔用最小"
+   },
+   "tierName": {
+   "en": "Entry",
+   "zh-Hans": "入门",
+   "zh-Hant": "入門"
+   },
+   "upstreamRevision": "1f3a53d0ecf658f8b0974e2cfde368eee40732fa",
+   "url": "dolphin-base-base-ctc-int8-2025-04-02-20261005-r1.zip",
+   "variant": "base",
+   "version": "base-ctc-int8-2025-04-02"
+  }
+,
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261005",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "zh-Hans": "Whisper 进阶档：更高精度，适合长录音与复杂场景",
+    "zh-Hant": "Whisper 進階檔：更高精度，適合長錄音與複雜場景",
+    "en": "Whisper advanced tier: higher accuracy for long or complex audio"
+   },
+   "tierName": {
+    "zh-Hans": "进阶",
+    "zh-Hant": "進階",
+    "en": "Advanced"
+   },
+   "upstreamRevision": "8c31d28503847560985df21f90e14f0c736e075e",
+   "url": "whisper-medium-medium-int8-2024-07-13-20261005-r1.zip",
+   "variant": "medium",
+   "version": "medium-int8-2024-07-13"
+  }
  ],
  "packagingProfile": "zip-deflate9-v2",
  "schemaVersion": 1,
