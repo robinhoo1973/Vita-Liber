@@ -138,11 +138,16 @@ def require_same_source_manifest(bundle_manifest, source_manifest):
     Security review S-M7: the App build job checks a manifest delivered by the same-run
     artifact; without this comparison the check would validate whatever the artifact
     carried instead of the commit's pinned upstream sources.
+
+    2026-10-06 修正(假红 37357949427):bundledModels 自多档数据面起已成为
+    源清单自身的顶层键——旧实现只剥 bundle 侧,恒与带键的 committed 不等。
+    豁免面扩展为两侧剥离:该键取值的正确性由 bundle 构建步与 App 侧声明
+    解析单独把关,不属于本比对的面。
     """
     if not isinstance(bundle_manifest.get("bundledModels"), list):
         raise ValueError("Bundled manifest must declare bundledModels")
-    stripped = {key: value for key, value in bundle_manifest.items() if key != "bundledModels"}
-    if stripped != source_manifest:
+    strip = lambda m: {key: value for key, value in m.items() if key != "bundledModels"}
+    if strip(bundle_manifest) != strip(source_manifest):
         raise ValueError("Bundled manifest differs from the committed pinned manifest")
 
 

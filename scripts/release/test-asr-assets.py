@@ -23,6 +23,15 @@ class ASRAssetsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assets.require_same_source_manifest(dict(source), source)  # 缺 bundledModels 不是随包档位清单
 
+    def test_same_source_manifest_with_bundled_models_in_both_sides(self):
+        # 2026-10-06 假红 37357949427 钉:多档数据面后 bundledModels 是源清单自身的
+        # 顶层键——两侧剥离后仍须全等(旧实现只剥 bundle 侧恒不等)。
+        source = {"formatVersion": 1, "bundledModels": [{"id": "zipformer", "variant": "large"}],
+                  "models": [{"id": "zipformer", "variant": "large", "files": []}], "shared": []}
+        assets.require_same_source_manifest(dict(source), source)
+        with self.assertRaises(ValueError):
+            assets.require_same_source_manifest(dict(source, models=[]), source)
+
     def test_ipa_inspection_requires_embedded_model_baseline(self):
         # S-M8：设计 §2.4 要求最终 IPA 内嵌可解析且非空的 TrustedModelHashes 基线。
         spec = importlib.util.spec_from_file_location("reconcile", Path(__file__).with_name("reconcile-frameworks.py"))
