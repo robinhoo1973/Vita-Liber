@@ -25,6 +25,10 @@ struct ASREngineSettingsSection: View {
     /// 必填（2026-09-28 评审修复：默认 "SP-25" 已成死参数——唯一挂载点在统一
     /// 资源页；漏传前缀会造成 a11y id 撞 SP-25 族）。
     var accessibilityPrefix: String
+    @Environment(AppState.self) private var app
+    /// 关怀模式触点（2026-10-05 委员会 R4）：本区块动作按钮此前固定 44pt,
+    /// 关怀 64pt 纪律未落地——统一走 CareModeMetrics(与药箱行/PagingStepper 同源)。
+    private var metrics: CareModeMetrics { app.careMode ? .care : .standard }
 
     /// 「检查更新」三元结果（业主实测：此前点击无任何可见反馈）。
     private enum IndexCheckState: Equatable {
@@ -181,7 +185,7 @@ struct ASREngineSettingsSection: View {
                         Spacer()
                         if checkState == .checking { ProgressView().controlSize(.small) }
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .frame(maxWidth: .infinity, minHeight: metrics.touchTarget)
                 }
                 .buttonStyle(.bordered)
                 // 下载中禁用（tech-spec §5.29「区块顶部 [检查更新] 按钮（…≥44pt、下载中禁用）」）：
@@ -242,7 +246,7 @@ struct ASREngineSettingsSection: View {
                                     // 实验室三处同形态；checkmark.circle.fill 为唯一异形）
                                     Image(systemName: "checkmark").foregroundStyle(Color("brand-primary", bundle: .main))
                                 }
-                            }.frame(minHeight: 44)
+                            }.frame(minHeight: metrics.touchTarget)
                         }
                         .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
                         .accessibilityIdentifier("\(accessibilityPrefix).engine.\(choice.rawValue)")
@@ -386,18 +390,18 @@ struct ASREngineSettingsSection: View {
                         let tierSize = L10n.asrModelBytes(chosenVariant.bytes ?? 0)
                         if installed == nil {
                             Button(L10n.asrModelDownloadTier(tierName, tierSize)) { startInstall(chosenVariant) }
-                                .buttonStyle(.bordered).frame(minHeight: 44)
+                                .buttonStyle(.bordered).frame(minHeight: metrics.touchTarget)
                                 .disabled(memoryWarning(for: variants) != nil)
                                 .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
                         } else if chosenVariant.variant == row.installedVariant {
                             Button(L10n.asrModelUpdate(chosenVariant.version)) { startInstall(chosenVariant) }
-                                .buttonStyle(.bordered).frame(minHeight: 44)
+                                .buttonStyle(.bordered).frame(minHeight: metrics.touchTarget)
                                 .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
                         } else {
                             Button(L10n.asrModelSwitchTier(tierName, tierSize)) {
                                 pendingConfirm = .switchTier(choice, chosenVariant)
                             }
-                                .buttonStyle(.bordered).frame(minHeight: 44)
+                                .buttonStyle(.bordered).frame(minHeight: metrics.touchTarget)
                                 .accessibilityIdentifier("\(accessibilityPrefix).model.variantInstall.\(choice.rawValue)")
                             // 切换成本预教育(2026-10-05 委员会):旧档将被删除,切回需重下
                             // (业主 2026-10-05 裁定「每家族最多保留一个已装档」)。
@@ -416,11 +420,11 @@ struct ASREngineSettingsSection: View {
                     }
                 } else if let update {
                     Button(L10n.asrModelUpdate(update.version)) { startInstall(update) }
-                        .buttonStyle(.bordered).frame(minHeight: 44)
+                        .buttonStyle(.bordered).frame(minHeight: metrics.touchTarget)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.update.\(choice.rawValue)")
                 } else if let latest, installed == nil {
                     Button(L10n.asrModelDownload) { startInstall(latest) }
-                        .buttonStyle(.bordered).frame(minHeight: 44)
+                        .buttonStyle(.bordered).frame(minHeight: metrics.touchTarget)
                         .disabled(memoryWarning(for: variants) != nil)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.download.\(choice.rawValue)")
                 }
@@ -430,7 +434,7 @@ struct ASREngineSettingsSection: View {
                     Button(L10n.asrModelDelete) { pendingConfirm = .delete(choice) }
                         .buttonStyle(.bordered)
                         .tint(Color("semantic-danger", bundle: .main))
-                        .frame(minHeight: 44)
+                        .frame(minHeight: metrics.touchTarget)
                         .accessibilityIdentifier("\(accessibilityPrefix).model.delete.\(choice.rawValue)")
                     if deleteFailed.contains(choice.rawValue) {
                         Text(L10n.asrModelDeleteFailed)
@@ -554,7 +558,7 @@ struct ASREngineSettingsSection: View {
         Text(Self.supportsContinuedProcessing ? L10n.asrModelBackgroundHint : L10n.asrModelForegroundHint)
             .font(.caption2).foregroundStyle(.tertiary)
         Button(L10n.commonCancel) { installCenter.cancel(choice) }
-            .frame(minHeight: 44)
+            .frame(minHeight: metrics.touchTarget)
             .accessibilityIdentifier("\(accessibilityPrefix).model.cancel.\(choice.rawValue)")
     }
 
