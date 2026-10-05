@@ -122,6 +122,7 @@ jobs:
     secrets:
       CNB_RESOURCE_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
       ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
+      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
     with:
       publish: true
 
