@@ -144,7 +144,7 @@ struct ASREngineSettingsSection: View {
         let pageIndex = index
         let version = appVersion
         let preferred = Locale.preferredLanguages
-        let computed = await Task.detached(priority: .userInitiated) { () -> ([String: ChoiceAvailability], [VoiceEngineChoice], [String: String], [String: String]) in
+        let computed = await Task.detached(priority: .userInitiated) { () -> ([String: ChoiceAvailability], [VoiceEngineChoice], [String: String], [String: String], Set<String>) in
             let availableIndex = pageIndex
                 ?? ModelCatalogTrustStore.shared.currentIndex
                 ?? ModelCatalogTrustStore.shared.baselineIndex
