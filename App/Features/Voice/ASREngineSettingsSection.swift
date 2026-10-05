@@ -61,16 +61,9 @@ struct ASREngineSettingsSection: View {
             case .switchTier: return L10n.asrModelSwitchConfirmAction
             }
         }
-        var message: String {
-            switch self {
-            case .delete:
-                return L10n.asrModelDeleteMessage
-            case .switchTier(_, let chosen):
-                let tier = chosen.tierName?.resolved() ?? L10n.asrModelVariantName(chosen.variant ?? "")
-                let size = L10n.asrModelBytes(chosen.bytes ?? 0)
-                return L10n.asrModelSwitchConfirmMessage(tier, size, tier)
-            }
-        }
+        // message 由视图方法 confirmMessage(for:) 计算——换档确认需读已装档位名，
+        // 枚举无视图上下文（2026-10-05 审查修正：旧实现把所选档当已装档填入
+        // 「将删除已装的 X 档」文案，破坏性确认信息失真）。
     }
     @State private var pendingConfirm: PendingConfirm?
     /// 删除失败提示（如实呈现，可重试）。
@@ -101,6 +94,9 @@ struct ASREngineSettingsSection: View {
         var bytes: Int64?
         /// 已激活指针的档位键（2026-09-19 审查修复：同版本换档判定输入）。
         var installedVariant: String?
+        /// 已激活指针的 artifactRevision（2026-10-05 审查修正：修订重发布的
+        /// needsInstall 判定输入——「检查更新」徽标与本行按钮同源）。
+        var installedRevision: Int?
         /// 该档位在索引中的变体清单（小/中/大，业主 2026-09-18 定）：同 id 多条目
         /// 且带 variant 键；单档/历史条目为空（UI 保持旧形态）。在重算预算内
         /// 一并算出——渲染路径不得再取锁。
@@ -118,7 +114,8 @@ struct ASREngineSettingsSection: View {
     @State private var familyHints: [String: String] = [:]
     /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
     @State private var derivationEpoch = 0
-    /// 尺寸选择记忆（choice → variant 键；默认取清单首个=最小档）
+    /// 尺寸选择记忆（choice → variant 键；默认 = 已装档 → 系统推荐档，
+    /// 回退序与 variantBinding getter 同源——2026-10-05 审查修正旧注「默认最小档」）
     @State private var selectedVariant: [String: String] = [:]
 
     private let service = ASRModelDownloadService.shared
@@ -164,10 +161,14 @@ struct ASREngineSettingsSection: View {
                         ? ASRModelAssets.resolve(for: choice).byteCount(choice)
                         : nil,
                     installedVariant: choice.isBundledModel ? ASRModelDownloadService.installedVariant(for: choice) : nil,
-                    // 变体清单（尺寸选择数据源）：同 id 已发布、带 variant、本版本兼容
+                    installedRevision: choice.isBundledModel ? ASRModelDownloadService.installedRevision(for: choice) : nil,
+                    // 变体清单（尺寸选择数据源）：同 id 已发布、带 variant、本版本兼容、
+                    // 且经信任库授权（2026-10-05 审查修正：旧实现缺 isAuthorized 闸门——
+                    // 撤销清单内的多档条目照常出下载按钮,按压即 untrustedPackage）。
                     variants: availableIndex.map { idx in
                         idx.models
-                            .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil && $0.isCompatible(appVersion: version) }
+                            .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil && $0.isCompatible(appVersion: version)
+                                      && ModelCatalogTrustStore.shared.isAuthorized($0) }
                             // 审查修正（D6 档序颠倒）：字典序 "large" < "medium" < "small"
                             // 与大小序相反——此前清单首位是大档（默认选中大档、低 RAM
                             // 设备被推荐大档）。统一按 Domain variantWeight 大小升序。
@@ -178,13 +179,18 @@ struct ASREngineSettingsSection: View {
                         $0.id == choice.rawValue && $0.isPublished && $0.isCompatible(appVersion: version)
                     }?.license)
             }
-            // 目录家族清单：按索引发布序去重，只保留本 App 引擎可运行的家族
-            // （rawValue 可解析且属于随包模型档）；未知 id = 新目录对旧 App，跳过。
+            // 目录家族清单：与 Domain 描述符同源——families 声明序（= auto 链
+            // 优先序，CI 所有）优先，旧目录缺 families 时按 models 首见序派生；
+            // 只保留本 App 引擎可运行的家族（rawValue 可解析且属于随包模型档）；
+            // 未知 id = 新目录对旧 App，跳过（2026-10-05 审查修正：旧实现仅按
+            // models 序——与 families 序不同时行序背离 auto 链优先序）。
             var seen = Set<String>()
             var families: [VoiceEngineChoice] = []
-            for release in availableIndex?.models ?? [] where !seen.contains(release.id) {
-                seen.insert(release.id)
-                if let choice = VoiceEngineChoice(rawValue: release.id), choice.isBundledModel {
+            let familyIDs = availableIndex?.families?.map(\.id)
+                ?? availableIndex?.models.map(\.id) ?? []
+            for id in familyIDs where !seen.contains(id) {
+                seen.insert(id)
+                if let choice = VoiceEngineChoice(rawValue: id), choice.isBundledModel {
                     families.append(choice)
                 }
             }
@@ -269,7 +275,7 @@ struct ASREngineSettingsSection: View {
                 }
                 Button(L10n.commonCancel, role: .cancel) { pendingConfirm = nil }
               } message: {
-                Text(pendingConfirm?.message ?? "")
+                Text(confirmMessage(for: pendingConfirm))
               }
             // 派生结论在渲染路径之外算（见 `availability` 的说明）。
               // **必须挂在追踪闭包内**：`derivationKey` 读 `installCenter.active`，
@@ -343,8 +349,13 @@ struct ASREngineSettingsSection: View {
         let variants = row.variants
         // 尺寸选择（业主 2026-09-18 定）：目录含同 id 多档（small/medium/large）
         // 时出现分段选择器；单档/历史目录保持旧形态（无选择器）。
+        // 2026-10-05 审查修正：回退链与 variantBinding getter 同源（页内选择 →
+        // 已装档 → 推荐档）——旧实现回落清单首位=最小档,拾取器显示推荐档
+        // 而下载按钮却以最小档为目标（label 与选择器互相矛盾）。
         let chosenVariant: ASRModelRelease? = variants.count > 1
-            ? (variants.first { $0.variant == selectedVariant[choice.rawValue] } ?? variants.first)
+            ? (variants.first { $0.variant == selectedVariant[choice.rawValue] }
+               ?? variants.first { $0.variant == row.installedVariant }
+               ?? variants[recommendedIndex(for: variants)])
             : nil
         VStack(alignment: .leading, spacing: 4) {
             if let installed {
@@ -431,7 +442,8 @@ struct ASREngineSettingsSection: View {
                     // 业务判定不得留在 View 内），视图只读结果。
                     let needsInstall = chosenVariant.needsInstall(
                         installedVersion: installed,
-                        installedVariant: row.installedVariant)
+                        installedVariant: row.installedVariant,
+                        installedRevision: row.installedRevision)
                     if needsInstall {
                         // 按钮标签三分支(2026-10-05 委员会):未装=「下载 X 档(体积)」/
                         // 同档新版本=「更新到 vX」/ 换档=「切换到 X 档(体积)」+ 条件确认
@@ -503,6 +515,22 @@ struct ASREngineSettingsSection: View {
     private func tierDisplayName(_ variant: String?, variants: [ASRModelRelease]) -> String {
         variants.first { $0.variant == variant }?.tierName?.resolved()
             ?? L10n.asrModelVariantName(variant ?? "")
+    }
+
+    /// 破坏性确认文案（2026-10-05 审查修正：换档确认须以**已装档**为「将删除」
+    /// 主语——旧实现把所选档同时填进两个槽位,删除 small 却确认删除 large）。
+    private func confirmMessage(for confirm: PendingConfirm?) -> String {
+        guard let confirm else { return "" }
+        switch confirm {
+        case .delete:
+            return L10n.asrModelDeleteMessage
+        case .switchTier(let choice, let chosen):
+            let row = availability[choice.rawValue] ?? ChoiceAvailability()
+            let tier = chosen.tierName?.resolved() ?? L10n.asrModelVariantName(chosen.variant ?? "")
+            let size = L10n.asrModelBytes(chosen.bytes ?? 0)
+            let installedTier = tierDisplayName(row.installedVariant, variants: row.variants)
+            return L10n.asrModelSwitchConfirmMessage(tier, size, installedTier)
+        }
     }
 
     /// 删除执行（经安装中心：服务删除 → 引擎逐出 → deferred 补删 → 资产广播）。
@@ -666,12 +694,19 @@ struct ASREngineSettingsSection: View {
             index = fetched
             derivationEpoch += 1   // 新索引 → 重算派生结论（`.task(id:)` 据此重跑）
             // 该索引下、与本 App 版本兼容且已授权的新装/更新条目数。
-            let count = VoiceEngineChoice.allCases.reduce(into: 0) { total, choice in
-                let latest = ASRModelDownloadService.latest(for: choice, in: fetched, appVersion: appVersion)
-                let update = ASRModelDownloadService.updateAvailable(for: choice, index: fetched, appVersion: appVersion)
-                let isNewInstall = latest != nil && ASRModelDownloadService.installedVersion(for: choice) == nil
-                if update != nil || isNewInstall { total += 1 }
-            }
+            // 2026-10-05 审查修正：统计循环移出主 actor——latest/updateAvailable/
+            // installedVersion 每档位取信任库锁 + 指针锁,主线程同款模式即本文件
+            // 注释(见 `availability`)实证的冻结→看门狗强杀成因;detached 与
+            // rebuildAvailability 同纪律。
+            let version = appVersion
+            let count = await Task.detached(priority: .userInitiated) { () -> Int in
+                VoiceEngineChoice.allCases.reduce(into: 0) { total, choice in
+                    let latest = ASRModelDownloadService.latest(for: choice, in: fetched, appVersion: version)
+                    let update = ASRModelDownloadService.updateAvailable(for: choice, index: fetched, appVersion: version)
+                    let isNewInstall = latest != nil && ASRModelDownloadService.installedVersion(for: choice) == nil
+                    if update != nil || isNewInstall { total += 1 }
+                }
+            }.value
             checkState = count > 0 ? .updates(count) : .upToDate
         } catch {
             // 拉取失败保留旧索引（若有）：更新/下载按钮仍可用。

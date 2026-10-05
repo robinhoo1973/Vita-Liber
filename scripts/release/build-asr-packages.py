@@ -13,7 +13,7 @@ import zipfile
 
 from asr_package import (MAX_PACKAGE, MODELS, decode_json, digest_file, json_bytes,
                          manifest_files, safe_path, slug, validate_index, verify_packages)
-from asr_envelope import ENCRYPTION_SCHEME, encrypt_package, env_package_key, identity_string
+from asr_envelope import ENCRYPTION_SCHEME, encrypt_package, env_package_key, identity_string, is_envelope_file
 
 
 def resolved_model(resolved, model_id, variant):
@@ -132,6 +132,10 @@ def build_packages(root, template, output, reuse=None):
                     and digest_file(cached) == release["sha256"]):
                 shutil.copyfile(cached, output / release["url"])
                 release["bytes"] = cached.stat().st_size
+                # R1 声明随实际字节(2026-10-05 审查修正):缓存物为加密信封时把
+                # encryption 对齐为 aes256gcm-v1——模板未含该键时目录会声明
+                # 明文包而字节是信封字节(App 跳过解密直接解压必失败)。
+                release["encryption"] = ENCRYPTION_SCHEME if is_envelope_file(cached) else release.get("encryption")
                 # expandedBytes 保留签名模板值,不按现源树重算(CI 37266485372
                 # 实证:遗留 zip 内清单无 variant 键,现源树 manifest 已带
                 # variant,重算差字节致「Expanded byte count mismatch」)。
@@ -174,6 +178,9 @@ def build_packages(root, template, output, reuse=None):
     # 脚本不再写死随包档位——多档化后随包只取声明档，避免基线体积随目录档数膨胀）。
     bundle = output / "bundle/ASRModels"
     bundle.mkdir(parents=True, exist_ok=True)
+    # S-M7：随包清单必须与钉版源清单一致（仅多出 bundledModels 键）——
+    # fetch-asr-models.require_same_source_manifest 在 App 构建侧逐字段比对，
+    # 任何裁剪/改写即硬错；随包档位由 App 侧按 bundledModels 声明解析。
     bundle_manifest = copy.deepcopy(original)
     declared = original.get("bundledModels")
     if not isinstance(declared, list) or not declared:

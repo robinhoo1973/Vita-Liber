@@ -2,13 +2,18 @@
 
 格式(与 App 侧 CoreKit `ASRPackageCrypto` 逐字节对齐):
   头:magic "VLASR\\x01"(6) + u8 version=1 + u32 BE chunk_size + u64 BE plaintext_size + u32 BE chunk_count
-  每块:u32 BE ciphertext_len + (nonce12 + ct + tag16)
+  每块:u32 BE ciphertext_len + (ct + tag16)——nonce 由块序号经 HKDF 派生,
+  **不入帧**(2026-10-05 审查修正:旧 docstring 声称帧内含 nonce12,与两侧实现均不符)。
 
 密钥/随机数派生(确定性——同内容同信封字节,R2 哈希比对成立;AES-GCM 安全
 ——密钥按包身份派生,不同包不同密钥;nonce 按块序号派生,同密钥下永不重放):
   key     = HKDF-SHA256(master, info="vitaliber/asr/aes256gcm/v1/key/" + identity, len=32)
   nonce_i = HKDF-SHA256(master, info="vitaliber/asr/aes256gcm/v1/nonce/" + identity + "/" + i, len=12)
   AAD_i   = header + u32 BE i
+
+nonce 派生长度合同(2026-10-05 审查定稿):python 侧直接派生 12 字节;
+Swift 侧因工具链约束派生 32 字节取前 12——HKDF 前缀性质(RFC 5869)保证
+两者逐字节相同,任何一侧改动派生长度/盐值/信息串即破坏互解。
 
 主密钥经 env `ASR_PACKAGE_KEY`(64 hex)注入;需要加解密处缺密钥 = 硬错
 (发布未经加密即违反 R1,绝不静默发明文包)。主密钥与 App 内嵌常量同值,

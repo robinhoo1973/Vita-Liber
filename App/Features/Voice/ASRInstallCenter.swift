@@ -232,6 +232,10 @@ final class ASRInstallCenter {
         // 未跑过的安装被标记完成并广播资产变更。completed = 系统侧真实完成
         // 与否;nil outcome + completed=false 一律按取消处置,不记失败不记完成。
         if completed {
+            // 2026-10-05 审查修正：系统已取走续跑任务后用户取消（takePending == nil
+            // 无法中断）——系统侧完成回调仍会到达，但取消态不得标记完成/广播资产
+            // 变更（否则「已取消」却以完成图标呈现且触发 assetsChanged 重算）。
+            guard !Task.isCancelled else { return }
             // 2026-10-05 业主反馈修复批（第 1 项）：完成态保留——标记终态并移入
             // finished（组卡子信息卡继续显示，完成图标；未完成继续）。defer 已把
             // 本安装移出 active，两列表互斥。

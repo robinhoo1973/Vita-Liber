@@ -84,7 +84,9 @@ public enum ASRModelCatalog {
         for family in families {
             guard let choice = VoiceEngineChoice(rawValue: family.id), choice.isBundledModel else { continue }
             let entries = index.models.filter { $0.id == family.id }
-            let version = entries.map(\.version).max { ASRVersion.isNewer($1, than: $0) } ?? entries.first?.version ?? ""
+            // max(by:) 谓词 `isNewer($1, than: $0)` = 升序取末位 = 最新版本；
+            // max 为 nil 当且仅当 entries 为空,`?? entries.first?.version` 恒不命中(2026-10-05 审查)。
+            let version = entries.map(\.version).max { ASRVersion.isNewer($1, than: $0) } ?? ""
             let license = entries.compactMap(\.license).first ?? ""
             result.append(ASRModelDescriptor(
                 choice: choice,

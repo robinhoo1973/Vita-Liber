@@ -9,8 +9,10 @@ import SherpaOnnxC // 缺少真实C模块必须编译失败，不能被canImport
 
 /// 构建机供应模型，App只验证Bundle内文件。绝不通过运行时联网修复缺件。
 public struct ASRModelAssets: Sendable {
-    struct Manifest: Decodable { let formatVersion: Int; let models: [Model]; let shared: [File]; let sourceDigest: String? }
-    struct Model: Decodable { let id: String; let license: String; let revision: String; let files: [File]; let archive: Archive? }
+    struct Manifest: Decodable { let formatVersion: Int; let models: [Model]; let shared: [File]; let sourceDigest: String?; let bundledModels: [BundledDeclaration]? }
+    /// 随包档位声明（2026-10-05 目录驱动：源清单 bundledModels 是唯一事实源）。
+    struct BundledDeclaration: Decodable { let id: String; let variant: String? }
+    struct Model: Decodable { let id: String; let license: String; let revision: String; let files: [File]; let archive: Archive?; let variant: String? }
     struct Archive: Decodable { let parts: [Part]; let bytes: Int64? }
     struct Part: Decodable { let role: String; let path: String }
     struct File: Decodable { let role: String; let path: String; let bytes: Int64; let sha256: String }
@@ -192,6 +194,21 @@ public struct ASRModelAssets: Sendable {
                              toPrefix: finalRoot.standardizedFileURL.path)
     }
 
+    /// 随包清单按 bundledModels 声明定位条目（2026-10-05 审查修正）：源清单
+    /// 多档化后 models 可能按任意序含同 id 多条目，而随包文件只有声明档——
+    /// 按 id 首匹配会命中未随包档位的文件集（isPresent 假阴性 → 离线路由退化）。
+    /// 下载包清单无 bundledModels 键，回落首匹配（单条目，行为零变）。
+    private func preferredModel(_ manifest: Manifest, choice: VoiceEngineChoice) -> Model? {
+        if let declarations = manifest.bundledModels {
+            for declaration in declarations where declaration.id == choice.rawValue {
+                if let match = manifest.models.first(where: { $0.id == choice.rawValue && $0.variant == declaration.variant }) {
+                    return match
+                }
+            }
+        }
+        return manifest.models.first { $0.id == choice.rawValue }
+    }
+
     public func byteCount(_ choice: VoiceEngineChoice) -> Int64? {
         guard let root else { return nil }
         // 审查修复：清单不可变，逐调用读盘解码（设置页 ForEach 每次渲染
@@ -201,7 +218,7 @@ public struct ASRModelAssets: Sendable {
         }
         guard let manifest else { return nil }
         // CI 34652541174 修复：单链长表达式超出类型检查预算——拆子表达式。
-        let model = manifest.models.first { $0.id == choice.rawValue }
+        let model = preferredModel(manifest, choice: choice)
         guard let model else { return nil }
         let sum = model.files.reduce(Int64(0)) { $0 + $1.bytes }
         if sum > 0 { return sum }
@@ -219,10 +236,10 @@ public struct ASRModelAssets: Sendable {
         try checkPackageAuthorization()
         guard let root, let descriptor = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex()) else { throw TranscriptionError.engineUnavailable }
         let manifest = try readManifest(root)
-        guard manifest.formatVersion == 1, let model = manifest.models.first(where: { $0.id == choice.rawValue }),
+        guard manifest.formatVersion == 1, let model = preferredModel(manifest, choice: choice),
               model.license == descriptor.license, !model.files.isEmpty else { throw TranscriptionError.engineUnavailable }
         let original = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: root.appendingPathComponent("manifest.json")))
-        guard let expected = original.models.first(where: { $0.id == choice.rawValue }), expected.revision == model.revision else { throw TranscriptionError.engineUnavailable }
+        guard let expected = preferredModel(original, choice: choice), expected.revision == model.revision else { throw TranscriptionError.engineUnavailable }
         let inventory = expected.archive?.parts.map { $0.role + ":" + $0.path } ?? expected.files.map { $0.role + ":" + $0.path }
         guard Set(model.files.map { $0.role + ":" + $0.path }) == Set(inventory), model.files.count == inventory.count else {
             throw TranscriptionError.engineUnavailable

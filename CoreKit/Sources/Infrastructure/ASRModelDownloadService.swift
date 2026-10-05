@@ -110,6 +110,9 @@ public actor ASRModelDownloadService {
     public nonisolated static func installedVersion(for choice: VoiceEngineChoice) -> String? { ActivePointerStore.installedVersion(for: choice) }
     /// 2026-09-19 审查修复：已激活指针的档位键（同版本换档判定数据源）。
     public nonisolated static func installedVariant(for choice: VoiceEngineChoice) -> String? { ActivePointerStore.installedVariant(for: choice) }
+    /// 2026-10-05 审查修正：已激活指针的 artifactRevision（修订重发布判定数据源——
+    /// needsInstall 的 installedRevision 输入,与 updateAvailable 的 newerPackage 同源）。
+    public nonisolated static func installedRevision(for choice: VoiceEngineChoice) -> Int? { ActivePointerStore.activePointer(for: choice)?.artifactRevision }
 
     nonisolated static func activeAssets(for choice: VoiceEngineChoice) -> ASRModelAssets? { ActivePointerStore.activeAssets(for: choice) }
 
@@ -243,7 +246,11 @@ public actor ASRModelDownloadService {
     static func scopedToInstalledVariant(_ index: ASRModelReleaseIndex, for choice: VoiceEngineChoice,
                                          variant: String?) -> ASRModelReleaseIndex {
         let family = index.models.filter { $0.id == choice.rawValue }
-        let uniqueVariant = family.compactMap(\.variant).count <= 1
+        // 2026-10-05 审查修正:唯一档判定须按**去重后的档位值**数——旧实现按
+        // 带 variant 键的条目数计,单档家族两个版本条目(回滚保留旧版本)同标
+        // "medium" 时 count=2,存量旧安装(指针 variant=nil)的更新按钮死路径
+        // 复现(R2 修复只覆盖了单条目家族)。
+        let uniqueVariant = Set(family.compactMap(\.variant)).count <= 1
         let matchesNilPointer = variant == nil && uniqueVariant
         return ASRModelReleaseIndex(schemaVersion: index.schemaVersion, baseUrl: index.baseUrl,
                                     models: family.filter {
@@ -252,6 +259,19 @@ public actor ASRModelDownloadService {
     }
 
     // MARK: - 安装
+
+    /// 重活跑 detached（避免占满 actor 协作池，见 install 注），但经
+    /// withTaskCancellationHandler 转发调用方取消——detached 任务自身不继承
+    /// 取消标志，此前用户取消在校验/解密/解压阶段完全无响应（解密为 R1 新面，
+    /// 2026-10-05 审查修正；decryptEnvelope 内的 checkCancellation 由此真正可达）。
+    private func runHeavy<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+        let task = Task.detached(priority: .userInitiated, operation: body)
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
 
     /// 安装阶段（业主 2026-09-16 实测：此前只有下载阶段有进度，校验/解压/激活
     /// 长时间无反馈——慢链路下用户判定「卡死」）。UI 按阶段展示确定进度（下载）
@@ -398,15 +418,16 @@ public actor ASRModelDownloadService {
         // 2026-09-19 审查修复：GB 级压缩包的同步 SHA-256 + 解压此前在本 actor
         // 内联执行——占满协作池线程数秒（同一池还跑 URLSession 回调与全 App
         // 任务），下载完成后全 App 卡顿（语音速记假死主因之三）。重活移到
-        // detached 任务，actor 只等结果（progress/onPhase 均 @Sendable）。
+        // detached 任务，actor 只等结果（progress/onPhase 均 @Sendable）；
+        // 调用方取消经 runHeavy 转发到 detached 任务（2026-10-05 审查修正）。
         let zipPath = zipURL
         let hashProgress = progress
         let expectedSHA = release.sha256
-        let digest = try await Task.detached(priority: .userInitiated) { () throws -> String in
+        let digest = try await runHeavy {
             try StreamingFileHasher.sha256(of: zipPath) { processed, total in
                 hashProgress?(.init(receivedBytes: processed, totalBytes: total, series: 2))
             }
-        }.value
+        }
         // release 的整份描述已匹配受信任授权。
         guard digest.caseInsensitiveCompare(expectedSHA) == .orderedSame else {
             throw Failure.checksumMismatch
@@ -426,11 +447,11 @@ public actor ASRModelDownloadService {
                                                      artifactRevision: release.artifactRevision)
             let decryptProgress = progress
             do {
-                try await Task.detached(priority: .userInitiated) {
+                try await runHeavy {
                     try ASRPackageCrypto.decryptEnvelope(at: source, to: decrypted, identity: identity) { processed, total in
                         decryptProgress?(.init(receivedBytes: processed, totalBytes: total, series: 4))
                     }
-                }.value
+                }
             } catch {
                 throw Failure.invalidPackage
             }
@@ -444,11 +465,11 @@ public actor ASRModelDownloadService {
         let unzipProgress = progress
         let unzipTarget = unpacked
         let unzipMaxBytes = expanded
-        try await Task.detached(priority: .userInitiated) {
+        try await runHeavy {
             try ModelPackageUnpacker.unzip(zipForUnpack, to: unzipTarget, maximumBytes: unzipMaxBytes) { processed, total in
                 unzipProgress?(.init(receivedBytes: processed, totalBytes: total, series: 3))
             }
-        }.value
+        }
         do {
             _ = try ASRModelAssets(root: unpacked).validate(choice)
         } catch {

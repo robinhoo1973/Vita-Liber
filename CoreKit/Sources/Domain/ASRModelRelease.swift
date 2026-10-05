@@ -49,16 +49,23 @@ public struct ASRLocalizedText: Codable, Sendable, Equatable {
     }
 
     /// 按 App 首选语言解析：繁体系 → zh-Hant；简体/其他 zh → zh-Hans；en → en；
-    /// 首选语言缺该文时按 zh-Hans → zh-Hant → en 兜底（目录文案不为空的原则）。
+    /// 首选语言缺该文时**先在同一语言族内**按 zh-Hans → zh-Hant → en 兜底，
+    /// 再试下一首选语言（2026-10-05 审查修正：旧实现缺键即 continue 跳到下一
+    /// 语言——zh-TW 用户遇仅含 zh-Hans+en 的部分目录会看到英文而弃简体）。
     public func resolved(preferredLanguages: [String]? = nil) -> String? {
         let languages = preferredLanguages ?? Locale.preferredLanguages
         for language in languages {
             if language.hasPrefix("zh-Hant") || language.hasPrefix("zh-TW")
                 || language.hasPrefix("zh-HK") || language.hasPrefix("zh-MO") {
                 if let zhHant { return zhHant }
+                if let zhHans { return zhHans }
                 continue
             }
-            if language.hasPrefix("zh") { if let zhHans { return zhHans }; continue }
+            if language.hasPrefix("zh") {
+                if let zhHans { return zhHans }
+                if let zhHant { return zhHant }
+                continue
+            }
             if language.hasPrefix("en") { if let en { return en }; continue }
         }
         return zhHans ?? zhHant ?? en
@@ -186,13 +193,19 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     }
 
     /// 是否需要安装/更新所选档位（BR 规则，2026-09-19 审查修复自视图上移——
-    /// CLAUDE.md 规则 4：业务判定不得留在 View 内）。三条析取：
+    /// CLAUDE.md 规则 4：业务判定不得留在 View 内）。四条析取：
     /// ① 未装过（无已激活指针版本）；② 已装版本更旧；③ 同版本换档
-    /// （small→large 等——只比版本号的旧判定让尺寸选择形同虚设）。
-    public func needsInstall(installedVersion: String?, installedVariant: String?) -> Bool {
+    /// （small→large 等——只比版本号的旧判定让尺寸选择形同虚设）；
+    /// ④ 同版本同档位但 artifactRevision 更高（修订重发布——2026-10-05
+    /// 审查修正：此前多档家族的修订重发布在行内无任何入口，而「检查更新」
+    /// 徽标会计为可更新，横幅与行内入口不对称）。
+    public func needsInstall(installedVersion: String?, installedVariant: String?,
+                             installedRevision: Int? = nil) -> Bool {
         guard let installedVersion else { return true }
         if isNewer(than: installedVersion) { return true }
         if version == installedVersion, variant != nil, variant != installedVariant { return true }
+        if version == installedVersion, variant == installedVariant,
+           let installedRevision, (artifactRevision ?? 0) > installedRevision { return true }
         return false
     }
 }

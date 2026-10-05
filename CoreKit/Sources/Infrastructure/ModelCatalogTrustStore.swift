@@ -314,6 +314,17 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                   // 跨条目 url 唯一性(发布侧 validate_index)与每包 sha 绑定兜底。
                   identities.insert("\(model.id)/\(model.version)/\(model.artifactRevision ?? 0)/\(model.variant ?? "")").inserted else { throw Failure.invalidMetadata }
         }
+        // 2026-10-05 审查修正:families 声明存在时,必须覆盖全部模型 id——
+        // 发布侧 validate_index(complete=True)已同检,但发布侧闸门之外(手建
+        // 目录/发布器回归)漏检的目录会让该家族 descriptors 派生落空、
+        // 装完仍 engineUnavailable,零诊断。fail-closed 于检查更新收单处。
+        if let families = value.index.families, !families.isEmpty {
+            let familyIDs = Set(families.map(\.id))
+            let modelIDs = Set(value.index.models.map(\.id))
+            guard modelIDs.subtracting(familyIDs).isEmpty, familyIDs.subtracting(modelIDs).isEmpty else {
+                throw Failure.invalidMetadata
+            }
+        }
         return value
     }
 }
