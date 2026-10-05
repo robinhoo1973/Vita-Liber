@@ -57,9 +57,22 @@ struct ASRModelDownloadServiceTests {
                             url: "qwen3.zip")
         ]
         let index = ASRModelReleaseIndex(models: models)
-        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, variant: "small").models.map(\.id) == ["zipformer"])
-        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, variant: "large").models.map(\.id) == ["zipformer"])
-        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, variant: nil).models.map(\.id) == ["qwen3"])
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, for: .zipformer, variant: "small").models.map(\.id) == ["zipformer"])
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, for: .zipformer, variant: "large").models.map(\.id) == ["zipformer"])
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, for: .qwen3, variant: nil).models.map(\.id) == ["qwen3"])
+        // 多档家族旧指针 nil:无候选(换档由尺寸选择器分支承担)
+        #expect(ASRModelDownloadService.scopedToInstalledVariant(index, for: .zipformer, variant: nil).models.isEmpty)
+    }
+
+    /// 原名：单档家族带 variant 键条目 + 旧指针 nil → 匹配唯一档(R2 死路径修复)
+    @Test func nilPointerMatchesTheSingleTierOfAVariantedFamily() {
+        let models = [
+            ASRModelRelease(id: "qwen3", version: "0.6b", sha256: String(repeating: "c", count: 64),
+                            url: "qwen3-medium.zip", variant: "medium")
+        ]
+        let index = ASRModelReleaseIndex(models: models)
+        let scoped = ASRModelDownloadService.scopedToInstalledVariant(index, for: .qwen3, variant: nil)
+        #expect(scoped.models.map(\.url) == ["qwen3-medium.zip"])
     }
 }
 #endif

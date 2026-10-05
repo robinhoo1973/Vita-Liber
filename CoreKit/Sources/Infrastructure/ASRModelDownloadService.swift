@@ -217,7 +217,7 @@ public actor ASRModelDownloadService {
                                                    appVersion: String) -> ASRModelRelease? {
         guard let installed = installedVersion(for: choice) else { return nil }
         let installedVariant = ActivePointerStore.activePointer(for: choice)?.variant
-        guard let latest = latest(for: choice, in: scopedToInstalledVariant(index, variant: installedVariant),
+        guard let latest = latest(for: choice, in: scopedToInstalledVariant(index, for: choice, variant: installedVariant),
                                   appVersion: appVersion) else { return nil }
         let newerPackage = latest.version == installed && (latest.artifactRevision ?? 0) > (ActivePointerStore.activePointer(for: choice)?.artifactRevision ?? 0)
         return latest.isNewer(than: installed) || newerPackage ? latest : nil
@@ -226,9 +226,18 @@ public actor ASRModelDownloadService {
     /// 档位过滤纯函数(updateAvailable 的数据面):只保留与已装档同 variant 的条目,
     /// 旧指针无 variant(nil)时只保留无 variant 的遗留条目——档位是可选键的
     /// 相等语义,不做跨界宽松匹配(2026-10-05 委员会)。
-    static func scopedToInstalledVariant(_ index: ASRModelReleaseIndex, variant: String?) -> ASRModelReleaseIndex {
-        ASRModelReleaseIndex(schemaVersion: index.schemaVersion, baseUrl: index.baseUrl,
-                             models: index.models.filter { $0.variant == variant })
+    /// R2 修复(2026-10-05 委员会):旧指针 variant=nil 且该家族目录只有唯一
+    /// 档位值时,匹配唯一档——否则单档家族(如 qwen3 标 medium)的存量旧安装
+    /// 永远没有更新按钮(死路径)。
+    static func scopedToInstalledVariant(_ index: ASRModelReleaseIndex, for choice: VoiceEngineChoice,
+                                         variant: String?) -> ASRModelReleaseIndex {
+        let family = index.models.filter { $0.id == choice.rawValue }
+        let uniqueVariant = family.compactMap(\.variant).count <= 1
+        let matchesNilPointer = variant == nil && uniqueVariant
+        return ASRModelReleaseIndex(schemaVersion: index.schemaVersion, baseUrl: index.baseUrl,
+                                    models: family.filter {
+                                        $0.variant == variant || (matchesNilPointer && $0.variant != nil)
+                                    })
     }
 
     // MARK: - 安装
@@ -450,12 +459,21 @@ public actor ASRModelDownloadService {
         let kept = ASRInstallLayout.keepingForPrune(candidates: candidates,
                                                     newlyInstalled: newlyInstalled,
                                                     activeName: previousRoot?.lastPathComponent)
+        // 2026-10-05 委员会 R1 修复:被租用的旧档 removeIfUnused 静默跳过且
+        // 此前不登记——单保留语义被静默违反(盘上两档、UI 只显一档)且永无
+        // 清扫入口。与显式删除路径同源:删除未成即登记 pending-removals,
+        // 启动清扫/同会话补删(租约释放后)接手。
+        var deferred: [String] = []
         for stale in entries where !kept.contains(stale.lastPathComponent) {
             do {
                 let values = try stale.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
                 guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
                 try ASRModelAssets.removeIfUnused(stale)
+                if fileManager.fileExists(atPath: stale.path) { deferred.append(stale.lastPathComponent) }
             } catch { /* 清理失败只保留旧资源，不改变当前激活版本。 */ }
+        }
+        if !deferred.isEmpty {
+            ActivePointerStore.writePendingRemovals(deferred, in: modelRoot, fileManager: fileManager)
         }
     }
 
