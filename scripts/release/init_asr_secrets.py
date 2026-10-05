@@ -107,8 +107,17 @@ def store_secret(repo, key, admin_token=None):
         raise RuntimeError(f"{SECRET_NAME} was stored but is not visible via gh secret list")
 
 
-def plan(env_key, admin_token, swift_key, test_key):
-    """纯决策函数(可测):返回 (action, message);action ∈ {noop, generate, fail}。"""
+def gh_authenticated():
+    """本地/CI gh 凭据可用性(ASR_ADMIN_TOKEN 之外的第二条管理通道)。"""
+    return subprocess.run(["gh", "auth", "status", "-h", "github.com"],
+                          capture_output=True).returncode == 0
+
+
+def plan(env_key, can_manage_secrets, swift_key, test_key):
+    """纯决策函数(可测):返回 (action, message);action ∈ {noop, generate, fail}。
+
+    can_manage_secrets = ASR_ADMIN_TOKEN 已注入(CI)或本地 gh 已登录(owner 手工引导)。
+    """
     if env_key:
         if not KEY_RE.match(env_key.strip()):
             return "fail", ("ASR_PACKAGE_KEY env 不是 64-hex 主密钥——检查 secret 值是否被截断/污染")
@@ -120,11 +129,11 @@ def plan(env_key, admin_token, swift_key, test_key):
                             "全部解密失败)。若 secret 为误建:删除后重跑本 workflow 自动对齐;"
                             "若为有意轮换:删除 secret 后重跑(旧包不可解,须随后全量重发布)")
         return "noop", "ASR_PACKAGE_KEY 已存在且与内嵌密钥一致——跳过"
-    if not admin_token:
-        return "fail", ("ASR_PACKAGE_KEY secret 不存在,且无 ASR_ADMIN_TOKEN(唯一需人工预置的"
-                        "管理 PAT)——无法自动生成。引导步骤:1) 创建具有 Actions secrets 读写"
-                        "权限的 PAT 并注册为 secret ASR_ADMIN_TOKEN;2) 重跑本 workflow。"
-                        "或本地执行:gh auth login 后 python3 scripts/release/init_asr_secrets.py --repo <owner/repo>")
+    if not can_manage_secrets:
+        return "fail", ("ASR_PACKAGE_KEY secret 不存在,且无可管理凭据(无 ASR_ADMIN_TOKEN 且本地"
+                        "gh 未登录)——无法自动生成。引导:1) 创建具有 Actions secrets 读写权限的"
+                        "PAT 并注册为 secret ASR_ADMIN_TOKEN,重跑本 workflow;或 2) 本地"
+                        "gh auth login 后执行 python3 scripts/release/init_asr_secrets.py --repo <owner/repo>")
     return "generate", "ASR_PACKAGE_KEY secret 不存在——自动生成并三处落地"
 
 
@@ -140,7 +149,8 @@ def main() -> int:
 
     env_key = os.environ.get(SECRET_NAME, "")
     admin_token = os.environ.get("ASR_ADMIN_TOKEN", "")
-    action, message = plan(env_key, admin_token,
+    can_manage = bool(admin_token) or gh_authenticated()
+    action, message = plan(env_key, can_manage,
                            read_swift_key(args.swift_file), read_test_key(args.test_file))
     if action == "noop":
         print(message)

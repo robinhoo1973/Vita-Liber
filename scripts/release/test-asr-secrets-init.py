@@ -24,38 +24,38 @@ ROLES = {}
 
 class PlanTests(unittest.TestCase):
     def test_noop_when_env_matches_embedded(self):
-        action, _ = plan(OLD_KEY, "", OLD_KEY, OLD_KEY)
+        action, _ = plan(OLD_KEY, True, OLD_KEY, OLD_KEY)
         self.assertEqual(action, "noop")
 
     def test_fail_when_env_key_malformed(self):
-        action, message = plan("xyz", "", OLD_KEY, OLD_KEY)
+        action, message = plan("xyz", True, OLD_KEY, OLD_KEY)
         self.assertEqual(action, "fail")
         self.assertIn("64-hex", message)
 
     def test_fail_when_swift_key_missing(self):
-        action, _ = plan(OLD_KEY, "", None, OLD_KEY)
+        action, _ = plan(OLD_KEY, True, None, OLD_KEY)
         self.assertEqual(action, "fail")
 
     def test_fail_when_env_mismatches_swift(self):
-        action, message = plan(OLD_KEY, "", OTHER_KEY, OLD_KEY)
+        action, message = plan(OLD_KEY, True, OTHER_KEY, OLD_KEY)
         self.assertEqual(action, "fail")
         self.assertIn("不一致", message)
 
     def test_fail_when_env_mismatches_test_constant(self):
-        action, _ = plan(OLD_KEY, "", OLD_KEY, OTHER_KEY)
+        action, _ = plan(OLD_KEY, True, OLD_KEY, OTHER_KEY)
         self.assertEqual(action, "fail")
 
-    def test_fail_without_token_when_missing(self):
-        action, message = plan("", "", OLD_KEY, OLD_KEY)
+    def test_fail_without_credentials_when_missing(self):
+        action, message = plan("", False, OLD_KEY, OLD_KEY)
         self.assertEqual(action, "fail")
         self.assertIn("ASR_ADMIN_TOKEN", message)
 
-    def test_generate_with_token_when_missing(self):
-        action, _ = plan("", "ghp_admin", OLD_KEY, OLD_KEY)
+    def test_generate_with_credentials_when_missing(self):
+        action, _ = plan("", True, OLD_KEY, OLD_KEY)
         self.assertEqual(action, "generate")
 
     def test_env_key_comparison_is_case_insensitive(self):
-        action, _ = plan(OLD_KEY.upper(), "", OLD_KEY, OLD_KEY)
+        action, _ = plan(OLD_KEY.upper(), True, OLD_KEY, OLD_KEY)
         self.assertEqual(action, "noop")
 
 
