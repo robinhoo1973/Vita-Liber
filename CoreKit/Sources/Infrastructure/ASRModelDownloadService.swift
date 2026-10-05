@@ -75,15 +75,16 @@ public actor ASRModelDownloadService {
     /// 全 App 共享实例：安装互斥守卫是实例级的，共享实例才能让互斥跨视图生效。
     public static let shared = ASRModelDownloadService()
 
-    /// 索引地址：优先 Info.plist `ASRModelIndexURL`（发版/私有环境可覆盖），否则用仓库内默认
-    /// `downloads/vitaliber/asr/index.json` 的 raw 地址（robinhoo1973/Vita-Liber，master）。
+    /// 索引发现面（2026-10-03 CNB cutover）：默认 CNB Release tag 页——App 匿名解析
+    /// `__NEXT_DATA__` 清单选最高数字版本目录（固定别名 catalog.json 非权威）。
+    /// Info.plist `ASRModelIndexURL` 可覆盖 tag 页地址（发版/私有环境），仍过
+    /// allowedURL 主机门。
     public nonisolated static var indexURL: URL {
         if let raw = Bundle.main.object(forInfoDictionaryKey: "ASRModelIndexURL") as? String,
            let url = URL(string: raw), ModelResourcePolicy.allowedURL(url) {
             return url
         }
-        return URL(string: "https://github.com/robinhoo1973/Vita-Liber/releases/download/asr-models/catalog.json")
-            ?? URL(fileURLWithPath: "/dev/null")
+        return ASRModelReleaseProtocol.tagPageURL
     }
 
     // MARK: - 协作类（结构轮 2026-09-15 拆分：下载/解压/哈希/指针各一职责类）
@@ -122,7 +123,8 @@ public actor ASRModelDownloadService {
 
     // MARK: - 索引
 
-    /// 拉取并校验索引（结构版本不支持即拒绝；不做任何缓存写入——索引很小）。
+    /// 拉取并校验索引：根链连续轮换 → tag 页有界拉取 → 选最高数字版本目录 →
+    /// 按构造 URL 下载 → served-name 绑定验签（任何形状漂移 fail-closed）。
     public func fetchIndex(from url: URL) async throws -> ASRModelReleaseIndex {
         guard installing.isEmpty else { throw Failure.installInProgress }
         for _ in 0..<32 {
@@ -133,15 +135,30 @@ public actor ASRModelDownloadService {
             }
             catch Failure.badResponse(404) { break }
         }
-        let data = try await metadata(from: url)
-        let index = try trust.acceptCatalog(data)
+        // tag 页清单只是候选定位(设计文档 §3.1):所选资产名必须等于重算名,
+        // 下载地址由基址构造——页面自报 path 只做解析期作用域校验,不作下载源。
+        let page = try await metadata(from: url, maxBytes: CNBReleasePageInventoryParser.maxPageBytes)
+        let assets = try CNBReleasePageInventoryParser.assets(fromPage: page,
+                                                              repository: ASRModelReleaseProtocol.repository,
+                                                              tag: ASRModelReleaseProtocol.releaseTag)
+        let catalogCandidates = assets.compactMap { asset -> (version: Int, name: String)? in
+            guard let version = ASRModelReleaseProtocol.catalogVersion(fromAssetName: asset.name) else { return nil }
+            return (version, asset.name)
+        }
+        guard let catalogName = catalogCandidates.max(by: { $0.version < $1.version })?.name else {
+            throw Failure.badIndex
+        }
+        guard let catalogURL = URL(string: ASRModelReleaseProtocol.releaseBaseURL + "/" + catalogName),
+              ModelResourcePolicy.allowedURL(catalogURL) else { throw Failure.badAddress }
+        let data = try await metadata(from: catalogURL)
+        let index = try trust.acceptCatalog(data, servedAs: catalogName)
         // 2026-09-19 审查修复：索引刷新只清缓存不推分代——旧全量推进使所有档位
         // identity 变化，检查一次更新即触发全引擎重载+全文件重哈希。
         ASRModelAssets.clearCaches()
         return index
     }
 
-    private func metadata(from url: URL) async throws -> Data {
+    private func metadata(from url: URL, maxBytes: Int = ModelResourcePolicy.metadataBytes) async throws -> Data {
         guard ModelResourcePolicy.allowedURL(url) else { throw Failure.badAddress }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
@@ -161,11 +178,11 @@ public actor ASRModelDownloadService {
             throw Failure.badResponse((response as? HTTPURLResponse)?.statusCode ?? -1)
         }
         try guardDelegate.validate(response)
-        guard response.expectedContentLength <= Int64(ModelResourcePolicy.metadataBytes) else { throw Failure.badIndex }
+        guard response.expectedContentLength <= Int64(maxBytes) else { throw Failure.badIndex }
         var data = Data()
         for try await byte in bytes {
             try Task.checkCancellation()
-            guard data.count < ModelResourcePolicy.metadataBytes else { throw Failure.badIndex }
+            guard data.count < maxBytes else { throw Failure.badIndex }
             data.append(byte)
         }
         return data

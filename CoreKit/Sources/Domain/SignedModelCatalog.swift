@@ -50,7 +50,13 @@ public enum ModelResourcePolicy {
     public static let expandedBytes: Int64 = 4_294_967_296
     public static let zipEntries = 512
     public static let runtime = "sherpa-onnx-1.13.4"
-    public static let allowedHosts: Set<String> = ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]
+    /// 过渡联合(2026-10-03 CNB cutover):CNB 两主机 + GitHub 三主机。
+    /// 实际下载主机由签名根/目录的 baseUrl 与 allowedHosts 收敛——policy 只是
+    /// 客户端硬上限;cutover 完成后 GitHub 主机从本集退役(期二登记)。
+    public static let allowedHosts: Set<String> = [
+        "cnb.cool", "asset.cnb.cool",
+        "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com",
+    ]
 
     public static func isSHA256(_ value: String) -> Bool {
         value.utf8.count == 64 && value.utf8.allSatisfy { (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }
@@ -63,7 +69,10 @@ public enum ModelResourcePolicy {
         return alphaNumeric(first) && value.utf8.allSatisfy { alphaNumeric($0) || $0 == 45 || $0 == 46 || $0 == 95 }
     }
     public static func allowedURL(_ url: URL) -> Bool {
+        // 端口检查(2026-10-05 委员会):此前只查 scheme/userinfo/host,弱于医疗线
+        // allowsTransferURL——非 443 端口仍可能构成明文/旁路面,不放松只加强。
         url.scheme?.lowercased() == "https" && url.user == nil && url.password == nil
+            && (url.port == nil || url.port == 443)
             && url.host.map { allowedHosts.contains($0.lowercased()) } == true
     }
 }

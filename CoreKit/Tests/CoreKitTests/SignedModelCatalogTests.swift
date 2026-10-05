@@ -100,6 +100,25 @@ struct SignedModelCatalogTests {
                                                        sha256: catalogRevoked.lowercased(), url: "qwen3.zip")))
     }
 
+    /// 原名：served-name 绑定——目录资产名必须等于重算名(2026-10-05 委员会)
+    @Test func servedNameBindingMatchesComputedCatalogName() throws {
+        let fixture = try Fixture()
+        let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
+        _ = try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "3.catalog.json")
+    }
+
+    /// 原名：served-name 不匹配或缺省形状被整体拒绝
+    @Test func mismatchedServedNameIsRejected() throws {
+        let fixture = try Fixture()
+        let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
+        #expect(throws: (any Error).self) {
+            try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "4.catalog.json")
+        }
+        #expect(throws: (any Error).self) {
+            try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "catalog.json")
+        }
+    }
+
     /// 原名：同 id/版本/修订的多档条目是三个合法身份(2026-10-05 委员会)
     @Test func sameVersionVariantsAreDistinctCatalogIdentities() throws {
         let fixture = try Fixture()

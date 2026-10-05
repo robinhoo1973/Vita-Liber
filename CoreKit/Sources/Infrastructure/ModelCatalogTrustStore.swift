@@ -124,7 +124,11 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         lock.unlock()
     }
 
-    @discardableResult public func acceptCatalog(_ data: Data) throws -> ASRModelReleaseIndex {
+    /// 接受并持久化签名目录。`servedAs` 为下载时的资产名——CNB 上固定别名
+    /// catalog.json 非权威(设计文档 §2.2),目录名在签名外,客户端必须把
+    /// 「N.catalog.json 且 N == catalogVersion」收进信任判定(served-name 绑定,
+    /// 2026-10-05 委员会);状态恢复路径(init)传 nil 跳过该绑定。
+    @discardableResult public func acceptCatalog(_ data: Data, servedAs: String? = nil) throws -> ASRModelReleaseIndex {
         // 审查修复（主线程阻塞，见 acceptRoot 注）：快照 → 锁外验签/落盘 → 锁内换状态。
         let snapshot: (root: ModelTrustRoot?, catalog: SignedModelCatalog?, catalogEnvelope: SignedModelEnvelope?, revoked: Set<String>, roots: [SignedModelEnvelope])
         lock.lock()
@@ -132,7 +136,7 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         lock.unlock()
         guard let current = snapshot.root else { throw Failure.unavailable }
         let envelope = try Self.envelope(data)
-        let next = try Self.catalog(envelope, root: current, checkTime: true)
+        let next = try Self.catalog(envelope, root: current, checkTime: true, servedAs: servedAs)
         try checkBaselineFloor(next, envelope: envelope)
         if let existing = snapshot.catalog, existing.rootVersion == next.rootVersion {
             guard next.catalogVersion >= existing.catalogVersion else { throw Failure.rollback }
@@ -230,14 +234,22 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         guard value.count == 20, value.hasSuffix("Z") else { return nil }
         return ISO8601DateFormatter().date(from: value)
     }
+    /// 根基址只接受两个已知基址的精确匹配(CNB 新基址 + GitHub 旧基址;2026-10-03
+    /// cutover)。不接受任何其它变体——「已知枚举」是 root 校验的安全边界,
+    /// 不是可配置项。
+    private static let knownBaseURLs: Set<String> = [
+        ASRModelReleaseProtocol.releaseBaseURL,
+        ASRModelReleaseProtocol.legacyGitHubBaseURL,
+    ]
+
     private static func validateRoot(_ value: ModelTrustRoot) throws {
         guard value.schemaVersion == 1, value.role == "root", value.app == "vitaliber", value.assetKind == "asr",
               value.version > 0, value.version < Int.max, date(value.expiresAt) != nil,
               (1...16).contains(value.keys.count), Set(value.keys.map(\.id)).count == value.keys.count,
               Set(value.rootKeyIDs).isDisjoint(with: value.catalogKeyIDs),
-              let base = URL(string: value.assetBaseURL), base.scheme == "https", base.host == "github.com",
+              knownBaseURLs.contains(value.assetBaseURL),
+              let base = URL(string: value.assetBaseURL), base.scheme == "https",
               base.user == nil, base.password == nil, base.query == nil, base.fragment == nil,
-              base.path.hasSuffix("/releases/download/asr-models"),
               !value.allowedHosts.isEmpty, Set(value.allowedHosts).isSubset(of: ModelResourcePolicy.allowedHosts) else {
             throw Failure.invalidMetadata
         }
@@ -266,11 +278,13 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         }
         guard accepted.count >= threshold else { throw Failure.invalidSignature }
     }
-    private static func catalog(_ envelope: SignedModelEnvelope, root: ModelTrustRoot, checkTime: Bool) throws -> SignedModelCatalog {
+    private static func catalog(_ envelope: SignedModelEnvelope, root: ModelTrustRoot, checkTime: Bool,
+                                servedAs: String? = nil) throws -> SignedModelCatalog {
         try verify(envelope, root: root, role: "catalog")
         let value = try JSONDecoder().decode(SignedModelCatalog.self, from: envelope.payload)
         guard value.schemaVersion == 1, value.role == "catalog", value.app == "vitaliber", value.assetKind == "asr",
               value.rootVersion == root.version, value.catalogVersion > 0,
+              servedAs == nil || servedAs == ASRModelReleaseProtocol.catalogAssetName(version: value.catalogVersion),
               let issued = date(value.issuedAt), let expiry = date(value.expiresAt), let rootExpiry = date(root.expiresAt),
               expiry > issued, expiry.timeIntervalSince(issued) <= 31 * 86400,
               value.index.isSupported, value.index.baseUrl == root.assetBaseURL,

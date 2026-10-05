@@ -10,6 +10,10 @@ final class ModelResourceTransfer: NSObject, URLSessionDownloadDelegate, @unchec
     private let onBytes: (@Sendable (Int64) -> Void)?
     private let lock = NSLock()
     private var storedFailure: ASRModelDownloadService.Failure?
+    /// 重定向上限(2026-10-05 委员会):医疗线同款守卫——重定向循环/无限逐跳
+    /// 在委托层直接终止;每跳仍过 allowedURL 主机门(含端口检查)。
+    private var redirectHops = 0
+    private static let maxRedirectHops = 5
     var failure: ASRModelDownloadService.Failure? { lock.lock(); defer { lock.unlock() }; return storedFailure }
 
     init(expectedBytes: Int64? = nil, range: (Int64, Int64, Int64)? = nil,
@@ -47,7 +51,9 @@ final class ModelResourceTransfer: NSObject, URLSessionDownloadDelegate, @unchec
     }
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        guard let url = request.url, ModelResourcePolicy.allowedURL(url) else {
+        redirectHops += 1
+        guard redirectHops <= Self.maxRedirectHops,
+              let url = request.url, ModelResourcePolicy.allowedURL(url) else {
             record(.badAddress); completionHandler(nil); task.cancel(); return
         }
         completionHandler(request)
