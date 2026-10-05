@@ -84,6 +84,35 @@ public enum TranscriptionEngineBuilder {
         return fallbackForMissingBundledModel()
     }
 
+    /// FR17.15（2026-10-05 业主反馈修复批）：混说模式的**多语种过闸**引擎选择——
+    /// 目录多语种选择（覆盖全部已选语种）+ 随包资产 isPresent 闸门。混说关
+    /// （single）或调用方未带附加语种时退回既有单语种路径（行为零变）。
+    public static func automaticChoice(locales: [String], mixed: Bool) -> VoiceEngineChoice {
+        let primary = locales.first ?? TranscriptionSegmentation.fallbackLocale
+        guard mixed else { return automaticChoice(locale: primary) }
+        for model in ASRModelCatalog.models where locales.allSatisfy({ model.languageCode(for: $0) != nil }) {
+            if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
+        }
+        return automaticChoice(locale: primary)
+    }
+
+    /// FR17.15 合同更新（2026-10-05 业主指令，function-spec V4.13）：OOM 加载失败
+    /// （`insufficientMemory`）的**自动回落候选**——目录序（qwen3→zipformer→dolphin→whisper）
+    /// 排除失败档，判据 = 语言支持 ∧ 资产在位 ∧ 内存预算可载（重试时刻重算，
+    /// 不用解析期快照——verdict 会漂移）。随包模型全不可用回落 `.classic`
+    /// （零资产基线轨恒可用）。显式选定档同样适用（业主指令构成合同更新：
+    /// 「不得换引擎冒充」只约束缺件/校验失败；OOM 回落必须明示实际引擎）。
+    public static func loadFallback(after failed: VoiceEngineChoice, locale: String) -> VoiceEngineChoice? {
+        for model in ASRModelCatalog.models where model.choice != failed && model.languageCode(for: locale) != nil {
+            let assets = ASRModelAssets.resolve(for: model.choice)
+            guard assets.isPresent(model.choice), let bytes = assets.byteCount(model.choice) else { continue }
+            guard ModelMemoryBudget.firstLoadableIndex(modelBytes: [bytes],
+                                                       availableBytes: ProcessMemory.availableBytes()) != nil else { continue }
+            return model.choice
+        }
+        return .classic
+    }
+
     /// 缺件随包模型的回落目标：平台轨可用则用平台轨（其内部再按语言资产回落基线轨），
     /// 否则基线轨（零资产恒可用）。
     public static func fallbackForMissingBundledModel() -> VoiceEngineChoice {

@@ -53,6 +53,8 @@ final class VoiceDictationModel {
     /// FR17.15 语言模式：混说开关开 = `.mixed`（不强制解码语言，启用模型自带语种识别）；
     /// 关 = `.single`（强制主语言）。round2 A-N1：此前开关只改词表、语言仍被强制。
     private(set) var languageMode: TranscriptionLanguageMode = .single
+    /// 已选语种全量（保序，首位 = 主语言；2026-10-05：混说引擎选择吃全部语种）。
+    private var selectedLocales: [String] = []
     private struct PressContext {
         let request: TranscriptionRequest
         let epoch: UInt64
@@ -84,6 +86,10 @@ final class VoiceDictationModel {
     func applyLanguageSettings(storedLocales: String?, mixedInput: Bool, recentDrugNames: [String]) {
         let locales = SettingsRules.voiceLocales(storedLocales)
         preferredLocale = locales.first
+        // 2026-10-05 业主反馈修复批：混说模式下把全部已选语种带进按压请求——
+        // 引擎选择层按「覆盖方言+外语并集」选模型（此前只传主语言，其余语种
+        // 从不参与引擎选择，方言+外语混说在选择层即被判定为不支持）。
+        selectedLocales = locales
         contextualStrings = mixedInput
             ? MixedSpeechVocabulary.terms(primaryLocale: locales.first ?? TranscriptionSegmentation.fallbackLocale,
                                           otherLocales: Array(locales.dropFirst()),
@@ -124,7 +130,8 @@ final class VoiceDictationModel {
         failureReason = nil
         let request = TranscriptionRequest(localeIdentifier: preferredLocale ?? TranscriptionSegmentation.fallbackLocale,
                                            contextualStrings: contextualStrings,
-                                           languageMode: languageMode)
+                                           languageMode: languageMode,
+                                           additionalLocales: Array(selectedLocales.dropFirst()))
         let context = PressContext(request: request, epoch: epoch,
                                    onTranscript: onTranscript, onEmergency: onEmergency)
         currentID = request.sessionID

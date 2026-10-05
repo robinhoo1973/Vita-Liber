@@ -22,12 +22,14 @@ public struct ASRModelDescriptor: Sendable, Equatable {
 
     /// 解码语言提示：`nil` = 该模型不支持此 locale；`""` = 不注入语言（启用模型自带 LID，或该引擎无此协议）。
     /// qwen3 只认官方名称（Chinese/Cantonese/English…，模型卡）；上游 sherpa 把 `"language " + 值` 原样编码进
-    /// 解码提示，传 ISO 码等于强制一个训练分布外的标签（round2 A-N1 根因）。whisper 的 config.language 走 ISO 码。
+    /// 解码提示，传 ISO 码等于强制一个训练分布外的标签（round2 A-N1 根因）。whisper 的 config.language 走 ISO 码，
+    /// 空串 = 交 sherpa whisper 自带语种自动检测（2026-10-05 业主反馈修复批：此前 whisper 混说仍强制主语言，
+    /// 与 FR17.15「混说 = 不强制语言」合同冲突）。
     public func decoderLanguage(for locale: String, mode: TranscriptionLanguageMode) -> String? {
         guard let code = languageCode(for: locale) else { return nil }
         switch choice {
         case .qwen3: return mode == .mixed ? "" : ASRModelCatalog.qwenLanguageName(forCode: code)
-        case .whisper: return code
+        case .whisper: return mode == .mixed ? "" : code
         case .zipformer, .dolphin, .auto, .advanced, .dictation, .classic: return ""
         }
     }
@@ -100,5 +102,19 @@ public enum ASRModelCatalog {
         if model(for: .dolphin)?.languageCode(for: locale) != nil { return .dolphin }
         if model(for: .whisper)?.languageCode(for: locale) != nil { return .whisper }
         return .classic
+    }
+
+    /// FR17.15（2026-10-05 业主反馈修复批）：混说模式的**多语种**引擎选择——
+    /// 按目录序（qwen3→zipformer→dolphin→whisper，即质量/能力优先序）取第一个
+    /// **覆盖全部已选语种**的模型。无模型全量覆盖时回落主语言单语种逻辑
+    /// （不因次要语种改变引擎——保持既有行为）。方言+外语并集超出任何模型
+    /// 覆盖时仍按主语言选择，混说解码交模型自带语种识别（尽力识别语义不变）。
+    /// 空列表（无任何语种）回落 `.classic`（零资产基线轨，无主语言可依）。
+    public static func automaticChoice(locales: [String]) -> VoiceEngineChoice {
+        guard let primary = locales.first else { return .classic }
+        for model in models where locales.allSatisfy({ model.languageCode(for: $0) != nil }) {
+            return model.choice
+        }
+        return automaticChoice(locale: primary)
     }
 }

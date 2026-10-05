@@ -36,9 +36,11 @@ struct ASRLanguageProtocolTests {
     }
 
     /// 原名：whisper沿用ISO码且其余引擎为空
+    /// 2026-10-05 业主反馈修复批（第 7 项）：whisper 混说不再强制主语言——
+    /// 空串 = sherpa whisper 自带语种自动检测（合同更新，原断言「混说仍返 ISO 码」随之修订）。
     @Test func whisperUsesISOCodeOthersEmpty() throws {
         #expect(try #require(ASRModelCatalog.model(for: .whisper)).decoderLanguage(for: "fr-FR", mode: .single) == "fr")
-        #expect(try #require(ASRModelCatalog.model(for: .whisper)).decoderLanguage(for: "fr-FR", mode: .mixed) == "fr")
+        #expect(try #require(ASRModelCatalog.model(for: .whisper)).decoderLanguage(for: "fr-FR", mode: .mixed) == "")
         #expect(try #require(ASRModelCatalog.model(for: .zipformer)).decoderLanguage(for: "en-US", mode: .single) == "")
         #expect(try #require(ASRModelCatalog.model(for: .dolphin)).decoderLanguage(for: "wuu-CN", mode: .single) == "")
     }

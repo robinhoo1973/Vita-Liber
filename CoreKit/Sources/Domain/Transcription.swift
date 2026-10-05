@@ -96,14 +96,28 @@ public struct TranscriptionRequest: Sendable, Equatable {
     public var expectedDurationSeconds: Int?
     /// 单语强制 / 混说自动（见 `TranscriptionLanguageMode`）。
     public var languageMode: TranscriptionLanguageMode
+    /// FR17.15（2026-10-05 业主反馈修复批）：混说模式下参与识别的其余已选语种
+    /// （不含主语言；主语言仍是 `localeIdentifier`）。混说解码交模型自带语种识别，
+    /// 本字段只供**引擎选择层**按「覆盖全部已选语种」选模型——旧调用方留空
+    /// 回落主语言路径，向后兼容零破坏。
+    public var additionalLocales: [String]
     public init(localeIdentifier: String, contextualStrings: [String] = [],
                 expectedDurationSeconds: Int? = nil, sessionID: UUID = UUID(),
-                languageMode: TranscriptionLanguageMode = .single) {
+                languageMode: TranscriptionLanguageMode = .single,
+                additionalLocales: [String] = []) {
         self.sessionID = sessionID
         self.localeIdentifier = localeIdentifier
         self.contextualStrings = contextualStrings
         self.expectedDurationSeconds = expectedDurationSeconds
         self.languageMode = languageMode
+        self.additionalLocales = additionalLocales
+    }
+
+    /// 参与本次按压的全部已选语种（主语言 + 附加语种；供混说引擎选择）。
+    public var allLocales: [String] {
+        var out = [localeIdentifier]
+        out.append(contentsOf: additionalLocales.filter { $0 != localeIdentifier })
+        return out
     }
 }
 
