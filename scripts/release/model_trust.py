@@ -11,6 +11,10 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from asr_package import MAX_EXPANDED, decode_json, json_bytes, slug, validate_index
 
 HOSTS = {"github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"}
+# CNB 资源仓基址+传输主机(2026-10-03 cutover 定案):assetBaseURL 只接受下面两个
+# 已知基址形态之一(精确枚举,不接受任意值);allowedHosts 随基址主机选对应集合。
+CNB_HOSTS = {"cnb.cool", "asset.cnb.cool"}
+ASSET_HOSTS_BY_NETLOC = {"github.com": HOSTS, "cnb.cool": CNB_HOSTS}
 
 
 def utc_date(value):
@@ -60,14 +64,23 @@ def validate_root(root, asset_kind="asr"):
     if set(root["rootKeyIDs"]) & set(root["catalogKeyIDs"]):
         raise ValueError("Root and catalog keys must be separate")
     url = urlparse(root["assetBaseURL"])
+    # CNB 下载路径比 GitHub 多一个 `/-/` 段(/owner/repo/-/releases/download/…),
+    # 按 netloc 分路径形态(两者都是精确枚举,不接受其它变体)。
     if asset_kind == "asr":
-        allowed_path = r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/asr-models"
+        path_shapes = {  # netloc -> 路径正则
+            "github.com": r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/asr-models",
+            "cnb.cool": r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/-/releases/download/asr-models",
+        }
     else:
-        allowed_path = r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9_.-]+"
-    if (url.scheme != "https" or url.netloc != "github.com" or url.query or url.fragment
-            or not re.fullmatch(allowed_path, url.path)):
-        raise ValueError(f"{asset_kind} assets must use an authorized GitHub Release")
-    if not root["allowedHosts"] or not set(root["allowedHosts"]) <= HOSTS:
+        path_shapes = {
+            "github.com": r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/download/[A-Za-z0-9_.-]+",
+            "cnb.cool": r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/-/releases/download/[A-Za-z0-9_.-]+",
+        }
+    if (url.scheme != "https" or url.query or url.fragment
+            or url.netloc not in path_shapes
+            or not re.fullmatch(path_shapes[url.netloc], url.path)):
+        raise ValueError(f"{asset_kind} assets must use an authorized Release base")
+    if not root["allowedHosts"] or not set(root["allowedHosts"]) <= ASSET_HOSTS_BY_NETLOC[url.netloc]:
         raise ValueError("Unexpected resource host policy")
 
 

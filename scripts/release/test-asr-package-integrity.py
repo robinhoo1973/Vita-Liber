@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import tempfile
 import unittest
@@ -188,22 +189,31 @@ class PackageTests(unittest.TestCase):
                                text=True, capture_output=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
-    def test_source_preparation_reuses_verified_release_assets(self):
-        self.built_index()
-        binaries = self.root / "bin"
-        binaries.mkdir()
-        gh = binaries / "gh"
-        gh.write_text("#!/usr/bin/env python3\nimport os, pathlib, shutil, sys\na=sys.argv\n"
-                      "name=a[a.index('--pattern')+1]\ndest=pathlib.Path(a[a.index('--dir')+1])\n"
-                      "shutil.copyfile(pathlib.Path(os.environ['FIXTURE_PACKAGES'])/name, dest/name)\n")
-        gh.chmod(0o755)
+    def test_source_preparation_reuses_verified_cnb_assets(self):
+        index = self.built_index()
         target = self.root / "ci-source"
-        env = dict(os.environ, PATH=f"{binaries}:{os.environ['PATH']}", FIXTURE_PACKAGES=str(self.output))
-        result = subprocess.run(["python3", str(TOOLS / "prepare-asr-source.py"), "--index", str(self.output / "index.json"),
-                                 "--source", str(self.source), "--root", str(target), "--cache", str(self.root / "cache"),
-                                 "--repository", "fixture/app"], env=env, text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        module = runpy.run_path(str(TOOLS / "prepare-asr-source.py"))
+
+        def inventory(repository):
+            return [{"name": m["url"],
+                     "path": "/" + repository + "/-/releases/download/asr-models/" + m["url"],
+                     "hashAlgo": "sha256", "hashValue": m["sha256"], "sizeInByte": m["bytes"]}
+                    for m in index["models"]]
+
+        def download(repository, asset, destination, expected_sha256, expected_size):
+            data = (self.output / asset["name"]).read_bytes()
+            self.assertEqual(len(data), expected_size)
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(data)
+            return Path(destination)
+
+        module["prepare"](index, self.output / "index.json", self.source, target,
+                          self.root / "cache", "fixture/app",
+                          inventory=inventory, download=download)
         self.assertEqual((target / "qwen3/encoder.onnx").read_bytes(), b"fixture:qwen3:encoder")
+        check = subprocess.run(["python3", str(TOOLS / "fetch-asr-models.py"), "--root", str(target), "--check"],
+                               text=True, capture_output=True)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
 
 class MultiVariantPackageTests(PackageTests):
