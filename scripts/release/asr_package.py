@@ -89,15 +89,21 @@ def safe_path(value):
     return str(PurePosixPath(trimmed))
 
 
-def validate_index(index, *, complete=True):
+def validate_index(index, *, complete=True, expected_families=None):
     if index.get("schemaVersion") != 1 or index.get("app") != "vitaliber" or index.get("assetKind") != "asr":
         raise ValueError("Unexpected ASR index scope/version")
     models = index.get("models", [])
-    # 七家族齐备,但每家族可为 1..5 档(variant 区分)——「每 id 一条」硬断言随
-    # 多档数据面退役(2026-10-05 委员会:身份键 = (id, version, artifactRevision, variant))。
-    if {m["id"] for m in models} != MODELS:
-        raise ValueError("All %d adopted ASR model families are required" % len(MODELS))
-    for model_id in MODELS:
+    # 家族集合同(2026-10-05 数据驱动):校验器不硬断言「全家族齐备」——
+    # 实际家族集由数据文件(源清单/模板)声明,`expected_families` 给出时按
+    # 该集合判齐备(新家族数据面落地时随 manifest 自然收紧);无该参数时只
+    # 拒绝未知家族(历史 v4 目录验证路径兼容)。「每 id 一条」硬断言随多档
+    # 数据面退役(身份键 = (id, version, artifactRevision, variant))。
+    ids = {m["id"] for m in models}
+    if not ids or not ids <= MODELS:
+        raise ValueError("Unknown ASR model family in index")
+    if expected_families is not None and ids != expected_families:
+        raise ValueError("Index families do not match the declared data set")
+    for model_id in ids:
         tiers = [m for m in models if m["id"] == model_id]
         if not 1 <= len(tiers) <= MAX_TIERS_PER_MODEL:
             raise ValueError("Model family tier count out of range: " + model_id)
@@ -151,13 +157,16 @@ def validate_index(index, *, complete=True):
                 if not isinstance(locale, str) or not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})+", locale):
                     raise ValueError("Invalid dialect locale: " + str(locale))
     if complete:
-        # 发布目录必须携带全部文案与覆盖表(App 渲染的唯一数据源;App 侧容忍缺字段
-        # 仅为旧目录兼容,新发布不得再产出缺字段目录)。
-        if families is None or {f["id"] for f in families} != MODELS:
-            raise ValueError("Published catalog must declare every family (name/hint/languages/dialects)")
-        for model in models:
-            if model.get("tierName") is None or model.get("tierHint") is None:
-                raise ValueError("Published entries require tierName and tierHint: " + model["id"])
+        # 文案/覆盖表合同(2026-10-05 目录驱动,self-consistent 口径):目录一旦携带
+        # families 段即必须完整——覆盖全部家族、每条目必带 tierName/tierHint(App
+        # 渲染的唯一数据源;App 侧容忍缺字段仅为旧目录兼容)。无 families 段的历史
+        # 目录(v4 形态)放行——其数据面已冻结,新发布由数据文件落地自然携带。
+        if families is not None:
+            if {f["id"] for f in families} != ids:
+                raise ValueError("Published catalog families must cover every model id")
+            for model in models:
+                if model.get("tierName") is None or model.get("tierHint") is None:
+                    raise ValueError("Published entries require tierName and tierHint: " + model["id"])
     if complete:
         total = sum(m["bytes"] for m in models)
         if total > ASR_CATALOG_BUDGET_BYTES:
@@ -269,8 +278,8 @@ def verify_package(model, directory, *, legacy_inner_manifest_ok=False):
                 "files": [{k: f[k] for k in ("role", "path", "bytes", "sha256")} for f in selected]}
 
 
-def verify_packages(index, directory):
-    validate_index(index)
+def verify_packages(index, directory, expected_families=None):
+    validate_index(index, expected_families=expected_families)
     tier_counts = {}
     for model in index["models"]:
         tier_counts[model["id"]] = tier_counts.get(model["id"], 0) + 1

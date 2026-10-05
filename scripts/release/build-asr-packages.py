@@ -33,8 +33,8 @@ def source_manifest(root):
             raise ValueError("Resolved manifest does not match the pinned source manifest")
     else:
         resolved = original
-    if {m["id"] for m in resolved["models"]} != MODELS:
-        raise ValueError("All %d resolved model families are required" % len(MODELS))
+    if not ({m["id"] for m in resolved["models"]} <= MODELS):
+        raise ValueError("Unknown ASR model family in resolved manifest")
     for model in resolved["models"]:
         expected = next((m for m in original["models"]
                          if m["id"] == model["id"] and m.get("variant") == model.get("variant")), None)
@@ -78,8 +78,10 @@ def write_zip(path, files, built_at):
 
 
 def build_packages(root, template, output, reuse=None):
-    validate_index(template, complete=False)
     original, resolved, source_digest = source_manifest(root)
+    # 模板家族集必须与源清单一致(数据驱动齐备合同:新家族随数据文件自然收紧)。
+    validate_index(template, complete=False,
+                   expected_families={m["id"] for m in original["models"]})
     output.mkdir(parents=True, exist_ok=True)
     result = copy.deepcopy(template)
     result["sourceManifestSHA256"] = source_digest
@@ -150,7 +152,7 @@ def build_packages(root, template, output, reuse=None):
             temporary_path.replace(output / release["url"])
         finally:
             temporary_path.unlink(missing_ok=True)
-    receipt = verify_packages(result, output)
+    receipt = verify_packages(result, output, expected_families={m["id"] for m in original["models"]})
     (output / "index.json").write_bytes(json_bytes(result))
     (output / "package-validation.json").write_bytes(json_bytes(receipt))
 

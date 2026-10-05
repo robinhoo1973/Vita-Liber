@@ -162,7 +162,8 @@ def main():
     if args.source_manifest:
         require_same_source_manifest(manifest, json.loads(args.source_manifest.read_bytes()))
     source_digest = hashlib.sha256(raw_manifest).hexdigest()
-    if manifest["formatVersion"] != 1 or {m["id"] for m in manifest["models"]} != MODELS:
+    models = manifest.get("models", [])
+    if manifest["formatVersion"] != 1 or not models or not ({m["id"] for m in models} <= MODELS):
         raise ValueError("Unexpected ASR manifest/version")
     # A signed App can explicitly ship the offline Zipformer baseline while larger models
     # are installed from Releases. Check every declared bundled model; never silently skip it.

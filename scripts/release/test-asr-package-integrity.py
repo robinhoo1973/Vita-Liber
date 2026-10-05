@@ -370,8 +370,10 @@ class MultiVariantValidationTests(unittest.TestCase):
     def test_missing_family_is_rejected(self):
         index = self.base_index()
         index["models"] = [m for m in index["models"] if m["id"] != "whisper"]
+        # 数据驱动齐备合同:声明集合(expected_families)给出时,缺家族即拒绝
+        # (2026-10-05:校验器不再硬断言全家族,历史 v4 目录验证路径须兼容)。
         with self.assertRaises(ValueError):
-            validate_index(index)
+            validate_index(index, expected_families=set(VARIANTS))
 
     def test_catalog_aggregate_budget_is_enforced(self):
         index = self.base_index()
