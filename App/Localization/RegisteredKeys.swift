@@ -881,7 +881,7 @@ extension L10n {
         "timezone.changed.title", "timezone.changed.body",
         "observation.colorDisclaimer",
         "nc.archive",
-        "metric.overview.title", "metric.overview.add", "metric.overview.empty", "metric.overview.emptyHint",
+        "metric.overview.title", "metric.overview.empty", "metric.overview.emptyHint",
         "showcase.title", "showcase.exit", "showcase.empty", "showcase.unlockReason",
         "remch.title", "remch.sectionHint", "remch.sectionFooter", "remch.meds", "remch.apts", "remch.exam", "remch.expiry", "remch.alert", "remch.backup", "remch.local", "remch.ring", "remch.inApp", "remch.bannerToggle", "remch.bannerFooter",
         "banner.doseDue", "banner.confirm", "banner.later",

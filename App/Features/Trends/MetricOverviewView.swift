@@ -24,21 +24,13 @@ struct MetricOverviewView: View {
         WithPerceptionTracking {
             Group {
                 if state.latestMetrics.isEmpty {
+                    // 空态零动作（2026-10-05 业主裁决）：指标不可能为空——空态仅作
+                    // 四态纪律的防御呈现（§3.0 每屏四态），不提供任何录入入口；
+                    // 语音录入入口在总览工具栏 [按住说话]（FR17.13）。
                     VLUnavailableView {
                         Label(L10n.metricOverviewEmpty, systemImage: "waveform.path.ecg")
                     } description: {
                         Text(L10n.metricOverviewEmptyHint)
-                    } actions: {
-                        // 2026-10-05 业主反馈：去掉右上角增加按钮后，新用户空态仍须
-                        // 能发起第一条记录（§5.45 空态引导约束；语音非人人可用）。
-                        Button {
-                            router.navigate(to: .metricQuickEntry)
-                        } label: {
-                            Label(L10n.metricOverviewAdd, systemImage: "plus")
-                                .frame(minHeight: 44)
-                        }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier("SP-13.overview.empty.quickEntry")
                     }
                         .accessibilityIdentifier("SP-13.overview.empty")
                 } else {

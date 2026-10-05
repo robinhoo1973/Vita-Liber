@@ -1083,9 +1083,8 @@
 "observation.colorDisclaimer" = "Photo colors are affected by lighting, white balance and the container — never use them for self-diagnosis.";
 "nc.archive" = "Archive";
 "metric.overview.title" = "Metrics";
-"metric.overview.add" = "Log";
 "metric.overview.empty" = "No metrics yet";
-"metric.overview.emptyHint" = "Tap the button below to record your first reading, or hold to talk";
+"metric.overview.emptyHint" = "No metrics yet";
 "showcase.title" = "Show Doctor";
 "showcase.exit" = "Exit";
 "showcase.empty" = "No observations yet";
