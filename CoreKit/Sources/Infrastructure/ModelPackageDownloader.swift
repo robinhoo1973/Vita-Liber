@@ -96,8 +96,20 @@ struct ModelPackageDownloader {
         } else {
             let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
             counter.add(resumeOffset)
-            try await Self.downloadSegment(session: session, url: url, start: resumeOffset, end: nil, total: total,
-                                           destination: destination, counter: counter)
+            do {
+                try await Self.downloadSegment(session: session, url: url, start: resumeOffset, end: nil, total: total,
+                                               destination: destination, counter: counter)
+            } catch ASRModelDownloadService.Failure.badResponse(let status) where status == 200 {
+                // 2026-10-05 审查修复:续传请求(bytes=resumeOffset-)被服务端忽略
+                // 返回 200 整包时,旧实现 seek 到 resumeOffset 后追加整包 =
+                // S+total 字节,终态 sizeMismatch 且白下全量。此处与分段退单流
+                // 同法:清空文件从 0 单流重下(系列 +1 让消费侧单调守卫跨系列放行)。
+                try Task.checkCancellation()
+                try writer.truncate(atOffset: 0)
+                let fallbackCounter = ProgressCounter(total: total, mode: mode, series: 1, callback: progress)
+                try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
+                                               destination: destination, counter: fallbackCounter)
+            }
         }
 
         let attributes = try fileManager.attributesOfItem(atPath: destination.path)
@@ -120,11 +132,21 @@ struct ModelPackageDownloader {
         // -1001 掐断；300s 与「无资源超时天花板」的分段下载语义一致（头部探测仍 30s）。
         request.timeoutInterval = 300
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        if let end { request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range") }
-        let expected = end.map { $0 - start + 1 } ?? total
+        // 2026-10-05 审查修复:续传单流(start > 0, end == nil)必须发开区间
+        // Range——此前不发 Range 拿 200 整包,seek 后追加写出 S+total 字节,
+        // 终态 sizeMismatch 且白下全量。响应契约同步收紧:206 + 精确
+        // Content-Range,200 视为服务端吞 Range(调用方清空重下)。
+        let resumeSingleStream = start > 0 && end == nil
+        if let end {
+            request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
+        } else if resumeSingleStream {
+            request.setValue("bytes=\(start)-", forHTTPHeaderField: "Range")
+        }
+        let expected = end.map { $0 - start + 1 } ?? (resumeSingleStream ? total - start : total)
+        let range = end.map { (start, $0, total) } ?? (resumeSingleStream ? (start, total - 1, total) : nil)
         let (temporary, response) = try await downloadAttempt(session: session, request: request,
                                                               expected: expected,
-                                                              range: end.map { (start, $0, total) },
+                                                              range: range,
                                                               counter: counter)
         defer { try? FileManager.default.removeItem(at: temporary) } // try?-ok: URLSession 临时下载文件清理，不掩盖主错误
         try Task.checkCancellation()

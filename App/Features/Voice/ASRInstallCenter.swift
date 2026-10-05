@@ -167,7 +167,13 @@ final class ASRInstallCenter {
     }
 
     /// 首页失败卡关闭（用户已看到并处置）。
-    func dismissFailure() { lastFailure = nil }
+    /// 2026-10-05 审查修复:此前只清 lastFailure——failed 集合残留,设置页
+    /// 失败徽标(ASREngineSettingsSection 读 failed.contains)永久点亮,
+    /// 与首页卡状态分裂。
+    func dismissFailure() {
+        if let failure = lastFailure { failed.remove(failure.choice) }
+        lastFailure = nil
+    }
 
     /// 首页失败卡 [重试]（2026-09-27 UX 席）：携带失败载荷原样重启安装。
     func retryLastFailed() {
@@ -196,10 +202,11 @@ final class ASRInstallCenter {
         #endif
         let service = self.service
         // 值承接盒（CI 35588830526 告警族）：@Sendable operation 内不得变异捕获 var
-        // （Swift 6 语言模式为错误）；nil = 原 `.success(())` 语义。
+        // （Swift 6 语言模式为错误）；nil = operation 从未执行（取消先于系统取走
+        // 待处理续跑任务）。
         let outcome = ValueBox<Result<Void, Error>>()
         // 用户动作发起 → 统一入口 runContinued（iOS 26 续跑 + 系统进度；更早系统/提交失败回落前台直跑同一 operation）
-        _ = await BackgroundWorkScheduler.shared.runContinued(
+        let completed = await BackgroundWorkScheduler.shared.runContinued(
             identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier,
             title: L10n.asrModelDownloading, subtitle: [release.id, release.variant].compactMap { $0 }.joined(separator: " · ")) { progress, _ in
             do {
@@ -220,8 +227,11 @@ final class ASRInstallCenter {
                 return false
             }
         }
-        switch outcome.value ?? .success(()) {
-        case .success:
+        // 2026-10-05 审查修复:此前 `outcome.value ?? .success(())` 把「取消先于
+        // 系统取走任务(operation 从未执行,outcome 恒 nil)」并入成功分支——
+        // 未跑过的安装被标记完成并广播资产变更。completed = 系统侧真实完成
+        // 与否;nil outcome + completed=false 一律按取消处置,不记失败不记完成。
+        if completed {
             // 2026-10-05 业主反馈修复批（第 1 项）：完成态保留——标记终态并移入
             // finished（组卡子信息卡继续显示，完成图标；未完成继续）。defer 已把
             // 本安装移出 active，两列表互斥。
@@ -230,9 +240,9 @@ final class ASRInstallCenter {
             if finished.count > 8 { finished.removeFirst(finished.count - 8) }
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()
-        case .failure(let error) where error is CancellationError:
-            break   // 用户取消：不记失败（可再发起）。
-        case .failure:
+        } else if case .failure(let error)? = outcome.value, error is CancellationError {
+            return   // 用户取消：不记失败（可再发起）。
+        } else if case .failure? = outcome.value {
             failed.insert(choice)
             lastFailure = LastFailure(choice: choice, release: release, baseURL: baseURL)
         }

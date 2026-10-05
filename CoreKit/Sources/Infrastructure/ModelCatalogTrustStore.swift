@@ -164,7 +164,10 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
         if value.rootVersion == floor.root {
             guard value.catalogVersion >= floor.catalog else { throw Failure.rollback }
             if value.catalogVersion == floor.catalog {
-                let digest = SHA256.hash(data: envelope.payload).map { String(format: "%02x", $0) }.joined()
+                // 哈希表示收敛到 CryptoKitContentHasher(2026-10-05 审查):
+                // 与基线生成侧(json_bytes → sha256)同一 hex 形态,消除内联
+                // 复本的表示漂移。
+                let digest = CryptoKitContentHasher().sha256Hex(envelope.payload)
                 guard digest == floor.digest else { throw Failure.rollback }
             }
         }
@@ -264,7 +267,7 @@ public final class ModelCatalogTrustStore: @unchecked Sendable {
                   Set(keys).isSubset(of: ids) else { throw Failure.invalidMetadata }
         }
         for key in value.keys {
-            let digest = SHA256.hash(data: key.publicKey).map { String(format: "%02x", $0) }.joined()
+            let digest = CryptoKitContentHasher().sha256Hex(key.publicKey)
             guard key.publicKey.count == 32, digest == key.id else { throw Failure.invalidMetadata }
         }
     }

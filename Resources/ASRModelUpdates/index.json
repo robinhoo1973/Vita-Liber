@@ -17,7 +17,17 @@
    "upstreamRevision": "98590b7ed6443e77b714204da2757d75e1a642f4",
    "url": "zipformer-large-2023-02-20-20260912-r2.zip",
    "version": "2023-02-20",
-   "variant": "large"
+   "variant": "large",
+   "tierName": {
+    "zh-Hans": "超大",
+    "zh-Hant": "超大",
+    "en": "Extra Large"
+   },
+   "tierHint": {
+    "zh-Hans": "最高质量流式转写，适合长录音与复杂场景",
+    "zh-Hant": "最高品質串流轉寫，適合長錄音與複雜場景",
+    "en": "Highest-quality streaming transcription for long or complex audio"
+   }
   },
   {
    "artifactRevision": 2,
@@ -33,7 +43,17 @@
    "upstreamRevision": "0.6B-int8-2026-03-25",
    "url": "qwen3-medium-0.6b-int8-v2026.03.25-20260912-r2.zip",
    "version": "0.6b-int8-v2026.03.25",
-   "variant": "medium"
+   "variant": "medium",
+   "tierName": {
+    "zh-Hans": "标准",
+    "zh-Hant": "標準",
+    "en": "Standard"
+   },
+   "tierHint": {
+    "zh-Hans": "0.6B 多语种模型：质量与内存的平衡选择",
+    "zh-Hant": "0.6B 多語種模型：品質與記憶體的平衡選擇",
+    "en": "0.6B multilingual model: the quality/memory balance"
+   }
   },
   {
    "artifactRevision": 2,
@@ -49,7 +69,17 @@
    "upstreamRevision": "c8b6689509acfcd744c04e5e169164f9ac4cae32",
    "url": "dolphin-small-small-ctc-int8-2025-04-02-20260912-r2.zip",
    "version": "small-ctc-int8-2025-04-02",
-   "variant": "small"
+   "variant": "small",
+   "tierName": {
+    "zh-Hans": "轻量",
+    "zh-Hant": "輕量",
+    "en": "Light"
+   },
+   "tierHint": {
+    "zh-Hans": "轻量 CTC 模型：内存占用小、启动快",
+    "zh-Hant": "輕量 CTC 模型：記憶體佔用小、啟動快",
+    "en": "Lightweight CTC model: small memory footprint, fast startup"
+   }
   },
   {
    "artifactRevision": 2,
@@ -65,11 +95,125 @@
    "upstreamRevision": "8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
    "url": "whisper-small-small-int8-2024-07-13-20260912-r2.zip",
    "version": "small-int8-2024-07-13",
-   "variant": "small"
+   "variant": "small",
+   "tierName": {
+    "zh-Hans": "轻量",
+    "zh-Hant": "輕量",
+    "en": "Light"
+   },
+   "tierHint": {
+    "zh-Hans": "经典通用模型：泛化能力强",
+    "zh-Hant": "經典通用模型：泛化能力強",
+    "en": "Classic general-purpose model with strong generalization"
+   }
   }
  ],
  "packagingProfile": "zip-deflate9-v2",
  "schemaVersion": 1,
  "sourceManifestSHA256": "95eec60bd292c2606580fb7371ae59031d56c6b37fe1d80cf073fd8dc53cd640",
- "updatedAt": "2026-09-12"
+ "updatedAt": "2026-10-05",
+ "families": [
+  {
+   "id": "zipformer",
+   "name": {
+    "zh-Hans": "Zipformer 流式",
+    "zh-Hant": "Zipformer 串流",
+    "en": "Zipformer Streaming"
+   },
+   "hint": {
+    "zh-Hans": "低延迟流式大模型：中英混说、热词定制与实时转写优先",
+    "zh-Hant": "低延遲串流大模型：中英混合、熱詞定制與即時轉寫優先",
+    "en": "Low-latency streaming model: mixed Chinese/English, hotwords, real-time transcription"
+   },
+   "languages": [
+    "zh",
+    "en"
+   ],
+   "dialects": []
+  },
+  {
+   "id": "qwen3",
+   "name": {
+    "zh-Hans": "Qwen3 多语种",
+    "zh-Hant": "Qwen3 多語種",
+    "en": "Qwen3 Multilingual"
+   },
+   "hint": {
+    "zh-Hans": "0.6B 参数多语种模型：30 语种覆盖，兼顾质量与内存",
+    "zh-Hant": "0.6B 參數多語種模型：30 語種覆蓋，兼顧品質與記憶體",
+    "en": "0.6B-parameter multilingual model: 30 languages, quality/memory balance"
+   },
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ar",
+    "de",
+    "fr",
+    "es",
+    "pt",
+    "id",
+    "it",
+    "ko",
+    "ru",
+    "th",
+    "vi",
+    "ja",
+    "tr",
+    "hi",
+    "ms",
+    "nl",
+    "sv",
+    "da",
+    "fi",
+    "pl",
+    "cs",
+    "fil",
+    "fa",
+    "el",
+    "hu",
+    "mk",
+    "ro"
+   ],
+   "dialects": [
+    "yue-HK"
+   ]
+  },
+  {
+   "id": "dolphin",
+   "name": {
+    "zh-Hans": "Dolphin 轻量",
+    "zh-Hant": "Dolphin 輕量",
+    "en": "Dolphin Light"
+   },
+   "hint": {
+    "zh-Hans": "轻量 CTC 中文模型：低内存设备首选",
+    "zh-Hant": "輕量 CTC 中文模型：低記憶體裝置首選",
+    "en": "Lightweight CTC Chinese model: best for low-memory devices"
+   },
+   "languages": [
+    "zh",
+    "en"
+   ],
+   "dialects": []
+  },
+  {
+   "id": "whisper",
+   "name": {
+    "zh-Hans": "Whisper 通用",
+    "zh-Hant": "Whisper 通用",
+    "en": "Whisper General"
+   },
+   "hint": {
+    "zh-Hans": "经典通用模型：泛化能力强，中英混说友好",
+    "zh-Hant": "經典通用模型：泛化能力強，中英混合友善",
+    "en": "Classic general-purpose model: strong generalization, mixed Chinese/English"
+   },
+   "languages": [
+    "zh",
+    "en"
+   ],
+   "dialects": []
+  }
+ ]
 }

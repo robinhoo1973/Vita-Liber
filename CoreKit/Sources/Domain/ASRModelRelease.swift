@@ -94,6 +94,11 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public var expandedBytes: Int64?
     public var runtime: String?
     public var packaging: String?
+    /// 下载包加密信封方案(2026-10-05 R1):"aes256gcm-v1" = 整包 zip 的块式
+    /// AES-GCM 信封(下载字节即信封字节,sha256/bytes 覆盖信封);nil = 明文
+    /// zip(历史目录条目,新发布一律加密)。旧 App 不解该键,下载新包会在
+    /// 解压步 fail-closed,不构成误装。
+    public var encryption: String?
     public var artifactRevision: Int?
     /// 变体档位（业主 2026-09-16 定案）：同一家族（`id`）可提供多档，**可同时下载共存**，
     /// 但**同一时刻只有一档生效**（引擎只加载一份权重），且可按档删除以释放空间。
@@ -113,13 +118,13 @@ public struct ASRModelRelease: Codable, Sendable, Equatable, Identifiable {
     public init(id: String, version: String, bytes: Int64? = nil, sha256: String, url: String,
                 minAppVersion: String? = nil, license: String? = nil,
                 expandedBytes: Int64? = nil, runtime: String? = nil, packaging: String? = nil,
-                artifactRevision: Int? = nil, variant: String? = nil,
+                encryption: String? = nil, artifactRevision: Int? = nil, variant: String? = nil,
                 tierName: ASRLocalizedText? = nil, tierHint: ASRLocalizedText? = nil) {
         self.id = id; self.version = version
         self.bytes = bytes; self.sha256 = sha256
         self.url = url; self.minAppVersion = minAppVersion; self.license = license
         self.expandedBytes = expandedBytes; self.runtime = runtime
-        self.packaging = packaging; self.artifactRevision = artifactRevision
+        self.packaging = packaging; self.encryption = encryption; self.artifactRevision = artifactRevision
         self.variant = variant
         self.tierName = tierName
         self.tierHint = tierHint

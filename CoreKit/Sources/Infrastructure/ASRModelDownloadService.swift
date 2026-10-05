@@ -145,17 +145,28 @@ public actor ASRModelDownloadService {
             guard let version = ASRModelReleaseProtocol.catalogVersion(fromAssetName: asset.name) else { return nil }
             return (version, asset.name)
         }
-        guard let catalogName = catalogCandidates.max(by: { $0.version < $1.version })?.name else {
-            throw Failure.badIndex
+        // 2026-10-05 审查修复:根轮换后 tag 页上最高数字版本目录可能仍由旧根
+        // 签名(acceptRoot 已清空本机目录状态)——此前单点取最高名,验签失败即
+        // 整面「检查不可用」,且已持久化的末次好目录已被清掉。改为按版本降序
+        // 逐个尝试:每个候选独立验签(签名/回滚/楼层闸不变),首个可接受者即
+        // 生效;全败才抛(保留末个错误)。
+        let ordered = catalogCandidates.sorted { $0.version > $1.version }
+        var lastError: Error = Failure.badIndex
+        for candidate in ordered {
+            guard let catalogURL = URL(string: ASRModelReleaseProtocol.releaseBaseURL + "/" + candidate.name),
+                  ModelResourcePolicy.allowedURL(catalogURL) else { continue }
+            do {
+                let data = try await metadata(from: catalogURL)
+                let index = try trust.acceptCatalog(data, servedAs: candidate.name)
+                // 2026-09-19 审查修复：索引刷新只清缓存不推分代——旧全量推进使所有档位
+                // identity 变化，检查一次更新即触发全引擎重载+全文件重哈希。
+                ASRModelAssets.clearCaches()
+                return index
+            } catch {
+                lastError = error
+            }
         }
-        guard let catalogURL = URL(string: ASRModelReleaseProtocol.releaseBaseURL + "/" + catalogName),
-              ModelResourcePolicy.allowedURL(catalogURL) else { throw Failure.badAddress }
-        let data = try await metadata(from: catalogURL)
-        let index = try trust.acceptCatalog(data, servedAs: catalogName)
-        // 2026-09-19 审查修复：索引刷新只清缓存不推分代——旧全量推进使所有档位
-        // identity 变化，检查一次更新即触发全引擎重载+全文件重哈希。
-        ASRModelAssets.clearCaches()
-        return index
+        throw lastError
     }
 
     private func metadata(from url: URL, maxBytes: Int = ModelResourcePolicy.metadataBytes) async throws -> Data {
@@ -269,9 +280,13 @@ public actor ASRModelDownloadService {
             // 排队挂起。取消路径：onCancel 跳回 actor 把本等待者从队列移除并唤醒
             // （否则取消的排队任务挂在队列里——槽位释放才醒，且占着 active 槽
             // 挡住再次发起）。唤醒后循环顶部的 checkCancellation 抛出结束。
+            // 续体携带 Bool：true = 本次唤醒来自槽位释放（占一个唤醒名额）——
+            // 被唤醒者若已取消,必须把名额传给下一等待者(2026-10-05 审查修复:
+            // 此前取消的队首白吃一次唤醒,后面的等待者永挂,槽位已空却显示
+            // 「排队中」)。false = 取消自唤醒,不占名额。
             let waiterID = UUID()
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let wokeFromSlot = await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                     // 2026-10-05 删除守卫（R2 交叉质询 f3）：排队者登记 release.id——
                     // 同家族安装排队中时删除不得放行（否则删除后排队安装完成又装回）。
                     slotWaiters.append((id: waiterID, releaseID: release.id, continuation: continuation))
@@ -282,12 +297,15 @@ public actor ASRModelDownloadService {
                     // 则立即弹出自续，续体返回后循环顶 checkCancellation 抛出。
                     if Task.isCancelled {
                         if let idx = slotWaiters.firstIndex(where: { $0.id == waiterID }) {
-                            slotWaiters.remove(at: idx).continuation.resume()
+                            slotWaiters.remove(at: idx).continuation.resume(returning: false)
                         }
                     }
                 }
             } onCancel: {
                 Task { await self.removeWaiter(waiterID) }
+            }
+            if wokeFromSlot && Task.isCancelled {
+                await self.passSlotWakeup()
             }
             try Task.checkCancellation()
         }
@@ -297,20 +315,27 @@ public actor ASRModelDownloadService {
             // 槽位释放即唤醒最早排队的等待者（FIFO；actor 串行化，无并发修改）。
             // 每个续体恰好 resume 一次：这里 pop 即拥有 resume 权；取消路径
             // removeWaiter 找不到 id（已被本处唤醒）时不再 resume。
-            if !slotWaiters.isEmpty { slotWaiters.removeFirst().continuation.resume() }
+            if !slotWaiters.isEmpty { slotWaiters.removeFirst().continuation.resume(returning: true) }
         }
         return try await performInstall(release, baseURL: baseURL, progress: progress, onPhase: onPhase)
     }
 
     /// 排队等待槽位的续体（actor 串行化；UUID 键——取消唤醒按 id 定位；
-    /// releaseID = 排队中安装的模型家族，删除守卫据此拒绝「排队中删除」）。
-    private var slotWaiters: [(id: UUID, releaseID: String, continuation: CheckedContinuation<Void, Never>)] = []
+    /// releaseID = 排队中安装的模型家族，删除守卫据此拒绝「排队中删除」；
+    /// Bool = 唤醒来源，true = 槽位释放名额）。
+    private var slotWaiters: [(id: UUID, releaseID: String, continuation: CheckedContinuation<Bool, Never>)] = []
 
     /// 取消排队：从队列移除并唤醒（resume 恰好一次；已由槽位释放唤醒者不在队列，
     /// 直接返回不 resume）。只在 actor 上执行（经 onCancel 的 Task hop）。
     private func removeWaiter(_ id: UUID) {
         guard let index = slotWaiters.firstIndex(where: { $0.id == id }) else { return }
-        slotWaiters.remove(at: index).continuation.resume()
+        slotWaiters.remove(at: index).continuation.resume(returning: false)
+    }
+
+    /// 取消的等待者占了一次槽位唤醒名额——传给队首下一等待者
+    /// （2026-10-05 审查修复；actor 串行化，pop 即拥有 resume 权）。
+    private func passSlotWakeup() {
+        if !slotWaiters.isEmpty { slotWaiters.removeFirst().continuation.resume(returning: true) }
     }
 
     /// 安装主流程（install 的槽位互斥之后的部分）。
@@ -387,13 +412,40 @@ public actor ASRModelDownloadService {
             throw Failure.checksumMismatch
         }
 
+        // R1 加密信封(2026-10-05):整包 zip 的块式 AES-GCM 信封——下载字节已按
+        // 签名 sha256 校验(上一步),此处解密到暂存明文 zip 再解压;旧目录条目
+        // (encryption == nil)为明文 zip,直通。解密进度走独立系列(series 4),
+        // 与校验系列同 totalBytes 从 0 重计,单调守卫跨系列放行。
+        let zipForUnpack: URL
+        if release.encryption == ASRPackageCrypto.encryptionScheme {
+            onPhase?(.unpacking)
+            let source = zipPath
+            let decrypted = staging.appendingPathComponent("package.plain.zip")
+            let identity = ASRPackageCrypto.identity(id: release.id, variant: release.variant,
+                                                     version: release.version,
+                                                     artifactRevision: release.artifactRevision)
+            let decryptProgress = progress
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try ASRPackageCrypto.decryptEnvelope(at: source, to: decrypted, identity: identity) { processed, total in
+                        decryptProgress?(.init(receivedBytes: processed, totalBytes: total, series: 4))
+                    }
+                }.value
+            } catch {
+                throw Failure.invalidPackage
+            }
+            zipForUnpack = decrypted
+        } else {
+            zipForUnpack = zipPath
+        }
+
         let unpacked = staging.appendingPathComponent("unpacked", isDirectory: true)
         onPhase?(.unpacking)
         let unzipProgress = progress
         let unzipTarget = unpacked
         let unzipMaxBytes = expanded
         try await Task.detached(priority: .userInitiated) {
-            try ModelPackageUnpacker.unzip(zipPath, to: unzipTarget, maximumBytes: unzipMaxBytes) { processed, total in
+            try ModelPackageUnpacker.unzip(zipForUnpack, to: unzipTarget, maximumBytes: unzipMaxBytes) { processed, total in
                 unzipProgress?(.init(receivedBytes: processed, totalBytes: total, series: 3))
             }
         }.value
@@ -436,6 +488,10 @@ public actor ASRModelDownloadService {
         // 2026-09-19 审查修复：安装只推进**本安装目录**的分代——其他档位 identity
         // 不变（引擎/哈希缓存继续有效），不再引发全局重载风暴。
         ASRModelAssets.invalidateCaches(forRoot: versionDir)
+        // 2026-10-05 审查修复：校验期哈希按暂存路径入册,落位换路径后把键改写
+        // 到最终目录——首次按压不再全量重哈希 GB 级文件(顺序在 invalidate
+        // 之后:先逐出旧路径残留,再改写入本次校验结论)。
+        ASRModelAssets.rekeyValidatedCache(from: unpacked, to: versionDir)
 
         onPhase?(.pruning)
         pruneOldVersions(modelRoot: modelRoot, newlyInstalled: directoryName, previousRoot: previousRoot)

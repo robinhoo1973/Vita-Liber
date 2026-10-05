@@ -127,6 +127,20 @@ public struct ASRModelAssets: Sendable {
             lock.lock(); defer { lock.unlock() }
             values = values.filter { $0.key != prefix && !$0.key.hasPrefix(prefix + "/") }
         }
+        /// 前缀改写（安装落位后暂存路径 → 最终路径；只动键不动值）。
+        func rekey(fromPrefix: String, toPrefix: String) {
+            lock.lock(); defer { lock.unlock() }
+            var updated: [String: Value] = [:]
+            updated.reserveCapacity(values.count)
+            for (key, value) in values {
+                if key.hasPrefix(fromPrefix + "/") {
+                    updated[toPrefix + key.dropFirst(fromPrefix.count)] = value
+                } else {
+                    updated[key] = value
+                }
+            }
+            values = updated
+        }
     }
     /// 2026-09-19 审查修复：逐文件 SHA-256 流式哈希的进程级备忘（键=文件路径）。
     /// 此前每次 warmUp/按压/池重载都全量重哈希（下载后按压冻结主因之二）——
@@ -167,6 +181,15 @@ public struct ASRModelAssets: Sendable {
     public static func clearCaches() {
         presenceCache.removeAll()
         manifestCache.removeAll()
+    }
+
+    /// 安装落位后把校验期按暂存路径入册的哈希键改写到最终路径
+    /// （2026-10-05 审查修复）：moveItem 换路径后暂存键永不命中——首次引擎
+    /// 加载又全量重哈希 GB 级文件（按压冻结族半复发）。仅改键不改值，
+    /// 哈希结论与校验同源，不削弱防篡改链（文件变更必然伴随分代推进与逐出）。
+    public static func rekeyValidatedCache(from stagingRoot: URL, to finalRoot: URL) {
+        validatedCache.rekey(fromPrefix: stagingRoot.standardizedFileURL.path,
+                             toPrefix: finalRoot.standardizedFileURL.path)
     }
 
     public func byteCount(_ choice: VoiceEngineChoice) -> Int64? {
@@ -271,7 +294,7 @@ public struct ASRModelAssets: Sendable {
         let result = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: path))
         if path == resolved {
             let source = try Data(contentsOf: root.appendingPathComponent("manifest.json"))
-            let hash = CryptoKit.SHA256.hash(data: source).map { String(format: "%02x", $0) }.joined()
+            let hash = CryptoKitContentHasher().sha256Hex(source)
             guard result.sourceDigest == hash else { throw TranscriptionError.engineUnavailable }
         }
         return result
