@@ -5,8 +5,15 @@ import os   // 可诊断事件（仅 Apple 平台；Linux 包测试回落 no-op�
 import Domain
 import Protocols
 
+/// 跨模块驱逐面（2026-10-05 CI 实证）：App 层 ASRInstallCenter.delete 需在删除
+/// 后逐出引擎缓存/运行时池——actor 本体保持 internal，只经本协议暴露最小驱逐
+/// 能力（整 actor public 会连带 10 个协议要求方法全部公开，面过大）。
+public protocol TranscribingEngineEvicting: Sendable {
+    func evictEngine(_ choice: VoiceEngineChoice) async
+}
+
 /// FR17.15：选择锁定在一次按压，停止按ID精确路由；早停不依赖委托是否已创建。
-actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting {
+actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, TranscribingEngineEvicting {
     private enum Stop { case finish, cancel }
     private let choiceProvider: @Sendable () -> VoiceEngineChoice
     private let builder: @Sendable (VoiceEngineChoice) -> any TranscriptionEngine

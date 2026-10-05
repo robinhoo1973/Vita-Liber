@@ -243,7 +243,7 @@ final class ASRInstallCenter {
     /// 同会话补删 deferred 目录 → 资产广播（语言页/设置页可用性重算）。
     func delete(_ choice: VoiceEngineChoice) async throws {
         try await service.remove(choice)
-        if let switchable = EngineRegistry.shared.resolve(TranscriptionEngineFactory.self) as? SwitchableTranscriptionEngine {
+        if let switchable = EngineRegistry.shared.resolve(TranscriptionEngineFactory.self) as? any TranscribingEngineEvicting {
             await switchable.evictEngine(choice)
         }
         await service.retryPendingRemovals(for: choice)
