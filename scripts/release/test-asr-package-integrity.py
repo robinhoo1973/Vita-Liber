@@ -18,7 +18,7 @@ from asr_package import ASR_CATALOG_BUDGET_BYTES, MAX_PACKAGE, validate_index
 TOOLS = Path(__file__).resolve().parent
 # 测试主密钥:与 App 内嵌 ASRPackageCrypto.masterKeyHex 同值(生产 CI 用
 # secret 覆盖;此处保证 Python 测试与 App 侧解密合同逐字节一致)。
-TEST_PACKAGE_KEY = "f9a6257f9bea35e831de960e964460aebe06ebfca1e076b1968fe37682049d39"
+TEST_PACKAGE_KEY = "2303fac4e6aaacc328f6ac612f77fa91c32594f9c627aab2178b19486ebe7e82"
 ROLES = {
     "qwen3": ["frontend", "encoder", "decoder", "vocab", "merges", "tokenizerConfig", "notice"],
     "zipformer": ["encoder", "decoder", "joiner", "tokens", "bpe", "notice"],

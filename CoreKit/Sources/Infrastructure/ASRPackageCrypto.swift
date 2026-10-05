@@ -32,7 +32,7 @@ enum ASRPackageCrypto {
     private static let maxChunkCount: UInt32 = 512
 
     /// 主密钥（hex，与 CI secret ASR_PACKAGE_KEY 同值）。
-    private static let masterKeyHex = "f9a6257f9bea35e831de960e964460aebe06ebfca1e076b1968fe37682049d39"
+    private static let masterKeyHex = "2303fac4e6aaacc328f6ac612f77fa91c32594f9c627aab2178b19486ebe7e82"
 
     static func identity(id: String, variant: String?, version: String, artifactRevision: Int?) -> String {
         let revision = artifactRevision.map { "-r\($0)" } ?? ""
