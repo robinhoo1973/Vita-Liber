@@ -28,7 +28,7 @@ struct ASRAssetRuntimeTests {
         // 共享信任库无种子 → routingIndex() 恒 nil → 校验目录描述符闸恒
         // engineUnavailable。注入含本测试全部 choice 的签名目录夹具
         // (SignedModelCatalogTests.Fixture 恰为 qwen3/zipformer/dolphin/whisper)。
-        let fixture = try Fixture()
+        let fixture = try SignedModelCatalogTests.Fixture()
         let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
         let seededIndex = try store.acceptCatalog(fixture.catalog(version: 1))
         ASRFamilyIndexStore.routingIndexOverride = seededIndex

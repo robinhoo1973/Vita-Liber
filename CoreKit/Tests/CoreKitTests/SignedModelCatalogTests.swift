@@ -152,7 +152,7 @@ struct SignedModelCatalogTests {
         #expect(restored.isRevoked(revoked.lowercased()))
     }
 
-    private struct Fixture {
+    struct Fixture {
         let root: Data
         let keys: [Curve25519.Signing.PrivateKey]
         let identifiers: [String]
