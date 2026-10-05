@@ -30,10 +30,6 @@ on:
       # startup_failure 族(elizaOS 同族修复最佳实践)。
       ASR_PACKAGE_KEY:
         required: false
-    outputs:
-      bundle_artifact:
-        description: App 离线基线模型资源
-        value: ${{ jobs.models.outputs.bundle_artifact }}
   workflow_dispatch:
     inputs:
       publish:
@@ -58,11 +54,6 @@ jobs:
       # 共用;非 CNB 写令牌,不受「令牌仅注入发布步」约束)。缺失/为空由
       # 「包加密密钥前置校验」步带日志硬红。
       ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
-    outputs:
-      # 2026-10-05 审查:packages/metadata 两个输出无任何下游消费(artifact
-      # 本体仍上传,人工从 run 页取),输出面只保留真实被 build-testflight
-      # 消费的 bundle_artifact。
-      bundle_artifact: ${{ steps.names.outputs.bundle_artifact }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
@@ -115,15 +106,13 @@ jobs:
             --cache "$RUNNER_TEMP/asr-cache" \
             --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}"
 
-      - name: 构建全部模型 ZIP 与离线基线 bundle
+      - name: 构建全部模型 ZIP（加密信封）
         run: |
           python3 scripts/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
             --index Resources/ASRModelUpdates/index.json \
             --output "$RUNNER_TEMP/asr-packages" \
             --reuse-directory "$RUNNER_TEMP/asr-cache"
-          python3 scripts/release/fetch-asr-models.py \
-            --root "$RUNNER_TEMP/asr-packages/bundle/ASRModels" --check
 
       # 2026-10-05 审查修复:此前该步 gated on inputs.publish——与 dispatch 输入
       # 的声明(publish=false = 生成待签名候选)直接矛盾:轮换流的第一步(先产候选、
@@ -139,27 +128,26 @@ jobs:
             exit 0
           fi
           root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
-          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/catalog.json"))["payload"]))["catalogVersion"] + 1)')
+          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/index.json"))["payload"]))["catalogVersion"] + 1)')
           python3 scripts/release/sign-asr-catalog.py \
             --root Resources/ModelTrustRoot.json \
             --index "$RUNNER_TEMP/asr-packages/index.json" \
             --root-version "$root_version" \
             --catalog-version "$catalog_version" \
-            --output "$RUNNER_TEMP/asr-packages/candidate-catalog.json"
-          echo "candidate-catalog.json 已生成（catalogVersion=$catalog_version）——下载本步产物、核对后提交 Resources/ASRModelUpdates/catalog.json 与版本化副本"
+            --output "$RUNNER_TEMP/asr-packages/candidate-index.json"
+          echo "candidate-index.json 已生成（catalogVersion=$catalog_version）——下载本步产物、核对后提交 Resources/ASRModelUpdates/index.json（单一数据文件）"
 
       - name: 核对公开签名与实际生成的包索引
         if: ${{ inputs.publish }}
         run: |
           python3 scripts/release/model-trust.py verify \
             --root Resources/ModelTrustRoot.json \
-            --catalog Resources/ASRModelUpdates/catalog.json \
+            --catalog Resources/ASRModelUpdates/index.json \
             --index "$RUNNER_TEMP/asr-packages/index.json"
 
       - name: 生成 artifact 标识
         id: names
         run: |
-          echo "bundle_artifact=asr-bundle-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           echo "packages_artifact=asr-packages-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           echo "metadata_artifact=asr-metadata-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
@@ -170,17 +158,8 @@ jobs:
           path: |
             ${{ runner.temp }}/asr-packages/index.json
             ${{ runner.temp }}/asr-packages/package-validation.json
-            ${{ runner.temp }}/asr-packages/candidate-catalog.json
+            ${{ runner.temp }}/asr-packages/candidate-index.json
           retention-days: 7
-          if-no-files-found: error
-
-      - name: 输出离线基线 bundle
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ${{ steps.names.outputs.bundle_artifact }}
-          path: ${{ runner.temp }}/asr-packages/bundle/
-          compression-level: 0
-          retention-days: 2
           if-no-files-found: error
 
       - name: 输出完整候选包和校验回执
@@ -211,7 +190,7 @@ jobs:
                 --index "$RUNNER_TEMP/asr-packages/index.json" \
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \
-                --catalog Resources/ASRModelUpdates/catalog.json \
+                --catalog Resources/ASRModelUpdates/index.json \
                 --repository "$CNB_RESOURCE_REPOSITORY"; then
               exit 0
             fi
