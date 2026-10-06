@@ -134,7 +134,7 @@ public enum ASRModelCatalog {
     }
 
     /// 完整解码模型优先：按目录 families 发布序（CI 所有 = 质量/能力优先序，
-    /// 模板序 qwen3→zipformer→dolphin→whisper→…）取第一个覆盖该 locale 的模型。
+    /// 以签名目录为准；2026-10-05 目录化后不再有 App 内模板序）取第一个覆盖该 locale 的模型。
     /// 随包资产缺件时的回落由 `TranscriptionEngineBuilder.automaticChoice` 门控（Domain 不读 Bundle）。
     public static func automaticChoice(locale: String, in index: ASRModelReleaseIndex?) -> VoiceEngineChoice {
         for model in descriptors(from: index) where model.languageCode(for: locale) != nil {

@@ -86,8 +86,10 @@ public enum ASRFamilyIndexStore {
 public enum TranscriptionEngineBuilder {
     /// FR17.15/FR17.17 审计修正（2026-09-11 round3）：**auto 解析必须过资产闸门**。
     /// 目录的 `automaticChoice` 只做语言匹配（Domain 零框架，不能读 Bundle），会把中文
-    /// locale 解析到 `.qwen3`——若随包资产缺失，`SherpaOnnxTranscriber` 在
-    /// `startRecognition` 抛 `engineUnavailable`，等于**默认档语音输入痞痪**（违反
+    /// locale 解析到目录 families 首位的模型（2026-10-05 目录化后为 zipformer，此前模板
+    /// 序为 qwen3——以签名目录为准）——若该模型资产缺失（2026-10-06 起 IPA 无随包权重，
+    /// 全家族默认缺件），`SherpaOnnxTranscriber` 在 `startRecognition` 抛
+    /// `engineUnavailable`，等于**默认档语音输入痞痪**（违反
     /// FR17.17「资产缺失即回落降级轨、绝不痞痪」）。此处补两级闸门：
     /// ① 随包模型文件齐备才选用；② 缺件时回落平台升级轨（iOS 26 且标准轨可用）——
     /// 平台轨自身在语言资产未装时按会话回落基线轨；③ 均不可用则经典基线轨（零资产恒可用）。
