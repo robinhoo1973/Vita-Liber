@@ -128,7 +128,7 @@ jobs:
             exit 0
           fi
           root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
-          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/manifest.json"))["payload"]))["catalogVersion"] + 1)')
+          catalog_version=$(python3 scripts/release/next-catalog-version.py --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}")
           python3 scripts/release/sign-asr-catalog.py \
             --root Resources/ModelTrustRoot.json \
             --index "$RUNNER_TEMP/asr-packages/index.json" \
