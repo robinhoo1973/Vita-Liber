@@ -29,7 +29,7 @@ MAX_TIERS_PER_MODEL = 5
 # 各家族许可:非 Apache-2.0 家族逐名登记(2026-10-06 钉版实测:
 # sense-voice 权重为 FunASR 模型开源许可协议 v1.1,fire-red 为 Apache-2.0
 # 取默认;whisper MIT)。
-LICENSES = {"whisper": "MIT", "sense-voice": "model-license"}
+LICENSES = {"whisper": "MIT", "sense-voice": "model-license", "moonshine": "MIT"}
 # 目录聚合预算:下载目录所有包 zip 字节合计的上限。2026-10-05 iOS 适用性评估后
 # 矩阵定为 7 族 13 档 ≈5.2GiB(4GiB 装不下),业主裁决「评估后可纳入」→ 提至 6GiB。
 ASR_CATALOG_BUDGET_BYTES = 6 * 1024**3
@@ -64,9 +64,9 @@ def decode_json(data):
     return json.loads(data, object_pairs_hook=unique_object)
 
 
-def decode_index_data_file(path):
+def decode_manifest_data_file(path):
     """数据文件两态读取(2026-10-06 业主单一 JSON 架构):Resources/ASRModelUpdates/
-    index.json 是唯一数据文件——签名信封形态(payload+signatures)时返回
+    manifest.json 是唯一数据文件——签名信封形态(payload+signatures)时返回
     payload["index"],裸索引形态(构建模板期/历史文件)原样返回。"""
     raw = decode_json(Path(path).read_bytes())
     if isinstance(raw, dict) and "payload" in raw and "signatures" in raw:

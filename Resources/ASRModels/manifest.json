@@ -279,6 +279,235 @@
           "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE"
         }
       ]
+    },
+    {
+      "id": "whisper",
+      "variant": "tiny",
+      "license": "MIT",
+      "revision": "65176e2deb88badc814a94058666cadccc29b61c",
+      "source": "https://github.com/openai/whisper",
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/tiny-encoder.int8.onnx",
+          "bytes": 12937772,
+          "sha256": "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-encoder.int8.onnx"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/tiny-decoder.int8.onnx",
+          "bytes": 89855401,
+          "sha256": "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-decoder.int8.onnx"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/tiny-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny/resolve/65176e2deb88badc814a94058666cadccc29b61c/tiny-tokens.txt"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/tiny/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "variant": "turbo",
+      "license": "MIT",
+      "revision": "2ca6ff69fc878651b770880507669577ac41c2ff",
+      "source": "https://github.com/openai/whisper",
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/turbo-encoder.int8.onnx",
+          "bytes": 674716297,
+          "sha256": "b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff/turbo-encoder.int8.onnx"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/turbo-decoder.int8.onnx",
+          "bytes": 361080764,
+          "sha256": "20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff/turbo-decoder.int8.onnx"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/turbo-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-whisper-turbo/resolve/2ca6ff69fc878651b770880507669577ac41c2ff/turbo-tokens.txt"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/turbo/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "zipformer",
+      "variant": "small",
+      "license": "Apache-2.0",
+      "revision": "204ad334e2e683fd295359930cc16fc0432a23ac",
+      "source": "https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed",
+      "files": [
+        {
+          "role": "encoder",
+          "path": "zipformer-small/encoder-epoch-99-avg-1.int8.onnx",
+          "bytes": 21621684,
+          "sha256": "1c556ea57cec304e55ec4b72e52c1cc098bb01476ed7d90f3de939fe126487b1",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/resolve/204ad334e2e683fd295359930cc16fc0432a23ac/encoder-epoch-99-avg-1.int8.onnx"
+        },
+        {
+          "role": "decoder",
+          "path": "zipformer-small/decoder-epoch-99-avg-1.onnx",
+          "bytes": 7509745,
+          "sha256": "5ee0f03a2768ff1d5c83ef3a493243c7935d316cd41280037b14783a3467cc78",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/resolve/204ad334e2e683fd295359930cc16fc0432a23ac/decoder-epoch-99-avg-1.onnx"
+        },
+        {
+          "role": "joiner",
+          "path": "zipformer-small/joiner-epoch-99-avg-1.int8.onnx",
+          "bytes": 1795562,
+          "sha256": "a7cf9d82757bdcf786059454495a9ca95e4bd7347f72473fc08d794475c36169",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/resolve/204ad334e2e683fd295359930cc16fc0432a23ac/joiner-epoch-99-avg-1.int8.onnx"
+        },
+        {
+          "role": "tokens",
+          "path": "zipformer-small/tokens.txt",
+          "bytes": 48697,
+          "sha256": "8b294db9045d6e5f94647f4c1eec1af4da143a75053c399611444b378ff966ac",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/resolve/204ad334e2e683fd295359930cc16fc0432a23ac/tokens.txt"
+        },
+        {
+          "role": "notice",
+          "path": "zipformer-small/README.md",
+          "bytes": 226,
+          "sha256": "515751f07faad368f0863ae41773ff09635eba5920122d549abb8e45d5c88282",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23/resolve/204ad334e2e683fd295359930cc16fc0432a23ac/README.md"
+        }
+      ]
+    },
+    {
+      "id": "sense-voice",
+      "variant": "small",
+      "license": "model-license",
+      "revision": "2365baeacb507f821a0c8120fcee3d484dba7a07",
+      "source": "https://github.com/FunAudioLLM/SenseVoice",
+      "files": [
+        {
+          "role": "model",
+          "path": "sense-voice-small/model.int8.onnx",
+          "bytes": 239233841,
+          "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/model.int8.onnx"
+        },
+        {
+          "role": "tokens",
+          "path": "sense-voice-small/tokens.txt",
+          "bytes": 315894,
+          "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/tokens.txt"
+        },
+        {
+          "role": "notice",
+          "path": "sense-voice-small/MODEL_LICENSE",
+          "bytes": 5306,
+          "sha256": "7dba975a2069691db4992b0592d70828b330d2f8a30a71450f4e152a554e84f8",
+          "url": "https://raw.githubusercontent.com/modelscope/FunASR/66d7a4c264a5993a2a63ed00c1f402c296ee521a/MODEL_LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "fire-red",
+      "variant": "large",
+      "license": "Apache-2.0",
+      "revision": "423be1acfdc5d8aaa5a485fb6263fe4ea8570b06",
+      "source": "https://github.com/FireRedTeam/FireRedASR",
+      "files": [
+        {
+          "role": "model",
+          "path": "fire-red-large/model.int8.onnx",
+          "bytes": 775861420,
+          "sha256": "ca3dbabd82170110cc0b343c2890866d449984bc9cd92b9a18371ff80a81bb99",
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25/resolve/423be1acfdc5d8aaa5a485fb6263fe4ea8570b06/model.int8.onnx"
+        },
+        {
+          "role": "tokens",
+          "path": "fire-red-large/tokens.txt",
+          "bytes": 79172,
+          "sha256": "1bc613de2112d257e61a349c3e72d1b1a9cf19c33d3ca954197ad2171e5ea07b",
+          "url": "https://huggingface.co/csukuangfj2/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25/resolve/423be1acfdc5d8aaa5a485fb6263fe4ea8570b06/tokens.txt"
+        },
+        {
+          "role": "notice",
+          "path": "fire-red-large/LICENSE",
+          "bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+          "url": "https://raw.githubusercontent.com/FireRedTeam/FireRedASR/834635e4cf277ed8ca92049fc375b17c3dc20748/LICENSE"
+        }
+      ]
+    },
+    {
+      "id": "moonshine",
+      "variant": "tiny",
+      "license": "MIT",
+      "revision": "bf2b762c076d8ea61e2af0b3851c9564fb77552e",
+      "source": "https://github.com/usefulsensors/moonshine",
+      "files": [
+        {
+          "role": "preprocessor",
+          "path": "moonshine-tiny/preprocess.onnx",
+          "bytes": 6800738,
+          "sha256": "f33addce61a143460fe753b5ee5b7db255e5140b5b779c065b94f6c83ff0bf4e",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/bf2b762c076d8ea61e2af0b3851c9564fb77552e/preprocess.onnx"
+        },
+        {
+          "role": "encoder",
+          "path": "moonshine-tiny/encode.int8.onnx",
+          "bytes": 18249187,
+          "sha256": "8774dfba578de027ec6595c2c654a0836434489bc963a0db124a7f181f571acb",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/bf2b762c076d8ea61e2af0b3851c9564fb77552e/encode.int8.onnx"
+        },
+        {
+          "role": "uncachedDecoder",
+          "path": "moonshine-tiny/uncached_decode.int8.onnx",
+          "bytes": 53216096,
+          "sha256": "216737000dd5881a17aa043f6bbd286add33e4c3b0ae257153e2ec15438bdc41",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/bf2b762c076d8ea61e2af0b3851c9564fb77552e/uncached_decode.int8.onnx"
+        },
+        {
+          "role": "cachedDecoder",
+          "path": "moonshine-tiny/cached_decode.int8.onnx",
+          "bytes": 45264830,
+          "sha256": "2aff28bba6a03d8dcf5c9feac45462629bae37317442299f28115ad09da773f6",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/bf2b762c076d8ea61e2af0b3851c9564fb77552e/cached_decode.int8.onnx"
+        },
+        {
+          "role": "tokens",
+          "path": "moonshine-tiny/tokens.txt",
+          "bytes": 436688,
+          "sha256": "1165c2aeb9f72f457a83be2d459a09054f27490acd9b41bd43794dfd25e296ea",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/bf2b762c076d8ea61e2af0b3851c9564fb77552e/tokens.txt"
+        },
+        {
+          "role": "notice",
+          "path": "moonshine-tiny/LICENSE",
+          "bytes": 1071,
+          "sha256": "29f60769d1779eb7e196d96b8d2dd471d0263cf8200c79e55c0c00183971ee1b",
+          "url": "https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/bf2b762c076d8ea61e2af0b3851c9564fb77552e/LICENSE"
+        }
+      ]
     }
   ],
   "shared": [

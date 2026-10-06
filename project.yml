@@ -48,8 +48,7 @@ targets:
           set -eu
           "${MODEL_PYTHON:-python3}" "$SRCROOT/scripts/release/model-trust.py" build \
             --root "$SRCROOT/Resources/ModelTrustRoot.json" \
-            --catalog "$SRCROOT/Resources/ASRModelUpdates/catalog.json" \
-            --index "$SRCROOT/Resources/ASRModelUpdates/index.json" \
+            --catalog "$SRCROOT/Resources/ASRModelUpdates/manifest.json" \
             --output "$DERIVED_FILE_DIR/TrustedModelHashes.json"
         basedOnDependencyAnalysis: false
     postBuildScripts:

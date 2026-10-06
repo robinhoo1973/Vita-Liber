@@ -106,7 +106,7 @@ class RealDataFileGateTests(unittest.TestCase):
 
     ROOT = Path(__file__).resolve().parents[2]
     MANIFEST = ROOT / "Resources" / "ASRModels" / "manifest.json"
-    INDEX = ROOT / "Resources" / "ASRModelUpdates" / "index.json"
+    INDEX = ROOT / "Resources" / "ASRModelUpdates" / "manifest.json"
 
     def test_real_manifest_and_index_parse(self):
         manifest = json.loads(self.MANIFEST.read_text(encoding="utf-8"))

@@ -100,7 +100,7 @@ jobs:
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
           python3 scripts/release/prepare-asr-source.py \
-            --index Resources/ASRModelUpdates/index.json \
+            --index Resources/ASRModelUpdates/manifest.json \
             --source Resources/ASRModels \
             --root "$RUNNER_TEMP/asr-source" \
             --cache "$RUNNER_TEMP/asr-cache" \
@@ -110,7 +110,7 @@ jobs:
         run: |
           python3 scripts/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
-            --index Resources/ASRModelUpdates/index.json \
+            --index Resources/ASRModelUpdates/manifest.json \
             --output "$RUNNER_TEMP/asr-packages" \
             --reuse-directory "$RUNNER_TEMP/asr-cache"
 
@@ -128,21 +128,21 @@ jobs:
             exit 0
           fi
           root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
-          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/index.json"))["payload"]))["catalogVersion"] + 1)')
+          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/manifest.json"))["payload"]))["catalogVersion"] + 1)')
           python3 scripts/release/sign-asr-catalog.py \
             --root Resources/ModelTrustRoot.json \
             --index "$RUNNER_TEMP/asr-packages/index.json" \
             --root-version "$root_version" \
             --catalog-version "$catalog_version" \
-            --output "$RUNNER_TEMP/asr-packages/candidate-index.json"
-          echo "candidate-index.json 已生成（catalogVersion=$catalog_version）——下载本步产物、核对后提交 Resources/ASRModelUpdates/index.json（单一数据文件）"
+            --output "$RUNNER_TEMP/asr-packages/candidate-manifest.json"
+          echo "candidate-manifest.json 已生成（catalogVersion=$catalog_version）——下载本步产物、核对后提交 Resources/ASRModelUpdates/manifest.json（单一数据文件）"
 
       - name: 核对公开签名与实际生成的包索引
         if: ${{ inputs.publish }}
         run: |
           python3 scripts/release/model-trust.py verify \
             --root Resources/ModelTrustRoot.json \
-            --catalog Resources/ASRModelUpdates/index.json \
+            --catalog Resources/ASRModelUpdates/manifest.json \
             --index "$RUNNER_TEMP/asr-packages/index.json"
 
       - name: 生成 artifact 标识
@@ -158,7 +158,7 @@ jobs:
           path: |
             ${{ runner.temp }}/asr-packages/index.json
             ${{ runner.temp }}/asr-packages/package-validation.json
-            ${{ runner.temp }}/asr-packages/candidate-index.json
+            ${{ runner.temp }}/asr-packages/candidate-manifest.json
           retention-days: 7
           if-no-files-found: error
 
@@ -190,7 +190,7 @@ jobs:
                 --index "$RUNNER_TEMP/asr-packages/index.json" \
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \
-                --catalog Resources/ASRModelUpdates/index.json \
+                --catalog Resources/ASRModelUpdates/manifest.json \
                 --repository "$CNB_RESOURCE_REPOSITORY"; then
               exit 0
             fi

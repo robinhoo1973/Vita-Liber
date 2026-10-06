@@ -1,0 +1,470 @@
+{
+ "app": "vitaliber",
+ "assetKind": "asr",
+ "baseUrl": "https://cnb.cool/robinhoo1973/Resources/-/releases/download/asr-models",
+ "families": [
+  {
+   "dialects": [],
+   "hint": {
+    "en": "Low-latency streaming model: mixed Chinese/English, hotwords, real-time transcription; 14M tier is Chinese-focused",
+    "zh-Hans": "低延迟流式模型：中英混说、热词定制与实时转写优先；14M 小档为中文为主",
+    "zh-Hant": "低延遲串流模型：中英混合、熱詞定制與即時轉寫優先；14M 小檔為中文為主"
+   },
+   "id": "zipformer",
+   "languages": [
+    "zh",
+    "en"
+   ],
+   "name": {
+    "en": "Zipformer Streaming",
+    "zh-Hans": "Zipformer 流式",
+    "zh-Hant": "Zipformer 串流"
+   }
+  },
+  {
+   "dialects": [
+    "yue-HK"
+   ],
+   "hint": {
+    "en": "0.6B-parameter multilingual model: 30 languages, quality/memory balance",
+    "zh-Hans": "0.6B 参数多语种模型：30 语种覆盖，兼顾质量与内存",
+    "zh-Hant": "0.6B 參數多語種模型：30 語種覆蓋，兼顧品質與記憶體"
+   },
+   "id": "qwen3",
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ar",
+    "de",
+    "fr",
+    "es",
+    "pt",
+    "id",
+    "it",
+    "ko",
+    "ru",
+    "th",
+    "vi",
+    "ja",
+    "tr",
+    "hi",
+    "ms",
+    "nl",
+    "sv",
+    "da",
+    "fi",
+    "pl",
+    "cs",
+    "fil",
+    "fa",
+    "el",
+    "hu",
+    "mk",
+    "ro"
+   ],
+   "name": {
+    "en": "Qwen3 Multilingual",
+    "zh-Hans": "Qwen3 多语种",
+    "zh-Hant": "Qwen3 多語種"
+   }
+  },
+  {
+   "dialects": [],
+   "hint": {
+    "en": "Lightweight CTC Chinese model: best for low-memory devices",
+    "zh-Hans": "轻量 CTC 中文模型：低内存设备首选",
+    "zh-Hant": "輕量 CTC 中文模型：低記憶體裝置首選"
+   },
+   "id": "dolphin",
+   "languages": [
+    "zh",
+    "en"
+   ],
+   "name": {
+    "en": "Dolphin Light",
+    "zh-Hans": "Dolphin 轻量",
+    "zh-Hant": "Dolphin 輕量"
+   }
+  },
+  {
+   "dialects": [],
+   "hint": {
+    "en": "Classic general-purpose family: five tiers, strong generalization",
+    "zh-Hans": "经典通用模型家族：五档全尺寸，泛化能力强",
+    "zh-Hant": "經典通用模型家族：五檔全尺寸，泛化能力強"
+   },
+   "id": "whisper",
+   "languages": [
+    "zh",
+    "en"
+   ],
+   "name": {
+    "en": "Whisper General",
+    "zh-Hans": "Whisper 通用",
+    "zh-Hant": "Whisper 通用"
+   }
+  },
+  {
+   "dialects": [
+    "yue-HK"
+   ],
+   "hint": {
+    "en": "FunAudioLLM multilingual small model: high-accuracy transcription for Chinese, English, Cantonese, Japanese and Korean",
+    "zh-Hans": "FunAudioLLM 多语种小模型：中文、英语、粤语、日语、韩语高精度转写",
+    "zh-Hant": "FunAudioLLM 多語種小模型：中文、英語、粵語、日語、韓語高精度轉寫"
+   },
+   "id": "sense-voice",
+   "languages": [
+    "zh",
+    "en",
+    "yue",
+    "ja",
+    "ko"
+   ],
+   "name": {
+    "en": "SenseVoice Multilingual",
+    "zh-Hans": "SenseVoice 多语种",
+    "zh-Hant": "SenseVoice 多語種"
+   }
+  },
+  {
+   "dialects": [],
+   "hint": {
+    "en": "Chinese speech recognition large model",
+    "zh-Hans": "中文语音识别大模型",
+    "zh-Hant": "中文語音辨識大模型"
+   },
+   "id": "fire-red",
+   "languages": [
+    "zh"
+   ],
+   "name": {
+    "en": "FireRed Chinese",
+    "zh-Hans": "FireRed 中文",
+    "zh-Hant": "FireRed 中文"
+   }
+  },
+  {
+   "dialects": [],
+   "hint": {
+    "en": "Lightweight English real-time transcription model",
+    "zh-Hans": "英语轻量实时转写模型",
+    "zh-Hant": "英語輕量即時轉寫模型"
+   },
+   "id": "moonshine",
+   "languages": [
+    "en"
+   ],
+   "name": {
+    "en": "Moonshine Light",
+    "zh-Hans": "Moonshine 轻量",
+    "zh-Hant": "Moonshine 輕量"
+   }
+  }
+ ],
+ "models": [
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Whisper tiny tier: smallest memory footprint",
+    "zh-Hans": "Whisper 极轻档：最小内存占用",
+    "zh-Hant": "Whisper 極輕檔：最小記憶體佔用"
+   },
+   "tierName": {
+    "en": "Tiny",
+    "zh-Hans": "极轻",
+    "zh-Hant": "極輕"
+   },
+   "upstreamRevision": "65176e2deb88badc814a94058666cadccc29b61c",
+   "url": "whisper-tiny-int8-2024-07-13-20261006-r1.zip",
+   "variant": "tiny",
+   "version": "int8-2024-07-13"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Whisper base tier: smaller memory footprint",
+    "zh-Hans": "Whisper 微轻档：内存占用更小",
+    "zh-Hant": "Whisper 微輕檔：記憶體佔用更小"
+   },
+   "tierName": {
+    "en": "Base",
+    "zh-Hans": "微轻",
+    "zh-Hant": "微輕"
+   },
+   "upstreamRevision": "bb53ee204431c90d314c1cc08d28d23e5b7927cc",
+   "url": "whisper-base-int8-2024-07-13-20261006-r1.zip",
+   "variant": "base",
+   "version": "int8-2024-07-13"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Whisper small tier: classic general-purpose",
+    "zh-Hans": "Whisper 轻量档：经典通用，泛化能力强",
+    "zh-Hant": "Whisper 輕量檔：經典通用，泛化能力強"
+   },
+   "tierName": {
+    "en": "Light",
+    "zh-Hans": "轻量",
+    "zh-Hant": "輕量"
+   },
+   "upstreamRevision": "8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
+   "url": "whisper-small-int8-2024-07-13-20261006-r1.zip",
+   "variant": "small",
+   "version": "int8-2024-07-13"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Whisper medium tier: higher accuracy for long or complex audio",
+    "zh-Hans": "Whisper 进阶档：更高精度，适合长录音与复杂场景",
+    "zh-Hant": "Whisper 進階檔：更高精度，適合長錄音與複雜場景"
+   },
+   "tierName": {
+    "en": "Medium",
+    "zh-Hans": "进阶",
+    "zh-Hant": "進階"
+   },
+   "upstreamRevision": "8c31d28503847560985df21f90e14f0c736e075e",
+   "url": "whisper-medium-int8-2024-07-13-20261006-r1.zip",
+   "variant": "medium",
+   "version": "int8-2024-07-13"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "whisper",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Whisper turbo tier: distilled efficiency, near-large accuracy with faster inference",
+    "zh-Hans": "Whisper 极速档：蒸馏高效，精度接近大模型、推理更快",
+    "zh-Hant": "Whisper 極速檔：蒸餾高效，精度接近大模型、推理更快"
+   },
+   "tierName": {
+    "en": "Turbo",
+    "zh-Hans": "极速",
+    "zh-Hant": "極速"
+   },
+   "upstreamRevision": "2ca6ff69fc878651b770880507669577ac41c2ff",
+   "url": "whisper-turbo-int8-2024-07-13-20261006-r1.zip",
+   "variant": "turbo",
+   "version": "int8-2024-07-13"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "dolphin",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Lightest CTC Chinese model: smallest memory footprint",
+    "zh-Hans": "更轻量的 CTC 中文模型：内存占用最小",
+    "zh-Hant": "更輕量的 CTC 中文模型：記憶體佔用最小"
+   },
+   "tierName": {
+    "en": "Entry",
+    "zh-Hans": "入门",
+    "zh-Hant": "入門"
+   },
+   "upstreamRevision": "1f3a53d0ecf658f8b0974e2cfde368eee40732fa",
+   "url": "dolphin-base-ctc-int8-2025-04-02-20261006-r1.zip",
+   "variant": "base",
+   "version": "ctc-int8-2025-04-02"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "dolphin",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Lightweight CTC model: small memory footprint, fast startup",
+    "zh-Hans": "轻量 CTC 模型：内存占用小、启动快",
+    "zh-Hant": "輕量 CTC 模型：記憶體佔用小、啟動快"
+   },
+   "tierName": {
+    "en": "Light",
+    "zh-Hans": "轻量",
+    "zh-Hant": "輕量"
+   },
+   "upstreamRevision": "c8b6689509acfcd744c04e5e169164f9ac4cae32",
+   "url": "dolphin-small-ctc-int8-2025-04-02-20261006-r1.zip",
+   "variant": "small",
+   "version": "ctc-int8-2025-04-02"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "zipformer",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "14M streaming small model: best for low-memory devices, Chinese-focused",
+    "zh-Hans": "14M 流式小模型：低内存设备优选，中文为主",
+    "zh-Hant": "14M 串流小模型：低記憶體裝置首選，中文為主"
+   },
+   "tierName": {
+    "en": "Light",
+    "zh-Hans": "轻量",
+    "zh-Hant": "輕量"
+   },
+   "upstreamRevision": "204ad334e2e683fd295359930cc16fc0432a23ac",
+   "url": "zipformer-small-2023-02-23-20261006-r1.zip",
+   "variant": "small",
+   "version": "2023-02-23"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "zipformer",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Highest-quality streaming transcription for long or complex audio",
+    "zh-Hans": "最高质量流式转写，适合长录音与复杂场景",
+    "zh-Hant": "最高品質串流轉寫，適合長錄音與複雜場景"
+   },
+   "tierName": {
+    "en": "Extra Large",
+    "zh-Hans": "超大",
+    "zh-Hant": "超大"
+   },
+   "upstreamRevision": "98590b7ed6443e77b714204da2757d75e1a642f4",
+   "url": "zipformer-large-2023-02-20-20261006-r1.zip",
+   "variant": "large",
+   "version": "2023-02-20"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "qwen3",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "0.6B multilingual model: the quality/memory balance",
+    "zh-Hans": "0.6B 多语种模型：质量与内存的平衡选择",
+    "zh-Hant": "0.6B 多語種模型：品質與記憶體的平衡選擇"
+   },
+   "tierName": {
+    "en": "Standard",
+    "zh-Hans": "标准",
+    "zh-Hant": "標準"
+   },
+   "upstreamRevision": "0.6B-int8-2026-03-25",
+   "url": "qwen3-medium-0.6b-int8-v2026.03.25-20261006-r1.zip",
+   "variant": "medium",
+   "version": "0.6b-int8-v2026.03.25"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "sense-voice",
+   "license": "model-license",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Multilingual high-accuracy transcription: Chinese, English, Cantonese, Japanese, Korean",
+    "zh-Hans": "多语种高精度转写：中文、英语、粤语、日语、韩语",
+    "zh-Hant": "多語種高精度轉寫：中文、英語、粵語、日語、韓語"
+   },
+   "tierName": {
+    "en": "Standard",
+    "zh-Hans": "标准",
+    "zh-Hant": "標準"
+   },
+   "upstreamRevision": "2365baeacb507f821a0c8120fcee3d484dba7a07",
+   "url": "sense-voice-small-2024-07-17-20261006-r1.zip",
+   "variant": "small",
+   "version": "2024-07-17"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "fire-red",
+   "license": "Apache-2.0",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Chinese large model: high-accuracy transcription",
+    "zh-Hans": "中文大模型：高精度转写",
+    "zh-Hant": "中文大模型：高精度轉寫"
+   },
+   "tierName": {
+    "en": "Extra Large",
+    "zh-Hans": "超大",
+    "zh-Hant": "超大"
+   },
+   "upstreamRevision": "423be1acfdc5d8aaa5a485fb6263fe4ea8570b06",
+   "url": "fire-red-large-2026-02-25-20261006-r1.zip",
+   "variant": "large",
+   "version": "2026-02-25"
+  },
+  {
+   "artifactRevision": 1,
+   "builtAt": "20261006",
+   "id": "moonshine",
+   "license": "MIT",
+   "minAppVersion": "0.0.1",
+   "packaging": "zip",
+   "runtime": "sherpa-onnx-1.13.4",
+   "tierHint": {
+    "en": "Lightweight English real-time transcription model",
+    "zh-Hans": "英语轻量实时转写模型",
+    "zh-Hant": "英語輕量即時轉寫模型"
+   },
+   "tierName": {
+    "en": "Tiny",
+    "zh-Hans": "极轻",
+    "zh-Hant": "極輕"
+   },
+   "upstreamRevision": "bf2b762c076d8ea61e2af0b3851c9564fb77552e",
+   "url": "moonshine-tiny-2024-03-13-20261006-r1.zip",
+   "variant": "tiny",
+   "version": "2024-03-13"
+  }
+ ],
+ "packagingProfile": "zip-deflate9-v2",
+ "schemaVersion": 1,
+ "updatedAt": "2026-10-06"
+}
