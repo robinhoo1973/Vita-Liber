@@ -3,7 +3,7 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下十七族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
+# 以下十八族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
 # 本脚本用静态启发式在 L0 左移拦截：
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
@@ -1263,13 +1263,58 @@ def main():
                     f"或加 // tius-ok: 豁免"
                 )
 
+    # ---- 家族 S：泛型类型内存储型 static 属性 —— CI 37428471794 实证 ——
+    # 泛型结构体 `ModelTaskSwipeRow<Content>` 的 `private static let
+    # tapSuppressionWindow`: Swift 语言规则「static stored properties not
+    # supported in generic types」, swiftc -parse 静默放行、仅 macOS L1 报。
+    # 判定: 逐字符花括号栈记录类型声明 (名字带 <...> 泛型参数即泛型);
+    # 行首 `static let/var` 位于任一泛型祖先内即 FAIL; 同行含 `{` 的
+    # `static var` 为计算属性 (合法) 跳过; `// tius-ok:` 豁免。
+    s_files = list(a_files) + list(c_files)
+    scanned["S"] = len(s_files)
+    decl_s = re.compile(r"^(?:@\w+\s+)*(?:private |public |internal |fileprivate |final |indirect )*(struct|class|enum|actor)\s+(\w+)\s*(<[^>]*>)?")
+    stored_static_s = re.compile(r"^\s*(?:private |public |internal |fileprivate )*static (let|var)\s")
+    for f in s_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        raw_lines = txt.splitlines()
+        stack = []
+        pending = None
+        for lineno, code in code_lines(txt):
+            m = decl_s.match(code.strip())
+            if m:
+                pending = (bool(m.group(3)), m.group(2))
+            for ch in code:
+                if ch == "{":
+                    stack.append(pending if pending else (False, None))
+                    pending = None
+                elif ch == "}":
+                    if stack:
+                        stack.pop()
+            pending = None
+            if stored_static_s.match(code) and any(g for g, _ in stack):
+                if exempted(raw_lines, lineno):
+                    continue
+                if "static var" in code and "{" in code:
+                    continue
+                outer = [n for g, n in stack if g][-1]
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: 泛型类型 `{outer}` 内存储型 static 属性——"
+                    f"Swift 禁 'static stored properties not supported in generic types'"
+                    f"(CI 37428471794 同族; swiftc -parse 静默)——改实例常量或文件级常量,"
+                    f"或加 // tius-ok: 豁免"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
           f"H={scanned.get('H',0)} I={scanned.get('I',0)} J={scanned.get('J',0)} "
           f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
           f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)} Q={scanned.get('Q',0)} "
-          f"R={scanned.get('R',0)}")
+          f"R={scanned.get('R',0)} "
+          f"S={scanned.get('S',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
