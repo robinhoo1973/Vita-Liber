@@ -173,7 +173,12 @@ jobs:
           path: |
             Build/DerivedData/Build/Intermediates.noindex
             Build/DerivedData/Build/Products
-          key: dd-v1-${{ runner.os }}-xcode26-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
+            # llbuild 状态库（根因修订 2026-10-07,首轮实证）：缺 build.db 时
+            # 构建系统从空状态重计划→所有目标全量重编,恢复 .o 无效（dd-v1 首轮
+            # 243MB 恢复命中但 build 仍 21min）。build.db 记录上次任务结果,
+            # 是「跳过已完成编译」的必要条件；路径集变更故升键 dd-v2。
+            Build/DerivedData/Build/build.db
+          key: dd-v2-${{ runner.os }}-xcode26-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
 
       - name: 环境与工具链
         run: |
