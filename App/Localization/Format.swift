@@ -515,6 +515,26 @@ extension L10n {
         }
     }
 
+    /// 档位显示名（2026-10-06 自下载页上移）：目录 JSON 的 `tierName` 优先（业主定：
+    /// 文字描述由 CI 目录提供），旧目录/缺字段回落 small/medium/large 映射，两者皆无
+    /// 回显原始档名——下载页尺寸选择器与模型详情页共用同一口径，两处消费零漂移。
+    static func asrTierDisplayName(_ variant: String?, in variants: [ASRModelRelease]) -> String {
+        variants.first { $0.variant == variant }?.tierName?.resolved()
+            ?? asrModelVariantName(variant ?? "")
+    }
+
+    /// 安装阶段文案（2026-10-06 自三处私有映射上移）：下载/校验/解压/激活/清理单一
+    /// 出口；nil = 尚未收到首阶段回调（排队语义由调用方按 waiting 另行呈现）。
+    static func asrPhaseText(_ phase: ASRInstallPhase?) -> String {
+        switch phase {
+        case .verifying: return asrModelPhaseVerifying
+        case .unpacking: return asrModelPhaseUnpacking
+        case .activating: return asrModelPhaseActivating
+        case .pruning: return asrModelPhasePruning
+        case .downloading, nil: return asrModelDownloading
+        }
+    }
+
     static func asrModelVariantHint(_ variant: String, _ ramGB: String) -> String {
         String(format: t("asr.model.variantHint"), asrModelVariantName(variant), ramGB)
     }

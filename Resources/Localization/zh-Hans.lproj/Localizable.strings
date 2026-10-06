@@ -558,6 +558,7 @@
 "common.yes" = "是";
 "common.no" = "否";
 "common.cancel" = "取消";
+"common.close" = "关闭";
 "common.member" = "成员";
 "inventory.dualLine" = "安全线 %1$@ %2$@ · 确认 %3$@ %2$@";
 "inventory.dualLineTitle" = "双轨库存（安全线 / 确认线）";
@@ -1661,7 +1662,9 @@
 "home.model.downloadView" = "查看下载";
 "home.model.downloadGroupFmt" = "%1$d 个下载任务";
 "home.model.downloadGroupDoneFmt" = "%1$d 个模型已下载完成";
-"home.model.downloadRemove" = "移除";
+"home.model.downloadPause" = "暂停";
+"home.model.downloadResume" = "继续";
+"home.model.downloadHide" = "隐藏";
 "home.model.downloadGroupExpandedValue" = "已展开";
 "home.model.downloadGroupCollapsedValue" = "已折叠";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 项";
@@ -1883,6 +1886,11 @@
 "asr.model.phaseActivating" = "安装中…";
 "asr.model.phasePruning" = "清理旧版本…";
 "asr.model.phaseCompleted" = "已完成";
+"asr.model.paused" = "已暂停";
+"asr.model.detailTitle" = "模型详情";
+"asr.model.detailTask" = "下载任务";
+"asr.model.detailTiers" = "可用档位";
+"asr.model.detailInstalled" = "已安装";
 "asr.model.delete" = "删除模型";
 "asr.model.deleteTitle" = "删除模型";
 "asr.model.deleteMessage" = "删除后将释放该模型占用的空间，语音识别会回落到随包模型（如有）或需要重新下载。确定删除吗？";

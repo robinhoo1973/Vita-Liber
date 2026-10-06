@@ -152,8 +152,11 @@ extension L10n {
     static func homeModelDownloadGroupFmt(_ n: Int) -> String { String(format: t("home.model.downloadGroupFmt"), n) }
     /// 2026-10-05 业主反馈修复批（第 1 项）：全完成组卡标题（原键英文含 in progress，完成行不得计入）。
     static func homeModelDownloadGroupDoneFmt(_ n: Int) -> String { String(format: t("home.model.downloadGroupDoneFmt"), n) }
-    /// 2026-10-05 完成行处置按钮（失败卡 [关闭] 同构先例）。
-    static var homeModelDownloadRemove: String { t("home.model.downloadRemove") }
+    /// 2026-10-06 业主反馈修复批（第 2 项）：下载卡片滑动动作文案——
+    /// 子卡不再常显 [取消] 字样，左右滑动选择暂停/取消；完成行滑动隐藏。
+    static var homeModelDownloadPause: String { t("home.model.downloadPause") }
+    static var homeModelDownloadResume: String { t("home.model.downloadResume") }
+    static var homeModelDownloadHide: String { t("home.model.downloadHide") }
 
     /// round2 2026-10-04：自绘展开头的 VoiceOver 展开/折叠态 value（替代系统 DisclosureGroup 朗读）。
     static var homeModelDownloadGroupExpandedValue: String { t("home.model.downloadGroupExpandedValue") }

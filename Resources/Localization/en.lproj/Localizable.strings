@@ -558,6 +558,7 @@
 "common.yes" = "Yes";
 "common.no" = "No";
 "common.cancel" = "Cancel";
+"common.close" = "Close";
 "common.member" = "Member";
 "inventory.dualLine" = "Safety line %1$@ %2$@ · confirmed %3$@ %2$@";
 "inventory.dualLineTitle" = "Dual-track stock (plan / confirmed)";
@@ -1661,7 +1662,9 @@
 "home.model.downloadView" = "View download";
 "home.model.downloadGroupFmt" = "%1$d downloads in progress";
 "home.model.downloadGroupDoneFmt" = "%1$d models downloaded";
-"home.model.downloadRemove" = "Remove";
+"home.model.downloadPause" = "Pause";
+"home.model.downloadResume" = "Resume";
+"home.model.downloadHide" = "Hide";
 "home.model.downloadGroupExpandedValue" = "Expanded";
 "home.model.downloadGroupCollapsedValue" = "Collapsed";
 "home.profileProgressFmt" = "%1$d of %2$d items completed";
@@ -1883,6 +1886,11 @@
 "asr.model.phaseActivating" = "Installing…";
 "asr.model.phasePruning" = "Cleaning up old versions…";
 "asr.model.phaseCompleted" = "Completed";
+"asr.model.paused" = "Paused";
+"asr.model.detailTitle" = "Model details";
+"asr.model.detailTask" = "Download task";
+"asr.model.detailTiers" = "Available tiers";
+"asr.model.detailInstalled" = "Installed";
 "asr.model.delete" = "Delete Model";
 "asr.model.deleteTitle" = "Delete Model";
 "asr.model.deleteMessage" = "This frees the storage used by the model. Voice recognition will fall back to the bundled model (if available) or require re-downloading. Delete?";

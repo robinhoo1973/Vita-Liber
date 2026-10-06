@@ -168,14 +168,10 @@ struct ASREngineSettingsSection: View {
                     // 变体清单（尺寸选择数据源）：同 id 已发布、带 variant、本版本兼容、
                     // 且经信任库授权（2026-10-05 审查修正：旧实现缺 isAuthorized 闸门——
                     // 撤销清单内的多档条目照常出下载按钮,按压即 untrustedPackage）。
+                    // 2026-10-06：过滤/排序口径下沉 `ASRModelDownloadService.publishedVariants`
+                    // （模型详情页同源消费，两处零漂移）。
                     variants: availableIndex.map { idx in
-                        idx.models
-                            .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil && $0.isCompatible(appVersion: version)
-                                      && ModelCatalogTrustStore.shared.isAuthorized($0) }
-                            // 审查修正（D6 档序颠倒）：字典序 "large" < "medium" < "small"
-                            // 与大小序相反——此前清单首位是大档（默认选中大档、低 RAM
-                            // 设备被推荐大档）。统一按 Domain variantWeight 大小升序。
-                            .sorted { ASRModelRelease.variantWeight($0.variant) < ASRModelRelease.variantWeight($1.variant) }
+                        ASRModelDownloadService.publishedVariants(for: choice, in: idx, appVersion: version)
                     } ?? [],
                     // 许可文案取自目录条目（2026-10-05 目录驱动：App 零模型数据硬编码）
                     license: availableIndex?.models.first {
@@ -236,7 +232,9 @@ struct ASREngineSettingsSection: View {
                 // 服务层 `fetchIndex` 在 `installing` 非空时抛 `installInProgress`，
                 // 而 UI 把该错误一律渲染为「检查更新失败，请重试」——用户会把
                 // 「正在下载」误读成「功能坏了」（2026-09-16 评审）。
-                .disabled(checkState == .checking || !installCenter.active.isEmpty)
+                // 2026-10-06：暂停中的安装不在服务在装集合（任务已退出、暂存保留），
+                // 不参与禁用——只有真正在跑的安装才挡住索引刷新。
+                .disabled(checkState == .checking || installCenter.active.contains { !$0.isPaused })
                 .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpdate")
 
                 // 检查结果三元反馈（进行中由按钮内 spinner 承担）
@@ -372,7 +370,7 @@ struct ASREngineSettingsSection: View {
                 HStack(spacing: 4) {
                     Text(L10n.asrModelInstalled(installed))
                     if let installedVariant = row.installedVariant {
-                        Text(tierDisplayName(installedVariant, variants: variants))
+                        Text(L10n.asrTierDisplayName(installedVariant, in: variants))
                     }
                 }
                 .font(.caption2).foregroundStyle(.secondary)
@@ -382,8 +380,13 @@ struct ASREngineSettingsSection: View {
             if !variants.isEmpty {
                 if variants.count > 1 {
                     Picker(L10n.asrModelVariantTitle, selection: variantBinding(choice, variants, installedVariant: row.installedVariant)) {
-                        ForEach(variants) { v in
-                            Text(tierDisplayName(v.variant, variants: variants)).tag(v.variant ?? "")
+                        // id: \.variant **不可省**（2026-10-06 业主反馈第 1 项根因）：
+                        // `ASRModelRelease.id` 是**家族身份**（同家族多档全为 "whisper" 等
+                        // 同值）——裸 `ForEach(variants)` 的重复 identity 让分段选择器
+                        // 各段渲染成同一条目文案（业主实测「都是『入门』/『极轻』」）。
+                        // SwiftUI 身份必须唯一到「档位」，故显式以 variant 为行身份。
+                        ForEach(variants, id: \.variant) { v in
+                            Text(L10n.asrTierDisplayName(v.variant, in: variants)).tag(v.variant ?? "")
                         }
                     }
                     .pickerStyle(.segmented)
@@ -457,7 +460,7 @@ struct ASREngineSettingsSection: View {
                         // (仅替换已装档时弹;纯新装/同档更新不弹——HIG 破坏性确认,
                         // 单保留裁定封死了 undo,确认是缺失 undo 的补偿控制)。
                         // 档位名优先目录 JSON 文案,旧目录回落 L10n 映射。
-                        let tierName = tierDisplayName(chosenVariant.variant, variants: variants)
+                        let tierName = L10n.asrTierDisplayName(chosenVariant.variant, in: variants)
                         let tierSize = L10n.asrModelBytes(chosenVariant.bytes ?? 0)
                         if installed == nil {
                             Button(L10n.asrModelDownloadTier(tierName, tierSize)) { startInstall(chosenVariant) }
@@ -517,13 +520,6 @@ struct ASREngineSettingsSection: View {
         }
     }
 
-    /// 档位显示名：目录 JSON 的 `tierName` 优先（2026-10-05 业主定：文字描述由 CI
-    /// 目录提供），旧目录/缺字段回落 L10n small/medium/large 映射；两者皆无回显原始档名。
-    private func tierDisplayName(_ variant: String?, variants: [ASRModelRelease]) -> String {
-        variants.first { $0.variant == variant }?.tierName?.resolved()
-            ?? L10n.asrModelVariantName(variant ?? "")
-    }
-
     /// 破坏性确认文案（2026-10-05 审查修正：换档确认须以**已装档**为「将删除」
     /// 主语——旧实现把所选档同时填进两个槽位,删除 small 却确认删除 large）。
     private func confirmMessage(for confirm: PendingConfirm?) -> String {
@@ -533,9 +529,9 @@ struct ASREngineSettingsSection: View {
             return L10n.asrModelDeleteMessage
         case .switchTier(let choice, let chosen):
             let row = availability[choice.rawValue] ?? ChoiceAvailability()
-            let tier = chosen.tierName?.resolved() ?? L10n.asrModelVariantName(chosen.variant ?? "")
+            let tier = L10n.asrTierDisplayName(chosen.variant, in: row.variants)
             let size = L10n.asrModelBytes(chosen.bytes ?? 0)
-            let installedTier = tierDisplayName(row.installedVariant, variants: row.variants)
+            let installedTier = L10n.asrTierDisplayName(row.installedVariant, in: row.variants)
             return L10n.asrModelSwitchConfirmMessage(tier, size, installedTier)
         }
     }
@@ -561,8 +557,15 @@ struct ASREngineSettingsSection: View {
     private func variantBinding(_ choice: VoiceEngineChoice, _ variants: [ASRModelRelease],
                                 installedVariant: String?) -> Binding<String> {
         Binding(get: {
-            selectedVariant[choice.rawValue]
-                ?? variants.first { $0.variant == installedVariant }?.variant
+            // 记忆选择须仍在当前档位清单中（2026-10-06 评审修正）：[检查更新] 拉回
+            // 新目录后某档可能被下架/撤销——记住的键若已不在 tag 集里，Picker 会拿到
+            // 无对应 tag 的选择值（渲染未定义），而下载按钮已按回落档工作（标签与
+            // 目标不一致，2026-10-05 修过的同族问题）。不在集合即回落安装档→推荐档。
+            if let remembered = selectedVariant[choice.rawValue],
+               variants.contains(where: { $0.variant == remembered }) {
+                return remembered
+            }
+            return variants.first { $0.variant == installedVariant }?.variant
                 ?? variants[recommendedIndex(for: variants)].variant
                 ?? ""
         }, set: { v in
@@ -622,7 +625,28 @@ struct ASREngineSettingsSection: View {
     /// 后续点击不再报「下载失败/网络错误」，如实呈现「排队等待下载槽位」。
     @ViewBuilder
     private func installProgress(_ choice: VoiceEngineChoice, _ active: ASRInstallCenter.Install) -> some View {
-        if active.waiting {
+        if active.isPaused {
+            // 暂停态（2026-10-06 业主反馈批第 2 项）：进度停在暂停点，显式提供
+            // 恢复/取消（首页卡片走滑动；本页为管理面，按钮 ≥ 触点纪律）。
+            if let progress = active.progress, progress.receivedBytes > 0 {
+                ProgressView(value: progress.fraction).frame(maxWidth: 260)
+                Text(L10n.asrModelProgress(
+                    ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
+                    ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file)))
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Text(L10n.asrModelPaused)
+                .font(.caption2).foregroundStyle(.secondary)
+                .accessibilityIdentifier("\(accessibilityPrefix).model.paused.\(choice.rawValue)")
+            HStack(spacing: 12) {
+                Button(L10n.homeModelDownloadResume) { installCenter.resume(choice) }
+                    .frame(minHeight: metrics.touchTarget)
+                    .accessibilityIdentifier("\(accessibilityPrefix).model.resume.\(choice.rawValue)")
+                Button(L10n.commonCancel) { installCenter.cancel(choice) }
+                    .frame(minHeight: metrics.touchTarget)
+                    .accessibilityIdentifier("\(accessibilityPrefix).model.cancel.\(choice.rawValue)")
+            }
+        } else if active.waiting {
             ProgressView().frame(maxWidth: 260)
             Text(L10n.asrModelQueued)
                 .font(.caption2).foregroundStyle(.secondary)
@@ -639,30 +663,23 @@ struct ASREngineSettingsSection: View {
             // 数十秒无反应 → 业主判定「卡死/进度条没反应」）。**只出条、不出字节数字**：
             // 此处的字节是「已处理量」而非「已下载量」，复用「已下载 X/Y」文案会误导。
             ProgressView(value: progress.fraction).frame(maxWidth: 260)
-            Text(phaseText(active.phase))
+            Text(L10n.asrPhaseText(active.phase))
                 .font(.caption2).foregroundStyle(.secondary)
                 .accessibilityIdentifier("\(accessibilityPrefix).model.phase.\(choice.rawValue)")
         } else {
             ProgressView().frame(maxWidth: 260)
-            Text(phaseText(active.phase))
+            Text(L10n.asrPhaseText(active.phase))
                 .font(.caption2).foregroundStyle(.secondary)
                 .accessibilityIdentifier("\(accessibilityPrefix).model.phase.\(choice.rawValue)")
         }
-        // round5 Q2：后台事实按系统版本如实呈现——iOS 26 continued processing 可续跑；更早只有 ≈30 秒宽限
-        Text(Self.supportsContinuedProcessing ? L10n.asrModelBackgroundHint : L10n.asrModelForegroundHint)
-            .font(.caption2).foregroundStyle(.tertiary)
-        Button(L10n.commonCancel) { installCenter.cancel(choice) }
-            .frame(minHeight: metrics.touchTarget)
-            .accessibilityIdentifier("\(accessibilityPrefix).model.cancel.\(choice.rawValue)")
-    }
-
-    private func phaseText(_ phase: ASRModelDownloadService.InstallPhase?) -> String {
-        switch phase {
-        case .verifying: return L10n.asrModelPhaseVerifying
-        case .unpacking: return L10n.asrModelPhaseUnpacking
-        case .activating: return L10n.asrModelPhaseActivating
-        case .pruning: return L10n.asrModelPhasePruning
-        case .downloading, nil: return L10n.asrModelDownloading
+        // 后台事实/取消（进行中才呈现；暂停态自带上行按钮与进度，不重复）
+        if !active.isPaused {
+            // round5 Q2：后台事实按系统版本如实呈现——iOS 26 continued processing 可续跑；更早只有 ≈30 秒宽限
+            Text(Self.supportsContinuedProcessing ? L10n.asrModelBackgroundHint : L10n.asrModelForegroundHint)
+                .font(.caption2).foregroundStyle(.tertiary)
+            Button(L10n.commonCancel) { installCenter.cancel(choice) }
+                .frame(minHeight: metrics.touchTarget)
+                .accessibilityIdentifier("\(accessibilityPrefix).model.cancel.\(choice.rawValue)")
         }
     }
 

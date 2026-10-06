@@ -325,6 +325,8 @@ extension L10n {
         "claim.title", "claim.type.fee", "claim.type.invoice", "claim.type.receipt", "currency.CNY",
         "common.cancel", "common.save", "deeplink.bookingNo", "deeplink.jump",
         "common.yes", "common.no",
+        // 2026-10-06 业主反馈修复批（第 3 项）：模型详情 sheet 关闭。
+        "common.close",
         "deeplink.notFound", "deeplink.open", "deeplink.saveNo", "deeplink.title",
         "dose.number", "emergency.allergy", "emergency.bloodType", "emergency.contacts",
         "emergency.health", "emergency.meds", "emergency.noCandidates", "emergency.notSet",
@@ -863,9 +865,13 @@ extension L10n {
         "home.profileContinue",
         "home.profileProgress", "home.profileMissingFmt", "home.profileMissingMoreFmt",
         "home.model.downloadTitle", "home.model.downloadView", "home.model.downloadGroupFmt",
-        // 2026-10-05 业主反馈修复批（第 1 项）：全完成组卡标题 + 完成行移除。
-        "home.model.downloadGroupDoneFmt", "home.model.downloadRemove",
+        // 2026-10-05 业主反馈修复批（第 1 项）：全完成组卡标题。
+        // （2026-10-06：完成行 [移除] 退役——键 home.model.downloadRemove 随 UI 改滑动
+        //  [隐藏] 一并删除，成员/登记/三语译文同批清）。
+        "home.model.downloadGroupDoneFmt",
         "home.model.downloadGroupExpandedValue", "home.model.downloadGroupCollapsedValue",
+        // 2026-10-06 业主反馈修复批（第 2 项）：滑动暂停/继续/隐藏。
+        "home.model.downloadPause", "home.model.downloadResume", "home.model.downloadHide",
         "home.profileProgressFmt",
         "inventory.tier0",
         "member.relation.child",
@@ -996,6 +1002,9 @@ extension L10n {
         "asr.model.phaseCompleted",
         "asr.model.delete", "asr.model.deleteTitle", "asr.model.deleteMessage",
         "asr.model.deleteConfirm", "asr.model.deleteFailed",
+        // 2026-10-06 业主反馈修复批（第 2/3 项）：暂停态 + 模型详情页。
+        "asr.model.paused", "asr.model.detailTitle", "asr.model.detailTask",
+        "asr.model.detailTiers", "asr.model.detailInstalled",
         // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
         "asr.model.modeSegmentedFmt", "asr.model.modeSingle", "asr.model.introSizeFmt",
         "asr.preparing",

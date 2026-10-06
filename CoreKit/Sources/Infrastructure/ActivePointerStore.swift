@@ -143,6 +143,21 @@ enum ActivePointerStore {
         }
     }
 
+    /// 按版本定向回收暂存（2026-10-06 评审修正：`discardPaused` 只清本次暂停那代的
+    /// 暂存——旧实现走 `removeStaleStaging` 会连带删除同家族其他版本的崩溃残留续传点，
+    /// 超出「显式取消这一代」的意图）。同名多档共用一个版本串时无法再细分（暂存目录名
+    /// 不含 variant），此局限如实登记。
+    static func removeStaging(in modelRoot: URL, version: String, fileManager: FileManager = .default) {
+        guard let entries = try? fileManager.contentsOfDirectory(at: modelRoot, // try?-ok: 目录不存在/不可读=无可回收残留，非关键路径
+                                                                 includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+                                                                 options: []) else { return }
+        for entry in entries where entry.lastPathComponent.hasPrefix(".staging-\(version)-") {
+            guard let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]), // try?-ok: 属性不可读则跳过该项
+                  values.isDirectory == true, values.isSymbolicLink != true else { continue }
+            try? ASRModelAssets.removeIfUnused(entry) // try?-ok: 残留回收失败只占空间，不影响删除主流程
+        }
+    }
+
     // MARK: - 延后删除标记（2026-10-05 删除模型流程；R2 交叉质询裁决 c/f）
 
     /// 删除时被租约挡住的目录登记于此：租约释放后由 `retryPendingRemovals`

@@ -50,7 +50,9 @@ struct ResourceManagementView: View {
                             Text(L10n.voiceEngineName(install.choice))
                                 .font(.subheadline)
                             Spacer()
-                            Text(phaseText(install.phase))
+                            // 2026-10-06 第 2 项：暂停态如实呈现（原实现读 phase 恒显
+                            // 「下载中」——暂停后进度冻结却仍称下载中，失真）。
+                            Text(install.isPaused ? L10n.asrModelPaused : phaseText(install.phase))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -61,10 +63,15 @@ struct ResourceManagementView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                Button(L10n.commonCancel) { installCenter.cancel(install.choice) }
-                                    .font(.caption)
-                                    .frame(minHeight: 44)
-                                    .accessibilityIdentifier("SP-64.resource.cancel.\(install.choice.rawValue)")
+                                taskActions(install)
+                            }
+                        } else if install.isPaused {
+                            // 排队中暂停：无字节进度可示（不给假 spinner），但动作必须
+                            // 可达（2026-10-06 二轮评审：原实现此处仅 EmptyView，管理面
+                            // 自己反而无法恢复/取消——与设置区块/详情页不一致）。
+                            HStack {
+                                Spacer()
+                                taskActions(install)
                             }
                         } else {
                             ProgressView()
@@ -77,6 +84,21 @@ struct ResourceManagementView: View {
                 }
             }
         }
+    }
+
+    /// 活动任务行动作（暂停态 = 恢复 + 取消；进行态 = 取消）。
+    @ViewBuilder
+    private func taskActions(_ install: ASRInstallCenter.Install) -> some View {
+        if install.isPaused {
+            Button(L10n.homeModelDownloadResume) { installCenter.resume(install.choice) }
+                .font(.caption)
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("SP-64.resource.resume.\(install.choice.rawValue)")
+        }
+        Button(L10n.commonCancel) { installCenter.cancel(install.choice) }
+            .font(.caption)
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("SP-64.resource.cancel.\(install.choice.rawValue)")
     }
 
     // MARK: - SP-64 医疗目录维护（B2-3）

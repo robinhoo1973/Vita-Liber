@@ -17,15 +17,23 @@ struct ModelPackageDownloader {
         self.segmentCount = segmentCount
     }
 
+    /// `isStopRequested`（2026-10-06 暂停语义）：非 nil 时在段请求与复制循环里检查，
+    /// 命中即中断（委托层 `task.cancel()` + 取消语义抛错）——iOS 26 系统续跑任务里
+    /// 调用方取消够不到请求，这是暂停真正生效的落点；nil = 无停止请求面（零开销分支）。
     func download(url: URL,
                           expectedBytes: Int64,
                           to destination: URL,
                           progress: (@Sendable (ASRModelDownloadService.DownloadProgress) -> Void)?,
-                          resumeOffset: Int64 = 0) async throws {
+                          resumeOffset: Int64 = 0,
+                          isStopRequested: (@Sendable () -> Bool)? = nil) async throws {
         // 纵深防御（安全审查 2026-09-12）：下载目标必须 https——Domain `resolvedURL`
         // 已限相对路径 + https baseUrl，此处兜底任何直构 URL 的调用点。
         guard ModelResourcePolicy.allowedURL(url), expectedBytes > 0,
               expectedBytes <= ModelResourcePolicy.packageBytes else { throw ASRModelDownloadService.Failure.badAddress }
+        // 停止请求先于一切传输动作（2026-10-06 二轮评审）：HEAD 探测无响应体、
+        // 委托层拿不到写回调，无法在其间中断（最长 30s 超时）——入口与出口各查一次，
+        // 把暂停生效延迟收紧到「一次探测往返」，且不得把暂停误报成网络失败。
+        if isStopRequested?() == true { throw CancellationError() }
         var head = URLRequest(url: url)
         head.httpMethod = "HEAD"
         head.timeoutInterval = 30
@@ -35,9 +43,11 @@ struct ModelPackageDownloader {
         do {
             (_, headResponse) = try await session.data(for: head, delegate: headGuard)
         } catch {
+            if isStopRequested?() == true { throw CancellationError() }
             try Task.checkCancellation()
             throw headGuard.resolve(error)
         }
+        if isStopRequested?() == true { throw CancellationError() }
         if let failure = headGuard.failure { throw failure }
         guard let headHTTP = headResponse as? HTTPURLResponse else { throw ASRModelDownloadService.Failure.badResponse(-1) }
         let headSupported = (200..<300).contains(headHTTP.statusCode)
@@ -58,12 +68,27 @@ struct ModelPackageDownloader {
         defer { try? writer.close() }   // try?-ok: 句柄关闭失败由系统回收，无静默降级风险
         if resumeOffset == 0 { try writer.truncate(atOffset: 0) }
 
+        // 中断出口（2026-10-06 暂停/取消续传修复）：分段并行写入的文件在段进度不齐处
+        // 留有空洞——文件大小（最高水位）不得当续传点（`resumableStaging` 以大小计
+        // 续传基点，会把空洞误作已完成，恢复后终态 SHA 必败）。截断到「全段最小水位」
+        // （= 连续完整前缀）后，暂停保留的暂存才是真续传点。
+        var writeTracker: SegmentWriteTracker?
+        var completed = false
+        defer {
+            if !completed, let tracker = writeTracker, let prefix = tracker.contiguousPrefix {
+                let current = Self.fileSize(of: destination)
+                if prefix < current { try? writer.truncate(atOffset: prefix) }   // try?-ok: 截断失败仅退回旧续传语义（SHA 终验兜底），不掩盖主错误
+            }
+        }
+
         // 传输形态对本函数**所有**出口可见（含分段退化与单流回退），供上层判定「慢」。
         var mode: ASRModelDownloadService.DownloadMode = .singleStream
         if supportsRanges, total - resumeOffset >= Int64(segmentCount) {
             mode = .segmented(segments: segmentCount)
             let remaining = total - resumeOffset
             let chunk = remaining / Int64(segmentCount)
+            let tracker = SegmentWriteTracker(starts: (0..<segmentCount).map { resumeOffset + Int64($0) * chunk })
+            writeTracker = tracker
             let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
             counter.add(resumeOffset)
             do {
@@ -74,7 +99,9 @@ struct ModelPackageDownloader {
                         group.addTask {
                             try await Self.downloadSegment(session: self.session, url: url,
                                                            start: start, end: end, total: total,
-                                                           destination: destination, counter: counter)
+                                                           destination: destination, counter: counter,
+                                                           index: index, tracker: tracker,
+                                                           isStopRequested: isStopRequested)
                         }
                     }
                     try await group.waitForAll()
@@ -87,18 +114,21 @@ struct ModelPackageDownloader {
                 // 系列换代（审查修复 2026-09-18）：单流重建计数器从 0 重计、
                 // totalBytes 与分段系列相同——系列 +1 让消费侧单调守卫跨系列
                 // 放行，否则进度条钉死在分段峰值（业主实测「无反应」）。
+                writeTracker = nil   // 单流重建后分段水位失效，不得再据此截断
                 try writer.truncate(atOffset: 0)
                 mode = .singleStream
                 let fallbackCounter = ProgressCounter(total: total, mode: mode, series: 1, callback: progress)
                 try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
-                                               destination: destination, counter: fallbackCounter)
+                                               destination: destination, counter: fallbackCounter,
+                                               isStopRequested: isStopRequested)
             }
         } else {
             let counter = ProgressCounter(total: total, mode: mode, series: 0, callback: progress)
             counter.add(resumeOffset)
             do {
                 try await Self.downloadSegment(session: session, url: url, start: resumeOffset, end: nil, total: total,
-                                               destination: destination, counter: counter)
+                                               destination: destination, counter: counter,
+                                               isStopRequested: isStopRequested)
             } catch ASRModelDownloadService.Failure.badResponse(let status) where status == 200 {
                 // 2026-10-05 审查修复:续传请求(bytes=resumeOffset-)被服务端忽略
                 // 返回 200 整包时,旧实现 seek 到 resumeOffset 后追加整包 =
@@ -108,7 +138,8 @@ struct ModelPackageDownloader {
                 try writer.truncate(atOffset: 0)
                 let fallbackCounter = ProgressCounter(total: total, mode: mode, series: 1, callback: progress)
                 try await Self.downloadSegment(session: session, url: url, start: 0, end: nil, total: total,
-                                               destination: destination, counter: fallbackCounter)
+                                               destination: destination, counter: fallbackCounter,
+                                               isStopRequested: isStopRequested)
             }
         }
 
@@ -116,16 +147,28 @@ struct ModelPackageDownloader {
         let written = (attributes[.size] as? NSNumber)?.int64Value ?? 0
         guard written == total else { throw ASRModelDownloadService.Failure.sizeMismatch }
         progress?(.init(receivedBytes: total, totalBytes: total, mode: mode))
+        completed = true   // 成功出口：中断截断 defer 不动作（成功文件不得被截到某段水位）
+    }
+
+    /// 文件字节数（中断截断的现状比较；属性不可读按 0——0 恒不小于前缀，截断自然跳过）。
+    private static func fileSize(of url: URL) -> Int64 {
+        ((try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value ?? 0   // try?-ok: 属性不可读仅退化为不截断（旧续传语义），SHA 终验兜底
     }
 
     /// 单个 Range 段：独立 FileHandle 从 start 处顺序写入（互不重叠，无需加锁）。
+    /// `index`/`tracker`（2026-10-06）：分段写入水位上报——中断时据此截断到连续前缀。
+    /// `isStopRequested`（2026-10-06）：停止请求面（暂停）——委托层中断段请求 +
+    /// 复制循环检查；命中一律以 `CancellationError` 收尾（不重试、不记失败）。
     private static func downloadSegment(session: URLSession,
                                         url: URL,
                                          start: Int64,
                                          end: Int64?,
                                          total: Int64,
                                         destination: URL,
-                                        counter: ProgressCounter) async throws {
+                                        counter: ProgressCounter,
+                                        index: Int = 0,
+                                        tracker: SegmentWriteTracker? = nil,
+                                        isStopRequested: (@Sendable () -> Bool)? = nil) async throws {
         var request = URLRequest(url: url)
         // 2026-09-19 审查修复：请求级空闲超时 60s → 300s——URLSession 对**排队等连接**
         // 的请求也计请求超时（排队期间不重置计时），GB 级分段在池内排队 >60s 即被
@@ -147,7 +190,8 @@ struct ModelPackageDownloader {
         let (temporary, response) = try await downloadAttempt(session: session, request: request,
                                                               expected: expected,
                                                               range: range,
-                                                              counter: counter)
+                                                              counter: counter,
+                                                              isStopRequested: isStopRequested)
         defer { try? FileManager.default.removeItem(at: temporary) } // try?-ok: URLSession 临时下载文件清理，不掩盖主错误
         try Task.checkCancellation()
         let validator = ModelResourceTransfer(expectedBytes: expected, range: end.map { (start, $0, total) })
@@ -162,11 +206,33 @@ struct ModelPackageDownloader {
         var written: Int64 = 0
         while let chunk = try input.read(upToCount: 1_048_576), !chunk.isEmpty {
             try Task.checkCancellation()
+            if isStopRequested?() == true { throw CancellationError() }   // 暂停：本地复制阶段的中断点
             written += Int64(chunk.count)
             guard written <= expected else { throw ASRModelDownloadService.Failure.sizeMismatch }
             try handle.write(contentsOf: chunk)
+            tracker?.update(index: index, end: start + written)
         }
         guard written == expected else { throw ASRModelDownloadService.Failure.sizeMismatch }
+    }
+}
+
+/// 分段写入水位跟踪（2026-10-06 暂停/取消续传修复）：每段自其起点顺序写入，
+/// 记录各段已写到的末端偏移；`contiguousPrefix` = 全部段水位最小值——该偏移
+/// 之前字节必连续完整（段 0 自下载基点起，各段各自连续；快段越过慢段的部分
+/// 只形成「前缀之后」的散块，不影响前缀本身）。
+private final class SegmentWriteTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ends: [Int64]
+    /// starts = 各段起点（= 尚无写入时的水位基线：续传基点）。
+    init(starts: [Int64]) { ends = starts }
+    func update(index: Int, end: Int64) {
+        lock.lock(); defer { lock.unlock() }
+        guard ends.indices.contains(index) else { return }
+        ends[index] = max(ends[index], end)
+    }
+    var contiguousPrefix: Int64? {
+        lock.lock(); defer { lock.unlock() }
+        return ends.min()
     }
 }
 
@@ -176,18 +242,23 @@ struct ModelPackageDownloader {
 /// （失败尝试的已收字节不得重复累计进进度计数器）。
 private func downloadAttempt(session: URLSession, request: URLRequest,
                              expected: Int64, range: (Int64, Int64, Int64)?,
-                             counter: ProgressCounter) async throws -> (URL, URLResponse) {
+                             counter: ProgressCounter,
+                             isStopRequested: (@Sendable () -> Bool)? = nil) async throws -> (URL, URLResponse) {
     var lastError: Error = ASRModelDownloadService.Failure.sizeMismatch
     for attempt in 0..<2 {
         // 委托按尝试重建；失败尝试已计入共享计数器的字节在重试前回滚——
         // 2026-09-19 扫尾发现 #4：重试双计会使 fraction > 1（进度条回绕/提前满格）。
         let attemptBytes = AttemptByteCounter()
         let delegate = ModelResourceTransfer(expectedBytes: expected, range: range,
-                                             onBytes: { counter.add($0); attemptBytes.add($0) })
+                                             onBytes: { counter.add($0); attemptBytes.add($0) },
+                                             shouldCancel: isStopRequested)
         do {
             let (temporary, response) = try await session.download(for: request, delegate: delegate)
             return (temporary, response)
         } catch {
+            // 停止请求（暂停）触发的中断：按取消语义——不重试（重试会立刻再次被中断）、
+            // 不记失败；上层依此保留续传暂存。
+            if isStopRequested?() == true { throw CancellationError() }
             try Task.checkCancellation()
             lastError = delegate.resolve(error)
             guard attempt == 0, let urlError = error as? URLError,

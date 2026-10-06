@@ -111,6 +111,9 @@ extension L10n {
 
     static var commonConfirm: String { t("common.confirm") }
 
+    /// 2026-10-06 业主反馈修复批（第 3 项）：模型详情 sheet 的关闭动作（结果性 sheet 的显式出口）。
+    static var commonClose: String { t("common.close") }
+
     static var commonMember: String { t("common.member") }
 
     static var paywallPreviewTitle: String { t("paywall.previewTitle") }

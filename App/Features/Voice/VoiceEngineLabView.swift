@@ -126,6 +126,16 @@ struct VoiceEngineLabView: View {
                 }
 
                 Section {
+                    // FR17.15 混合识别开关（2026-10-06 业主反馈第 5 项）：实验室此前只读
+                    // 生产设置、页内无法设置——对照测试无从验证混说模式。写穿同一设置键
+                    // （`voiceMixedInput`，与语音语言页同源单出口；实验室选择引擎本就写穿
+                    // `voiceEngine`，同款语义），变更经 onChangeCompat 即时应用到测试模型
+                    // （下次按压生效）。
+                    Toggle(L10n.voiceLangMixedToggle, isOn: mixedInputBinding)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("SP-62.test.mixedInput")
+                    Text(L10n.voiceLangMixedHint)
+                        .font(.caption2).foregroundStyle(.secondary)
                     if let model {
                         PressToTalkMicButton(model: model)
                             .disabled(installing)
@@ -195,6 +205,11 @@ struct VoiceEngineLabView: View {
                 rebuild()
                 Task { await refreshAssetStatus() }
             }
+            // 混合识别开关变更（第 5 项）：语言模式/词表即时重装到当前测试模型——
+            // 不重建引擎（模式是按压请求参数，下次按压生效）。
+            .onChangeCompat(of: settings.values[.voiceMixedInput]) { _, _ in
+                model?.applyLanguageSettings(settings: settings, recentDrugNames: [])
+            }
             // 2026-09-19 审查修复：构建中的重建任务同样取消——旧实现只停当前 model，
             // 离页瞬间仍在构造的引擎完成后照常装配（孤儿引擎 + 资产租约滞留）。
             .onDisappear {
@@ -202,6 +217,13 @@ struct VoiceEngineLabView: View {
                 model?.stopForDisappear()
             }
         }
+    }
+
+    /// 混合识别开关绑定（2026-10-06 业主反馈第 5 项）：写穿生产设置键——实验室的
+    /// 对照测试反映生产真实行为（与引擎档位选择写穿 `voiceEngine` 同语义）。
+    private var mixedInputBinding: Binding<Bool> {
+        Binding(get: { settings.values[.voiceMixedInput] != "false" },
+                set: { on in Task { await settings.set(on ? "true" : "false", for: .voiceMixedInput) } })
     }
 
     private func select(_ option: VoiceEngineChoice) {

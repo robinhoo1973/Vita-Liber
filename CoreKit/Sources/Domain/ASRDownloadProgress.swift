@@ -32,6 +32,17 @@ public struct ASRDownloadProgress: Sendable, Equatable {
         return incoming.series != previous.series || incoming.receivedBytes >= previous.receivedBytes
     }
 
+    /// 可暂停窗口谓词（2026-10-06 业主反馈批第 2 项：下载卡片滑动「暂停」的门控）。
+    /// 只有排队/下载段暂停才有意义——校验/解压段的 `package.zip` 已完整，
+    /// 暂停保留的暂存不构成有价值的续传点（恢复即整包重下），该窗口外如实
+    /// 只提供「取消」。纯函数下沉 Domain（同 `showsDeterminateProgress` 先例，Linux 可测）。
+    public static func isPausable(phase: ASRInstallPhase?, waiting: Bool,
+                                  isFinished: Bool, isPaused: Bool) -> Bool {
+        guard !isFinished, !isPaused else { return false }
+        if waiting { return true }
+        return phase == nil || phase == .downloading
+    }
+
     /// 确定性进度呈现谓词（2026-10-03 评审 R1-10a：视图内分支下沉为纯函数）。
     /// 有进度值且阶段属「有字节粒度」段（下载/校验/解压；nil 阶段 = 传输基线）
     /// 才画确定条——激活/清理无粒度，如实呈现不确定态；阶段切换重置基线后
@@ -44,6 +55,14 @@ public struct ASRDownloadProgress: Sendable, Equatable {
         case .activating, .pruning: return false
         }
     }
+}
+
+/// 暂停中断标记错误（2026-10-06 第二轮评审修正）：本次安装因**用户暂停**而中止
+/// （区别于用户取消——保留续传暂存与卡片）。服务端在传输层自查暂停登记后以本错误
+/// 上抛，App 据此**确定性地**走暂停分支，不依赖「暂停登记先落、App 侧暂停态后翻」
+/// 的时序（登记会被 performInstall 退出消费，仅查登记表存在竞态窗口）。
+public struct ASRInstallPausedInterruption: Error, Equatable, Sendable {
+    public init() {}
 }
 
 /// 安装阶段（迁移自 ASRModelDownloadService.InstallPhase）。

@@ -71,6 +71,13 @@ struct HomeView: View {
     @State private var showQuickCapture = false
     /// FR6.9 待办卡详情 sheet 选择项
     @State private var selectedPendingCard: AggregatedReminderItem?
+    /// 2026-10-06 业主反馈批第 3 项：下载卡片点按 → 该模型详情页（sheet 呈现——
+    /// 不经路由注册表：详情由首页就地弹出，不切 Tab、不压管理页栈）。
+    @State private var modelDetailTarget: ModelDetailTarget?
+    private struct ModelDetailTarget: Identifiable {
+        let choice: VoiceEngineChoice
+        var id: String { choice.rawValue }
+    }
 
     // MARK: - 聚合装配（每帧只算一次，body 内 let 承接）
 
@@ -296,6 +303,14 @@ struct HomeView: View {
                     .environment(docs)
                     .environment(router)
             }
+            // 2026-10-06 业主反馈批第 3 项：下载卡片 → 模型详情页（环境显式注入，
+            // 与上方 sheet 同纪律）。
+            .sheet(item: $modelDetailTarget) { target in
+                ASRModelDetailSheet(choice: target.choice)
+                    .environment(installCenter)
+                    .environment(router)
+                    .environment(app)
+            }
             .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)-\(docs.pendingVersion)") { await load() }
         }
     }
@@ -415,19 +430,22 @@ struct HomeView: View {
     private func aggregationRows(_ items: [AggregatedReminderItem],
                                  profileCompletion: (done: Int, total: Int)?) -> some View {
         // 后台任务进度（2026-09-16 业主）：模型下载进行中时显示——形如档案完善进度卡
-        // （图标 + 标题 + 进度条 + 取消），数据源 = App 层安装中心（离开设置页/切后台仍可见）。
+        // （图标 + 标题 + 进度条；2026-10-06 起动作走行级滑动，卡内无取消按钮），
+        // 数据源 = App 层安装中心（离开设置页/切后台仍可见）。
         // 2026-10-04 业主反馈②：≥2 任务合并为单行分组卡默认折叠（节省纵向空间）；
         // 单任务保持现卡形态（最常见场景零回归、进度一眼可见）。count 只读 active（低频）。
-        // 2026-10-05 业主反馈修复批（第 1 项）：完成行保留——组卡 = 进行中 + 最近完成，
-        // 任务完成不再把组卡塌缩成单卡（单卡仅「1 进行中且无完成行」时出现）。
+        // 2026-10-05 业主反馈修复批（第 1 项）：完成行保留——组卡 = 进行中 + 最近完成。
+        // 2026-10-06 业主反馈批（第 4 项）：**单一任务升级为顶层卡**——总条目数 == 1
+        // （进行中/暂停/完成任一）即走单任务卡形态，不再缩在组卡子行里；≥2 才组卡。
         let installs = installCenter.active
         let finished = installCenter.finished
-        if installs.count + finished.count >= 2 || !finished.isEmpty {
-            modelDownloadGroupCard(installs + finished)
+        let downloadItems = installs + finished
+        if downloadItems.count >= 2 {
+            modelDownloadGroupCard(downloadItems)
                 .listRowBackground(Color(.secondarySystemGroupedBackground))
                 .listRowInsets(cardRowInsets)
         } else {
-            ForEach(installs) { install in
+            ForEach(downloadItems) { install in
                 modelDownloadCard(install)
                     .listRowBackground(Color(.secondarySystemGroupedBackground))
                     .listRowInsets(cardRowInsets)
@@ -491,26 +509,77 @@ struct HomeView: View {
 
     /// 后台任务（模型下载）卡片（2026-09-16 业主）——渲染原子已分解至
     /// HomeModelDownloadCard（独立观察域纪律随迁，2026-09-26 原子结构轮第三批）。
+    /// 2026-10-06 第 2 项：卡内不再常显 [取消]——取消/暂停/继续/隐藏在行级
+    /// `swipeActions`（本卡就是 List 行，系统滑动直用）。第 3 项：点按进模型详情 sheet。
     private func modelDownloadCard(_ install: ASRInstallCenter.Install) -> some View {
         HomeModelDownloadCard(install: install) {
-            // B2-3（2026-09-28）：ASR 模型管理已并入统一「模型与数据资源」页——
-            // 「查看下载」落点必须跟着走（语音语言页只剩跳转行，看不到进度条与取消）。
-            router.navigate(to: .resourceManagement)
-        } onCancel: {
-            installCenter.cancel(install.choice)
+            modelDetailTarget = ModelDetailTarget(choice: install.choice)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            modelDownloadLeadingAction(install)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            modelDownloadTrailingAction(install)
+        }
+    }
+
+    /// 单任务卡 leading 滑动动作（2026-10-06 第 2 项，动作表与组卡子行同源）：
+    /// 完成 = 隐藏；暂停 = 继续；可暂停窗口 = 暂停；校验/解压等阶段无（只留取消）。
+    @ViewBuilder
+    private func modelDownloadLeadingAction(_ install: ASRInstallCenter.Install) -> some View {
+        if install.isFinished {
+            Button { installCenter.removeFinished(install.choice) } label: {
+                Label(L10n.homeModelDownloadHide, systemImage: "eye.slash")
+            }
+            .tint(Color("brand-primary", bundle: .main))
+            .accessibilityIdentifier("SP-04.home.modelDownload.hide.\(install.choice.rawValue)")
+        } else if install.isPaused {
+            Button { installCenter.resume(install.choice) } label: {
+                Label(L10n.homeModelDownloadResume, systemImage: "play.fill")
+            }
+            .tint(Color("brand-primary", bundle: .main))
+            .accessibilityIdentifier("SP-04.home.modelDownload.resume.\(install.choice.rawValue)")
+        } else if install.isPausable {
+            Button { installCenter.pause(install.choice) } label: {
+                Label(L10n.homeModelDownloadPause, systemImage: "pause.fill")
+            }
+            .tint(Color("brand-primary", bundle: .main))
+            .accessibilityIdentifier("SP-04.home.modelDownload.pause.\(install.choice.rawValue)")
+        }
+    }
+
+    /// 单任务卡 trailing 滑动动作：完成 = 隐藏（左右滑动同为「隐藏」——业主第 2 项原文）；
+    /// 进行/暂停 = 取消（destructive）。
+    @ViewBuilder
+    private func modelDownloadTrailingAction(_ install: ASRInstallCenter.Install) -> some View {
+        if install.isFinished {
+            Button { installCenter.removeFinished(install.choice) } label: {
+                Label(L10n.homeModelDownloadHide, systemImage: "eye.slash")
+            }
+            .tint(Color("brand-primary", bundle: .main))
+            .accessibilityIdentifier("SP-04.home.modelDownload.hideTrailing.\(install.choice.rawValue)")
+        } else {
+            Button(role: .destructive) { installCenter.cancel(install.choice) } label: {
+                Label(L10n.commonCancel, systemImage: "xmark")
+            }
+            .tint(Color("semantic-danger", bundle: .main))
+            .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
         }
     }
 
     /// 多任务分组下载卡（2026-10-04 业主反馈②）——渲染原子为 HomeModelDownloadGroupCard
     /// （折叠头零 progress 读取纪律随迁：只传 let 数组与回调，进度读取全落卡内/行内域）。
-    /// round2 ④：展开行行内详情、不跳转——组卡不再接 onOpen（单任务卡保持跳转，D4 裁定）。
-    /// 2026-10-05：完成行移除回调（组卡完成行显式处置）。
+    /// round2 ④：展开行行内详情。2026-10-05：完成行移除回调。
+    /// 2026-10-06 第 2/3 项：子行动作回调扩为 详情/暂停/继续/取消/隐藏（子行自绘滑动）。
     private func modelDownloadGroupCard(_ installs: [ASRInstallCenter.Install]) -> some View {
-        HomeModelDownloadGroupCard(installs: installs) { install in
-            installCenter.cancel(install.choice)
-        } onRemove: { install in
-            installCenter.removeFinished(install.choice)
-        }
+        HomeModelDownloadGroupCard(
+            installs: installs,
+            onOpenDetail: { install in modelDetailTarget = ModelDetailTarget(choice: install.choice) },
+            onPause: { install in installCenter.pause(install.choice) },
+            onResume: { install in installCenter.resume(install.choice) },
+            onCancel: { install in installCenter.cancel(install.choice) },
+            onHide: { install in installCenter.removeFinished(install.choice) }
+        )
     }
 
     /// 后台任务失败卡（2026-09-16 评审）——渲染原子已分解至
@@ -638,6 +707,8 @@ struct HomeView: View {
                 ForEach(installCenter.active) { active in
                     CareTransientTaskCard(install: active) {
                         router.navigate(to: .resourceManagement)
+                    } onResume: {
+                        installCenter.resume(active.choice)
                     } onCancel: {
                         installCenter.cancel(active.choice)
                     }

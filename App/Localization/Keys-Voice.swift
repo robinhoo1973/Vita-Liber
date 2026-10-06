@@ -390,6 +390,14 @@ extension L10n {
     /// round5 Q2：iOS ≤25 下载期如实提示（`beginBackgroundTask` 仅约 30 秒宽限，切后台即暂停）；iOS 26 用 backgroundHint。
     static var asrModelForegroundHint: String { t("asr.model.foregroundHint") }
 
+    /// 2026-10-06 业主反馈修复批（第 2/3 项）：暂停态文案（卡片/详情页共用）。
+    static var asrModelPaused: String { t("asr.model.paused") }
+    /// 模型详情页（第 3 项：点按下载卡片进入的单模型信息面）。
+    static var asrModelDetailTitle: String { t("asr.model.detailTitle") }
+    static var asrModelDetailTask: String { t("asr.model.detailTask") }
+    static var asrModelDetailTiers: String { t("asr.model.detailTiers") }
+    static var asrModelDetailInstalled: String { t("asr.model.detailInstalled") }
+
     static var asrIndexFetchFailed: String { t("asr.index.fetchFailed") }
 
     static var asrPreparing: String { t("asr.preparing") }

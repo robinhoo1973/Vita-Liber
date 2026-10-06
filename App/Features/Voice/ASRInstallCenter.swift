@@ -52,14 +52,38 @@ final class ASRInstallCenter {
         /// `.pruning` 是真实进行阶段不可当终态，故独立标志一次性翻转
         /// （低频，与 waiting 同频级——组卡头观察域纪律不受破坏）。
         private(set) var isFinished = false
+        /// 暂停态（2026-10-06 业主反馈批第 2 项：子卡滑动「暂停」）：低频一次性翻转，
+        /// 与 waiting/isFinished 同频级——组卡头观察域纪律不受破坏（头只读低频道标量）。
+        /// 暂停 = 停止本次传输但保留卡片与已收字节（服务端按暂停标记保留续传暂存）。
+        private(set) var isPaused = false
+        /// 暂停/恢复重启所需载荷：暂停只停任务不弃卡片，恢复按原条目原地址接续
+        /// （续传起点由服务端 `resumableStaging` 命中暂停暂存后自行解析）。
+        let release: ASRModelRelease
+        let baseURL: URL?
 
-        init(id: UUID, choice: VoiceEngineChoice) {
+        init(id: UUID, choice: VoiceEngineChoice, release: ASRModelRelease, baseURL: URL?) {
             self.id = id
             self.choice = choice
+            self.release = release
+            self.baseURL = baseURL
         }
 
         /// 仅安装中心在成功分支标记（失败/取消不标记）。
         fileprivate func markFinished() { isFinished = true }
+        fileprivate func markPaused() { isPaused = true }
+        fileprivate func clearPause() { isPaused = false }
+        /// 恢复前重置进度基线（2026-10-06 评审修正）：暂停点显示的是各段峰值之和，
+        /// 而续传起点是**连续前缀**（可能显著小于峰值）——不清基线则恢复后的回调
+        /// （同 series、received 更低）被单调守卫整体丢弃，进度条钉在高于实际存量的
+        /// 旧值、`fraction` 也失真。清空后首个回调即入账（回落不确定态仅一瞬）。
+        fileprivate func resetProgressForResume() { progress = nil }
+
+        /// 可暂停窗口（Domain 纯函数门控）：排队/下载段可暂停；校验/解压段
+        /// package.zip 已完整、暂停无有价值续传点，只提供取消。
+        var isPausable: Bool {
+            ASRDownloadProgress.isPausable(phase: phase, waiting: waiting,
+                                           isFinished: isFinished, isPaused: isPaused)
+        }
 
         /// 进度写入（下载线程可调，内部 hop 主 actor）。
         /// **单调守卫**：原实现每次回调新建一个无序 `Task{}` 跳主线程，乱序到达会让
@@ -128,6 +152,10 @@ final class ASRInstallCenter {
     private let service = ASRModelDownloadService.shared
     private let dataChange: AppDataChangeCenter
     private var tasks: [VoiceEngineChoice: Task<Void, Never>] = [:]
+    /// 暂停登记任务（2026-10-06 业主反馈批第 2 项）：保证「先登记服务端暂停标记、
+    /// 再取消任务」的时序——乱序会让 performInstall 退出先于标记到达，按普通取消
+    /// 清掉续传暂存。恢复/取消前 await 本任务，防残留标记。
+    private var pauseOps: [VoiceEngineChoice: Task<Void, Never>] = [:]
 
     init(dataChange: AppDataChangeCenter) {
         self.dataChange = dataChange
@@ -146,10 +174,11 @@ final class ASRInstallCenter {
         active.first { $0.choice == choice }
     }
 
-    /// 启动安装（per-choice 幂等：同一模型在装时忽略重复请求）。
+    /// 启动安装（per-choice 幂等：同一模型在装时忽略重复请求——含暂停中：
+    /// 暂停的卡片仍在 `active`，恢复走 `resume` 而非重发 `start`）。
     func start(_ release: ASRModelRelease, baseURL: URL?) {
         guard let choice = VoiceEngineChoice(rawValue: release.id), !isInstalling(choice) else { return }
-        let install = Install(id: UUID(), choice: choice)
+        let install = Install(id: UUID(), choice: choice, release: release, baseURL: baseURL)
         active.append(install)
         failed.remove(choice)
         lastFailure = nil
@@ -181,13 +210,86 @@ final class ASRInstallCenter {
         start(failure.release, baseURL: failure.baseURL)
     }
 
+    /// 暂停单个安装（2026-10-06 业主反馈批第 2 项）：停止传输但保留卡片与已收字节。
+    /// 时序（评审修正，勿再调换）：**先 await 服务端暂停标记落定，再置卡片暂停态并
+    /// 取消任务**——① 先取消的话 performInstall 可能抢在标记到达前收尾，按普通取消
+    /// 清掉续传暂存（暂停语义落空）；② 先置暂停态的话标记落定前若安装真失败，
+    /// `run` 会按「暂停」吞掉失败（卡片显示已暂停却无任何字节与任务）。登记期间
+    /// 安装可能已完成/失败（事实优先）：此时撤销标记，不留残旗。
+    func pause(_ choice: VoiceEngineChoice) {
+        guard let install = active.first(where: { $0.choice == choice }), install.isPausable else { return }
+        let service = self.service
+        pauseOps[choice] = Task { [weak self] in
+            await service.markPaused(choice)
+            guard let self, self.active.contains(where: { $0.id == install.id }) else {
+                await service.clearPaused(choice)
+                return
+            }
+            install.markPaused()
+            self.tasks[choice]?.cancel()
+        }
+    }
+
+    /// 恢复暂停的安装：清服务端残留标记后按原条目重启（服务端 `resumableStaging`
+    /// 命中暂停暂存即从续传点接续，未命中则整包重下——如实语义）。
+    /// 等待暂停登记期间若被新的暂停接管（本任务被取消）或安装又回到暂停态，
+    /// 直接退出且**不清标记**（标记归新暂停所有，防把它的续传意图擦掉）。
+    func resume(_ choice: VoiceEngineChoice) {
+        guard let install = active.first(where: { $0.choice == choice }), install.isPaused,
+              tasks[choice] == nil else { return }
+        install.clearPause()
+        install.resetProgressForResume()
+        let service = self.service
+        let pending = pauseOps[choice]
+        pauseOps[choice] = nil
+        tasks[choice] = Task { [weak self] in
+            if let pending { _ = await pending.value }   // 暂停登记先落定，再清标记/重启（防乱序）
+            guard !Task.isCancelled, !install.isPaused, let self,
+                  self.active.contains(where: { $0.id == install.id }) else {
+                // 启动前被取消/接管（2026-10-06 二轮评审）：本任务从未进入 `run`，
+                // 句柄只能在此释放——否则 `tasks[choice]` 永久非 nil，后续「继续」
+                // 全被幂等守卫吃掉（暂停僵尸死锁）。非暂停态且仍在 active = 用户
+                // 取消的意图，卡片随本路径移除（`run` 的 defer 不会执行）。
+                self?.tasks[choice] = nil
+                if let self, !install.isPaused {
+                    self.active.removeAll { $0.id == install.id }
+                }
+                return
+            }
+            await service.clearPaused(choice)
+            await self.run(install.release, choice: choice, install: install, baseURL: install.baseURL)
+        }
+    }
+
     func cancel(_ choice: VoiceEngineChoice) {
+        // 暂停中的取消（2026-10-06）：卡片即时移除 + 取消任务 + 丢弃**本代**续传暂存
+        // （显式取消 = 不要部分数据）；await 暂停登记落定后再丢弃——乱序会让丢弃先执行、
+        // 标记后落，留下残旗。清暂停态保证「系统已取走续跑任务后的完成回调」不把已取消
+        // 卡片复活成已完成（与 2026-10-05 取消不标记完成的守卫同语义）。
+        if let install = active.first(where: { $0.choice == choice }), install.isPaused {
+            install.clearPause()
+            active.removeAll { $0.id == install.id }
+            tasks[choice]?.cancel()
+            let service = self.service
+            let pending = pauseOps[choice]
+            pauseOps[choice] = nil
+            Task {
+                if let pending { _ = await pending.value }
+                await service.discardPaused(choice, version: install.release.version)
+            }
+            return
+        }
+        // 进行中：只取消任务——暂存由 `run`→服务端 performInstall 的退出清理按
+        // 「取消」处置（不在此处 discard：会删掉仍在写入的暂存目录）；卡片留给
+        // run 的兜底清理，收尾窗口内 isInstalling 继续挡住重复发起。
         tasks[choice]?.cancel()
     }
 
     private func run(_ release: ASRModelRelease, choice: VoiceEngineChoice, install: Install, baseURL: URL?) async {
         defer {
-            active.removeAll { $0.id == install.id }
+            // 暂停（2026-10-06 业主反馈批第 2 项）：卡片保留在 active（呈现「已暂停」，
+            // 可恢复/取消），仅释放任务句柄；取消/完成/失败照旧移除。
+            if !install.isPaused { active.removeAll { $0.id == install.id } }
             tasks[choice] = nil
         }
         // 切后台宽限：beginBackgroundTask ≈30 秒（iOS 13+ 事实，非 30 分钟）——只够收尾一段；
@@ -231,11 +333,22 @@ final class ASRInstallCenter {
         // 系统取走任务(operation 从未执行,outcome 恒 nil)」并入成功分支——
         // 未跑过的安装被标记完成并广播资产变更。completed = 系统侧真实完成
         // 与否;nil outcome + completed=false 一律按取消处置,不记失败不记完成。
+        // 暂停判定（2026-10-06 二轮评审）：专用中断错误优先——服务端在传输层中断的
+        // 时刻判定（无竞态）；`install.isPaused`/登记表查询兜底排队段暂停等路径。
+        let pauseInterrupted: Bool = {
+            if case .failure(let error)? = outcome.value { return error is ASRInstallPausedInterruption }
+            return false
+        }()
         if completed {
+            // 暂停与完成竞态（2026-10-06）：系统已取走续跑任务后用户按暂停——操作
+            // 已真实完成，完成事实优先（清暂停态走完成分支），不留在「已暂停」假态。
+            let pausedRace = install.isPaused
+            install.clearPause()
             // 2026-10-05 审查修正：系统已取走续跑任务后用户取消（takePending == nil
             // 无法中断）——系统侧完成回调仍会到达，但取消态不得标记完成/广播资产
             // 变更（否则「已取消」却以完成图标呈现且触发 assetsChanged 重算）。
-            guard !Task.isCancelled else { return }
+            // 暂停竞态例外：完成是事实，同上按完成处置。
+            guard !Task.isCancelled || pausedRace else { return }
             // 2026-10-05 业主反馈修复批（第 1 项）：完成态保留——标记终态并移入
             // finished（组卡子信息卡继续显示，完成图标；未完成继续）。defer 已把
             // 本安装移出 active，两列表互斥。
@@ -244,6 +357,14 @@ final class ASRInstallCenter {
             if finished.count > 8 { finished.removeFirst(finished.count - 8) }
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()
+        } else if pauseInterrupted || install.isPaused || await service.isPauseRequested(choice) {
+            // 暂停：不记失败、不广播——卡片保留（defer 依 `isPaused` 保留），进度停在
+            // 暂停点，恢复经 `resume` 从服务端续传暂存接续。
+            // 2026-10-06 评审修正：以服务端登记为第二判据——传输层中断可能先于 App 侧
+            // `markPaused` 到达（暂停时序是「先登记、后置卡片态」），只看卡片态会把暂停
+            // 误判成取消（卡片被 defer 移除）。此处补置暂停态，让 defer 保留卡片。
+            install.markPaused()
+            return
         } else if case .failure(let error)? = outcome.value, error is CancellationError {
             return   // 用户取消：不记失败（可再发起）。
         } else if case .failure? = outcome.value {
@@ -256,11 +377,24 @@ final class ASRInstallCenter {
     /// 服务层删除 → 引擎缓存/运行时池逐出（释放目录租约，R2 交叉质询）→
     /// 同会话补删 deferred 目录 → 资产广播（语言页/设置页可用性重算）。
     func delete(_ choice: VoiceEngineChoice) async throws {
+        // 暂停登记在途先落定再删（2026-10-06 评审修正）：否则 pending 的 markPaused
+        // 可能在 remove 清旗之后落下，给已删家族留下残旗（下一次安装退出时误判暂停、
+        // 失败/取消也不清理暂存）。
+        if let pending = pauseOps[choice] {
+            _ = await pending.value
+            pauseOps[choice] = nil
+        }
         try await service.remove(choice)
         if let switchable = EngineRegistry.shared.resolve(TranscriptionEngineFactory.self) as? any TranscribingEngineEvicting {
             await switchable.evictEngine(choice)
         }
         await service.retryPendingRemovals(for: choice)
+        // 暂停中的卡片随删除消失（2026-10-06 第 2 项）：暂停态属于本安装中心，
+        // 服务删除不感知；不清理会留下指向已删家族的幽灵卡片。
+        if let install = active.first(where: { $0.choice == choice }), install.isPaused {
+            active.removeAll { $0.id == install.id }
+            pauseOps[choice] = nil
+        }
         failed.remove(choice)
         if lastFailure?.choice == choice { lastFailure = nil }
         finished.removeAll { $0.choice == choice }

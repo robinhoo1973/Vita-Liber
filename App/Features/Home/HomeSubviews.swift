@@ -382,6 +382,7 @@ struct BigCareCard: View {
 struct CareTransientTaskCard: View {
     let install: ASRInstallCenter.Install
     let onOpen: () -> Void
+    let onResume: () -> Void
     let onCancel: () -> Void
 
     var body: some View {
@@ -393,16 +394,21 @@ struct CareTransientTaskCard: View {
     @ViewBuilder
     private var content: some View {
         let brief = install.phase
-        let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
+        let showFraction = !install.isFinished
+            && ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
+        // 暂停态如实呈现（2026-10-06 二轮评审）：关怀模式是滑动动作不可达的人群，
+        // 卡片必须自证状态并给出恢复出口——否则暂停后只剩「传输冻结 + 图标动效」的
+        // 失真画面（同 VLDownloadActivityIcon 的静态化纪律）。
+        let status = install.isPaused ? L10n.asrModelPaused : detailText(install)
         Button(action: onOpen) {
             HStack(spacing: 20) {
-                VLDownloadActivityIcon(isActive: !install.waiting, font: VLFont.homeActionIcon)
+                VLDownloadActivityIcon(isActive: !install.waiting && !install.isPaused, font: VLFont.homeActionIcon)
                     .foregroundStyle(Color("brand-primary", bundle: .main))
                     .frame(width: 64, height: 64)
                     .background(RoundedRectangle(cornerRadius: 16)
                         .fill(Color("brand-primary", bundle: .main).opacity(0.12)))
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(detailText(install))
+                    Text(status)
                         .font(.title3.bold())
                         .foregroundStyle(.primary)
                     Text(L10n.voiceEngineName(install.choice))
@@ -416,6 +422,12 @@ struct CareTransientTaskCard: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                if install.isPaused {
+                    Button(L10n.homeModelDownloadResume) { onResume() }
+                        .buttonStyle(.bordered)
+                        .frame(minHeight: 72)   // 关怀模式关键动作 ≥72pt（§7.1）
+                        .accessibilityIdentifier("SP-04.home.careMode.task.resume.\(install.choice.rawValue)")
+                }
                 Button(L10n.commonCancel) { onCancel() }
                     .buttonStyle(.bordered)
                     .frame(minHeight: 72)   // 关怀模式关键动作 ≥72pt（§7.1）
@@ -428,14 +440,17 @@ struct CareTransientTaskCard: View {
         .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.homeModelDownloadTitle)
-        .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
+        .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(status)")
         .accessibilityIdentifier("SP-04.home.careMode.task.\(install.choice.rawValue)")
     }
 }
 
 /// 后台任务（模型下载）卡片（2026-09-16 业主）：形态对齐档案完善进度卡——
 /// 下载显示分数进度（条 + 百分比 + 字节数字），校验/解压/安装/清理显示不确定进度 + 阶段文案；
-/// 主体点击进设置下载面（SP-25/SP-62），trailing [取消] 直达安装中心。
+/// 主体点击进该模型详情页（2026-10-06 业主反馈批第 3 项：子卡点按进详情，本卡为
+/// 单任务升级形态，同落详情——原落 SP-64 管理页，详情页内保留管理入口）。
+/// **不再常显 [取消] 字样**（第 2 项）：取消/暂停/隐藏走 HomeView 行级 swipeActions
+/// （本卡处于 List 行内，系统滑动可用；组卡内部子行因不在行级另走自绘滑动）。
 ///
 /// **独立观察域**（2026-09-16 业主实测「下载没有实时进度」的根因修复之二）：
 /// 卡片读 `install.progress`/`phase`——下载中每 200ms 一次（ProgressCounter 节流
@@ -448,7 +463,6 @@ struct CareTransientTaskCard: View {
 struct HomeModelDownloadCard: View {
     let install: ASRInstallCenter.Install
     let onOpen: () -> Void
-    let onCancel: () -> Void
 
     var body: some View {
         WithPerceptionTracking {
@@ -474,23 +488,24 @@ struct HomeModelDownloadCard: View {
         // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
         // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」。
         // 2026-10-03 评审 R1-10c：分支下沉 Domain 纯函数（Linux 已测）。
-        let showFraction = ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
+        // 完成行不画确定条（isFinished 与 progress 互斥呈现）；暂停行保留条以呈现暂停点。
+        let showFraction = !install.isFinished
+            && ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
         let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
+        // 标题/副标题随态互换（2026-10-06 第 4 项：单一子卡升级为顶层卡后必须覆盖
+        // 完成/暂停态——通用标题「正在下载语音模型」对已完成/已暂停是失真陈述）：
+        // 进行态 = 通用标题 + 家族名；完成/暂停态 = 家族名为题 + 终态文案为副题。
+        let inFlight = !install.isFinished && !install.isPaused
         HStack(spacing: 10) {
             Button {
-                // 2026-09-16 委员会评审：此前落 `.voiceEngineLab`（SP-62 引擎实验室）
-                // ——该页不承载模型下载面。2026-09-28 B2-3：管理面并入统一
-                // 「模型与数据资源」页（SP-64），HomeView 的 onOpen 同步改落
-                // `.resourceManagement`。
                 onOpen()
             } label: {
                 HStack(spacing: 10) {
-                    VLDownloadActivityIcon(isActive: !install.waiting)
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    downloadStatusIcon(install)
                         .frame(width: 36)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(L10n.homeModelDownloadTitle)
+                            Text(inFlight ? L10n.homeModelDownloadTitle : L10n.voiceEngineName(install.choice))
                                 .font(.subheadline.bold()).foregroundStyle(.primary)
                             Spacer(minLength: 8)
                             if showFraction {
@@ -499,7 +514,7 @@ struct HomeModelDownloadCard: View {
                                     .foregroundStyle(Color("brand-primary", bundle: .main))
                             }
                         }
-                        Text(L10n.voiceEngineName(install.choice))
+                        Text(inFlight ? L10n.voiceEngineName(install.choice) : cardStatusText(install))
                             .font(.caption).foregroundStyle(.secondary)
                         // 不确定阶段（激活/清理/排队）不再渲染独立 spinner 行（2026-10-04 业主反馈①）：
                         // 进行态反馈由图标动效 + 阶段文案（detailText）承担——不确定阶段不再被
@@ -508,14 +523,10 @@ struct HomeModelDownloadCard: View {
                             ProgressView(value: fraction)
                                 .tint(Color("brand-primary", bundle: .main))
                         }
-                        // 传输形态（2026-09-16 诊断「下载慢」）：分段 N 路 / 单流退化。
-                        // 单流意味着服务端没给 `Accept-Ranges` 或吞了 Range——那是
-                        // 「慢」的首要嫌疑，此前完全不可见。
-                        let modeLabel = downloadModeText(install.progress?.mode)
-                        Text(modeLabel.isEmpty
-                             ? detailText(install)
-                             : "\(detailText(install)) · \(modeLabel)")
-                            .font(.caption2).foregroundStyle(.secondary)
+                        if inFlight {
+                            Text(cardStatusText(install))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
@@ -525,15 +536,10 @@ struct HomeModelDownloadCard: View {
             }
             .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(L10n.homeModelDownloadTitle)
-            .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(detailText(install))")
+            .accessibilityLabel(inFlight ? L10n.homeModelDownloadTitle : L10n.voiceEngineName(install.choice))
+            .accessibilityValue("\(L10n.voiceEngineName(install.choice)) \(cardStatusText(install))")
             .accessibilityHint(L10n.homeModelDownloadView)
             .accessibilityIdentifier("SP-04.home.modelDownload.\(install.choice.rawValue)")
-
-            Button(L10n.commonCancel) { onCancel() }
-                .font(.caption)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
         }
     }
 }
@@ -558,8 +564,11 @@ struct HomeModelDownloadCard: View {
 /// 跨任务求和/均值在任务移出或阶段清基线时回跳（2026-09-18/19/20 修掉的 bug 族）。
 struct HomeModelDownloadGroupCard: View {
     let installs: [ASRInstallCenter.Install]
+    let onOpenDetail: (ASRInstallCenter.Install) -> Void
+    let onPause: (ASRInstallCenter.Install) -> Void
+    let onResume: (ASRInstallCenter.Install) -> Void
     let onCancel: (ASRInstallCenter.Install) -> Void
-    let onRemove: (ASRInstallCenter.Install) -> Void
+    let onHide: (ASRInstallCenter.Install) -> Void
     @State private var isExpanded = false
 
     var body: some View {
@@ -571,9 +580,9 @@ struct HomeModelDownloadGroupCard: View {
     @ViewBuilder
     private var content: some View {
         // 图标动效激活 = 任一**未完成**任务非排队（混合队列态：first 排队而 second 下载中时
-        // 图标仍应动——不可用 first.phase 判定；完成行不驱动动效，否则全完成态图标空转，
-        // 违反如实呈现纪律）；waiting/isFinished 低频，落组卡域安全。
-        let animating = installs.contains { !$0.waiting && !$0.isFinished }
+        // 图标仍应动——不可用 first.phase 判定；完成/暂停行不驱动动效，否则空转，
+        // 违反如实呈现纪律）；waiting/isFinished/isPaused 低频，落组卡域安全。
+        let animating = installs.contains { !$0.waiting && !$0.isFinished && !$0.isPaused }
         let inFlight = installs.filter { !$0.isFinished }.count
         VStack(spacing: 0) {
             Button {
@@ -610,9 +619,15 @@ struct HomeModelDownloadGroupCard: View {
                 VStack(spacing: 0) {
                     ForEach(installs) { install in
                         HomeModelDownloadGroupRow(install: install) {
+                            onOpenDetail(install)
+                        } onPause: {
+                            onPause(install)
+                        } onResume: {
+                            onResume(install)
+                        } onCancel: {
                             onCancel(install)
-                        } onRemove: {
-                            onRemove(install)
+                        } onHide: {
+                            onHide(install)
                         }
                         // 展开行同处一个 List 行内，行背景覆盖整行但不分格——行间补分隔（打磨项，round1 C-5）
                         if install.id != installs.last?.id {
@@ -633,20 +648,29 @@ struct HomeModelDownloadGroupCard: View {
 /// 分组卡展开行（round2 2026-10-04 裁定③④；2026-10-05 业主反馈修复批修订）：
 /// ③ 修订：leading = 进行态动效下载图标（VLDownloadActivityIcon——第 2 项：
 /// 「下载图标按动画形式显示」），**完成态 = `checkmark.circle.fill`（semantic-success，
-/// §3.1 令牌用途「已确认/已完成」，状态图标豁免交互色纪律——取消图标变完成图标）；
-/// 取消按钮迁 trailing 44pt 描边文字按钮（进行行保留——V4.18 行内取消是组卡唯一取消面，
-/// 完成行隐藏并代以 [移除] 处置）。
+/// §3.1 令牌用途「已确认/已完成」）；暂停态 = `pause.circle.fill`（brand-primary，
+/// 状态图标豁免交互色纪律）。
 /// ④ 行内直接展示数据包介绍（用途 = voiceEngineHint 既有键；大小 = progress.totalBytes，
-/// HEAD 未回前不渲染大小行），主体不可点、不跳转 SP-64（单任务卡保持跳转——D4 裁定）；
-/// 版本字段待目录元数据管线（跟进项：勿在 5 Hz 重渲视图体做文件 I/O）。
-/// 完成行隐藏进度条/百分比/大小/模式（100% 满条无信息量——完成即完成，不重复度量）。
+/// HEAD 未回前不渲染大小行）。
+/// 完成行隐藏进度条/百分比/大小/模式（100% 满条无信息量——完成即完成，不重复度量）；
+/// 暂停行保留冻结的进度条/百分比（暂停点信息量）。
+///
+/// **2026-10-06 业主反馈批第 2/3 项**：行内不再常显 [取消]/[移除] 文字按钮——
+/// 左右滑动揭示动作（进行行：右滑「暂停/继续」、左滑「取消」；完成行：左右滑「隐藏」），
+/// 点按行进该模型详情页。子行不在 List 行级（组卡为一个行），系统 `.swipeActions`
+/// 不可用——自绘 `ModelTaskSwipeRow`（滑动手势对震颤/VoiceOver 用户不可达：
+/// 动作同时经 `accessibilityActions` 暴露，详情页内亦有显式按钮兜底；关怀模式
+/// 另有 `CareTransientTaskCard` 大触点路径，不经本行）。
 ///
 /// **独立观察域**：与 HomeModelDownloadCard 同纪律——progress/phase 读取只准落在
 /// 本行内层 WithPerceptionTracking（父组卡 body 只构造子视图值）。
 struct HomeModelDownloadGroupRow: View {
     let install: ASRInstallCenter.Install
+    let onOpen: () -> Void
+    let onPause: () -> Void
+    let onResume: () -> Void
     let onCancel: () -> Void
-    let onRemove: () -> Void
+    let onHide: () -> Void
 
     var body: some View {
         WithPerceptionTracking {
@@ -659,77 +683,248 @@ struct HomeModelDownloadGroupRow: View {
         let brief = install.phase
         // 进度值缺省时回落不确定态（阶段切换会重置进度基线，见 ASRInstallCenter.Install.submit）：
         // 没拿到分数却画一条 0% 的确定进度条，读起来是「卡在 0%」。
-        // 完成行不画确定条（isFinished 与 progress 互斥呈现）。
+        // 完成行不画确定条（isFinished 与 progress 互斥呈现）；暂停行保留冻结点。
         let showFraction = !install.isFinished
             && ASRDownloadProgress.showsDeterminateProgress(progress: install.progress, phase: brief)
         let fraction = showFraction ? (install.progress?.fraction ?? 0) : 0
-        HStack(alignment: .top, spacing: 10) {
-            // leading 状态图标（2026-10-05）：进行 = 动效下载图标；完成 = ✓。
-            // waiting 读取低频，落在行内层观察域安全（与 :399 关怀卡同款）。
-            if install.isFinished {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(Color("semantic-success", bundle: .main))
+        ModelTaskSwipeRow(leading: leadingAction, trailing: trailingAction,
+                          accessibilityValue: rowStatusText,
+                          onOpen: onOpen) {
+            HStack(alignment: .top, spacing: 10) {
+                // leading 状态图标（2026-10-05）：进行 = 动效下载图标；完成 = ✓；
+                // 暂停（2026-10-06）= 静态暂停图标。waiting 读取低频，落行内层观察域安全。
+                downloadStatusIcon(install)
                     .frame(width: 36, height: 44)
-                    .accessibilityHidden(true)   // 状态语义由行文案「已完成」承担
-            } else {
-                VLDownloadActivityIcon(isActive: !install.waiting)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                    .frame(width: 36, height: 44)
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(L10n.voiceEngineName(install.choice))
-                        .font(.subheadline.bold()).foregroundStyle(.primary)
-                    Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(L10n.voiceEngineName(install.choice))
+                            .font(.subheadline.bold()).foregroundStyle(.primary)
+                        Spacer(minLength: 8)
+                        if showFraction {
+                            Text("\(Int(fraction * 100))%")
+                                .font(.caption).monospacedDigit()
+                                .foregroundStyle(Color("brand-primary", bundle: .main))
+                        }
+                    }
                     if showFraction {
-                        Text("\(Int(fraction * 100))%")
-                            .font(.caption).monospacedDigit()
-                            .foregroundStyle(Color("brand-primary", bundle: .main))
+                        ProgressView(value: fraction)
+                            .tint(Color("brand-primary", bundle: .main))
                     }
-                }
-                if showFraction {
-                    ProgressView(value: fraction)
-                        .tint(Color("brand-primary", bundle: .main))
-                }
-                if install.isFinished {
-                    Text(L10n.asrModelPhaseCompleted)
-                        .font(.caption2).foregroundStyle(.secondary)
-                } else {
-                    let modeLabel = downloadModeText(install.progress?.mode)
-                    Text(modeLabel.isEmpty
-                         ? detailText(install)
-                         : "\(detailText(install)) · \(modeLabel)")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    // 数据包介绍（round2 ④）：用途一句话（既有键）+ 大小（HEAD 未回前不渲染）。
-                    Text(L10n.voiceEngineHint(install.choice))
-                        .font(.caption).foregroundStyle(.secondary)
-                    if let total = install.progress?.totalBytes {
-                        Text(L10n.asrModelIntroSizeFmt(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
+                    if install.isFinished {
+                        Text(L10n.asrModelPhaseCompleted)
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } else if install.isPaused {
+                        Text(L10n.asrModelPaused)
+                            .font(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        let modeLabel = downloadModeText(install.progress?.mode)
+                        Text(modeLabel.isEmpty
+                             ? detailText(install)
+                             : "\(detailText(install)) · \(modeLabel)")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if !install.isFinished {
+                        // 数据包介绍（round2 ④）：用途一句话（既有键）+ 大小（HEAD 未回前不渲染）。
+                        Text(L10n.voiceEngineHint(install.choice))
                             .font(.caption).foregroundStyle(.secondary)
+                        if let total = install.progress?.totalBytes {
+                            Text(L10n.asrModelIntroSizeFmt(ByteCountFormatter.string(fromByteCount: total, countStyle: .file)))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if install.isFinished {
-                // 完成行处置：trailing [移除]（失败卡 [关闭] 同构先例；不做自动消失——
-                // 定时器与 5 Hz 观察域纪律叠加复杂度，且剥夺 VoiceOver 用户听到完成事实的机会）。
-                Button(L10n.homeModelDownloadRemove) { onRemove() }
-                    .font(.caption)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("SP-04.home.modelDownload.remove.\(install.choice.rawValue)")
-            } else {
-                Button(L10n.commonCancel) { onCancel() }
-                    .font(.caption)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("SP-04.home.modelDownload.cancel.\(install.choice.rawValue)")
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    /// 右滑（leading）动作：完成 = 隐藏；暂停 = 继续；可暂停窗口 = 暂停；
+    /// 校验/解压等无续传价值阶段 = 无（只留左滑取消）。
+    private var leadingAction: ModelTaskSwipeAction? {
+        if install.isFinished {
+            return ModelTaskSwipeAction(title: L10n.homeModelDownloadHide, systemImage: "eye.slash",
+                                        tint: Color("brand-primary", bundle: .main),
+                                        identifier: "SP-04.home.modelDownload.hide.\(install.choice.rawValue)") {
+                onHide()
+            }
+        }
+        if install.isPaused {
+            return ModelTaskSwipeAction(title: L10n.homeModelDownloadResume, systemImage: "play.fill",
+                                        tint: Color("brand-primary", bundle: .main),
+                                        identifier: "SP-04.home.modelDownload.resume.\(install.choice.rawValue)") {
+                onResume()
+            }
+        }
+        guard install.isPausable else { return nil }
+        return ModelTaskSwipeAction(title: L10n.homeModelDownloadPause, systemImage: "pause.fill",
+                                    tint: Color("brand-primary", bundle: .main),
+                                    identifier: "SP-04.home.modelDownload.pause.\(install.choice.rawValue)") {
+            onPause()
+        }
+    }
+
+    /// 左滑（trailing）动作：完成 = 隐藏（左右滑动同为「隐藏」，业主第 2 项原文）；
+    /// 进行/暂停 = 取消（destructive 色）。
+    private var trailingAction: ModelTaskSwipeAction {
+        if install.isFinished {
+            return ModelTaskSwipeAction(title: L10n.homeModelDownloadHide, systemImage: "eye.slash",
+                                        tint: Color("brand-primary", bundle: .main),
+                                        identifier: "SP-04.home.modelDownload.hideTrailing.\(install.choice.rawValue)") {
+                onHide()
+            }
+        }
+        return ModelTaskSwipeAction(title: L10n.commonCancel, systemImage: "xmark",
+                                    tint: Color("semantic-danger", bundle: .main),
+                                    identifier: "SP-04.home.modelDownload.cancel.\(install.choice.rawValue)") {
+            onCancel()
+        }
+    }
+
+    private var rowStatusText: String {
+        if install.isFinished { return L10n.asrModelPhaseCompleted }
+        if install.isPaused { return L10n.asrModelPaused }
+        return detailText(install)
+    }
+}
+
+/// 子卡滑动动作定义（2026-10-06 业主反馈批第 2 项）。
+private struct ModelTaskSwipeAction {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let identifier: String
+    let perform: () -> Void
+}
+
+/// 组卡子卡自绘滑动容器（2026-10-06 业主反馈批第 2 项）：子卡在同一 List 行内，
+/// 系统 `.swipeActions` 只作用于行整卡——水平拖动过阈值吸附展开动作，点按动作执行；
+/// 点按卡面 = 进详情（已展开时先收起）。VoiceOver 经 `accessibilityActions` 同源触达。
+/// 纵向手势让位（仅当水平分量占优才响应，不吞列表滚动）。
+private struct ModelTaskSwipeRow<Content: View>: View {
+    let leading: ModelTaskSwipeAction?
+    let trailing: ModelTaskSwipeAction?
+    let accessibilityValue: String
+    let onOpen: () -> Void
+    let content: Content
+
+    init(leading: ModelTaskSwipeAction?, trailing: ModelTaskSwipeAction?,
+         accessibilityValue: String, onOpen: @escaping () -> Void,
+         @ViewBuilder content: () -> Content) {
+        self.leading = leading
+        self.trailing = trailing
+        self.accessibilityValue = accessibilityValue
+        self.onOpen = onOpen
+        self.content = content()
+    }
+
+    /// 动作区宽度（≥44pt 触点；96 容纳图标+文字）。
+    private let actionWidth: CGFloat = 96
+    /// 已吸附展开态（0 / ±actionWidth）。
+    @State private var offset: CGFloat = 0
+    /// 拖动增量用 `@GestureState`（**勿改回 @State**，2026-10-06 评审修正）：
+    /// 手势被系统取消（纵向滚动抢占）时 GestureState 自动归零——@State 会留下
+    /// 半截位移把行画歪到下一次手势。
+    @GestureState private var dragOffset: CGFloat = 0
+    /// 最近一次拖动时刻：拖动收尾的抬手不得再触发内容点按（同时手势下 Button 的
+    /// 触发与手势 onEnded 无顺序保证——没有这个抑制，滑动揭示会变成「点开详情」
+    /// 或「刚展开就弹回」，见 2026-10-06 评审）。
+    @State private var lastDragAt = Date.distantPast
+    private static let tapSuppressionWindow: TimeInterval = 0.3
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                if let leading { actionButton(leading) }
+                Spacer(minLength: 0)
+                if let trailing { actionButton(trailing) }
+            }
+            Button {
+                if Date().timeIntervalSince(lastDragAt) < Self.tapSuppressionWindow { return }
+                if offset != 0 {
+                    snap(to: 0)
+                } else {
+                    onOpen()
+                }
+            } label: {
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // **不透明底垫**（2026-10-06 二轮评审）：ZStack 底层的动作药丸恒在
+                    // 渲染树里——没有这层遮挡，未滑动时药丸直接透出在行文字后面，
+                    // 「滑动揭示」退化成常显的双色块。底色与行背景同源
+                    // （HomeView 的 listRowBackground）。
+                    .background(Color(.secondarySystemGroupedBackground))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressScaleButtonStyle())
+            .offset(x: offset + dragOffset)
+            .simultaneousGesture(swipeGesture)
+        }
+        .clipped()
         .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
-        .accessibilityValue(install.isFinished
-                            ? L10n.asrModelPhaseCompleted
-                            : detailText(install))
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint(L10n.homeModelDownloadView)
+        .accessibilityActions {
+            if let leading { Button(leading.title) { leading.perform() } }
+            if let trailing { Button(trailing.title) { trailing.perform() } }
+        }
+    }
+
+    private func actionButton(_ action: ModelTaskSwipeAction) -> some View {
+        Button {
+            snap(to: 0)
+            action.perform()
+        } label: {
+            VStack(spacing: 4) {
+                Image(systemName: action.systemImage)
+                Text(action.title).font(.caption)
+            }
+            .frame(width: actionWidth)
+            .frame(minHeight: 52)
+            .foregroundStyle(.white)
+            .background(action.tint)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(action.identifier)
+    }
+
+    private var swipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { _ in
+                lastDragAt = Date()   // 拖动发生即打标（含纵向滚动——都不该触发点按）
+            }
+            .updating($dragOffset) { value, state, _ in
+                let dx = value.translation.width
+                guard abs(dx) > abs(value.translation.height) else { return }   // 纵向滚动让位
+                var next = offset + dx
+                if next > 0 && leading == nil { next = 0 }
+                if next < 0 && trailing == nil { next = 0 }
+                next = min(max(next, -actionWidth), actionWidth)
+                state = next - offset
+            }
+            .onEnded { value in
+                lastDragAt = Date()
+                let dx = value.translation.width
+                guard abs(dx) > abs(value.translation.height) else {
+                    // 纵向滑动：只收起已展开行；`dragOffset` 由 GestureState 自动归零
+                    if offset != 0 { snap(to: 0) }
+                    return
+                }
+                let projected = offset + dx
+                if leading != nil, projected > actionWidth / 2 {
+                    snap(to: actionWidth)
+                } else if trailing != nil, projected < -actionWidth / 2 {
+                    snap(to: -actionWidth)
+                } else {
+                    snap(to: 0)
+                }
+            }
+    }
+
+    private func snap(to value: CGFloat) {
+        withAnimation(.easeInOut(duration: 0.22)) {   // ≤350ms 状态迁移（§10）
+            offset = value
+        }
     }
 }
 
@@ -749,22 +944,54 @@ private func downloadModeText(_ mode: ASRDownloadMode?) -> String {
 }
 
 /// 阶段/进度文案（复用 SP-25 阶段键；下载显示字节数——慢链路下条位移缓慢，数字给确定反馈）。
+/// 2026-10-06：阶段映射改走 `L10n.asrPhaseText` 单一出口（原三处私有映射收敛）。
 @MainActor
 private func detailText(_ install: ASRInstallCenter.Install) -> String {
     // 2026-09-19：并发槽满排队等待态——首页卡片同源如实呈现，不误报下载中/失败
     if install.waiting { return L10n.asrModelQueued }
     switch install.phase {
-    case .verifying: return L10n.asrModelPhaseVerifying
-    case .unpacking: return L10n.asrModelPhaseUnpacking
-    case .activating: return L10n.asrModelPhaseActivating
-    case .pruning: return L10n.asrModelPhasePruning
+    case .verifying, .unpacking, .activating, .pruning:
+        return L10n.asrPhaseText(install.phase)
     case .downloading, nil:
         if let progress = install.progress {
             return L10n.asrModelProgress(
                 ByteCountFormatter.string(fromByteCount: progress.receivedBytes, countStyle: .file),
                 ByteCountFormatter.string(fromByteCount: progress.totalBytes, countStyle: .file))
         }
-        return L10n.asrModelDownloading
+        return L10n.asrPhaseText(install.phase)
+    }
+}
+
+/// 单任务卡状态行（2026-10-06 第 2/4 项）：完成/暂停为终态文案；进行态 = 阶段/进度
+/// 文案 + 传输形态（分段 N 路 / 单流退化——「下载慢」的现场证据）。
+@MainActor
+private func cardStatusText(_ install: ASRInstallCenter.Install) -> String {
+    if install.isFinished { return L10n.asrModelPhaseCompleted }
+    if install.isPaused { return L10n.asrModelPaused }
+    let modeLabel = downloadModeText(install.progress?.mode)
+    return modeLabel.isEmpty ? detailText(install) : "\(detailText(install)) · \(modeLabel)"
+}
+
+/// 下载状态图标（2026-10-06 第 2 项：暂停态如实呈现静态暂停图标）：
+/// 完成 = ✓（semantic-success，§3.1 令牌用途）；暂停 = pause.circle（brand-primary）；
+/// 其余 = 动效下载图标（排队中不驱动动效）。
+/// 单任务卡与组卡子行共用（防两处形态漂移）。
+@MainActor
+@ViewBuilder
+private func downloadStatusIcon(_ install: ASRInstallCenter.Install) -> some View {
+    if install.isFinished {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.title3)
+            .foregroundStyle(Color("semantic-success", bundle: .main))
+            .accessibilityHidden(true)   // 状态语义由行文案「已完成」承担
+    } else if install.isPaused {
+        Image(systemName: "pause.circle.fill")
+            .font(.title3)
+            .foregroundStyle(Color("brand-primary", bundle: .main))
+            .accessibilityHidden(true)   // 状态语义由行文案「已暂停」承担
+    } else {
+        VLDownloadActivityIcon(isActive: !install.waiting)
+            .foregroundStyle(Color("brand-primary", bundle: .main))
     }
 }
 

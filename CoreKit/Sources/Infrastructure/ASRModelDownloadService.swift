@@ -15,6 +15,22 @@ import Foundation
 import Domain
 // CryptoKit/ZIPFoundation 随职责迁出（StreamingFileHasher / ModelPackageUnpacker）。
 
+/// 暂停登记盒（2026-10-06 业主反馈批第 2 项 · 评审修正）：NSLock 保护、
+/// `@unchecked Sendable`——分段下载线程需在**任意任务上下文同步查询**「本代是否被
+/// 要求暂停」，以在传输层真正中断。iOS 26 的续跑任务由系统持有（`runContinued`
+/// 的系统回调里 `Task {}` 不继承调用方取消），仅靠调用方 Task 取消够不到请求——
+/// 传输层自查是本场景唯一有效的暂停落点。
+private final class PauseRegistry: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: Set<String> = []
+    func insert(_ id: String) { lock.lock(); ids.insert(id); lock.unlock() }
+    /// 消费式移除（performInstall 退出时判定本次退出是否按暂停处理）。
+    @discardableResult
+    func remove(_ id: String) -> Bool { lock.lock(); defer { lock.unlock() }; return ids.remove(id) != nil }
+    func clear(_ id: String) { lock.lock(); ids.remove(id); lock.unlock() }
+    func contains(_ id: String) -> Bool { lock.lock(); defer { lock.unlock() }; return ids.contains(id) }
+}
+
 public actor ASRModelDownloadService {
     /// 传输形态（2026-09-16 业主实测「ASR 下载速度很慢」）：`ModelPackageDownloader`
     /// 在 `supportsRanges` 为假、或 HEAD 最终响应不带 `Accept-Ranges: bytes` 时
@@ -55,6 +71,13 @@ public actor ASRModelDownloadService {
     /// 并发上限 2——同链路分段已 6 路，多模型再叠加会互相抢带宽。
     private var installing: Set<String> = []
     private static let maximumConcurrentInstalls = 2
+    /// 暂停登记（2026-10-06 业主反馈批第 2 项）：下载卡片滑动「暂停」的语义 =
+    /// 停止本次传输但**保留已收字节**（续传点）——传输层各自查本登记以中断在途
+    /// 请求（见 `PauseRegistry`），`performInstall` 退出时消费本标记：
+    /// 标记在 = 该次退出按暂停处理（保留暂存），随后消费即清。
+    /// **调用序契约**：先 `markPaused` 再取消安装任务（否则取消先行收尾即按普通
+    /// 取消清理暂存）；恢复前先 `clearPaused` 防残留标记误判本次退出。
+    private let pausedReleases = PauseRegistry()
 
     public init(session: URLSession? = nil) {
         let configuration = URLSessionConfiguration.ephemeral
@@ -206,6 +229,39 @@ public actor ASRModelDownloadService {
             }
     }
 
+    /// 已发布档位清单（2026-10-06：自 `ASREngineSettingsSection` 内联过滤下沉，
+    /// 下载页尺寸选择与模型详情页共用同一口径——同 id 多档、已发布、带 variant、
+    /// 兼容当前版本、经信任库授权，按 `variantWeight` 大小升序（字典序 "large" <
+    /// "medium" < "small" 与大小序相反，D6 档序教训）。两处消费零漂移。
+    ///
+    /// **同档多版本只取最新一条**（2026-10-06 评审修正）：目录身份键含 version
+    /// （回滚保留旧版本 = 同 (id, variant) 两条合法共存），不 dedupe 时单档家族
+    /// 会得 count>1 → 尺寸选择器误出现且两段同名（第 1 项缺陷以另一路径重演）、
+    /// 下载按钮目标在等权条目间不确定。档位清单的粒度就是「档」。
+    public nonisolated static func publishedVariants(for choice: VoiceEngineChoice,
+                                                     in index: ASRModelReleaseIndex,
+                                                     appVersion: String) -> [ASRModelRelease] {
+        let candidates = index.models
+            .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil
+                      && $0.isCompatible(appVersion: appVersion)
+                      && ModelCatalogTrustStore.shared.isAuthorized($0) }
+        var newest: [String: ASRModelRelease] = [:]
+        for release in candidates {
+            guard let key = release.variant else { continue }
+            guard let existing = newest[key] else { newest[key] = release; continue }
+            let newer = existing.version == release.version
+                ? (release.artifactRevision ?? 0) > (existing.artifactRevision ?? 0)
+                : ASRVersion.isNewer(release.version, than: existing.version)
+            if newer { newest[key] = release }
+        }
+        return newest.values.sorted {
+            let left = ASRModelRelease.variantWeight($0.variant)
+            let right = ASRModelRelease.variantWeight($1.variant)
+            if left == right { return ($0.variant ?? "") < ($1.variant ?? "") }   // 等权（未知档）稳定序
+            return left < right
+        }
+    }
+
     /// 是否存在可更新版本（已装版本由 active.json 记录）。
     /// 未安装时不视为「可更新」——新装走独立的下载按钮分支（否则新装
     /// 恒显示「更新到 X」且下载按钮/失败提示分支永远不可达）。
@@ -242,6 +298,40 @@ public actor ASRModelDownloadService {
                                     models: family.filter {
                                         $0.variant == variant || (matchesNilPointer && $0.variant != nil)
                                     })
+    }
+
+    // MARK: - 暂停（2026-10-06 业主反馈批第 2 项）
+
+    /// 登记暂停意图（见 `pausedReleases` 的调用序契约）——必须先于取消安装任务。
+    public func markPaused(_ choice: VoiceEngineChoice) {
+        pausedReleases.insert(choice.rawValue)
+    }
+
+    /// 清除暂停意图（恢复路径先清残留，防本次退出被误判为暂停、防传输层误中断）。
+    public func clearPaused(_ choice: VoiceEngineChoice) {
+        pausedReleases.clear(choice.rawValue)
+    }
+
+    /// 查询本代是否登记了暂停意图（2026-10-06 评审修正）：传输层中断可能**先于**
+    /// App 侧暂停态翻转到达（`didWriteData` 在任意线程）——App 的退出判定若只看
+    /// `install.isPaused`，会把这次「暂停」误判成普通取消（卡片消失、暂存成孤儿）。
+    /// 以服务端登记为准作第二判据。
+    public func isPauseRequested(_ choice: VoiceEngineChoice) -> Bool {
+        pausedReleases.contains(choice.rawValue)
+    }
+
+    /// 丢弃暂停态（用户对暂停项按「取消」= 不要部分数据）：清标记 + 回收该代
+    /// 续传暂存（租约感知）。`version` = 本次暂停安装的版本（定向回收——
+    /// 不波及其他版本的崩溃残留续传点）；nil = 无从定向时退化为整族回收。
+    public func discardPaused(_ choice: VoiceEngineChoice, version: String? = nil) {
+        pausedReleases.clear(choice.rawValue)
+        let modelRoot = Self.applicationSupportRoot()
+            .appendingPathComponent(choice.rawValue, isDirectory: true)
+        if let version {
+            ActivePointerStore.removeStaging(in: modelRoot, version: version, fileManager: fileManager)
+        } else {
+            ActivePointerStore.removeStaleStaging(in: modelRoot, fileManager: fileManager)
+        }
     }
 
     // MARK: - 安装
@@ -384,7 +474,16 @@ public actor ASRModelDownloadService {
             try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         }
         let previousRoot = Self.activeRoot(for: choice)
-        defer { try? fileManager.removeItem(at: staging) }   // try?-ok: 暂存清理失败无用户可见后果，不掩盖主错误
+        // 暂停保留暂存（2026-10-06 业主反馈批第 2 项）：标记消费即清——暂停退出时
+        // 保留 `.staging-` 目录作续传点（下次安装经 `resumableStaging` 接续），
+        // 完成/失败/取消一律清理。标记与实际结果双条件（已完成不得留残留暂存）。
+        var installed = false
+        defer {
+            let pausedExit = pausedReleases.remove(release.id)
+            if !(pausedExit && !installed) {
+                try? fileManager.removeItem(at: staging)   // try?-ok: 暂存清理失败无用户可见后果，不掩盖主错误
+            }
+        }
         var excludedRoot = modelRoot
         var values = URLResourceValues(); values.isExcludedFromBackup = true
         try excludedRoot.setResourceValues(values)
@@ -393,8 +492,21 @@ public actor ASRModelDownloadService {
 
         let zipURL = staging.appendingPathComponent("package.zip")
         onPhase?(.downloading)
-        try await downloader.download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress,
-                                     resumeOffset: resumeOffset)
+        // 暂停中断面（2026-10-06）：传输层（含系统持有的续跑任务）同步查询本代暂停登记
+        // ——命中即中断在途段请求并按取消语义收尾（见 PauseRegistry / download 注释）。
+        let registry = pausedReleases
+        let releaseID = release.id
+        do {
+            try await downloader.download(url: url, expectedBytes: release.bytes ?? 0, to: zipURL, progress: progress,
+                                         resumeOffset: resumeOffset,
+                                         isStopRequested: { registry.contains(releaseID) })
+        } catch {
+            // 暂停中断 → 专用错误上抛（2026-10-06 二轮评审）：登记此刻仍在（本函数退出的
+            // defer 才消费它），是判定「这次退出是暂停还是取消」唯一无竞态的时刻——
+            // App 侧若等到收尾之后再查登记，标记已被消费、两条判据可能同时落空。
+            if pausedReleases.contains(release.id) { throw ASRInstallPausedInterruption() }
+            throw error
+        }
 
         onPhase?(.verifying)
         // 校验/解压复用 `progress` 出口（不新增通道）：阶段本身已说明字节的含义，
@@ -510,6 +622,7 @@ public actor ASRModelDownloadService {
 
         onPhase?(.pruning)
         pruneOldVersions(modelRoot: modelRoot, newlyInstalled: directoryName, previousRoot: previousRoot)
+        installed = true
         return versionDir
     }
     /// 版本目录按 `ASRVersion.isNewer` 语义排序（字典序会把 `v2026.03.4` 排在
@@ -567,6 +680,7 @@ public actor ASRModelDownloadService {
               !slotWaiters.contains(where: { $0.releaseID == choice.rawValue }) else {
             throw Failure.installInProgress
         }
+        pausedReleases.clear(choice.rawValue)   // 删除即弃任何暂停意图，防残旗误用
         let modelRoot = Self.applicationSupportRoot()
             .appendingPathComponent(choice.rawValue, isDirectory: true)
         ActivePointerStore.removeStaleStaging(in: modelRoot, fileManager: fileManager)

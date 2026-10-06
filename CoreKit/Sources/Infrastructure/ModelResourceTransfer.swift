@@ -8,6 +8,10 @@ final class ModelResourceTransfer: NSObject, URLSessionDownloadDelegate, @unchec
     private let expectedBytes: Int64?
     private let range: (start: Int64, end: Int64, total: Int64)?
     private let onBytes: (@Sendable (Int64) -> Void)?
+    /// 停止查询（2026-10-06 暂停语义）：委托层每个写回调检查一次，命中即
+    /// `task.cancel()`——iOS 26 的续跑任务由系统持有，调用方 Task 取消够不到请求，
+    /// **传输层主动中断是暂停唯一有效的落点**（等待该请求自然收尾可达分钟级）。
+    private let shouldCancel: (@Sendable () -> Bool)?
     private let lock = NSLock()
     private var storedFailure: ASRModelDownloadService.Failure?
     /// 重定向上限(2026-10-05 委员会):医疗线同款守卫——重定向循环/无限逐跳
@@ -17,8 +21,10 @@ final class ModelResourceTransfer: NSObject, URLSessionDownloadDelegate, @unchec
     var failure: ASRModelDownloadService.Failure? { lock.lock(); defer { lock.unlock() }; return storedFailure }
 
     init(expectedBytes: Int64? = nil, range: (Int64, Int64, Int64)? = nil,
-         onBytes: (@Sendable (Int64) -> Void)? = nil) {
+         onBytes: (@Sendable (Int64) -> Void)? = nil,
+         shouldCancel: (@Sendable () -> Bool)? = nil) {
         self.expectedBytes = expectedBytes; self.range = range; self.onBytes = onBytes
+        self.shouldCancel = shouldCancel
     }
     private func record(_ failure: ASRModelDownloadService.Failure) {
         lock.lock(); if storedFailure == nil { storedFailure = failure }; lock.unlock()
@@ -60,6 +66,10 @@ final class ModelResourceTransfer: NSObject, URLSessionDownloadDelegate, @unchec
     }
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
                     totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        if shouldCancel?() == true {
+            downloadTask.cancel()   // 暂停请求：中断本段请求（调用方把 URLError.cancelled 翻译回取消语义）
+            return
+        }
         do {
             if let response = downloadTask.response { try validate(response) }
             if let expectedBytes, totalBytesWritten > expectedBytes { throw ASRModelDownloadService.Failure.sizeMismatch }

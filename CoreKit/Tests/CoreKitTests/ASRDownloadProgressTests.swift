@@ -45,6 +45,18 @@ struct ASRDownloadProgressTests {
         #expect(!ASRDownloadProgress.showsDeterminateProgress(progress: nil, phase: .downloading), "无进度值不画 0% 确定条")
     }
 
+    @Test func pauseWindowCoversQueueingAndDownloadingOnly() {
+        // 2026-10-06 业主反馈批第 2 项：滑动「暂停」只在有续传价值的窗口出现。
+        #expect(ASRDownloadProgress.isPausable(phase: nil, waiting: true, isFinished: false, isPaused: false), "排队中可暂停")
+        #expect(ASRDownloadProgress.isPausable(phase: .downloading, waiting: false, isFinished: false, isPaused: false))
+        #expect(!ASRDownloadProgress.isPausable(phase: .verifying, waiting: false, isFinished: false, isPaused: false),
+                "校验段 package.zip 已完整，暂停无续传点——只提供取消")
+        #expect(!ASRDownloadProgress.isPausable(phase: .unpacking, waiting: false, isFinished: false, isPaused: false))
+        #expect(!ASRDownloadProgress.isPausable(phase: .activating, waiting: false, isFinished: false, isPaused: false))
+        #expect(!ASRDownloadProgress.isPausable(phase: .downloading, waiting: false, isFinished: true, isPaused: false), "完成态不可暂停")
+        #expect(!ASRDownloadProgress.isPausable(phase: .downloading, waiting: false, isFinished: false, isPaused: true), "已暂停不可重复暂停")
+    }
+
     @Test func storageErrorMappingRecognizesPOSIXAndCocoaForms() {
         let cocoa = NSError(domain: NSCocoaErrorDomain, code: 640)  // NSFileWriteOutOfSpaceError
         #expect(ASRDownloadFailure.storageError(from: cocoa) == .insufficientStorage)

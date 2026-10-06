@@ -558,6 +558,7 @@
 "common.yes" = "是";
 "common.no" = "否";
 "common.cancel" = "取消";
+"common.close" = "關閉";
 "common.member" = "成員";
 "inventory.dualLine" = "安全線 %1$@ %2$@ · 確認 %3$@ %2$@";
 "inventory.dualLineTitle" = "雙軌庫存（安全線 / 確認線）";
@@ -1661,7 +1662,9 @@
 "home.model.downloadView" = "檢視下載";
 "home.model.downloadGroupFmt" = "%1$d 個下載任務";
 "home.model.downloadGroupDoneFmt" = "%1$d 個模型已下載完成";
-"home.model.downloadRemove" = "移除";
+"home.model.downloadPause" = "暫停";
+"home.model.downloadResume" = "繼續";
+"home.model.downloadHide" = "隱藏";
 "home.model.downloadGroupExpandedValue" = "已展開";
 "home.model.downloadGroupCollapsedValue" = "已摺疊";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
@@ -1883,6 +1886,11 @@
 "asr.model.phaseActivating" = "安裝中…";
 "asr.model.phasePruning" = "清理舊版本…";
 "asr.model.phaseCompleted" = "已完成";
+"asr.model.paused" = "已暫停";
+"asr.model.detailTitle" = "模型詳情";
+"asr.model.detailTask" = "下載任務";
+"asr.model.detailTiers" = "可用檔位";
+"asr.model.detailInstalled" = "已安裝";
 "asr.model.delete" = "刪除模型";
 "asr.model.deleteTitle" = "刪除模型";
 "asr.model.deleteMessage" = "刪除後將釋放該模型佔用的空間，語音辨識會回落到隨包模型（如有）或需要重新下載。確定刪除嗎？";
