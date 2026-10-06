@@ -77,7 +77,7 @@ struct ModelPackageDownloader {
         defer {
             if !completed, let tracker = writeTracker, let prefix = tracker.contiguousPrefix {
                 let current = Self.fileSize(of: destination)
-                if prefix < current { try? writer.truncate(atOffset: prefix) }   // try?-ok: 截断失败仅退回旧续传语义（SHA 终验兜底），不掩盖主错误
+                if prefix < current { try? writer.truncate(atOffset: UInt64(prefix)) }   // try?-ok: 截断失败仅退回旧续传语义（SHA 终验兜底），不掩盖主错误
             }
         }
 
