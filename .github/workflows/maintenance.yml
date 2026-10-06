@@ -80,7 +80,7 @@ jobs:
 
           # 明确登记必须受清理策略覆盖的发布链 workflow；缺失时给 warning，
           # 防“包构建流没有登记在 CI 执行记录清理面”。
-          REQUIRED_PATHS=".github/workflows/build-testflight.yml .github/workflows/release-asr-models.yml .github/workflows/maintenance.yml"
+          REQUIRED_PATHS=".github/workflows/build-testflight.yml .github/workflows/ci-tests.yml .github/workflows/release-asr-models.yml .github/workflows/maintenance.yml"
           for required in $REQUIRED_PATHS; do
             if ! awk -F '\t' -v p="$required" '$3 == p { found=1 } END { exit found ? 0 : 1 }' "$WORKFLOWS_FILE"; then
               echo "::warning::workflow 未登记或已禁用: $required"

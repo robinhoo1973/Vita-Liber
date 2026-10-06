@@ -52,6 +52,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 |---|---|---|---|
 | `build-testflight.yml` | push master / `v*` tag / dispatch | 版本号→构建（L0 门禁→编译→L1 单元/UI→签名归档）→IPA 校验→ASC 上传（2026-10-06 业主指令：ASR/LLAMA 构建步骤已解耦至 release-asr-models.yml，App 随包模型改运行时按签名目录自 CNB 下载） | gates / requirements |
 | `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 GitHub Releases | release / requirements |
+| `ci-tests.yml` | push master / PR / dispatch | **测试与静态门禁（2026-10-06 拆分批 P1）**：L0 十八节（ubuntu，含 swiftc 断言）→ CoreKit swift test ∥ 编译门禁+型检预算+L1 单元/UI（macOS）；与发布链完全并行（测试不再阻塞上传；批次验收 = 两工作流全绿；`cancel-in-progress: true` 与发布链排队语义相反） | gates / requirements |
 | `distill-llm.yml` | workflow_dispatch | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release(checkpoint Release 化随 P2 train job) | distill / requirements |
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`） | release / requirements |
