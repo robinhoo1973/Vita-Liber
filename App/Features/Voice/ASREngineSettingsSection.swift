@@ -301,6 +301,11 @@ struct ASREngineSettingsSection: View {
             // 此前每帧、每档位各来一次（见 `availability` 的说明）
             let row = availability[choice.rawValue] ?? ChoiceAvailability()
             Button {
+                // 2026-10-06 三度评审（业主⑤同族·功能陷阱）：随包模型档位不可用
+                // 时拦选——此前可直接把 voiceEngine 写穿为未下载档案，显式选定
+                // 缺件按合同不换引擎冒充，全 App 语音每次按压必败。平台档
+                // （classic/advanced/dictation）保持原可选行为（其回落链有明示语义）。
+                guard !choice.isBundledModel || row.availability == .available else { return }
                 Task { await settings.set(choice.rawValue, for: .voiceEngine) }
             } label: {
                 HStack(alignment: .top) {
@@ -594,7 +599,10 @@ struct ASREngineSettingsSection: View {
     private func variantHint(for variants: [ASRModelRelease]) -> String? {
         let ramBytes = ProcessInfo.processInfo.physicalMemory
         guard let rec = variants[recommendedIndex(for: variants)].variant else { return nil }
-        return L10n.asrModelVariantHint(rec, "\(ramBytes / 1024 / 1024 / 1024)")
+        // 2026-10-06 三度评审（业主①）：经档位显示名单一出口解析——与选择器/
+        // 按钮/确认框同源（目录 tierName 优先），不再直出泛化大/中/小。
+        return L10n.asrModelVariantHint(L10n.asrTierDisplayName(rec, in: variants),
+                                        "\(ramBytes / 1024 / 1024 / 1024)")
     }
 
     /// 多档家族按所选档的内存预算预警（R3，2026-10-05 委员会）：只预警不禁用，

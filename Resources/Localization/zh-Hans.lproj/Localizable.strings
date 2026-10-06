@@ -1812,9 +1812,9 @@
 "f16.lastSyncFmt" = "最近同步尝试：%@";
 "voiceLab.title" = "语音识别试用";
 "voiceLab.engine.section" = "识别引擎";
-"voiceLab.engine.footer" = "选择用于语音速记与所有语音入口的引擎。切换在下一次识别生效；正在收尾的结果会保留。自动档优先处理中文方言。";
+"voiceLab.engine.footer" = "选择用于语音速记与所有语音入口的引擎。切换在下一次识别生效；正在收尾的结果会保留。";
 "voiceLab.engine.auto" = "自动（推荐）";
-"voiceLab.engine.auto.hint" = "中文与方言优先使用 Qwen3-ASR，英语用 Zipformer，其他外语按模型支持选择";
+"voiceLab.engine.auto.hint" = "根据所选语言与本机已安装的模型自动选择";
 "voiceLab.engine.advanced" = "智能识别（新系统）";
 "voiceLab.engine.advanced.hint" = "新一代端侧模型：长录音不间断、口语更自然";
 "voiceLab.engine.dictation" = "系统听写（新系统）";
@@ -1853,7 +1853,7 @@
 "asr.bundledOffline" = "免费 · 本机推理 · 安装后离线可用";
 "asr.selectionHint" = "自主选择用于所有语音入口的引擎，下一次按压生效。随包模型不下载、不上传录音。显式选定的模型不可用时会提示失败，不会悄悄更换模型。";
 "asr.missingAssets" = "此构建的模型资源缺失或不完整";
-"asr.downloadable" = "尚未下载：可在下方下载后离线使用";
+"asr.downloadable" = "尚未下载：下载后即可离线使用";
 "asr.model.download" = "下载模型";
 "asr.model.variantTitle" = "模型大小";
 "asr.model.variantSmall" = "小";

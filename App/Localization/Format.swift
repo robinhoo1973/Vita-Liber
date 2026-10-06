@@ -535,8 +535,12 @@ extension L10n {
         }
     }
 
-    static func asrModelVariantHint(_ variant: String, _ ramGB: String) -> String {
-        String(format: t("asr.model.variantHint"), asrModelVariantName(variant), ramGB)
+    /// 建议句档位名（2026-10-06 三度评审修正）：参数为**已解析的档位显示名**
+    /// （调用方传 `asrTierDisplayName` 结果，目录 tierName 优先）——旧实现内部
+    /// 调 `asrModelVariantName`，造成「选择器显『进阶』、建议句显『中』」的同屏
+    /// 两套叫法（业主①）。本函数只做格式化，显示名解析归单一出口。
+    static func asrModelVariantHint(_ tierDisplay: String, _ ramGB: String) -> String {
+        String(format: t("asr.model.variantHint"), tierDisplay, ramGB)
     }
 
     static func asrModelUpdate(_ version: String) -> String { String(format: t("asr.model.update"), version) }

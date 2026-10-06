@@ -1812,9 +1812,9 @@
 "f16.lastSyncFmt" = "Last sync attempt: %@";
 "voiceLab.title" = "Try Speech Recognition";
 "voiceLab.engine.section" = "Recognition engine";
-"voiceLab.engine.footer" = "Choose the engine shared by voice notes and all voice entry points. Changes apply to the next recording; pending results are retained. Automatic prioritizes Chinese dialects.";
+"voiceLab.engine.footer" = "Choose the engine shared by voice notes and all voice entry points. Changes apply to the next recording; pending results are retained.";
 "voiceLab.engine.auto" = "Automatic (recommended)";
-"voiceLab.engine.auto.hint" = "Prioritizes Qwen3-ASR for Chinese and dialects, Zipformer for English, and supported models for other languages";
+"voiceLab.engine.auto.hint" = "Chosen automatically from your languages and the models installed on this device";
 "voiceLab.engine.advanced" = "Advanced (new systems)";
 "voiceLab.engine.advanced.hint" = "Next-generation on-device model: uninterrupted long recordings, more natural speech";
 "voiceLab.engine.dictation" = "System dictation (new systems)";
@@ -1853,7 +1853,7 @@
 "asr.bundledOffline" = "Free · On-device · Offline when installed";
 "asr.selectionHint" = "Choose the engine used by all voice entry points. Changes apply to the next press. Bundled models never download or upload audio. An unavailable explicitly selected model reports failure rather than silently changing engines.";
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";
-"asr.downloadable" = "Not downloaded yet — download below to use offline";
+"asr.downloadable" = "Not downloaded yet — download it to use offline";
 "asr.model.download" = "Download model";
 "asr.model.variantTitle" = "Model size";
 "asr.model.variantSmall" = "Small";

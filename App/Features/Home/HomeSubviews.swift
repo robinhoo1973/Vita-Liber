@@ -819,6 +819,11 @@ private struct ModelTaskSwipeRow<Content: View>: View {
 
     /// 动作区宽度（≥44pt 触点；96 容纳图标+文字）。
     private let actionWidth: CGFloat = 96
+    /// 行内容与动作药丸共用最小高度（**遮挡不变量：底垫 ≥ 药丸**）。
+    /// 2026-10-06 三度评审（业主④花屏·像素级实证）：药丸 52pt 高于完成行内容
+    /// 44pt 时，底垫只盖内容致上下各漏 4pt 品牌蓝横条——两处必须同源，
+    /// 链式书写（固定键与弹性键同调用会被 L0 族 U 拦截）。
+    private let rowMinHeight: CGFloat = 52
     /// 已吸附展开态（0 / ±actionWidth）。
     @State private var offset: CGFloat = 0
     /// 拖动增量用 `@GestureState`（**勿改回 @State**，2026-10-06 评审修正）：
@@ -848,7 +853,13 @@ private struct ModelTaskSwipeRow<Content: View>: View {
                 }
             } label: {
                 content
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // **底垫高度与动作药丸同源**（2026-10-06 三度评审·业主④「花屏」
+                    // 像素级定案）：药丸 52pt 高于完成行内容 44pt（leading 图标
+                    // 36×44 + 两行文本），ZStack 取大者 52 居中 → 底垫只盖 44pt
+                    // 内容时，药丸上下各漏 4pt 品牌蓝横条（截图 4 组 96×4pt 蓝带
+                    // 零误差吻合）。minHeight 钉齐使「底垫 ≥ 药丸」成为显式不变量；
+                    // 链式书写（两键皆弹性键，过 L0 族 U）。
+                    .frame(maxWidth: .infinity, minHeight: rowMinHeight, alignment: .leading)
                     // **不透明底垫**（2026-10-06 二轮评审）：ZStack 底层的动作药丸恒在
                     // 渲染树里——没有这层遮挡，未滑动时药丸直接透出在行文字后面，
                     // 「滑动揭示」退化成常显的双色块。底色与行背景同源
@@ -881,7 +892,7 @@ private struct ModelTaskSwipeRow<Content: View>: View {
                 Text(action.title).font(.caption)
             }
             .frame(width: actionWidth)
-            .frame(minHeight: 52)
+            .frame(minHeight: rowMinHeight)
             .foregroundStyle(.white)
             .background(action.tint)
         }
@@ -1016,11 +1027,15 @@ struct HomeModelDownloadFailedCard: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Button(L10n.retry) { onRetry() }
+            // 2026-10-06 三度评审（业主③）：动作按钮图标+文案（仓内重试图标先例
+            // `arrow.clockwise.circle`）；第二键语义实为「关闭失败提示」
+            // （onDismiss → dismissFailure），文案随语义改 common.close，不再用
+            // 「取消」表示关闭。
+            Button { onRetry() } label: { Label(L10n.retry, systemImage: "arrow.clockwise.circle") }
                 .font(.caption)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("SP-04.home.modelDownload.failure.retry")
-            Button(L10n.commonCancel) { onDismiss() }
+            Button { onDismiss() } label: { Label(L10n.commonClose, systemImage: "xmark") }
                 .font(.caption)
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("SP-04.home.modelDownload.failure.dismiss")
