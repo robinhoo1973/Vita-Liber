@@ -70,13 +70,18 @@ struct VoiceEngineLabView: View {
                         // 防「灰化前抢选」。禁用态显式二级色（.disabled 不自动灰化
                         // 自定义 foregroundStyle 文本）；原因行保留警色可读。
                         let usable = availabilityValues[option.rawValue] == .available
+                        // 三态色拆为显式 Color 局部量：视图编译器对 4 参视图内的
+                        // 三元 Color 推断超预算（CI 37456728443 实证 'unable to
+                        // type-check in reasonable time'）——实体化即收敛。
+                        let titleStyle: Color = usable ? Color.primary : Color.secondary
+                        let hintStyle: Color = usable ? Color.secondary : Color.tertiary
                         Button { select(option) } label: {
                             HStack(alignment: .top, spacing: 10) {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(label(for: option))
-                                        .foregroundStyle(usable ? Color.primary : Color.secondary)
+                                        .foregroundStyle(titleStyle)
                                     Text(hint(for: option)).font(.caption)
-                                        .foregroundStyle(usable ? Color.secondary : Color.tertiary)
+                                        .foregroundStyle(hintStyle)
                                     if let note = availabilityNotes[option.rawValue] {
                                         Text(note).font(.caption2)
                                             .foregroundStyle(Color("semantic-warning", bundle: .main))
