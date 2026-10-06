@@ -230,7 +230,9 @@ struct VoiceEngineLabView: View {
     private func engineRow(_ option: VoiceEngineChoice) -> some View {
         let usable = availabilityValues[option.rawValue] == .available
         let titleStyle: Color = usable ? Color.primary : Color.secondary
-        let hintStyle: Color = usable ? Color.secondary : Color.tertiary
+        // `Color.tertiary` 不存在（tertiary 仅为层次样式成员，CI 37462085134 实证）——
+        // 提示行样式用 HierarchicalShapeStyle 三态（其 secondary 与预批原值等价）。
+        let hintStyle: HierarchicalShapeStyle = usable ? .secondary : .tertiary
         return Button { select(option) } label: {
             engineRowContent(option, titleStyle: titleStyle, hintStyle: hintStyle)
         }
@@ -241,7 +243,7 @@ struct VoiceEngineLabView: View {
 
     @ViewBuilder
     private func engineRowContent(_ option: VoiceEngineChoice,
-                                  titleStyle: Color, hintStyle: Color) -> some View {
+                                  titleStyle: Color, hintStyle: HierarchicalShapeStyle) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(label(for: option)).foregroundStyle(titleStyle)
