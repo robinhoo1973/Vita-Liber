@@ -803,7 +803,7 @@ jobs:
               # 覆盖管道 stdin，`| python3 - <<EOF` 时数据根本进不来；-c 形态又有
               # 续行缩进坑，两害相权取此）
               asc_curl "https://api.appstoreconnect.apple.com/v1/buildUploads/$DELIVERY_UUID" 2>/dev/null > "$RUNNER_TEMP/resp-upload.json"
-              python3 - "$RUNNER_TEMP/resp-upload.json" <<'PYEOF'
+              UPLOAD_EARLY=$(python3 - "$RUNNER_TEMP/resp-upload.json" <<'PYEOF'
           import json, sys
           try:
               d = json.load(open(sys.argv[1]))
