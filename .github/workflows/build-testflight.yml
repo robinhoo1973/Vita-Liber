@@ -48,20 +48,6 @@ name: Build + TestFlight
 
 on:
   workflow_dispatch:
-    inputs:
-      notes:
-        description: TestFlight 版本说明（whatsNew）
-        required: false
-        default: ''
-      rebuild_app:
-        description: 重建 ASC App 记录（删除现有 com.vitaliber.app 记录，以 app_name 重建后再上传）
-        required: false
-        type: boolean
-        default: false
-      app_name:
-        description: 重建时使用的 App 显示名（仅 rebuild_app=true 生效）
-        required: false
-        default: 'Vita Liber - com.vitaliber.app'
   push:
     branches: [master]
     tags: ['v*']
@@ -153,6 +139,14 @@ jobs:
           key: spm-v2-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
           restore-keys: |
             spm-v2-${{ runner.os }}-
+
+      # 构建阶段脚本（Xcode 预构建阶段生成信任哈希基线）需要哈希钉版的
+      # 校验工具依赖——缺此步骤时该阶段在编译门禁处以导入错误红（上一轮
+      # 删除构建步骤时误伤此依赖面，本步骤即恢复之）。
+      - name: 安装构建期校验依赖
+        run: |
+          python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
+          echo "MODEL_PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
 
       - name: 环境与工具链
         run: |
@@ -827,11 +821,8 @@ jobs:
 
       # ── 注册/核对 Bundle ID 与 App 记录（NetDiagnostics asc_app_ensure）──
       # 上传前确保 App ID(com.vitaliber.app) 已在开发者门户注册、App 记录存在。
-      # 手动触发 rebuild_app=true 时：删除现有记录并用 app_name 重建（实验用）。
       - name: 注册/核对 Bundle ID 与 App 记录
         env:
-          REBUILD: ${{ inputs.rebuild_app }}
-          APP_NAME: ${{ inputs.app_name }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
         run: |
@@ -875,8 +866,7 @@ jobs:
               except urllib.error.HTTPError as e:
                   return e.code, json.loads(e.read() or b'{}')
           BID = 'com.vitaliber.app'
-          REBUILD = os.environ.get('REBUILD') == 'true'
-          APP_NAME = os.environ.get('APP_NAME') or 'Vita Liber'
+          APP_NAME = 'Vita Liber'
           # 1) Bundle ID（App ID）注册核对
           st, d = call('GET', f'{BASE}/bundleIds?filter[identifier]={BID}')
           bids = d.get('data', [])
@@ -891,33 +881,9 @@ jobs:
               else:
                   print('[X] Bundle ID 创建失败:', json.dumps(d.get("errors", d), ensure_ascii=False)[:400])
                   raise SystemExit(1)
-          # 2) App 记录：查询 / 可选删除重建
+          # 2) App 记录：查询（缺失时由下方创建或 altool 上传自动创建）
           st, d = call('GET', f'{BASE}/apps?filter[bundleId]={BID}')
           apps = d.get('data', [])
-          if apps and REBUILD:
-              # 2026-09-27 委员会 P8：删除前预检——存在 PROCESSING/等待中的 build 时
-              # 拒删（半毁状态不可逆：版本元数据删除后 App 删除 403 无法回滚）。
-              old = apps[0]
-              stb, db = call('GET', f"{BASE}/builds?filter[app]={old['id']}&limit=20")
-              blocking = [b for b in db.get('data', []) if b['attributes'].get('processingState') in ('PROCESSING', 'VALID')]
-              if blocking:
-                  print('[X] 存在处理中/有效 build，拒绝删除重建（半毁状态不可逆）：')
-                  for b in blocking[:5]:
-                      print(f"     build {b['attributes'].get('version','?')} state={b['attributes'].get('processingState','?')}")
-                  print('    请先等待其完结，或到 App Store Connect 手动处置后再重跑。')
-                  raise SystemExit(1)
-              print(f'[..] rebuild_app=true → 删除现有记录 id={old["id"]} name="{old["attributes"].get("name")}"')
-              st2, d2 = call('GET', f'{BASE}/apps/{old["id"]}/appStoreVersions?limit=50')
-              for v in d2.get('data', []):
-                  vs, vd = call('DELETE', f'{BASE}/appStoreVersions/{v["id"]}')
-                  print(f'    删 appStoreVersion {v["id"]}: HTTP {vs}')
-              st2, d2 = call('DELETE', f'{BASE}/apps/{old["id"]}')
-              print(f'    删 App: HTTP {st2} {json.dumps(d2, ensure_ascii=False)[:200]}')
-              if st2 not in (200, 204):
-                  print('[X] API 无法删除该 App 记录（状态不允许删除）。')
-                  print('    请到 App Store Connect → My Apps → Vita Liber → App Information → Delete App 手动删除后重跑。')
-                  raise SystemExit(1)
-              apps = []
           if not apps:
               print(f'[..] 尝试创建 App 记录: name="{APP_NAME}" bundle={BID} sku=VITA-LIBER')
               st, d = call('POST', f'{BASE}/apps', {'data': {'type': 'apps', 'attributes': {'name': APP_NAME, 'bundleId': BID, 'sku': 'VITA-LIBER', 'primaryLocale': 'en-US'}}})
