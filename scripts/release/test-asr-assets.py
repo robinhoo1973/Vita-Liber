@@ -109,20 +109,23 @@ class RealDataFileGateTests(unittest.TestCase):
     INDEX = ROOT / "Resources" / "ASRModelUpdates" / "manifest.json"
 
     def test_real_manifest_and_index_parse(self):
+        from asr_package import decode_manifest_data_file
         manifest = json.loads(self.MANIFEST.read_text(encoding="utf-8"))
-        index = json.loads(self.INDEX.read_text(encoding="utf-8"))
+        index = decode_manifest_data_file(self.INDEX)  # 两态:裸模板或签名信封
         self.assertEqual(manifest.get("formatVersion"), 1)
         self.assertIsInstance(manifest.get("models"), list)
         self.assertIsInstance(index.get("models"), list)
 
     def test_real_index_template_passes_validate_index(self):
-        from asr_package import validate_index
-        index = json.loads(self.INDEX.read_text(encoding="utf-8"))
+        from asr_package import decode_manifest_data_file, validate_index
+        index = decode_manifest_data_file(self.INDEX)
+        # 信封形态已过签名与完整闸;此处置 complete=False 走结构面(裸模板同用)
         validate_index(index, complete=False)
 
     def test_index_and_manifest_variants_align(self):
+        from asr_package import decode_manifest_data_file
         manifest = json.loads(self.MANIFEST.read_text(encoding="utf-8"))
-        index = json.loads(self.INDEX.read_text(encoding="utf-8"))
+        index = decode_manifest_data_file(self.INDEX)
         manifest_variants = {(m["id"], m.get("variant")) for m in manifest["models"]}
         index_variants = {(m["id"], m.get("variant")) for m in index["models"]}
         self.assertEqual(index_variants, manifest_variants,
