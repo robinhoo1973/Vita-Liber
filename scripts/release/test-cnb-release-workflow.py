@@ -41,8 +41,8 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
                     # 合法注入面 = 发布步 + 发布前置校验步(2026-10-05 required 降级后
                     # 空值硬错移入 job 内,前置校验必须可见令牌才能判空)。
                     self.assertIn(step["name"], (
-                        "发布 ASR Release 至 CNB（不可变资产；回读核对；无需签名私钥）",
-                        "发布前置校验（publish=true 必须有 CNB 令牌）",
+                        "发布 ASR Release 至 CNB（不可变资产；回读核对）",
+                        "CNB 令牌前置校验（发布是本链的既定终点）",
                     ))
                 else:
                     self.assertNotIn("CNB_TOKEN", env)
