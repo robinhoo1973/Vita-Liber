@@ -1,56 +1,34 @@
 # ============================================================================
-# 构建 + TestFlight 发布 CI（version → build → upload）
+# 构建 + TestFlight 发布 CI —— 单纯编译 + 上传 TestFlight（2026-10-07 瘦身 P2）
 #
-# version：从 version.txt 读取 App release 版本（与资源 Release/tag 独立）
-# build：L0 门禁 → 编译 → L1 单元/UI 测试（26 个门禁套件真实执行）→
-#         签名归档 → 导出 IPA → 上传 artifact
-# upload：下载 artifact → 直接 xcrun altool 推送 TestFlight
+# gates (ubuntu ∥)：L0 十八节 + schema 完整性（含 swiftc 断言）——挡 upload（机械冻结）
+# build (macos)：版本内联 → 签名材料导入 → archive → export → IPA 校验 → artifact
+# upload (macos)：altool → 复核（buildUploads 秒级正面证据 + ≤3 轮列表确认）
 #
-# 各 Job 独立：修改上传逻辑不影响编译，修改版本解析不影响签名。
-# Job 间通过 artifact + outputs 传递数据，无共享状态。
+# 测试与静态门禁全量在 ci-tests.yml（与本报并行跑）；本链不含任何测试步——
+# 批次验收 = 两工作流全绿（「上传 ≠ 验收」，与 P4『受理 ≠ 登记』同族）。
+# 2026-10-06 业主指令：ASR/LLAMA 构建步骤已删除（归 release-asr-models.yml）。
+# 2026-10-07 业主指令：ASR/LLAMA 痕迹零残留之延伸；v* tag 触发删除（无版本语义）。
+# 委员会重设计全文：refactor/discussions/2026-10-06-build-testflight-slim-round1.md。
 #
-# 上传方式（2026-09-03 改）：参考 NetDiagnostics
-#   .github/actions/upload-testflight-ios/action.yml —— 同一 Apple Team 已验证
-#   可稳定登记 build。此前 fastlane pilot 上传后 build 永不登记（实测等待
-#   40 分钟无结果），故改为直接 `xcrun altool --upload-app --apiKey`，与
-#   NetDiagnostics 完全一致。凭据缺失时本 job 失败，不再“绿色成功 + 跳过”。
+# 前置凭据（Settings → Secrets → Actions）：APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID /
+#   APPLE_API_KEY_P8（base64）/ APPLE_TEAM_ID / APPLE_DEV_CERT_P12 / APPLE_DIS_CERT_P12 /
+#   APPLE_CERT_PASSWORD / APPLE_DIS_PROVISION_PROFILE（base64）。
+# 上传方式：xcrun altool --upload-app（NetDiagnostics 同款；2026-09-03 起替代 fastlane
+#   pilot——后者上传后 build 永不登记）。altool 弃用 tripwire 保留（日志含 deprecat→::warning::）。
+# Xcode 主版本升级指引：①确认全绿基线；②同步「环境与工具链」断言；③L0→L1→归档→上传
+#   全链路回归（L1 在 ci-tests.yml）；④新工具链若令编译/测试变红，按错误族修复并沉淀。
+# CI/CD 审计脉络：2026-09-10 round1 / 2026-09-21 hardening / 2026-10-06 slim-round1（本轮）。
 #
-# 前置凭据（仓库 Settings → Secrets → Actions）：
-#   APPLE_API_KEY_ID / APPLE_API_KEY_ISSUER_ID / APPLE_API_KEY_P8（base64）
-#   APPLE_TEAM_ID / APPLE_DEV_CERT_P12 / APPLE_DIS_CERT_P12
-#   APPLE_CERT_PASSWORD / APPLE_DIS_PROVISION_PROFILE
-#
-# 变更记录（CI/CD 审计 2026-09-10，5 WHY 根因见
-# refactor/discussions/2026-09-10-ci-cd-audit-round1.md）：
-#   1) actions 三件套升级 node24 运行时：checkout v4.2.2→v7.0.1、
-#      upload-artifact v4.6.0→v7.0.1、download-artifact v4.3.0→v8.0.1
-#      （均固定完整 SHA）——GitHub 2026-09-16 起从 runner 移除 Node 20，
-#      node20 action 将停止执行，整条发布流水线会因此瘫痪。
-#   2) runs-on 由 macos-latest 钉为 macos-26，并新增 Xcode 主版本断言——
-#      发布流水线拒绝隐式工具链漂移；升级按下方指引显式执行。
-#   3) 新增「签名材料到期预警」：证书/PP 剩余 ≤30 天 ::warning::、
-#      ≤7 天 ::error:: 阻断——签名材料到期是静默悬崖（平时全绿、
-#      到期日归档突然失败），左移为门禁。
-#   4) 密钥面收窄：job 级 env 只保留存在性布尔（HAS_P8/HAS_CERTS/HAS_PP），
-#      实际密钥值按 step 级 env 注入——不消费密钥的步骤不再可见密钥。
-#   5) 失败路径上传 Build/*.log 诊断 artifact（7 天）——hosted runner
-#      销毁后失败证据即灭失，此前只能靠 workflow 日志猜。
-#   6) xcodegen 安装失败不再吞 stderr（pipefail + tee 落盘）。
-#   7) 复核步骤在 build 缺出口合规声明（Missing Compliance）时输出
-#      ::warning:: 与处置指引——防 build 已上传但分发被阻塞无人知晓。
-#
-# Xcode 主版本升级指引（macos-26 镜像的 Xcode 主版本变化时执行）：
-#   1) 确认当前全绿基线；2) 同步本 workflow 的 XCODE_MAJOR 断言；
-#   3) L0→L1→归档→上传全链路回归；4) 新工具链若令编译/测试变红，
-#      按错误族修复并沉淀进 l0-typecheck-heuristics.py 后再放行。
-# ============================================================================
 name: Build + TestFlight
 
 on:
   workflow_dispatch:
   push:
     branches: [master]
-    tags: ['v*']
+    # 2026-10-07 业主裁决：删除 v* tag 触发——tag 不携带 App 版本语义
+    #（版本唯一来源 version.txt）,且 tag run 独立并发组可与 master 上传并行
+    # 造成重复构建（委员会四席收敛意见）。
 
 concurrency:
   group: testflight-${{ github.ref }}
@@ -69,47 +47,59 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   # Job 1: 解析版本号（ubuntu，快速廉价）
   # ═══════════════════════════════════════════════════════════════
-  version:
-    name: '解析版本'
-    # 钉版 ubuntu-24.04（审计 2026-09-19）：GitHub 公告 ubuntu-latest 将于
-    # 2026-10-19 迁移到 Ubuntu 26——与 macos-26 钉版同一纪律，拒绝隐式工具链漂移。
+  # ═══════════════════════════════════════════════════════════════
+  # L0 静态门禁（ubuntu 并行）：与 build 同时跑,失败挡 upload（机械冻结——
+  # 仓库无分支保护,此为五架构门禁唯一自我兑现装置）。测试与其余门禁在
+  # ci-tests.yml。版本解析已内联进 build。
+  # ═══════════════════════════════════════════════════════════════
+  gates:
+    name: 'L0 静态门禁（并行）'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      version: ${{ steps.ver.outputs.version }}
-      build: ${{ steps.ver.outputs.build }}
-      hash: ${{ steps.ver.outputs.hash }}
+    timeout-minutes: 15
     steps:
-      # v7.0.1；固定完整 SHA，防可变 tag 被上游供应链替换（node24 运行时——
-      # node20 于 2026-09-16 从 runner 移除，旧 v4.2.2 将停止执行）。
+      # v7.0.1；固定完整 SHA（node24 运行时）。
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      - name: 读取 App release 版本（version.txt）
-        id: ver
+      # 工具链断言（跨载体平权红线）：ubuntu 无 swiftc 时 L0 第 7 节只 warn
+      # 跳过 = 静默降级（test-plan 守则 13 禁止）——显式 fail-fast。
+      - name: 断言 Swift 工具链存在
         run: |
-          set -euo pipefail
-          python3 scripts/release/release-version.py \
-            --version-file version.txt \
-            --run-number "$GITHUB_RUN_NUMBER" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
-            --code-hash "$(git rev-parse --short=8 HEAD)" \
-            --output "$GITHUB_OUTPUT"
+          command -v swiftc >/dev/null || { echo "::error::ubuntu runner 缺 swiftc——L0 第 7 节将静默降级,已阻断"; exit 1; }
+          swiftc --version | head -2
+
+      - name: L0 静态门禁
+        run: |
+          set -o pipefail
+          bash scripts/gates/l0-static-gate.sh 2>&1 | tee /tmp/l0-gate.log
+          python3 scripts/gates/test-schema-integrity.py 2>&1 | tee -a /tmp/l0-gate.log
+
+      - name: 上传 L0 诊断日志（失败时）
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: release-gates-l0-log
+          path: /tmp/l0-gate.log
+          retention-days: 7
+          if-no-files-found: ignore
 
   # ═══════════════════════════════════════════════════════════════
   # 编译 + 签名归档 + 导出 IPA
   # ═══════════════════════════════════════════════════════════════
   build:
     name: '编译 + 导出 IPA'
-    needs: version
     outputs:
       # 2026-09-27 委员会裁决 P6：产物存在性输出（不信任 env 布尔，信任产物文件）
       ipa_ready: ${{ steps.ipa-ready.outputs.ipa_ready }}
+      # 版本内联（2026-10-07 P2）：upload 侧复核精确匹配本值。
+      build_number: ${{ steps.ver.outputs.build }}
     # 钉版 macos-26（审计 2026-09-10）：发布流水线拒绝隐式工具链漂移；
     # 镜像内 Xcode 主版本变化由下方断言显式拦截，升级按文件头指引执行。
     runs-on: macos-26
-    timeout-minutes: 120
+    # 2026-10-07 P2：瘦身后预期 ~16-20min，60 保留 3x 余量（原 120×实测 43min；
+    # 挂死 run 在排队语义下会堵整条队——超时即释放队首）。
+    timeout-minutes: 60
     # 密钥面收窄：job 级 env 只保留存在性布尔，实际密钥值由各消费步骤
-    # 以 step 级 env 注入——不消费密钥的步骤（L0/测试/上传 artifact 等）
+    # 以 step 级 env 注入——不消费密钥的步骤（artifact 上传等）
     # 不再可见密钥内容。
     env:
       HAS_P8: ${{ secrets.APPLE_API_KEY_P8 != '' }}
@@ -121,7 +111,32 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.13.5'
+          # 3.13 宽 pin 命中 macos-26 镜像 toolcache（3.13.15,精确 3.13.5 会走下载）
+          python-version: '3.13'
+
+      - name: 读取 App release 版本（version.txt；2026-10-07 P2 内联自 version job）
+        id: ver
+        run: |
+          set -euo pipefail
+          python3 scripts/release/release-version.py \
+            --version-file version.txt \
+            --run-number "$GITHUB_RUN_NUMBER" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --code-hash "$(git rev-parse --short=8 HEAD)" \
+            --output "$GITHUB_OUTPUT"
+
+      # 凭据完备性硬校验（2026-10-07 P2）：缺任一签名凭据即具名红——防
+      # 「绿而无 IPA」在纯编译+上传定位下静默通过（ERR#30 族）。
+      - name: 签名凭据完备性校验
+        run: |
+          missing=""
+          [ "$HAS_P8" = "true" ] || missing="$missing APPLE_API_KEY_P8"
+          [ "$HAS_CERTS" = "true" ] || missing="$missing APPLE_DEV_CERT_P12/APPLE_DIS_CERT_P12"
+          [ "$HAS_PP" = "true" ] || missing="$missing APPLE_DIS_PROVISION_PROFILE"
+          if [ -n "$missing" ]; then
+            echo "::error::签名凭据缺失:$missing——补建 Secrets 后重跑（纯编译+上传链不允许跳签名）"
+            exit 1
+          fi
 
       # 构建缓存（2026-09-16 委员会评审·性能）：CI 43 分钟里 SPM 依赖图被
       # `swift test` 与 Xcode 构建**冷编译两次**（此前全 workflow 零 cache）。
@@ -142,14 +157,6 @@ jobs:
           # workspace-state.json——SwiftPM 反篡改守卫据其拒载新校验和产物
           #（'artifact has changed checksum … won't be downloaded'）,冷路径
           # 反而健康。键变更时全冷重建的代价（依赖重编）换确定性。
-
-      # 构建阶段脚本（Xcode 预构建阶段生成信任哈希基线）需要哈希钉版的
-      # 校验工具依赖——缺此步骤时该阶段在编译门禁处以导入错误红（上一轮
-      # 删除构建步骤时误伤此依赖面，本步骤即恢复之）。
-      - name: 安装构建期校验依赖
-        run: |
-          python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
-          echo "MODEL_PYTHON=$(command -v python3)" >> "$GITHUB_ENV"
 
       - name: 环境与工具链
         run: |
@@ -178,14 +185,6 @@ jobs:
           else
             echo "::error::缺 project.yml 且无 xcodeproj"; exit 1
           fi
-
-      # ── L0 静态门禁（评审修正 C3：失败即停——test-plan-spec §0 铁律 3「L0 不过不进 L1」；
-      # 此前被 || warning 吞成非阻塞，红线违规仍能归档上传，属
-      # 「缺证据被当成有证据」同族）──────────
-      - name: L0 静态门禁
-        run: |
-          bash scripts/gates/l0-static-gate.sh
-          python3 scripts/gates/test-schema-integrity.py
 
       # ── 签名材料到期预警（审计 2026-09-10 新增）──────────────
       # 证书/PP 到期是「静默悬崖」：平时一切绿色，到期日归档/导出突然失败，
@@ -375,51 +374,6 @@ jobs:
             echo "::error::导入的 Provisioning Profile 未授予 com.apple.developer.healthkit。App 声明了该 entitlement，归档/导出必失败。请在 Apple Developer 后台为该 App ID 启用 HealthKit 并重新生成 profile，再更新 APPLE_DIS_PROVISION_PROFILE 机密。"
             exit 1
           fi
-
-      # ── CoreKit 包测试（swift test）：域层真实执行 ──────
-      # 包测试目标不能进 app scheme（XcodeGen 拒绝包测试引用，run 34017824105
-      # 实证）——Domain/双轨库存/调度引擎 264 测试在此以 SPM 原生方式执行；
-      # 红即阻断后续编译/归档/上传（缺证据≠有证据，ERR#27/30/39 同族）。
-      # 运行于 macOS runner 本身（非 Linux 容器，业主 2026-09-06 决定）。
-      - name: CoreKit 域层测试（swift test）
-        run: |
-          set -o pipefail
-          mkdir -p Build
-          cd CoreKit
-          # 诊断先关 errexit：默认 shell bash -e 会在管道失败瞬间杀步，
-          # 失败摘要/注解块永远执行不到（CI #634 实证：零注解）。
-          set +e
-          swift test 2>&1 | tee ../Build/corekit-swift-test.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            # 2026-10-03 审计（CI #629-#635 排障盲区）：job 日志需登录、诊断产物需 auth，
-            # 唯一公开可读的通道 = 注解（::error:: 服务端渲染）+ step summary。
-            # 并行编译下错误行之后还有在途「Compiling」行冲刷——tail 会错过错误行，
-            # 注解通道用 grep 直抓错误行，tail 仅作上下文兜底。
-            {
-              echo "### CoreKit swift test 失败摘要（自动截取）"
-              echo '```'
-              grep -E "error:|✘|failed|Fatal" ../Build/corekit-swift-test.log | tail -30 || true
-              echo '--- 上下文（tail 25）---'
-              tail -25 ../Build/corekit-swift-test.log || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "error:|✘|failed|Fatal" ../Build/corekit-swift-test.log | head -8 | while IFS= read -r line; do
-              echo "::error::CoreKit: $line"
-            done || true
-            grep -E "error:|✘" ../Build/corekit-swift-test.log | tail -6 | while IFS= read -r line; do
-              echo "::error::CoreKit: $line"
-            done || true
-            exit "$status"
-          fi
-          echo "CoreKit 域层测试通过 ✓"
-
-      # ── ASR 校验依赖（2026-10-06 CI 37391026526 实证）：Xcode 预构建脚本
-      # 「Generate trusted model hashes」经 model-trust.py → asr_package →
-      # asr_envelope 导入链需要 cryptography（R1 信封批引入）——macOS runner
-      # 不预装。哈希钉版 venv 一次装齐，MODEL_PYTHON 注入编译步使脚本用 venv
-      # 解释器（PEP 668 同族,ERR#54）。
       - name: 安装 ASR 校验依赖（哈希钉版）
         run: |
           if [ ! -x /tmp/model-tools-venv/bin/python3 ]; then
@@ -431,191 +385,10 @@ jobs:
             cat /tmp/model-pip.log
             exit 1
           fi
+          # 2026-10-07 P2：venv 即 MODEL_PYTHON 单一来源（系统 pip 重复装已删）——
+          # archive 的预构建脚本（Generate trusted model hashes）经它导入 cryptography。
+          echo "MODEL_PYTHON=/tmp/model-tools-venv/bin/python3" >> "$GITHUB_ENV"
           echo "ASR 校验依赖安装成功（venv，哈希钉版）"
-
-      # ── 编译门禁（build-for-testing）：失败即停 ───────
-      - name: 编译门禁（build-for-testing）
-        env:
-          MODEL_PYTHON: /tmp/model-tools-venv/bin/python3
-        run: |
-          set -o pipefail
-          mkdir -p Build
-          DEST=$(python3 - <<'PY'
-          import json, subprocess
-          d = json.loads(subprocess.check_output(["xcrun","simctl","list","--json","devices","available"]))
-          pairs = [(rt, v["name"], v["udid"]) for rt, devs in d["devices"].items()
-                   for v in devs if v.get("isAvailable") and v["name"].startswith("iPhone")]
-          spec = [p for p in pairs if p[1] == "iPhone 15"]
-          pick = spec[0] if spec else sorted(pairs)[0]
-          print(f"platform=iOS Simulator,id={pick[2]}")
-          PY
-          )
-          echo "destination: $DEST"
-          # 评审修正第二轮（三份拷贝合并）：L1 单元/UI 两步复用同一目的地——
-          # 模拟器解析逻辑单一来源，命名漂移只改一处
-          echo "DEST=$DEST" >> "$GITHUB_ENV"
-          # 子项目 I（CI 34758298829 实证）：swift-perception 带 SwiftPM 宏目标（PerceptionMacros），
-          # Xcode 15+ 对第三方宏做指纹信任校验，无人值守构建报「Macro … must be enabled before it
-          # can be used」。-skipMacroValidation 等价 IDESkipMacroFingerprintValidation；供应链约束由
-          # project.yml exactVersion + Package.resolved 钉版承担，不在此处放松。四处 xcodebuild 同旗标。
-          # 类型检查预算诊断（业主 2026-09-17 定：仅告警，不阻断）。
-          # CI 35166937683 实证：`List → ForEach → WithPerceptionTracking` 里 13 实参 + 链式
-          # 修饰符的 View 表达式会让编译器 abort（unable to type-check in reasonable time），
-          # 而这族在本机无型检通道时**永远看不见**——本轮为此烧了 3 轮 CI（≈57 分钟）。
-          # 业界口径：用编译器自带的开关，而非自研启发式；且**不得**配 warnings-as-errors——
-          # 该告警非确定（同一表达式在慢机器上更容易越线），做硬门禁会随机红。
-          # 详见 discussions/2026-09-17-confirm-review-benchmark-round1.md §8.1。
-          # 诊断先关 errexit（同 CoreKit 步：bash -e 会在管道失败瞬间杀步）
-          set +e
-          xcodebuild build-for-testing \
-            -skipMacroValidation \
-            -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -destination "$DEST" \
-            -derivedDataPath Build/DerivedData \
-            MARKETING_VERSION="${{ needs.version.outputs.version }}" \
-            CURRENT_PROJECT_VERSION="${{ needs.version.outputs.build }}" \
-            VITA_LIBER_CODE_HASH="${{ needs.version.outputs.hash }}" \
-            COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-            OTHER_SWIFT_FLAGS='-Xfrontend -warn-long-expression-type-checking=500 -Xfrontend -warn-long-function-bodies=1000' \
-            2>&1 | tee Build/xcodebuild-build.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            # 2026-10-03 审计：编译失败摘要落 step summary + 注解（公开可读），
-            # 与本步 tee 的完整日志互补——远端排障不再盲猜（CI #629-#633 盲区复盘）。
-            {
-              echo "### xcodebuild 编译失败摘要（自动截取 tail 60 行原文）"
-              echo '```'
-              tail -60 Build/xcodebuild-build.log || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "error:" Build/xcodebuild-build.log | head -10 | while IFS= read -r line; do
-              echo "::error::xcodebuild: $line"
-            done || true
-            tail -8 Build/xcodebuild-build.log | while IFS= read -r line; do
-              echo "::error::xcodebuild: $line"
-            done || true
-            exit "$status"
-          fi
-          echo "编译门禁通过 ✓"
-
-      # 型检预算报告（仅告警）：即使编译失败也出报告——失败时最需要它。
-      - name: 类型检查预算报告（超预算表达式 / 函数体）
-        if: always()
-        run: |
-          LOG=Build/xcodebuild-build.log
-          if [ ! -f "$LOG" ]; then echo "无构建日志，跳过"; exit 0; fi
-          # 带出「文件:行号」，直接可点；同时打日志与 step summary——本仓的检索习惯是读日志，
-          # 只写 summary 等于只有点开 UI 才看得见（首轮实测如此）。
-          grep -E 'took [0-9]+ms to (type-check|compile)' "$LOG" | sort -u > /tmp/long-typecheck.txt || true
-          {
-            echo "## 类型检查预算（表达式 >500ms / 函数体 >1000ms）"
-            echo ""
-            echo "告警不代表失败（该告警非确定，故不阻断）——但反复出现的表达式应当拆解。"
-            echo ""
-            if [ -s /tmp/long-typecheck.txt ]; then
-              echo '```'
-              head -40 /tmp/long-typecheck.txt
-              echo '```'
-            else
-              echo "无超预算表达式 ✓"
-            fi
-          } | tee /tmp/long-typecheck-summary.md >> "$GITHUB_STEP_SUMMARY"
-
-      # ── L1 测试（评审修正 C4 + 业主决定第 7 项）────────────
-      # 此前全流水线仅 build-for-testing（编译），gate-suites.tsv 里 26 个
-      # required 测试套件**从未被执行**——「套件存在」≠「套件跑过」
-      # （ERR#27/30/39 同族）。业主决定：Linux CoreKit job 整体移除，
-      # 应用层/UI 套件在 iOS 模拟器真实执行（scheme 测试目标 =
-      # VitaLiberTests + VitaLiberUITests）；CoreKit 包测试由上方
-      # `swift test` 步骤在 macOS runner 真实执行（XcodeGen 不支持
-      # 包测试目标进 scheme）。复用 build-for-testing 产物
-      # （test-without-building）省去二次编译；任一 red 即阻断归档上传。
-      - name: L1 单元测试（VitaLiberTests）
-        run: |
-          set -o pipefail
-          echo "destination: ${DEST}"
-          # 同 CoreKit/编译门禁步：诊断先关 errexit，失败摘要/注解可达
-          set +e
-          xcodebuild test-without-building \
-            -skipMacroValidation \
-            -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -destination "$DEST" \
-            -derivedDataPath Build/DerivedData \
-            -only-testing:VitaLiberTests \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee Build/xcodebuild-test.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            {
-              echo "### L1 单元测试失败摘要（自动截取 tail 60 行原文）"
-              echo '```'
-              tail -60 Build/xcodebuild-test.log || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            grep -E "recorded an issue|Expectation failed|XCTAssert" Build/xcodebuild-test.log | head -10 | while IFS= read -r line; do
-              echo "::error::xcodebuild-test: $line"
-            done || true
-            tail -4 Build/xcodebuild-test.log | while IFS= read -r line; do
-              echo "::error::xcodebuild-test: $line"
-            done || true
-            exit "$status"
-          fi
-          echo "L1 单元测试通过 ✓"
-
-      # ── L1 UI 测试（XCUITest，CLAUDE.md L1 第二条命令）────────
-      - name: L1 UI 测试（VitaLiberUITests）
-        run: |
-          set -o pipefail
-          echo "destination: ${DEST}"
-          # 失败重试（2026-09-16，CI 35061342620 实证）：
-          # `Failed to launch ... via Xcode: Timed out while launching application`
-          # 是 XCUITest 在 CI 上的**已知环境抖动**（冷模拟器 / runner 资源竞争），
-          # 不是产品缺陷——同一份 App 代码在 35058385040 通过、在 35061342620 因启动
-          # 超时失败，两次唯一的差别是 runner 状态。Apple 为此提供
-          # `-retry-tests-on-failure`，UI 测试失败重试是业界标准做法。
-          #
-          # **重试不得静默**（本仓 ERR#27「缺证据被当成有证据」纪律）：下方在最终
-          # 通过时反查日志里的失败计数，若曾出现失败即打印告警——重试掩盖真实缺陷
-          # 是本仓明令禁止的，必须让人看见并判断「是不是抖动」。
-          #
-          # 不加 `-test-iterations 2`（评审指出）：它会让**全部** UI 测试基线时长翻倍，
-          # 且每次迭代都重启一次 App——恰好**增加**了本项要防御的启动超时抖动的暴露
-          # 次数（每次启动是独立抖动机会），与防御目标相抵。`-retry-tests-on-failure`
-          # 单独即达成「容忍单次抖动」，且只在真的失败时才多跑一次。
-          # 同族诊断：先关 errexit，失败摘要/注解可达（bash -e 杀诊断块族）
-          set +e
-          xcodebuild test-without-building \
-            -skipMacroValidation \
-            -project "$XCODEPROJ" -scheme "$SCHEME" \
-            -destination "${DEST}" \
-            -derivedDataPath Build/DerivedData \
-            -only-testing:VitaLiberUITests \
-            -retry-tests-on-failure \
-            CODE_SIGNING_ALLOWED=NO \
-            2>&1 | tee Build/xcodebuild-uitest.log
-          status=${PIPESTATUS[0]}
-          set -e
-          if [ "$status" -ne 0 ]; then
-            {
-              echo "### L1 UI 测试失败摘要（自动截取 tail 60 行原文）"
-              echo '```'
-              tail -60 Build/xcodebuild-uitest.log || true
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-            tail -12 Build/xcodebuild-uitest.log | while IFS= read -r line; do
-              echo "::error::xcodebuild-uitest: $line"
-            done || true
-            exit "$status"
-          fi
-          if grep -qE "with [1-9][0-9]* failure" Build/xcodebuild-uitest.log; then
-            echo "::warning::UI 测试曾失败并被重试后通过——请核对 Build/xcodebuild-uitest.log 是启动抖动还是真实缺陷。重试只容忍环境抖动，不容忍产品缺陷。"
-            grep -nE "Timed out while launching|with [1-9][0-9]* failure" Build/xcodebuild-uitest.log | head -10
-          fi
-          echo "L1 UI 测试通过 ✓"
-
-      # ── 签名归档 + 导出 IPA ──────────────────────────
       - name: 签名归档 + 导出 IPA
         if: ${{ env.HAS_CERTS == 'true' }}
         env:
@@ -624,9 +397,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -o pipefail
-          VERSION="${{ needs.version.outputs.version }}"
-          BUILD="${{ needs.version.outputs.build }}"
-          HASH="${{ needs.version.outputs.hash }}"
+          VERSION="${{ steps.ver.outputs.version }}"
+          BUILD="${{ steps.ver.outputs.build }}"
+          HASH="${{ steps.ver.outputs.hash }}"
           ARCH="Build/VitaLiber.xcarchive"
           rm -rf "$ARCH" Build/export
           # 同族诊断：先关 errexit（bash -e 杀诊断块族）
@@ -687,7 +460,9 @@ jobs:
                   <key>$APP_ID</key><string>$PROFILE_NAME</string>
               </dict>
               <key>uploadSymbols</key><true/>
-              <key>compileBitcode</key><false/>
+              <!-- 2026-10-07 P2：Xcode 13+ 默认代管构建号会改写 CFBundleVersion,
+                   使复核「精确匹配本次 build」永不命中（假红/假宽容）——显式钉死。 -->
+              <key>manageAppVersionAndBuildNumber</key><false/>
           </dict>
           </plist>
           PLIST
@@ -745,10 +520,13 @@ jobs:
       - name: 清理构建签名材料
         if: ${{ always() }}
         run: |
-          rm -rf "$GITHUB_WORKSPACE/private_keys" "$HOME/.appstoreconnect"
+          rm -rf "$GITHUB_WORKSPACE/private_keys"
           rm -f "$RUNNER_TEMP/dev_cert.p12" "$RUNNER_TEMP/dis_cert.p12" \
             "$HOME/Library/MobileDevice/Provisioning Profiles/dev.mobileprovision" \
-            build.keychain-db build.keychain exportOptions.plist
+            exportOptions.plist
+          # 2026-10-07 P2 修复：原 rm 相对路径是 no-op（钥匙串在 ~/Library/Keychains/）——
+          # 改用 security delete-keychain 真正删除。
+          security delete-keychain build.keychain 2>/dev/null || true
 
       # ── 失败诊断 artifact（审计 2026-09-10 新增）────────
       # hosted runner 销毁后失败证据即灭失；此前只能靠 workflow 日志猜。
@@ -759,7 +537,6 @@ jobs:
           name: build-diagnostics
           path: |
             Build/*.log
-            Build/corekit-swift-test.log
             Build/xcodebuild-*.log
             Build/brew-xcodegen.log
           retention-days: 7
@@ -770,10 +547,11 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   upload:
     name: '上传 TestFlight'
-    needs: [version, build]
+    needs: [build, gates]
     # 与 build job 同钉 macos-26（审计 2026-09-10），防工具链漂移。
     runs-on: macos-26
-    timeout-minutes: 20
+    # P2：altool ~95s + 复核收窄后 ≤~4min + 固定开销——15 保留 3x 余量。
+    timeout-minutes: 15
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     steps:
       # 哈希钉版清单（requirements-asc-tools.txt）随仓获取，与 build job 同纪律。
@@ -783,13 +561,13 @@ jobs:
       - name: 检出仓库（哈希钉版依赖清单）
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
-      # 钉版 Python（2026-09-21）：pip --require-hashes 钉的轮子按解释器版本取
-      # 哈希（cffi cp313），镜像默认 python3 漂移会让安装响亮失败；与 build job
-      # 同 3.13.5，三 job 解释器一致。
+      # 钉版 Python（2026-09-21；2026-10-07 P2 宽 pin）：pip --require-hashes 钉的
+      # 轮子按解释器版本取哈希（cffi cp313）——3.13 宽 pin 命中 macos-26 镜像
+      # toolcache（3.13.15），精确 3.13.5 会走下载（省 ~25s/job）。
       - name: 配置钉版 Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:
-          python-version: '3.13.5'
+          python-version: '3.13'
 
       # 2026-09-27 委员会裁决 P6：build 成功但无 IPA = 签名材料缺失——具名失败，
       # 而非在 download-artifact 处以 "No artifacts found" 谜之失败。
@@ -1015,7 +793,8 @@ jobs:
             curl -sS -g --max-time 30 --config "$cfg" "$url"
             rm -f "$cfg"
           }
-          # ② 查询本次 buildUpload 的 Apple 处理状态/错误（若捕获到 UUID）
+          # ② 查询本次 buildUpload 的 Apple 处理状态/错误（若捕获到 UUID）——
+          # 2026-10-07 P2：错误即刻硬红（秒级失败证据,不再等满轮询窗口）。
           if [ -n "${DELIVERY_UUID:-}" ]; then
             TOKEN=$(mk_token || true)
             if [ -n "$TOKEN" ]; then
@@ -1043,6 +822,12 @@ jobs:
           if not (st.get('errors') or st.get('warnings')):
               print('(无 errors/warnings)')
           PYEOF
+              )
+              echo "$UPLOAD_EARLY"
+              if echo "$UPLOAD_EARLY" | grep -q '!! errors:'; then
+                echo "::error::buildUpload state.errors 非空——Apple 已出具失败证据（秒级）;见上方详情"
+                exit 1
+              fi
             fi
           fi
           # 解析要查询的 App id（优先 preflight 写入的 APP_ID；为空则按 bundleId 反查）
@@ -1065,12 +850,13 @@ jobs:
           # 旧 build 当成「本次已登记」（实证：本轮 306.1 上传后，复核在第 1
           # 次轮询命中旧 build 305.1 即报「已登记」）。改为精确匹配本次
           # BUILD（= CFBundleVersion），登记结论与合规告警才指向本次 build。
-          EXPECTED="${{ needs.version.outputs.build }}"
+          EXPECTED="${{ steps.ver.outputs.build }}"
           found=0
-          # 12×30s = 6 分钟窗口（2026-09-10 审计：4 分钟窗口在 Apple 处理
-          # 慢日会假阴性——build 320.1 实测 >4 分钟仍未入列，受理本身
-          # 无错误；窗口延长降噪，不改变「精确匹配才报已登记」的语义）
-          for i in $(seq 1 12); do
+          # 3×30s = 90s 列表确认（2026-10-07 P2 收窄,业主裁决）：Apple 侧入列
+          # 延迟是常量（实测 ~4min）——正面证据改由上方 buildUploads 秒级查询承担
+          #（无 errors 即受理证据）；本循环只做「更快看到已登记」的增量确认。
+          # 三档判定与红条件不变（未入列且 state=PROCESSING → 宽容档绿）。
+          for i in $(seq 1 3); do
             TOKEN=$(mk_token || true)
             if [ -z "$TOKEN" ]; then
               echo "::error::JWT 生成失败——「受理≠登记」，无 Apple 侧正面证据不得以绿色冒充成功（委员会 P4）"
@@ -1142,6 +928,19 @@ jobs:
               echo "::warning::build ${EXPECTED} 尚未入列表但 buildUpload state=PROCESSING——Apple 自证处理中（慢日档），后续请用 maintenance workflow 的 asc-status job 核对"
             fi
           fi
+
+      # 2026-10-07 P2：altool/复核日志此前只落上传 job 工作区,随 runner 销毁灭失——
+      # 与 build 侧同款 7 天诊断 artifact（唯一比当天更长寿命的公开证据通道）。
+      - name: 上传诊断日志（失败/取消时）
+        if: ${{ failure() || cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: upload-diagnostics
+          path: |
+            Build/*.log
+            Build/altool-upload.log
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: 清理上传凭据
         if: ${{ always() }}
