@@ -829,7 +829,8 @@ private struct ModelTaskSwipeRow<Content: View>: View {
     /// 触发与手势 onEnded 无顺序保证——没有这个抑制，滑动揭示会变成「点开详情」
     /// 或「刚展开就弹回」，见 2026-10-06 评审）。
     @State private var lastDragAt = Date.distantPast
-    private static let tapSuppressionWindow: TimeInterval = 0.3
+    /// 泛型结构体禁存储型 static 属性（CI 37428471794 实证）——实例常量承载。
+    private let tapSuppressionWindow: TimeInterval = 0.3
 
     var body: some View {
         ZStack {
@@ -839,7 +840,7 @@ private struct ModelTaskSwipeRow<Content: View>: View {
                 if let trailing { actionButton(trailing) }
             }
             Button {
-                if Date().timeIntervalSince(lastDragAt) < Self.tapSuppressionWindow { return }
+                if Date().timeIntervalSince(lastDragAt) < tapSuppressionWindow { return }
                 if offset != 0 {
                     snap(to: 0)
                 } else {
