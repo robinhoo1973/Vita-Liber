@@ -339,6 +339,10 @@ final class ASRInstallCenter {
             if case .failure(let error)? = outcome.value { return error is ASRInstallPausedInterruption }
             return false
         }()
+        // 服务端暂停登记（actor 隔离方法）：awaited 值必须提前取出——`||` 右侧是
+        // autoclosure，await 不得出现在其中（CI 37430843824 实证：'await' cannot
+        // appear to the right of a non-assignment operator）。
+        let serverPauseRequested = await service.isPauseRequested(choice)
         if completed {
             // 暂停与完成竞态（2026-10-06）：系统已取走续跑任务后用户按暂停——操作
             // 已真实完成，完成事实优先（清暂停态走完成分支），不留在「已暂停」假态。
@@ -357,7 +361,7 @@ final class ASRInstallCenter {
             if finished.count > 8 { finished.removeFirst(finished.count - 8) }
             // 资产失效广播：语言列表/档位可用性据此重算（下载完了才能选）。
             dataChange.assetsChanged()
-        } else if pauseInterrupted || install.isPaused || await service.isPauseRequested(choice) {
+        } else if pauseInterrupted || install.isPaused || serverPauseRequested {
             // 暂停：不记失败、不广播——卡片保留（defer 依 `isPaused` 保留），进度停在
             // 暂停点，恢复经 `resume` 从服务端续传暂存接续。
             // 2026-10-06 评审修正：以服务端登记为第二判据——传输层中断可能先于 App 侧
