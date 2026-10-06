@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.2（2026-10-05）
+> 版本：V1.3（2026-10-06）
 
 ## 版本与资产来源
 
@@ -18,7 +18,9 @@
 - **`index.models[]`**：发布条目——同 `id` 可多档（`variant`: tiny/base/small/medium/turbo/large，按体积升序加权）；每档携带 `tierName`（档位短标签）与 `tierHint`（参数/性能说明）本地化文案。App 下载信息卡按 `families[]` 生成行、按 `models[]` 生成档位选择器与下载/更新/换档按钮。
 - **App 侧兜底**：旧目录缺 families/tierName/tierHint 时，UI 回落到 L10n 通用文案（不内置任何型号名称/性能声称）。`asr_package.py validate_index` 强制 families 覆盖全部模型 id（客户端 `ModelCatalogTrustStore` 收单处同检，fail-closed）。
 - **预告家族（2026-10-05 业主指令）**：`index.families[]` 条目可携带 `availability: "upcoming"`——零档位预告（后期评估入列的家族随目录呈现，下载卡显示「即将上线」并隐藏下载控件）。发布侧闸：families 多于模型集的 id 必须全部标记 upcoming，常规家族缺档位 = 硬错；客户端接受闸镜像同一规则（App 不内置任何家族清单，标记语义完全来自目录）。
-- **当期矩阵（2026-10-05 钉版，按上游可得性如实矩阵化）**：whisper base/small/medium（3 档）+ dolphin base/small（2 档）+ qwen3 medium + zipformer large（双语上游仅一档）= 7 档。zipformer 14M 小模型不在本期矩阵——其上游仓库无 bpe.vocab 而运行时 zipformer 装配硬写 cjkchar+bpe（`ASRModelAssets.runtimeRoles` 含 bpe），纳入需运行时改造，登记为后续决定；sense-voice/fire-red/moonshine 以 `availability: "upcoming"` 零档位预告（iOS 适用性评估后扩档，7 族 13 档 ≈5.2GiB 目标）。新档位权重钉版数据步产物见 `scripts/release/` 同族纪律（HF resolve 直链 + revision 哈希 + 实测 sha256/bytes，Xet CAS 非文件 sha256 不得用作钉版哈希——2026-10-05 实测教训）。仓库数据文件由 `test-asr-assets.py` 实文件门禁守护（解析 + validate_index + index↔manifest 档位对齐 + bundledModels 声明）。
+- **当期矩阵（2026-10-06 v7 全档钉版）**：whisper tiny/base/small/medium/turbo（5 档）+ dolphin base/small（2 档）+ zipformer small（14M 中文）/large（2 档）+ qwen3 medium + sense-voice small + fire-red large（v2 CTC）+ moonshine tiny = **7 家族 13 档**。zipformer 小档为 14M 中文模型（上游无 bpe.vocab）——运行时装配随资产存在性切换 `cjkchar`/`cjkchar+bpe`（`ASRModelAssets.Validated.optionalPath`），构建角色契约同语义（bpe 可选）。fire-red 用 v2 CTC 单文件布局（`fire_red_asr_ctc.model`）；sense-voice 权重许可为 FunASR 模型开源许可协议（`model-license`）。权重钉版纪律：HF resolve 直链 + revision 哈希 + 实测 sha256/bytes；Xet CAS 是块级哈希≠文件 sha256，不得用作钉版哈希；续传产物必须整文件哈希校验（字节数对齐≠内容完整）。
+- **单一 JSON 架构（2026-10-06 业主裁定）**：CNB 只承载**模型包 + 固定名 `manifest.json`**（签名信封，TUF fixed-name 形态——单调 `catalogVersion` 在签名载荷内，回滚防护 = 载荷单调闸 + 客户端持久化回滚守卫；根资产与版本化目录/回执不再上传）。仓库 `Resources/ASRModelUpdates/manifest.json` 是唯一数据文件（家族 + 全档位 + 能力描述；旧 `index.json`/`N.catalog.json` 已退役）。`publish` 开关已删除——workflow 一气呵成：构建 → 现场签名（`ASR_SIGNING_KEYS_JSON`，无密钥=硬错）→ 验证 → 发布 CNB（幂等 upsert + 回读核对）。包命名去重段：`<id>-<variant>-<上游版本>-<builtAt>-r<N>.zip`（version 不再内嵌档位名）。App 侧发现链：tag 页确认 `manifest.json` 存在 → 固定名下载 → 验签（目录 + 逐包 `packageSignature`）。
+- **zip 包级签名（2026-10-06 业主指令）**：签名器对每包 sha256 摘要做域分离（`vitaliber/asr/package-sha256/v1/` + 32 字节摘要）Ed25519 多重签名，密钥面 = 目录同源 `catalogKeyIDs`（2-of-3），随载荷内 `packageSignature` 分发；App 下载后重算 sha256 先验摘要签名再比对摘要（`ModelCatalogTrustStore.verifyPackageSignature`），验不过 = 硬错不可使用。
 - 引擎支持集合（`VoiceEngineChoice` 枚举）只是渲染上限：目录新增家族需先发 App 版本加入枚举；未知 id 被旧 App 静默跳过。
 
 ## 工作流
@@ -108,6 +110,7 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish
 
 ## 变更记录
 
+- V1.3（2026-10-06）：13 档全矩阵（7 家族实档）与单一 JSON 架构（manifest.json 固定名 + 包级 Ed25519 签名 + publish 开关删除 + 命名去重段）；CNB 资产面收敛为「模型包 + manifest.json」。
 - V1.2（2026-10-05）：模型家族与档位改为目录驱动（families[]/tierName/tierHint 单一事实源，App 零内置模型数据表；引擎支持枚举只是渲染上限）；基线剖面按 bundledModels 声明裁剪；加密信封帧合同修正（nonce 不入帧）与 nonce 派生长度合同（python len=12 == Swift 32 字节派生前缀 12，RFC 5869 前缀性质）；HKDF 改为 HMAC 原语手动展开（CryptoKit 泛型糖 macOS CI 两轮过载解析失败 37315378507/37327812812，已记录例外，金样测试钉字节一致）。
 - V1.1（2026-10-05）：ASR_PACKAGE_KEY 本地脚本引导（`init_asr_secrets.py`：生成 → 注册 secret → 改写内嵌密钥，CI 只做有值校验）+ 轮换语义与签名密钥例外说明；签名流程更新为 CI 候选签名 + 人工提交目录；`workflow_call.secrets` 的 `required: true` 降级为 job 内前置校验（消除无日志 startup_failure 族）。
 - V1.0（2026-09-12）：Releases-only、version.txt、独立/可调用 ASR 构建、runner 临时产物与签名动态更新合同。
