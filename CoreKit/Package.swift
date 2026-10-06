@@ -18,11 +18,6 @@ let package = Package(
         // MIT 许可、SPM、无网络/遥测、纯 Swift+zlib；退出成本低（仅在
         // ASRModelDownloadService 一处使用，替换为 AppleArchive 只改该文件）。
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
-        // Medical catalog Release: age X25519 decryption adapter. The catalog
-        // remains a separate read-only SQLite; this dependency is used only by
-        // the explicit update path, never by the patient database.
-        .package(url: "https://github.com/jamesog/AgeKit.git",
-                 revision: "7d3a1c53d056c410a7b459671c3f37ad4c654544"),
         // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
                  revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
@@ -62,8 +57,6 @@ let package = Package(
                 // ZIPFoundation：仅 iOS/macOS 链接（Linux 测试宿主不涉运行时下载）。
                 .product(name: "ZIPFoundation", package: "ZIPFoundation",
                          condition: .when(platforms: [.iOS, .macOS])),
-                .product(name: "AgeKit", package: "AgeKit",
-                         condition: .when(platforms: [.iOS, .macOS])),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS])),
                 // T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）。
@@ -90,7 +83,12 @@ let package = Package(
         .binaryTarget(
             name: "LlamaFramework",
             url: "https://github.com/robinhoo1973/Vita-Liber/releases/download/llama-xcframework/llama-b11012-xcframework.zip",
-             checksum: "4f1c518268e68ce1fada40a4674d72d3847488cbe1d2a808d3ed6e68b6dd242f"
+            // 校验和 = 发布资产 sha256（SPM binaryTarget 强制）。**重建资产必须同步
+            // 本值**：2026-10-06 资产消亡后经 build-llama-xcframework.yml 重建
+            //（run 37479560076），digest 由 4f1c5182… 更新为 effe9b41…（重建非字节
+            // 复现,旧钉值会以 checksum mismatch 红掉一切冷路径——ci-tests 首跑族）。
+            // 取新值：gh api repos/robinhoo1973/Vita-Liber/releases/tags/llama-xcframework --jq '.assets[0].digest'
+             checksum: "effe9b41632bea2b27ebfc78b1610f8aa8fd5e182e2b8b4d9238073b40eaef21"
         ),
     ],
     cxxLanguageStandard: .cxx17
