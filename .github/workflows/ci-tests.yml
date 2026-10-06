@@ -89,6 +89,10 @@ jobs:
           set -o pipefail
           mkdir -p Build
           cd CoreKit
+          # 防御（2026-10-07，CI 37517009998 实证）：恢复的缓存可能携带陈旧
+          # workspace-state.json（旧 binaryTarget 校验和），SwiftPM 反篡改守卫
+          # 据此拒载新产物——清状态强制重解析（检出仍在,重解析秒级）。
+          rm -f .build/workspace-state.json
           # 诊断先关 errexit：默认 shell bash -e 会在管道失败瞬间杀步，
           # 失败摘要/注解块永远执行不到（CI #634 实证：零注解）。
           set +e
@@ -240,6 +244,9 @@ jobs:
           # 评审修正第二轮（三份拷贝合并）：L1 单元/UI 两步复用同一目的地——
           # 模拟器解析逻辑单一来源，命名漂移只改一处
           echo "DEST=$DEST" >> "$GITHUB_ENV"
+          # 防御（同 corekit 步）：恢复的 SourcePackages 可能含陈旧
+          # workspace-state.json——xcodebuild 亦受 SwiftPM 反篡改守卫约束。
+          rm -f Build/DerivedData/SourcePackages/workspace-state.json
           # 子项目 I（CI 34758298829 实证）：swift-perception 带 SwiftPM 宏目标（PerceptionMacros），
           # Xcode 15+ 对第三方宏做指纹信任校验，无人值守构建报「Macro … must be enabled before it
           # can be used」。-skipMacroValidation 等价 IDESkipMacroFingerprintValidation；供应链约束由
