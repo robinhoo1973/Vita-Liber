@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from asr_package import decode_json
-from asr_signing import key_id, sign_envelope
+from asr_signing import b64, key_id, sign_envelope
 from model_trust import verify_catalog
 
 
