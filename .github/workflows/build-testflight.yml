@@ -137,8 +137,11 @@ jobs:
           # while the old artifact remains valid in a broad restore-key cache.
           # Never restore a pre-checksum-update artifact into SwiftPM.
           key: spm-v2-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
-          restore-keys: |
-            spm-v2-${{ runner.os }}-
+          # 2026-10-07 移除 restore-keys（原 CI-37480186873/37517009998 实证）：
+          # 键变更日（Package.swift 等入哈希）前缀命中的旧缓存携带旧
+          # workspace-state.json——SwiftPM 反篡改守卫据其拒载新校验和产物
+          #（'artifact has changed checksum … won't be downloaded'）,冷路径
+          # 反而健康。键变更时全冷重建的代价（依赖重编）换确定性。
 
       # 构建阶段脚本（Xcode 预构建阶段生成信任哈希基线）需要哈希钉版的
       # 校验工具依赖——缺此步骤时该阶段在编译门禁处以导入错误红（上一轮
