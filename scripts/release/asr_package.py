@@ -239,7 +239,15 @@ def manifest_files(manifest, model_id, variant=None):
     model = matches[0]
     files = model.get("files", [])
     runtime = [f["role"] for f in files if f["role"] != "notice"]
-    if set(runtime) != ROLES[model_id] or len(runtime) != len(set(runtime)):
+    expected = set(ROLES[model_id])
+    valid = set(runtime) == expected and len(runtime) == len(set(runtime))
+    if model_id == "zipformer":
+        # 2026-10-06 zipformer-14M 支持:bpe 为可选角色——双语档有 bpe.vocab
+        # (全角色),14M 中文小模型上游无(恰缺 bpe 一种);两种形态均合法,
+        # 其余缺/增/重复仍拒。运行时装配随资产存在性切换 cjkchar/bpe。
+        valid = valid or (set(runtime) == expected - {"bpe"}
+                         and len(runtime) == len(set(runtime)))
+    if not valid:
         raise ValueError("Missing/duplicate/unexpected runtime role: " + model_id)
     shared = manifest.get("shared", []) if model_id != "zipformer" else []
     if model_id != "zipformer" and [f["role"] for f in shared if f["role"] != "notice"] != ["vad"]:
