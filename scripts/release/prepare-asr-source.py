@@ -19,7 +19,7 @@ import tempfile
 import urllib.error
 import urllib.request
 
-from asr_package import decode_json, validate_index
+from asr_package import decode_json, decode_manifest_data_file, validate_index
 from cnb_release import public_download_url
 
 TOOLS = Path(__file__).resolve().parent
@@ -160,7 +160,8 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
         raise ValueError("Invalid repository")
-    index = decode_json(args.index.read_bytes())
+    # 两态读取(2026-10-06 单一 JSON 架构):仓库面 manifest.json 为签名信封
+    index = decode_manifest_data_file(args.index)
     prepare(index, args.index, args.source, args.root, args.cache, args.repository)
 
 
