@@ -308,9 +308,14 @@ final class ASRInstallCenter {
         // 待处理续跑任务）。
         let outcome = ValueBox<Result<Void, Error>>()
         // 用户动作发起 → 统一入口 runContinued（iOS 26 续跑 + 系统进度；更早系统/提交失败回落前台直跑同一 operation）
+        // 系统任务面板副标题本地化（2026-10-06 三度评审登记项⑥）：此前直出
+        // 「qwen3 · medium」原始键（与「App 零内置型号名、文字由目录提供」裁定的
+        // 漏网面）。家族名/档位名优先取签名目录文案，旧目录缺字段回落原始键。
+        let familyName = ASRFamilyIndexStore.routingIndex()?.family(for: release.id)?.name?.resolved()
+        let tierName = release.tierName?.resolved()
         let completed = await BackgroundWorkScheduler.shared.runContinued(
             identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier,
-            title: L10n.asrModelDownloading, subtitle: [release.id, release.variant].compactMap { $0 }.joined(separator: " · ")) { progress, _ in
+            title: L10n.asrModelDownloading, subtitle: [familyName ?? release.id, tierName ?? release.variant].compactMap { $0 }.joined(separator: " · ")) { progress, _ in
             do {
                 // 直接投递到该安装自身的可观察对象（见 `Install` 说明）——不再经
                 // `active[index]` 变址写入，首页全量聚合因此不再被高频进度牵连。

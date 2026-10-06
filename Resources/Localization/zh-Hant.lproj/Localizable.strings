@@ -1813,7 +1813,7 @@
 "voiceLab.title" = "語音辨識試用";
 "voiceLab.engine.section" = "辨識引擎";
 "voiceLab.engine.footer" = "選擇用於語音速記與所有語音入口的引擎。切換在下一次辨識生效；正在收尾的結果會保留。";
-"voiceLab.engine.auto" = "自動（建議）";
+"voiceLab.engine.auto" = "自動";
 "voiceLab.engine.auto.hint" = "依所選語言與本機已安裝的模型自動選擇";
 "voiceLab.engine.advanced" = "智慧辨識（新系統）";
 "voiceLab.engine.advanced.hint" = "新一代裝置端模型：長錄音不中斷、口語更自然";

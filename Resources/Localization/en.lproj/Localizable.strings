@@ -1813,7 +1813,7 @@
 "voiceLab.title" = "Try Speech Recognition";
 "voiceLab.engine.section" = "Recognition engine";
 "voiceLab.engine.footer" = "Choose the engine shared by voice notes and all voice entry points. Changes apply to the next recording; pending results are retained.";
-"voiceLab.engine.auto" = "Automatic (recommended)";
+"voiceLab.engine.auto" = "Automatic";
 "voiceLab.engine.auto.hint" = "Chosen automatically from your languages and the models installed on this device";
 "voiceLab.engine.advanced" = "Advanced (new systems)";
 "voiceLab.engine.advanced.hint" = "Next-generation on-device model: uninterrupted long recordings, more natural speech";

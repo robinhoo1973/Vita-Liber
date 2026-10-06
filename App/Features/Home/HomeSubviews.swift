@@ -889,6 +889,9 @@ private struct ModelTaskSwipeRow<Content: View>: View {
         } label: {
             VStack(spacing: 4) {
                 Image(systemName: action.systemImage)
+                    // 图标观感（2026-10-06 业主反馈②）：caption 文本旁的默认图标偏小，
+                    // title3 与药丸 96×52 比例更协调（动态字体缩放，AX 档随字号成长）。
+                    .font(.title3)
                 Text(action.title).font(.caption)
             }
             .frame(width: actionWidth)
