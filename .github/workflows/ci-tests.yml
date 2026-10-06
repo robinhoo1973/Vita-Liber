@@ -23,6 +23,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # 与发布链同源（xcodegen / build-for-testing / L1 测试步引用）。
+  SCHEME: VitaLiber
+  XCODEPROJ: VitaLiber.xcodeproj
+
 jobs:
   # ── L0 静态门禁（ubuntu，与 macOS 链并行）──────────────────────────
   l0:
@@ -69,8 +74,13 @@ jobs:
         with:
           path: CoreKit/.build
           key: ck-v1-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift') }}
+          # 兜底前缀 spm-v2-：命中发布链暖缓存（其含 CoreKit/.build,其中有
+          # binaryTarget 已下载产物——llama-xcframework 资产 2026-10-06 实证缺失,
+          # 冷缓存下载必 404;见 discussions/2026-10-06-build-testflight-slim-round1.md）。
+          # 主键独立（ck-v1）避免与发布链 spm-v2 同键互写。
           restore-keys: |
             ck-v1-${{ runner.os }}-
+            spm-v2-${{ runner.os }}-
 
       - name: CoreKit 域层测试（swift test）
         run: |
@@ -141,11 +151,13 @@ jobs:
         with:
           path: |
             Build/DerivedData/SourcePackages
-          # Cache namespace bump: Package.swift binaryTarget checksums can change
-          # while the old artifact remains valid in a broad restore-key cache.
-          # Never restore a pre-checksum-update artifact into SwiftPM.
-          key: spm-v2-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
+          # 主键独立（spm-l1-v1）——与发布链 spm-v2 同键会让本 job 保存的
+          # 仅 SourcePackages 条目覆盖发布链条目,致发布链丢 CoreKit/.build 而
+          # 触发 binaryTarget 下载（llama 资产实测 404）。restore-keys 双前缀:
+          # 先命中自身,再兜底命中发布链暖缓存（含 SourcePackages）。
+          key: spm-l1-v1-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
           restore-keys: |
+            spm-l1-v1-${{ runner.os }}-
             spm-v2-${{ runner.os }}-
 
       - name: 环境与工具链
