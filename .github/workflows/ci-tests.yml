@@ -152,6 +152,7 @@ jobs:
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2（node24 运行时；固定完整 SHA）
         with:
           path: |
+            CoreKit/.build
             Build/DerivedData/SourcePackages
           # 与发布链 spm-v2 同键同路径集 + lookup-only：恢复其暖缓存,但绝不写
           # 新条目（旧设计的两个陷阱:子集路径→"版本"失配恢复不到;
