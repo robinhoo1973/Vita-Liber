@@ -72,15 +72,17 @@ jobs:
       - name: 缓存 CoreKit SPM 构建中间物
         uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2
         with:
-          path: CoreKit/.build
+          # **路径集必须与写入方（发布链 spm-v2 缓存）逐项一致**——actions/cache 的
+          # 缓存"版本"= 键+路径集哈希,子集请求与前缀 restore 均互不可见
+          #（CI 37480186873 实证 "Cache not found"）。lookup-only：只恢复不写新条目
+          #（防 1.7GB 配额翻倍）；未命中时回退冷路径（llama 资产已重建,下载 96MB 可通）。
+          path: |
+            CoreKit/.build
+            Build/DerivedData/SourcePackages
           key: ck-v1-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift') }}
-          # 兜底前缀 spm-v2-：命中发布链暖缓存（其含 CoreKit/.build,其中有
-          # binaryTarget 已下载产物——llama-xcframework 资产 2026-10-06 实证缺失,
-          # 冷缓存下载必 404;见 discussions/2026-10-06-build-testflight-slim-round1.md）。
-          # 主键独立（ck-v1）避免与发布链 spm-v2 同键互写。
           restore-keys: |
-            ck-v1-${{ runner.os }}-
             spm-v2-${{ runner.os }}-
+          lookup-only: true
 
       - name: CoreKit 域层测试（swift test）
         run: |
@@ -151,14 +153,13 @@ jobs:
         with:
           path: |
             Build/DerivedData/SourcePackages
-          # 主键独立（spm-l1-v1）——与发布链 spm-v2 同键会让本 job 保存的
-          # 仅 SourcePackages 条目覆盖发布链条目,致发布链丢 CoreKit/.build 而
-          # 触发 binaryTarget 下载（llama 资产实测 404）。restore-keys 双前缀:
-          # 先命中自身,再兜底命中发布链暖缓存（含 SourcePackages）。
-          key: spm-l1-v1-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
+          # 与发布链 spm-v2 同键同路径集 + lookup-only：恢复其暖缓存,但绝不写
+          # 新条目（旧设计的两个陷阱:子集路径→"版本"失配恢复不到;
+          # 同键异构写出→覆盖发布链条目反噬其 CoreKit/.build。CI 37480186873 实证）。
+          key: spm-v2-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
           restore-keys: |
-            spm-l1-v1-${{ runner.os }}-
             spm-v2-${{ runner.os }}-
+          lookup-only: true
 
       - name: 环境与工具链
         run: |
