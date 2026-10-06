@@ -29,7 +29,7 @@ MAX_TIERS_PER_MODEL = 5
 # 各家族许可:非 Apache-2.0 家族逐名登记(2026-10-06 钉版实测:
 # sense-voice 权重为 FunASR 模型开源许可协议 v1.1,fire-red 为 Apache-2.0
 # 取默认;whisper MIT)。
-LICENSES = {"whisper": "MIT", "sense-voice": "model-license"}
+LICENSES = {"whisper": "MIT", "sense-voice": "model-license", "moonshine": "MIT"}
 # 目录聚合预算:下载目录所有包 zip 字节合计的上限。2026-10-05 iOS 适用性评估后
 # 矩阵定为 7 族 13 档 ≈5.2GiB(4GiB 装不下),业主裁决「评估后可纳入」→ 提至 6GiB。
 ASR_CATALOG_BUDGET_BYTES = 6 * 1024**3
@@ -64,9 +64,9 @@ def decode_json(data):
     return json.loads(data, object_pairs_hook=unique_object)
 
 
-def decode_index_data_file(path):
+def decode_manifest_data_file(path):
     """数据文件两态读取(2026-10-06 业主单一 JSON 架构):Resources/ASRModelUpdates/
-    index.json 是唯一数据文件——签名信封形态(payload+signatures)时返回
+    manifest.json 是唯一数据文件——签名信封形态(payload+signatures)时返回
     payload["index"],裸索引形态(构建模板期/历史文件)原样返回。"""
     raw = decode_json(Path(path).read_bytes())
     if isinstance(raw, dict) and "payload" in raw and "signatures" in raw:
@@ -239,7 +239,15 @@ def manifest_files(manifest, model_id, variant=None):
     model = matches[0]
     files = model.get("files", [])
     runtime = [f["role"] for f in files if f["role"] != "notice"]
-    if set(runtime) != ROLES[model_id] or len(runtime) != len(set(runtime)):
+    expected = set(ROLES[model_id])
+    valid = set(runtime) == expected and len(runtime) == len(set(runtime))
+    if model_id == "zipformer":
+        # 2026-10-06 zipformer-14M 支持:bpe 为可选角色——双语档有 bpe.vocab
+        # (全角色),14M 中文小模型上游无(恰缺 bpe 一种);两种形态均合法,
+        # 其余缺/增/重复仍拒。运行时装配随资产存在性切换 cjkchar/bpe。
+        valid = valid or (set(runtime) == expected - {"bpe"}
+                         and len(runtime) == len(set(runtime)))
+    if not valid:
         raise ValueError("Missing/duplicate/unexpected runtime role: " + model_id)
     shared = manifest.get("shared", []) if model_id != "zipformer" else []
     if model_id != "zipformer" and [f["role"] for f in shared if f["role"] != "notice"] != ["vad"]:

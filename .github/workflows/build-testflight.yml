@@ -412,8 +412,28 @@ jobs:
           fi
           echo "CoreKit 域层测试通过 ✓"
 
+      # ── ASR 校验依赖（2026-10-06 CI 37391026526 实证）：Xcode 预构建脚本
+      # 「Generate trusted model hashes」经 model-trust.py → asr_package →
+      # asr_envelope 导入链需要 cryptography（R1 信封批引入）——macOS runner
+      # 不预装。哈希钉版 venv 一次装齐，MODEL_PYTHON 注入编译步使脚本用 venv
+      # 解释器（PEP 668 同族,ERR#54）。
+      - name: 安装 ASR 校验依赖（哈希钉版）
+        run: |
+          if [ ! -x /tmp/model-tools-venv/bin/python3 ]; then
+            python3 -m venv /tmp/model-tools-venv
+          fi
+          if ! /tmp/model-tools-venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-model-tools.txt" >/tmp/model-pip.log 2>&1; then
+            echo "::error::ASR 校验依赖安装失败"
+            cat /tmp/model-pip.log
+            exit 1
+          fi
+          echo "ASR 校验依赖安装成功（venv，哈希钉版）"
+
       # ── 编译门禁（build-for-testing）：失败即停 ───────
       - name: 编译门禁（build-for-testing）
+        env:
+          MODEL_PYTHON: /tmp/model-tools-venv/bin/python3
         run: |
           set -o pipefail
           mkdir -p Build

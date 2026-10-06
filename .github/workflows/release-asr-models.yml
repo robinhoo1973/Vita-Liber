@@ -4,11 +4,6 @@ name: Build ASR Model Packages
 
 on:
   workflow_call:
-    inputs:
-      publish:
-        description: 验证已签名目录后发布至 CNB asr-models（false 仅产候选 artifact）
-        type: boolean
-        default: true
     secrets:
       # 2026-10-03 cutover 定案:CNB 是唯一发布目的地;发布步骤缺失该令牌 = 硬红
       # (跳过发布 = 新签名目录从未进 CNB inventory,比红更糟的静默坏)。
@@ -31,11 +26,6 @@ on:
       ASR_PACKAGE_KEY:
         required: false
   workflow_dispatch:
-    inputs:
-      publish:
-        description: 验证已签名目录后发布（首次更新模型可设 false 生成待签名候选）
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -78,13 +68,12 @@ jobs:
       # 2026-10-05 审查修复:CNB_RESOURCE_TOKEN required 降级后,硬红语义在此
       # 显式落回——startup_failure 换成带日志的 job 内硬错(快速失败,不烧
       # 构建分钟)。
-      - name: 发布前置校验（publish=true 必须有 CNB 令牌）
-        if: ${{ inputs.publish }}
+      - name: CNB 令牌前置校验（发布是本链的既定终点）
         env:
           CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
         run: |
           if [ -z "$CNB_TOKEN" ]; then
-            echo "::error::publish=true 但 CNB_RESOURCE_TOKEN 缺失/为空——新签名目录将永远进不了 CNB inventory（比红更糟的静默坏）；补建 secret 后重跑" >&2
+            echo "::error::CNB_RESOURCE_TOKEN 缺失/为空——新签名目录将永远进不了 CNB inventory（比红更糟的静默坏）；补建 secret 后重跑" >&2
             exit 1
           fi
 
@@ -100,7 +89,7 @@ jobs:
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
           python3 scripts/release/prepare-asr-source.py \
-            --index Resources/ASRModelUpdates/index.json \
+            --index Resources/ASRModelUpdates/manifest.json \
             --source Resources/ASRModels \
             --root "$RUNNER_TEMP/asr-source" \
             --cache "$RUNNER_TEMP/asr-cache" \
@@ -110,39 +99,36 @@ jobs:
         run: |
           python3 scripts/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
-            --index Resources/ASRModelUpdates/index.json \
+            --index Resources/ASRModelUpdates/manifest.json \
             --output "$RUNNER_TEMP/asr-packages" \
             --reuse-directory "$RUNNER_TEMP/asr-cache"
 
-      # 2026-10-05 审查修复:此前该步 gated on inputs.publish——与 dispatch 输入
-      # 的声明(publish=false = 生成待签名候选)直接矛盾:轮换流的第一步(先产候选、
-      # 人工提交、再跑 publish=true)永远拿不到候选目录。改回无条件执行;
-      # 缺 ASR_SIGNING_KEYS_JSON 时自跳过(目录不变无需轮换),publish=false
-      # 的构建/验证仍完整。
-      - name: 生成候选签名目录（轮换时人工提交后进验证链）
+      # 2026-10-06 业主指令(不建议 publish 开关):构建→签名→验证→发布一气呵成。
+      # 构建产物在现场以签名密钥签名成发布用 manifest.json(无密钥=硬错,
+      # 发布需要签名目录;签名器内置 verify_catalog 自校验含包级签名验真)。
+      - name: 生成签名目录（发布面单一 manifest.json）
         env:
           ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
         run: |
           if [ -z "$ASR_SIGNING_KEYS_JSON" ]; then
-            echo "ASR_SIGNING_KEYS_JSON 未注入——跳过候选签名（目录不变无需轮换）"
-            exit 0
+            echo "::error::ASR_SIGNING_KEYS_JSON 缺失——发布需要签名目录（init_asr_secrets 时代已注册,检查 secret）" >&2
+            exit 1
           fi
           root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
-          catalog_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ASRModelUpdates/index.json"))["payload"]))["catalogVersion"] + 1)')
+          catalog_version=$(python3 scripts/release/next-catalog-version.py --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}")
           python3 scripts/release/sign-asr-catalog.py \
             --root Resources/ModelTrustRoot.json \
             --index "$RUNNER_TEMP/asr-packages/index.json" \
             --root-version "$root_version" \
             --catalog-version "$catalog_version" \
-            --output "$RUNNER_TEMP/asr-packages/candidate-index.json"
-          echo "candidate-index.json 已生成（catalogVersion=$catalog_version）——下载本步产物、核对后提交 Resources/ASRModelUpdates/index.json（单一数据文件）"
+            --output "$RUNNER_TEMP/asr-packages/manifest.json"
+          echo "manifest.json 已签名（catalogVersion=$catalog_version）"
 
-      - name: 核对公开签名与实际生成的包索引
-        if: ${{ inputs.publish }}
+      - name: 核对签名目录与实际生成的包索引
         run: |
           python3 scripts/release/model-trust.py verify \
             --root Resources/ModelTrustRoot.json \
-            --catalog Resources/ASRModelUpdates/index.json \
+            --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
             --index "$RUNNER_TEMP/asr-packages/index.json"
 
       - name: 生成 artifact 标识
@@ -158,7 +144,7 @@ jobs:
           path: |
             ${{ runner.temp }}/asr-packages/index.json
             ${{ runner.temp }}/asr-packages/package-validation.json
-            ${{ runner.temp }}/asr-packages/candidate-index.json
+            ${{ runner.temp }}/asr-packages/manifest.json
           retention-days: 7
           if-no-files-found: error
 
@@ -174,8 +160,7 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: 发布 ASR Release 至 CNB（不可变资产；回读核对；无需签名私钥）
-        if: ${{ inputs.publish }}
+      - name: 发布 ASR Release 至 CNB（不可变资产；回读核对）
         env:
           # 令牌仅注入本步骤(定案约束 17):读取/构建步骤无 CNB 写面。
           CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
@@ -190,7 +175,7 @@ jobs:
                 --index "$RUNNER_TEMP/asr-packages/index.json" \
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \
-                --catalog Resources/ASRModelUpdates/index.json \
+                --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
                 --repository "$CNB_RESOURCE_REPOSITORY"; then
               exit 0
             fi

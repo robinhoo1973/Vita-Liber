@@ -102,7 +102,7 @@ class PublicationTests(unittest.TestCase):
                      "models": [
                 {"id": m, "variant": VARIANTS[m], "version": "1.0.0", "url": m + ".zip",
                  "bytes": 123, "sha256": "a" * 64,
-                 "license": {"whisper": "MIT", "sense-voice": "model-license"}.get(m, "Apache-2.0"),
+                 "license": {"whisper": "MIT", "sense-voice": "model-license", "moonshine": "MIT"}.get(m, "Apache-2.0"),
                  "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}}
                 for m in VARIANTS]}
             (root / "index.json").write_text(json.dumps(index))
@@ -152,7 +152,7 @@ class PublicationTests(unittest.TestCase):
             models = json.loads(options.index.read_text())["models"]
             # 单一 JSON 架构(2026-10-06 业主裁定):资产面 = 模型包 + index.json;
             # 根/版本化目录/回执不再上传。
-            self.assertTrue({m["url"] for m in models} | {"index.json"} <= names)
+            self.assertTrue({m["url"] for m in models} | {"manifest.json"} <= names)
             self.assertFalse(any(name.endswith(".root.json") or name.endswith(".catalog.json")
                                  or name.endswith("package-validation.json") for name in names))
 
@@ -191,7 +191,7 @@ class PublicationTests(unittest.TestCase):
             self.addCleanup(trust.doCleanups)
             client = FakeCNBReleaseClient()
             module["publish"](options, client)
-            tampered = next(a for a in client.assets if a["name"] == "index.json")
+            tampered = next(a for a in client.assets if a["name"] == "manifest.json")
             tampered["content"] = b"tampered-index"
             tampered["size"] = len(tampered["content"])
             tampered["sha256"] = hashlib.sha256(tampered["content"]).hexdigest()
@@ -220,9 +220,9 @@ class PublicationTests(unittest.TestCase):
             tampered["index"]["models"] = tampered["index"]["models"][:-1]
             equivocation = trust_module["envelope"](tampered, trust.keys[3:5])
             equivocation_bytes = json.dumps(equivocation).encode()
-            client = FakeCNBReleaseClient(downloads={"index.json": equivocation_bytes})
+            client = FakeCNBReleaseClient(downloads={"manifest.json": equivocation_bytes})
             # 远程清单必须可见该目录资产,链校验才进入比对分支
-            client.assets.append({"name": "index.json", "size": len(equivocation_bytes),
+            client.assets.append({"name": "manifest.json", "size": len(equivocation_bytes),
                                   "sha256": hashlib.sha256(equivocation_bytes).hexdigest(),
                                   "content": equivocation_bytes})
             with self.assertRaises(ValueError):

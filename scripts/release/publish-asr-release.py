@@ -75,7 +75,7 @@ def highest_remote_catalog(cnb_assets):
 
 def remote_catalog_name(cnb_assets):
     """固定名数据文件(2026-10-06 业主单一 JSON 架构):index.json 是唯一目录资产。"""
-    return "index.json" if any((a.get("name") or "") == "index.json" for a in cnb_assets) else None
+    return "manifest.json" if any((a.get("name") or "") == "manifest.json" for a in cnb_assets) else None
 
 
 def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
@@ -145,12 +145,12 @@ def publish(args, client):
     # sha256 摘要的 2-of-3 多重签名)承担,App 侧验摘要签名 + 摘要匹配。
     # 固定名 + overwrite:远端同名存在时 check_remote_catalog_chain 的单调
     # 闸保证新版本号更高;客户端持久化回滚守卫防重放。
-    client.upload_immutable(TAG, args.catalog, "index.json",
+    client.upload_immutable(TAG, args.catalog, "manifest.json",
                             hashlib.sha256(args.catalog.read_bytes()).hexdigest(), overwrite=True)
     current_names = {a["name"] for a in normalize_assets(client.list_assets(TAG))}
     missing = [m["url"] for m in index["models"] if m["url"] not in current_names]
-    if "index.json" not in current_names:
-        missing.append("index.json")
+    if "manifest.json" not in current_names:
+        missing.append("manifest.json")
     if missing:
         raise ValueError("A required model asset is still missing: " + missing[0])
     print(f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}", flush=True)

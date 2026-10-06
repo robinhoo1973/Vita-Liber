@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from asr_package import decode_json
-from asr_signing import key_id, sign_envelope
+from asr_signing import b64, key_id, sign_envelope
 from model_trust import verify_catalog
 
 
@@ -100,12 +100,12 @@ def main() -> int:
     if len(signers) < threshold:
         print(f"ERROR: 注入密钥中命中 catalogKeyIDs 的不足阈值 {threshold}", file=sys.stderr)
         return 2
-    envelope = sign_envelope(payload, signers[:threshold])
-
     # 包级签名(2026-10-06 业主指令:zip 文件也需要签名验证)——逐条目对包
     # sha256 摘要做域分离 Ed25519 多重签名,签名密钥与目录信封同源
     # (catalogKeyIDs,阈值同 catalogThreshold)。App 下载后重算 sha256,
     # 先验摘要签名(防伪造哈希绑定)再比对摘要——与目录信封构成双链。
+    # **必须在 sign_envelope 之前附进 payload**(候选 37398352957 实证:
+    # 先签后附 = 信封载荷不含签名,verify 的宽容路径放行,静默丢签名面)。
     for model in payload["index"].get("models", []):
         digest = bytes.fromhex(model["sha256"])
         message = b"vitaliber/asr/package-sha256/v1/" + digest
@@ -116,6 +116,8 @@ def main() -> int:
                 for identity, key in signers[:threshold]
             ],
         }
+
+    envelope = sign_envelope(payload, signers[:threshold])
 
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(envelope, f, ensure_ascii=False, indent=1)

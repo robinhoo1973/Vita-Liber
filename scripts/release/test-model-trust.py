@@ -51,7 +51,7 @@ class TrustTests(unittest.TestCase):
                  "models": [{"id": m, "variant": variants[m],
                              "version": "1.0.0", "url": m + ".zip", "bytes": 123, "sha256": "a" * 64,
                              "expandedBytes": 456, "packaging": "zip", "minAppVersion": "0.0.1", "runtime": "sherpa-onnx-1.13.4",
-                             "license": {"whisper": "MIT", "sense-voice": "model-license"}.get(m, "Apache-2.0"),
+                             "license": {"whisper": "MIT", "sense-voice": "model-license", "moonshine": "MIT"}.get(m, "Apache-2.0"),
                              "tierName": {"zh-Hans": "档"}, "tierHint": {"zh-Hans": "fixture tier"}}
                             for m in variants]}
         self.catalog_payload = {"schemaVersion": 1, "role": "catalog", "app": "vitaliber", "assetKind": "asr",
@@ -156,8 +156,8 @@ class TrustTests(unittest.TestCase):
         shutil.copyfile(self.root / "root.json", resources / "ModelTrustRoot.json")
         downloads = resources / "ASRModelUpdates"
         downloads.mkdir(parents=True)
-        (downloads / "catalog.json").write_text(json.dumps(envelope(self.catalog_payload, self.keys[3:5])))
-        (downloads / "index.json").write_text(json.dumps(self.catalog_payload["index"]))
+        # 单一 JSON 架构:manifest.json 即签名信封(载荷含 index)
+        (downloads / "manifest.json").write_text(json.dumps(envelope(self.catalog_payload, self.keys[3:5])))
         # helper 目录从 project.yml 构建脚本解析(布局无关化:临时树复刻 $SRCROOT 下的真实路径)
         project = yaml.safe_load((TOOLS.parents[1] / "project.yml").read_text())
         script = project["targets"]["VitaLiber"]["preBuildScripts"][0]["script"]
