@@ -9,9 +9,13 @@ import Foundation
 /// - **ASR 下载包**（既有）：`ASRPackageCrypto` 为 façade——保留 ASR 主密钥
 ///   常量、身份文法与公开签名不变（含 Python 工具链对其源码 `masterKeyHex`
 ///   字面量的正则抓取契约）。
-/// - **医疗目录包**（迁移中）：AgeKit 弃用后按业主裁定复用本方案；调用方经
-///   `namespace` 参数声明加密域（ASR 用 `vitaliber/asr/aes256gcm/v1`；医疗域
-///   前缀待生产端字节合同共同裁决后落定，见 discussions）。
+/// - **医疗目录包**（迁移中）：AgeKit 弃用后按业主裁定复用本方案。
+///   **命名空间裁决（2026-10-07 委员会,D1）**：ASR 与医疗共享单一命名空间
+///   `vitaliber/asr/aes256gcm/v1`（Go 生产端已固化进字节合同并对拍/夹具；
+///   域分离由 identity 文法承担——ASR 恒含连字符、医疗恒为 64-hex 小写 sha256，
+///   该不变量以测试机器化）。`namespace` 保留为参数仅为未来协调变更留缝；
+///   调用方必须显式传上述常量。裁决全文：
+///   discussions/2026-10-07-medical-envelope-migration-round1.md §5。
 ///
 /// 帧格式（与 `scripts/release/asr_envelope.py` 正本逐字节对齐）：
 /// 头 = magic "VLASR\x01"(6) + u8 version + u32 BE chunk_size + u64 BE
