@@ -105,7 +105,7 @@ struct SignedModelCatalogTests {
     @Test func servedNameBindingMatchesComputedCatalogName() throws {
         let fixture = try Fixture()
         let store = ModelCatalogTrustStore(bootstrapData: fixture.root, baselineData: nil, stateURL: nil)
-        _ = try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "index.json")
+        _ = try store.acceptCatalog(fixture.catalog(version: 3), servedAs: "manifest.json")
     }
 
     /// 原名：served-name 不匹配或缺省形状被整体拒绝
