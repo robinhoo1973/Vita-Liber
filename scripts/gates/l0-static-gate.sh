@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================================
 # Vita Liber · 青囊书 — L0 静态门禁
-# 位置：scripts/gates/l0-static-gate.sh —— 被 build-testflight.yml 的
-#       build job「L0 静态门禁」步骤引用（2026-09-24 自 .github/workflows/ 迁出、按域归簇），本地同样可直接执行。
+# 位置：scripts/gates/l0-static-gate.sh —— 被两个工作流引用（2026-10-07 拆分后）：
+#       build-testflight.yml「gates」并行 job（挡 upload 的机械冻结）与
+#       ci-tests.yml「l0」job（测试流水线入口）；2026-09-24 自 .github/workflows/
+#       迁出、按域归簇，本地同样可直接执行。
 # 依据：test-plan-spec §1.1（L0 十八节，任一失败即红）/ §0 铁律 3（L0 不过不进 L1，分层不可跳越）
 #
 #   [1] try? grep 门禁 —— 全仓清零；豁免仅限同行注释 `// try?-ok: <理由>`（tech-spec §7）
@@ -490,8 +492,13 @@ else
     s_req=$((s_req + 1))
     case "$m_scope" in
       workflow)
+        # 2026-10-07 修复（委员会架构席实证自我满足漏洞）：原扫 $SCRIPT_DIR
+        # （= 本脚本自身目录）——而 gate-suites.tsv 与脚本站头注本就含该 token,
+        # 断言恒真：把 L0 从所有 workflow 摘除也无探测器（2026-09-24 脚本自
+        # .github/workflows/ 迁出后此检查失去对象）。workflow 域语义 = token
+        # 必须出现在**工作流文件**里——改扫 $ROOT/.github/workflows/*.yml。
         # shellcheck disable=SC2086
-        if ! grep -rqF -- "$m_token" "$SCRIPT_DIR" 2>/dev/null; then
+        if ! grep -rqF --include='*.yml' -- "$m_token" "$ROOT/.github/workflows" 2>/dev/null; then
           s_missing=$((s_missing + 1))
           printf '    缺失套件: %s (%s) —— 未在 workflow 找到 token「%s」\n' \
             "$m_suite" "$m_stage" "$m_token"
