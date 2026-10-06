@@ -111,6 +111,7 @@
 # ——第五轮全仓审查修复：本标记此前只在文档声明、判定器从未读取（假豁免），
 #   现各族判定点统一读取（exempted()）。
 # ============================================================================
+import os
 import pathlib
 import re
 import sys
@@ -1113,9 +1114,27 @@ def main():
             ("exam_item", r"CREATE TABLE exam_item \(([^)]*)\)",
              r"SELECT rowid, region, source_id, code, name_zh, name_en, category, method, specimen, unit,\s*\n?\s*([^F]*?)FROM exam_item"),
         )
-        prod_ddl = pathlib.Path("scripts/medical-data/go/fetchstore/catalog_v4.sql")
+        # 2026-10-06 评审修复:生产 DDL 自诞生起就**从未被核对过** —— 这里写死的
+        # 路径 `scripts/medical-data/go/fetchstore/catalog_v4.sql` 在公仓已不存在
+        # (Go 真源 2026-09-29 迁出到 workspace-local 的
+        # `refactor/tools/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql`),
+        # 而 `if prod_ddl.exists()` 在文件缺失时**静默跳过**,不报 fail 也不报
+        # warn;同时 `scanned["O"] = 4` 无条件置位,连「空扫不得判 PASS」的
+        # ERR#27 纪律都绕过了。结果是:Linux 上唯一的 Go↔Swift 列契约通道
+        # 一直处于关闭状态。现改为多候选路径查找,并把「不可达」显式声明为
+        # UNVERIFIED(见下方输出),绝不冒充通过。
+        prod_candidates = []
+        override = os.environ.get("VL_MEDICAL_DDL", "").strip()
+        if override:
+            prod_candidates.append(pathlib.Path(override))
+        prod_candidates += [
+            pathlib.Path("scripts/medical-data/go/fetchstore/catalog_v4.sql"),  # 历史路径(公仓已无)
+            root.parent / "refactor/tools/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
+            root.parent.parent / "refactor/tools/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
+        ]
+        prod_ddl = next((c for c in prod_candidates if c.is_file()), None)
         prod_cols = {}
-        if prod_ddl.exists():
+        if prod_ddl is not None:
             prod_text = prod_ddl.read_text(encoding="utf-8")
             for name in ("hospital", "department", "diagnosis", "exam_item"):
                 m = re.search(r"CREATE TABLE " + name + r" \(([^)]*)\)", prod_text)
@@ -1145,6 +1164,11 @@ def main():
                     f"幻影列族（测试席 F1：contract_end 曾仅存在于夹具）"
                 )
         scanned["O"] = 4
+        if prod_ddl is None:
+            print("UNVERIFIED: 家族 O 的「夹具 ↔ 生产 DDL」列契约腿未执行——未找到 catalog_v4.sql"
+                  "(搜索: " + ", ".join(str(c) for c in prod_candidates) + ")。"
+                  "该腿在本次运行中【未被核对】,不得据此认为列契约一致;"
+                  "本地请设 VL_MEDICAL_DDL 指向 refactor/tools/medical-data 内的生产 DDL。")
 
     # ---- 家族 P：测试内改 NSTimeZone.default 全局状态 —— CI 36249512459 实证：
     # TimeZone.current 在 Darwin 是进程启动缓存、不随 NSTimeZone.default 变化
@@ -1307,6 +1331,87 @@ def main():
                     f"或加 // tius-ok: 豁免"
                 )
 
+    # ---- 家族 T：await 出现在 autoclosure 操作数位 —— CI 37430843824 实证 ----
+    # `||`/`&&`/`??` 的右侧是 @autoclosure（惰性求值闭包），await 不得出现在
+    # 其中（'await' cannot appear to the right of a non-assignment operator /
+    # 'await' in an autoclosure that does not support concurrency）；actor 隔离
+    # 方法从 MainActor 调用必须 await——两者叠加使「条件式 await」不可表达。
+    # 合法修法：await 提前到 let。左操作数 await（`await a || b`）合法不报；
+    # 三元分支非 autoclosure 合法不报。`// tius-ok:` 豁免。
+    t_files = list(a_files) + list(c_files)
+    scanned["T"] = len(t_files)
+    await_autoclosure_t = re.compile(r"(?:\|\||&&|\?\?)\s*\(*\s*await\b")
+    for f in t_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        raw_lines = txt.splitlines()
+        for lineno, code in code_lines(txt):
+            if exempted(raw_lines, lineno):
+                continue
+            if await_autoclosure_t.search(code):
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: await 出现在 autoclosure 操作数位——"
+                    f"`||`/`&&`/`??` 右侧禁 await(CI 37430843824 同族: 'await' cannot "
+                    f"appear to the right of a non-assignment operator)——提前取值到 let,"
+                    f"或加 // tius-ok: 豁免"
+                )
+
+    # ---- 家族 U：View.frame 重载混用 —— 2026-10-06 评审批三度评审实证 ----
+    # SwiftUI 仅有两种 frame 重载: frame(width:height:alignment:) 与
+    # frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)。
+    # 一次调用内固定键(width/height)与弹性键(min*/ideal*/max*)混用必编译错
+    # ('extra argument' 形态)。合法形态: 链式两次调用。掩蔽文本上做配对括号
+    # 提取,按顶层逗号切分取每个参数首标签;嵌套调用内的标签不计入外层。
+    u_files = list(a_files)
+    scanned["U"] = len(u_files)
+    fixed_keys = {"width", "height"}
+    flex_keys = {"minWidth", "idealWidth", "maxWidth", "minHeight", "idealHeight", "maxHeight"}
+    label_re = re.compile(r"^\s*([A-Za-z_]\w*)\s*:")
+    for f in u_files:
+        try:
+            txt = f.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        masked = mask_noncode(txt)
+        raw_lines = txt.splitlines()
+        pos = 0
+        while True:
+            idx = masked.find(".frame(", pos)
+            if idx < 0:
+                break
+            # 配对括号提取（跨行）
+            depth, i, n = 0, idx + len(".frame"), len(masked)
+            assert masked[i] == "("
+            start = i
+            while i < n:
+                if masked[i] == "(":
+                    depth += 1
+                elif masked[i] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            inner = masked[start + 1:i]
+            lineno = masked.count("\n", 0, idx) + 1
+            pos = i + 1
+            if exempted(raw_lines, lineno):
+                continue
+            labels = set()
+            for part in split_top_level(inner):
+                m = label_re.match(part)
+                if m:
+                    labels.add(m.group(1))
+            if (labels & fixed_keys) and (labels & flex_keys):
+                mixed = sorted((labels & fixed_keys) | (labels & flex_keys))
+                fails.append(
+                    f"{f.relative_to(root)}:{lineno}: View.frame 重载混用 {mixed}——"
+                    f"SwiftUI 无 (width:, minHeight:) 混合重载,该调用必编译错"
+                    f"(CI 同族: 'extra argument' 形态)——拆链式 .frame(width:..."
+                    f").frame(minHeight:...),或加 // tius-ok: 豁免"
+                )
+
     print(f"__SCANNED__ A={scanned.get('A',0)} A2={scanned.get('A2',0)} "
           f"B={scanned.get('B',0)} C={scanned.get('C',0)} D={scanned.get('D',0)} "
           f"E={scanned.get('E',0)} F={scanned.get('F',0)} G={scanned.get('G',0)} "
@@ -1314,7 +1419,8 @@ def main():
           f"K={scanned.get('K',0)} L={scanned.get('L',0)} M={scanned.get('M',0)} "
           f"N={scanned.get('N',0)} O={scanned.get('O',0)} P={scanned.get('P',0)} Q={scanned.get('Q',0)} "
           f"R={scanned.get('R',0)} "
-          f"S={scanned.get('S',0)}")
+          f"S={scanned.get('S',0)} "
+          f"T={scanned.get('T',0)} U={scanned.get('U',0)}")
     seen = set()
     for msg in fails:
         if msg in seen:
