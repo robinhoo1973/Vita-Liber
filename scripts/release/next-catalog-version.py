@@ -82,7 +82,12 @@ def next_catalog_version(repository):
     legacy = _highest_legacy_from_git()
     if legacy:
         return legacy + 1
-    return 1
+    # 连续性地板(2026-10-06 候选 37398352957 实证):CI 浅克隆无 git 历史,
+    # 远端又被清空时四层全空——但既往发布历史到 catalogVersion=6(单文件
+    # 架构前最后一版),从 7 起延续,保证已装客户端(持 v6 状态)的单调回滚
+    # 守卫不拒新目录。该常量只在单一文件架构首次轮换时起作用,此后仓库
+    # 信封路径接管。
+    return 7
 
 
 def main() -> int:
