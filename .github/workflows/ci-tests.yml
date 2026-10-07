@@ -1,6 +1,6 @@
 # ============================================================================
 # CI 测试与静态门禁（2026-10-06 拆分批 · P1）：自 build-testflight.yml 原子迁出 ——
-# L0 十八节 / CoreKit swift test / 编译门禁（Debug 快通道 + 型检预算）/ L1 单元 / L1 UI。
+# L0 十九节 / CoreKit swift test / 编译门禁（Debug 快通道 + 型检预算）/ L1 单元 / L1 UI。
 # 与发布链（单纯编译+上传）完全并行：发布即时性由发布链内部并行 L0 gates / 签名 /
 # IPA 校验保证；L1 证据由本工作流持有。批次验收 = 两工作流全绿——「上传 ≠ 验收」
 # （与 P4『受理 ≠ 登记』同族）。步骤体自发布链原样搬运（含注解通道 / step summary /
@@ -44,6 +44,18 @@ jobs:
         run: |
           command -v swiftc >/dev/null || { echo "::error::ubuntu runner 缺 swiftc——L0 第 7 节将静默降级,已阻断"; exit 1; }
           swiftc --version | head -2
+
+      # PyYAML 显式钉版（2026-10-07）：L0 [19] 工作流结构节与左移的发布契约测试
+      # （test-cnb-release-workflow / test-release-version / test-model-trust）均
+      # import yaml——ubuntu 镜像的隐式预装不构成契约，禁走隐式（供应链纪律：
+      # 与 requirements-*.txt 的钉版同精神，单件 CI 工具不设独立清单）。
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # 与 l1 同钉版 SHA
+        with:
+          python-version: '3.13'
+      - name: 安装 PyYAML（单件工具，版本钉版）
+        run: |
+          python3 -m pip install --quiet "pyyaml==6.0.2"
+          python3 -c "import yaml; print('pyyaml', yaml.__version__)"
 
       - name: L0 静态门禁
         run: |

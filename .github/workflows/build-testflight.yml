@@ -1,7 +1,7 @@
 # ============================================================================
 # 构建 + TestFlight 发布 CI —— 单纯编译 + 上传 TestFlight（2026-10-07 瘦身 P2）
 #
-# gates (ubuntu ∥)：L0 十八节 + schema 完整性（含 swiftc 断言）——挡 upload（机械冻结）
+# gates (ubuntu ∥)：L0 十九节 + schema 完整性（含 swiftc 断言）——挡 upload（机械冻结）
 # build (macos)：版本内联 → 签名材料导入 → archive → export → IPA 校验 → artifact
 # upload (macos)：altool → 复核（buildUploads 秒级正面证据 + ≤3 轮列表确认）
 #
