@@ -49,7 +49,7 @@ runs:
         bash "$GITHUB_ACTION_PATH/../gates/l0-static-gate.sh" 2>&1 | tee /tmp/l0-gate.log
         python3 "$GITHUB_ACTION_PATH/../gates/test-schema-integrity.py" 2>&1 | tee -a /tmp/l0-gate.log
 
-    # 发布契约测试左移（2026-10-07 委员会：原仅在 release-asr-models.yml 的
+    # 发布契约测试左移（2026-10-07 委员会：原仅在 asr.yml 的
     # dispatch 链路执行——引用面断裂/断言失配要等下次 ASR 发布才暴露，天级延迟。
     # 12 脚本全部纯离线、Linux 本地实测 rc=0 全绿；release 链保留原步为发布前复检。
     - name: 发布契约测试（离线矩阵）

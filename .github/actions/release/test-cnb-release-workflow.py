@@ -30,7 +30,7 @@ def workflow_yaml(name):
 
 class PublicReleaseWorkflowTests(unittest.TestCase):
     def test_active_asr_publisher_has_no_github_release_write(self):
-        text = workflow_text("release-asr-models.yml")
+        text = workflow_text("asr.yml")
         self.assertNotIn("gh release upload", text)
         self.assertNotIn("gh release create", text)
         self.assertNotIn("GH_TOKEN", text)
@@ -38,7 +38,7 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("CNB_RESOURCE_REPOSITORY", text)
 
     def test_cnb_token_is_only_mapped_in_the_publish_step(self):
-        workflow = workflow_yaml("release-asr-models.yml")
+        workflow = workflow_yaml("asr.yml")
         call = workflow.get(True, {}).get("workflow_call", {})
         self.assertIn("CNB_RESOURCE_TOKEN", call.get("secrets", {}))
         for job in workflow.get("jobs", {}).values():
@@ -57,13 +57,13 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
                     self.assertNotIn("CNB_TOKEN", env)
 
     def test_publish_step_has_bounded_retry_and_fails_hard(self):
-        text = workflow_text("release-asr-models.yml")
+        text = workflow_text("asr.yml")
         self.assertIn("for attempt in 1 2 3", text)
         self.assertIn("exit 1", text)
         self.assertIn("publish-asr-release.py publish", text)
 
     def test_prepare_step_uses_anonymous_cnb_repository(self):
-        workflow = workflow_yaml("release-asr-models.yml")
+        workflow = workflow_yaml("asr.yml")
         steps = workflow["jobs"]["models"]["steps"]
         prepare = next(s for s in steps if "prepare-asr-source" in s.get("run", ""))
         self.assertNotIn("GH_TOKEN", prepare.get("env", {}) or {})
@@ -77,7 +77,7 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
         # 过宽——立法意图=不调 ASR/发布类；build-testflight 允许的唯一本地 reusable
         # = l0-static-gate.yml（gates 单源，消双副本），新增任何其它 uses 必须
         # 过评审（本断言即评审闸）。
-        workflow = workflow_yaml("build-testflight.yml")
+        workflow = workflow_yaml("testflight.yml")
         # job 级 uses 恒空（2026-10-07 起 gates 执行体为 composite action,非 reusable）。
         uses_refs = [job.get("uses") for job in workflow.get("jobs", {}).values() if job.get("uses")]
         self.assertEqual(uses_refs, [], "build-testflight 不得有 job 级 uses（不调 ASR 构建工作流）")
@@ -87,7 +87,7 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
                      for step in job.get("steps", [])]
         self.assertIn("./.github/actions/l0-gate", step_uses,
                       "gates job 必须以 composite action 形式接线 L0 门禁")
-        callable_workflow = workflow_yaml("release-asr-models.yml")
+        callable_workflow = workflow_yaml("asr.yml")
         call = callable_workflow.get(True, {}).get("workflow_call", {})
         self.assertIn("CNB_RESOURCE_TOKEN", call.get("secrets", {}))
 

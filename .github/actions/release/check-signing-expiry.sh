@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 签名材料到期检查（2026-09-27 委员会 P5：自 build-testflight.yml 析出，Linux 可测）。
+# 签名材料到期检查（2026-09-27 委员会 P5：自 testflight.yml 析出，Linux 可测）。
 # 用法：check-signing-expiry.sh <days-计算器> —— 或直接 source 本文件用 check_days。
 # 语义：输出 "LABEL 剩余 N 天 ✓" / "LABEL 将在 N 天内到期（DATE）" / "LABEL 已过期 N 天（DATE）"；
 #       解析失败输出 "LABEL 到期日解析失败：DATE"。退出码：已过期/解析失败=1，其余=0。

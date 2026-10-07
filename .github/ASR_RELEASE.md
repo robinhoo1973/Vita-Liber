@@ -27,23 +27,23 @@
 
 ### TestFlight
 
-`.github/workflows/build-testflight.yml`：
+`.github/workflows/testflight.yml`：
 
 ```
 version.txt 校验 → L0 → macOS CoreKit 测试 → iOS 编译/单元/UI
   → 签名归档 → IPA 校验（框架 minOS/路径安全）→ 上传 TestFlight
 ```
 
-2026-10-06 业主指令：ASR/LLAMA 构建步骤已自 TestFlight 链删除——模型构建与发布由本工作流（release-asr-models.yml）独立承担（CNB 发布面 + 目录驱动矩阵），App 随包模型改为运行时按签名目录自 CNB 下载，IPA 不再内置基线模型；ASR 数据校验（test-asr-assets.py / fetch-asr-models.py --manifest-only）随之收口到本工作流的「校验构建、签名及版本规则」步。
+2026-10-06 业主指令：ASR/LLAMA 构建步骤已自 TestFlight 链删除——模型构建与发布由本工作流（asr.yml）独立承担（CNB 发布面 + 目录驱动矩阵），App 随包模型改为运行时按签名目录自 CNB 下载，IPA 不再内置基线模型；ASR 数据校验（test-asr-assets.py / fetch-asr-models.py --manifest-only）随之收口到本工作流的「校验构建、签名及版本规则」步。
 
 ### 独立或可调用的 ASR 构建
 
-`.github/workflows/release-asr-models.yml` 同时声明 `workflow_call` 和 `workflow_dispatch`。
+`.github/workflows/asr.yml` 同时声明 `workflow_call` 和 `workflow_dispatch`。
 
 手动构建并发布：
 
 ```bash
-gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber
+gh workflow run asr.yml --repo robinhoo1973/Vita-Liber
 ```
 
 其他 workflow 调用（无输入；发布一气呵成）：
@@ -51,7 +51,7 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber
 ```yaml
 jobs:
   asr-models:
-    uses: ./.github/workflows/release-asr-models.yml
+    uses: ./.github/workflows/asr.yml
     secrets: inherit
 ```
 
@@ -83,7 +83,7 @@ Resources/ASRModelUpdates/N.root.json      版本化公开根（1/2；链校验 
 修改权重或打包配方：直接 dispatch（无输入）——构建 → 现场签名（`ASR_SIGNING_KEYS_JSON`）→ 验证 → 发布 CNB → 触发 README 同步，一气呵成：
 
 ```bash
-gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber
+gh workflow run asr.yml --repo robinhoo1973/Vita-Liber
 ```
 
 目录签名密钥由 `generate-asr-signing-keys.py` 本地生成：私钥 JSON 注册为 `ASR_SIGNING_KEYS_JSON` secret（不进仓库）。**根轮换**仍为人工流程：新根 envelope 人工提交入仓（`Resources/ASRModelUpdates/N.root.json` + `Resources/ModelTrustRoot.json`）；旧根签的目录重签进新根时沿用全链单调 `catalogVersion`（发布侧跨根回滚闸拒绝回退）。生成字节与签名不一致会失败，不能通过更新远端自报哈希规避。

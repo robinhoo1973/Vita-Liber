@@ -14,7 +14,7 @@
 #   2) signing-expiry job ← .github/workflows/signing-expiry-check.yml
 #      签名材料到期周检（2026-09-27 委员会 P5）：主流水线的到期门禁只在发布时
 #      跑、≤30 天 warning 无人值守即静默悬崖——本 job 每周日 UTC 23:17 + 手动
-#      派发独立核对证书/PP 剩余天数，红则失败（轮换清单见 build-testflight.yml
+#      派发独立核对证书/PP 剩余天数，红则失败（轮换清单见 testflight.yml
 #      头注）。
 #   3) asc-status job ← .github/workflows/asc-build-status.yml
 #      查询 App Store Connect 最近 builds / buildUploads 处理状态（2026-09-10
@@ -60,7 +60,7 @@ jobs:
 
           # ── 收集现存 workflow 注册表（id/name/path 三列） ──
           # 审查修正（2026-09-15）：按 workflow 文件路径/ID 清理，而不是只按 run.name。
-          # reusable workflow（如 release-asr-models.yml）被 TestFlight 调用时，run.name
+          # reusable workflow（如 asr.yml）被 TestFlight 调用时，run.name
           # 容易与展示名/调用关系漂移；path 才是 CI 执行记录的稳定登记键。
           WORKFLOWS_FILE=$(mktemp) || { echo "错误: mktemp 失败"; exit 1; }
           if ! gh api "repos/$REPO/actions/workflows" \
@@ -80,7 +80,7 @@ jobs:
 
           # 明确登记必须受清理策略覆盖的发布链 workflow；缺失时给 warning，
           # 防“包构建流没有登记在 CI 执行记录清理面”。
-          REQUIRED_PATHS=".github/workflows/build-testflight.yml .github/workflows/release-asr-models.yml .github/workflows/maintenance.yml"
+          REQUIRED_PATHS=".github/workflows/testflight.yml .github/workflows/asr.yml .github/workflows/maintenance.yml"
           for required in $REQUIRED_PATHS; do
             if ! awk -F '\t' -v p="$required" '$3 == p { found=1 } END { exit found ? 0 : 1 }' "$WORKFLOWS_FILE"; then
               echo "::warning::workflow 未登记或已禁用: $required"
@@ -127,7 +127,7 @@ jobs:
             # 规则1a（2026-09-16 委员会评审曾设「failure 保留最近 K 次」的例外；
             # **2026-09-27 业主裁定 FAILURE_KEEP=0 撤销该例外**——失败记录不保留，
             # 回到原始要求二「非成功一律删除」。此分支保留为开关形态，默认 0。
-            if [ "$wf_key" = ".github/workflows/build-testflight.yml" ] && [ "$conclusion" = "failure" ]; then
+            if [ "$wf_key" = ".github/workflows/testflight.yml" ] && [ "$conclusion" = "failure" ]; then
               read FAIL_KEPT < "$FAILURES_FILE"
               if [ "$FAIL_KEPT" -lt "${FAILURE_KEEP:-0}" ]; then
                 echo "  保留: #$run_id (build-testflight 失败证据 $((FAIL_KEPT + 1))/${FAILURE_KEEP:-0})"
@@ -265,7 +265,7 @@ jobs:
           # PP 到期：security cms 是 macOS 专属；ubuntu 上 openssl cms 可解析 embedded plist，
           # 此处先覆盖证书面（发布链路的最短到期者）；PP 面由主流水线门禁覆盖。
           if [ "$red" -ne 0 ]; then
-            echo "::error::签名材料进入轮换窗口——按 build-testflight.yml 头注轮换清单执行"
+            echo "::error::签名材料进入轮换窗口——按 testflight.yml 头注轮换清单执行"
             exit 1
           fi
           echo "签名材料到期周检通过 ✓"

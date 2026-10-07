@@ -59,9 +59,9 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 
 | 文件 | 触发 | 职责 | 调用簇 |
 |---|---|---|---|
-| `build-testflight.yml` | push master / PR / dispatch | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：gates（ubuntu 并行 L0 单源 composite（.github/actions/l0-gate），挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）；∥ corekit（swift test）+ l1（编译门禁+型检预算+L1 单元/UI）。PR 上只跑 gates+corekit+l1（build 有事件守卫）。批次验收 = 本工作流全绿；upload 不依赖测试 job（「上传 ≠ 验收」保持） | gates / release / requirements |
-| `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
-| `distill-llm.yml` | workflow_dispatch（task 输入：llm-pipeline / llama-xcframework） | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release。**llama XCFramework 构建自 build-llama-xcframework.yml 并入**（task=llama-xcframework；原自路径触发有意删除——合并后任何编辑都会触发 15-20min 重建+clobber，重建改手动） | distill / release / requirements |
+| `testflight.yml` | push master / PR / dispatch | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：gates（ubuntu 并行 L0 单源 composite（.github/actions/l0-gate），挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）；∥ corekit（swift test）+ l1（编译门禁+型检预算+L1 单元/UI）。PR 上只跑 gates+corekit+l1（build 有事件守卫）。**发布裁决 = 整流全绿（2026-10-07 业主：测试门控上传——测试红不上传 TestFlight）** | gates / release / requirements |
+| `asr.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
+| `llm.yml` | workflow_dispatch（task 输入：llm-pipeline / llama-xcframework） | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release。**llama XCFramework 构建自 build-llama-xcframework.yml 并入**（task=llama-xcframework；原自路径触发有意删除——合并后任何编辑都会触发 15-20min 重建+clobber，重建改手动） | distill / release / requirements |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`；`seed-cnb-assets.yml` 已删——业主 2026-10-07：本地离线执行完成） | release / requirements |
 
 **Release/sqlite 契约**:公开仓无 `medical-data` Release 时 Publish 步骤自动 `gh release create`;`medical-catalog.sqlite`(schema v4+FTS)每轮全量重建、age 加密后以 `medical-data.bin` 上传同标签(内容哈希未变则跳过)。

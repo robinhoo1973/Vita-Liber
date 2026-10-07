@@ -3,7 +3,7 @@
 # Vita Liber · 青囊书 — L0 静态门禁
 # 位置：.github/actions/gates/l0-static-gate.sh —— 单源 reusable 引用（2026-10-07 消解
 #       ci-tests.yml 后）：.github/workflows/l0-static-gate.yml 的调用体，由
-#       build-testflight.yml「gates」job（挡 upload 的机械冻结；PR 通道同源）调起；
+#       testflight.yml「gates」job（挡 upload 的机械冻结；PR 通道同源）调起；
 #       2026-09-24 自 .github/workflows/ 迁出、按域归簇，本地同样可直接执行。
 # 依据：test-plan-spec §1.1（L0 十九节，任一失败即红）/ §0 铁律 3（L0 不过不进 L1，分层不可跳越）
 #

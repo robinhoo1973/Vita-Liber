@@ -102,7 +102,7 @@ targets:
     # 断言唯一真实生效的执行位置。CoreKit 包内测试（CoreKitTests）不进 scheme——
     # XcodeGen 不支持包测试目标引用（Spec validation error，CI 34017824105 实证），
     # 由工作流在 macOS runner 上 `swift test` 真实执行（2026-09-06 业主决定
-    # 移除 Linux 容器测试 job——单一执行平面，见 build-testflight.yml）。
+    # 移除 Linux 容器测试 job——单一执行平面，见 testflight.yml）。
     # GRDB 亦需直连：测试代码直接调用了 Int.fetchOne 等 GRDB API，其 protocol
     # witness table 必须能解析到 GRDB 库——仅靠 CoreKit 的传递链接，ld 报
     # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...

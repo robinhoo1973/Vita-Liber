@@ -51,7 +51,7 @@ python3 .github/actions/distill/eval_entlink.py --corpus /tmp/corpus.jsonl \
 注意:**小/退化目录(2 字别名)会如实触发 tripwire 判红**——这是闸门在履行
 "缺证据当有证据"纪律(ERR#27 族),生产目录(药 40k/院 7.8k 别名)不受影响。
 
-## CI(workflow: distill-llm.yml)
+## CI(workflow: llm.yml)
 
 `tests(零依赖:53 例单测+全簇语法)→ prepare → calibrate(ubuntu CPU + macOS MPS 探测段)
 → smoke(≤30 步+断点续训回归)→ eval(基线臂+五层闸,verdict=fail 阻断 publish)
