@@ -841,6 +841,7 @@ def main():
         "import Observation（用 import Perception）": r"^\s*import Observation\b",
         ".onChange 双参闭包（用 onChangeCompat）": r"\.onChange\(of:[^)]*\)\s*\{\s*\w+\s*,\s*\w+\s+in",
         ".onChange(initial:)（用 onChangeCompat）": r"\.onChange\(of:[^)]*initial:",
+        "VNBarcodeObservation.payloadData（iOS 17；iOS 16 走 payloadStringValue 回退）": r"\.payloadData\b",
     }
     NEEDS_PERCEPTION = re.compile(
         r"@Environment\(\s*[A-Z]\w*(?:\.\w+)*\.self\s*\)|@Perception\.Bindable|\bWithPerceptionTracking\b"
