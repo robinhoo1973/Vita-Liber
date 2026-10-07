@@ -391,5 +391,48 @@ class StartReadmeSyncTests(unittest.TestCase):
         self.assertEqual(transport.calls, [])
 
 
+class UpdateReleaseBodyTests(unittest.TestCase):
+    """委员会 S3（2026-10-07）：正文 PATCH 刷新——存在性门/空体门/回读比对（有界 3 次）。"""
+
+    def test_patch_then_readback(self):
+        transport = ScriptedCNBTransport(api_responses=[
+            CNBResponse(200, {}, json.dumps({"id": "r7", "tag_name": "asr-models", "body": "old"}).encode()),
+            CNBResponse(200, {}, b"{}"),
+            CNBResponse(200, {}, json.dumps({"id": "r7", "tag_name": "asr-models", "body": "new body\n"}).encode()),
+        ], put_responses=[])
+        client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+        client.update_release_body("asr-models", "new body")
+        self.assertEqual([call.method for call in transport.calls], ["GET", "PATCH", "GET"])
+        patch = transport.calls[1]
+        self.assertEqual(patch.url, "https://api.cnb.cool/owner/resources/-/releases/r7")
+        self.assertEqual(json.loads(patch.body), {"body": "new body"})
+
+    def test_missing_release_refuses_without_creating(self):
+        transport = ScriptedCNBTransport(api_responses=[CNBResponse(404, {}, b"{}")], put_responses=[])
+        client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+        with self.assertRaises(CNBReleaseError):
+            client.update_release_body("asr-models", "body")
+        self.assertEqual([call.method for call in transport.calls], ["GET"])
+
+    def test_empty_body_rejected_before_any_call(self):
+        transport = ScriptedCNBTransport(api_responses=[], put_responses=[])
+        client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+        with self.assertRaises(CNBReleaseError):
+            client.update_release_body("asr-models", "   ")
+        self.assertEqual(transport.calls, [])
+
+    def test_readback_mismatch_retries_three_times_then_fails(self):
+        stale = json.dumps({"id": "r7", "tag_name": "asr-models", "body": "old"}).encode()
+        transport = ScriptedCNBTransport(api_responses=[
+            CNBResponse(200, {}, stale), CNBResponse(200, {}, b"{}"), CNBResponse(200, {}, stale),
+            CNBResponse(200, {}, stale), CNBResponse(200, {}, b"{}"), CNBResponse(200, {}, stale),
+            CNBResponse(200, {}, stale), CNBResponse(200, {}, b"{}"), CNBResponse(200, {}, stale),
+        ], put_responses=[])
+        client = CNBReleaseClient("owner/resources", "fixture-token", transport)
+        with self.assertRaises(CNBReleaseError):
+            client.update_release_body("asr-models", "new body")
+        self.assertEqual([call.method for call in transport.calls].count("PATCH"), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

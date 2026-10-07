@@ -177,7 +177,10 @@ class ScriptedCNBTransport(CNBTransport):
 
 
 def release_notes_for_tag(tag):
-    """Immutable title/body for an allowlisted resource tag; missing template blocks creation."""
+    """Title/permanent-body for an allowlisted resource tag; missing template blocks creation.
+
+    2026-10-07 委员会 S3:标题与**永久头**创建时写入;正文的动态段由
+    `update_release_body` 每次发布刷新（不再视为不可变整段）。"""
     if tag not in ALLOWED_TAGS:
         raise CNBReleaseError("Unknown resource tag: " + tag)
     path = TOOLS / "cnb-release-notes" / (tag + ".md")
@@ -361,6 +364,33 @@ class CNBReleaseClient:
         """发布收尾:触发 README 同步管线(方案 B;失败由调用方决定降级)。"""
         return start_readme_sync(self.repository, tag, self.token, self.transport,
                                  api_base=self.api_base)
+
+    def update_release_body(self, tag, body):
+        """已存在 Release 的正文刷新（PATCH；不存在 = 硬错，绝不隐式创建）。
+
+        委员会 S3 设计（2026-10-07）：PATCH 后回读比对（rstrip 换行后相等），
+        有界 3 次防最终一致性；耗尽仍不相等 = raise（调用方按「展示面不阻塞
+        数据发布」纪律降级为告警）。"""
+        if tag not in ALLOWED_TAGS:
+            raise CNBReleaseError("Unknown resource tag: " + tag)
+        if not body or not body.strip():
+            raise CNBReleaseError("Release body must not be empty")
+        expected = body.rstrip("\n")
+        for attempt in range(3):
+            existing = self.get_release(tag)
+            if existing is None:
+                raise CNBReleaseError("CNB release does not exist: " + tag)
+            release_id = existing.get("id") or ""
+            if not release_id:
+                raise CNBReleaseError("CNB release id missing for tag: " + tag)
+            path = "/-/releases/" + urllib.parse.quote(str(release_id), safe="")
+            self._api("PATCH", path, {"body": body})
+            fetched = self.get_release(tag)
+            if fetched is not None and (fetched.get("body") or "").rstrip("\n") == expected:
+                return
+            if attempt < 2:
+                time.sleep(1)
+        raise CNBReleaseError("CNB release body readback mismatch after PATCH: " + tag)
 
     def _create_release(self, tag, title, body):
         """Release 创建唯一出口(ensure_release 与 upload_immutable 共用)。"""

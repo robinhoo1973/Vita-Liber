@@ -86,6 +86,7 @@ jobs:
           python3 scripts/release/test-asr-package-integrity.py
           python3 scripts/release/test-model-trust.py
           python3 scripts/release/test-asr-release.py
+          python3 scripts/release/test-asr-release-page.py
           python3 scripts/release/test-medical-package-fixture.py
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）

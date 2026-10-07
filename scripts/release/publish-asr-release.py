@@ -17,7 +17,9 @@ import sys
 import tempfile
 
 from asr_package import decode_json, json_bytes, validate_index, verify_packages
-from cnb_release import CNBReleaseClient, CNBReleaseError, print_masked_upload_prefix, RecordingUploadTransport
+from asr_release_page import render_release_body
+from cnb_release import (CNBReleaseClient, CNBReleaseError, print_masked_upload_prefix,
+                         RecordingUploadTransport, release_notes_for_tag)
 from model_trust import payload, payload_bytes, trusted_root, verify_catalog, verify_envelope
 
 TAG = "asr-models"
@@ -85,11 +87,14 @@ def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
     对本地根验签后比对单调性——TUF fixed-name 形态(无版本化副本),回滚
     防护由 payload 内 rootVersion/catalogVersion 单调闸 + 客户端持久化
     回滚守卫共同承担;同版本异字节 = 等价歧义硬错(语义不变)。
+
+    返回远端旧载荷（或 None）——发布页动态段据此生成「与上一版相比」增量行
+    （委员会 S3，2026-10-07）；首个发布无基线 = 整行省略。
     """
     remote = client.list_assets(TAG) if remote_assets is None else remote_assets
     name = remote_catalog_name(remote)
     if name is None:
-        return  # 首个发布:无可比对基线
+        return None  # 首个发布:无可比对基线（发布页增量行整行省略）
     with tempfile.TemporaryDirectory() as temporary:
         destination = Path(temporary) / name
         client.download_asset(TAG, name, destination, max_bytes=2 << 20)
@@ -118,6 +123,7 @@ def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
         if old_payload["rootVersion"] == catalog["rootVersion"]:
             verify_catalog(decode_json(args.root.read_bytes()), decode_json(args.catalog.read_bytes()),
                            previous=old_envelope)
+    return old_payload
 
 
 def publish(args, client):
@@ -135,7 +141,7 @@ def publish(args, client):
     receipt = verify_packages(index, args.directory)
     # All validation above precedes the first mutating remote operation.
     remote = client.list_assets(TAG)
-    check_remote_catalog_chain(client, args, catalog, remote_assets=remote)
+    previous_payload = check_remote_catalog_chain(client, args, catalog, remote_assets=remote)
 
     # 业主规则(2026-10-05):与 CNB 已有最新文件 hash 比对——相同跳过上传,
     # 不同则更新上传(overwrite)。App 侧始终按签名目录 sha256 校验,同名异内容
@@ -159,6 +165,16 @@ def publish(args, client):
         missing.append("manifest.json")
     if missing:
         raise ValueError("A required model asset is still missing: " + missing[0])
+    # 发布页正文(委员会 S3 设计,2026-10-07):永久头(三语模板)+ 动态段(版本三元组/
+    # 家族×档位统计/增量行——全部取自签名载荷,零新文案、零墙钟)。提交点之后刷新;
+    # 失败仅告警:页面正文是展示面,绝不阻塞数据发布(与医疗纪律同构)。
+    try:
+        _, permanent_body = release_notes_for_tag(TAG)
+        page_body = render_release_body(permanent_body, catalog, previous_payload)
+        client.update_release_body(TAG, page_body)
+        print("发布页正文已刷新", flush=True)
+    except (CNBReleaseError, ValueError, OSError, KeyError, TypeError) as error:
+        print("::warning::发布页正文刷新失败(不阻塞发布): " + str(error), file=sys.stderr)
     # README 同步触发(业主 2026-10-07 方案 B:发布器 → api_trigger → CNB 管线)。
     # 通知通道失败不阻塞发布:README 是索引提示面,同步管线幂等且可手动按钮重跑。
     try:

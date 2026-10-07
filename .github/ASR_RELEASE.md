@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.6（2026-10-07）
+> 版本：V1.7（2026-10-07）
 
 ## 版本与资产来源
 
@@ -100,6 +100,17 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 **同步管线纪律**：资源仓不声明 push 事件（README 回写不再次触发流水线，防回环）；流水线锁 `readme-sync` 串行（单写者）；非 force push（≤3 次 fetch+rebase 重算）；四通道读回——git（硬）+ blob（软）+ `/git/raw` README（软）+ `/git/raw` PNG（硬，App 通道）；state/尾块存在但畸形 = **硬错**（不静默重建、不销毁历史）；依赖 `cryptography==49.0.0` + `qrcode==8.2`/`pypng`（`--require-hashes`）。
 
+## 发布页正文（三语永久头 + 动态段，2026-10-07 委员会 S3）
+
+`asr-models` 下载页正文 = **永久头**（`cnb-release-notes/asr-models.md`：三语 简/繁/英 介绍用途/权威声明/更新方式，创建时写入、原样复用；本轮同时清除了旧模板的过期「numeric versioned catalog」表述）+ **动态段**（`asr_release_page.py` 生成，简→繁→英）：
+
+- 版本三元组（目录版本/信任根版本/构建/签发时间——全部取自签名载荷，零墙钟，重跑同字节）；
+- 家族×档位统计表（家族名/档位名/合计大小，文案零新增——直接复用签名载荷的三语字段）；
+- 增量行（与上一版签名载荷 diff：新增/更新/移除档位；无基线或同版本重跑=整行省略；取不到静默省略，绝不解释原因）。
+- **硬规则**：动态段不列文件名/URL/哈希；不出现数据来源或失败措辞（负样例测试钉住）。
+
+**刷新机制**：`CNBReleaseClient.update_release_body`（PATCH + 回读比对，有界 3 次；不存在=硬错绝不隐式创建）。调用点在提交点之后（manifest 上传与资产齐备检查之后、README 触发之前）；失败 = `::warning::` **绝不阻塞发布**（页面是展示面；此前无 PATCH 能力导致的错误正文永滞问题由此解除——下一次任意发布即自动修正）。
+
 ## 密钥引导与轮换（ASR_PACKAGE_KEY）
 
 下载包加密主密钥与 App 内嵌 `ASRPackageCrypto.masterKeyHex` 同值；`test-asr-package-integrity.py` 断言三处一致（CI secret / App 内嵌 / 测试常量），漏改任何一侧 CI 即红。
@@ -116,6 +127,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 ## 变更记录
 
+- V1.7（2026-10-07）：发布页正文（委员会 S3）：三语永久头模板重写（清除过期表述）+ `asr_release_page.py` 动态段（版本三元组/家族×档位统计/增量行，全部取自签名载荷）+ `update_release_body` PATCH 能力（回读比对、失败仅告警）——错误正文可随任意发布自动修正。
 - V1.6（2026-10-07）：文档与实现对齐（委员会 CI 席清单）：资产来源/分发改写为 CNB 固定名 `manifest.json` 体系（index.json / catalog.json / N.root 残留表述退役）；「publish 开关」残留清除（`-f publish=true`、`with: publish`、candidate 人工提交流程、`bundle_artifact`）；新增版本推进机制（`next-catalog-version.py` max(全源)+1、远端异常硬错、`--root-store` 链校验根）与发布后 README 触发说明。
 - V1.5（2026-10-07）：README 索引载体改为**二维码数据载体**（业主裁决）：`vl-index.png` = identity 前缀 + 信封二进制直编（ECC-L，纯数据载体）；`vl-index.payload` state 文件为 RMW 事实源；历史保留改为每 tag 最近 3 条；超 2800B 预算自动降级文本块；App 读取通道 = `/git/raw` 匿名直读（实测）+ Vision 双路径解码规格；QR 生成依赖 `qrcode==8.2`/`pypng` 钉版。
 - V1.4（2026-10-07）：README 同步（方案 B 触发链）：发布成功后经 `CNBReleaseClient.start_readme_sync` 触发资源仓 `api_trigger_readme_sync` 管线（`repo-cnb-trigger:rw`；失败仅 `::warning::` 不阻塞发布）；资源仓 README 三部分自动生成（`tools/readme-sync` 模块）/ VL-INDEX v1 加密索引 / 流水线锁 + 非 force push + git/blob 双读回 + 尾块畸形硬错纪律。

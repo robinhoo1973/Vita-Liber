@@ -30,10 +30,14 @@ class FakeCNBReleaseClient:
         self.assets = []
         self.downloads = downloads or {}
         self.readme_sync_calls = []
+        self.release_body_updates = []
 
     def start_readme_sync(self, tag):
         self.readme_sync_calls.append(tag)
         return {"sn": "fixture-sn", "buildLogUrl": "https://cnb.cool/fixture-build"}
+
+    def update_release_body(self, tag, body):
+        self.release_body_updates.append((tag, body))
 
     def list_assets(self, tag):
         return [{"name": a["name"], "size": a["size"], "hash_algo": "sha256", "hash_value": a["sha256"],
@@ -164,6 +168,12 @@ class PublicationTests(unittest.TestCase):
                                  or name.endswith("package-validation.json") for name in names))
             # 方案 B(2026-10-07):发布成功后触发 README 同步管线。
             self.assertEqual(client.readme_sync_calls, ["asr-models"])
+            # 发布页正文(委员会 S3):永久头 + 动态段经 PATCH 刷新。
+            self.assertEqual(len(client.release_body_updates), 1)
+            body_tag, body = client.release_body_updates[0]
+            self.assertEqual(body_tag, "asr-models")
+            self.assertIn("## 本次更新 / 本次資料更新 / This update", body)
+            self.assertIn("catalog version: v", body)
 
     def test_readme_sync_trigger_failure_does_not_block_publish(self):
         # 通知通道纪律(2026-10-07):触发失败仅告警,发布结果不受影响;
