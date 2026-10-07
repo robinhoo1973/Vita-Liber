@@ -564,7 +564,12 @@ jobs:
     runs-on: macos-26
     # P2：altool ~95s + 复核收窄后 ≤~4min + 固定开销——15 保留 3x 余量。
     timeout-minutes: 15
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    # 三个 needs 齐绿才放行（2026-10-07 委员会取证修复）：`!cancelled()` 是状态检查
+    # 函数——会让本 job 在依赖失败时照常评估 if，而原式只查 build ⇒ **gates（L0
+    # 机械冻结）红时 upload 照跑**，与 :4/:55 注释声明的「gates 挡 upload」相悖
+    # （声明的断言≠执行的断言族；历史尚未触发=潜伏缺口）。补 gates 子句：
+    # 红/跳过（result != 'success'）一律不放行，取消语义（!cancelled）保持原样。
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.gates.result == 'success' }}
     steps:
       # 哈希钉版清单（requirements-asc-tools.txt）随仓获取，与 build job 同纪律。
       # 顺序纪律（CI 35585337312 实证）：checkout 默认 clean 会 git clean -ffdx
