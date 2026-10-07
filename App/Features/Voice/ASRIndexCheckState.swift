@@ -28,7 +28,9 @@ final class ASRIndexCheckState {
     private let isInstallActive: @MainActor () -> Bool
     private let checkTimeout: Duration
 
-    private var refreshTask: Task<Void, Never>?
+    /// private(set)：测试经 `@testable` 等 `refreshTask?.value` 同步在途结果
+    /// （L1 编译红 CI 37583131307 修复；与 `UpdateAdviceState.readTask` 同口径）。
+    private(set) var refreshTask: Task<Void, Never>?
     private var fetchTask: Task<ASRModelReleaseIndex, Error>?
 
     /// 测试缝（DoD 覆盖）：拉取与超时时长可注入——默认生产实现与提升前逐字同源
