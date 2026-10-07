@@ -152,6 +152,11 @@ def validate_index(index, *, complete=True, expected_families=None):
         for key in ("tierName", "tierHint"):
             if model.get(key) is not None:
                 _validate_localized(model[key])
+        # 文案链（2026-10-08 委员会）：changeNote 在**签名载荷**中已是三语文本
+        # （投影器按 (id,variant,upstreamRevision) 键控后才发射）；此处形状校验
+        # （形状-only，不设必填——必填闸在 R3 签名点）。
+        if model.get("changeNote") is not None:
+            _validate_localized(model["changeNote"])
         # R1 加密合同(2026-10-05):目录条目可声明加密信封方案;未知方案拒绝
         # (App 无法解密),缺省 = 明文 zip(历史目录)。发布侧(build)一律加密,
         # 明文条目只可能来自冻结的旧目录。
@@ -188,7 +193,7 @@ def validate_index(index, *, complete=True, expected_families=None):
             availability = family.get("availability")
             if availability not in (None, "upcoming"):
                 raise ValueError("Unknown family availability: " + str(availability))
-            for key in ("name", "hint"):
+            for key in ("name", "hint", "strengths", "limitations"):
                 if family.get(key) is not None:
                     _validate_localized(family[key])
             # 语言/方言覆盖(2026-10-05 目录驱动):App 路由判定唯一数据源——

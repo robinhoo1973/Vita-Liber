@@ -164,8 +164,8 @@ def publish(args, client):
     # 展示面绝不阻塞数据发布（医疗 v3 同纪律；非权威件，安全判定一律以签名为准）。
     try:
         payload_bytes = _envelope_payload_bytes(args.catalog)
-        overview_bytes = build_overview(payload_bytes)
-        verify_overview(overview_bytes, payload_bytes)
+        overview_bytes = build_overview(payload_bytes, previous_payload)
+        verify_overview(overview_bytes, payload_bytes, previous_payload)
         overview_path = args.catalog.parent / OVERVIEW_NAME
         overview_path.write_bytes(overview_bytes)
         client.upload_immutable(TAG, overview_path, OVERVIEW_NAME,

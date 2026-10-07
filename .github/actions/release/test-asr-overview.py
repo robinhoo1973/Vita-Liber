@@ -63,6 +63,43 @@ class AsrOverviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             verify(bytes(tampered), payload_bytes)
 
+    def test_changes_block_and_previous_payload_roundtrip(self):
+        current = _payload()
+        current["catalogVersion"] = 8
+        previous = json.loads(json.dumps(_payload()))  # catalogVersion 7
+        previous["index"]["models"].append({
+            "id": "whisper", "variant": "base", "version": "2024-07-13",
+            "sha256": "b" * 64, "license": "MIT",
+            "tierName": {"zh-Hans": "微轻"}, "tierHint": {"zh-Hans": "h"}})
+        current["index"]["models"].append({
+            "id": "whisper", "variant": "small", "version": "2024-07-13",
+            "sha256": "c" * 64, "license": "MIT",
+            "tierName": {"zh-Hans": "轻量"}, "tierHint": {"zh-Hans": "h"}})
+        current["index"]["models"][0]["sha256"] = "d" * 64  # tiny 更新
+        one = build(json_bytes(current), previous)
+        two = build(json_bytes(current), previous)
+        self.assertEqual(one, two, "带 previous 的概览必须仍是纯函数（重跑同字节）")
+        changes = json.loads(one)["changes"]
+        self.assertEqual(changes["fromCatalogVersion"], 7)
+        self.assertEqual(changes["added"], [{"id": "whisper", "variant": "small"}])
+        self.assertEqual(changes["removed"], [{"id": "whisper", "variant": "base"}])
+        self.assertEqual(changes["updated"][0]["fromVersion"], "2024-07-13")
+        verify(one, json_bytes(current), previous)
+        with self.assertRaises(ValueError):
+            verify(one, json_bytes(current), None)
+
+    def test_first_publish_changes_is_null(self):
+        doc = json.loads(build(json_bytes(_payload())))
+        self.assertIsNone(doc["changes"])
+
+    def test_family_strengths_limitations_pass_through(self):
+        payload = _payload()
+        payload["index"]["families"][0]["strengths"] = {"zh-Hans": "强项"}
+        payload["index"]["families"][0]["limitations"] = {"zh-Hans": "局限"}
+        doc = json.loads(build(json_bytes(payload)))
+        self.assertEqual(doc["families"][0]["strengths"], {"zh-Hans": "强项"})
+        self.assertEqual(doc["families"][0]["limitations"], {"zh-Hans": "局限"})
+
     def test_cli_envelope_roundtrip(self):
         payload = json_bytes(_payload())
         envelope = json_bytes({"payload": base64.b64encode(payload).decode(),

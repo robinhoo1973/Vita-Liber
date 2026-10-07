@@ -15,6 +15,8 @@
 不出现任何数据来源；不出现失败 / 不可达一类措辞（禁用词由测试负样例钉住）。
 """
 
+from asr_change_set import change_set
+
 SECTION_HEADING = "## 本次更新 / 本次資料更新 / This update"
 LANGUAGES = ("zh-Hans", "zh-Hant", "en")
 
@@ -91,10 +93,6 @@ def _tier_display(model, language):
     return _text(model.get("tierName"), language) or (model.get("variant") or "")
 
 
-def _tier_key(model):
-    return (model.get("id") or "", model.get("variant") or "")
-
-
 def _tiers_by_family(models):
     grouped = {}
     order = []
@@ -127,19 +125,12 @@ def _render_stats(language, families, models):
 
 
 def _delta_counts(previous, payload):
-    """返回 (added, updated, removed) 或 None（无可比基线/同版本重跑=省略）。"""
-    if previous is None or previous.get("catalogVersion") == payload.get("catalogVersion"):
-        return None
-    _, new_models = _family_index(payload)
-    _, old_models = _family_index(previous)
-    old_by_key = {_tier_key(model): model for model in old_models}
-    new_keys = {_tier_key(model) for model in new_models}
-    added = [model for model in new_models if _tier_key(model) not in old_by_key]
-    updated = [model for model in new_models
-               if _tier_key(model) in old_by_key
-               and old_by_key[_tier_key(model)].get("sha256") != model.get("sha256")]
-    removed = [model for model in old_models if _tier_key(model) not in new_keys]
-    return added, updated, removed
+    """返回 (added, updated, removed) 或 None（无可比基线/同版本重跑=省略）。
+
+    单源委托 `asr_change_set.change_set`（2026-10-08 委员会终裁：发布页与
+    overview changes 块共用同一增量语义——禁止同语义双实现漂移）。
+    """
+    return change_set(previous, payload)
 
 
 def _delta_line(language, previous, payload, families):

@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.11（2026-10-07）
+> 版本：V1.12（2026-10-08）
 
 ## 版本与资产来源
 
@@ -16,6 +16,18 @@
 - **单一手工维护面**：`.github/config/asr/models.json`（业主指定目录 = `.github/config`）——每条目含 `watch`（上游发现规则：`hf-repo` = HuggingFace 仓库、revision 为 commit；`github-release` = GitHub Release 资产（asset 通配）；`github-commit` = raw.githubusercontent 静态文件）+ `versionPolicy`（版本标签派生规则）+ 文件布局（`member`/`url` 恰一；member 型 URL 由生成器按 watch 文法合成）+ pin 值（`revision`/`bytes`/`sha256`）。
 - **投影**：`generate-asr-source-manifest.py` 把 config 纯投影为 `Resources/ASRModels/manifest.json`；**逐字节复现**为迁移验收基准（`test-asr-config-projection.py`），`--check` 为漂移闸。
 - **上游新版采纳（业主 2026-10-07 裁决）＝全自动（V1.11 落地）**：`asr.yml` 每次 run 先执行「解析上游最新版」步（`resolve-asr-models.py`）——hf-repo 取模型 API `sha`、github-release 取最新匹配资产（versionRegex 提取版本段）、github-commit 取该文件路径最近 commit；**内容有变才滚动 pin**（下载实测 bytes/sha256；元数据类提交按内容等值处理，不产生重建），解析失败保留现行 pin 仅 `::warning::`，实测失败 = 硬错（fail-closed）。解析结果经「投影源清单并暂存」步（config → manifest.json）进入 prepare；build 对已滚动条目**动态派生身份**（version = versionPolicy 派生 / builtAt = 当日 / artifactRevision = r+1）强制重建；无变化条目全量复用。次源锁定文件（各 notice）不参与自动追踪。
+
+## 文案链（2026-10-08 委员会终裁：明文 copy 源 + 签名前投影）
+
+- **唯一文案手工面**：`.github/config/asr/catalog-copy.json`（明文可 diff/可 PR 评审）——families：`name/hint/strengths/limitations`（**strengths/limitations 为签名点必填**，三语、每值 ≤1024B）；tiers：`tierName/tierHint`（沿用 4096B 上限）；可选 `changeNote` 按 `(id, variant, upstreamRevision)` 键控（revision 不符自动不发射——陈旧说明不可能变成谎言）。
+- **投影**：`apply-asr-catalog-copy.py` 在 **build 之后、签名之前**把文案覆盖进构建索引（保序：families 顺序 = auto 链优先序；行为字段 languages/dialects/availability 与全部身份字段零触碰；文案改动**零重建、零本地重签**）。fail-closed：覆盖缺口/三语不齐/超长/**负清单词**（绝对化·推荐语义·医疗结论，zh/zh-Hant/en 三语表）/未知 (id,variant) 一律硬错。
+- **R3 闸扩展**：签名点要求 families 必带 strengths/limitations——投影步被误删时硬红，**绝不静默回退模板旧文案**。
+- **「最新变化」**：`overview.json` 增 `changes` 块（非签名面；added/updated/removed + 版本迁移，判定与发布页增量行共用单源 `asr_change_set.py`；previous 缺失/同版本 → 整块 null，绝不解释）。App 不消费 changes；签名载荷保持确定性。
+- **模板文案字段**：保留为**生成物缓存**（App 离线基线经 `build_baseline` 嵌模板内容，删除=改 App 合同）；刷新方式=提交某次 run 的 metadata_artifact（现场签名信封）回仓（顺带闭合信封时效与版本滞后，见下）。
+- **信封刷新规程（治理）**：仓库模板信封 `expiresAt` 为签发 +30 天（当前 v7 → **2026-11-05 到期**）；逾期后果 = TestFlight preBuild（`model-trust.py build` 验签）全红。刷新=**提交最近一次 run 的 `asr-metadata-*` artifact 中的 manifest.json 回仓**（三合一：时效 + repo/远端版本对齐 + 模板文案缓存刷新）；`catalogVersion` 无需与远端强对齐（next-catalog-version 取 max，模板仅是地板；禁止把模板版本号抬到远端之上——App 基线同版本异字节=rollback 拒收）。
+- **发布前模板验签（V1.12 补闸）**：`asr.yml`「校验构建、签名及版本规则」步内新增 `model-trust.py verify --root … --catalog Resources/ASRModelUpdates/manifest.json`——此前 Linux 链无人验模板签名，「改模板不重签」可经 CI 重签发布、直到 macOS App 构建才翻车；现在发布前硬红闭合该盲路。（不进 L0：该验证含挂钟时效，L0 必须时间无关。）
+
+**文案链 P2 登记**：①AI 离线草拟工具（本地、人审、内容寻址缓存；CI 零 AI 供应商——四席一致裁决）；②`families[].languages` 语义修复（whisper 目录 [zh,en] vs 上游 100 语种、fire-red [zh] vs zh_en；**行为数据，需业主裁决**，或拆 covers/autoEligible）；③NOTICE.md 补署名 sense-voice/fire-red/moonshine（⚠ 需 13 包全量重建+重传，GB 级成本）；④README `sections.json` 与 copy 单源统一；⑤overview 上游 member 级变化（resolver report 接线）；⑥App 展示批（详情页 tierHint、strengths/limitations、changeNote 上屏）。
 - 模型下载、生成与校验都在 runner 的 `RUNNER_TEMP` 完成；仓库无 `downloads/` 目录，也不提交模型二进制。
 
 ## 模型家族与档位（2026-10-05 目录驱动，业主裁定）
@@ -147,3 +159,4 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.9（2026-10-07）：恢复批——发布面新增签名概览 `overview.json`（人读面：家族×档位/字节统计；非权威）；README 同步触发后增加下游状态轮询确认（触发≠成功，日志出现 `readme-sync 完成: status=success`）；契约测试第 13 例 `test-asr-overview.py` 入双侧执行列（l0-gate action 与 asr.yml）；配套 Resources 仓 readme-sync：QR 尾可见「索引版本 v{n}」行 + asr-models 数据概览块。
 - V1.10（2026-10-07）：模型 config 批：新增 `.github/config/asr/models.json`（watch 规则/versionPolicy/pin 值的单一手工维护面）+ `generate-asr-source-manifest.py`（config→源清单纯投影，逐字节复现为迁移验收基准）+ `test-asr-config-projection.py`（第 14 例入双侧执行列）；上游新版采纳裁决为**全自动**（见「config」节）。
 - V1.11（2026-10-07）：全自动升级批（业主三焦点指令）——`resolve-asr-models.py`（上游解析：hf-repo / github-release / github-commit 三规则；内容等值不回滚；解析失败保留 pin 仅告警；实测失败硬错；`--plan-only` 观测模式）+ asr.yml 接线（「解析上游最新版」→「投影源清单并暂存」→ prepare/build 消费）+ build 动态身份（`--config`；version/builtAt/r+1）+ 第 15 例 `test-resolve-asr-models.py` 入双侧执行列。
+- V1.12（2026-10-08）：文案链批（委员会四席两轮终裁）——明文 copy 源 `.github/config/asr/catalog-copy.json`（唯一文案手工面：name/hint/strengths/limitations + tierName/tierHint + 修订键控 changeNote）+ 签名前投影器 `apply-asr-catalog-copy.py`（fail-closed：覆盖/三语/负清单/超长）；R3 闸扩展（families 必带 strengths/limitations）；overview 增确定性 `changes` 块（单源 `asr_change_set.py`，发布页共用）；迁移改写存量绝对化文案（zipformer「最高质量」、dolphin/zipformer「首选/优选」、英文 highest/best）；发布前模板验签补闸（`model-trust.py verify` 入校验步——闭合「改模板不重签」盲路）；第 16/17 例 `test-apply-asr-catalog-copy.py` / `test-asr-change-set.py` 入双侧执行列；信封刷新规程（2026-11-05 到期）与文案链 P2 登记（见「文案链」节）。

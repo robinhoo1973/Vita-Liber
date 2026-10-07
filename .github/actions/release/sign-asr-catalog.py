@@ -91,6 +91,14 @@ def main() -> int:
         if model.get("tierName") is None or model.get("tierHint") is None:
             print(f"ERROR: 条目 {model['id']} 缺 tierName/tierHint(下载页文案数据源)", file=sys.stderr)
             return 2
+    # 2026-10-08 委员会：文案投影步（apply-asr-catalog-copy）被误删时必须硬红——
+    # 绝不静默回退模板旧文案。strengths/limitations 为签名点必填（投影器是唯一
+    # 发射者；R3「防数据面静默消失」哲学的平移）。
+    for family in families or []:
+        if family.get("strengths") is None or family.get("limitations") is None:
+            print(f"ERROR: 家族 {family.get('id')} 缺 strengths/limitations(文案投影缺位)",
+                  file=sys.stderr)
+            return 2
 
     root_envelope = decode_json(open(args.root, "rb").read())
     root_payload = decode_json(base64.b64decode(root_envelope["payload"]))

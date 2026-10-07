@@ -1,0 +1,350 @@
+{
+  "formatVersion": 1,
+  "families": [
+    {
+      "id": "zipformer",
+      "name": {
+        "en": "Zipformer Streaming",
+        "zh-Hans": "Zipformer 流式",
+        "zh-Hant": "Zipformer 串流"
+      },
+      "hint": {
+        "en": "Low-latency streaming model: mixed Chinese/English, hotwords, real-time transcription; 14M tier is Chinese-focused",
+        "zh-Hans": "低延迟流式模型：中英混说、热词定制与实时转写优先；14M 小档为中文为主",
+        "zh-Hant": "低延遲串流模型：中英混合、熱詞定制與即時轉寫優先；14M 小檔為中文為主"
+      },
+      "strengths": {
+        "zh-Hans": "流式转写：边说边出字，适合实时场景；支持热词定制；14M 小档体积小，可常驻低内存设备",
+        "zh-Hant": "串流轉寫：邊說邊出字，適合即時場景；支援熱詞定制；14M 小檔體積小，可常駐低記憶體裝置",
+        "en": "Streaming transcription (words appear as you speak) for real-time use; hotword customization; the 14M tier is small enough to stay resident on low-memory devices"
+      },
+      "limitations": {
+        "zh-Hans": "14M 小档以中文为主，英文场景有限；超大档包体较大",
+        "zh-Hant": "14M 小檔以中文為主，英文場景有限；超大檔包體較大",
+        "en": "The 14M tier is Chinese-focused with limited English capability; the extra-large tier has a larger package size"
+      }
+    },
+    {
+      "id": "qwen3",
+      "name": {
+        "en": "Qwen3 Multilingual",
+        "zh-Hans": "Qwen3 多语种",
+        "zh-Hant": "Qwen3 多語種"
+      },
+      "hint": {
+        "en": "0.6B-parameter multilingual model: 30 languages, quality/memory balance",
+        "zh-Hans": "0.6B 参数多语种模型：30 语种覆盖，兼顾质量与内存",
+        "zh-Hant": "0.6B 參數多語種模型：30 語種覆蓋，兼顧品質與記憶體"
+      },
+      "strengths": {
+        "zh-Hans": "覆盖 30 个语种（含粤语地区标记）；0.6B 参数兼顾质量与内存；适合多语种混合使用",
+        "zh-Hant": "覆蓋 30 個語種（含粵語地區標記）；0.6B 參數兼顧品質與記憶體；適合多語種混合使用",
+        "en": "Covers 30 languages (with Cantonese regional tags); 0.6B parameters balance quality and memory; suited to mixed-multilingual use"
+      },
+      "limitations": {
+        "zh-Hans": "非流式（按段输出）；包体较大，为目录中最大档位之一",
+        "zh-Hant": "非串流（按段輸出）；包體較大，為目錄中最大檔位之一",
+        "en": "Non-streaming (segmented output); among the largest packages in this catalog"
+      }
+    },
+    {
+      "id": "dolphin",
+      "name": {
+        "en": "Dolphin Light",
+        "zh-Hans": "Dolphin 轻量",
+        "zh-Hant": "Dolphin 輕量"
+      },
+      "hint": {
+        "en": "Lightweight CTC Chinese model: suited to low-memory devices",
+        "zh-Hans": "轻量 CTC 中文模型：适合低内存设备",
+        "zh-Hant": "輕量 CTC 中文模型：適合低記憶體裝置"
+      },
+      "strengths": {
+        "zh-Hans": "轻量 CTC 单文件模型：内存占用小、启动快，适合低内存设备常驻",
+        "zh-Hant": "輕量 CTC 單檔模型：記憶體佔用小、啟動快，適合低記憶體裝置常駐",
+        "en": "Lightweight single-file CTC model: small memory footprint and fast startup, suited to low-memory devices"
+      },
+      "limitations": {
+        "zh-Hans": "非流式（按段输出）；不支持热词定制；语言面以中英为主",
+        "zh-Hant": "非串流（按段輸出）；不支援熱詞定制；語言面以中英為主",
+        "en": "Non-streaming (segmented output); no hotword customization; Chinese/English focus"
+      }
+    },
+    {
+      "id": "whisper",
+      "name": {
+        "en": "Whisper General",
+        "zh-Hans": "Whisper 通用",
+        "zh-Hant": "Whisper 通用"
+      },
+      "hint": {
+        "en": "Classic general-purpose family: five tiers, strong generalization",
+        "zh-Hans": "经典通用模型家族：五档全尺寸，泛化能力强",
+        "zh-Hant": "經典通用模型家族：五檔全尺寸，泛化能力強"
+      },
+      "strengths": {
+        "zh-Hans": "档位阶梯完整（极轻→极速）：体积与内存占用随档递进，便于按设备能力选择；中英混合转写",
+        "zh-Hant": "檔位階梯完整（極輕→極速）：體積與記憶體佔用隨檔遞進，便於按裝置能力選擇；中英混合轉寫",
+        "en": "Complete tier ladder (tiny to turbo): size and memory scale gradually to match device capability; Chinese/English mixed transcription"
+      },
+      "limitations": {
+        "zh-Hans": "较大档位（进阶/极速）包体大、内存占用高；非流式（按段输出）",
+        "zh-Hant": "較大檔位（進階/極速）包體大、記憶體佔用高；非串流（按段輸出）",
+        "en": "Larger tiers (medium/turbo) ship bigger packages with higher memory use; segmented (non-streaming) output"
+      }
+    },
+    {
+      "id": "sense-voice",
+      "name": {
+        "en": "SenseVoice Multilingual",
+        "zh-Hans": "SenseVoice 多语种",
+        "zh-Hant": "SenseVoice 多語種"
+      },
+      "hint": {
+        "en": "FunAudioLLM multilingual small model: high-accuracy transcription for Chinese, English, Cantonese, Japanese and Korean",
+        "zh-Hans": "FunAudioLLM 多语种小模型：中文、英语、粤语、日语、韩语高精度转写",
+        "zh-Hant": "FunAudioLLM 多語種小模型：中文、英語、粵語、日語、韓語高精度轉寫"
+      },
+      "strengths": {
+        "zh-Hans": "多语种覆盖：中、英、粤、日、韩；体量小、推理开销低",
+        "zh-Hant": "多語種覆蓋：中、英、粵、日、韓；體量小、推理開銷低",
+        "en": "Covers Chinese, English, Cantonese, Japanese and Korean; compact with low inference cost"
+      },
+      "limitations": {
+        "zh-Hans": "非流式（按段输出）；不支持热词定制",
+        "zh-Hant": "非串流（按段輸出）；不支援熱詞定制",
+        "en": "Non-streaming (segmented output); no hotword customization"
+      }
+    },
+    {
+      "id": "fire-red",
+      "name": {
+        "en": "FireRed Chinese",
+        "zh-Hans": "FireRed 中文",
+        "zh-Hant": "FireRed 中文"
+      },
+      "hint": {
+        "en": "Chinese speech recognition large model",
+        "zh-Hans": "中文语音识别大模型",
+        "zh-Hant": "中文語音辨識大模型"
+      },
+      "strengths": {
+        "zh-Hans": "中文大模型：单文件 CTC 结构，适合长录音与复杂场景的分段转写",
+        "zh-Hant": "中文大模型：單檔 CTC 結構，適合長錄音與複雜場景的分段轉寫",
+        "en": "Chinese large model: single-file CTC structure for segmented transcription of long or complex audio"
+      },
+      "limitations": {
+        "zh-Hans": "非流式（按段输出）；不支持热词定制；包体较大",
+        "zh-Hant": "非串流（按段輸出）；不支援熱詞定制；包體較大",
+        "en": "Non-streaming (segmented output); no hotword customization; large package"
+      }
+    },
+    {
+      "id": "moonshine",
+      "name": {
+        "en": "Moonshine Light",
+        "zh-Hans": "Moonshine 轻量",
+        "zh-Hant": "Moonshine 輕量"
+      },
+      "hint": {
+        "en": "Lightweight English real-time transcription model",
+        "zh-Hans": "英语轻量实时转写模型",
+        "zh-Hant": "英語輕量即時轉寫模型"
+      },
+      "strengths": {
+        "zh-Hans": "英语轻量转写：体积小、启动开销低",
+        "zh-Hant": "英語輕量轉寫：體積小、啟動開銷低",
+        "en": "Lightweight English transcription: small footprint and low startup cost"
+      },
+      "limitations": {
+        "zh-Hans": "语言面仅英语；不支持热词定制",
+        "zh-Hant": "語言面僅英語；不支援熱詞定制",
+        "en": "English only; no hotword customization"
+      }
+    }
+  ],
+  "tiers": [
+    {
+      "id": "whisper",
+      "variant": "tiny",
+      "tierName": {
+        "en": "Tiny",
+        "zh-Hans": "极轻",
+        "zh-Hant": "極輕"
+      },
+      "tierHint": {
+        "en": "Whisper tiny tier: smallest memory footprint",
+        "zh-Hans": "Whisper 极轻档：最小内存占用",
+        "zh-Hant": "Whisper 極輕檔：最小記憶體佔用"
+      }
+    },
+    {
+      "id": "whisper",
+      "variant": "base",
+      "tierName": {
+        "en": "Base",
+        "zh-Hans": "微轻",
+        "zh-Hant": "微輕"
+      },
+      "tierHint": {
+        "en": "Whisper base tier: smaller memory footprint",
+        "zh-Hans": "Whisper 微轻档：内存占用更小",
+        "zh-Hant": "Whisper 微輕檔：記憶體佔用更小"
+      }
+    },
+    {
+      "id": "whisper",
+      "variant": "small",
+      "tierName": {
+        "en": "Light",
+        "zh-Hans": "轻量",
+        "zh-Hant": "輕量"
+      },
+      "tierHint": {
+        "en": "Whisper small tier: classic general-purpose",
+        "zh-Hans": "Whisper 轻量档：经典通用，泛化能力强",
+        "zh-Hant": "Whisper 輕量檔：經典通用，泛化能力強"
+      }
+    },
+    {
+      "id": "whisper",
+      "variant": "medium",
+      "tierName": {
+        "en": "Medium",
+        "zh-Hans": "进阶",
+        "zh-Hant": "進階"
+      },
+      "tierHint": {
+        "en": "Whisper medium tier: higher accuracy for long or complex audio",
+        "zh-Hans": "Whisper 进阶档：更高精度，适合长录音与复杂场景",
+        "zh-Hant": "Whisper 進階檔：更高精度，適合長錄音與複雜場景"
+      }
+    },
+    {
+      "id": "whisper",
+      "variant": "turbo",
+      "tierName": {
+        "en": "Turbo",
+        "zh-Hans": "极速",
+        "zh-Hant": "極速"
+      },
+      "tierHint": {
+        "en": "Whisper turbo tier: distilled efficiency, near-large accuracy with faster inference",
+        "zh-Hans": "Whisper 极速档：蒸馏高效，精度接近大模型、推理更快",
+        "zh-Hant": "Whisper 極速檔：蒸餾高效，精度接近大模型、推理更快"
+      }
+    },
+    {
+      "id": "dolphin",
+      "variant": "base",
+      "tierName": {
+        "en": "Entry",
+        "zh-Hans": "入门",
+        "zh-Hant": "入門"
+      },
+      "tierHint": {
+        "en": "Lightest CTC Chinese model: smallest memory footprint",
+        "zh-Hans": "更轻量的 CTC 中文模型：内存占用最小",
+        "zh-Hant": "更輕量的 CTC 中文模型：記憶體佔用最小"
+      }
+    },
+    {
+      "id": "dolphin",
+      "variant": "small",
+      "tierName": {
+        "en": "Light",
+        "zh-Hans": "轻量",
+        "zh-Hant": "輕量"
+      },
+      "tierHint": {
+        "en": "Lightweight CTC model: small memory footprint, fast startup",
+        "zh-Hans": "轻量 CTC 模型：内存占用小、启动快",
+        "zh-Hant": "輕量 CTC 模型：記憶體佔用小、啟動快"
+      }
+    },
+    {
+      "id": "zipformer",
+      "variant": "small",
+      "tierName": {
+        "en": "Light",
+        "zh-Hans": "轻量",
+        "zh-Hant": "輕量"
+      },
+      "tierHint": {
+        "en": "14M streaming small model: suited to low-memory devices, Chinese-focused",
+        "zh-Hans": "14M 流式小模型：适合低内存设备，中文为主",
+        "zh-Hant": "14M 串流小模型：適合低記憶體裝置，中文為主"
+      }
+    },
+    {
+      "id": "zipformer",
+      "variant": "large",
+      "tierName": {
+        "en": "Extra Large",
+        "zh-Hans": "超大",
+        "zh-Hant": "超大"
+      },
+      "tierHint": {
+        "en": "High-quality streaming transcription for long or complex audio",
+        "zh-Hans": "高质量流式转写，适合长录音与复杂场景",
+        "zh-Hant": "高品質串流轉寫，適合長錄音與複雜場景"
+      }
+    },
+    {
+      "id": "qwen3",
+      "variant": "medium",
+      "tierName": {
+        "en": "Standard",
+        "zh-Hans": "标准",
+        "zh-Hant": "標準"
+      },
+      "tierHint": {
+        "en": "0.6B multilingual model: the quality/memory balance",
+        "zh-Hans": "0.6B 多语种模型：质量与内存的平衡选择",
+        "zh-Hant": "0.6B 多語種模型：品質與記憶體的平衡選擇"
+      }
+    },
+    {
+      "id": "sense-voice",
+      "variant": "small",
+      "tierName": {
+        "en": "Standard",
+        "zh-Hans": "标准",
+        "zh-Hant": "標準"
+      },
+      "tierHint": {
+        "en": "Multilingual high-accuracy transcription: Chinese, English, Cantonese, Japanese, Korean",
+        "zh-Hans": "多语种高精度转写：中文、英语、粤语、日语、韩语",
+        "zh-Hant": "多語種高精度轉寫：中文、英語、粵語、日語、韓語"
+      }
+    },
+    {
+      "id": "fire-red",
+      "variant": "large",
+      "tierName": {
+        "en": "Extra Large",
+        "zh-Hans": "超大",
+        "zh-Hant": "超大"
+      },
+      "tierHint": {
+        "en": "Chinese large model: high-accuracy transcription",
+        "zh-Hans": "中文大模型：高精度转写",
+        "zh-Hant": "中文大模型：高精度轉寫"
+      }
+    },
+    {
+      "id": "moonshine",
+      "variant": "tiny",
+      "tierName": {
+        "en": "Tiny",
+        "zh-Hans": "极轻",
+        "zh-Hant": "極輕"
+      },
+      "tierHint": {
+        "en": "Lightweight English real-time transcription model",
+        "zh-Hans": "英语轻量实时转写模型",
+        "zh-Hant": "英語輕量即時轉寫模型"
+      }
+    }
+  ]
+}

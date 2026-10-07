@@ -101,6 +101,14 @@ jobs:
           python3 .github/actions/release/test-asr-config-projection.py
           # 2026-10-07 全自动升级批：上游解析（plan/apply/unknown 语义）+ CLI 入口形状。
           python3 .github/actions/release/test-resolve-asr-models.py
+          # 2026-10-08 文案链批：投影器（负清单/覆盖/修订键控）+ 变化集单源。
+          python3 .github/actions/release/test-apply-asr-catalog-copy.py
+          python3 .github/actions/release/test-asr-change-set.py
+          # 2026-10-08 治理批：仓库模板信封必须验签——此前 Linux 链无人验，
+          # 「改模板不重签」可经 CI 重签发布；发布前硬红闭合该盲路。
+          python3 .github/actions/release/model-trust.py verify \
+            --root Resources/ModelTrustRoot.json \
+            --catalog Resources/ASRModelUpdates/manifest.json
 
       # 全自动升级批（2026-10-07 业主裁决）：解析上游最新版——内容有变即下载
       # 实测并滚动 pin；解析失败保留现行 pin 仅告警；实测失败=硬错（fail-closed）。
@@ -146,6 +154,14 @@ jobs:
       # 2026-10-06 业主指令(不建议 publish 开关):构建→签名→验证→发布一气呵成。
       # 构建产物在现场以签名密钥签名成发布用 manifest.json(无密钥=硬错,
       # 发布需要签名目录;签名器内置 verify_catalog 自校验含包级签名验真)。
+      # 文案链（2026-10-08 委员会终裁）：明文 copy 源在**签名前**投影进构建索引——
+      # 文案改动零重建、零本地重签；投影缺失/不齐由投影器 fail-closed，R3 闸兜底。
+      - name: 投影文案到构建索引（签名前，copy 源）
+        run: |
+          python3 .github/actions/release/apply-asr-catalog-copy.py \
+            --index "$RUNNER_TEMP/asr-packages/index.json" \
+            --copy .github/config/asr/catalog-copy.json
+
       - name: 生成签名目录（发布面单一 manifest.json）
         env:
           ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
