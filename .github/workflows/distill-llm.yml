@@ -35,8 +35,8 @@ jobs:
     # py_compile 抓不到,此前 CI 从未跑过本簇单测——回归全部靠人眼。
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
       - name: stdlib 单测 + 全簇语法
@@ -47,8 +47,8 @@ jobs:
     needs: tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
       - name: Install deps(哈希钉版)
@@ -97,7 +97,7 @@ jobs:
           print(f"corpus_sha256={m['corpus_sha256']}")
           EOF
       - name: Upload corpus artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
           path: |
@@ -120,8 +120,8 @@ jobs:
             device: probe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
       - name: Install deps(哈希钉版)
@@ -159,7 +159,7 @@ jobs:
             python3 -c "import json;print(json.dumps(json.load(open('calibrate.json')), ensure_ascii=False))"
           fi
       - name: Upload calibrate result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
           name: calibrate-${{ matrix.os }}-${{ matrix.device }}
           path: |
@@ -175,11 +175,11 @@ jobs:
     needs: prepare
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
       - name: Install deps(哈希钉版)
@@ -195,7 +195,7 @@ jobs:
             --corpus corpus.jsonl --out-dir smoke-resume --resume-dir smoke-out/checkpoints \
             --max-steps 40 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
       - name: Upload smoke artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
           name: smoke-out
           path: |
@@ -214,11 +214,11 @@ jobs:
       # (历史教训:缺本映射 → publish 的 if 恒假,publish 永远不跑且无任何报错)。
       verdict: ${{ steps.gate.outputs.verdict }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
       - name: Install deps(哈希钉版;拼音层复现纪律 §10)
@@ -262,7 +262,7 @@ jobs:
         # always():闸门 RED(exit 2)/运行错误(exit 1)时同样上传诊断件——
         # gate-report.txt 在两种失败下都已落盘,是排查唯一现场。
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
           name: gate-report
           path: |
@@ -281,10 +281,10 @@ jobs:
     permissions:
       contents: write  # 全 workflow 唯一需要写权限的 job(最小权限)
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: gate-report
       - name: Publish frozen corpus + permanent baseline(content-addressed, append-only)
