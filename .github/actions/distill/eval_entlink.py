@@ -2,7 +2,7 @@
 """SU-M15-ENTLINK 评测闸 CLI:数据基线对照臂(P1)+ 模型五层闸(P3,条件)。
 
 用法:
-  python3 scripts/distill/eval_entlink.py \
+  python3 .github/actions/distill/eval_entlink.py \
       --corpus out/corpus.jsonl \
       --catalog-jsonl drug=a.jsonl,... \
       --wording-source CoreKit/Sources/Domain/AlertEngine.swift \

@@ -6,7 +6,7 @@
 #       corpus 构建/manifest + gate 评测闸(纯 stdlib 部分)。
 # 不含:probe/calibrate/train(checkpoint 的 torch 部分)——torch 为 CI 期依赖,
 #       本地仅 py_compile 语法验证(见下方 SYNTAX 段)。
-# 用法:bash scripts/distill/run_tests.sh
+# 用法:bash .github/actions/distill/run_tests.sh
 # 退出码:0=全绿;1=测试失败;2=语法失败。
 # ============================================================================
 set -uo pipefail

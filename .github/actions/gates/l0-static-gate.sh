@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
 # Vita Liber · 青囊书 — L0 静态门禁
-# 位置：scripts/gates/l0-static-gate.sh —— 单源 reusable 引用（2026-10-07 消解
+# 位置：.github/actions/gates/l0-static-gate.sh —— 单源 reusable 引用（2026-10-07 消解
 #       ci-tests.yml 后）：.github/workflows/l0-static-gate.yml 的调用体，由
 #       build-testflight.yml「gates」job（挡 upload 的机械冻结；PR 通道同源）调起；
 #       2026-09-24 自 .github/workflows/ 迁出、按域归簇，本地同样可直接执行。
@@ -49,8 +49,8 @@
 #   [17] 容器标识掩蔽门禁 —— 容器 .accessibilityIdentifier 必须配
 #        .accessibilityElement(children: .contain)，否则 SwiftUI 把容器标识下放
 #        覆盖每个子元素自身标识，XCUITest 按子元素标识查询失败（CI 34021989599 /
-#        34660864382 实证，判定器 scripts/gates/l0-container-id-mask.py）
-#   [18] 依赖能力矩阵 —— Package.resolved / project.yml 钉版 ≤ scripts/gates/
+#        34660864382 实证，判定器 .github/actions/gates/l0-container-id-mask.py）
+#   [18] 依赖能力矩阵 —— Package.resolved / project.yml 钉版 ≤ .github/actions/gates/
 #   [19] 工作流结构 —— YAML 可解析/注释内 ${{ 扫描/uses 全 SHA 钉版/本地引用闭包（0 秒红族左移）
 #        dependency-capability-matrix.tsv 已验证上限；未登记即未验证
 #        （委员会 P1，2026-09-27 加；2026-09-29 由汇总 exit 之后的死代码复活为实跑节，
@@ -623,7 +623,7 @@ else
 fi
 
 # ---------- [10] L10n 硬编码门禁（审查问题 E · 机制先于存量） ----------
-section "10/19" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 scripts/gates/l10n-legacy-allowlist.txt）"
+section "10/19" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/actions/gates/l10n-legacy-allowlist.txt）"
 L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
 [ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
 # 判定统一走 python3 显式 Unicode 码点（ERR#5WHY：`grep [一-龥]` 多字节字符区间的
@@ -1070,7 +1070,7 @@ fi
 # ---------- [18] 依赖能力矩阵（委员会 P1，2026-09-27） ----------
 # 依赖钉版与工具链能力错配族（CI 36253140508：swift-collections 1.7.0 在 Xcode 26
 # SPM 下 import Builtin 失败）：断言两个钉面 ≤ 已验证上限矩阵；未登记即未验证。
-section "18/19" "依赖能力矩阵 —— Package.resolved/project.yml 钉 ≤ 已验证上限（矩阵 scripts/gates/dependency-capability-matrix.tsv）"
+section "18/19" "依赖能力矩阵 —— Package.resolved/project.yml 钉 ≤ 已验证上限（矩阵 .github/actions/gates/dependency-capability-matrix.tsv）"
 if python3 "$SCRIPT_DIR/l0-dependency-matrix.py"; then
   pass_matrix=1
 else

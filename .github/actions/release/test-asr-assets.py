@@ -2,6 +2,15 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+
+def _repo_root() -> Path:
+    # 仓库根探测：逐级向上找 CoreKit/Sources/Domain 锚点（禁 parents[N] 固定层级——
+    # 2026-10-07 簇迁 .github/actions/ 后旧索引必坏，漂移实测族）。
+    probe = Path(__file__).resolve().parent
+    while probe != probe.parent and not (probe / "CoreKit" / "Sources" / "Domain").is_dir():
+        probe = probe.parent
+    return probe
+
 import tempfile
 import tarfile
 import unittest
@@ -104,7 +113,7 @@ class RealDataFileGateTests(unittest.TestCase):
     仓库钉版数据文件必须可解析、模板必须过 validate_index、index↔manifest 档位
     互相对齐(build 按 (id, variant) 匹配源清单,漏一侧 = 构建期红)。"""
 
-    ROOT = Path(__file__).resolve().parents[2]
+    ROOT = _repo_root()
     MANIFEST = ROOT / "Resources" / "ASRModels" / "manifest.json"
     INDEX = ROOT / "Resources" / "ASRModelUpdates" / "manifest.json"
 

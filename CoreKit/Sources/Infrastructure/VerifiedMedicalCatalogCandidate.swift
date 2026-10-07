@@ -2,7 +2,7 @@ import Foundation
 import Protocols
 
 /// medical-data Release 线协议常量与命名文法；逐项对齐
-/// `scripts/medical-data/go/medrelease`（trust.go / names.go），任何一侧改动须同步另一侧。
+/// `refactor/tools/medical-data/go`（lib/medicalrelease 的 trust.go / names.go），任何一侧改动须同步另一侧。
 public enum MedicalCatalogReleaseProtocol {
     public static let repository = "robinhoo1973/Resources"
     public static let releaseTag = "medical-data"

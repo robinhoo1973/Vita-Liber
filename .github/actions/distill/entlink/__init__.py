@@ -1,6 +1,6 @@
 """实体链接确定性召回核心包(纯 stdlib,Linux 本地可测)。
 
-分层(recall.RecallEngine)与数据流见 scripts/distill/README.md;
+分层(recall.RecallEngine)与数据流见 .github/actions/distill/README.md;
 设计依据:refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md(§6 S1/§10 基线对照臂)。
 
 模块边界:

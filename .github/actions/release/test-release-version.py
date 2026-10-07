@@ -15,7 +15,7 @@ REPO = Path(__file__).resolve().parent
 while REPO != REPO.parent and not (REPO / "CoreKit" / "Sources" / "Domain").is_dir():
     REPO = REPO.parent
 WORKFLOWS = REPO / ".github" / "workflows"
-CLUSTER = Path(__file__).resolve().parent  # 助手脚本与本测试同簇(scripts/release/)
+CLUSTER = Path(__file__).resolve().parent  # 助手脚本与本测试同簇(.github/actions/release/)
 
 HELPER_RE = re.compile(r"python3\s+([^\s\\]+\.py)")
 

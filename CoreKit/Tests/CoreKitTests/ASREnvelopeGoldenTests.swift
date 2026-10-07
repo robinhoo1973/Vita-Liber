@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import Infrastructure
 
-/// 信封字节合同金样（2026-10-05 审查补齐）：`scripts/release/asr_envelope.py`
+/// 信封字节合同金样（2026-10-05 审查补齐）：`.github/actions/release/asr_envelope.py`
 /// 用主密钥（= ASRPackageCrypto.masterKeyHex）与身份 `qwen3--v1.0-r2` 生成的
 /// 确定性信封必须被 Swift 侧逐字节解开——两侧 HKDF 派生（Swift 32 字节派生
 /// 取前 12 vs python 直接 len=12，RFC 5869 前缀性质）、零盐语义、AAD 布局

@@ -16,6 +16,16 @@ from asr_package import ASR_CATALOG_BUDGET_BYTES, MAX_PACKAGE, validate_index
 
 
 TOOLS = Path(__file__).resolve().parent
+
+def _repo_root() -> Path:
+    # 仓库根探测：逐级向上找 CoreKit/Sources/Domain 锚点（禁 parents[N] 固定层级——
+    # 2026-10-07 簇迁 .github/actions/ 后旧索引必坏，漂移实测族）。
+    probe = Path(__file__).resolve().parent
+    while probe != probe.parent and not (probe / "CoreKit" / "Sources" / "Domain").is_dir():
+        probe = probe.parent
+    return probe
+
+
 # 测试主密钥:与 App 内嵌 ASRPackageCrypto.masterKeyHex 同值(生产 CI 用
 # secret 覆盖;此处保证 Python 测试与 App 侧解密合同逐字节一致)。
 TEST_PACKAGE_KEY = "2303fac4e6aaacc328f6ac612f77fa91c32594f9c627aab2178b19486ebe7e82"
@@ -330,7 +340,7 @@ class PackageTests(unittest.TestCase):
     def test_app_embedded_key_matches_env_key(self):
         # App 侧 ASRPackageCrypto 内嵌主密钥必须与 CI/测试密钥同值——轮换漏改
         # 任何一侧,新包在设备上全部解密失败(fail-closed 但通道全灭)。
-        crypto_path = TOOLS.parents[1] / "CoreKit" / "Sources" / "Infrastructure" / "ASRPackageCrypto.swift"
+        crypto_path = _repo_root() / "CoreKit" / "Sources" / "Infrastructure" / "ASRPackageCrypto.swift"
         source = crypto_path.read_text(encoding="utf-8")
         match = re.search(r'masterKeyHex\s*=\s*"([0-9a-fA-F]{64})"', source)
         self.assertIsNotNone(match, "ASRPackageCrypto.masterKeyHex missing")

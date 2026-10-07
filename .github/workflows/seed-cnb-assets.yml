@@ -39,7 +39,7 @@ jobs:
             exit 0
           fi
           mkdir -p "$RUNNER_TEMP/cnb-bootstrap"
-          cp scripts/release/cnb-resource-repository-readme.md "$RUNNER_TEMP/cnb-bootstrap/README.md"
+          cp .github/actions/release/cnb-resource-repository-readme.md "$RUNNER_TEMP/cnb-bootstrap/README.md"
           cd "$RUNNER_TEMP/cnb-bootstrap"
           git init -q -b main
           git -c user.name=vitaliber-ci -c user.email=ci@vitaliber.local add README.md
@@ -57,10 +57,10 @@ jobs:
             echo "::error::本批仅实现 asr-models 种子(llama 标签待 Task 2 扩展)"
             exit 1
           fi
-          python3 scripts/release/seed-cnb-model-assets.py \
+          python3 .github/actions/release/seed-cnb-model-assets.py \
             --tag asr-models \
             --catalog Resources/ASRModelUpdates/catalog.json \
-            --legacy-index scripts/release/seed-fixtures/asr-legacy-index.json \
+            --legacy-index .github/actions/release/seed-fixtures/asr-legacy-index.json \
             --github-repository "$GITHUB_REPOSITORY" \
             --work-dir "$RUNNER_TEMP/seed" \
             --execute

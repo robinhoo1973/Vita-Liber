@@ -26,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 while ROOT != ROOT.parent and not (ROOT / "CoreKit/Sources/Domain").is_dir():
     ROOT = ROOT.parent
-sys.path.insert(0, str(ROOT / "scripts/release"))
+sys.path.insert(0, str(ROOT / ".github" / "actions" / "release"))
 
 import asr_envelope  # noqa: E402  （正本实现，同目录）
 

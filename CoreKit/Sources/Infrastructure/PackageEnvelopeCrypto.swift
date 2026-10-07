@@ -17,7 +17,7 @@ import Foundation
 ///   调用方必须显式传上述常量。裁决全文：
 ///   discussions/2026-10-07-medical-envelope-migration-round1.md §5。
 ///
-/// 帧格式（与 `scripts/release/asr_envelope.py` 正本逐字节对齐）：
+/// 帧格式（与 `.github/actions/release/asr_envelope.py` 正本逐字节对齐）：
 /// 头 = magic "VLASR\x01"(6) + u8 version + u32 BE chunk_size + u64 BE
 /// plaintext_size + u32 BE chunk_count；每块 = u32 BE cipher_len + (ct + tag16)
 /// ——nonce 由块序号经 HKDF 派生，**不入帧**。key/nonce 由 HKDF-SHA256 自主

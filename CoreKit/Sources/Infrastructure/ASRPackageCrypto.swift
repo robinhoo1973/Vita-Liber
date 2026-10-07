@@ -16,7 +16,7 @@ import Foundation
 ///    必须靠 artifactRevision 改变身份（AES-GCM nonce 重放纪律，见 python 正本
 ///    docstring）；
 /// 3. 加密域 namespace `vitaliber/asr/aes256gcm/v1`——与
-///    `scripts/release/asr_envelope.py` 的 info 串逐字节一致（已发布包与金样
+///    `.github/actions/release/asr_envelope.py` 的 info 串逐字节一致（已发布包与金样
 ///    `ASREnvelopeGoldenTests` 钉死之字节合同）。
 ///
 /// 轮换语义：主密钥两处（secret/内嵌）同步更新，test-asr-package-integrity.py

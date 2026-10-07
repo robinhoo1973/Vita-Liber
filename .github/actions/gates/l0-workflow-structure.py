@@ -20,7 +20,7 @@
      runs.using == composite。（无效引用在 GitHub 侧是创建期 0 秒红——本地左移。）
   附加. maintenance.yml 的 REQUIRED_PATHS 每条路径必须存在（悬空哨兵 = 静默失效）。
 
-用法：python3 scripts/gates/l0-workflow-structure.py [--ci]
+用法：python3 .github/actions/gates/l0-workflow-structure.py [--ci]
       （--ci：有发现即退出码 1，供 L0 门禁第 19 节复用；0 文件扫描退出码 2——
        ERR#27 纪律：空扫不得判 PASS）
 """

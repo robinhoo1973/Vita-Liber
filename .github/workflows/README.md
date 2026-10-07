@@ -4,22 +4,26 @@
 > 子目录里的 YAML 会被静默忽略,因此工作流文件禁止放入任何子目录,也不得移走。
 > (2026-09-24 重组:辅助脚本已全部迁出,按功能域分簇至 `scripts/<域>/`。)
 
-## 辅助脚本在哪里
+## CI 代码布局（.github/{workflows,actions,config} —— 2026-10-07 业主指令落地）
 
 ```
-scripts/
-├── gates/          # 域:L0 静态门禁(19 节)+ 其数据文件
-├── release/        # 域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
-├── distill/        # 域:实体链接/蒸馏训练簇(entlink 确定性召回+语料构建+评测闸+训练循环;
-│                   #   设计依据 refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md §7;
-│                   #   零 PHI 数据纪律、MPS 探测段先行、checkpoint 断点续训,详见簇 README)
-└── requirements/   # 辅助文件:pip --require-hashes 钉版清单
+.github/
+├── workflows/      # 仅工作流定义（*.yml，含 workflow_call reusable——平台硬约束：
+│                   #   GitHub 只在此层扫描；工作流禁止放入任何子目录）
+├── actions/        # 被 workflows 调用的脚本 / 公用代码（按域归簇）
+│   ├── gates/      #   域:L0 静态门禁(19 节)判定器 + 其数据文件
+│   ├── release/    #   域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
+│   └── distill/    #   域:实体链接/蒸馏训练簇(entlink 确定性召回+语料构建+评测闸+训练循环;
+│                   #     零 PHI 数据纪律、MPS 探测段先行、checkpoint 断点续训,详见簇 README)
+└── config/         # 可公开的配置
+    └── requirements/  # pip --require-hashes 钉版清单
 ```
 
 **归簇原则:按功能域聚合,目录名即职责域。** 新增脚本先归簇,禁止直接放进
-workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
-`gates/gate-suites.tsv`、`gates/l10n-legacy-allowlist.txt`)。各簇的具体职责
-见下表「工作流一览」。
+workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
+`actions/gates/gate-suites.tsv`、`actions/gates/l10n-legacy-allowlist.txt`)。各簇的具体职责
+见下表「工作流一览」。（旧 `scripts/` 布局于 2026-10-07 整体迁入本结构；
+`scripts/medical-data/` 早已迁至 workspace 级 `refactor/tools/medical-data/`。）
 
 ## 簇内耦合规则(移动文件前必读)
 
@@ -31,12 +35,12 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
   (含 runpy 挂载形式;计数随簇演进,以 grep 实况为准)。
 - 仓库根探测**禁止按固定层级 `parents[N]` 假设**:一律逐级向上找
   `CoreKit/Sources/Domain`(Python)或 `project.yml`(shell)锚点。
-  教训见 `scripts/gates/l0-container-id-mask.py:20`(2026-09-12 假绿实证)。
+  教训见 `.github/actions/gates/l0-container-id-mask.py:20`(2026-09-12 假绿实证)。
 
 ## 其他规则
 
 - **`requirements-*.txt` 必须 `--require-hashes` 钉版**(S-M6 供应链纪律),统一放
-  `scripts/requirements/`;换版须重取哈希(见各清单文件头注释的生成方式)。
+  `.github/config/requirements/`;换版须重取哈希(见各清单文件头注释的生成方式)。
 - **`__pycache__/` 与 `*.pyc` 是 Python 运行时缓存**:由 `.gitignore` 忽略,永不提交,
   本地可随时删除(不会被重建进库)。
 - 编排逻辑尽量留在 YAML `run:` 步骤;复杂逻辑下沉为簇内脚本,禁止在 YAML 内长内联。
@@ -44,7 +48,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
   1. 所有引用该脚本的 YAML 调用路径、`project.yml` 构建阶段(`$SRCROOT/...`);
   2. `CLAUDE.md` / `AGENTS.md`;
   3. `refactor/` 规格链与 `code-function-mapping.md` 中的路径引用;
-  4. 验证:`bash scripts/gates/l0-static-gate.sh`(19 节全绿；2026-10-07 本工作树实测绿，旧 ERR#27 状态注已失效)+
+  4. 验证:`bash .github/actions/gates/l0-static-gate.sh`(19 节全绿；2026-10-07 本工作树实测绿，旧 ERR#27 状态注已失效)+
      跑受影响的 `test-*.py`;最后更新 `refactor/memory/` 知识库。
 
 ## 工作流一览

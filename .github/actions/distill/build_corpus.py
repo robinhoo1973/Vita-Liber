@@ -2,10 +2,10 @@
 """语料构建 CLI:目录资产 → 冻结 JSONL + manifest(计划文档 §7.6 prepare 段)。
 
 用法:
-  python3 scripts/distill/build_corpus.py \
+  python3 .github/actions/distill/build_corpus.py \
       --catalog-jsonl drug=a.jsonl,hospital=b.jsonl,department=c.jsonl,exam=d.jsonl \
       --out out/corpus.jsonl --master-seed 20260929
-  python3 scripts/distill/build_corpus.py --catalog-sqlite catalog.sqlite --out out/corpus.jsonl
+  python3 .github/actions/distill/build_corpus.py --catalog-sqlite catalog.sqlite --out out/corpus.jsonl
 
 退出码:0=成功;1=输入/环境错误;2=评测实体下限不达标(fail-closed)。
 """

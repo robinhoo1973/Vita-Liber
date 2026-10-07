@@ -55,8 +55,8 @@ jobs:
       - name: L0 静态门禁
         run: |
           set -o pipefail
-          bash scripts/gates/l0-static-gate.sh 2>&1 | tee /tmp/l0-gate.log
-          python3 scripts/gates/test-schema-integrity.py 2>&1 | tee -a /tmp/l0-gate.log
+          bash .github/actions/gates/l0-static-gate.sh 2>&1 | tee /tmp/l0-gate.log
+          python3 .github/actions/gates/test-schema-integrity.py 2>&1 | tee -a /tmp/l0-gate.log
 
       # 发布契约测试左移（2026-10-07 委员会：原仅在 release-asr-models.yml 的
       # dispatch 链路执行——引用面断裂/断言失配要等下次 ASR 发布才暴露，天级延迟。
@@ -69,7 +69,7 @@ jobs:
                    test-asr-release test-asr-release-page test-medical-package-fixture \
                    test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets; do
             echo "── $t"
-            python3 "scripts/release/$t.py"
+            python3 ".github/actions/release/$t.py"
           done 2>&1 | tee -a /tmp/l0-gate.log
 
       - name: 上传 L0 诊断日志（失败时）

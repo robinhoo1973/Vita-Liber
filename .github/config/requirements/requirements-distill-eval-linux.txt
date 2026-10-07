@@ -1,4 +1,4 @@
-# 蒸馏/评测闸依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)
+# 蒸馏/评测闸依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)
 # 平台:linux x86_64 cp313(ubuntu-24.04 runner)
 # 生成日期:2026-09-29
 #

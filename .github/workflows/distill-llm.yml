@@ -2,7 +2,7 @@
 #
 # 纪律:
 # - dispatch-only,零密钥起步;P1 全链路 = prepare → calibrate → smoke → eval → publish(闸门)。
-# - YAML 薄编排、逻辑下沉 scripts/distill/;语料/checkpoint 存 Release(artifact 500MB 会爆)。
+# - YAML 薄编排、逻辑下沉 .github/actions/distill/;语料/checkpoint 存 Release(artifact 500MB 会爆)。
 # - 训练侧指标只作进度信号;评测闸唯一权威 = 部署件在 ubuntu CPU 的打分(计划文档 §10)。
 # - MPS 探测段先行:真分配+matmul 对拍(#9918 假阳教训),失败自动回落 CPU(裁决自带回落条款)。
 name: distill-llm
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       assets:
-        description: "prepare 用资产清单 JSON(缺省用仓内 scripts/distill/assets.json;P1=legacy Release 资产)"
+        description: "prepare 用资产清单 JSON(缺省用仓内 .github/actions/distill/assets.json;P1=legacy Release 资产)"
         required: false
         default: ""
       min_accepts:
@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: stdlib 单测 + 全簇语法
-        run: bash scripts/distill/run_tests.sh
+        run: bash .github/actions/distill/run_tests.sh
 
   prepare:
     # 语料冻结:Release 资产 → 校验/解密 → 目录装载 → 语料 JSONL + manifest(§7.6)
@@ -53,7 +53,7 @@ jobs:
           python-version: "3.13"
       - name: Install deps(哈希钉版)
         run: |
-          pip install --require-hashes -r scripts/requirements/requirements-distill-train-linux.txt \
+          pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Age identity guard
         # secret 名与私仓 provision 工具链一致(MEDICAL_DATA_AGE_IDENTITY,
@@ -64,7 +64,7 @@ jobs:
         run: |
           if [ -z "$MEDICAL_DATA_AGE_IDENTITY" ]; then
             echo "::error::缺 MEDICAL_DATA_AGE_IDENTITY(公开仓 release 环境,计划文档 §7.6 开口项①)。"
-            echo "::error::P1 阶段可在本地以 dev 侧文件跑通 build/eval(scripts/distill/run_tests.sh);"
+            echo "::error::P1 阶段可在本地以 dev 侧文件跑通 build/eval(.github/actions/distill/run_tests.sh);"
             echo "::error::CI prepare 需业主配置该 secret 后重跑。"
             exit 1
           fi
@@ -81,15 +81,15 @@ jobs:
             printf '%s' "$ASSETS_INPUT" > assets.json
             ASSET_ARG="--assets-json assets.json"
           else
-            ASSET_ARG="--assets-json scripts/distill/assets.json"
+            ASSET_ARG="--assets-json .github/actions/distill/assets.json"
           fi
           sudo apt-get update -qq && sudo apt-get install -y age >/dev/null
-          python3 scripts/distill/download_corpus.py \
+          python3 .github/actions/distill/download_corpus.py \
             $ASSET_ARG --age-identity age-identity.txt --out-dir corpus-assets
       - name: Build frozen corpus
         id: build
         run: |
-          python3 scripts/distill/build_corpus.py \
+          python3 .github/actions/distill/build_corpus.py \
             --catalog-sqlite corpus-assets/catalog.sqlite --out corpus.jsonl
           python3 - <<'EOF'
           import json
@@ -126,10 +126,10 @@ jobs:
           python-version: "3.13"
       - name: Install deps(哈希钉版)
         run: |
-          REQ="scripts/requirements/requirements-distill-train-linux.txt"
+          REQ=".github/config/requirements/requirements-distill-train-linux.txt"
           EXTRA="--extra-index-url https://download.pytorch.org/whl/cpu"
           if [ "${{ matrix.os }}" = macos-15 ]; then
-            REQ="scripts/requirements/requirements-distill-train-macos.txt"
+            REQ=".github/config/requirements/requirements-distill-train-macos.txt"
             EXTRA=""
           fi
           pip install --require-hashes -r "$REQ" $EXTRA
@@ -138,7 +138,7 @@ jobs:
         run: |
           # #9918 签名是 MPS 分配原生崩溃(segfault 类)——Python try/except 抓不到,
           # 进程直接死。探测结果是数据不是失败:崩了也算 no,回落 CPU 即可。
-          python3 scripts/distill/probe_mps.py --json mps-probe.json || true
+          python3 .github/actions/distill/probe_mps.py --json mps-probe.json || true
       - name: Calibrate
         run: |
           DEVICE=cpu
@@ -148,7 +148,7 @@ jobs:
           else
             echo "MPS unusable/未探测 → CPU 标定(§7.2 回落条款)"
           fi
-          python3 scripts/distill/calibrate.py --device "$DEVICE" --steps 100 --out calibrate.json
+          python3 .github/actions/distill/calibrate.py --device "$DEVICE" --steps 100 --out calibrate.json
       - name: Calibrate verdict(汇总裁决)
         # calibrate.py 失败也 exit 0("标定失败也是数据,由 workflow 汇总裁决")——
         # 本步即该裁决:失败须显式 error 标注,不得静默绿(历史教训:裁决步缺失)。
@@ -184,14 +184,14 @@ jobs:
           name: distill-corpus
       - name: Install deps(哈希钉版)
         run: |
-          pip install --require-hashes -r scripts/requirements/requirements-distill-train-linux.txt \
+          pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
       - name: Smoke train(≤30 步 + 断点续训回归)
         run: |
-          python3 scripts/distill/train_encoder.py \
+          python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-out \
             --max-steps 30 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
-          python3 scripts/distill/train_encoder.py \
+          python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-resume --resume-dir smoke-out/checkpoints \
             --max-steps 40 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
       - name: Upload smoke artifacts
@@ -225,13 +225,13 @@ jobs:
         # prepare 构建冻结语料时带拼音层(同音噪声,manifest.pinyin_available=true);
         # eval 基线臂必须装同一 pypinyin,否则召回 L2/L3 层静默缺位、评分不可复现。
         run: |
-          pip install --require-hashes -r scripts/requirements/requirements-distill-eval-linux.txt
+          pip install --require-hashes -r .github/config/requirements/requirements-distill-eval-linux.txt
       - name: Baseline arm + gate
         id: gate
         run: |
           # catalog.sqlite 随 distill-corpus artifact 由 prepare job 提供
           set +e
-          python3 scripts/distill/eval_entlink.py \
+          python3 .github/actions/distill/eval_entlink.py \
             --corpus corpus.jsonl \
             --catalog-sqlite corpus-assets/catalog.sqlite \
             --wording-source CoreKit/Sources/Domain/AlertEngine.swift \

@@ -20,7 +20,7 @@ on:
       # 2026-10-05 业主 R1:下载包必须加密——32 字节 hex 主密钥(与 App 内嵌
       # ASRPackageCrypto 常量同值,test-asr-package-integrity 断言一致)。
       # 缺失 = 构建/缓存解密硬红(绝不静默发明文包)。引导已本地脚本化
-      # (scripts/release/init_asr_secrets.py,初始化阶段执行过);CI 只校验
+      # (.github/actions/release/init_asr_secrets.py,初始化阶段执行过);CI 只校验
       # 有值(见「包加密密钥前置校验」步)。required 降为 false 消除无日志
       # startup_failure 族(elizaOS 同族修复最佳实践)。
       ASR_PACKAGE_KEY:
@@ -51,9 +51,9 @@ jobs:
           python-version: '3.13.5'
 
       - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r scripts/requirements/requirements-model-tools.txt
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
 
-      # 2026-10-05 业主指令:密钥引导为本地脚本(scripts/release/init_asr_secrets.py,
+      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
       # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
       # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
       - name: 包加密密钥前置校验（必须有值）
@@ -61,7 +61,7 @@ jobs:
           ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
         run: |
           if [ -z "$ASR_PACKAGE_KEY" ]; then
-            echo "::error::ASR_PACKAGE_KEY 缺失/为空——无法构建加密包。本地执行 python3 scripts/release/init_asr_secrets.py --repo robinhoo1973/Vita-Liber 引导后重跑" >&2
+            echo "::error::ASR_PACKAGE_KEY 缺失/为空——无法构建加密包。本地执行 python3 .github/actions/release/init_asr_secrets.py --repo robinhoo1973/Vita-Liber 引导后重跑" >&2
             exit 1
           fi
 
@@ -79,23 +79,23 @@ jobs:
 
       - name: 校验构建、签名及版本规则
         run: |
-          python3 scripts/release/test-release-version.py
-          python3 scripts/release/test-next-catalog-version.py
-          python3 scripts/release/test-asr-assets.py
-          python3 scripts/release/test-asr-secrets-init.py
-          python3 scripts/release/test-asr-package-integrity.py
-          python3 scripts/release/test-model-trust.py
-          python3 scripts/release/test-asr-release.py
-          python3 scripts/release/test-asr-release-page.py
-          python3 scripts/release/test-medical-package-fixture.py
+          python3 .github/actions/release/test-release-version.py
+          python3 .github/actions/release/test-next-catalog-version.py
+          python3 .github/actions/release/test-asr-assets.py
+          python3 .github/actions/release/test-asr-secrets-init.py
+          python3 .github/actions/release/test-asr-package-integrity.py
+          python3 .github/actions/release/test-model-trust.py
+          python3 .github/actions/release/test-asr-release.py
+          python3 .github/actions/release/test-asr-release-page.py
+          python3 .github/actions/release/test-medical-package-fixture.py
           # 2026-10-07 评审接线：此前 39 例从未被任何 runner 执行（三脚本离线可跑已实证）
-          python3 scripts/release/test-cnb-release.py
-          python3 scripts/release/test-cnb-release-workflow.py
-          python3 scripts/release/test-seed-cnb-model-assets.py
+          python3 .github/actions/release/test-cnb-release.py
+          python3 .github/actions/release/test-cnb-release-workflow.py
+          python3 .github/actions/release/test-seed-cnb-model-assets.py
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
-          python3 scripts/release/prepare-asr-source.py \
+          python3 .github/actions/release/prepare-asr-source.py \
             --index Resources/ASRModelUpdates/manifest.json \
             --source Resources/ASRModels \
             --root "$RUNNER_TEMP/asr-source" \
@@ -104,7 +104,7 @@ jobs:
 
       - name: 构建全部模型 ZIP（加密信封）
         run: |
-          python3 scripts/release/build-asr-packages.py \
+          python3 .github/actions/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
             --index Resources/ASRModelUpdates/manifest.json \
             --output "$RUNNER_TEMP/asr-packages" \
@@ -122,8 +122,8 @@ jobs:
             exit 1
           fi
           root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
-          catalog_version=$(python3 scripts/release/next-catalog-version.py --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}")
-          python3 scripts/release/sign-asr-catalog.py \
+          catalog_version=$(python3 .github/actions/release/next-catalog-version.py --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}")
+          python3 .github/actions/release/sign-asr-catalog.py \
             --root Resources/ModelTrustRoot.json \
             --index "$RUNNER_TEMP/asr-packages/index.json" \
             --root-version "$root_version" \
@@ -133,7 +133,7 @@ jobs:
 
       - name: 核对签名目录与实际生成的包索引
         run: |
-          python3 scripts/release/model-trust.py verify \
+          python3 .github/actions/release/model-trust.py verify \
             --root Resources/ModelTrustRoot.json \
             --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
             --index "$RUNNER_TEMP/asr-packages/index.json"
@@ -178,7 +178,7 @@ jobs:
           # 系统常态;上传幂等(同名同摘要=复用),重试安全。重试仍失败 = 硬红阻断
           # TestFlight(回读失败不得降级为 warning——发布完整性唯一守门点)。
           for attempt in 1 2 3; do
-            if python3 scripts/release/publish-asr-release.py publish \
+            if python3 .github/actions/release/publish-asr-release.py publish \
                 --index "$RUNNER_TEMP/asr-packages/index.json" \
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \

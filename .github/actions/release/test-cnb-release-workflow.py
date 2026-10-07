@@ -8,7 +8,16 @@ from pathlib import Path
 import unittest
 import yaml
 
-WORKFLOWS = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+def _repo_root() -> Path:
+    # 仓库根探测：逐级向上找 CoreKit/Sources/Domain 锚点（禁 parents[N] 固定层级——
+    # 2026-10-07 簇迁 .github/actions/ 后旧索引必坏，漂移实测族）。
+    probe = Path(__file__).resolve().parent
+    while probe != probe.parent and not (probe / "CoreKit" / "Sources" / "Domain").is_dir():
+        probe = probe.parent
+    return probe
+
+
+WORKFLOWS = _repo_root() / ".github" / "workflows"
 
 
 def workflow_text(name):

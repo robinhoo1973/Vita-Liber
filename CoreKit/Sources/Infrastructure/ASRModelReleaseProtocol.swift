@@ -1,7 +1,7 @@
 import Foundation
 
 /// ASR Release 线协议常量与资产名文法(2026-10-03 cutover 定案)。
-/// 逐项对齐 `scripts/release/model_trust.py` 与 `publish-asr-release.py`,
+/// 逐项对齐 `.github/actions/release/model_trust.py` 与 `publish-asr-release.py`,
 /// 任何一侧改动须同步另一侧。
 public enum ASRModelReleaseProtocol {
     public static let repository = "robinhoo1973/Resources"

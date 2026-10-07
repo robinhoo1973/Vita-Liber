@@ -6,7 +6,7 @@
 # macos=2.11.0 走 PyPI arm64 wheel 自带 MPS),单文件无法同时满足。
 #
 # 用法:
-#   bash scripts/distill/make-requirements.sh <wheel-dir-linux> <wheel-dir-macos> <out-dir>
+#   bash .github/actions/distill/make-requirements.sh <wheel-dir-linux> <wheel-dir-macos> <out-dir>
 # 前置:两目录各含完整 wheel 集(linux 经
 #   pip download --dest linux --only-binary=:all: --platform manylinux_2_28_x86_64 \
 #     --python-version 313 --implementation cp \
@@ -47,14 +47,14 @@ emit() {
 }
 
 {
-  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner;torch 走 pytorch.org CPU 索引,无 CUDA)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   emit "# -- linux --" "$LINUX_DIR"/*.whl
 } > "$OUT_DIR/requirements-distill-train-linux.txt"
 
 {
-  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:macosx arm64 cp313(macos-15 runner;PyPI arm64 wheel 自带 MPS)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   emit "# -- macos --" "$MACOS_DIR"/*.whl
@@ -63,7 +63,7 @@ emit() {
 # eval job 只钉 pypinyin(纯 Python 零传递依赖,py3-none-any 双平台同一 wheel):
 # 基线臂须与 prepare 构建语料时同拼音层可用性,且不拖入 torch 全量训练依赖。
 {
-  echo "# 蒸馏/评测闸依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/评测闸依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   echo "#"

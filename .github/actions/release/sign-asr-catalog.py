@@ -6,7 +6,7 @@ envelope。签完即用 model_trust.verify_catalog 公开路径自校验（fail 
 保证「签名必可验」——与 model-trust.py verify 同闸。
 
 用法：
-  ASR_SIGNING_KEYS_JSON="$(cat keys.json)" python3 scripts/release/sign-asr-catalog.py \
+  ASR_SIGNING_KEYS_JSON="$(cat keys.json)" python3 .github/actions/release/sign-asr-catalog.py \
       --root Resources/ModelTrustRoot.json \
       --index "$RUNNER_TEMP/asr-packages/index.json" \
       --root-version 2 --catalog-version 4 --output /tmp/catalog.json

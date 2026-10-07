@@ -21,6 +21,16 @@ from asr_signing import sign_envelope as envelope
 
 TOOLS = Path(__file__).resolve().parent
 
+def _repo_root() -> Path:
+    # 仓库根探测：逐级向上找 CoreKit/Sources/Domain 锚点（禁 parents[N] 固定层级——
+    # 2026-10-07 簇迁 .github/actions/ 后旧索引必坏，漂移实测族）。
+    probe = Path(__file__).resolve().parent
+    while probe != probe.parent and not (probe / "CoreKit" / "Sources" / "Domain").is_dir():
+        probe = probe.parent
+    return probe
+
+
+
 
 class TrustTests(unittest.TestCase):
     def setUp(self):
@@ -159,7 +169,7 @@ class TrustTests(unittest.TestCase):
         # 单一 JSON 架构:manifest.json 即签名信封(载荷含 index)
         (downloads / "manifest.json").write_text(json.dumps(envelope(self.catalog_payload, self.keys[3:5])))
         # helper 目录从 project.yml 构建脚本解析(布局无关化:临时树复刻 $SRCROOT 下的真实路径)
-        project = yaml.safe_load((TOOLS.parents[1] / "project.yml").read_text())
+        project = yaml.safe_load((_repo_root() / "project.yml").read_text())
         script = project["targets"]["VitaLiber"]["preBuildScripts"][0]["script"]
         helper_rel = re.search(r'\$SRCROOT/([^"\s]+\.py)', script).group(1)
         helpers = self.root / Path(helper_rel).parent

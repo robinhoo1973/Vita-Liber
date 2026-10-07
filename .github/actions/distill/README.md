@@ -1,4 +1,4 @@
-# scripts/distill/ —— 蒸馏/实体链接训练簇
+# .github/actions/distill/ —— 蒸馏/实体链接训练簇
 
 > 设计依据:`refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md`(V1.2,本地规格)
 > 本簇属 CI 辅助脚本(workflows/README.md 分簇纪律);训练代码公开无损——数据仅合成/公开。
@@ -39,11 +39,11 @@ distill/
 ## 本地验证
 
 ```bash
-bash scripts/distill/run_tests.sh                     # 单元测试 + py_compile(零第三方依赖)
-python3 scripts/distill/build_corpus.py \
+bash .github/actions/distill/run_tests.sh                     # 单元测试 + py_compile(零第三方依赖)
+python3 .github/actions/distill/build_corpus.py \
   --catalog-jsonl drug=a.jsonl,hospital=b.jsonl,department=c.jsonl,exam=d.jsonl \
   --out /tmp/corpus.jsonl --min-eval-entities 3        # 端到端冒烟(小目录调低 tripwire 下限)
-python3 scripts/distill/eval_entlink.py --corpus /tmp/corpus.jsonl \
+python3 .github/actions/distill/eval_entlink.py --corpus /tmp/corpus.jsonl \
   --catalog-jsonl drug=a.jsonl,... --min-accepts 1 \
   --write-baseline /tmp/baselines --write-verdict /tmp/verdict.json
 ```
@@ -57,7 +57,7 @@ python3 scripts/distill/eval_entlink.py --corpus /tmp/corpus.jsonl \
 → smoke(≤30 步+断点续训回归)→ eval(基线臂+五层闸,verdict=fail 阻断 publish)
 → publish(内容寻址 append-only)`。
 
-- 依赖钉版:`scripts/requirements/requirements-distill-train-{linux,macos}.txt`
+- 依赖钉版:`.github/config/requirements/requirements-distill-train-{linux,macos}.txt`
   (S-M6 哈希钉版纪律;torch 2.11.0,linux 走 pytorch.org CPU 索引,macos 走 PyPI arm64)。
   eval job 另钉 `requirements-distill-eval-linux.txt`(仅 pypinyin)——基线臂须与
   prepare 构建语料时同拼音层可用性(§10 复现纪律),不拖入 torch 训练依赖。

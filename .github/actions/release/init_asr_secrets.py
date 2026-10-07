@@ -133,7 +133,7 @@ def plan(env_key, can_manage_secrets, swift_key, test_key):
         return "fail", ("ASR_PACKAGE_KEY secret 不存在,且无可管理凭据(无 ASR_ADMIN_TOKEN 且本地"
                         "gh 未登录)——无法自动生成。引导:1) 创建具有 Actions secrets 读写权限的"
                         "PAT 并注册为 secret ASR_ADMIN_TOKEN,重跑本 workflow;或 2) 本地"
-                        "gh auth login 后执行 python3 scripts/release/init_asr_secrets.py --repo <owner/repo>")
+                        "gh auth login 后执行 python3 .github/actions/release/init_asr_secrets.py --repo <owner/repo>")
     return "generate", "ASR_PACKAGE_KEY secret 不存在——自动生成并三处落地"
 
 
@@ -142,7 +142,7 @@ def main() -> int:
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""),
                         help="OWNER/REPO(缺省取 GITHUB_REPOSITORY)")
     parser.add_argument("--swift-file", default="CoreKit/Sources/Infrastructure/ASRPackageCrypto.swift")
-    parser.add_argument("--test-file", default="scripts/release/test-asr-package-integrity.py")
+    parser.add_argument("--test-file", default=".github/actions/release/test-asr-package-integrity.py")
     parser.add_argument("--key-out", default=None,
                         help="生成密钥落盘路径(0600;不传则不落盘)")
     args = parser.parse_args()

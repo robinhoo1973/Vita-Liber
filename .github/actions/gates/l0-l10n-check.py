@@ -69,7 +69,10 @@ def check_member_registry():
     经模板函数形态不在本检查面。此处为文件型判定器（内联 heredoc 在 macOS
     bash 3.2 下转义解释不同，CI 36286641188 实证——本检查不许回到内联形态）。"""
     import re
-    loc = Path(__file__).resolve().parent.parent.parent / "App" / "Localization"
+    probe = Path(__file__).resolve().parent
+    while probe != probe.parent and not (probe / "CoreKit" / "Sources" / "Domain").is_dir():
+        probe = probe.parent   # 2026-10-07 簇迁 .github/actions/：parent³ 链假设必坏（本文件曾中招）
+    loc = probe / "App" / "Localization"
     registered = None
     members = set()
     for f in sorted(loc.glob("*.swift")):

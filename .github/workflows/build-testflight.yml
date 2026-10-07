@@ -112,7 +112,7 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          python3 scripts/release/release-version.py \
+          python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
@@ -375,7 +375,7 @@ jobs:
             python3 -m venv /tmp/model-tools-venv
           fi
           if ! /tmp/model-tools-venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-model-tools.txt" >/tmp/model-pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/config/requirements/requirements-model-tools.txt" >/tmp/model-pip.log 2>&1; then
             echo "::error::ASR 校验依赖安装失败"
             cat /tmp/model-pip.log
             exit 1
@@ -496,7 +496,7 @@ jobs:
 
       - name: 校验 IPA 框架 minOS 与路径安全
         if: ${{ env.HAS_CERTS == 'true' }}
-        run: python3 scripts/release/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
+        run: python3 .github/actions/release/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
 
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
       # 2026-09-27 委员会裁决 P6：IPA 产物存在性标记——签名材料缺失时 build 仍是
@@ -648,7 +648,7 @@ jobs:
           fi
           export PATH="/tmp/asc-venv/bin:$PATH"
           if ! python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/config/requirements/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
             echo "::error::Python 依赖安装失败"
             cat /tmp/pip.log
             exit 1
@@ -763,7 +763,7 @@ jobs:
           fi
           export PATH="/tmp/asc-venv/bin:$PATH"
           if ! python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/config/requirements/requirements-asc-tools.txt" >/tmp/pip.log 2>&1; then
             echo "::warning::复核步骤 Python 依赖安装失败，跳过复核"
             cat /tmp/pip.log
             exit 0
@@ -1102,7 +1102,7 @@ jobs:
         id: ver
         run: |
           set -euo pipefail
-          python3 scripts/release/release-version.py \
+          python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
             --run-attempt "$GITHUB_RUN_ATTEMPT" \
@@ -1121,7 +1121,7 @@ jobs:
             python3 -m venv /tmp/model-tools-venv
           fi
           if ! /tmp/model-tools-venv/bin/python3 -m pip install --disable-pip-version-check --no-cache-dir \
-            --require-hashes -r "$GITHUB_WORKSPACE/scripts/requirements/requirements-model-tools.txt" >/tmp/model-pip.log 2>&1; then
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/config/requirements/requirements-model-tools.txt" >/tmp/model-pip.log 2>&1; then
             echo "::error::ASR 校验依赖安装失败"
             cat /tmp/model-pip.log
             exit 1
