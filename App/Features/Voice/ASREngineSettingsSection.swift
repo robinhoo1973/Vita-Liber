@@ -30,13 +30,10 @@ struct ASREngineSettingsSection: View {
     /// 关怀 64pt 纪律未落地——统一走 CareModeMetrics(与药箱行/PagingStepper 同源)。
     private var metrics: CareModeMetrics { app.careMode ? .care : .standard }
 
-    /// 「检查更新」三元结果（业主实测：此前点击无任何可见反馈）。
-    private enum IndexCheckState: Equatable {
-        case idle, checking, upToDate, updates(Int), failed
-    }
-
-    @State private var index: ASRModelReleaseIndex?
-    @State private var checkState: IndexCheckState = .idle
+    /// 统一更新中心批（2026-10-07）：检查状态机（三元结果/索引/看门狗/单飞）上提为
+    /// App 级 `ASRIndexCheckState`——页首「更新中心」与本区块共享同一状态与同一单飞；
+    /// 本区块不再自持任何检查态（只读派生 + 发起安装）。
+    @Environment(ASRIndexCheckState.self) private var asrCheckState: ASRIndexCheckState?
     /// 破坏性/高成本动作确认载荷（2026-10-05 委员会）：删除家族 / 换档切换
     /// （单保留语义 = 删旧档 + GB 级下载，条件确认仅对替换已装档时弹）。
     private enum PendingConfirm: Identifiable {
@@ -115,13 +112,11 @@ struct ASREngineSettingsSection: View {
     /// 目录标记的预告家族（availability=upcoming，零档位）——行内显示「即将上线」
     /// 并隐藏下载控件；标记完全来自目录 JSON，App 不内置任何家族清单。
     @State private var upcomingFamilyIDs: Set<String> = []
-    /// 派生结论的重算触发：索引拉取成功 + 安装态变化（开始/结束）时自增。
-    @State private var derivationEpoch = 0
+    // 派生结论的重算代次已随检查状态机上提（`asrCheckState.derivationEpoch`；
+    // 索引拉取成功由状态机自增，删除完成由下方 `bumpDerivation` 触发）。
     /// 尺寸选择记忆（choice → variant 键；默认 = 已装档 → 系统推荐档，
     /// 回退序与 variantBinding getter 同源——2026-10-05 审查修正旧注「默认最小档」）
     @State private var selectedVariant: [String: String] = [:]
-
-    private let service = ASRModelDownloadService.shared
 
     private var appVersion: String {
         (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0.0"
@@ -130,7 +125,7 @@ struct ASREngineSettingsSection: View {
     /// 派生结论的重算键：索引代次 + 进行中安装的档位集合（开始/结束都要重算按钮形态）。
     private var derivationKey: String {
         let active = installCenter.active.map(\.choice.rawValue).sorted().joined(separator: ",")
-        return "\(derivationEpoch)|\(active)"
+        return "\(asrCheckState?.derivationEpoch ?? 0)|\(active)"
     }
 
     /// 一次算好全部 bundled 档位的派生结论。
@@ -141,7 +136,7 @@ struct ASREngineSettingsSection: View {
     /// 锁持有时长已在上游修复（acceptCatalog/acceptRoot 锁外验签落盘）；
     /// 本侧再把全部取锁/读盘计算移出主 actor（detached），结果一次 hop 回填。
     private func rebuildAvailability() async {
-        let pageIndex = index
+        let pageIndex = asrCheckState?.index
         let version = appVersion
         let preferred = Locale.preferredLanguages
         let computed = await Task.detached(priority: .userInitiated) { () -> ([String: ChoiceAvailability], [VoiceEngineChoice], [String: String], [String: String], Set<String>) in
@@ -212,48 +207,10 @@ struct ASREngineSettingsSection: View {
     var body: some View {
         WithPerceptionTracking {
             Section {
-                // 安全审查 2026-09-12：索引拉取改为「检查更新」显式按钮触发——
-                // 此前区块出现即自动 GET（reloadIgnoringLocalCacheData）属契约外
-                // 隐式联网面（零隐式联网红线的唯一例外必须显式发起）。
-                Button {
-                    // 单飞守卫（审查修复）：连点/返回再点不再叠第二个拉取任务
-                    guard refreshTask == nil else { return }
-                    refreshTask = Task { await refreshIndex() }
-                } label: {
-                    HStack {
-                        Label(L10n.asrModelCheckUpdate, systemImage: "arrow.triangle.2.circlepath")
-                        Spacer()
-                        if checkState == .checking { ProgressView().controlSize(.small) }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: metrics.touchTarget)
-                }
-                .buttonStyle(.bordered)
-                // 下载中禁用（tech-spec §5.29「区块顶部 [检查更新] 按钮（…≥44pt、下载中禁用）」）：
-                // 服务层 `fetchIndex` 在 `installing` 非空时抛 `installInProgress`，
-                // 而 UI 把该错误一律渲染为「检查更新失败，请重试」——用户会把
-                // 「正在下载」误读成「功能坏了」（2026-09-16 评审）。
-                // 2026-10-06：暂停中的安装不在服务在装集合（任务已退出、暂存保留），
-                // 不参与禁用——只有真正在跑的安装才挡住索引刷新。
-                .disabled(checkState == .checking || installCenter.active.contains { !$0.isPaused })
-                .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpdate")
-
-                // 检查结果三元反馈（进行中由按钮内 spinner 承担）
-                switch checkState {
-                case .upToDate:
-                    Text(L10n.asrModelCheckUpToDate)
-                        .font(.caption).foregroundStyle(.secondary)
-                        .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpToDate")
-                case .updates(let count):
-                    Text(L10n.asrModelCheckUpdates(count))
-                        .font(.caption).foregroundStyle(Color("brand-primary", bundle: .main))
-                        .accessibilityIdentifier("\(accessibilityPrefix).model.checkUpdates")
-                case .failed:
-                    Text(L10n.asrIndexFetchFailed)
-                        .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
-                        .accessibilityIdentifier("\(accessibilityPrefix).model.indexFailed")
-                case .idle, .checking:
-                    EmptyView()
-                }
+                // 2026-10-07 统一更新中心批（委员会裁定 D4）：检查入口与三元反馈
+                // 收敛到页首「更新中心」（`ASRIndexCheckState` 上提为 App 级共享态，
+                // 单飞/看门狗随迁）；本区块保留家族行 / 安装动作 / 引擎实验室入口。
+                // 检查的显式触发语义（零隐式联网）由更新中心的「检查全部更新」承接。
 
                 // 平台档（本地引擎轨，非目录内容）固定呈现；模型家族行由签名索引
                 // 自动生成（2026-10-05 业主定：下载列表不写死，目录有哪家就列哪家）。
@@ -285,7 +242,6 @@ struct ASREngineSettingsSection: View {
               // 挂到闭包外则读值不被追踪，安装开始/结束时 id 不变、任务不重跑，
               // 按钮形态会停在旧态。
               .task(id: derivationKey) { await rebuildAvailability() }
-              .onDisappear { refreshTask?.cancel() }
         }
     }
 
@@ -547,7 +503,7 @@ struct ASREngineSettingsSection: View {
         Task {
             do {
                 try await installCenter.delete(choice)
-                derivationEpoch += 1   // 重算派生结论（installed 行消失）
+                asrCheckState?.bumpDerivation()   // 重算派生结论（installed 行消失）
             } catch {
                 deleteFailed.insert(choice.rawValue)
             }
@@ -692,59 +648,10 @@ struct ASREngineSettingsSection: View {
     }
 
     /// 检查更新的总时限：索引是几 KB 的 JSON，30s 无果即判失败。
-    /// 为什么必须有时限（业主 2026-09-16 第 4 项「点击检查更新出现闪退或者死机」）：
-    /// 索引请求与 GB 级下载**共用同一个会话**，而该会话刻意不设资源超时
-    /// （`timeoutIntervalForResource` 默认 7 天，下载不能有天花板）——链路中途
-    /// 停住时按钮会一直转圈且被 `.disabled` 锁死（唯一的请求级 30s 空档计时
-    /// 只要来一个字节就被重置），用户读到的就是「死机」，且页内没有任何出路。
-    private static let indexCheckTimeout: Duration = .seconds(30)
-
-    /// 在途索引拉取任务（审查修复 2026-09-18：单飞 + 视图生命周期绑定）——
-    /// 原火忘任务离开页面仍在跑（可能持锁验签/落盘），返回页面时与
-    /// `.task` 的派生结论重算在主线程上互踩那把锁（冻结→看门狗强杀的
-    /// 成因之一）。单飞防连点双任务；onDisappear 取消。
-    @State private var refreshTask: Task<Void, Never>?
-
-    /// 「检查更新」按钮显式触发（安全审查 2026-09-12）：每次点击都真实重拉；
-    /// 结果三元反馈（2026-09-16）：已是最新 / 发现 N 个可更新 / 失败可重试。
-    private func refreshIndex() async {
-        checkState = .checking
-        let fetch = Task { try await service.fetchIndex(from: ASRModelDownloadService.indexURL) }
-        // 看门狗：超时即取消请求（`metadata` 逐字节遍历里有 `Task.checkCancellation()`，
-        // 取消能真正中断），按钮回到「失败可重试」而不是永久转圈
-        let watchdog = Task {
-            do { try await Task.sleep(for: Self.indexCheckTimeout) } catch { return }   // 正常路径下被取消
-            fetch.cancel()
-        }
-        defer { fetch.cancel(); watchdog.cancel(); refreshTask = nil }
-        do {
-            let fetched = try await fetch.value
-            // 离场取消出口（2026-09-28 评审修复）：onDisappear 取消的是外层
-            // refreshTask，内层非结构化 fetch 不继承取消——结果到达时不再写回
-            // 已离场视图的 @State（30s 看门狗窗口内）。
-            guard !Task.isCancelled else { return }
-            index = fetched
-            derivationEpoch += 1   // 新索引 → 重算派生结论（`.task(id:)` 据此重跑）
-            // 该索引下、与本 App 版本兼容且已授权的新装/更新条目数。
-            // 2026-10-05 审查修正：统计循环移出主 actor——latest/updateAvailable/
-            // installedVersion 每档位取信任库锁 + 指针锁,主线程同款模式即本文件
-            // 注释(见 `availability`)实证的冻结→看门狗强杀成因;detached 与
-            // rebuildAvailability 同纪律。
-            let version = appVersion
-            let count = await Task.detached(priority: .userInitiated) { () -> Int in
-                VoiceEngineChoice.allCases.reduce(into: 0) { total, choice in
-                    let latest = ASRModelDownloadService.latest(for: choice, in: fetched, appVersion: version)
-                    let update = ASRModelDownloadService.updateAvailable(for: choice, index: fetched, appVersion: version)
-                    let isNewInstall = latest != nil && ASRModelDownloadService.installedVersion(for: choice) == nil
-                    if update != nil || isNewInstall { total += 1 }
-                }
-            }.value
-            checkState = count > 0 ? .updates(count) : .upToDate
-        } catch {
-            // 拉取失败保留旧索引（若有）：更新/下载按钮仍可用。
-            checkState = .failed
-        }
-    }
+    // 「检查更新」状态机（看门狗时限、单飞、离场语义）已整体迁往
+    // `App/Features/Voice/ASRIndexCheckState.swift`（统一更新中心批）——
+    // 本视图侧零残留：状态与单飞由 App 级对象持有（跨页存活，与
+    // ASRInstallCenter 先例同构）。
 
     private func startInstall(_ release: ASRModelRelease) {
         // 2026-09-20 修复：以信任库的**授权基址**为准（服务层 performInstall 按
@@ -752,7 +659,7 @@ struct ASREngineSettingsSection: View {
         // assetBaseURL 不一致时每击必报 badAddress，用户只见「下载失败」）。
         // 索引 baseUrl 仅在无网络目录授权（测试/基线）时兜底。
         let base = ModelCatalogTrustStore.shared.baseURL(for: release)
-            ?? (index ?? ModelCatalogTrustStore.shared.baselineIndex)?.baseUrl.flatMap(URL.init(string:))
+            ?? (asrCheckState?.index ?? ModelCatalogTrustStore.shared.baselineIndex)?.baseUrl.flatMap(URL.init(string:))
         // 启动/取消/进度/后台窗口/资产广播全在中心（App 层）——本页只提供索引与授权上下文。
         installCenter.start(release, baseURL: base)
     }
