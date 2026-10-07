@@ -76,7 +76,7 @@ python3 .github/actions/distill/build_corpus.py --catalog-sqlite corpus-assets/c
 注意:**小/退化目录(2 字别名)会如实触发 tripwire 判红**——这是闸门在履行
 "缺证据当有证据"纪律(ERR#27 族),生产目录(药 4 万唯一名/院 5.6 万)不受影响。
 
-## CI(workflow: distill-llm.yml)
+## CI(workflow: llm.yml,name: distill-llm;task=llm-pipeline)
 
 `tests(单测+语法;轻依赖同装) → prepare(CNB 取数+解密+三面语料冻结) → calibrate(ubuntu CPU +
 macOS MPS 探测段)/ smoke(编码器 30 步 + 生成式 SFT 两语料 20 步 + 续训回归) /
@@ -88,9 +88,11 @@ eval(entlink 基线闸 + 抽取/对话复验闸,双闸合一 verdict=fail 阻断
 - **零 secrets**:医疗数据匿名读取;信封主钥 = App 内嵌公开常量(与
   `ASRPackageCrypto.swift` 同值断言见 tests/test_fetch_catalog.py)。
 - 语料产物:`corpus.jsonl`(实体链接)/`extraction_*.jsonl`(抽取)/`dialogue_*.jsonl`(对话)
-  三面齐全;`--dump-entities` 导出的实体模型随语料走(eval 据此重建索引,免二次下载 3.4GB 目录)。
+  三面齐全(2026-10-08 起:对话面**发布暂缓**——构建/复验照常进 artifact,publish 清单在
+  D-1(FR25.10/D3)裁决前不含 dialogue_*);`--dump-entities` 导出的实体模型随语料走
+  (eval 据此重建索引,免二次下载 3.4GB 目录)。
 - 训练落点(§7.5):托管 CPU 只跑烟雾;全量生成式训练在私仓自托管 GPU 消费本流水线发布的冻结语料。
-- 权限纪律:仅 publish job 持有 `contents: write`(gh release 上传,失败即炸 job,
+- 权限纪律:仅 publish 与 llama-xcframework job 持有 `contents: write`(gh release 上传,失败即炸 job,
   不做静默吞错);其余 job 默认 read。
 
 ## 纪律速记

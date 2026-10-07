@@ -14,11 +14,11 @@
 │   ├── l0-gate/    #   L0 门禁 composite action 执行体（workflows 四个的公用调用面）
 │   ├── gates/      #   域:L0 静态门禁(19 节)判定器簇
 │   ├── release/    #   域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
-│   └── distill/    #   域:实体链接/蒸馏训练簇(entlink 确定性召回+语料构建+评测闸+训练循环;
+│   └── distill/    #   域:蒸馏训练簇(CNB 零密钥取数 fetch_catalog + entlink 确定性召回 +
+│                   #     抽取/对话/实体链接三面语料构建 + 生成式 smoke 训练循环 + 双评测闸;
 │                   #     零 PHI 数据纪律、MPS 探测段先行、checkpoint 断点续训,详见簇 README)
 └── config/         # 可公开的配置（纯配置/清单按域入子目录）
     ├── gates/        #   gate-suites.tsv / l10n-legacy-allowlist.txt / 依赖能力矩阵
-    ├── distill/      #   assets.json（Release 资产清单模板）
     └── requirements/ #   pip --require-hashes 钉版清单
 ```
 
@@ -61,9 +61,9 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 |---|---|---|---|
 | `testflight.yml` | dispatch / PR（push 自动触发已取消，2026-10-07 业主指令；发布入口=手动 dispatch） | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：**三阶段 DAG（业主 2026-10-07 终稿）：(L0 ∥ CoreKit) → (L1 ∥ build) → upload**——一级任一红不进二级；二级 l1（编译门禁+型检预算+L1 单元/UI）与 build（版本内联→签名材料→archive→export→IPA 校验）并联；upload（altool→buildUploads 秒级证据+≤90s 列表确认）**四依赖门控——测试红不上传 TestFlight**。PR 上只跑 gates+corekit+l1（build 有事件守卫）。 | gates / release / requirements |
 | `asr.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
-| `llm.yml` | workflow_dispatch（task 输入：llm-pipeline / llama-xcframework） | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release。**llama XCFramework 构建自 build-llama-xcframework.yml 并入**（task=llama-xcframework；原自路径触发有意删除——合并后任何编辑都会触发 15-20min 重建+clobber，重建改手动） | distill / release / requirements |
+| `llm.yml` | workflow_dispatch（task 输入：llm-pipeline / llama-xcframework） | **distill v2（2026-10-08 rebase 入四文件布局）：tests(96 例单测+语法)→prepare(CNB 匿名 v3 零密钥取数+信封解密+三面语料冻结)→calibrate(MPS 探测段先行)→smoke(编码器+生成式 SFT 两轨,断点续训回归)→eval(entlink 基线闸+抽取/对话复验闸,verdict=fail 阻断 publish)→publish(语料内容寻址 append-only;对话面发布暂缓至 D-1 裁决)**。llama XCFramework 构建自 build-llama-xcframework.yml 并入（task=llama-xcframework；原自路径触发有意删除——合并后任何编辑都会触发 15-20min 重建+clobber，重建改手动） | distill / release / requirements |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`；`seed-cnb-assets.yml` 已删——业主 2026-10-07：本地离线执行完成） | release / requirements |
 
-**Release/sqlite 契约**:公开仓无 `medical-data` Release 时 Publish 步骤自动 `gh release create`;`medical-catalog.sqlite`(schema v4+FTS)每轮全量重建、age 加密后以 `medical-data.bin` 上传同标签(内容哈希未变则跳过)。
+**Release/sqlite 契约（2026-10-08 修订）**:医疗数据唯一发布位置已迁 **CNB `robinhoo1973/Resources` release `medical-data`**（v3 文法:固定名 `manifest.json` 签名指针 + `package-<catalogVersion>.bin` 信封包 + `overview.json`;本地 producer 为唯一写者,源站 WAF 拒云上出口 IP,CI 不直连源站——见 `refactor/discussions/2026-10-07-distill-ci-medical-data-v2.md` §3.5 与私有仓 MEDICAL_DATA_RELEASE.md）。`llm.yml` 的 `distill-corpus` Release 为**合成语料**冻结资产（内容寻址、append-only;对话面暂缓至 D-1 裁决）,与医疗数据 Release 无耦合;旧 age 加密 `medical-data.bin` 契约随 v2 数据面退役。
 
 发布操作文档:`.github/ASR_RELEASE.md`；医疗数据 Release 契约已迁入私有仓 `tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md`（[仅授权成员可访问](https://github.com/robinhoo1973/robinhoo-pipelines/blob/main/tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md)）。
