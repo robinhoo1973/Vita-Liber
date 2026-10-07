@@ -152,6 +152,12 @@ def _delta_line(language, previous, payload, families):
     if not added and not updated and not removed:
         return prefix + labels["unchanged"]
     names = _family_name_map(families, language)
+    # 移除条目来自上一版载荷，而家族显示名表此前只用当前版构建 → 移除行回退原始 id
+    # （2026-10-07 评审实证：`moonshine·极轻` 应为家族显示名·档位名）。并入上一版
+    # 家族名表（当前版同名优先），移除行与新增/更新行同样输出显示名。
+    previous_families, _ = _family_index(previous)
+    if previous_families:
+        names = {**_family_name_map(previous_families, language), **names}
     parts = []
     for models, word in ((added, labels["added_word"]),
                          (updated, labels["updated_word"]),

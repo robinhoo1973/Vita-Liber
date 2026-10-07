@@ -100,6 +100,20 @@ class ReleasePageRenderTests(unittest.TestCase):
         self.assertIn("**与上一版(v7)相比**:新增 1 个档位（Moonshine·极小）；更新 1 个档位（Whisper·基础）。", body)
         self.assertIn("**Compared with the previous release (v7)**: 1 tier added (Moonshine·Tiny); 1 tier updated (Whisper·Base).", body)
 
+    def test_delta_removed_uses_previous_family_display_name(self):
+        # 移除条目只存在于上一版载荷；显示名表须并入上一版家族名（评审实证的回退修复）
+        previous_families = FAMILIES + [
+            {"id": "sense-voice", "name": {"zh-Hans": "灵犀", "zh-Hant": "靈犀", "en": "SenseVoice"}},
+        ]
+        previous_models = models_v8() + [
+            model("sense-voice", "small", "d" * 64, {"zh-Hans": "小", "zh-Hant": "小", "en": "Small"})]
+        previous = payload_doc(catalog_version=7, models=previous_models)
+        previous["index"]["families"] = previous_families
+        body = self.render(previous=previous)
+        self.assertIn("移除 1 个档位（灵犀·小）", body)
+        self.assertIn("1 tier removed (SenseVoice·Small)", body)
+        self.assertNotIn("sense-voice", body)
+
     def test_forbidden_shapes_absent(self):
         body = self.render(previous=payload_doc(catalog_version=7))
         self.assertNotIn(".zip", body)
