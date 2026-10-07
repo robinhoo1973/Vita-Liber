@@ -23,21 +23,27 @@ final class ASRIndexCheckState {
     /// 派生结论重算代次：新索引落定 / 视图侧删除完成时自增（视图 `.task(id:)` 依赖）。
     private(set) var derivationEpoch = 0
 
-    private let service: ASRModelDownloadService
+    private let fetchIndex: @Sendable (URL) async throws -> ASRModelReleaseIndex
     private let appVersion: @MainActor () -> String
     private let isInstallActive: @MainActor () -> Bool
-    private static let checkTimeout: Duration = .seconds(30)
+    private let checkTimeout: Duration
 
     private var refreshTask: Task<Void, Never>?
     private var fetchTask: Task<ASRModelReleaseIndex, Error>?
 
-    init(service: ASRModelDownloadService = .shared,
+    /// 测试缝（DoD 覆盖）：拉取与超时时长可注入——默认生产实现与提升前逐字同源
+    /// （`service.fetchIndex(from: indexURL)` / 30s 看门狗）。
+    init(fetchIndex: @escaping @Sendable (URL) async throws -> ASRModelReleaseIndex = {
+             try await ASRModelDownloadService.shared.fetchIndex(from: $0)
+         },
          appVersion: @escaping @MainActor () -> String = {
              (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0.0"
          },
+         checkTimeout: Duration = .seconds(30),
          isInstallActive: @escaping @MainActor () -> Bool) {
-        self.service = service
+        self.fetchIndex = fetchIndex
         self.appVersion = appVersion
+        self.checkTimeout = checkTimeout
         self.isInstallActive = isInstallActive
     }
 
@@ -62,12 +68,13 @@ final class ASRIndexCheckState {
     func check() {
         guard refreshTask == nil else { return }
         state = .checking
-        let fetch = Task { try await service.fetchIndex(from: ASRModelDownloadService.indexURL) }
+        let fetch = Task { try await fetchIndex(ASRModelDownloadService.indexURL) }
         fetchTask = fetch
         // 看门狗：超时即取消请求（`metadata` 逐字节遍历里有 `Task.checkCancellation()`，
         // 取消能真正中断），回到「失败可重试」而不是永久转圈（业主 2026-09-16 第 4 项）。
+        let timeout = checkTimeout
         let watchdog = Task {
-            do { try await Task.sleep(for: Self.checkTimeout) } catch { return }   // 正常路径下被取消
+            do { try await Task.sleep(for: timeout) } catch { return }   // 正常路径下被取消
             fetch.cancel()
         }
         refreshTask = Task { [weak self] in
