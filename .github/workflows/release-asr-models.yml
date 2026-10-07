@@ -88,6 +88,10 @@ jobs:
           python3 scripts/release/test-asr-release.py
           python3 scripts/release/test-asr-release-page.py
           python3 scripts/release/test-medical-package-fixture.py
+          # 2026-10-07 评审接线：此前 39 例从未被任何 runner 执行（三脚本离线可跑已实证）
+          python3 scripts/release/test-cnb-release.py
+          python3 scripts/release/test-cnb-release-workflow.py
+          python3 scripts/release/test-seed-cnb-model-assets.py
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
