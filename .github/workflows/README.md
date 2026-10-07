@@ -27,7 +27,8 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
   `from xxx import`**,而 `Path(__file__).with_name("yyy.py")` 与子进程调用同理——
   全部依赖「同目录」这一事实。
 - **因此:共用库的脚本必须同簇,禁止跨簇 import / with_name 定位。** 实证示例:
-  `release/` 簇里 `asr_package.py` 被 7 个脚本导入、`model_trust.py` 被 3 个导入、
+  `release/` 簇里 `asr_package.py` 被 13 个脚本导入、`model_trust.py` 被 5 个消费
+  (含 runpy 挂载形式;计数随簇演进,以 grep 实况为准)。
 - 仓库根探测**禁止按固定层级 `parents[N]` 假设**:一律逐级向上找
   `CoreKit/Sources/Domain`(Python)或 `project.yml`(shell)锚点。
   教训见 `scripts/gates/l0-container-id-mask.py:20`(2026-09-12 假绿实证)。
@@ -50,9 +51,10 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 
 | 文件 | 触发 | 职责 | 调用簇 |
 |---|---|---|---|
-| `build-testflight.yml` | push master / dispatch | **单纯编译+上传 TestFlight（2026-10-07 瘦身 P2）**：gates（ubuntu 并行 L0,schema；挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验→artifact）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）。测试全量在 ci-tests.yml 并行跑；v* tag 触发已删（无版本语义） | gates / requirements |
+| `build-testflight.yml` | push master / PR / dispatch | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：gates（ubuntu 并行 L0 单源 reusable，挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）；∥ corekit（swift test）+ l1（编译门禁+型检预算+L1 单元/UI）。PR 上只跑 gates+corekit+l1（build 有事件守卫）。批次验收 = 本工作流全绿；upload 不依赖测试 job（「上传 ≠ 验收」保持） | gates / release / requirements |
+| `l0-static-gate.yml` | workflow_call | **L0 门禁单源 reusable（2026-10-07）**：workflow_call 定义体 = checkout→swiftc 断言→PyYAML 钉版→L0 十九节+schema→发布契约测试离线矩阵→诊断 artifact（名字由调用方 input 指定）。调用方必须显式 `permissions: contents: read`；本文件与发布链同级评审 | gates / release / requirements |
 | `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
-| `ci-tests.yml` | push master / PR / dispatch | **测试与静态门禁（2026-10-06 拆分批 P1）**：L0 十九节（ubuntu，含 swiftc 断言）→ CoreKit swift test ∥ 编译门禁+型检预算+L1 单元/UI（macOS）；与发布链完全并行（测试不再阻塞上传；批次验收 = 两工作流全绿；`cancel-in-progress: true` 与发布链排队语义相反） | gates / requirements |
+| `seed-cnb-assets.yml` | dispatch（choice 输入） | 一次性资产迁移（2026-10-03 cutover Task 2）：历史模型资产校验后上传 CNB 资源 Release；`--plan` 干跑零写入，手动触发即隐式批准（定案 §7.6）。当前仅实现 asr-models tag——退役与否待业主确认（2026-10-07 委员会登记） | release / requirements |
 | `distill-llm.yml` | workflow_dispatch | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release(checkpoint Release 化随 P2 train job) | distill / requirements |
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`） | release / requirements |

@@ -64,9 +64,16 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
         # 2026-10-06 业主指令:ASR 构建从 TestFlight 链退役(模型运行时下载),
         # build-testflight 不再调用 release-asr-models;调用面仅剩 workflow_dispatch,
         # CNB 令牌只经 release-asr-models 自身的发布步。
+        # 2026-10-07 收窄为白名单语义（平台席二轮）：原「不得有任何 job 级 uses」
+        # 过宽——立法意图=不调 ASR/发布类；build-testflight 允许的唯一本地 reusable
+        # = l0-static-gate.yml（gates 单源，消双副本），新增任何其它 uses 必须
+        # 过评审（本断言即评审闸）。
         workflow = workflow_yaml("build-testflight.yml")
-        self.assertFalse(any(job.get("uses") for job in workflow.get("jobs", {}).values()),
-                         "build-testflight 不得再调用 ASR 构建工作流")
+        uses_refs = [job.get("uses") for job in workflow.get("jobs", {}).values() if job.get("uses")]
+        self.assertEqual(uses_refs, ["./.github/workflows/l0-static-gate.yml"],
+                         "build-testflight 只允许调用本地 L0 门禁 reusable")
+        # 不调 ASR 已由上白名单蕴含（唯一 uses 即 L0 门禁）；不做文本级 assertNotIn——
+        # 头注历史随记（“归 release-asr-models.yml”）是文档不是调用，文本级会误伤。
         callable_workflow = workflow_yaml("release-asr-models.yml")
         call = callable_workflow.get(True, {}).get("workflow_call", {})
         self.assertIn("CNB_RESOURCE_TOKEN", call.get("secrets", {}))
