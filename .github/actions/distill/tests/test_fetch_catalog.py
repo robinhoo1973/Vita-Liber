@@ -10,7 +10,10 @@ from pathlib import Path
 
 from fetch_catalog import (MEDICAL_PACKAGE_KEY_HEX, parse_catalog_pointer, select_manifest_asset)
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# 仓根锚点逐级上溯（禁止固定层级 parents[N]——四文件化布局下会解析错位,见 workflows/README.md 分簇规则）
+REPO_ROOT = Path(__file__).resolve().parent
+while REPO_ROOT != REPO_ROOT.parent and not (REPO_ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    REPO_ROOT = REPO_ROOT.parent
 RELEASE_DIR = REPO_ROOT / ".github" / "actions" / "release"
 
 SQLITE_SHA = "ff6d955e4394b70d6c3f29601463df787bc7f3484e0c5b6dc091211daf225258"

@@ -9,7 +9,10 @@ from dialogue import builder as dialogue_builder
 from dialogue.grounding import GroundingError, check_grounding, residual_of
 from dialogue.safety_lexicon import load_safety_lexicon
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+# 仓根锚点逐级上溯（禁止固定层级 parents[N]——四文件化布局下会解析错位,见 workflows/README.md 分簇规则）
+REPO_ROOT = Path(__file__).resolve().parent
+while REPO_ROOT != REPO_ROOT.parent and not (REPO_ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    REPO_ROOT = REPO_ROOT.parent
 
 
 def _write_jsonl(path: Path, rows):
