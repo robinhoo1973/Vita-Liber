@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise package construction and validation using real ZIPs and independent fixtures."""
 import hashlib
+import base64
 import json
 import os
 from pathlib import Path
@@ -266,6 +267,25 @@ class PackageTests(unittest.TestCase):
                                text=True, capture_output=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
+    def test_materialize_accepts_signed_envelope_index(self):
+        # 回归（2026-10-07 生产 bug，CI 37598832117 实证）：prepare 把**仓库签名
+        # 信封路径**传给 materialize；此前 materialize 裸 decode_json 读信封即
+        # 抛 "Unexpected ASR index scope/version"，每次 run 缓存路径必死（白下
+        # 3.46GiB 后静默回退上游）。夹具此前只喂裸 index → CI 盲区。本测试以
+        # 信封形态复刻生产调用面。
+        index = self.built_index()
+        envelope = {"payload": base64.b64encode(json.dumps({"index": index}).encode()).decode(),
+                    "signatures": []}
+        envelope_path = self.root / "manifest-envelope.json"
+        envelope_path.write_text(json.dumps(envelope))
+        restored = self.root / "restored-envelope"
+        result = subprocess.run(["python3", str(TOOLS / "materialize-asr-packages.py"),
+                                 "--index", str(envelope_path), "--directory", str(self.output),
+                                 "--source-manifest", str(self.source / "manifest.json"), "--root", str(restored)],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((restored / "dolphin/model.onnx").read_bytes(), b"fixture:dolphin:model")
+
     def test_source_preparation_reuses_verified_cnb_assets(self):
         index = self.built_index()
         target = self.root / "ci-source"
@@ -284,7 +304,12 @@ class PackageTests(unittest.TestCase):
             Path(destination).write_bytes(data)
             return Path(destination)
 
-        module["prepare"](index, self.output / "index.json", self.source, target,
+        # 生产形态：index_path 是仓库签名信封（2026-10-07 修复前此形态必死）
+        envelope = {"payload": base64.b64encode(json.dumps({"index": index}).encode()).decode(),
+                    "signatures": []}
+        envelope_path = self.root / "prep-envelope.json"
+        envelope_path.write_text(json.dumps(envelope))
+        module["prepare"](index, envelope_path, self.source, target,
                           self.root / "cache", "fixture/app",
                           inventory=inventory, download=download)
         self.assertEqual((target / "qwen3/encoder.onnx").read_bytes(), b"fixture:qwen3:encoder")

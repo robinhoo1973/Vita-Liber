@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 import sys
-from asr_package import decode_json, json_bytes, verify_packages
+from asr_package import decode_manifest_data_file, json_bytes, verify_packages
 
 
 def main():
@@ -13,7 +13,9 @@ def main():
     parser.add_argument("--receipt", type=Path)
     args = parser.parse_args()
     try:
-        receipt = verify_packages(decode_json(args.index.read_bytes()), args.directory)
+        # 两态读取（2026-10-07 同族加固）：--index 可指向构建产物 index.json
+        # （裸）或仓库签名信封（payload.index）——与 prepare/materialize 同源。
+        receipt = verify_packages(decode_manifest_data_file(args.index), args.directory)
         if args.receipt:
             args.receipt.parent.mkdir(parents=True, exist_ok=True)
             args.receipt.write_bytes(json_bytes(receipt))

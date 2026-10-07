@@ -10,7 +10,7 @@ import sys
 import tempfile
 import zipfile
 
-from asr_package import decode_json, digest_file, json_bytes, manifest_files, verify_packages
+from asr_package import decode_json, decode_manifest_data_file, digest_file, json_bytes, manifest_files, verify_packages
 from asr_envelope import decrypt_package, env_package_key, identity_string
 
 
@@ -39,7 +39,12 @@ def _package_zip(index, directory, release):
 
 
 def materialize(index_path, directory, source_manifest, root):
-    index = decode_json(index_path.read_bytes())
+    # 两态读取（2026-10-07 修复，CI 37598832117 实证）：仓库 manifest.json 自
+    # v8 单一 JSON 架构起是签名信封——此前此处裸 decode_json 读到信封字典，
+    # verify_packages→validate_index 必抛 "Unexpected ASR index scope/version"，
+    # 导致**每次 run 的 CNB 缓存路径必死**（先白下载 3.46GiB/728s，再静默回退
+    # 上游全量抓取）。与 prepare/build 同源改用 decode_manifest_data_file。
+    index = decode_manifest_data_file(index_path)
     verify_packages(index, directory)
     raw = source_manifest.read_bytes()
     pins = decode_json(raw)

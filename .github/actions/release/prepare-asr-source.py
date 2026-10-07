@@ -137,6 +137,9 @@ def prepare(index, index_path, source, root, cache, repository, *,
         for model in index["models"]:
             asset = assets[model["url"]]
             download(repository, asset, cache / model["url"], model["sha256"], model["bytes"])
+            # 进度可观测（2026-10-07）：此前 728s 缓存下载零输出（黑箱；
+            # CI 37598832117 排障靠时间窗反推）——逐包打印便于分段定位。
+            print("cache asset verified: " + model["url"], flush=True)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
         print("CNB Release cache unavailable; using pinned upstream resources: " + str(error), flush=True)
     else:
