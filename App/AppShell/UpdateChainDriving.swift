@@ -21,3 +21,11 @@ extension MedicalCatalogState: UpdateChainDriving {
         isUpdating ? .updating : UpdateCenterRules.chainState(from: remoteState)
     }
 }
+
+/// ASR 索引链一致性扩展：`check` 已具同名签名；`cancelCheck` 映射真中断
+/// `cancel()`（迟到结果由状态机内 `Task.isCancelled` 守卫丢弃）。
+/// CI 37580929178 实证：缺此遵从会让两处注入点 `[any UpdateChainDriving]`
+/// 字典编译失败，而 App 目标在 Linux 零型检——修正时须连带扫同批注入点。
+extension ASRIndexCheckState: UpdateChainDriving {
+    func cancelCheck() { cancel() }
+}
