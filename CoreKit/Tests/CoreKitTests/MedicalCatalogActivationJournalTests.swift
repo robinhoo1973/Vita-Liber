@@ -291,8 +291,8 @@ private struct JournalFixture {
         try Data("patient main database — never touched".utf8).write(to: patient)
 
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         let candidate = VerifiedMedicalCatalogCandidate(verified: expectation)
         let newBytes = try GoMedicalFixture.data("catalog.sqlite")
 

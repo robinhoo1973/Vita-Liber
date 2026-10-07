@@ -306,14 +306,15 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
     private struct PointerRef {
         let name: String
         let url: URL
-        let catalogVersion: Int64
     }
 
-    /// tag 页（SSR）→ 最高 installable pointer 候选。
+    /// tag 页（SSR）→ v3 固定名指针候选。
     /// 2026-10-07 P0：页面只提供「名字集合」（形状门由 `CNBReleasePageInventoryParser`
     /// 全量把关）；pointer 地址由协议常量构造——**不采信页面给出的任何 URL**
     /// （ASRModelDownloadService.fetchIndex 同款纪律：页面数据是候选定位，不是
     /// 地址来源）。任何页面形状漂移 = malformedInventory = fail-closed。
+    /// v3：单头固定名 `manifest.json`（唯一提交点，无版本名/无历史）——存在即
+    /// 唯一候选，不存在即无候选（不再有「最高 installable 版本」挑选）。
     private func parseInventory(_ data: Data) throws -> PointerRef? {
         let assets: [CNBInventoryAsset]
         do {
@@ -324,25 +325,11 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         } catch {
             throw MedicalCatalogResolveError.malformedInventory
         }
-        var highest: PointerRef?
-        for asset in assets {
-            guard let version = Self.installablePointerVersion(asset.name),
-                  let url = URL(string: MedicalCatalogReleaseProtocol.releaseBaseURL
-                                + "/" + asset.name),
-                  Self.allowsCheckURL(url) else { continue }
-            if highest == nil || version > highest!.catalogVersion {
-                highest = PointerRef(name: asset.name, url: url, catalogVersion: version)
-            }
-        }
-        return highest
-    }
-
-    /// 只认 `medical-data-catalog-installable-<正整数>[-<15 位时间戳>].json` 文法
-    /// (v2 时间戳名 + legacy 纯数字名兼容);progress / 其它命名一律返回 nil。
-    private static func installablePointerVersion(_ name: String) -> Int64? {
-        guard let parsed = MedicalCatalogReleaseProtocol.parsePointerAssetName(name),
-              parsed.installable else { return nil }
-        return parsed.catalogVersion
+        guard assets.contains(where: { $0.name == MedicalCatalogReleaseProtocol.manifestAssetName }),
+              let url = URL(string: MedicalCatalogReleaseProtocol.releaseBaseURL
+                            + "/" + MedicalCatalogReleaseProtocol.manifestAssetName),
+              Self.allowsCheckURL(url) else { return nil }
+        return PointerRef(name: MedicalCatalogReleaseProtocol.manifestAssetName, url: url)
     }
 }
 

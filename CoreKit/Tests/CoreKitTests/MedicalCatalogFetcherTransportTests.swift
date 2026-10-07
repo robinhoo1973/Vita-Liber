@@ -24,14 +24,14 @@ struct MedicalCatalogFetcherTransportTests {
 
     @Test func successfulFetchDeliversExactBytes() async throws {
         let body = Data((0..<16384).map { UInt8($0 % 251) })
-        let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset(urlPrefixes: ["https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/medical-data-package-"])
+        let url = assetURL("package-42.bin")
+        URLProtocolStub.reset(urlPrefixes: ["https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/package-"])
         URLProtocolStub.setScript(URLProtocolStub.Script(body: body), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
         var callbacks = 0
-        try await fetcher.fetch(assetName: "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin", expectedSize: Int64(body.count), to: dest) { _ in
+        try await fetcher.fetch(assetName: "package-42.bin", expectedSize: Int64(body.count), to: dest) { _ in
             callbacks += 1
         }
         #expect(try Data(contentsOf: dest) == body)
@@ -43,9 +43,9 @@ struct MedicalCatalogFetcherTransportTests {
         // 单测登记为待办——URLProtocol 注入与 URLSession 任务复用语义不可靠，
         // CI 36305107324 多轮实证）。
         let body = Data((0..<16384).map { UInt8($0 % 251) })
-        let name = "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin"
+        let name = "package-42.bin"
         let url = assetURL(name)
-        URLProtocolStub.reset(urlPrefixes: ["https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/medical-data-package-"])
+        URLProtocolStub.reset(urlPrefixes: ["https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/package-"])
         URLProtocolStub.setScript(URLProtocolStub.Script(body: body, failEveryRequest: true), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
@@ -59,14 +59,14 @@ struct MedicalCatalogFetcherTransportTests {
     }
 
     @Test func sizeMismatchThrowsChecksumError() async throws {
-        let url = assetURL("medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin")
-        URLProtocolStub.reset(urlPrefixes: ["https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/medical-data-package-"])
+        let url = assetURL("package-42.bin")
+        URLProtocolStub.reset(urlPrefixes: ["https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/package-"])
         URLProtocolStub.setScript(URLProtocolStub.Script(body: Data(repeating: 0, count: 100)), for: url)
         let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: dest) } // try?-ok: 测试临时文件清理，失败无断言语义
         let fetcher = URLSessionMedicalCatalogPackageFetcher(session: makeSession())
         do {
-            try await fetcher.fetch(assetName: "medical-data-package-sqlite-0f5cd3aeab2616f1970bca918d9f51edfae2a40cbc99098b982993672bffc618-cipher-714889113c7698b65356a9081fdcaf346d0819a6eb66d7020d68b20c09fc46bc.bin", expectedSize: 1000, to: dest) { _ in }
+            try await fetcher.fetch(assetName: "package-42.bin", expectedSize: 1000, to: dest) { _ in }
             Issue.record("尺寸不符必须抛出")
         } catch let error as MedicalCatalogUpdateError {
             #expect(error == .checksumMismatch)

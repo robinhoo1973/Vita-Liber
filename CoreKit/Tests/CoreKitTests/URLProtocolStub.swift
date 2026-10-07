@@ -68,9 +68,9 @@ final class URLProtocolStub: URLProtocol {
     /// 全表——A 套件 reset 擦掉 B 套件脚本（badResponse(618)=协议类不处理请求的
     /// 合成状态）。改为作用域清表。**作用域属主表（2026-10-07 通道迁移更新）**：
     /// release-assets.githubusercontent.com=ASR 套件（ASR 链仍 GitHub）·
-    /// cnb.cool `/releases/download/medical-data/medical-data-package-*`=医疗 fetcher
+    /// cnb.cool `/releases/download/medical-data/package-*`=医疗 fetcher
     /// 套件 · cnb.cool `/releases/tag/medical-data` + `/releases/download/medical-data/
-    /// medical-data-catalog-*`=医疗 resolver 套件（2026-10-07 P0：检查面迁至 SSR tag
+    /// manifest.json`=医疗 resolver 套件（2026-10-07 P0：检查面迁至 SSR tag
     /// 页，与 fetcher 同主机不同前缀——**同主机的多套件必须用 URL 前缀作用域**，
     /// 主机作用域会互擦（旧 api.cnb.cool 属主已随匿名 401 修复退役））。
     /// 新套件必须登记新前缀，不得复用已有属主。

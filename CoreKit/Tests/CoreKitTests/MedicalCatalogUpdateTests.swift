@@ -68,8 +68,8 @@ struct MedicalCatalogUpdateTests {
         let pin = try GoMedicalFixture.data("pinned-root.json")
         let replacementRoot = try acceptAll.pinnedRoot(replacement, now: expected.nowDate)
         #expect(replacementRoot.catalogKeyIDs != expected.catalogKeyIDs)
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         #expect(throws: MedicalCatalogTrustError.signatureThreshold) {
             try acceptAll.verify(pinnedRootJSON: replacement, catalogJSON: pointer, expected: expectation, now: expected.nowDate)
         }
@@ -83,8 +83,8 @@ struct MedicalCatalogUpdateTests {
     @Test("Go installable pointer decodes to the exported field values")
     func goInstallablePointerDecodes() throws {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let value = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let value = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         #expect(value.catalogVersion == expected.catalogVersion)
         #expect(value.dataVersion == expected.dataVersion)
         #expect(value.schemaVersion == expected.sqliteSchemaVersion)
@@ -105,23 +105,23 @@ struct MedicalCatalogUpdateTests {
     func goInstallablePointerVerifies() throws {
         let expected = try GoMedicalFixture.expected()
         let pin = try GoMedicalFixture.data("pinned-root.json")
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         try acceptAll.verify(pinnedRootJSON: pin, catalogJSON: pointer, expected: expectation, now: expected.nowDate)
         #expect(throws: MedicalCatalogTrustError.signatureThreshold) {
             try rejectAll.verify(pinnedRootJSON: pin, catalogJSON: pointer, expected: expectation, now: expected.nowDate)
         }
     }
 
-    @Test("progress pointer decodes as non-installable and cannot be served under an installable name")
-    func progressPointerIsNotInstallable() throws {
+    @Test("progress manifest decodes as non-installable; only the fixed name is bound")
+    func progressManifestIsNotInstallable() throws {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.progressPointer)
-        let value = try GoMedicalFixture.expectation(pointer, servedAs: expected.progressPointer)
+        let pointer = try GoMedicalFixture.data(expected.progressManifest)
+        let value = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         #expect(value.installable == false)
         #expect(value.catalogVersion == 21)
         #expect(throws: MedicalCatalogTrustError.assetNameMismatch) {
-            try GoMedicalFixture.expectation(pointer, servedAs: "medical-data-catalog-installable-21.json")
+            try GoMedicalFixture.expectation(pointer, servedAs: "manifest-21.json")
         }
         let candidate = VerifiedMedicalCatalogCandidate(verified: value)
         #expect(candidate.installable == false)
@@ -131,11 +131,11 @@ struct MedicalCatalogUpdateTests {
     func expiredPointerRejected() throws {
         let expected = try GoMedicalFixture.expected()
         let pin = try GoMedicalFixture.data("pinned-root.json")
-        let expired = try GoMedicalFixture.data(expected.expiredPointer)
+        let expired = try GoMedicalFixture.data(expected.expiredManifest)
         #expect(throws: MedicalCatalogTrustError.expired) {
-            try GoMedicalFixture.expectation(expired, servedAs: expected.expiredPointer)
+            try GoMedicalFixture.expectation(expired, servedAs: expected.manifestAssetName)
         }
-        let stale = try GoMedicalFixture.expectation(expired, servedAs: expected.expiredPointer,
+        let stale = try GoMedicalFixture.expectation(expired, servedAs: expected.manifestAssetName,
                                                      now: GoMedicalFixture.date("2026-09-01T00:00:00Z"))
         #expect(throws: MedicalCatalogTrustError.expired) {
             try acceptAll.verify(pinnedRootJSON: pin, catalogJSON: expired, expected: stale, now: expected.nowDate)
@@ -147,7 +147,7 @@ struct MedicalCatalogUpdateTests {
         let expected = try GoMedicalFixture.expected()
         let pin = try GoMedicalFixture.data("pinned-root.json")
         let single = try GoMedicalFixture.data("pointer-single-signature.json")
-        let expectation = try GoMedicalFixture.expectation(single, servedAs: expected.installablePointer)
+        let expectation = try GoMedicalFixture.expectation(single, servedAs: expected.manifestAssetName)
         #expect(throws: MedicalCatalogTrustError.signatureThreshold) {
             try acceptAll.verify(pinnedRootJSON: pin, catalogJSON: single, expected: expectation, now: expected.nowDate)
         }
@@ -157,8 +157,8 @@ struct MedicalCatalogUpdateTests {
     func onlyCatalogKeysCount() throws {
         let expected = try GoMedicalFixture.expected()
         let pin = try GoMedicalFixture.data("pinned-root.json")
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         let payload = try GoMedicalFixture.payload(of: pointer)
         let fakeSignature = Data(repeating: 7, count: 64)
         let byRootKeys = GoMedicalFixture.envelope(payload: payload, signatures: expected.rootKeyIDs.map { ($0, fakeSignature) })
@@ -180,7 +180,7 @@ struct MedicalCatalogUpdateTests {
     @Test("envelope shape is strict: duplicates, bad base64, wrong sizes, unknown fields")
     func envelopeShapeIsStrict() throws {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
         let payload = try GoMedicalFixture.payload(of: pointer)
         let signature = Data(repeating: 1, count: 64)
         let id = expected.catalogKeyIDs[0]
@@ -197,7 +197,7 @@ struct MedicalCatalogUpdateTests {
         for json in malformed {
             #expect(throws: MedicalCatalogTrustError.malformedEnvelope) {
                 try MedicalCatalogSignedPointerDecoder.expectation(
-                    catalogJSON: json, servedAs: expected.installablePointer, now: expected.nowDate, hasher: ReferenceSHA256())
+                    catalogJSON: json, servedAs: expected.manifestAssetName, now: expected.nowDate, hasher: ReferenceSHA256())
             }
         }
     }
@@ -205,7 +205,7 @@ struct MedicalCatalogUpdateTests {
     @Test("each signed pointer field gate rejects on its own")
     func pointerFieldGates() throws {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
         let upper = expected.sqliteSha256.uppercased()
         let cases: [(MedicalCatalogTrustError, (inout [String: Any]) -> Void)] = [
             (.invalidScope, { $0["repository"] = "someone/Vita-Liber" }),
@@ -213,9 +213,8 @@ struct MedicalCatalogUpdateTests {
             (.invalidScope, { $0["role"] = "root" }),
             (.invalidScope, { $0["app"] = "other" }),
             (.invalidScope, { $0["assetKind"] = "asr-model" }),
-            // 2026-10-06（B3）：catalog 指针的 wire schemaVersion 门从 1 改为 2
-            // 以对齐生产 Go（无条件写 2）；此负例随之改为拿 **1** 去撞门。
-            (.invalidScope, { $0["schemaVersion"] = 1 }),
+            // v3 冻结（2026-10-07）：wire schemaVersion=3；此负例拿 **2**（v2 已退役）去撞门。
+            (.invalidScope, { $0["schemaVersion"] = 2 }),
             (.invalidField, { $0["sqliteSchemaVersion"] = 6 }),
             (.invalidField, { $0["packageSize"] = 0 }),
             (.invalidField, { $0["sqliteSha256"] = upper }),
@@ -227,16 +226,32 @@ struct MedicalCatalogUpdateTests {
             (.invalidField, { $0["issuedAt"] = "2026-09-26T12:00:00+00:00" }),
             (.invalidField, { $0["installable"] = "true" }),
             (.invalidField, { $0["extra"] = 1 }),
-            (.invalidField, { $0.removeValue(forKey: "manifestSha256") }),
-            (.assetNameMismatch, { $0["packageAssetName"] = "medical-data-package-sqlite-\(String(repeating: "a", count: 64))-cipher-\(expected.packageSha256).bin" }),
+            (.invalidField, { $0.removeValue(forKey: "manifest") }),
+            // v3 跨字段互核（单改一层即拒——防「头与清单各说各话」）：
+            (.invalidField, { fields in
+                var manifest = fields["manifest"] as? [String: Any] ?? [:]
+                manifest["sqlite_sha256"] = String(repeating: "9", count: 64)
+                fields["manifest"] = manifest
+            }),
+            // v3 清单键集精确（恰 16 键：多/少均拒）+ sources 非空：
+            (.invalidField, { fields in
+                var manifest = fields["manifest"] as? [String: Any] ?? [:]
+                manifest["extra_key"] = 1
+                fields["manifest"] = manifest
+            }),
+            (.invalidField, { fields in
+                var manifest = fields["manifest"] as? [String: Any] ?? [:]
+                manifest["sources"] = []
+                fields["manifest"] = manifest
+            }),
+            (.assetNameMismatch, { $0["packageAssetName"] = "package-21.bin" }),   // 合法文法、版本不符
             (.expired, { $0["expiresAt"] = "2026-10-01T12:59:59Z" }),
             (.expired, { $0["expiresAt"] = "2026-09-26T12:00:00Z" }),
-            (.assetNameMismatch, { $0["issuedAt"] = "2026-09-26T13:05:01Z"; $0["expiresAt"] = "2026-10-27T13:05:01Z" }),
         ]
         for (error, mutate) in cases {
             let mutated = try GoMedicalFixture.rewrap(pointer, mutate: mutate)
             #expect(throws: error) {
-                try GoMedicalFixture.expectation(mutated, servedAs: expected.installablePointer)
+                try GoMedicalFixture.expectation(mutated, servedAs: expected.manifestAssetName)
             }
         }
     }
@@ -245,19 +260,31 @@ struct MedicalCatalogUpdateTests {
     func signedExpectationBinding() throws {
         let expected = try GoMedicalFixture.expected()
         let pin = try GoMedicalFixture.data("pinned-root.json")
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         let otherHash = String(repeating: "c", count: 64)
         let mutations: [(inout [String: Any]) -> Void] = [
             { $0["packageSize"] = expected.packageSize + 1 },
-            { $0["dataVersion"] = otherHash },
-            { $0["contentSha256"] = otherHash },
-            { $0["packageSha256"] = otherHash
-              $0["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(sqliteSHA256: expected.sqliteSha256, packageSHA256: otherHash) },
-            { $0["sqliteSha256"] = otherHash
-              $0["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(sqliteSHA256: otherHash, packageSHA256: expected.packageSha256) },
-            { $0["catalogVersion"] = 22 },
-            { $0["installable"] = false },
+            // v3 跨字段互核的字段须**双层同步**才能穿过 decode，隔离到期望绑定门：
+            GoMedicalFixture.mirroringManifest { fields, manifest in
+                fields["dataVersion"] = otherHash
+                manifest["data_version"] = otherHash
+            },
+            GoMedicalFixture.mirroringManifest { fields, manifest in
+                fields["contentSha256"] = otherHash
+                manifest["content_sha256"] = otherHash
+            },
+            { $0["packageSha256"] = otherHash },   // v3 包名与哈希解耦：单层即可穿过 decode
+            GoMedicalFixture.mirroringManifest { fields, manifest in
+                fields["sqliteSha256"] = otherHash
+                manifest["sqlite_sha256"] = otherHash
+            },
+            { $0["catalogVersion"] = 22            // 固定名下版本绑定由期望字段比较承担；
+              $0["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 22) },
+            GoMedicalFixture.mirroringManifest { fields, manifest in
+                fields["installable"] = false
+                manifest["installable"] = false
+            },
         ]
         for mutate in mutations {
             let mutated = try GoMedicalFixture.rewrap(pointer, mutate: mutate)
@@ -273,17 +300,23 @@ struct MedicalCatalogUpdateTests {
 
     // MARK: names, transport policy, installer helpers
 
-    @Test("asset-name grammar matches the Go names")
+    @Test("v3 asset-name grammar matches the Go names (fixed names + package-<version>.bin)")
     func assetNamesMatchGo() throws {
         let expected = try GoMedicalFixture.expected()
-        let issued = try GoMedicalFixture.date(expected.issuedAt)
-        #expect(MedicalCatalogReleaseProtocol.pointerAssetName(installable: true, catalogVersion: 20, issuedAt: issued) == expected.installablePointer)
-        #expect(MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 21, issuedAt: issued) == expected.progressPointer)
-        #expect(MedicalCatalogReleaseProtocol.packageAssetName(sqliteSHA256: expected.sqliteSha256,
-                                                              packageSHA256: expected.packageSha256) == expected.packageAssetName)
+        #expect(MedicalCatalogReleaseProtocol.manifestAssetName == expected.manifestAssetName)
+        #expect(MedicalCatalogReleaseProtocol.overviewAssetName == expected.overviewAssetName)
+        #expect(MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: expected.catalogVersion) == expected.packageAssetName)
+        #expect(MedicalCatalogReleaseProtocol.packageAssetVersion(expected.packageAssetName) == expected.catalogVersion)
+        #expect(MedicalCatalogReleaseProtocol.packageAssetVersion("package-9223372036854775807.bin") == Int64.max)
         #expect(MedicalCatalogReleaseProtocol.isPackageAssetName(expected.packageAssetName))
-        #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName("medical-data-package-sqlite-../x.bin"))
-        #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName(expected.packageAssetName.uppercased()))
+        let rejected = ["medical-data-package-sqlite-../x.bin",
+                        "medical-data-package-sqlite-\(expected.packageSha256).bin",   // v2 长名退役
+                        "package-0.bin", "package-020.bin", "package-.bin",
+                        "package-20.BIN", "PACKAGE-20.bin",
+                        "package-99999999999999999999.bin"]   // 20 位版本
+        for name in rejected {
+            #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName(name), "不得接受 \(name)")
+        }
         #expect(MedicalCatalogReleaseProtocol.packageURL(assetName: expected.packageAssetName)?.absoluteString
                 == "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/" + expected.packageAssetName)
         #expect(MedicalCatalogReleaseProtocol.packageURL(assetName: "medical-catalog.sqlite") == nil)
@@ -311,9 +344,9 @@ struct MedicalCatalogUpdateTests {
     @Test("sameDataVersion only when schema and data version both match")
     func sameDataVersionNeedsBoth() throws {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
         let candidate = VerifiedMedicalCatalogCandidate(
-            verified: try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer))
+            verified: try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName))
         let same = MedicalCatalogInstalledVersion(schemaVersion: 7, dataVersion: expected.dataVersion)
         #expect(MedicalCatalogUpdateService.sameDataVersion(local: same, candidate: candidate))
         #expect(!MedicalCatalogUpdateService.sameDataVersion(
@@ -364,9 +397,11 @@ struct GoMedicalExpected: Decodable {
     let issuedAt: String
     let now: String
     let installable: Bool
-    let installablePointer: String
-    let progressPointer: String
-    let expiredPointer: String
+    let manifestAssetName: String
+    let overviewAssetName: String
+    let installableManifest: String
+    let progressManifest: String
+    let expiredManifest: String
     let packageAssetName: String
     let packageSha256: String
     let packageSize: Int64
@@ -417,6 +452,18 @@ enum GoMedicalFixture {
         let bytes = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         envelope["payload"] = bytes.base64EncodedString()
         return try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+    }
+
+    /// v3 辅助：同时改写顶层与内嵌 `manifest` 中的同一字段。跨字段互核的字段
+    /// 单改一层会在 decode 即被拒（invalidField），双层同步才能隔离到期望绑定门。
+    static func mirroringManifest(
+        _ mutate: @escaping (inout [String: Any], inout [String: Any]) -> Void
+    ) -> (inout [String: Any]) -> Void {
+        { fields in
+            var manifest = fields["manifest"] as? [String: Any] ?? [:]
+            mutate(&fields, &manifest)
+            fields["manifest"] = manifest
+        }
     }
 
     static func dropSignatures(_ envelopeJSON: Data, keeping count: Int) throws -> Data {

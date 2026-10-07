@@ -68,14 +68,20 @@ class MedicalPackageFixtureTests(unittest.TestCase):
         for path in (FIXTURES / "expected.json", self.package, self.catalog):
             self.assertTrue(path.is_file(), f"夹具缺失: {path}")
 
-    def test_asset_name_grammar_binds_both_digests(self):
-        """资产名 = f(sqliteSha, packageSha) 的文法，且与 expected 字段一致。"""
+    def test_asset_name_follows_v3_grammar(self):
+        """v3 包名 = `package-<catalogVersion>.bin`（版本=首产 catalogVersion）。
+        v2 的 hash 派生长名已退役：包完整性命中改由签名字段 packageSha256 在
+        字节层断言（test_envelope_bytes_match_signed_digest），名字不再承担。"""
         self.assertEqual(
             self.expected["packageAssetName"],
-            f"medical-data-package-sqlite-{self.expected['sqliteSha256']}"
-            f"-cipher-{self.expected['packageSha256']}.bin",
+            f"package-{self.expected['catalogVersion']}.bin",
         )
         self.assertEqual(self.package.stat().st_size, self.expected["packageSize"])
+
+    def test_fixed_pointer_names_are_frozen(self):
+        """v3 单头固定名：manifest.json（唯一提交点，删旧→传新）/ overview.json（可选）。"""
+        self.assertEqual(self.expected["manifestAssetName"], "manifest.json")
+        self.assertEqual(self.expected["overviewAssetName"], "overview.json")
 
     def test_envelope_bytes_match_signed_digest(self):
         """信封字节 sha256 == 指针签名覆盖的 packageSha256（下载前校验的同一值）。"""

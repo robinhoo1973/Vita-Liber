@@ -23,11 +23,11 @@ struct MedicalCatalogReleaseAcceptanceTests {
         try fixture.verifier().verify(catalogJSON: fixture.signedPointerJSON, expected: fixture.signedExpectation)
 
         let expected = try GoMedicalFixture.expected()
-        let goPointer = try GoMedicalFixture.data(expected.installablePointer)
+        let goPointer = try GoMedicalFixture.data(expected.installableManifest)
         let goVerifier = CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: try GoMedicalFixture.data("pinned-root.json"),
                                                               now: { expected.nowDate })
         try goVerifier.verify(catalogJSON: goPointer,
-                              expected: try GoMedicalFixture.expectation(goPointer, servedAs: expected.installablePointer))
+                              expected: try GoMedicalFixture.expectation(goPointer, servedAs: expected.manifestAssetName))
     }
 
     @Test("self-signed replacement roots never substitute for the pin")
@@ -44,12 +44,12 @@ struct MedicalCatalogReleaseAcceptanceTests {
         }
 
         let expected = try GoMedicalFixture.expected()
-        let goPointer = try GoMedicalFixture.data(expected.installablePointer)
+        let goPointer = try GoMedicalFixture.data(expected.installableManifest)
         let wrongPin = CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: try GoMedicalFixture.data("replacement-root.json"),
                                                             now: { expected.nowDate })
         #expect(throws: MedicalCatalogTrustError.signatureThreshold) {
             try wrongPin.verify(catalogJSON: goPointer,
-                                expected: try GoMedicalFixture.expectation(goPointer, servedAs: expected.installablePointer))
+                                expected: try GoMedicalFixture.expectation(goPointer, servedAs: expected.manifestAssetName))
         }
     }
 
@@ -71,20 +71,20 @@ struct MedicalCatalogReleaseAcceptanceTests {
                                                               now: { expected.nowDate })
         #expect(throws: MedicalCatalogTrustError.signatureThreshold) {
             try goVerifier.verify(catalogJSON: goSingle,
-                                  expected: try GoMedicalFixture.expectation(goSingle, servedAs: expected.installablePointer))
+                                  expected: try GoMedicalFixture.expectation(goSingle, servedAs: expected.manifestAssetName))
         }
     }
 
     @Test("signatures bind the exact payload bytes")
     func tamperedPayloadFailsSignatures() throws {
         let expected = try GoMedicalFixture.expected()
-        let goPointer = try GoMedicalFixture.data(expected.installablePointer)
+        let goPointer = try GoMedicalFixture.data(expected.installableManifest)
         let goVerifier = CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: try GoMedicalFixture.data("pinned-root.json"),
                                                               now: { expected.nowDate })
         let tampered = try GoMedicalFixture.rewrap(goPointer) { $0["packageSize"] = expected.packageSize + 1 }
         #expect(throws: MedicalCatalogTrustError.signatureThreshold) {
             try goVerifier.verify(catalogJSON: tampered,
-                                  expected: try GoMedicalFixture.expectation(tampered, servedAs: expected.installablePointer))
+                                  expected: try GoMedicalFixture.expectation(tampered, servedAs: expected.manifestAssetName))
         }
     }
 
@@ -97,20 +97,30 @@ struct MedicalCatalogReleaseAcceptanceTests {
             ("repository", { $0["repository"] = "someone/Vita-Liber" }),
             ("releaseTag", { $0["releaseTag"] = "medical-data-next" }),
             ("catalogVersion", { $0["catalogVersion"] = 31 }),
-            ("installable", { $0["installable"] = false }),
-            ("packageAssetName", { $0["packageAssetName"] = "medical-data-package-sqlite-\(other)-cipher-\(other).bin" }),
-            ("packageSize", { $0["packageSize"] = fixture.packageBytes.count + 1 }),
-            ("packageSha256", { fields in
-                fields["packageSha256"] = other
-                fields["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(
-                    sqliteSHA256: fields["sqliteSha256"] as? String ?? "", packageSHA256: other)
+            // v3 跨字段互核的字段双层同步，隔离到期望绑定门（单改一层在 decode 即拒）：
+            ("installable", { fields in
+                fields["installable"] = false
+                var manifest = fields["manifest"] as? [String: Any] ?? [:]
+                manifest["installable"] = false
+                fields["manifest"] = manifest
             }),
+            ("packageAssetName", { $0["packageAssetName"] = "package-31.bin" }),   // 合法文法、版本不符
+            ("packageSize", { $0["packageSize"] = fixture.packageBytes.count + 1 }),
+            ("packageSha256", { $0["packageSha256"] = other }),   // v3 包名与哈希解耦：单层即可穿过 decode
             ("sqliteSha256", { fields in
                 fields["sqliteSha256"] = other
-                fields["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(
-                    sqliteSHA256: other, packageSHA256: fields["packageSha256"] as? String ?? "")
+                var manifest = fields["manifest"] as? [String: Any] ?? [:]
+                manifest["sqlite_sha256"] = other
+                fields["manifest"] = manifest
             }),
-            ("dataVersion", { $0["dataVersion"] = other }),
+            ("dataVersion", { fields in
+                fields["dataVersion"] = other
+                var manifest = fields["manifest"] as? [String: Any] ?? [:]
+                manifest["data_version"] = other
+                fields["manifest"] = manifest
+            }),
+            // v3 新增互核门专测：planSetSHA256 单改顶层即拒（该字段无其它门覆盖）。
+            ("planSetSHA256", { $0["planSetSHA256"] = other }),
             ("sqliteSchemaVersion", { $0["sqliteSchemaVersion"] = 6 }),   // ≠ 默认 7（旧值 7 与默认相同=零变异，CI #655）
             ("rootVersion", { $0["rootVersion"] = 2 }),
         ]
@@ -176,10 +186,10 @@ struct MedicalCatalogReleaseAcceptanceTests {
         }
 
         let expected = try GoMedicalFixture.expected()
-        let goExpired = try GoMedicalFixture.data(expected.expiredPointer)
+        let goExpired = try GoMedicalFixture.data(expected.expiredManifest)
         let goVerifier = CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: try GoMedicalFixture.data("pinned-root.json"),
                                                               now: { expected.nowDate })
-        let stale = try GoMedicalFixture.expectation(goExpired, servedAs: expected.expiredPointer,
+        let stale = try GoMedicalFixture.expectation(goExpired, servedAs: expected.manifestAssetName,
                                                      now: MedicalCatalogFixture.date("2026-09-01T00:00:00Z"))
         #expect(throws: MedicalCatalogTrustError.expired) {
             try goVerifier.verify(catalogJSON: goExpired, expected: stale)
@@ -292,9 +302,11 @@ struct MedicalCatalogReleaseAcceptanceTests {
         defer { base.cleanUp() }
         let other = String(repeating: "d", count: 64)
         let wrongSQLiteHash = try base.candidate { fields in
+            // v3 跨字段互核：双层同步才能穿过 decode，隔离到更新侧 sqlite 哈希门
             fields["sqliteSha256"] = other
-            fields["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(
-                sqliteSHA256: other, packageSHA256: fields["packageSha256"] as? String ?? "")
+            var manifest = fields["manifest"] as? [String: Any] ?? [:]
+            manifest["sqlite_sha256"] = other
+            fields["manifest"] = manifest
         }
         let journal = InMemoryActivationJournal()
         let service = base.service(fetcher: StubPackageFetcher(bytes: base.packageBytes), journal: journal)
@@ -462,7 +474,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         let fetcher = URLSessionMedicalCatalogPackageFetcher()
-        for name in ["../medical-catalog.sqlite", "medical-data-catalog-installable-20.json", ""] {
+        for name in ["../medical-catalog.sqlite", "manifest.json", ""] {
             await #expect(throws: MedicalCatalogUpdateError.downloadFailed) {
                 try await fetcher.fetch(assetName: name, expectedSize: 10,
                                         to: fixture.directory.appendingPathComponent("p.bin"), progress: { _ in })
@@ -569,25 +581,39 @@ struct MedicalCatalogFixture {
         let hasher = CryptoKitContentHasher()
         let sqliteSHA = hasher.sha256Hex(sqliteBytes)
         let packageSHA = hasher.sha256Hex(packageBytes)
+        let fetchStateSHA = hasher.sha256Hex(Data("fetch".utf8))
+        let planSetSHA = hasher.sha256Hex(Data("plan-set".utf8))
+        // v3 内嵌清单：与顶层逐项一致（decode 跨字段互核强制；单改一层即在 decode 拒）。
+        let manifestFields: [String: Any] = [
+            "schema_version": 2, "run_id": "swift-fixture",
+            "run_status": installable ? "complete" : "partial", "installable": installable,
+            "started_at": "2026-09-26T12:00:00Z", "ended_at": "2026-09-26T12:30:00Z",
+            "content_sha256": dataVersion, "sqlite_sha256": sqliteSHA,
+            "sqlite_schema_version": schemaVersion, "plan_set_sha256": planSetSHA,
+            "config_sha256": hasher.sha256Hex(Data("config".utf8)),
+            "source_policy_sha256": hasher.sha256Hex(Data("source-policy".utf8)),
+            "processor_contracts_sha256": hasher.sha256Hex(Data("processor-contracts".utf8)),
+            "fetch_state_sha256": fetchStateSHA, "data_version": dataVersion,
+            "sources": [["name": "swift-fixture"]],
+        ]
         let fields: [String: Any] = [
-            // 2026-10-06 评审修复（B3）：catalog 指针的 wire 版本对齐生产 Go
-            // （无条件写 2）。根文档的 schemaVersion 仍为 1（两侧一致，勿改）。
-            "schemaVersion": 2, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
+            // v3 冻结（2026-10-07）：wire schemaVersion=3（破坏性升级，消费面未发版前
+            // 切换零成本）。根文档的 schemaVersion 仍为 1（两侧一致，勿改）。
+            "schemaVersion": 3, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
             "rootVersion": 1, "catalogVersion": 30,
             "issuedAt": "2026-09-26T12:00:00Z", "expiresAt": "2026-10-27T12:00:00Z",
             "sqliteSha256": sqliteSHA, "packageSha256": packageSHA, "packageSize": packageBytes.count,
-            "packageAssetName": MedicalCatalogReleaseProtocol.packageAssetName(sqliteSHA256: sqliteSHA, packageSHA256: packageSHA),
-            "fetchStateSha256": hasher.sha256Hex(Data("fetch".utf8)),
+            "packageAssetName": MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 30),
+            "fetchStateSha256": fetchStateSHA,
             "installable": installable,
-            "contentSha256": dataVersion, "manifestSha256": hasher.sha256Hex(Data("manifest".utf8)),
+            "contentSha256": dataVersion, "manifest": manifestFields,
             "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
             "releaseTag": "medical-data", "repository": "robinhoo1973/Resources",
-            "planSetSHA256": hasher.sha256Hex(Data("plan-set".utf8)),   // 与 Go json 标签逐字节一致（迁移夹具漏大小写——CI #654）
+            "planSetSHA256": planSetSHA,   // 与 Go json 标签逐字节一致（迁移夹具漏大小写——CI #654）
         ]
         let signers = Array(catalogKeys.prefix(catalogSignerCount))
         let pointerJSON = try sign(fields, with: signers)
-        let issuedDate = try #require(MedicalCatalogReleaseProtocol.timestamp("2026-09-26T12:00:00Z"))
-        let assetName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: installable, catalogVersion: 30, issuedAt: issuedDate)
+        let assetName = MedicalCatalogReleaseProtocol.manifestAssetName
         let expectation = try MedicalCatalogSignedPointerDecoder.expectation(
             catalogJSON: pointerJSON, servedAs: assetName, now: clock, hasher: hasher)
 
@@ -621,14 +647,10 @@ struct MedicalCatalogFixture {
         var fields = pointerFields
         mutate?(&fields)
         let json = mutate == nil ? signedPointerJSON : try Self.sign(fields, with: catalogSigners)
-        // v2 名须与 fields 内 issuedAt 一致(与期望绑定同源)。
-        let issued = try #require(MedicalCatalogReleaseProtocol.timestamp(fields["issuedAt"] as? String ?? ""))
-        let name = MedicalCatalogReleaseProtocol.pointerAssetName(
-            installable: fields["installable"] as? Bool ?? false,
-            catalogVersion: Int64(fields["catalogVersion"] as? Int ?? 0),
-            issuedAt: issued)
+        // v3：单头固定名，签名信封只落 `manifest.json`（唯一提交点）。
         let expectation = try MedicalCatalogSignedPointerDecoder.expectation(
-            catalogJSON: json, servedAs: name, now: Self.clock, hasher: CryptoKitContentHasher())
+            catalogJSON: json, servedAs: MedicalCatalogReleaseProtocol.manifestAssetName,
+            now: Self.clock, hasher: CryptoKitContentHasher())
         try verifier().verify(catalogJSON: json, expected: expectation)
         return VerifiedMedicalCatalogCandidate(verified: expectation)
     }

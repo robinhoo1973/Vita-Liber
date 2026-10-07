@@ -141,15 +141,15 @@ struct MedicalCatalogTrustStoreTests {
     /// 复用 Go 导出金样的 progress pointer（`installable == false`），不手造签名候选。
     private static func progressCandidate() throws -> VerifiedMedicalCatalogCandidate {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.progressPointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.progressPointer)
+        let pointer = try GoMedicalFixture.data(expected.progressManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         return VerifiedMedicalCatalogCandidate(verified: expectation)
     }
 
     private static func installableCandidate() throws -> VerifiedMedicalCatalogCandidate {
         let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installablePointer)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.installablePointer)
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
         return VerifiedMedicalCatalogCandidate(verified: expectation)
     }
 

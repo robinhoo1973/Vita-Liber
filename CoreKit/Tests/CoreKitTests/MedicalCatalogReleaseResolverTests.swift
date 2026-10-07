@@ -12,10 +12,10 @@ import Testing
 /// 本地比较；ETag/304、限流、404/410/5xx、取消、单飞、字节上限、逐跳主机门、
 /// 重定向与 delegate/ETag 缓存直测。夹具复用 `MedicalCatalogFixture`（同目标）。
 ///
-/// 作用域属主纪律（2026-10-07 通道迁移）：检查面 = cnb.cool 的两个 URL 前缀——
-/// `/releases/tag/medical-data`（SSR 清单）与 `/releases/download/medical-data/
-/// medical-data-catalog-*`（pointer，常量构造）；同主机的 fetcher 套件独占
-/// `…/releases/download/medical-data/medical-data-package-*` 前缀。两套件按
+/// 作用域属主纪律（2026-10-07 通道迁移；v3 固定名）：检查面 = cnb.cool 的两个
+/// URL 前缀——`/releases/tag/medical-data`（SSR 清单）与 `/releases/download/
+/// medical-data/manifest.json`（指针，常量构造、唯一提交点）；同主机的 fetcher
+/// 套件独占 `…/releases/download/medical-data/package-*` 前缀。两套件按
 /// **URL 前缀**清表（URLProtocolStub.reset(urlPrefixes:)）——主机会域会互擦
 /// （旧 api.cnb.cool 属主随匿名 401 修复退役）。
 @Suite("SU-M15-MEDCATALOG · SP-64 检查 resolver 行为钉", .serialized)
@@ -26,7 +26,7 @@ struct MedicalCatalogReleaseResolverTests {
     private static func resetStubs() {
         URLProtocolStub.reset(urlPrefixes: [
             "https://cnb.cool/robinhoo1973/Resources/-/releases/tag/medical-data",
-            "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/medical-data-catalog-",
+            "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/manifest.json",
         ])
     }
 
@@ -187,30 +187,26 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(outcome.state == .verificationFailed, "v6 pointer must be rejected, actual=\(outcome.state)")
     }
 
-    @Test("Release 只有 progress pointer → noInstallableAvailable，不误报最新/更新")
-    func checkReportsNoInstallableWhenOnlyProgress() async throws {
+    @Test("manifest.json 存在但 installable=false → noInstallableAvailable，不误报最新/更新")
+    func checkReportsNoInstallableWhenManifestNotInstallable() async throws {
+        // v3：progress 名退役——非安装态由**信封内容**表达（run_status=partial、
+        // installable=false），resolver 解码后在 installable 断言处归 noInstallableAvailable。
         let fixture = try MedicalCatalogFixture.make(installable: false)
         defer { fixture.cleanUp() }
-        let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 30,
-                                                                             issuedAt: fixture.signedExpectation.issuedAt)
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
-            body: Self.tagPageHTML([progressName]))))
+        Self.apply(Self.installRoutes(fixture))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .noInstallableAvailable)
     }
 
-    @Test("高序号 progress 不遮蔽低序号 installable——候选只看 installable")
-    func checkPicksHighestInstallableIgnoringProgress() async throws {
+    @Test("固定名候选：噪声名并存时仍唯一取 manifest.json")
+    func checkUsesFixedNameDespiteNoise() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
-        // 伪造的 progress-40 只需占名——解析器永不下载它
-        let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 40,
-                                                                             issuedAt: fixture.signedExpectation.issuedAt)
         Self.resetStubs()
         Self.apply([
             (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
-                body: Self.tagPageHTML([progressName, fixture.pointerAssetName]))),
+                body: Self.tagPageHTML(["README.md", "package-30.bin", fixture.pointerAssetName]))),
             (URL(string: Self.pointerURL(fixture.pointerAssetName))!, URLProtocolStub.Script(body: fixture.signedPointerJSON)),
         ])
         let resolver = Self.makeResolver(fixture: fixture)
@@ -222,17 +218,16 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(candidate.catalogVersion == 30)
     }
 
-    @Test("清单里非 pointer 文法的名字（README/包文法等）不进入候选")
-    func checkIgnoresNonPointerNames() async throws {
+    @Test("清单里无 manifest.json（README/包/旧式名等噪声）→ 无候选")
+    func checkIgnoresNonManifestNames() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
         Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
             body: Self.tagPageHTML([
                 "README.md",
-                "medical-data-package-sqlite-" + String(repeating: "b", count: 64)
-                    + "-cipher-" + String(repeating: "c", count: 64) + ".bin",
-                "medical-data-catalog-progress-30.json",
+                "package-30.bin",
+                "medical-data-catalog-progress-30.json",   // v2 时代旧名：仅为噪声
             ]))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .noInstallableAvailable)
@@ -252,18 +247,13 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(try await resolver.check().state == .verificationFailed)
     }
 
-    @Test("pointer 文法边界：0/负数/非数字/Int64 溢出 → 不进入候选")
-    func checkPointerVersionGrammarEdges() async throws {
+    @Test("固定名精确匹配：manifest.json 的近似名不进入候选")
+    func checkFixedNameRequiresExactMatch() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
         Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
-            body: Self.tagPageHTML([
-                "medical-data-catalog-installable-0.json",
-                "medical-data-catalog-installable--1.json",
-                "medical-data-catalog-installable-30x.json",
-                "medical-data-catalog-installable-99999999999999999999.json",
-            ]))))
+            body: Self.tagPageHTML(["manifest.json.bak", "manifest-30.json", "MANIFEST.json"]))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .noInstallableAvailable)
     }
@@ -443,7 +433,7 @@ struct MedicalCatalogReleaseResolverTests {
         let ownHits = URLProtocolStub.requestLog.filter {
             $0.url.absoluteString.hasPrefix("https://cnb.cool/robinhoo1973/Resources/-/releases/tag/medical-data")
                 || $0.url.absoluteString.hasPrefix(MedicalCatalogReleaseProtocol.releaseBaseURL
-                                                   + "/medical-data-catalog-")
+                                                   + "/manifest.json")
         }
         #expect(ownHits.isEmpty)
     }
@@ -592,7 +582,11 @@ struct MedicalCatalogReleaseResolverTests {
         Self.resetStubs()
         Self.apply(Self.installRoutes(fixture))
         let trust = MedicalCatalogTrustStore(fileURL: fixture.directory.appendingPathComponent("floor.json"))
-        try trust.accept(try fixture.candidate { $0["catalogVersion"] = 31 })
+        // v3 包名绑版本：改 catalogVersion 必须同步包名，否则 decode 先拒（本测意图是 floor 语义）
+        try trust.accept(try fixture.candidate { fields in
+            fields["catalogVersion"] = 31
+            fields["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 31)
+        })
         let local = MedicalCatalogInstalledVersion(schemaVersion: 7,   // CNB v7-only 契约
                                                    dataVersion: fixture.signedExpectation.dataVersion)
         let resolver = Self.makeResolver(fixture: fixture, trust: trust, local: local)
@@ -606,7 +600,11 @@ struct MedicalCatalogReleaseResolverTests {
         Self.resetStubs()
         Self.apply(Self.installRoutes(fixture))
         let trust = MedicalCatalogTrustStore(fileURL: fixture.directory.appendingPathComponent("floor.json"))
-        try trust.accept(try fixture.candidate { $0["catalogVersion"] = 31 })
+        // v3 包名绑版本：改 catalogVersion 必须同步包名，否则 decode 先拒（本测意图是 floor 语义）
+        try trust.accept(try fixture.candidate { fields in
+            fields["catalogVersion"] = 31
+            fields["packageAssetName"] = MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 31)
+        })
         let resolver = Self.makeResolver(fixture: fixture, trust: trust)
         #expect(try await resolver.check().state == .noInstallableAvailable)
     }
@@ -735,65 +733,47 @@ struct MedicalCatalogReleaseResolverTests {
     }
 }
 
-/// SU-M15-MEDCATALOG · pointer 名文法钉：Swift 侧 `parsePointerAssetName` 是
-/// Go `names.go`（pointerNamePattern / ParsePointerAssetName）的逐项镜像。
-/// CI #655 实证：15/16 字节 stamp 门差一字节时 resolver 恒呈
-/// noInstallableAvailable，且本文件在 Linux 编译为空（零本地信号）——
-/// 文法必须有自己的 macOS 直测钉，而不是只由 resolver 集成路径间接触达。
-@Suite("SU-M15-MEDCATALOG · pointer 名文法钉（Go names.go 镜像）", .serialized)
-struct MedicalCatalogPointerNameTests {
+/// SU-M15-MEDCATALOG · v3 资产名文法钉（2026-10-07 冻结）：指针=固定名
+/// `manifest.json`（唯一提交点，无时间戳/无双名/无历史）；包=`package-<正整数>.bin`
+/// （仅追加）。v2 时间戳名/长哈希名的解析器已随 v3 退役删除——此处以直测钉住
+/// 新文法边界（版本=首产 catalogVersion，文法域 `[1-9][0-9]{0,18}`）。
+@Suite("SU-M15-MEDCATALOG · v3 资产名文法钉（固定名 + package-<version>）", .serialized)
+struct MedicalCatalogAssetNameTests {
 
-    @Test("v2 时间戳名解析（16 字节 stamp 含 T）", arguments: [
-        ("medical-data-catalog-installable-30-20260926T120000Z.json", true, Int64(30), "20260926T120000Z"),
-        ("medical-data-catalog-progress-21-20261001T120000Z.json", false, Int64(21), "20261001T120000Z"),
-        ("medical-data-catalog-installable-1-20260101T000000Z.json", true, Int64(1), "20260101T000000Z"),
-    ])
-    func parsesV2Names(_ name: String, _ installable: Bool, _ version: Int64, _ stamp: String) {
-        let parsed = MedicalCatalogReleaseProtocol.parsePointerAssetName(name)
-        #expect(parsed?.installable == installable)
-        #expect(parsed?.catalogVersion == version)
-        #expect(parsed?.timestamp == stamp)
+    @Test("固定名常量冻结：manifest.json / overview.json")
+    func fixedNamesAreFrozen() {
+        #expect(MedicalCatalogReleaseProtocol.manifestAssetName == "manifest.json")
+        #expect(MedicalCatalogReleaseProtocol.overviewAssetName == "overview.json")
     }
 
-    @Test("legacy 纯数字名仅作候选定位（无 stamp）", arguments: [
-        ("medical-data-catalog-installable-30.json", true, Int64(30)),
-        ("medical-data-catalog-progress-9.json", false, Int64(9)),
+    @Test("package 名构造与回读互逆", arguments: [
+        Int64(1), Int64(20), Int64(21), Int64(999), Int64(9223372036854775807),
     ])
-    func parsesLegacyNames(_ name: String, _ installable: Bool, _ version: Int64) {
-        let parsed = MedicalCatalogReleaseProtocol.parsePointerAssetName(name)
-        #expect(parsed?.installable == installable)
-        #expect(parsed?.catalogVersion == version)
-        #expect(parsed?.timestamp == nil)
+    func packageNamesRoundTrip(_ version: Int64) {
+        let name = MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: version)
+        #expect(name == "package-\(version).bin")
+        #expect(MedicalCatalogReleaseProtocol.packageAssetVersion(name) == version)
+        #expect(MedicalCatalogReleaseProtocol.isPackageAssetName(name))
     }
 
-    @Test("形状违规拒绝（Go 正则锚定镜像）", arguments: [
+    @Test("形状违规拒绝（前缀/后缀/前导零/正数域/位数界）", arguments: [
         "README.md",
-        "medical-data-catalog-installable-30-20260926T120000Z.txt",
-        "medical-data-catalog-installable-30-20260926T120000Z.json-extra",
-        "medical-data-catalog-installable-30-20260926T120000Z",
-        "medical-data-catalog-installable--30-20260926T120000Z.json",
-        "medical-data-catalog-installable-0-20260926T120000Z.json",
-        "medical-data-catalog-installable-007-20260926T120000Z.json",
-        "medical-data-catalog-installable-30-20260926T12000Z.json",   // 15 字节旧形
-        "medical-data-catalog-installable-30-20260926120000Z.json",  // 无 T
-        "medical-data-catalog-installable-30-20260926T120000ZZ.json",
-        "medical-data-catalog-other-30-20260926T120000Z.json",
-        "medical-data-catalog-installable-30-.json",
-        "medical-data-catalog-installable-30-20260926T120000Z-extra.json",
-        "medical-data-catalog-installable-99999999999999999999-20260926T120000Z.json",   // 20 位版本
+        "manifest.json",
+        "package-0.bin",                    // 0 非正
+        "package-020.bin",                  // 前导零
+        "package-.bin",                     // 空版本
+        "package--1.bin",                   // 负数
+        "package-30x.bin",                  // 非纯数字
+        "package-20.BIN",                   // 后缀大小写
+        "PACKAGE-20.bin",                   // 前缀大小写
+        "package-20.bin.tmp",               // 后缀后附加
+        "package-9223372036854775808.bin",  // 20 位（Int64.max+1）
+        "package-99999999999999999999.bin",
+        "medical-data-package-sqlite-2eeeccca7189103e0e2049e441f690fe0b8d71116c880b283a637f58ffc51050-cipher-f4c7d9783f96ed086efbb166dbbc56ec9d2e9442a78f295ea016515258c90276.bin",   // v2 长哈希名退役
     ])
-    func rejectsMalformedNames(_ name: String) {
-        #expect(MedicalCatalogReleaseProtocol.parsePointerAssetName(name) == nil)
-    }
-
-    @Test("日历非法 stamp 拒绝（Go time.Parse 回环镜像）", arguments: [
-        "medical-data-catalog-installable-30-20261340T120000Z.json",   // 月 13
-        "medical-data-catalog-installable-30-20260926T240000Z.json",   // 时 24
-        "medical-data-catalog-installable-30-20260926T126000Z.json",   // 分 60
-        "medical-data-catalog-installable-30-20260926T120060Z.json",   // 秒 60
-    ])
-    func rejectsInvalidCalendarStamps(_ name: String) {
-        #expect(MedicalCatalogReleaseProtocol.parsePointerAssetName(name) == nil)
+    func rejectsMalformedPackageNames(_ name: String) {
+        #expect(MedicalCatalogReleaseProtocol.packageAssetVersion(name) == nil)
+        #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName(name))
     }
 }
 #endif

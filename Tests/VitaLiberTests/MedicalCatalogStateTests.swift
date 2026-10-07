@@ -115,8 +115,7 @@ final class MedicalCatalogStateTests: XCTestCase {
             catalogVersion: 42,
             dataVersion: String(repeating: "c", count: 64),
             schemaVersion: 7,   // CNB v7-only 契约（5/6 在 decode 门即拒）
-            packageAssetName: MedicalCatalogReleaseProtocol.packageAssetName(
-                sqliteSHA256: sqliteSHA, packageSHA256: packageSHA),
+            packageAssetName: MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 42),
             packageSize: 1024,
             packageSHA256: packageSHA,
             sqliteSHA256: sqliteSHA,

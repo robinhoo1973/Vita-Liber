@@ -27,72 +27,34 @@ public enum MedicalCatalogReleaseProtocol {
     static let pointerValidity: TimeInterval = 31 * 24 * 60 * 60
     static let issuedAtSkew: TimeInterval = 5 * 60
 
-    private static let packagePrefix = "medical-data-package-sqlite-"
-    private static let packageInfix = "-cipher-"
+    /// v3 资产白名单（冻结口径 2026-10-07；与 Go `vitaliber/medical-data/go`
+    /// `names.go` 及 Resources 仓 readme-sync sections.json 同步）——仅三类：
+    /// `manifest.json`（固定名单例，**唯一提交点**）、`overview.json`（固定名
+    /// 单例）、`package-<catalogVersion>.bin`（仅追加）。一切其它资产名不进候选。
+    public static let manifestAssetName = "manifest.json"
+    public static let overviewAssetName = "overview.json"
+    private static let packagePrefix = "package-"
     private static let packageSuffix = ".bin"
 
-    /// v2 指针资产名:版本 + 签名 issuedAt 的时间戳(Go TimeLayout 紧凑形)。
-    public static func pointerAssetName(installable: Bool, catalogVersion: Int64, issuedAt: Date) -> String {
-        "medical-data-catalog-" + (installable ? "installable" : "progress")
-            + "-" + String(catalogVersion) + "-" + timestampName(issuedAt) + ".json"
+    /// v3 包资产名：`package-<catalogVersion>.bin`。版本段 `[1-9][0-9]{0,18}`
+    /// （与 Go `packageNamePattern` 逐字对齐；版本号 = 首次产出该包的 catalogVersion）。
+    public static func packageAssetName(catalogVersion: Int64) -> String {
+        packagePrefix + String(catalogVersion) + packageSuffix
     }
 
-    /// Go `TimeLayout`(`2006-01-02T15:04:05Z`)的紧凑文件名形态 `YYYYMMDDTHHMMSSZ`。
-    static func timestampName(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
-        return formatter.string(from: date)
-    }
-
-    /// v2 时间戳名解析:返回 (installable, catalogVersion, 名内时间戳字符串)。
-    /// 亦兼容 legacy 纯数字名(仅作候选定位;校验层的重算名只出 v2 形)。
-    /// 逐项对齐 Go `names.go` pointerNamePattern / ParsePointerAssetName:
-    /// 版本段 `[1-9][0-9]{0,18}`;stamp 段 `[0-9]{8}T[0-9]{6}Z`(**16 字节,含 T**)
-    /// 且经 time.Parse 回环——CI #655 实证旧 15 字节门把全部 v2 名滤出候选,
-    /// resolver 恒呈 noInstallableAvailable。
-    public static func parsePointerAssetName(_ name: String) -> (installable: Bool, catalogVersion: Int64, timestamp: String?)? {
-        let prefix = "medical-data-catalog-"
-        let suffix = ".json"
-        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return nil }
-        let body = name.dropFirst(prefix.count).dropLast(suffix.count)
-        guard body.hasPrefix("installable-") || body.hasPrefix("progress-") else { return nil }
-        let installable = body.hasPrefix("installable-")
-        let rest = body.dropFirst(installable ? "installable-".count : "progress-".count)
-        let parts = rest.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
-        guard let first = parts.first, (1...19).contains(first.count),
-              first.first != "0", first.allSatisfy(\.isNumber),
-              let version = Int64(first), version > 0 else { return nil }
-        if parts.count == 2 {
-            let ts = String(parts[1])
-            guard timestampNameDate(ts) != nil else { return nil }
-            return (installable, version, ts)
-        }
-        return (installable, version, nil)   // legacy 形,仅定位用
-    }
-
-    /// Go `time.Parse("20060102T150405Z")` 回环镜像:`[0-9]{8}T[0-9]{6}Z` 且为合法
-    /// UTC 日历(形状合规但日历非法者——如 20261340T999999Z——回环即拒)。
-    static func timestampNameDate(_ stamp: String) -> Date? {
-        guard stamp.utf8.count == 16 else { return nil }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
-        guard let date = formatter.date(from: stamp), formatter.string(from: date) == stamp else { return nil }
-        return date
-    }
-
-    public static func packageAssetName(sqliteSHA256: String, packageSHA256: String) -> String {
-        packagePrefix + sqliteSHA256 + packageInfix + packageSHA256 + packageSuffix
+    /// v3 包名文法判定（返回版本号；非法即 nil）。v2 的「名内嵌双哈希」不变量与
+    /// 时间戳指针文法一并退役——包字节的完整性由**签名载荷 `packageSha256`**
+    /// 对下载字节回验承担（同职责换载体）。
+    public static func packageAssetVersion(_ name: String) -> Int64? {
+        guard name.hasPrefix(packagePrefix), name.hasSuffix(packageSuffix) else { return nil }
+        let body = name.dropFirst(packagePrefix.count).dropLast(packageSuffix.count)
+        guard (1...19).contains(body.count), body.first != "0", body.allSatisfy(\.isNumber),
+              let version = Int64(body), version > 0 else { return nil }
+        return version
     }
 
     public static func isPackageAssetName(_ name: String) -> Bool {
-        guard name.hasPrefix(packagePrefix), name.hasSuffix(packageSuffix) else { return false }
-        let body = name.dropFirst(packagePrefix.count).dropLast(packageSuffix.count)
-        let parts = body.components(separatedBy: packageInfix)
-        return parts.count == 2 && parts.allSatisfy(isLowercaseSHA256)
+        packageAssetVersion(name) != nil
     }
 
     /// 包下载地址只由签名的 packageAssetName 拼出，不接受任何网络给出的 URL。
@@ -228,14 +190,26 @@ extension VerifiedMedicalCatalogCandidate {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        // v3 内嵌清单：跨字段互核由 decode 强制，故这里各字段必须与顶层逐项一致。
+        let manifestFields: [String: Any] = [
+            "schema_version": 2, "run_id": "testing",
+            "run_status": installable ? "success" : "partial", "installable": installable,
+            "started_at": formatter.string(from: issuedAt), "ended_at": formatter.string(from: expiresAt),
+            "content_sha256": dataVersion, "sqlite_sha256": sqliteSHA256,
+            "sqlite_schema_version": schemaVersion, "plan_set_sha256": signedPointerDigest,
+            "config_sha256": signedPointerDigest, "source_policy_sha256": signedPointerDigest,
+            "processor_contracts_sha256": signedPointerDigest,
+            "fetch_state_sha256": signedPointerDigest, "data_version": dataVersion,
+            "sources": [["name": "testing"]],
+        ]
         let fields: [String: Any] = [
-            "schemaVersion": 2, "role": "catalog", "app": MedicalCatalogReleaseProtocol.app,
+            "schemaVersion": 3, "role": "catalog", "app": MedicalCatalogReleaseProtocol.app,
             "assetKind": MedicalCatalogReleaseProtocol.assetKind, "rootVersion": 1,
             "catalogVersion": catalogVersion,
             "issuedAt": formatter.string(from: issuedAt), "expiresAt": formatter.string(from: expiresAt),
             "sqliteSha256": sqliteSHA256, "packageSha256": packageSHA256, "packageSize": packageSize,
             "packageAssetName": packageAssetName, "fetchStateSha256": signedPointerDigest,
-            "installable": installable, "contentSha256": dataVersion, "manifestSha256": signedPointerDigest,
+            "installable": installable, "contentSha256": dataVersion, "manifest": manifestFields,
             "dataVersion": dataVersion, "sqliteSchemaVersion": schemaVersion,
             "releaseTag": MedicalCatalogReleaseProtocol.releaseTag,
             "repository": MedicalCatalogReleaseProtocol.repository,
@@ -256,10 +230,9 @@ public enum MedicalCatalogSignedPointerDecoder {
         let envelope = try MedicalCatalogSignedEnvelope.decode(catalogJSON)
         let pointer = try MedicalCatalogSignedPointer.decode(envelope.payload)
         try pointer.checkWindow(now: now)
-        // v2 绑定:名内时间戳必须与签名 issuedAt 逐字节一致(防 inventory 置换)。
-        guard assetName == MedicalCatalogReleaseProtocol.pointerAssetName(installable: pointer.installable,
-                                                                         catalogVersion: pointer.catalogVersion,
-                                                                         issuedAt: pointer.issuedDate) else {
+        // v3 绑定:签名信封只落固定名 `manifest.json`(唯一提交点,单头无历史),
+        // 防 inventory 置换——名字即身份,不存在旧式时间戳名可被移花接木的空间。
+        guard assetName == MedicalCatalogReleaseProtocol.manifestAssetName else {
             throw MedicalCatalogTrustError.assetNameMismatch
         }
         return MedicalCatalogSignedExpectation(pointer, signedPointerDigest: hasher.sha256Hex(envelope.payload))
@@ -319,7 +292,7 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
     let fetchStateSHA256: String
     let installable: Bool
     let contentSHA256: String
-    let manifestSHA256: String
+    let manifest: Manifest
     let dataVersion: String
     let sqliteSchemaVersion: Int
     let releaseTag: String
@@ -327,6 +300,47 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
     /// v2 契约:canonical 计划集摘要(Go omitempty;App 侧要求必带——
     /// 缺失/畸形在 strict 解码与摘要校验双重拒绝)。
     let planSetSHA256: String
+
+    /// v3 内嵌规范清单（随指针内联，免单独资产）。**两层命名风格不同是冻结口径**：
+    /// 指针顶层 camelCase，清单对象 snake_case（与 v2 manifest 文档一致）。
+    /// App 只做跨字段互核，不消费逐源明细（`sources` 仅做原始形状校验）。
+    struct Manifest: Decodable, Equatable {
+        let schemaVersion: Int
+        let runID: String
+        let runStatus: String
+        let installable: Bool
+        let startedAt: String
+        let endedAt: String
+        let contentSHA256: String
+        let sqliteSHA256: String
+        let sqliteSchemaVersion: Int
+        let planSetSHA256: String
+        let configSHA256: String
+        let sourcePolicySHA256: String
+        let processorContractsSHA256: String
+        let fetchStateSHA256: String
+        let dataVersion: String
+
+        enum CodingKeys: String, CodingKey, CaseIterable {
+            case schemaVersion = "schema_version"
+            case runID = "run_id"
+            case runStatus = "run_status"
+            case installable
+            case startedAt = "started_at"
+            case endedAt = "ended_at"
+            case contentSHA256 = "content_sha256"
+            case sqliteSHA256 = "sqlite_sha256"
+            case sqliteSchemaVersion = "sqlite_schema_version"
+            case planSetSHA256 = "plan_set_sha256"
+            case configSHA256 = "config_sha256"
+            case sourcePolicySHA256 = "source_policy_sha256"
+            case processorContractsSHA256 = "processor_contracts_sha256"
+            case fetchStateSHA256 = "fetch_state_sha256"
+            case dataVersion = "data_version"
+            // sources 不在 Decodable 面（逐源对象随 TOML 源集演进）；原始形状在
+            // decode 内单独校验（数组、非空、元素为对象）。
+        }
+    }
 
     private(set) var issuedDate = Date.distantPast
     private(set) var expiresDate = Date.distantPast
@@ -339,7 +353,7 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         case fetchStateSHA256 = "fetchStateSha256"
         case installable
         case contentSHA256 = "contentSha256"
-        case manifestSHA256 = "manifestSha256"
+        case manifest
         case dataVersion, sqliteSchemaVersion, releaseTag, repository
         case planSetSHA256
     }
@@ -349,19 +363,14 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         var pointer = try MedicalCatalogJSON.strict(Self.self, from: payload,
                                                    keys: Set(CodingKeys.allCases.map(\.rawValue)),
                                                    onFailure: .invalidField)
-        // 2026-10-06 评审修复（B3）:此前这里是 `== 1`,而 Go 生产签名器无条件
-        // 写 `schemaVersion = 2`(trust.go:489)且只认 2(trust.go:390);Go 的 v1
-        // 形态被它自己限制为 **legacy 迁移专用**(sqlite v5/6 且禁止 planSet)。
-        // 而本解码器同时要求 planSetSHA256 存在(下一段 digests)且物理 sqlite v7
-        // ——两个集合的交集为空,App 因此永远拒绝每一个真实指针。本解码器对
-        // planSetSHA256 的要求本身就是 v2 契约,故门值改为 2。
-        guard pointer.schemaVersion == 2, pointer.role == "catalog", pointer.app == MedicalCatalogReleaseProtocol.app,
+        // v3 冻结（2026-10-07）：单头固定名指针，payload schemaVersion=3——
+        // 破坏性升级，App 消费面未发版前切换零成本（口径见 v3 协调记录）。
+        guard pointer.schemaVersion == 3, pointer.role == "catalog", pointer.app == MedicalCatalogReleaseProtocol.app,
               pointer.assetKind == MedicalCatalogReleaseProtocol.assetKind else {
             throw MedicalCatalogTrustError.invalidScope
         }
         let digests = [pointer.sqliteSHA256, pointer.packageSHA256, pointer.fetchStateSHA256,
-                       pointer.contentSHA256, pointer.manifestSHA256, pointer.dataVersion,
-                       pointer.planSetSHA256]
+                       pointer.contentSHA256, pointer.dataVersion, pointer.planSetSHA256]
         guard pointer.rootVersion > 0, pointer.catalogVersion > 0,
               digests.allSatisfy(MedicalCatalogReleaseProtocol.isLowercaseSHA256),
               pointer.packageSize > 0,
@@ -373,8 +382,31 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
             throw MedicalCatalogTrustError.invalidScope
         }
         guard pointer.packageAssetName == MedicalCatalogReleaseProtocol.packageAssetName(
-            sqliteSHA256: pointer.sqliteSHA256, packageSHA256: pointer.packageSHA256) else {
+            catalogVersion: pointer.catalogVersion) else {
             throw MedicalCatalogTrustError.assetNameMismatch
+        }
+        // v3 内嵌清单：两层各自的 DisallowUnknownFields——顶层在 strict 已查，
+        // 清单层在此逐键校验（恰 16 键：15 标量 + sources，多/少均拒）。
+        let rootObject = try MedicalCatalogJSON.object(payload, onFailure: .invalidField)
+        guard let manifestRaw = rootObject["manifest"] as? [String: Any] else {
+            throw MedicalCatalogTrustError.invalidField
+        }
+        let manifestKeys = Set(Manifest.CodingKeys.allCases.map(\.rawValue)).union(["sources"])
+        guard Set(manifestRaw.keys) == manifestKeys,
+              let sources = manifestRaw["sources"] as? [Any], !sources.isEmpty,
+              sources.allSatisfy({ $0 is [String: Any] }) else {
+            throw MedicalCatalogTrustError.invalidField
+        }
+        // 跨字段互核（Go `validatePointerFields` 语义的 v3 载体；金样夹具逐项实证）：
+        // 顶层摘要必须与内嵌清单一致，任一不等即拒（防「头与清单各说各话」）。
+        guard pointer.manifest.contentSHA256 == pointer.contentSHA256,
+              pointer.manifest.dataVersion == pointer.dataVersion,
+              pointer.manifest.sqliteSHA256 == pointer.sqliteSHA256,
+              pointer.manifest.sqliteSchemaVersion == pointer.sqliteSchemaVersion,
+              pointer.manifest.planSetSHA256 == pointer.planSetSHA256,
+              pointer.manifest.fetchStateSHA256 == pointer.fetchStateSHA256,
+              pointer.manifest.installable == pointer.installable else {
+            throw MedicalCatalogTrustError.invalidField
         }
         guard let issued = MedicalCatalogReleaseProtocol.timestamp(pointer.issuedAt),
               let expires = MedicalCatalogReleaseProtocol.timestamp(pointer.expiresAt) else {
