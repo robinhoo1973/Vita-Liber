@@ -1,13 +1,13 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.5（2026-10-07）
+> 版本：V1.6（2026-10-07）
 
 ## 版本与资产来源
 
 - **App release 版本**：根目录 `version.txt`，一行 `major.minor.patch`，当前 `0.0.1`。GitHub Release/tag 不决定 App 版本。
 - **TestFlight build 号**：`run_number.run_attempt`；代码标识取当前提交 hash。
-- **ASR 模型版本**：`Resources/ASRModels/manifest.json` 的批准上游来源，以及 `Resources/ASRModelUpdates/index.json` 的发布版本/制作日期/打包修订。
-- **分发**：仅 GitHub Releases，资源 Release 为 `asr-models`。ZIP 文件名不可变；App 动态目录为该 Release 的 `catalog.json`。
+- **ASR 模型版本**：`Resources/ASRModels/manifest.json` 的批准上游来源，以及 `Resources/ASRModelUpdates/manifest.json`（签名信封）的发布版本（`catalogVersion`，全链单调）/制作日期/打包修订。
+- **分发**：CNB 资源仓 `robinhoo1973/Resources` 的 `asr-models` Release——固定名 `manifest.json` 是唯一权威目录（TUF fixed-name）；GitHub Releases 不再承载模型资产。
 - 模型下载、生成与校验都在 runner 的 `RUNNER_TEMP` 完成；仓库无 `downloads/` 目录，也不提交模型二进制。
 
 ## 模型家族与档位（2026-10-05 目录驱动，业主裁定）
@@ -43,19 +43,16 @@ version.txt 校验 → L0 → macOS CoreKit 测试 → iOS 编译/单元/UI
 手动构建并发布：
 
 ```bash
-gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish=true
+gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber
 ```
 
-其他 workflow 调用：
+其他 workflow 调用（无输入；发布一气呵成）：
 
 ```yaml
 jobs:
   asr-models:
     uses: ./.github/workflows/release-asr-models.yml
-    permissions:
-      contents: write
-    with:
-      publish: true
+    secrets: inherit
 ```
 
 它会：
@@ -64,11 +61,11 @@ jobs:
 2. 优先复用已发布且哈希匹配的模型包作为构建缓存，并核对上游清单；缓存不可用时获取已钉版权重。
 3. 按源清单 families 生成完整 ZIP（2026-10-05 目录驱动：家族集与档位随清单，如 whisper 三档 base/small/medium、zipformer 两档 small/large、dolphin 两档 base/small、qwen3 单档 0.6B——各按上游可得性）。每包 `url` 含 id-variant-version-builtAt-revision 段；顺序/时间戳固定；缓存下载地址不影响包内容。
 4. 逐包校验整体 SHA/字节、每个声明文件的 SHA/字节、ZIP CRC、路径/成员类型/展开上限，以及完整推理角色与许可。
-5. 生成 App 的离线基线 bundle（按源清单 `bundledModels` 声明的家族/档位）。
-6. `publish=true` 时，生成索引必须与仓库已签名目录完全一致，才发布到 `asr-models`。模型资产按业主 R2 哈希比对：与 CNB 已有同名文件相同则跳过上传，不同则更新上传（overwrite）；信任资产（N.root.json / N.catalog.json / 校验回执）只增不改——同版本异字节 = 硬错，内容变化必须升版本（2026-10-05 审查）。自 2026-10-05 起下载包整体进 aes256gcm-v1 加密信封（R1：加密+压缩；主密钥 = CI secret `ASR_PACKAGE_KEY`，与 App 内嵌 `ASRPackageCrypto.masterKeyHex` 同值），index sha256/bytes 覆盖信封字节。
-7. 通过支持 draft 的 GitHub CLI 查询恢复发布过程，全部资源就绪后发布，且不标成 App 的 latest Release。
+5. 版本推进（`next-catalog-version.py`，2026-10-07 单调修复）：取 仓库信封 / CNB 远端固定名 manifest / git 历史 三源 `catalogVersion` 的 **max + 1**（地板 6）；远端非 404 异常（网络/5xx/形状）= 硬错，绝不静默降版本。发布前链校验读取版本化根：`--root-store Resources/ASRModelUpdates`。
+6. 现场签名（`ASR_SIGNING_KEYS_JSON`，无密钥=硬错）→ 验证 → 发布 CNB：模型资产按业主 R2 哈希比对（同名同摘要复用、异内容 overwrite 更新）；固定名 `manifest.json` 覆盖更新，同版本异字节 = 等价歧义硬错（发布侧对远端做单调闸 + 同版比字节）。下载包整体为 aes256gcm-v1 加密信封（R1：加密+压缩；主密钥 = CI secret `ASR_PACKAGE_KEY`，与 App 内嵌 `ASRPackageCrypto.masterKeyHex` 同值）。
+7. 发布成功后触发资源仓 README 同步（见下节；失败仅告警，不阻塞发布）。
 
-输出 artifact：`bundle_artifact`（App 离线基线，被 build-testflight 消费）；`packages_artifact`（全部加密模型 ZIP、索引与校验回执）与 `metadata_artifact`（轻量索引与校验回执，供发布者离线签名，无需下载模型到本地）仍上传、从 run 页人工取用，不再作为 workflow 输出面（2026-10-05 审查）。
+输出 artifact：`packages_artifact`（全部加密模型 ZIP、签名目录与校验回执）与 `metadata_artifact`（轻量索引/签名目录与校验回执，run 页人工取用）上传留档；`bundle_artifact` 随 2026-10-06 业主指令（IPA 不再内置基线模型、App 运行时按签名目录下载）退役。
 
 ## 更新模型与签名（方案 B）
 
@@ -77,22 +74,19 @@ App 内置公钥根和每次编译生成的已知哈希基线。目录使用 Ed2
 源码中的公开配置：
 
 ```
-Resources/ModelTrustRoot.json              App 启动信任根
+Resources/ModelTrustRoot.json              App 启动信任根（当前根信封，签名用）
 Resources/TrustedModelHashes.json         当前公开基线（构建时重新生成）
-Resources/ASRModelUpdates/index.json       模型发布描述
-Resources/ASRModelUpdates/catalog.json     已签名动态目录
-Resources/ASRModelUpdates/N.root.json      版本化公开根
+Resources/ASRModelUpdates/manifest.json    唯一数据文件（签名信封；家族+全档位+包级签名）
+Resources/ASRModelUpdates/N.root.json      版本化公开根（1/2；链校验 --root-store 读取）
 ```
 
-修改权重或打包配方时，先构建候选：
+修改权重或打包配方：直接 dispatch（无输入）——构建 → 现场签名（`ASR_SIGNING_KEYS_JSON`）→ 验证 → 发布 CNB → 触发 README 同步，一气呵成：
 
 ```bash
-gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish=false
+gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber
 ```
 
-从该次运行下载轻量 `asr-metadata-<run-id>-<attempt>` artifact：CI 已注入 `ASR_SIGNING_KEYS_JSON` 时含签名候选目录 `candidate-catalog.json`（缺该 secret 时此步自跳过——目录不变无需轮换）。核对源提交/模型/许可、回执与候选目录载荷后，把 `candidate-catalog.json` 提交为 `Resources/ASRModelUpdates/catalog.json` 与版本化副本。签名密钥由 `generate-asr-signing-keys.py` 本地生成：私钥 JSON 注册为 `ASR_SIGNING_KEYS_JSON` secret（不进仓库），新根 envelope 人工提交入仓；目录续签与根轮换均经此流程。
-
-把新的公开配置提交并部署后，再运行 `publish=true`。生成字节与签名不一致会失败，不能通过更新远端自报哈希规避。
+目录签名密钥由 `generate-asr-signing-keys.py` 本地生成：私钥 JSON 注册为 `ASR_SIGNING_KEYS_JSON` secret（不进仓库）。**根轮换**仍为人工流程：新根 envelope 人工提交入仓（`Resources/ASRModelUpdates/N.root.json` + `Resources/ModelTrustRoot.json`）；旧根签的目录重签进新根时沿用全链单调 `catalogVersion`（发布侧跨根回滚闸拒绝回退）。生成字节与签名不一致会失败，不能通过更新远端自报哈希规避。
 
 ## README 同步（CNB 资源仓，2026-10-07 业主定案「方案 B」；索引载体 = 二维码）
 
@@ -122,6 +116,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 ## 变更记录
 
+- V1.6（2026-10-07）：文档与实现对齐（委员会 CI 席清单）：资产来源/分发改写为 CNB 固定名 `manifest.json` 体系（index.json / catalog.json / N.root 残留表述退役）；「publish 开关」残留清除（`-f publish=true`、`with: publish`、candidate 人工提交流程、`bundle_artifact`）；新增版本推进机制（`next-catalog-version.py` max(全源)+1、远端异常硬错、`--root-store` 链校验根）与发布后 README 触发说明。
 - V1.5（2026-10-07）：README 索引载体改为**二维码数据载体**（业主裁决）：`vl-index.png` = identity 前缀 + 信封二进制直编（ECC-L，纯数据载体）；`vl-index.payload` state 文件为 RMW 事实源；历史保留改为每 tag 最近 3 条；超 2800B 预算自动降级文本块；App 读取通道 = `/git/raw` 匿名直读（实测）+ Vision 双路径解码规格；QR 生成依赖 `qrcode==8.2`/`pypng` 钉版。
 - V1.4（2026-10-07）：README 同步（方案 B 触发链）：发布成功后经 `CNBReleaseClient.start_readme_sync` 触发资源仓 `api_trigger_readme_sync` 管线（`repo-cnb-trigger:rw`；失败仅 `::warning::` 不阻塞发布）；资源仓 README 三部分自动生成（`tools/readme-sync` 模块）/ VL-INDEX v1 加密索引 / 流水线锁 + 非 force push + git/blob 双读回 + 尾块畸形硬错纪律。
 - V1.3（2026-10-06）：13 档全矩阵（7 家族实档）与单一 JSON 架构（manifest.json 固定名 + 包级 Ed25519 签名 + publish 开关删除 + 命名去重段）；CNB 资产面收敛为「模型包 + manifest.json」。
