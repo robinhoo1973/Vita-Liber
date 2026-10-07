@@ -29,18 +29,20 @@ runs:
         command -v swiftc >/dev/null || { echo "::error::ubuntu runner 缺 swiftc——L0 第 7 节将静默降级,已阻断"; exit 1; }
         swiftc --version | head -2
 
-    # PyYAML 显式钉版（2026-10-07）：L0 [19] 工作流结构节与左移的发布契约测试
-    # （test-cnb-release-workflow / test-release-version / test-model-trust）均
-    # import yaml——ubuntu 镜像的隐式预装不构成契约，禁走隐式（供应链纪律：
-    # 与 requirements-*.txt 的钉版同精神，单件 CI 工具不设独立清单）。
+    # 显式钉版（2026-10-07）：L0 [19] 与左移契约测试依赖 yaml；发布信任链测试
+    # （asr_envelope 导入链）依赖 cryptography——ubuntu 镜像隐式预装不构成契约，
+    # 禁走隐式（CI 37594089409 实证：缺 cryptography 时 test-asr-assets 即红；
+    # 版本与 .github/config/requirements/requirements-model-tools.txt 同钉）。
+    # 供应链纪律：单件 CI 工具不设独立清单，版本字面同源上文件。
     - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.13'
-    - name: 安装 PyYAML（单件工具，版本钉版）
+    - name: 安装 PyYAML + cryptography（单件工具，版本钉版）
       shell: bash
       run: |
-        python3 -m pip install --quiet "pyyaml==6.0.2"
+        python3 -m pip install --quiet "pyyaml==6.0.2" "cryptography==49.0.0"
         python3 -c "import yaml; print('pyyaml', yaml.__version__)"
+        python3 -c "import cryptography; print('cryptography', cryptography.__version__)"
 
     - name: L0 静态门禁
       shell: bash
