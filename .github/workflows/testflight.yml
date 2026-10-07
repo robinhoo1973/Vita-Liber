@@ -8,9 +8,10 @@
 # corekit / l1 (macos ∥)：swift test / 编译门禁 + L1 单元/UI——自 ci-tests.yml 迁入
 #   （业主 2026-10-07 指令「没必要保留 ci-tests.yml，迁移到对应的 yml」）。
 #
-# 发布裁决 = 整流全绿（2026-10-07 业主裁决「测试门控上传」）：upload 依赖
-# build+gates+corekit+l1 四者 success——测试红 ⇒ 不上传 TestFlight（testflight.yml
-# 内「任一 red 即阻断归档上传」注释由此成真；发布即时性让位于单一绿裁决）。
+# 发布裁决 = 整流全绿（2026-10-07 业主裁决）：**gates/corekit/l1 三并联，任一红
+# 即不进入 build/归档**（needs 默认语义）；upload 再依赖四者 success——测试红 ⇒
+# 不上传 TestFlight（「任一 red 即阻断归档上传」注释由此成真；发布即时性让位于
+# 单一绿裁决）。
 # 触发：push master / pull_request / dispatch；PR 上只跑 gates+corekit+l1
 # （build 有事件守卫 ⇒ upload 因 needs.build≠success 自动跳过）。
 # ⚠ 并发语义：master 快推时本工作流整体排队（原 ci-tests cancel-in-progress:true
@@ -90,7 +91,6 @@ jobs:
   corekit:
     name: 'CoreKit 域层测试（swift test）'
     runs-on: macos-26
-    needs: gates
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
@@ -165,7 +165,6 @@ jobs:
   l1:
     name: '编译门禁 + L1 单元/UI'
     runs-on: macos-26
-    needs: gates
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
@@ -467,6 +466,10 @@ jobs:
     # 2026-10-07 P2：瘦身后预期 ~16-20min，60 保留 3x 余量（原 120×实测 43min；
     # 挂死 run 在排队语义下会堵整条队——超时即释放队首）。
     timeout-minutes: 60
+    # 并行三闸门控（业主 2026-10-07 裁决：gates/corekit/l1 三并联，任一红即不进入
+    # build/归档——「L0 不过不进 L1」语义在归档边界兑现）。needs 列三依赖且 if 无
+    # 状态检查函数 ⇒ 依赖失败按默认语义跳过本 job（正是所需），无需 result 子句。
+    needs: [gates, corekit, l1]
     # PR 事件守卫（2026-10-07 消解 ci-tests.yml）：PR 只跑测试面（gates+corekit+l1）；
     # 发布面仅在 push/dispatch 运行——upload 因 needs.build.result ≠ success 自动跳过。
     if: ${{ github.event_name != 'pull_request' }}
