@@ -13,7 +13,8 @@ import tempfile
 import unittest
 
 from cnb_release import (CNBReleaseClient, CNBReleaseError, CNBResponse,
-                         FakeCNBCall, ScriptedCNBTransport, release_notes_for_tag)
+                         FakeCNBCall, ScriptedCNBTransport, release_notes_for_tag,
+                         start_readme_sync)
 
 prepare_module = runpy.run_path(str(Path(__file__).with_name("prepare-asr-source.py")))
 parse_cnb_tag_page = prepare_module["parse_cnb_tag_page"]
@@ -338,6 +339,56 @@ class CNBReleaseTests(unittest.TestCase):
             with self.assertRaises(CNBReleaseError):
                 client.download_asset("asr-models", "out.bin", Path(directory) / "out.bin", max_bytes=5)
         self.assertEqual([call.headers.get("Authorization") for call in transport.calls], [None, None])
+
+
+class StartReadmeSyncTests(unittest.TestCase):
+    """方案 B(2026-10-07):发布器 → build/start 触发 README 同步管线的契约。"""
+
+    @staticmethod
+    def _trigger(responses, attempts=2):
+        transport = ScriptedCNBTransport(api_responses=responses, put_responses=[])
+        result = start_readme_sync("owner/resources", "asr-models", "fixture-token",
+                                   transport, attempts=attempts)
+        return result, transport
+
+    def test_request_contract(self):
+        result, transport = self._trigger(
+            [CNBResponse(200, {}, json.dumps({"sn": "cnb-x", "buildLogUrl": "u"}).encode())])
+        self.assertEqual(result["sn"], "cnb-x")
+        self.assertEqual(len(transport.calls), 1)
+        call = transport.calls[0]
+        self.assertEqual(call.method, "POST")
+        self.assertEqual(call.url, "https://api.cnb.cool/owner/resources/-/build/start")
+        self.assertEqual(call.headers.get("Authorization"), "Bearer fixture-token")
+        body = json.loads(call.body)
+        self.assertEqual(body["event"], "api_trigger_readme_sync")
+        self.assertEqual(body["env"], {"README_SYNC_TAG": "asr-models"})
+        self.assertEqual(body["sync"], "false")  # swagger:dto.StartBuildReq.sync 为字符串
+        self.assertEqual(body["branch"], "main")
+
+    def test_4xx_fails_without_retry(self):
+        transport = ScriptedCNBTransport(
+            api_responses=[CNBResponse(403, {}, b'{"errmsg":"missing repo-cnb-trigger:rw"}')],
+            put_responses=[])
+        with self.assertRaises(CNBReleaseError):
+            start_readme_sync("owner/resources", "asr-models", "fixture-token", transport)
+        self.assertEqual(len(transport.calls), 1)
+
+    def test_5xx_is_retried(self):
+        result, transport = self._trigger([CNBResponse(500, {}, b"boom"),
+                                           CNBResponse(200, {}, b'{"sn":"s2"}')])
+        self.assertEqual(result["sn"], "s2")
+        self.assertEqual(len(transport.calls), 2)
+
+    def test_missing_sn_fails_closed(self):
+        with self.assertRaises(CNBReleaseError):
+            self._trigger([CNBResponse(200, {}, b"{}")])
+
+    def test_invalid_repository_rejected_before_transport(self):
+        transport = ScriptedCNBTransport(api_responses=[], put_responses=[])
+        with self.assertRaises(CNBReleaseError):
+            start_readme_sync("bad repo", "asr-models", "fixture-token", transport)
+        self.assertEqual(transport.calls, [])
 
 
 if __name__ == "__main__":

@@ -153,6 +153,14 @@ def publish(args, client):
         missing.append("manifest.json")
     if missing:
         raise ValueError("A required model asset is still missing: " + missing[0])
+    # README 同步触发(业主 2026-10-07 方案 B:发布器 → api_trigger → CNB 管线)。
+    # 通知通道失败不阻塞发布:README 是索引提示面,同步管线幂等且可手动按钮重跑。
+    try:
+        receipt = client.start_readme_sync(TAG)
+        print("readme-sync 已触发: sn=" + str(receipt.get("sn")), flush=True)
+    except (CNBReleaseError, ValueError, OSError) as error:
+        print("::warning::README 同步触发失败(不阻塞发布,可手动重同步): " + str(error),
+              file=sys.stderr)
     print(f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}", flush=True)
     return f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}"
 

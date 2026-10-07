@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -262,6 +263,51 @@ def public_download_url(repository, tag, asset_name):
     return url
 
 
+README_SYNC_EVENT = "api_trigger_readme_sync"
+
+
+def start_readme_sync(repository, tag, token, transport, api_base=API_BASE,
+                      branch="main", attempts=2):
+    """Release 更新成功后触发 CNB README 同步管线(业主 2026-10-07 方案 B)。
+
+    `POST {api_base}/{repository}/-/build/start`,事件 `api_trigger_readme_sync`,
+    env README_SYNC_TAG=<tag>,sync="false"(异步;响应含 sn/buildLogUrl)。
+    权限:令牌需 `repo-cnb-trigger:rw`(CNB_RESOURCE_TOKEN 实测已含)。
+    重试:仅网络错误与 5xx;4xx(权限/参数)立即失败不重试。
+    失败语义由调用方决定(发布链按「通知通道不阻塞发布」降级为 warning)。
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise CNBReleaseError("Invalid CNB repository")
+    url = api_base.rstrip("/") + "/" + repository + "/-/build/start"
+    validate_https_url(url, require_host=urllib.parse.urlsplit(api_base).hostname,
+                       purpose="readme sync trigger")
+    body = json.dumps({
+        "branch": branch, "event": README_SYNC_EVENT, "env": {"README_SYNC_TAG": tag},
+        "sync": "false", "title": "readme-sync: " + tag}).encode()
+    headers = {"Authorization": "Bearer " + token, "Accept": "application/json",
+               "Content-Type": "application/json"}
+    last_error = "no attempt"
+    for _ in range(attempts):
+        try:
+            response = transport.request("POST", url, headers, body)
+        except CNBReleaseError as error:
+            last_error = str(error)
+            time.sleep(1)
+            continue
+        if 200 <= response.status < 300:
+            result = _json(response, "readme sync trigger")
+            if not result.get("sn"):
+                raise CNBReleaseError("README sync trigger returned no sn")
+            return result
+        detail = response.body[:200].decode("utf-8", errors="replace") if response.body else ""
+        if 400 <= response.status < 500:
+            raise CNBReleaseError(
+                "README sync trigger rejected with HTTP %d: %s" % (response.status, detail))
+        last_error = "HTTP %d: %s" % (response.status, detail)
+        time.sleep(1)
+    raise CNBReleaseError("README sync trigger failed: " + last_error)
+
+
 class CNBReleaseClient:
     """Authenticated CNB Release publisher.
 
@@ -310,6 +356,11 @@ class CNBReleaseClient:
                 raise CNBReleaseError("CNB release tag mismatch")
             return existing
         return self._create_release(tag, title, body)
+
+    def start_readme_sync(self, tag):
+        """发布收尾:触发 README 同步管线(方案 B;失败由调用方决定降级)。"""
+        return start_readme_sync(self.repository, tag, self.token, self.transport,
+                                 api_base=self.api_base)
 
     def _create_release(self, tag, title, body):
         """Release 创建唯一出口(ensure_release 与 upload_immutable 共用)。"""

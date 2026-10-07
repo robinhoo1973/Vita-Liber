@@ -14,6 +14,8 @@ import tempfile
 import unittest
 from types import SimpleNamespace
 
+from cnb_release import CNBReleaseError
+
 TOOL = Path(__file__).with_name("publish-asr-release.py")
 CNB_BASE = "https://cnb.cool/robinhoo1973/Resources/-/releases/download/asr-models"
 VARIANTS = {"qwen3": "medium", "zipformer": "large", "dolphin": "small", "whisper": "small",
@@ -27,6 +29,11 @@ class FakeCNBReleaseClient:
         self.uploads = []
         self.assets = []
         self.downloads = downloads or {}
+        self.readme_sync_calls = []
+
+    def start_readme_sync(self, tag):
+        self.readme_sync_calls.append(tag)
+        return {"sn": "fixture-sn", "buildLogUrl": "https://cnb.cool/fixture-build"}
 
     def list_assets(self, tag):
         return [{"name": a["name"], "size": a["size"], "hash_algo": "sha256", "hash_value": a["sha256"],
@@ -155,6 +162,26 @@ class PublicationTests(unittest.TestCase):
             self.assertTrue({m["url"] for m in models} | {"manifest.json"} <= names)
             self.assertFalse(any(name.endswith(".root.json") or name.endswith(".catalog.json")
                                  or name.endswith("package-validation.json") for name in names))
+            # 方案 B(2026-10-07):发布成功后触发 README 同步管线。
+            self.assertEqual(client.readme_sync_calls, ["asr-models"])
+
+    def test_readme_sync_trigger_failure_does_not_block_publish(self):
+        # 通知通道纪律(2026-10-07):触发失败仅告警,发布结果不受影响;
+        # README 同步管线幂等且可经 CNB 页面按钮手动重同步。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient()
+
+            def failing_trigger(tag):
+                raise CNBReleaseError("trigger unavailable")
+
+            client.start_readme_sync = failing_trigger
+            url = module["publish"](options, client)
+            self.assertIn("asr-models", url)
+            self.assertTrue(client.uploads)
 
     def test_publish_overwrites_same_name_different_content_model(self):
         # 业主 R2(2026-10-05/06):同名异内容模型资产按 overwrite 更新上传——

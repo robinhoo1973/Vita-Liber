@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.3（2026-10-06）
+> 版本：V1.4（2026-10-07）
 
 ## 版本与资产来源
 
@@ -94,6 +94,14 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish
 
 把新的公开配置提交并部署后，再运行 `publish=true`。生成字节与签名不一致会失败，不能通过更新远端自报哈希规避。
 
+## README 同步（CNB 资源仓，2026-10-07 业主定案「方案 B」）
+
+CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-sync` 模块（CNB 流水线执行）自动维护，三部分：**永久介绍段**（`README-header.md`，逐发布字节稳定；显式修订走 git 历史）+ **人类分节**（标题链接下载页、仅列最新文件；ASR 按家族分块，描述文案在 `sections.json`）+ **尾部 `VL-INDEX v1` 加密索引**（payload JSON → 单 entry ZIP → aes256gcm-v1 信封，identity=`update-payload-<sha256(明文)>`，密钥 = App 内嵌公开常量；载荷是提示索引、**非信任源**，App 以签名目录/信任根为准；载荷含每 release 的 latest/history/unclassified 与名称/URL/大小/sha256）。
+
+**触发链（方案 B）**：发布步骤成功收尾后，`publish-asr-release.py` 调 `CNBReleaseClient.start_readme_sync("asr-models")`（`POST {repo}/-/build/start`，事件 `api_trigger_readme_sync`，env `README_SYNC_TAG`，`sync="false"` 异步；令牌需 `repo-cnb-trigger:rw`，`CNB_RESOURCE_TOKEN` 实测已含）。触发失败 = `::warning::` 不阻塞发布（通知通道纪律）；同步管线幂等（无变化零推送），可经 CNB 页面「同步 README」按钮（`web_trigger_readme_sync`，可输入 tag）手动重同步。
+
+**同步管线纪律**：资源仓不声明 push 事件（README 回写不再次触发流水线，防回环）；流水线锁 `readme-sync` 串行（单写者）；非 force push（≤3 次 fetch+rebase 重算）；git + blob（SSR）双读回；README 尾块存在但畸形 = **硬错**（不静默重建、不销毁历史）；依赖 `cryptography==49.0.0`（`--require-hashes`，与 `requirements-model-tools.txt` 同源）。
+
 ## 密钥引导与轮换（ASR_PACKAGE_KEY）
 
 下载包加密主密钥与 App 内嵌 `ASRPackageCrypto.masterKeyHex` 同值；`test-asr-package-integrity.py` 断言三处一致（CI secret / App 内嵌 / 测试常量），漏改任何一侧 CI 即红。
@@ -110,6 +118,7 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish
 
 ## 变更记录
 
+- V1.4（2026-10-07）：README 同步（方案 B 触发链）：发布成功后经 `CNBReleaseClient.start_readme_sync` 触发资源仓 `api_trigger_readme_sync` 管线（`repo-cnb-trigger:rw`；失败仅 `::warning::` 不阻塞发布）；资源仓 README 三部分自动生成（`tools/readme-sync` 模块）/ VL-INDEX v1 加密索引 / 流水线锁 + 非 force push + git/blob 双读回 + 尾块畸形硬错纪律。
 - V1.3（2026-10-06）：13 档全矩阵（7 家族实档）与单一 JSON 架构（manifest.json 固定名 + 包级 Ed25519 签名 + publish 开关删除 + 命名去重段）；CNB 资产面收敛为「模型包 + manifest.json」。
 - V1.2（2026-10-05）：模型家族与档位改为目录驱动（families[]/tierName/tierHint 单一事实源，App 零内置模型数据表；引擎支持枚举只是渲染上限）；基线剖面按 bundledModels 声明裁剪；加密信封帧合同修正（nonce 不入帧）与 nonce 派生长度合同（python len=12 == Swift 32 字节派生前缀 12，RFC 5869 前缀性质）；HKDF 改为 HMAC 原语手动展开（CryptoKit 泛型糖 macOS CI 两轮过载解析失败 37315378507/37327812812，已记录例外，金样测试钉字节一致）。
 - V1.1（2026-10-05）：ASR_PACKAGE_KEY 本地脚本引导（`init_asr_secrets.py`：生成 → 注册 secret → 改写内嵌密钥，CI 只做有值校验）+ 轮换语义与签名密钥例外说明；签名流程更新为 CI 候选签名 + 人工提交目录；`workflow_call.secrets` 的 `required: true` 降级为 job 内前置校验（消除无日志 startup_failure 族）。
