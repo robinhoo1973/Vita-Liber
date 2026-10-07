@@ -127,10 +127,16 @@ public enum UpdatePayloadQRDecoder {
                 searchStart = stream.index(after: found.lowerBound)
             }
         }
-        guard slices.count == 1, let sliced = slices.first,
-              let total = exactPayloadByteCount(sliced) else { return nil }
-        let trimmed = Data(sliced.prefix(total))
-        return isValidPayloadShape(trimmed) ? trimmed : nil
+        guard slices.count == 1, let sliced = slices.first else { return nil }
+        // 结构可解析时按信封自述长度收口（剔除 QR 帧尾填充，real-frame 必走此路）；
+        // 合成/畸形夹具（仅魔数、头部不足以解析）保持切片原语义——由形状门与
+        // 下游 decryptEnvelope 的尾随字节拒绝双层 fail-closed 兜底（CI 37575286431 实证：
+        // 对仅魔数夹具强制收口会破坏既有窄门语义）。
+        if let total = exactPayloadByteCount(sliced) {
+            let trimmed = Data(sliced.prefix(total))
+            return isValidPayloadShape(trimmed) ? trimmed : nil
+        }
+        return isValidPayloadShape(sliced) ? sliced : nil
     }
 
     /// MSB-first 位读取器（QR 段结构为大端位序）。
