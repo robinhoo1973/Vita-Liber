@@ -1,7 +1,7 @@
 import XCTest
 
-/// SP-64 统一「模型与数据资源」页冒烟（2026-09-28 B 计划项）：
-/// 入口可达 + 本机目录状态行常显 + 检查按钮唯一网络触发入口 + ASR 管理已并入本页。
+/// SP-64 统一「模型与数据资源」页冒烟（2026-09-28 B 计划项；2026-10-07 统一更新中心批更新锚）：
+/// 入口可达 + 本机目录状态行常显 + 更新中心为唯一检查入口 + ASR 管理已并入本页。
 /// 网络态不落 UI 测试（零隐式联网纪律：本页出现不触发任何请求）——由状态机单测承载。
 final class ResourceManagementSmokeUITests: XCTestCase {
     func test_resourcePageReachesCatalogAndASRManagement() {
@@ -17,15 +17,18 @@ final class ResourceManagementSmokeUITests: XCTestCase {
         let local = app.descendants(matching: .any)["SP-64.medicalCatalog.local"].firstMatch
         XCTAssertTrue(local.waitForExistence(timeout: 10), "资源页必须常显本机目录状态行")
 
-        // 检查按钮 = 唯一网络触发入口（测试不做网络触发，只断言存在）
-        let check = app.descendants(matching: .any)["SP-64.medicalCatalog.check"].firstMatch
-        XCTAssertTrue(check.waitForExistence(timeout: 5), "未检查态必须呈现「检查更新」按钮")
+        // 统一更新中心（2026-10-07 批）：[检查全部更新] = 唯一检查入口（测试不做
+        // 网络触发，只断言存在）；两域状态行常显。
+        let checkAll = app.descendants(matching: .any)["SP-64.updateCenter.checkAll"].firstMatch
+        XCTAssertTrue(checkAll.waitForExistence(timeout: 5), "更新中心必须呈现「检查全部更新」按钮")
+        let asrRow = app.descendants(matching: .any)["SP-64.updateCenter.row.asr-models"].firstMatch
+        XCTAssertTrue(asrRow.waitForExistence(timeout: 5), "更新中心必须呈现 ASR 域状态行")
 
-        // ASR 管理已并入本页（B2-3）：检查更新按钮以资源页前缀存在。
+        // ASR 管理已并入本页（B2-3）：家族行以资源页前缀存在。
         // 滚动护栏（评审修复）：目录段未来加行/小屏设备下可能推出屏外，
         // Form 屏外元素未必物化进 a11y 树——已可见时脚手架不滑动，零成本。
-        let asrCheck = app.descendants(matching: .any)["SP-64.resource.asr.model.checkUpdate"].firstMatch
-        UITestSupport.scrollToHittable(asrCheck, in: app, maxSwipes: 4)
-        XCTAssertTrue(asrCheck.waitForExistence(timeout: 5), "语音模型管理必须并入统一资源页")
+        let asrEngine = app.descendants(matching: .any)["SP-64.resource.asr.engine.whisper"].firstMatch
+        UITestSupport.scrollToHittable(asrEngine, in: app, maxSwipes: 4)
+        XCTAssertTrue(asrEngine.waitForExistence(timeout: 5), "语音模型管理必须并入统一资源页")
     }
 }
