@@ -19,10 +19,10 @@ if ! python3 -m unittest discover -s tests -t . 2>&1; then
   fail=1
 fi
 
-echo "== [2/2] 全簇语法验证(py_compile,含 torch 依赖模块)"
+echo "== [2/2] 全簇语法验证(py_compile,含 torch/transformers 依赖模块)"
 if ! python3 -m py_compile \
-    build_corpus.py eval_entlink.py download_corpus.py probe_mps.py calibrate.py train_encoder.py \
-    entlink/*.py corpus/*.py gate/*.py train/*.py tests/*.py 2>&1; then
+    build_corpus.py eval_entlink.py fetch_catalog.py probe_mps.py calibrate.py train_encoder.py \
+    entlink/*.py corpus/*.py gate/*.py train/*.py extract/*.py dialogue/*.py gen/*.py tests/*.py 2>&1; then
   echo "SYNTAX FAILED" >&2
   exit 2
 fi

@@ -1,30 +1,60 @@
-# 蒸馏/实体链接训练流水线(计划文档 2026-09-29-medical-llm-training-scenarios-ci-plan.md §7)
+# 蒸馏/训练流水线 v2 —— 医疗数据 → 三面语料(实体链接/抽取/对话) → 训练冒烟 → 评测闸 → 发布
+# 设计依据:refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md(§7 训练落点/§10 评测闸)
+#
+# 数据源纪律(2026-10-07 三域对齐裁决):医疗数据唯一位置 = CNB
+# robinhoo1973/Resources release medical-data(本地 producer 是唯一写者;源站 WAF
+# 拒云上出口 IP,CI 绝不直连源站)。本 workflow **全链零密钥**:匿名 SSR 页做资产
+# 发现、匿名 download 通道交付;信封解密用 App 内嵌公开包钥(非秘密,随二进制发布)。
+# (2026-10-08:v2 管线 rebase 入四文件布局;age 私钥数据面与 download_corpus/assets.json 退役。)
+#
+# 三面语料(全部由真实目录数据合成,零 PHI;合成分布=训练/推理同分布机械保证):
+#   corpus.jsonl            实体链接查询(噪声 mention → 目录实体;四域,科室保持纯词表)
+#   extraction_*.jsonl      ASR/OCR 文本 → span JSON(医院/科室/药品/规格/用量/频次/途径/天数…)
+#   dialogue_*.jsonl        接地转述对话(restate/clarify/refuse/emergency 四态;片段逐字引用)
+#   —— 对话面发布暂缓:语料构建/复验照常(artifact 留证),publish 清单在 D-1(FR25.10/D3)
+#      裁决前不含 dialogue_*(先落区、发布闸后置,避免 append-only 污染不可回收)。
 #
 # 纪律:
-# - dispatch-only,零密钥起步;P1 全链路 = prepare → calibrate → smoke → eval → publish(闸门)。
-# - YAML 薄编排、逻辑下沉 .github/actions/distill/;语料/checkpoint 存 Release(artifact 500MB 会爆)。
-# - 训练侧指标只作进度信号;评测闸唯一权威 = 部署件在 ubuntu CPU 的打分(计划文档 §10)。
+# - dispatch-only;YAML 薄编排、逻辑下沉 .github/actions/distill/;语料/checkpoint 存 Release
+#   (artifact 500MB 会爆;解密后 ≈3.4GB 的目录资产只在本 job 内消费,不入 artifact)。
+# - 训练侧指标只作进度信号;评测闸唯一权威 = 冻结语料在 ubuntu 的独立复验
+#   (P3 起扩展为部署件打分,闸结构已预留)。
+# - smoke = 训练循环/断点续训/预算停机的真实执行面(编码器 + 生成式 SFT 两轨)。
 # - MPS 探测段先行:真分配+matmul 对拍(#9918 假阳教训),失败自动回落 CPU(裁决自带回落条款)。
+# - 本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把注释里的空表达式
+#   当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)。
 name: distill-llm
 
 on:
   workflow_dispatch:
     inputs:
-      assets:
-        description: "prepare 用资产清单 JSON(缺省用仓内 .github/config/distill/assets.json;P1=legacy Release 资产)"
-        required: false
-        default: ""
-      min_accepts:
-        description: "评测 tripwire 每带×域接受数下限(小集原型可调低,生产默认 50)"
-        required: false
-        default: "50"
       task:
         description: "运行哪条管线（2026-10-07 业主指令:build-llama-xcframework 并入本文件）"
         type: choice
         options: [llm-pipeline, llama-xcframework]
         default: llm-pipeline
+      sft_count:
+        description: "抽取 SFT 样本数(默认 27000,与训练机生产档一致;小集原型可调低)"
+        required: false
+        default: "27000"
+      pretrain_count:
+        description: "抽取继续预训练文本数(默认 40000)"
+        required: false
+        default: "40000"
+      dialogue_count:
+        description: "对话语料样本数(默认 4000)"
+        required: false
+        default: "4000"
+      entlink_max_samples:
+        description: "实体链接逐域样本上限(确定性哈希抽样;空=不限,生产默认见下)"
+        required: false
+        default: "drug=200000,hospital=80000,diagnosis=60000,exam=30000"
+      min_accepts:
+        description: "评测 tripwire 每带×域接受数下限(小集原型可调低,生产默认 50)"
+        required: false
+        default: "50"
 
-# 权限纪律:仅 publish job 声明 contents: write(gh release);其余 job 用默认 read。
+# 权限纪律:仅 publish / llama-xcframework 声明 contents: write(gh release);其余 job 默认 read。
 concurrency:
   group: distill-llm
   cancel-in-progress: false
@@ -36,82 +66,126 @@ env:
 jobs:
   tests:
     if: ${{ inputs.task != 'llama-xcframework' }}
-    # 零依赖测试闸:entlink/corpus/gate 53 例 stdlib 单测 + 全簇语法验证(秒级)。
-    # 历史教训:无 torch 路径的 Python 逻辑错误(如 checkpoint sidecar 无限递归)
-    # py_compile 抓不到,此前 CI 从未跑过本簇单测——回归全部靠人眼。
+    # 零密钥测试闸:stdlib 单测 + 全簇语法;prepare 轻依赖同装(信封解密往返等
+    # 单测由此在 CI 实跑——缺依赖时测试 skip 而非假绿)。
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
+      - name: Install prepare deps(哈希钉版)
+        run: pip install --require-hashes -r .github/config/requirements/requirements-distill-prepare-linux.txt
       - name: stdlib 单测 + 全簇语法
         run: bash .github/actions/distill/run_tests.sh
 
   prepare:
     if: ${{ inputs.task != 'llama-xcframework' }}
-    # 语料冻结:Release 资产 → 校验/解密 → 目录装载 → 语料 JSONL + manifest(§7.6)
+    # 语料冻结:CNB 医疗数据 → 校验/解密 → 目录装载 → 三面语料 JSONL + manifest。
     needs: tests
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
-      - name: Install deps(哈希钉版)
+      - name: Toolchain 与盘面 preflight
+        # swiftc = 抽取提示词导出器(编译 Domain 全源,Linux 可运行);
+        # 盘面峰值 ≈ 目录 3.4GB + 密文 288MB + 物化/语料 ~1GB——低于 8GB 直接炸,
+        # 免得跑到一半才 ENOSPC(历史教训:work-dir 落 tmpfs 的 ENOSPC 族)。
         run: |
-          pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
-            --extra-index-url https://download.pytorch.org/whl/cpu
-      - name: Age identity guard
-        # secret 名与私仓 provision 工具链一致(MEDICAL_DATA_AGE_IDENTITY,
-        # go/lib/githubrelease/provision.go)——曾用 MEDICAL_AGE_IDENTITY 从未被
-        # 任何工具创建,守卫恒判缺 secret(历史教训:名字漂移 = prepare 永远红)。
-        env:
-          MEDICAL_DATA_AGE_IDENTITY: ${{ secrets.MEDICAL_DATA_AGE_IDENTITY }}
-        run: |
-          if [ -z "$MEDICAL_DATA_AGE_IDENTITY" ]; then
-            echo "::error::缺 MEDICAL_DATA_AGE_IDENTITY(公开仓 release 环境,计划文档 §7.6 开口项①)。"
-            echo "::error::P1 阶段可在本地以 dev 侧文件跑通 build/eval(.github/actions/distill/run_tests.sh);"
-            echo "::error::CI prepare 需业主配置该 secret 后重跑。"
+          if ! command -v swiftc >/dev/null; then
+            echo "::error::镜像缺 swiftc(抽取提示词导出依赖;ubuntu-24.04 runner 预装 Swift)"
             exit 1
           fi
-          printf '%s' "$MEDICAL_DATA_AGE_IDENTITY" > age-identity.txt
-      - name: Download + verify + decrypt + catalog gate
-        env:
-          ASSETS_INPUT: ${{ inputs.assets }}
-        run: |
-          # 经 env 传递 JSON 输入(双花括号表达式直接内插进双引号 shell 串会断引号;
-          # 注意:本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把
-          # 注释里的空表达式当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)
-          # 缺省直接用仓内 assets.json 文件路径,不再把 JSON 内容绕一道字符串。
-          if [ -n "$ASSETS_INPUT" ]; then
-            printf '%s' "$ASSETS_INPUT" > assets.json
-            ASSET_ARG="--assets-json assets.json"
-          else
-            ASSET_ARG="--assets-json .github/config/distill/assets.json"
+          swiftc --version
+          AVAIL_MB=$(df -Pm . | awk 'NR==2{print $4}')
+          echo "free disk: ${AVAIL_MB} MiB"
+          if [ "$AVAIL_MB" -lt 8000 ]; then
+            echo "::error::盘面不足 ${AVAIL_MB} MiB < 8000 MiB——拒绝起跑(fail-fast)"
+            exit 1
           fi
-          sudo apt-get update -qq && sudo apt-get install -y age >/dev/null
-          python3 .github/actions/distill/download_corpus.py \
-            $ASSET_ARG --age-identity age-identity.txt --out-dir corpus-assets
-      - name: Build frozen corpus
-        id: build
+      - name: Install deps(哈希钉版)
+        run: pip install --require-hashes -r .github/config/requirements/requirements-distill-prepare-linux.txt
+      - name: Export extraction prompts(从 CoreKit Domain 编译导出;单一事实源)
+        run: bash .github/actions/distill/extract/export_prompts.sh
+      - name: Fetch medical catalog(CNB 匿名 v3:manifest.json 指针 → package-<版本>.bin → 信封解密)
+        run: python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets
+      - name: Materialize data-dir + build extraction corpus
+        env:
+          SFT_COUNT: ${{ inputs.sft_count }}
+          PRETRAIN_COUNT: ${{ inputs.pretrain_count }}
+        run: |
+          python3 .github/actions/distill/extract/catalog_source.py \
+            --catalog-sqlite corpus-assets/catalog.sqlite \
+            --out-dir extract-data --source-json corpus-assets/source.json
+          python3 .github/actions/distill/extract/build_extraction_corpus.py \
+            --data-dir extract-data --prompts-dir .github/actions/distill/extract/prompts \
+            --out-dir extraction-out \
+            --tokenizer .github/actions/distill/gen/tokenizer.json \
+            --cells drugs/cn,drugs/hk,drugs/tw,hospitals/cn,hospitals/hk,hospitals/tw,departments/cn,departments/hk,departments/tw,diagnoses/cn,diagnoses/hk,exams/cn,exams/tw \
+            --sft-count "$SFT_COUNT" --pretrain-count "$PRETRAIN_COUNT"
+      - name: Build dialogue corpus(接地转述;四态;发布暂缓,产物留 artifact 供评证)
+        env:
+          DIALOGUE_COUNT: ${{ inputs.dialogue_count }}
+        run: |
+          python3 .github/actions/distill/dialogue/builder.py \
+            --catalog-dir extract-data --out-dir dialogue-out \
+            --count "$DIALOGUE_COUNT" \
+            --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
+            --safety-source CoreKit/Sources/Domain/AILocal.swift
+      - name: Build entlink corpus(四域;实体模型随语料导出给 eval 复用)
+        env:
+          MAX_SAMPLES: ${{ inputs.entlink_max_samples }}
         run: |
           python3 .github/actions/distill/build_corpus.py \
-            --catalog-sqlite corpus-assets/catalog.sqlite --out corpus.jsonl
-          python3 - <<'EOF'
-          import json
-          m = json.load(open("corpus.jsonl.manifest.json", encoding="utf-8"))
-          print(f"corpus_sha256={m['corpus_sha256']}")
-          EOF
-      - name: Upload corpus artifact
+            --catalog-sqlite corpus-assets/catalog.sqlite \
+            --out entlink-out/corpus.jsonl \
+            --group-by-name --include-canonical-names --exclude-domains department \
+            --max-terms-per-entity 3 \
+            --max-samples-per-domain "$MAX_SAMPLES" \
+            --dump-entities corpus-assets/entities.jsonl
+      - name: Free the 3.4GB catalog + intermediates(盘面与 artifact 双重纪律)
+        run: rm -rf corpus-assets/catalog.sqlite corpus-assets/.fetch-work extract-data
+      - name: Upload corpus-assets(provenance + 实体模型)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
+        with:
+          name: corpus-assets
+          path: |
+            corpus-assets/source.json
+            corpus-assets/entities.jsonl
+            corpus-assets/pointer.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload entlink corpus
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
           path: |
-            corpus.jsonl
-            corpus.jsonl.manifest.json
-            corpus-assets/source.json
-            corpus-assets/catalog.sqlite
+            entlink-out/corpus.jsonl
+            entlink-out/corpus.jsonl.manifest.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload extraction corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
+        with:
+          name: extraction-corpus
+          path: |
+            extraction-out/extraction_sft.jsonl
+            extraction-out/extraction_eval.jsonl
+            extraction-out/extraction_pretrain.jsonl
+            extraction-out/extraction_manifest.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload dialogue corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
+        with:
+          name: dialogue-corpus
+          path: |
+            dialogue-out/dialogue_sft.jsonl
+            dialogue-out/dialogue_eval.jsonl
+            dialogue-out/dialogue_manifest.json
+          if-no-files-found: error
           retention-days: 7
 
   calibrate:
@@ -128,7 +202,7 @@ jobs:
             device: probe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
@@ -180,22 +254,31 @@ jobs:
 
   smoke:
     if: ${{ inputs.task != 'llama-xcframework' }}
-    # ≤30 步训练回归:训练循环/checkpoint/预算停机在 CI 的烟雾验证(§7.1 smoke 段)
+    # 训练循环回归:编码器(对比学习) + 生成式 SFT(抽取/对话两语料;含断点续训路径)。
     needs: prepare
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: extraction-corpus
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: dialogue-corpus
       - name: Install deps(哈希钉版)
         run: |
           pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
-      - name: Smoke train(≤30 步 + 断点续训回归)
+      - name: Gen dataset 单测(需 torch/transformers——tests job 无此依赖,该批在此实跑)
+        working-directory: .github/actions/distill
+        run: python3 -m unittest tests.test_gen_sft_dataset -v
+      - name: Encoder smoke(≤30 步 + 断点续训回归)
         run: |
           python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-out \
@@ -203,6 +286,21 @@ jobs:
           python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-resume --resume-dir smoke-out/checkpoints \
             --max-steps 40 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
+      - name: Generative SFT smoke — extraction(真实 minimind 模型代码与数据管线)
+        run: |
+          python3 .github/actions/distill/gen/train_sft_smoke.py \
+            --corpus extraction_sft.jsonl --out-dir smoke-extraction \
+            --label extraction --max-steps 20 --budget-seconds 600 --batch 2 --seq 2048
+          # 恢复路径冒烟:自 checkpoint 续训(恢复自检的第一层:能载入、能续步、能再存)
+          python3 .github/actions/distill/gen/train_sft_smoke.py \
+            --corpus extraction_sft.jsonl --out-dir smoke-extraction-resume \
+            --label extraction-resume --max-steps 30 --budget-seconds 600 --batch 2 --seq 2048 \
+            --resume-from smoke-extraction/extraction-smoke.pt
+      - name: Generative SFT smoke — dialogue(四态接地对话;数据管线冒烟,非对话能力证据)
+        run: |
+          python3 .github/actions/distill/gen/train_sft_smoke.py \
+            --corpus dialogue_sft.jsonl --out-dir smoke-dialogue \
+            --label dialogue --max-steps 20 --budget-seconds 600 --batch 2 --seq 2048
       - name: Upload smoke artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
@@ -210,43 +308,57 @@ jobs:
           path: |
             smoke-out/
             smoke-resume/
+            smoke-extraction/
+            smoke-extraction-resume/
+            smoke-dialogue/
           # 训练第一步就崩时目录可能不全——缺件不掩盖真失败(训练步已红)。
           if-no-files-found: ignore
           retention-days: 7
 
   eval:
     if: ${{ inputs.task != 'llama-xcframework' }}
-    # SU-M15-ENTLINK 评测闸:P1 = 数据基线对照臂 + tripwire;verdict=fail 阻断 publish(§10)
+    # 评测闸:entlink 数据基线对照臂 + 五层闸(SU-M15-ENTLINK)+ 抽取/对话冻结产物复验;
+    # verdict=fail 阻断 publish(§10 机器裁决)。
     needs: prepare
     runs-on: ubuntu-24.04
     outputs:
       # job 级 outputs 必须显式映射 step 输出,needs.eval.outputs.verdict 才有值
       # (历史教训:缺本映射 → publish 的 if 恒假,publish 永远不跑且无任何报错)。
-      verdict: ${{ steps.gate.outputs.verdict }}
+      verdict: ${{ steps.verdict.outputs.verdict }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: corpus-assets
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: extraction-corpus
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: dialogue-corpus
       - name: Install deps(哈希钉版;拼音层复现纪律 §10)
         # prepare 构建冻结语料时带拼音层(同音噪声,manifest.pinyin_available=true);
         # eval 基线臂必须装同一 pypinyin,否则召回 L2/L3 层静默缺位、评分不可复现。
         run: |
           pip install --require-hashes -r .github/config/requirements/requirements-distill-eval-linux.txt
-      - name: Baseline arm + gate
+      - name: Entlink gate(数据基线臂 + 模型五层闸挂点)
         id: gate
+        env:
+          MIN_ACCEPTS: ${{ inputs.min_accepts }}
         run: |
-          # catalog.sqlite 随 distill-corpus artifact 由 prepare job 提供
           set +e
           python3 .github/actions/distill/eval_entlink.py \
             --corpus corpus.jsonl \
-            --catalog-sqlite corpus-assets/catalog.sqlite \
+            --catalog-entities entities.jsonl \
             --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
-            --min-accepts "${{ inputs.min_accepts }}" \
-            --write-baseline baseline-out --write-verdict verdict.json \
+            --min-accepts "$MIN_ACCEPTS" \
+            --write-baseline baseline-out --write-verdict verdict-entlink.json \
             > gate-report.txt 2>&1
           RC=$?
           set -e
@@ -259,15 +371,39 @@ jobs:
           fi
           # argparse 用法错误同 exit 2(与 RED 裁决撞码)——凡 verdict.json
           # 未落盘一律按运行错误炸 job,不得让后续 json.load 崩出误导 traceback。
-          if [ ! -f verdict.json ]; then
-            echo "::error::评测闸未产出 verdict.json(RC=$RC)——按运行错误阻断"
+          if [ ! -f verdict-entlink.json ]; then
+            echo "::error::评测闸未产出 verdict-entlink.json(RC=$RC)——按运行错误阻断"
             exit 1
           fi
-          VERDICT=$(python3 -c "import json;print(json.load(open('verdict.json'))['verdict'])")
-          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
-          if [ "$VERDICT" = "fail" ]; then
-            echo "::error::评测闸 RED——阻断 publish(机器裁决)"
+      - name: Corpora gate(抽取/对话冻结产物独立复验)
+        run: |
+          set +e
+          python3 .github/actions/distill/eval_corpora.py \
+            --extraction-dir . --dialogue-dir . \
+            --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
+            --write-verdict verdict-corpora.json > corpora-report.txt 2>&1
+          RC=$?
+          set -e
+          cat corpora-report.txt
+          if [ "$RC" -eq 1 ]; then
+            echo "::error::语料复验运行错误(exit 1)——阻断"
+            exit 1
           fi
+          if [ ! -f verdict-corpora.json ]; then
+            echo "::error::语料复验未产出 verdict-corpora.json(RC=$RC)——按运行错误阻断"
+            exit 1
+          fi
+      - name: Verdict 汇总(两闸合一;fail 阻断 publish)
+        id: verdict
+        run: |
+          ENTLINK=$(python3 -c "import json;print(json.load(open('verdict-entlink.json'))['verdict'])")
+          CORPORA=$(python3 -c "import json;print(json.load(open('verdict-corpora.json'))['verdict'])")
+          VERDICT=pass
+          if [ "$ENTLINK" != "pass" ] || [ "$CORPORA" != "pass" ]; then
+            VERDICT=fail
+            echo "::error::评测闸 RED(entlink=$ENTLINK corpora=$CORPORA)——阻断 publish(机器裁决)"
+          fi
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
       - name: Upload verdict + baseline
         # always():闸门 RED(exit 2)/运行错误(exit 1)时同样上传诊断件——
         # gate-report.txt 在两种失败下都已落盘,是排查唯一现场。
@@ -276,37 +412,50 @@ jobs:
         with:
           name: gate-report
           path: |
-            verdict.json
+            verdict-entlink.json
+            verdict-corpora.json
             gate-report.txt
+            corpora-report.txt
             baseline-out/
           # 运行错误路径无 verdict.json/baseline——缺件是预期,不产警告噪声。
           if-no-files-found: ignore
           retention-days: 30
 
   publish:
-    # 闸门后发布:verdict=pass 才放行;P1 无模型产物,仅登记语料(内容寻址,append-only)
+    # 闸门后发布:verdict=pass 才放行;语料内容寻址,append-only(同名 --clobber 幂等)。
+    # 对话面(2026-10-08 暂缓):publish 清单在 D-1(FR25.10/D3)裁决前不含 dialogue_*——
+    # 语料照常构建/复验(artifact 留证),裁决后再开上传。
     needs: [eval, prepare]
     if: ${{ inputs.task != 'llama-xcframework' && needs.eval.outputs.verdict == 'pass' }}
     runs-on: ubuntu-24.04
     permissions:
-      contents: write  # 全 workflow 唯一需要写权限的 job(最小权限)
+      contents: write  # 业务 job 唯一需要写权限者(gh release;最小权限)
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
+          name: extraction-corpus
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
           name: gate-report
-      - name: Publish frozen corpus + permanent baseline(content-addressed, append-only)
+      - name: Freeze corpora to Release(content-addressed, append-only)
         run: |
-          SHA=$(python3 -c "import json;print(json.load(open('corpus.jsonl.manifest.json', encoding='utf-8'))['corpus_sha256'])")
+          SHA=$(python3 -c "import json;print(json.load(open('corpus.jsonl.manifest.json'))['corpus_sha256'])")
+          EXT_SHA=$(python3 -c "import json;print(json.load(open('extraction_manifest.json'))['files']['extraction_sft.jsonl']['sha256'])")
           gh release view distill-corpus >/dev/null 2>&1 || gh release create distill-corpus --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only)"
           # 上传失败必须炸 job(fail-closed):内容寻址同名资产 --clobber 重传幂等,
           # 无竞态场景;历史教训:|| true 曾把静默丢资产包装成绿 run。
           gh release upload distill-corpus "corpus.jsonl#distill-corpus-$SHA.jsonl" --clobber
           gh release upload distill-corpus "corpus.jsonl.manifest.json#distill-corpus-$SHA.manifest.json" --clobber
-          # §10 P1 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
-          # (artifact 30 天即过期;P2/P3 模型只对比同版本基线行,不得丢)。
+          gh release upload distill-corpus "extraction_sft.jsonl#distill-extraction-$EXT_SHA.jsonl" --clobber
+          gh release upload distill-corpus "extraction_eval.jsonl#distill-extraction-eval-$EXT_SHA.jsonl" --clobber
+          gh release upload distill-corpus "extraction_pretrain.jsonl#distill-extraction-pretrain-$EXT_SHA.jsonl" --clobber
+          gh release upload distill-corpus "extraction_manifest.json#distill-extraction-manifest-$EXT_SHA.json" --clobber
+          # 对话面 dialogue_* 三条上传在 D-1 裁决前暂缓(见 job 头注)。
+          # §10 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
+          # (artifact 30 天即过期;P3 模型只对比同版本基线行,不得丢)。
           for f in baseline-out/*.json; do
             gh release upload distill-corpus "$f#baseline-$(basename "$f")" --clobber
           done

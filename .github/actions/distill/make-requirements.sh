@@ -2,19 +2,18 @@
 # ============================================================================
 # 生成训练依赖钉版清单(S-M6 哈希钉版纪律;换版流程的生成脚本,随簇入库)
 #
-# 两平台分开成文件:torch 版本串不同(linux=2.11.0+cpu 走 pytorch.org CPU 索引,
-# macos=2.11.0 走 PyPI arm64 wheel 自带 MPS),单文件无法同时满足。
+# 三份清单两种用途:
+#   train-linux   = 生成式 SFT 烟雾 + 编码器训练(torch + transformers 全量)
+#   train-macos   = MPS 探测/标定(torch;smoke 只在 ubuntu 跑,不装 transformers)
+#   prepare-linux = prepare 数据面(cryptography 信封解密 + pypinyin 拼音层 +
+#                   tokenizers 预算守卫——语料构建器与 eval 的轻量子集)
 #
 # 用法:
-#   bash .github/actions/distill/make-requirements.sh <wheel-dir-linux> <wheel-dir-macos> <out-dir>
-# 前置:两目录各含完整 wheel 集(linux 经
-#   pip download --dest linux --only-binary=:all: --platform manylinux_2_28_x86_64 \
-#     --python-version 313 --implementation cp \
-#     --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple \
-#     torch==2.11.0 pypinyin==0.53.0
-#   macos 的 torch/markupsafe wheel 经 PyPI JSON 直取(跨平台 pip 解析有
-#   platform_system 标记陷阱,见脚本库注释),其余纯 wheel 与 linux 相同)。
-# 换版 = 改版本 → 重跑本脚本 → 两清单哈希整体替换,禁止手改哈希。
+#   bash scripts/distill/make-requirements.sh <wheel-dir-linux> <wheel-dir-macos> <out-dir>
+# 前置:linux 目录含全量 wheel(2026-10-07 起含 transformers 栈;生成命令见
+#   requirements-distill-train-linux.txt 头部注记);macos 目录含 torch arm64
+#   wheel(PyPI JSON 直取,跨平台 pip 解析有 platform_system 标记陷阱)。
+# 换版 = 改版本 → 重跑本脚本 → 清单哈希整体替换,禁止手改哈希。
 # ============================================================================
 set -euo pipefail
 
@@ -47,23 +46,29 @@ emit() {
 }
 
 {
-  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner;torch 走 pytorch.org CPU 索引,无 CUDA)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
+  echo "# 内容(2026-10-07 起):torch CPU + pypinyin + transformers 栈(生成式 SFT 烟雾"
+  echo "# train_sft_smoke.py 需 AutoTokenizer;语料构建器预算守卫需 tokenizers)。"
   emit "# -- linux --" "$LINUX_DIR"/*.whl
 } > "$OUT_DIR/requirements-distill-train-linux.txt"
 
-{
-  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
-  echo "# 平台:macosx arm64 cp313(macos-15 runner;PyPI arm64 wheel 自带 MPS)"
-  echo "# 生成日期:$(date -u +%Y-%m-%d)"
-  emit "# -- macos --" "$MACOS_DIR"/*.whl
-} > "$OUT_DIR/requirements-distill-train-macos.txt"
+if compgen -G "$MACOS_DIR/*.whl" > /dev/null; then
+  {
+    echo "# 蒸馏/训练依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+    echo "# 平台:macosx arm64 cp313(macos-15 runner;PyPI arm64 wheel 自带 MPS)"
+    echo "# 生成日期:$(date -u +%Y-%m-%d)"
+    emit "# -- macos --" "$MACOS_DIR"/*.whl
+  } > "$OUT_DIR/requirements-distill-train-macos.txt"
+else
+  echo "skip: $MACOS_DIR 无 wheel——保留既有 requirements-distill-train-macos.txt(不产空文件)" >&2
+fi
 
 # eval job 只钉 pypinyin(纯 Python 零传递依赖,py3-none-any 双平台同一 wheel):
 # 基线臂须与 prepare 构建语料时同拼音层可用性,且不拖入 torch 全量训练依赖。
 {
-  echo "# 蒸馏/评测闸依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/评测闸依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   echo "#"
@@ -78,4 +83,21 @@ emit() {
   echo
 } > "$OUT_DIR/requirements-distill-eval-linux.txt"
 
-echo "written: $OUT_DIR/requirements-distill-train-{linux,macos}.txt + requirements-distill-eval-linux.txt"
+# prepare job 数据面依赖(2026-10-07 起):cryptography=CNB 信封解密(与 App 同构
+# AES-256-GCM;公开包钥,非 secret)+ pypinyin(语料拼音层,与 eval 复现口径一致)
+# + tokenizers(抽取构建器预算守卫必须与训练侧同一分词口径)。tests job 同装本
+# 清单——解密往返等单测因此得以在 CI 实跑(缺依赖时测试自动 skip 而非假绿)。
+{
+  echo "# 蒸馏 prepare/测试依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner)"
+  echo "# 生成日期:$(date -u +%Y-%m-%d)"
+  echo "# -- prepare --"
+  for name in cryptography cffi pycparser pypinyin tokenizers; do
+    for wheel in "$LINUX_DIR"/"$name"-*.whl; do
+      [ -e "$wheel" ] && hash_of "$wheel"
+    done
+  done
+  echo
+} > "$OUT_DIR/requirements-distill-prepare-linux.txt"
+
+echo "written: $OUT_DIR/requirements-distill-train-{linux,macos}.txt + requirements-distill-{eval,prepare}-linux.txt"

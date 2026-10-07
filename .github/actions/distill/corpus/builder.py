@@ -46,6 +46,17 @@ class BuildConfig:
     mine_confusions: bool = True
     variant_min_count: int = 2
     homophone_min_count: int = 2
+    # 采样层(计划文档 §7.6「域不平衡用域前缀 token + 采样层加权解决」的可执行形态):
+    # 生产目录 40 万+ 实体 × 全别名 × 4 噪声带 = 数百万样本,超出 CI artifact 与
+    # CPU 训练预算;按「域上限 + 实体词条上限」做**确定性哈希抽样**(同种子同输出,
+    # 与输入顺序无关)。0/空 = 不限(历史行为,测试与本地小目录不受影响)。
+    max_terms_per_entity: int = 0
+    max_samples_per_domain: dict = field(default_factory=dict)
+    # 规范名作查询源(2026-10-07 CI 批语义扩展;默认关 = 历史行为):
+    # 真实 OCR/ASR 输入大量是**噪声化的规范名本身**(诊断域几乎只有规范名,
+    # 别名族 344/31k),只训「别名→规范名」等于放弃主场景。金标仍是实体本身、
+    # 实体级切分不变 → 无跨切分泄漏;基线臂因此更贴近真实输入分布。
+    include_canonical_names: bool = False
 
 
 @dataclass
@@ -82,10 +93,13 @@ def _clean_alias(alias: str, min_chars: int = 2) -> str | None:
     return text
 
 
-def _query_terms(entity: Entity, min_alias_chars: int = 2) -> list[tuple[str, str]]:
-    """(term, kind) 查询源:别名 + 简称 + 英文名;主名不做查询源(金标)。"""
+def _query_terms(entity: Entity, min_alias_chars: int = 2,
+                 include_canonical: bool = False) -> list[tuple[str, str]]:
+    """(term, kind) 查询源:别名 + 简称 + 英文名;主名默认不作查询源(金标),
+    include_canonical=True 时以 kind="canonical" 追加(噪声化的规范名 = 真实主场景)。"""
     out = []
-    name_key = fold(entity.names.get("name_zh", ""))
+    name = entity.names.get("name_zh", "")
+    name_key = fold(name)
     for alias in entity.aliases:
         cleaned = _clean_alias(alias, min_alias_chars)
         if cleaned and fold(cleaned) != name_key:
@@ -96,6 +110,8 @@ def _query_terms(entity: Entity, min_alias_chars: int = 2) -> list[tuple[str, st
     en = entity.names.get("name_en")
     if en and fold(en) != name_key:
         out.append((en, "name_en"))
+    if include_canonical and len(name) >= min_alias_chars and _clean_alias(name, min_alias_chars):
+        out.append((name, "canonical"))
     return out
 
 
@@ -170,22 +186,49 @@ def build_corpus(catalog: Catalog, out_path: Path, config: BuildConfig | None = 
                 f"调大目录或调低 --min-eval-entities,禁止在不足集上跑闸门"
             )
 
+    # 词条预计算(计数与生成共用一次 fold;词条上限在此层施加)
+    prepared: dict[str, list[tuple[Entity, list[tuple[str, str]]]]] = {}
+    for entity in catalog.entities:
+        terms = _query_terms(entity, config.min_alias_chars, include_canonical=config.include_canonical_names)
+        if config.max_terms_per_entity:
+            terms = terms[: config.max_terms_per_entity]
+        if terms:
+            prepared.setdefault(entity.domain, []).append((entity, terms))
+    totals: dict[str, int] = {
+        domain: sum(len(terms) * len(config.bands) for _, terms in items)
+        for domain, items in prepared.items()
+    }
+    ratios: dict[str, float] = {}
+    for domain, total in totals.items():
+        cap = int(config.max_samples_per_domain.get(domain, 0) or 0)
+        ratios[domain] = min(1.0, cap / total) if cap and total else 1.0
+    report.alias_filtered["sampling"] = {
+        "totals": totals,
+        "caps": {d: int(c) for d, c in config.max_samples_per_domain.items() if c},
+        "ratios": {d: round(r, 6) for d, r in sorted(ratios.items())},
+        "skipped": {},
+    }
+
     counts: dict[str, int] = {}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as fh:
-        for domain, entities in sorted(by_domain.items()):
-            others = [e.entity_id for e in entities]
+        for domain, items in sorted(prepared.items()):
+            others = [e.entity_id for e in by_domain.get(domain, [])]
             conflict_ids = conflict.get(domain, set())
-            for entity in entities:
-                terms = _query_terms(entity, config.min_alias_chars)
-                if not terms:
-                    continue
+            ratio = ratios.get(domain, 1.0)
+            threshold = int(ratio * 1_000_000)
+            for entity, terms in items:
                 is_train = _is_train(entity.entity_id, config.master_seed, config.split_ratio)
                 for band in config.bands:
                     for term, kind in terms:
                         sample_id = f"{domain}:{entity.entity_id}:{band}:{term}"
+                        seed = _sample_seed(config.master_seed, sample_id)
+                        if ratio < 1.0 and seed % 1_000_000 >= threshold:
+                            report.alias_filtered["sampling"]["skipped"][domain] = (
+                                report.alias_filtered["sampling"]["skipped"].get(domain, 0) + 1)
+                            continue
                         query, applied = _noise_with_guard(
-                            simulator, term, band, _sample_seed(config.master_seed, sample_id),
+                            simulator, term, band, seed,
                             owners, entity.entity_id, config.re_roll_attempts, report,
                         )
                         if query is None:
@@ -194,14 +237,14 @@ def build_corpus(catalog: Catalog, out_path: Path, config: BuildConfig | None = 
                         for nid in _deterministic_negatives(others, entity.entity_id, _sample_seed(config.master_seed, sample_id + ":neg"), config.negatives_per_sample):
                             negatives.append({"entity_id": nid, "hard": "conflict" if nid in conflict_ids else "sampled"})
                         line = {
-                            "id": f"{domain}-{entity.entity_id}-{band}-{fold(term)[:12]}-{_sample_seed(config.master_seed, sample_id) % 1000000:06d}",
+                            "id": f"{domain}-{entity.entity_id}-{band}-{fold(term)[:12]}-{seed % 1000000:06d}",
                             "domain": domain,
                             "band": band,
                             "split": "train" if is_train else "eval",
                             "query": query,
                             "gold": {"entity_id": entity.entity_id, "term": term, "kind": kind},
                             "negatives": negatives,
-                            "seed": _sample_seed(config.master_seed, sample_id),
+                            "seed": seed,
                         }
                         fh.write(json.dumps(line, ensure_ascii=False) + "\n")
                         key = f"{domain}:{band}:{'train' if is_train else 'eval'}"
@@ -224,7 +267,11 @@ def build_corpus(catalog: Catalog, out_path: Path, config: BuildConfig | None = 
         pinyin_available=pinyin.available(),
         pinyin_reason=pinyin.unavailable_reason(),
         split_rule={"version": SPLIT_RULE_VERSION, "master_seed": config.master_seed,
-                    "split_ratio": config.split_ratio, "min_alias_chars": config.min_alias_chars},
+                    "split_ratio": config.split_ratio, "min_alias_chars": config.min_alias_chars,
+                    "max_terms_per_entity": config.max_terms_per_entity,
+                    "max_samples_per_domain": {d: int(c) for d, c in config.max_samples_per_domain.items() if c},
+                    "include_canonical_names": config.include_canonical_names,
+                    "sampling": report.alias_filtered.get("sampling")},
         licenses=licenses,
         counts=counts,
     )
@@ -253,8 +300,22 @@ def _noise_with_guard(simulator: NoiseSimulator, term: str, band: str, seed: int
 
 
 def _deterministic_negatives(all_ids: list[str], gold_id: str, seed: int, k: int) -> list[str]:
+    """确定性采样 k 个非金标负例。
+
+    2026-10-07 性能修正:旧实现每个样本重建一次 `[i for i in all_ids if i != gold_id]`
+    ——生产目录单域 4 万实体 × 数十万样本 = 十亿级列表元素重建,prepare 实测
+    ~1 分钟才产出 1 万样本(CI 不可承受)。改为「按索引采样 + 越金标顺延一格」,
+    O(k) 且与输入顺序无关;种子消费顺序不变(同种子仍确定性,输出集合可能
+    与旧实现不同——语料属生成物,重跑即新基线,无历史兼容义务)。
+    """
     rng = random.Random(seed)
-    pool = [i for i in all_ids if i != gold_id]
-    if len(pool) <= k:
-        return pool
-    return rng.sample(pool, k)
+    n = len(all_ids)
+    if n <= k:
+        return [i for i in all_ids if i != gold_id]
+    picks = []
+    for index in rng.sample(range(n), k):
+        candidate = all_ids[index]
+        if candidate == gold_id:
+            candidate = all_ids[(index + 1) % n]
+        picks.append(candidate)
+    return picks

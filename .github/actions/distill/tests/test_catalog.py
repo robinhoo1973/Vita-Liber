@@ -5,7 +5,7 @@ from pathlib import Path
 
 from entlink.catalog import Entity, load_jsonl, load_sqlite_v4
 
-from tests.util import make_v4_sqlite, write_jsonl as _write_jsonl
+from tests.util import make_v4_sqlite, make_v7_duplicate_sqlite, write_jsonl as _write_jsonl
 
 
 class JsonlTests(unittest.TestCase):
@@ -54,13 +54,37 @@ class SqliteV4Tests(unittest.TestCase):
         self.assertEqual(catalog.by_domain("hospital")[0].match_status, "exact")
 
     def test_physical_v5_v6_accepted(self):
-        # App 侧安装器同口径:物理 v5/v6 接受(投影列同形),v7+ 拒绝
+        # 历史投影:v5/v6 接受(投影列同形;无 diagnosis 表 = 该域零实体)
         self.assertEqual(load_sqlite_v4(make_v4_sqlite(schema_version="5")).stats()["drug"], 1)
         self.assertEqual(load_sqlite_v4(make_v4_sqlite(schema_version="6")).stats()["drug"], 1)
 
+    def test_v7_accepted_with_diagnosis_domain(self):
+        # v7(2026-10-06 生产发布)新增 diagnosis 域
+        catalog = load_sqlite_v4(make_v4_sqlite(schema_version="7"))
+        self.assertEqual(catalog.stats(), {"drug": 1, "hospital": 1, "department": 1, "exam": 1, "diagnosis": 1})
+        diagnosis = catalog.by_domain("diagnosis")[0]
+        self.assertEqual(diagnosis.names["name_zh"], "咳嗽")
+        self.assertEqual(diagnosis.aliases, ("咳痰",))
+
+    def test_v7_missing_diagnosis_table_fails_closed(self):
+        # v7 缺表 = 投影漂移(旧版缺 diagnosis 不拒载;v7 起必须物化)
+        with self.assertRaises(ValueError):
+            load_sqlite_v4(make_v4_sqlite(schema_version="7", with_diagnosis=False))
+
     def test_unsupported_schema_fails_closed(self):
         with self.assertRaises(ValueError):
-            load_sqlite_v4(make_v4_sqlite(schema_version="7"))
+            load_sqlite_v4(make_v4_sqlite(schema_version="8"))
+
+    def test_group_by_name_merges_rows(self):
+        catalog = load_sqlite_v4(make_v7_duplicate_sqlite(), group_by_name=True)
+        drugs = catalog.by_domain("drug")
+        self.assertEqual(len(drugs), 1)
+        merged = drugs[0]
+        self.assertEqual(merged.entity_id, "CN-NHSA-B")   # 组内最小 source_id(定序)
+        self.assertEqual(merged.names["name_zh"], "阿司匹林肠溶片")
+        self.assertEqual(merged.aliases, ("阿司匹林", "拜阿司匹灵"))
+        unmerged = load_sqlite_v4(make_v7_duplicate_sqlite(), group_by_name=False)
+        self.assertEqual(len(unmerged.by_domain("drug")), 2)
 
     def test_missing_file(self):
         with self.assertRaises(FileNotFoundError):

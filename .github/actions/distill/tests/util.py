@@ -11,7 +11,10 @@ def write_jsonl(rows):
     return tmp
 
 
-def make_v4_sqlite(schema_version="4", data_version="2026.09.29"):
+def make_v4_sqlite(schema_version="4", data_version="2026.09.29", with_diagnosis=None):
+    """v4 投影 SQLite 夹具。diagnosis 表自 v7 起物化(with_diagnosis 缺省= schema_version=="7")。"""
+    if with_diagnosis is None:
+        with_diagnosis = schema_version == "7"
     tmp = Path(tempfile.mkdtemp()) / "catalog.sqlite"
     conn = sqlite3.connect(tmp)
     conn.executescript("""
@@ -29,6 +32,11 @@ def make_v4_sqlite(schema_version="4", data_version="2026.09.29"):
         name_zh TEXT NOT NULL, name_en TEXT, category TEXT, method TEXT, specimen TEXT, unit TEXT,
         price_ref TEXT, loinc_concept_id TEXT, aliases_json TEXT NOT NULL, match_status TEXT);
     """)
+    if with_diagnosis:
+        conn.executescript("""
+    CREATE TABLE diagnosis (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, code TEXT NOT NULL,
+        name_zh TEXT NOT NULL, code_system TEXT, chapter_zh TEXT, aliases_json TEXT NOT NULL, match_status TEXT);
+        """)
     conn.execute("INSERT INTO catalog_meta VALUES ('schema_version', ?), ('data_version', ?)",
                  (schema_version, data_version))
     conn.execute("INSERT INTO drug (region, source_id, name_zh, usage_ref_json, region_specific_json, aliases_json) "
@@ -39,6 +47,38 @@ def make_v4_sqlite(schema_version="4", data_version="2026.09.29"):
                  "VALUES ('TW','dep1','02','內科','[\"内科\"]','exact')")
     conn.execute("INSERT INTO exam_item (region, source_id, code, name_zh, aliases_json, match_status) "
                  "VALUES ('CN','ex1','250203','血常规','[\"血常規\",\"CBC\"]','exact')")
+    if with_diagnosis:
+        conn.execute("INSERT INTO diagnosis (region, source_id, code, name_zh, aliases_json, match_status) "
+                     "VALUES ('CN','R05','R05','咳嗽','[\"咳痰\"]','exact')")
+    conn.commit()
+    conn.close()
+    return tmp
+
+
+def make_v7_duplicate_sqlite():
+    """v7 夹具体:同名多行(跨许可)药品 + 对象形态别名 —— group_by_name 合并路径的输入。"""
+    tmp = Path(tempfile.mkdtemp()) / "catalog.sqlite"
+    conn = sqlite3.connect(tmp)
+    conn.executescript("""
+    CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
+    CREATE TABLE drug (id INTEGER PRIMARY KEY, region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE,
+        name_zh TEXT, name_en TEXT, dosage_form TEXT, spec TEXT, usage_ref_json TEXT NOT NULL,
+        region_specific_json TEXT NOT NULL, aliases_json TEXT NOT NULL);
+    CREATE TABLE hospital (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, name_zh TEXT NOT NULL,
+        short_name TEXT, depts_json TEXT NOT NULL, aliases_json TEXT NOT NULL, match_status TEXT);
+    CREATE TABLE department (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, name_zh TEXT NOT NULL,
+        aliases_json TEXT NOT NULL, match_status TEXT);
+    CREATE TABLE exam_item (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, name_zh TEXT NOT NULL,
+        name_en TEXT, aliases_json TEXT NOT NULL, match_status TEXT);
+    CREATE TABLE diagnosis (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, name_zh TEXT NOT NULL,
+        aliases_json TEXT NOT NULL, match_status TEXT);
+    """)
+    conn.execute("INSERT INTO catalog_meta VALUES ('schema_version','7'),('data_version','v7-test')")
+    conn.executemany(
+        "INSERT INTO drug (region, source_id, name_zh, usage_ref_json, region_specific_json, aliases_json) "
+        "VALUES ('CN', ?, '阿司匹林肠溶片','{}','{}', ?)",
+        [("CN-NHSA-B", '[{"text":"阿司匹林","type":"base_zh"}]'),
+         ("CN-YIB-A", '[{"text":"拜阿司匹灵","type":"full_zh"}]')])
     conn.commit()
     conn.close()
     return tmp

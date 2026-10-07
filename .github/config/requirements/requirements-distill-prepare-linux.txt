@@ -1,0 +1,15 @@
+# 蒸馏 prepare/测试依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)
+# 平台:linux x86_64 cp313(ubuntu-24.04 runner)
+# 生成日期:2026-10-07
+# -- prepare --
+cryptography==49.0.0 \
+    --hash=sha256:2afe9051da7ae7bd5905da5a949280c7d2bb75682e188f650a9d0f2756b834c6
+cffi==2.1.1 \
+    --hash=sha256:a931079504ecc49efed7744c476a5c343a92fabf66dec2db95edb1b2fdc770e2
+pycparser==3.0 \
+    --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
+pypinyin==0.53.0 \
+    --hash=sha256:a906768919da3c31771f2c5e0e5a759214dc38d0087e15e6ff67649e03df8097
+tokenizers==0.22.2 \
+    --hash=sha256:369cc9fc8cc10cb24143873a0d95438bb8ee257bb80c71989e3ee290e8d72c67
+
