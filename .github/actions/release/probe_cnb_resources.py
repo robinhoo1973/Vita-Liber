@@ -24,11 +24,8 @@ import urllib.request
 UA = "vitaliber-cnb-probe/1"
 MAX_BYTES = 8 << 20
 
-# 连字符文件名不可 import,按路径加载同目录的解析器(探针=解析器首个真实数据)。
-_spec = importlib.util.spec_from_file_location(
-    "prepare_asr_source", Path(__file__).resolve().parent / "prepare-asr-source.py")
-prepare_asr_source = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(prepare_asr_source)
+# 2026-10-07 模块化：SSR 解析器自 cnb_read 单源导入（此前 importlib 装载 prepare）。
+import cnb_read
 
 
 def _get(url, headers=None, timeout=60, method="GET"):
@@ -44,7 +41,7 @@ def anonymous_page(repository, tag):
     if status != 200:
         return 1
     try:
-        assets = prepare_asr_source.parse_cnb_tag_page(body, repository, tag)
+        assets = cnb_read.parse_cnb_tag_page(body, repository, tag)
     except ValueError as error:
         print("inventory parse failed (fail-closed): " + str(error), file=sys.stderr)
         return 1

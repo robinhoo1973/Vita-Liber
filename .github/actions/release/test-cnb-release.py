@@ -8,7 +8,6 @@ CNB tag-page parser (design doc §3.1) with sanitized HTML fixtures.
 import hashlib
 import json
 from pathlib import Path
-import runpy
 import tempfile
 import unittest
 
@@ -16,8 +15,9 @@ from cnb_release import (CNBReleaseClient, CNBReleaseError, CNBResponse,
                          FakeCNBCall, ScriptedCNBTransport, release_notes_for_tag,
                          start_readme_sync)
 
-prepare_module = runpy.run_path(str(Path(__file__).with_name("prepare-asr-source.py")))
-parse_cnb_tag_page = prepare_module["parse_cnb_tag_page"]
+# 2026-10-07 模块化：SSR 解析器自 cnb_read 单源导入（此前 runpy-of-prepare 消费）
+from cnb_read import download_assets, parse_cnb_tag_page
+import time
 
 
 def tag_page(release, tag="asr-models"):
@@ -432,6 +432,48 @@ class UpdateReleaseBodyTests(unittest.TestCase):
         with self.assertRaises(CNBReleaseError):
             client.update_release_body("asr-models", "new body")
         self.assertEqual([call.method for call in transport.calls].count("PATCH"), 3)
+
+
+class CNBReadModuleTests(unittest.TestCase):
+    """cnb_read 有界并行批下载（2026-10-07 平台席 A 方案）：并发路径与
+    fail-fast 语义的离线钉（注入 download 缝，无网络）。"""
+
+    def _models(self):
+        return [{"url": "m1.zip", "sha256": "a" * 64, "bytes": 3},
+                {"url": "m2.zip", "sha256": "b" * 64, "bytes": 3}]
+
+    def test_bounded_parallel_downloads_all_assets(self):
+        models = self._models()
+        assets = {m["url"]: {"name": m["url"]} for m in models}
+        calls = []
+
+        def download(repo, asset, dest, sha, size):
+            time.sleep(0.05)
+            Path(dest).parent.mkdir(parents=True, exist_ok=True)
+            Path(dest).write_bytes(b"abc")
+            calls.append(asset["name"])
+
+        with tempfile.TemporaryDirectory() as td:
+            download_assets(models, assets, Path(td), "owner/resources",
+                            tag="asr-models", parallel=2, download=download)
+            self.assertEqual(sorted(calls), ["m1.zip", "m2.zip"])
+            self.assertEqual(Path(td, "m1.zip").read_bytes(), b"abc")
+
+    def test_fail_fast_on_any_asset_error(self):
+        models = self._models()
+        assets = {m["url"]: {"name": m["url"]} for m in models}
+
+        def failing(repo, asset, dest, sha, size):
+            if asset["name"] == "m2.zip":
+                raise ValueError("boom")
+            time.sleep(0.2)
+            Path(dest).parent.mkdir(parents=True, exist_ok=True)
+            Path(dest).write_bytes(b"abc")
+
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                download_assets(models, assets, Path(td), "owner/resources",
+                                tag="asr-models", parallel=2, download=failing)
 
 
 if __name__ == "__main__":
