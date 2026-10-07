@@ -60,21 +60,6 @@ def normalize_assets(cnb_assets):
     return result
 
 
-def highest_remote_catalog(cnb_assets):
-    """Highest numeric versioned catalog name (N.catalog.json), None when none exist.
-
-    2026-10-06 单一 JSON 架构后仅用于历史资产面(旧 N.catalog.json)兼容
-    判读;新架构远端目录资产为固定名 index.json,见 remote_catalog_name。
-    """
-    pattern = re.compile(r"^([1-9][0-9]*)\.catalog\.json$")
-    candidates = []
-    for asset in cnb_assets:
-        match = pattern.fullmatch(asset.get("name") or "")
-        if match:
-            candidates.append((int(match.group(1)), asset["name"]))
-    return max(candidates)[1] if candidates else None
-
-
 def remote_catalog_name(cnb_assets):
     """固定名数据文件(2026-10-06 业主单一 JSON 架构):index.json 是唯一目录资产。"""
     return "manifest.json" if any((a.get("name") or "") == "manifest.json" for a in cnb_assets) else None
