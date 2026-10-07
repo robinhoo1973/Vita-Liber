@@ -158,27 +158,6 @@ jobs:
           #（'artifact has changed checksum … won't be downloaded'）,冷路径
           # 反而健康。键变更时全冷重建的代价（依赖重编）换确定性。
 
-      # ── 依赖编译中间物缓存（灰度,2026-10-07 业主启动）──────────────
-      # 目标：消除每轮 ~10-12min 的第三方依赖 Release 冷编译（build 18min 的大头。
-      # 委员会守护版设计）：key 含 Package.resolved/Package.swift/project.yml 哈希
-      # + Xcode 主版本（依赖或工具链变化即自动失效）；**无 restore-keys**（陈旧
-      # 状态族教训——前缀命中旧条目是本仓已实证的事故形态）；缓存面=产物树
-      # Intermediates/Products（含 App 目标对象——枚举依赖目录的做法随 Package
-      # 漂移脆弱,故改为整树缓存+下游硬闸兜底）；归档后新增
-      # 「VitaLiberBuildHash == 当前 HEAD」硬闸：App 侧陈旧对象若渗入产物即红。
-      # 回滚 = 删除本步（单提交）。灰度观察 N 轮后再评估固化或撤除。
-      - name: 缓存依赖编译中间物（灰度）
-        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2（node24 运行时；固定完整 SHA）
-        with:
-          path: |
-            Build/DerivedData/Build/Intermediates.noindex
-            Build/DerivedData/Build/Products
-            # llbuild 状态库（根因修订 2026-10-07,首轮实证）：缺 build.db 时
-            # 构建系统从空状态重计划→所有目标全量重编,恢复 .o 无效（dd-v1 首轮
-            # 243MB 恢复命中但 build 仍 21min）。build.db 记录上次任务结果,
-            # 是「跳过已完成编译」的必要条件；路径集变更故升键 dd-v2。
-            Build/DerivedData/Build/build.db
-          key: dd-v2-${{ runner.os }}-xcode26-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
 
       - name: 环境与工具链
         run: |
@@ -456,13 +435,14 @@ jobs:
           echo "archive 完成 ✓"
           echo "=== archive Info.plist ==="
           plutil -p "$ARCH/Info.plist" 2>/dev/null || cat "$ARCH/Info.plist"
-          # 依赖中间物缓存（灰度）防陈旧硬闸：App 内嵌提交哈希必须等于当前 HEAD——
-          # 缓存对象渗入产物（陈旧二进制）是本灰度的唯一高危失败模式,在此秒级拦截。
+          # 归档内嵌提交哈希硬闸（通用断言,2026-10-07 起）：App 内嵌 VITA_LIBER_CODE_HASH
+          # 必须等于当前 HEAD——将「产物与提交身份一致性」钉成端到端断言（任一日后引入的
+          # 增量/缓存/环境混装导致陈旧对象渗入,此闸秒级拦截）。
           BUILT_HASH="$(/usr/libexec/PlistBuddy -c 'Print :VitaLiberBuildHash' \
             "$ARCH/Products/Applications/VitaLiber.app/Info.plist" 2>/dev/null || echo '?')"
           CURRENT_HASH="$(git rev-parse --short=8 HEAD)"
           if [ "$BUILT_HASH" != "$CURRENT_HASH" ]; then
-            echo "::error::归档内嵌提交哈希($BUILT_HASH)≠当前 HEAD($CURRENT_HASH)——依赖中间物缓存灰度检出陈旧对象渗入;删除 dd-v1 缓存后重跑,并报告此事件"
+            echo "::error::归档内嵌提交哈希($BUILT_HASH)≠当前 HEAD($CURRENT_HASH)——产物与提交身份不一致(陈旧对象渗入/构建环境混装);请报告此事件并全量冷跑复核"
             exit 1
           fi
           echo "构建哈希闸通过: $BUILT_HASH"
