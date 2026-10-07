@@ -84,19 +84,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
 
       - name: 缓存 CoreKit SPM 构建中间物
-        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2
+        uses: actions/cache/restore@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2 restore-only（node24；固定完整 SHA）
         with:
           # **路径集必须与写入方（发布链 spm-v2 缓存）逐项一致**——actions/cache 的
           # 缓存"版本"= 键+路径集哈希,子集请求与前缀 restore 均互不可见
-          #（CI 37480186873 实证 "Cache not found"）。lookup-only：只恢复不写新条目
-          #（防 1.7GB 配额翻倍）；未命中时回退冷路径（llama 资产已重建,下载 96MB 可通）。
+          #（CI 37480186873 实证 "Cache not found"）。
+          # restore-only（2026-10-07 SRE 席实证修复）：原用 actions/cache@v5.0.2 +
+          # lookup-only:true，但 Post 步仍建新条目（run 37580929300 日志：
+          # "Lookup only - skipping download" 之后 Post 仍 "Cache saved with key
+          # ck-v1-macOS-…" 829MB）——配额 9.94/10GB 的主因之一。restore 子动作
+          # 无 Post 写面，从机制上杜绝；写入方只留发布链。
+          # 未命中时回退冷路径（llama 资产已重建,下载 96MB 可通）。
           path: |
             CoreKit/.build
             Build/DerivedData/SourcePackages
           key: ck-v1-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift') }}
           restore-keys: |
             spm-v2-${{ runner.os }}-
-          lookup-only: true
 
       - name: CoreKit 域层测试（swift test）
         run: |
@@ -167,18 +171,19 @@ jobs:
           python-version: '3.13'
 
       - name: 缓存 SPM 依赖与编译产物
-        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2（node24 运行时；固定完整 SHA）
+        uses: actions/cache/restore@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2 restore-only（node24；固定完整 SHA）
         with:
           path: |
             CoreKit/.build
             Build/DerivedData/SourcePackages
-          # 与发布链 spm-v2 同键同路径集 + lookup-only：恢复其暖缓存,但绝不写
-          # 新条目（旧设计的两个陷阱:子集路径→"版本"失配恢复不到;
-          # 同键异构写出→覆盖发布链条目反噬其 CoreKit/.build。CI 37480186873 实证）。
+          # 与发布链 spm-v2 同键同路径集,仅恢复不写（旧设计的两个陷阱:子集路径
+          # →"版本"失配恢复不到;同键异构写出→覆盖发布链条目反噬其 CoreKit/.build。
+          # CI 37480186873 实证）。2026-10-07 SRE 席实证修复:改 restore 子动作——
+          # 原 lookup-only 形态的 Post 步仍写条目（PR merge-ref 656MB 死条目即此
+          # 步产物，master 永不可恢复）。
           key: spm-v2-${{ runner.os }}-${{ hashFiles('CoreKit/Package.resolved', 'CoreKit/Package.swift', 'project.yml') }}
           restore-keys: |
             spm-v2-${{ runner.os }}-
-          lookup-only: true
 
       - name: 环境与工具链
         run: |
