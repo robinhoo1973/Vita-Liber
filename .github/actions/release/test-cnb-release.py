@@ -12,7 +12,7 @@ import tempfile
 import unittest
 
 from cnb_release import (CNBReleaseClient, CNBReleaseError, CNBResponse,
-                         FakeCNBCall, ScriptedCNBTransport, release_notes_for_tag,
+                         ScriptedCNBTransport, release_notes_for_tag,
                          start_readme_sync)
 
 # 2026-10-07 模块化：SSR 解析器自 cnb_read 单源导入（此前 runpy-of-prepare 消费）

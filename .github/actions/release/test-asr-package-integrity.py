@@ -267,6 +267,37 @@ class PackageTests(unittest.TestCase):
                                text=True, capture_output=True)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
 
+    def test_prepare_entrypoint_validates_repository_shaped_args(self):
+        # 入口级回归（2026-10-07 验证席实证）：契约测试此前只绑 prepare() 函数面，
+        # main() 入口的缺陷（import re 被重构误删 → NameError）全绿漏网。
+        # 本测试以**生产调用形状**（CLI 子进程）钉入口：坏仓库名必须在任何文件/网络
+        # 访问前 ValueError("Invalid repository")（缺 import re 时为 NameError，可辨）。
+        with tempfile.TemporaryDirectory() as td:
+            result = subprocess.run(
+                ["python3", str(TOOLS / "prepare-asr-source.py"),
+                 "--index", str(Path(td) / "missing.json"), "--source", td,
+                 "--root", str(Path(td) / "r"), "--cache", str(Path(td) / "c"),
+                 "--repository", "bad repo!"],
+                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Invalid repository", result.stderr + result.stdout)
+        self.assertNotIn("NameError", result.stderr)
+
+    def test_prepare_entrypoint_reaches_file_access_with_valid_repo(self):
+        # 合法仓库形状 ⇒ 越过形状门到 decode_manifest_data_file：缺文件应是
+        # FileNotFoundError 而非 NameError（入口符号完整性之钉）。
+        with tempfile.TemporaryDirectory() as td:
+            result = subprocess.run(
+                ["python3", str(TOOLS / "prepare-asr-source.py"),
+                 "--index", str(Path(td) / "missing.json"), "--source", td,
+                 "--root", str(Path(td) / "r"), "--cache", str(Path(td) / "c"),
+                 "--repository", "owner/resources"],
+                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        combined = result.stderr + result.stdout
+        self.assertNotIn("NameError", combined)
+        self.assertIn("No such file", combined)
+
     def test_materialize_accepts_signed_envelope_index(self):
         # 回归（2026-10-07 生产 bug，CI 37598832117 实证）：prepare 把**仓库签名
         # 信封路径**传给 materialize；此前 materialize 裸 decode_json 读信封即

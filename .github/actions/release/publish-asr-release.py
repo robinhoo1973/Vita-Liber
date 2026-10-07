@@ -16,7 +16,7 @@ import re
 import sys
 import tempfile
 
-from asr_package import decode_json, json_bytes, validate_index, verify_packages
+from asr_package import decode_json, validate_index, verify_packages, decode_manifest_data_file
 from asr_release_page import render_release_body
 from cnb_release import (CNBReleaseClient, CNBReleaseError, print_masked_upload_prefix,
                          RecordingUploadTransport, release_notes_for_tag)
@@ -114,7 +114,7 @@ def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
 def publish(args, client):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository):
         raise ValueError("Invalid CNB repository")
-    index = decode_json(args.index.read_bytes())
+    index = decode_manifest_data_file(args.index)
     root_envelope = decode_json(args.root.read_bytes())
     catalog_envelope = decode_json(args.catalog.read_bytes())
     catalog = verify_catalog(root_envelope, catalog_envelope)
@@ -189,7 +189,7 @@ def main():
             if not args.assets:
                 raise ValueError("--assets is required")
             assets = normalize_assets(decode_json(args.assets.read_bytes()))
-            print(json.dumps(publication_plan(decode_json(args.index.read_bytes()), assets)))
+            print(json.dumps(publication_plan(decode_manifest_data_file(args.index), assets)))
         else:
             if not all((args.directory, args.root, args.catalog)):
                 raise ValueError("--directory, --root and --catalog are required")

@@ -77,6 +77,10 @@ def ensure_file(root, item, check_only=False):
             except subprocess.CalledProcessError as curl_error:
                 if attempt == 2:
                     raise
+                # 重试不得静默（本仓纪律；2026-10-07 pyflakes 扫描暴露 curl_error
+                # 被绑定未用——此前两次重试期间零输出，排障只能靠时间窗反推）。
+                print("::warning::upstream fetch retry %d for %s: %s"
+                      % (attempt + 1, item["path"], curl_error), file=sys.stderr)
                 time.sleep(15 * (attempt + 1))
                 if temporary.exists():
                     temporary.unlink(missing_ok=True)

@@ -9,6 +9,7 @@ bypasses source validation).
 """
 import argparse
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
