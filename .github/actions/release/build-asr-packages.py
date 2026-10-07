@@ -2,7 +2,7 @@
 """Build reproducible complete ASR ZIPs from an already validated, pinned model tree."""
 import argparse
 import copy
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 import shutil
@@ -14,6 +14,21 @@ import zipfile
 from asr_package import (MAX_PACKAGE, MODELS, decode_json, decode_manifest_data_file, digest_file, json_bytes,
                          manifest_files, safe_path, slug, validate_index, verify_packages)
 from asr_envelope import ENCRYPTION_SCHEME, encrypt_package, env_package_key, identity_string, is_envelope_file
+
+
+def derive_version(policy, revision):
+    """全自动升级批（2026-10-07）：上游修订滚动时的版本标签派生（config versionPolicy）。
+
+    dateSource=filename → revision 本身即版本串（github-release 资产名版本段）；
+    否则 = {prefix}-{短修订}（prefix 缺省时为短修订）。与 slug() 组合后进入
+    包名/身份键——同修订必得同标签，不同修订必得不同标签。
+    """
+    policy = policy or {}
+    if policy.get("dateSource") == "filename":
+        return revision
+    prefix = policy.get("prefix") or ""
+    short = revision[:8]
+    return (prefix + "-" + short) if prefix else short
 
 
 def resolved_model(resolved, model_id, variant):
@@ -78,7 +93,7 @@ def write_zip(path, files, built_at):
                         shutil.copyfileobj(handle, destination, length=1024**2)
 
 
-def build_packages(root, template, output, reuse=None):
+def build_packages(root, template, output, reuse=None, version_policies=None):
     original, resolved, source_digest = source_manifest(root)
     # 模板家族集必须与源清单一致(数据驱动齐备合同:新家族随数据文件自然收紧)。
     validate_index(template, complete=False,
@@ -108,11 +123,24 @@ def build_packages(root, template, output, reuse=None):
             files["LICENSE-MIT.txt"] = checked_source(root, license_entry)
         else:
             files["LICENSE-APACHE-2.0.txt"] = (root / "LICENSE-APACHE-2.0.txt").read_bytes()
-        revision = release.get("artifactRevision", 2)
-        if type(revision) is not int or revision < 1:
-            raise ValueError("artifactRevision must be positive")
-        revision = max(2, revision)  # v2 canonical manifest profile never overwrites an r1 package identity.
-        built_at = release["builtAt"].replace("-", "")
+        current_rev = model["revision"]
+        template_rev = release.get("upstreamRevision")
+        if template_rev is not None and template_rev != current_rev:
+            # 全自动升级批（2026-10-07 业主裁决）：解析器滚动了源 revision →
+            # 动态派生新身份（version=config versionPolicy / builtAt=当日 /
+            # artifactRevision=r+1）。新包名 ⇒ 缓存必不命中 ⇒ 强制重建；
+            # 身份键含 version ⇒ 加密信封 key/nonce 随之变化（新修订=新字节）。
+            policy = (version_policies or {}).get((release["id"], release.get("variant")))
+            release["version"] = derive_version(policy, current_rev)
+            built_at = datetime.now(timezone.utc).strftime("%Y%m%d")
+            revision = max(2, int(release.get("artifactRevision", 1)) + 1)
+        else:
+            revision = release.get("artifactRevision", 2)
+            if type(revision) is not int or revision < 1:
+                raise ValueError("artifactRevision must be positive")
+            # v2 canonical manifest profile never overwrites an r1 package identity.
+            revision = max(2, revision)
+            built_at = release["builtAt"].replace("-", "")
         datetime.strptime(built_at, "%Y%m%d")
         # 文件名含 variant 段:同 id 多档同名互覆在打包公式层即被排除
         # (2026-10-05 委员会;validate_index 的跨条目 url 唯一性是第二道闸)。
@@ -203,10 +231,17 @@ def main():
     parser.add_argument("--index", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--reuse-directory", type=Path)
+    parser.add_argument("--config", type=Path,
+                        help="模型 config（versionPolicy 来源；全自动升级批）")
     args = parser.parse_args()
     try:
+        policies = {}
+        if args.config is not None:
+            config = decode_json(args.config.read_bytes())
+            for entry in config.get("models", []):
+                policies[(entry["id"], entry.get("variant"))] = entry.get("versionPolicy") or {}
         result = build_packages(args.source_root, decode_manifest_data_file(args.index), args.output,
-                                reuse=args.reuse_directory)
+                                reuse=args.reuse_directory, version_policies=policies)
         print(f"Built and verified {len(result['models'])} complete ASR packages", flush=True)
         return 0
     except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:

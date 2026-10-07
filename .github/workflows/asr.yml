@@ -1,5 +1,8 @@
 # ASR 下载文件构建与发布：可被 TestFlight 调用，也可独立手动运行。
-# 最新 = 当前提交中已批准的钉版模型清单；候选先构建，验签后方可发布。
+# 版本面（2026-10-07 业主裁决＝全自动）：每次 run 由 .github/config/asr/models.json
+# 的 watch 规则解析上游最新版——内容有变即滚动 pin（下载实测）→ 动态派生身份
+# （version/builtAt/artifactRevision r+1）→ 强制重建；无变则全量复用。次源锁定文件
+# 与解析失败条目保留现行 pin（解析失败仅告警，绝不猜测版本）。
 name: Build ASR Model Packages
 
 on:
@@ -96,23 +99,49 @@ jobs:
           # 2026-10-07 config 批：config（.github/config/asr/models.json）→
           # 源清单投影逐字节复现（迁移验收基准）。
           python3 .github/actions/release/test-asr-config-projection.py
+          # 2026-10-07 全自动升级批：上游解析（plan/apply/unknown 语义）+ CLI 入口形状。
+          python3 .github/actions/release/test-resolve-asr-models.py
+
+      # 全自动升级批（2026-10-07 业主裁决）：解析上游最新版——内容有变即下载
+      # 实测并滚动 pin；解析失败保留现行 pin 仅告警；实测失败=硬错（fail-closed）。
+      - name: 解析上游最新版（config 驱动，全自动）
+        env:
+          # 提高 api.github.com 匿名限额（只增限额，不改语义；缺失亦可运行）。
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/actions/release/resolve-asr-models.py \
+            --config .github/config/asr/models.json \
+            --apply "$RUNNER_TEMP/asr-resolved/config.json" \
+            --report "$RUNNER_TEMP/asr-resolved/report.json" \
+            --workdir "$RUNNER_TEMP/asr-resolve-dl"
+
+      - name: 投影源清单并暂存（config → manifest.json）
+        run: |
+          python3 .github/actions/release/generate-asr-source-manifest.py \
+            --config "$RUNNER_TEMP/asr-resolved/config.json" \
+            --output "$RUNNER_TEMP/asr-resolved/manifest.json"
+          mkdir -p "$RUNNER_TEMP/asr-source-input"
+          cp "$RUNNER_TEMP/asr-resolved/manifest.json" "$RUNNER_TEMP/asr-source-input/manifest.json"
+          cp Resources/ASRModels/NOTICE.md "$RUNNER_TEMP/asr-source-input/NOTICE.md"
+          cp Resources/ASRModels/LICENSE-APACHE-2.0.txt "$RUNNER_TEMP/asr-source-input/LICENSE-APACHE-2.0.txt"
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
           python3 .github/actions/release/prepare-asr-source.py \
             --index Resources/ASRModelUpdates/manifest.json \
-            --source Resources/ASRModels \
+            --source "$RUNNER_TEMP/asr-source-input" \
             --root "$RUNNER_TEMP/asr-source" \
             --cache "$RUNNER_TEMP/asr-cache" \
             --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}"
 
-      - name: 构建全部模型 ZIP（加密信封）
+      - name: 构建全部模型 ZIP（加密信封；上游滚动条目动态派生新身份）
         run: |
           python3 .github/actions/release/build-asr-packages.py \
             --source-root "$RUNNER_TEMP/asr-source" \
             --index Resources/ASRModelUpdates/manifest.json \
             --output "$RUNNER_TEMP/asr-packages" \
-            --reuse-directory "$RUNNER_TEMP/asr-cache"
+            --reuse-directory "$RUNNER_TEMP/asr-cache" \
+            --config "$RUNNER_TEMP/asr-resolved/config.json"
 
       # 2026-10-06 业主指令(不建议 publish 开关):构建→签名→验证→发布一气呵成。
       # 构建产物在现场以签名密钥签名成发布用 manifest.json(无密钥=硬错,

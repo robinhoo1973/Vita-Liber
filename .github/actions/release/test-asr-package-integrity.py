@@ -2,6 +2,7 @@
 """Exercise package construction and validation using real ZIPs and independent fixtures."""
 import hashlib
 import base64
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -162,6 +163,36 @@ class PackageTests(unittest.TestCase):
                 if model["id"] != "zipformer":
                     self.assertIn("silero/LICENSE", archive.namelist())
             plain.unlink(missing_ok=True)
+
+    def test_upstream_revision_roll_derives_new_identity(self):
+        # 全自动升级批（2026-10-07）：模板 upstreamRevision 与源修订不一致 →
+        # 动态派生 version（config versionPolicy）/builtAt（当日）/artifactRevision
+        # （r+1）——新包名使缓存必不命中、身份键变化使信封字节变化（强制重建）；
+        # 未滚动条目身份必须原地不动。
+        index = json.loads(self.index.read_text())
+        target = next(m for m in index["models"] if m["id"] == "whisper")
+        target["upstreamRevision"] = "pinned-old"
+        self.index.write_text(json.dumps(index))
+        config = self.root / "config.json"
+        config.write_text(json.dumps({"models": [
+            {"id": "whisper", "variant": VARIANTS["whisper"],
+             "versionPolicy": {"prefix": "int8", "dateSource": "commit"}}]}))
+        result = subprocess.run(["python3", str(TOOLS / "build-asr-packages.py"),
+                                 "--source-root", str(self.source), "--index", str(self.index),
+                                 "--output", str(self.output), "--config", str(config)],
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        built = json.loads((self.output / "index.json").read_text())
+        entry = next(m for m in built["models"] if m["id"] == "whisper")
+        short = "pinned-whisper"[:8]
+        today = datetime.now(timezone.utc).strftime("%Y%m%d")
+        self.assertEqual(entry["version"], "int8-" + short)
+        self.assertEqual(entry["artifactRevision"], 2)
+        self.assertEqual(entry["upstreamRevision"], "pinned-whisper")
+        self.assertEqual(entry["builtAt"], today)
+        self.assertIn("whisper-small-int8-%s-%s-r2.zip" % (short, today), entry["url"])
+        other = next(m for m in built["models"] if m["id"] == "zipformer")
+        self.assertEqual(other["version"], "1.0.0", "未滚动条目身份必须原地不动")
 
     def test_rebuild_ignores_input_mtime(self):
         first = self.built_index()

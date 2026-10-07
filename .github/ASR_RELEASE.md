@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.10（2026-10-07）
+> 版本：V1.11（2026-10-07）
 
 ## 版本与资产来源
 
@@ -15,7 +15,7 @@
 
 - **单一手工维护面**：`.github/config/asr/models.json`（业主指定目录 = `.github/config`）——每条目含 `watch`（上游发现规则：`hf-repo` = HuggingFace 仓库、revision 为 commit；`github-release` = GitHub Release 资产（asset 通配）；`github-commit` = raw.githubusercontent 静态文件）+ `versionPolicy`（版本标签派生规则）+ 文件布局（`member`/`url` 恰一；member 型 URL 由生成器按 watch 文法合成）+ pin 值（`revision`/`bytes`/`sha256`）。
 - **投影**：`generate-asr-source-manifest.py` 把 config 纯投影为 `Resources/ASRModels/manifest.json`；**逐字节复现**为迁移验收基准（`test-asr-config-projection.py`），`--check` 为漂移闸。
-- **上游新版采纳（业主 2026-10-07 裁决）＝全自动**：每次 run 解析上游最新版并直接构建发布（保留硬护栏：布局/预算校验、下载实测 sha256、签名链绑定、catalogVersion 单调与同版异字节拒收）；解析器与 CI 接线见后续版本。
+- **上游新版采纳（业主 2026-10-07 裁决）＝全自动（V1.11 落地）**：`asr.yml` 每次 run 先执行「解析上游最新版」步（`resolve-asr-models.py`）——hf-repo 取模型 API `sha`、github-release 取最新匹配资产（versionRegex 提取版本段）、github-commit 取该文件路径最近 commit；**内容有变才滚动 pin**（下载实测 bytes/sha256；元数据类提交按内容等值处理，不产生重建），解析失败保留现行 pin 仅 `::warning::`，实测失败 = 硬错（fail-closed）。解析结果经「投影源清单并暂存」步（config → manifest.json）进入 prepare；build 对已滚动条目**动态派生身份**（version = versionPolicy 派生 / builtAt = 当日 / artifactRevision = r+1）强制重建；无变化条目全量复用。次源锁定文件（各 notice）不参与自动追踪。
 - 模型下载、生成与校验都在 runner 的 `RUNNER_TEMP` 完成；仓库无 `downloads/` 目录，也不提交模型二进制。
 
 ## 模型家族与档位（2026-10-05 目录驱动，业主裁定）
@@ -146,3 +146,4 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.0（2026-09-12）：Releases-only、version.txt、独立/可调用 ASR 构建、runner 临时产物与签名动态更新合同。
 - V1.9（2026-10-07）：恢复批——发布面新增签名概览 `overview.json`（人读面：家族×档位/字节统计；非权威）；README 同步触发后增加下游状态轮询确认（触发≠成功，日志出现 `readme-sync 完成: status=success`）；契约测试第 13 例 `test-asr-overview.py` 入双侧执行列（l0-gate action 与 asr.yml）；配套 Resources 仓 readme-sync：QR 尾可见「索引版本 v{n}」行 + asr-models 数据概览块。
 - V1.10（2026-10-07）：模型 config 批：新增 `.github/config/asr/models.json`（watch 规则/versionPolicy/pin 值的单一手工维护面）+ `generate-asr-source-manifest.py`（config→源清单纯投影，逐字节复现为迁移验收基准）+ `test-asr-config-projection.py`（第 14 例入双侧执行列）；上游新版采纳裁决为**全自动**（见「config」节）。
+- V1.11（2026-10-07）：全自动升级批（业主三焦点指令）——`resolve-asr-models.py`（上游解析：hf-repo / github-release / github-commit 三规则；内容等值不回滚；解析失败保留 pin 仅告警；实测失败硬错；`--plan-only` 观测模式）+ asr.yml 接线（「解析上游最新版」→「投影源清单并暂存」→ prepare/build 消费）+ build 动态身份（`--config`；version/builtAt/r+1）+ 第 15 例 `test-resolve-asr-models.py` 入双侧执行列。

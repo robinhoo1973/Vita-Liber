@@ -42,7 +42,8 @@
       "watch": {
         "kind": "github-release",
         "repo": "k2-fsa/sherpa-onnx",
-        "asset": "sherpa-onnx-qwen3-asr-*-int8-*.tar.bz2"
+        "asset": "sherpa-onnx-qwen3-asr-*-int8-*.tar.bz2",
+        "versionRegex": "^sherpa-onnx-qwen3-asr-(.+)\\.tar\\.bz2$"
       },
       "versionPolicy": {
         "prefix": "0.6b-int8",
