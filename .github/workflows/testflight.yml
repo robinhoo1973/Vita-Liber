@@ -13,8 +13,10 @@
 # 一级任一红不进二级（L0 不过不进 L1 字面兑现）；二级 l1∥build 并联（两个编译
 # 互相独立,绿路径省 ≈13-22 分钟）；upload 依赖四者 success——测试红 ⇒ 不上传
 # TestFlight（安全闸口不变,二级红白烧的只是免费分钟）。
-# 触发：push master / pull_request / dispatch；PR 上只跑 gates+corekit+l1
-# （build 有事件守卫 ⇒ upload 因 needs.build≠success 自动跳过）。
+# 触发（2026-10-07 业主指令：取消 push 自动触发）：dispatch / pull_request。
+# push master 不再自动跑整流/上传——发布入口 = 手动 dispatch；推送链路的静态面
+# 由本地 pre-push 钩子承担（L0 十九节 + CoreKit 测试 + symcheck）。
+# PR 上只跑 gates+corekit+l1（build 有事件守卫 ⇒ upload 因 needs.build≠success 自动跳过）。
 # ⚠ 并发语义：master 快推时本工作流整体排队（原 ci-tests cancel-in-progress:true
 # 的快反馈让位于 P9 排队语义）——public 仓分钟免费，代价是延迟非成本。
 # 2026-10-06 业主指令：ASR/LLAMA 构建步骤已删除（归 asr.yml）。
@@ -29,20 +31,20 @@
 # Xcode 主版本升级指引：①确认全绿基线；②同步「环境与工具链」断言；③L0→L1→归档→上传
 #   全链路回归；④新工具链若令编译/测试变红，按错误族修复并沉淀。
 # CI/CD 审计脉络：2026-09-10 round1 / 2026-09-21 hardening / 2026-10-06 slim-round1 /
-#   2026-10-07 ci-tests 消解（本轮）。
+#   2026-10-07 ci-tests 消解 / 2026-10-07 触发面手动化（取消 push 自动触发，本轮）。
 #
 name: Build + TestFlight
 
 on:
   workflow_dispatch:
-  push:
-    branches: [master]
-    # 2026-10-07 业主裁决：删除 v* tag 触发——tag 不携带 App 版本语义
-    #（版本唯一来源 version.txt）,且 tag run 独立并发组可与 master 上传并行
-    # 造成重复构建（委员会四席收敛意见）。
+  # 2026-10-07 业主指令：取消 push 自动触发——push master 不再自动跑整流并随之上传
+  # TestFlight（发布入口改为手动 dispatch；同 llm.yml 先例「重建改手动」同族法理）。
+  # 历史：v* tag 触发亦已于 2026-10-07 删除（tag 不携带 App 版本语义，版本唯一
+  # 来源 version.txt，tag run 独立并发组可与上传并行造成重复构建）。
+  #
   # 2026-10-07 业主指令（消解 ci-tests.yml）：PR 通道并入本文件——PR 上只跑
   # gates + corekit + l1（build 经下方事件守卫跳过，upload 因 build≠success 自动
-  # 跳过）；master 全链语义不变（并发组按 ref 隔离，PR 各占 refs/pull/N/merge）。
+  # 跳过）；dispatch 全链语义不变（并发组按 ref 隔离，PR 各占 refs/pull/N/merge）。
   pull_request:
 
 concurrency:
