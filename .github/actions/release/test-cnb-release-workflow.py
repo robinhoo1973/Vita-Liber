@@ -78,27 +78,25 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
         # = l0-static-gate.yml（gates 单源，消双副本），新增任何其它 uses 必须
         # 过评审（本断言即评审闸）。
         workflow = workflow_yaml("build-testflight.yml")
+        # job 级 uses 恒空（2026-10-07 起 gates 执行体为 composite action,非 reusable）。
         uses_refs = [job.get("uses") for job in workflow.get("jobs", {}).values() if job.get("uses")]
-        self.assertEqual(uses_refs, ["./.github/workflows/l0-static-gate.yml"],
-                         "build-testflight 只允许调用本地 L0 门禁 reusable")
-        # 不调 ASR 已由上白名单蕴含（唯一 uses 即 L0 门禁）；不做文本级 assertNotIn——
-        # 头注历史随记（“归 release-asr-models.yml”）是文档不是调用，文本级会误伤。
+        self.assertEqual(uses_refs, [], "build-testflight 不得有 job 级 uses（不调 ASR 构建工作流）")
+        # 接线证明（贴标签≠接线）：gates job 的步骤必须真实调用本地 L0 门禁 composite。
+        step_uses = [step.get("uses", "")
+                     for job in workflow.get("jobs", {}).values()
+                     for step in job.get("steps", [])]
+        self.assertIn("./.github/actions/l0-gate", step_uses,
+                      "gates job 必须以 composite action 形式接线 L0 门禁")
         callable_workflow = workflow_yaml("release-asr-models.yml")
         call = callable_workflow.get(True, {}).get("workflow_call", {})
         self.assertIn("CNB_RESOURCE_TOKEN", call.get("secrets", {}))
 
-    def test_seed_workflow_is_the_only_github_release_read_face(self):
-        text = workflow_text("seed-cnb-assets.yml")
-        self.assertIn("CNB_RESOURCE_TOKEN", text)
-        self.assertNotIn("gh release upload", text)
-        self.assertNotIn("gh release create", text)
-        # GitHub 读取面只在一次性 seed 脚本内(定案 Task 5:gh release download 仅限此处)
+    def test_seed_script_is_the_only_github_release_read_face(self):
+        # seed-cnb-assets.yml 已删除（业主 2026-10-07：本地离线执行完成，不再需要
+        # yml）。GitHub Release 读取面策略保留在脚本层：仅 seed-cnb-model-assets.py
+        # 允许 gh release download（本地低频迁移工具）。
         seed_text = (Path(__file__).with_name("seed-cnb-model-assets.py")).read_text(encoding="utf-8")
         self.assertIn('"gh", "release", "download"', seed_text)
-        workflow = workflow_yaml("seed-cnb-assets.yml")
-        steps = workflow["jobs"]["seed"]["steps"]
-        run_step = next(s for s in steps if "seed-cnb-model-assets" in s.get("run", ""))
-        self.assertEqual(run_step["env"]["CNB_TOKEN"], "${{ secrets.CNB_RESOURCE_TOKEN }}")
 
 
 if __name__ == "__main__":

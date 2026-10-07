@@ -52,7 +52,7 @@
 #        34660864382 实证，判定器 .github/actions/gates/l0-container-id-mask.py）
 #   [18] 依赖能力矩阵 —— Package.resolved / project.yml 钉版 ≤ .github/actions/gates/
 #   [19] 工作流结构 —— YAML 可解析/注释内 ${{ 扫描/uses 全 SHA 钉版/本地引用闭包（0 秒红族左移）
-#        dependency-capability-matrix.tsv 已验证上限；未登记即未验证
+#        .github/config/gates/dependency-capability-matrix.tsv 已验证上限；未登记即未验证
 #        （委员会 P1，2026-09-27 加；2026-09-29 由汇总 exit 之后的死代码复活为实跑节，
 #        业主裁决 Q5；另有「实计节数 ≡ 18」断言守在汇总之前）
 #
@@ -476,7 +476,7 @@ section "8/19" "阶段门禁套件存在性 —— test-plan §3 必过套件必
 # M1.5=套件从未创建、CI 无 job 绑定 → 无红可判 → 默认通过。三者同为「缺证据被当成有证据」。
 # 本项把「某阶段必须存在哪些套件」变成可执行断言：清单里 required=yes 的套件
 # 在测试源码/工作流中搜不到 token 即红。清单本身缺失也判红（不得因清单丢失而静默放行）。
-SUITE_MANIFEST="${SUITE_MANIFEST:-$SCRIPT_DIR/gate-suites.tsv}"
+SUITE_MANIFEST="${SUITE_MANIFEST:-$SCRIPT_DIR/../../config/gates/gate-suites.tsv}"
 if [ ! -f "$SUITE_MANIFEST" ]; then
   fail "套件清单缺失: $SUITE_MANIFEST —— 门禁清单本身不得缺席"
 else
@@ -623,8 +623,8 @@ else
 fi
 
 # ---------- [10] L10n 硬编码门禁（审查问题 E · 机制先于存量） ----------
-section "10/19" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/actions/gates/l10n-legacy-allowlist.txt）"
-L10N_ALLOW="$SCRIPT_DIR/l10n-legacy-allowlist.txt"
+section "10/19" "L10n 单出口 —— 视图层禁止新增中文字面量（三文件纪律；存量登记 .github/config/gates/l10n-legacy-allowlist.txt）"
+L10N_ALLOW="$SCRIPT_DIR/../../config/gates/l10n-legacy-allowlist.txt"
 [ -f "$L10N_ALLOW" ] || touch "$L10N_ALLOW"
 # 判定统一走 python3 显式 Unicode 码点（ERR#5WHY：`grep [一-龥]` 多字节字符区间的
 # 解释随 grep/glibc/locale 实现漂移——CI 容器（jammy grep 3.7 + setlocale 失败回退）
@@ -1070,7 +1070,7 @@ fi
 # ---------- [18] 依赖能力矩阵（委员会 P1，2026-09-27） ----------
 # 依赖钉版与工具链能力错配族（CI 36253140508：swift-collections 1.7.0 在 Xcode 26
 # SPM 下 import Builtin 失败）：断言两个钉面 ≤ 已验证上限矩阵；未登记即未验证。
-section "18/19" "依赖能力矩阵 —— Package.resolved/project.yml 钉 ≤ 已验证上限（矩阵 .github/actions/gates/dependency-capability-matrix.tsv）"
+section "18/19" "依赖能力矩阵 —— Package.resolved/project.yml 钉 ≤ 已验证上限（矩阵 .github/config/gates/dependency-capability-matrix.tsv）"
 if python3 "$SCRIPT_DIR/l0-dependency-matrix.py"; then
   pass_matrix=1
 else

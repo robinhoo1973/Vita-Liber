@@ -1,0 +1,74 @@
+# ============================================================================
+# L0 静态门禁 · composite action（2026-10-07 业主指令「workflows 只保留四个」：
+# 原 reusable l0-static-gate.yml 的执行体迁入 actions/，workflows/ 恰余四文件）。
+#
+# 调用纪律：
+#   - caller job 承担 runs-on / timeout-minutes / permissions（composite 不能声明）
+#     与 checkout（本地 action 要求先检出）；
+#   - 本文件与发布链同级评审；改动前先在暂存分支做负向实验
+#     （人为 L0 违例 ⇒ 本 action 红 ⇒ upload 被 needs.gates.result 门阻断）；
+#   - `if: failure()` 在 composite 内的语义 = **composite 局部状态**（前缀步骤
+#     有红即触发诊断 artifact 上传），非 job 全局——与迁入前的 job 内行为等价；
+#   - composite 内 `run:` 必须显式 `shell:`（缺=创建期 0 秒红）；
+#   - `$GITHUB_ACTION_PATH` = 本 action 目录；脚本簇位于 ../gates/ 与 ../release/。
+# ============================================================================
+name: 'L0 static gate'
+description: 'L0 十九节 + schema 完整性 + 发布契约测试离线矩阵（改动本文件 = 发布面变更）'
+inputs:
+  artifact-name:
+    description: 失败时诊断日志 artifact 名（各链保持自身命名）
+    required: true
+runs:
+  using: composite
+  steps:
+    # 工具链断言（跨载体平权红线）：ubuntu 无 swiftc 时 L0 第 7 节只 warn
+    # 跳过 = 静默降级（test-plan 守则 13 禁止）——显式 fail-fast。
+    - name: 断言 Swift 工具链存在
+      shell: bash
+      run: |
+        command -v swiftc >/dev/null || { echo "::error::ubuntu runner 缺 swiftc——L0 第 7 节将静默降级,已阻断"; exit 1; }
+        swiftc --version | head -2
+
+    # PyYAML 显式钉版（2026-10-07）：L0 [19] 工作流结构节与左移的发布契约测试
+    # （test-cnb-release-workflow / test-release-version / test-model-trust）均
+    # import yaml——ubuntu 镜像的隐式预装不构成契约，禁走隐式（供应链纪律：
+    # 与 requirements-*.txt 的钉版同精神，单件 CI 工具不设独立清单）。
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      with:
+        python-version: '3.13'
+    - name: 安装 PyYAML（单件工具，版本钉版）
+      shell: bash
+      run: |
+        python3 -m pip install --quiet "pyyaml==6.0.2"
+        python3 -c "import yaml; print('pyyaml', yaml.__version__)"
+
+    - name: L0 静态门禁
+      shell: bash
+      run: |
+        set -o pipefail
+        bash "$GITHUB_ACTION_PATH/../gates/l0-static-gate.sh" 2>&1 | tee /tmp/l0-gate.log
+        python3 "$GITHUB_ACTION_PATH/../gates/test-schema-integrity.py" 2>&1 | tee -a /tmp/l0-gate.log
+
+    # 发布契约测试左移（2026-10-07 委员会：原仅在 release-asr-models.yml 的
+    # dispatch 链路执行——引用面断裂/断言失配要等下次 ASR 发布才暴露，天级延迟。
+    # 12 脚本全部纯离线、Linux 本地实测 rc=0 全绿；release 链保留原步为发布前复检。
+    - name: 发布契约测试（离线矩阵）
+      shell: bash
+      run: |
+        set -o pipefail
+        for t in test-release-version test-next-catalog-version test-asr-assets \
+                 test-asr-secrets-init test-asr-package-integrity test-model-trust \
+                 test-asr-release test-asr-release-page test-medical-package-fixture \
+                 test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets; do
+          echo "── $t"
+          python3 "$GITHUB_ACTION_PATH/../release/$t.py"
+        done 2>&1 | tee -a /tmp/l0-gate.log
+
+    - name: 上传 L0 诊断日志（失败时）
+      if: failure()
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: /tmp/l0-gate.log
+        retention-days: 7
+        if-no-files-found: ignore

@@ -11,13 +11,18 @@ on:
   workflow_dispatch:
     inputs:
       assets:
-        description: "prepare 用资产清单 JSON(缺省用仓内 .github/actions/distill/assets.json;P1=legacy Release 资产)"
+        description: "prepare 用资产清单 JSON(缺省用仓内 .github/config/distill/assets.json;P1=legacy Release 资产)"
         required: false
         default: ""
       min_accepts:
         description: "评测 tripwire 每带×域接受数下限(小集原型可调低,生产默认 50)"
         required: false
         default: "50"
+      task:
+        description: "运行哪条管线（2026-10-07 业主指令:build-llama-xcframework 并入本文件）"
+        type: choice
+        options: [llm-pipeline, llama-xcframework]
+        default: llm-pipeline
 
 # 权限纪律:仅 publish job 声明 contents: write(gh release);其余 job 用默认 read。
 concurrency:
@@ -30,6 +35,7 @@ env:
 
 jobs:
   tests:
+    if: ${{ inputs.task != 'llama-xcframework' }}
     # 零依赖测试闸:entlink/corpus/gate 53 例 stdlib 单测 + 全簇语法验证(秒级)。
     # 历史教训:无 torch 路径的 Python 逻辑错误(如 checkpoint sidecar 无限递归)
     # py_compile 抓不到,此前 CI 从未跑过本簇单测——回归全部靠人眼。
@@ -43,6 +49,7 @@ jobs:
         run: bash .github/actions/distill/run_tests.sh
 
   prepare:
+    if: ${{ inputs.task != 'llama-xcframework' }}
     # 语料冻结:Release 资产 → 校验/解密 → 目录装载 → 语料 JSONL + manifest(§7.6)
     needs: tests
     runs-on: ubuntu-24.04
@@ -81,7 +88,7 @@ jobs:
             printf '%s' "$ASSETS_INPUT" > assets.json
             ASSET_ARG="--assets-json assets.json"
           else
-            ASSET_ARG="--assets-json .github/actions/distill/assets.json"
+            ASSET_ARG="--assets-json .github/config/distill/assets.json"
           fi
           sudo apt-get update -qq && sudo apt-get install -y age >/dev/null
           python3 .github/actions/distill/download_corpus.py \
@@ -108,6 +115,7 @@ jobs:
           retention-days: 7
 
   calibrate:
+    if: ${{ inputs.task != 'llama-xcframework' }}
     # 100 步标定:MPS 探测段先行(真分配+matmul 对拍),CPU/MPS 双通道吞吐实测(§7.4 第 8 条)
     needs: prepare
     strategy:
@@ -171,6 +179,7 @@ jobs:
           retention-days: 7
 
   smoke:
+    if: ${{ inputs.task != 'llama-xcframework' }}
     # ≤30 步训练回归:训练循环/checkpoint/预算停机在 CI 的烟雾验证(§7.1 smoke 段)
     needs: prepare
     runs-on: ubuntu-24.04
@@ -206,6 +215,7 @@ jobs:
           retention-days: 7
 
   eval:
+    if: ${{ inputs.task != 'llama-xcframework' }}
     # SU-M15-ENTLINK 评测闸:P1 = 数据基线对照臂 + tripwire;verdict=fail 阻断 publish(§10)
     needs: prepare
     runs-on: ubuntu-24.04
@@ -276,7 +286,7 @@ jobs:
   publish:
     # 闸门后发布:verdict=pass 才放行;P1 无模型产物,仅登记语料(内容寻址,append-only)
     needs: [eval, prepare]
-    if: needs.eval.outputs.verdict == 'pass'
+    if: ${{ inputs.task != 'llama-xcframework' && needs.eval.outputs.verdict == 'pass' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write  # 全 workflow 唯一需要写权限的 job(最小权限)
@@ -302,3 +312,69 @@ jobs:
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ═══════════════════════════════════════════════════════════════
+  # llama XCFramework（2026-10-07 自 build-llama-xcframework.yml 迁入——业主
+  # 指令「workflows 只保留四个，llama 通过 distill-llm 实现」）。
+  # 原「本文件变更即重建」push.paths 自触发**有意删除**：合并后任何 llm.yml
+  # 编辑（含注释）都会触发 15-20min macOS 全链 + --clobber 覆写 release 资产，
+  # zip 含时间戳不可复现——重建一律手动（dispatch task=llama-xcframework）。
+  # 发布资产 digest 为权威值,同步更新 CoreKit/Package.swift checksum,不得
+  # 采信运行日志。与蒸馏管线共用 workflow 级 concurrency（低频手动,可接受）。
+  # ═══════════════════════════════════════════════════════════════
+  llama-xcframework:
+    if: ${{ inputs.task == 'llama-xcframework' }}
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - name: 环境断言
+        run: |
+          xcodebuild -version
+          cmake --version
+          sysctl -n hw.logicalcpu
+
+      - name: 检出 llama.cpp（钉版 b11012）
+        run: git clone --depth 1 --branch b11012 https://github.com/ggml-org/llama.cpp.git llama-src
+
+      - name: 构建三切片 xcframework 并打包
+        working-directory: llama-src
+        run: |
+          # 官方脚本：参数 = 构建集合；顺序产出 build-apple/llama.xcframework
+          # 平台下限改 16.0（上游默认 16.4 是随意值——llama.cpp 无 16.4 专属 API；
+          # 应用基线 V3.79 = iOS 16.0，reconcile-frameworks.py 门禁拒绝 16.4 切片，
+          # CI 实证：llama.framework requires 16.4, newer than the app deployment target）
+          sed -i.bak 's/IOS_MIN_OS_VERSION=16.4/IOS_MIN_OS_VERSION=16.0/' build-xcframework.sh
+          ./build-xcframework.sh ios-sim ios-device macos
+          test -d build-apple/llama.xcframework || { echo "::error::xcframework 未产出"; exit 1; }
+          cd build-apple
+          zip -r -y llama-b11012-xcframework.zip llama.xcframework
+          shasum -a 256 llama-b11012-xcframework.zip | tee checksum.txt
+          ls -la llama-b11012-xcframework.zip
+
+      - name: 打包产物兜底上传（发布失败不丢构建）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # 与 release-asr-models.yml 同款 pin
+        with:
+          name: llama-xcframework
+          path: llama-src/build-apple/llama-b11012-xcframework.zip
+          retention-days: 14
+
+      - name: 发布到 release 稳定 URL
+        run: |
+          REPO="${{ github.repository }}"
+          CHECKSUM="$(cut -d' ' -f1 llama-src/build-apple/checksum.txt)"
+          # 未 checkout 本仓：gh 命令必须显式 -R 指明仓库（否则 git 报 not a git repository）
+          if gh release view llama-xcframework -R "$REPO" >/dev/null 2>&1; then
+            gh release upload llama-xcframework \
+              llama-src/build-apple/llama-b11012-xcframework.zip --clobber -R "$REPO"
+          else
+            gh release create llama-xcframework \
+              llama-src/build-apple/llama-b11012-xcframework.zip \
+              --title "llama-b11012-xcframework（三切片：ios-sim/ios-device/macos）" \
+              --notes "自建：ggml-org/llama.cpp b11012 源码经官方 build-xcframework.sh 构建；含上游发布物缺失的模拟器切片。" \
+              -R "$REPO"
+          fi
+          echo "checksum=${CHECKSUM}"
+          echo "::notice::llama xcframework checksum=${CHECKSUM}"
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -32,7 +32,7 @@ distill/
 ├── calibrate.py          100 步标定(真实训练步口径)
 ├── train_encoder.py      训练循环(墙钟预算优雅停机/断点续训/smoke)
 ├── run_tests.sh          本地测试入口(stdlib 测试 + 全簇语法验证)
-├── assets.json           prepare 用 Release 资产清单(须填真实 URL/sha256 后可用)
+（assets.json 已迁 .github/config/distill/assets.json —— prepare 用 Release 资产清单）
 └── tests/                unittest 53 例(无 torch 依赖)
 ```
 

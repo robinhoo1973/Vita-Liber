@@ -11,17 +11,21 @@
 ├── workflows/      # 仅工作流定义（*.yml，含 workflow_call reusable——平台硬约束：
 │                   #   GitHub 只在此层扫描；工作流禁止放入任何子目录）
 ├── actions/        # 被 workflows 调用的脚本 / 公用代码（按域归簇）
-│   ├── gates/      #   域:L0 静态门禁(19 节)判定器 + 其数据文件
+│   ├── l0-gate/    #   L0 门禁 composite action 执行体（workflows 四个的公用调用面）
+│   ├── gates/      #   域:L0 静态门禁(19 节)判定器簇
 │   ├── release/    #   域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
 │   └── distill/    #   域:实体链接/蒸馏训练簇(entlink 确定性召回+语料构建+评测闸+训练循环;
 │                   #     零 PHI 数据纪律、MPS 探测段先行、checkpoint 断点续训,详见簇 README)
-└── config/         # 可公开的配置
-    └── requirements/  # pip --require-hashes 钉版清单
+└── config/         # 可公开的配置（纯配置/清单按域入子目录）
+    ├── gates/        #   gate-suites.tsv / l10n-legacy-allowlist.txt / 依赖能力矩阵
+    ├── distill/      #   assets.json（Release 资产清单模板）
+    └── requirements/ #   pip --require-hashes 钉版清单
 ```
 
 **归簇原则:按功能域聚合,目录名即职责域。** 新增脚本先归簇,禁止直接放进
 workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
-`actions/gates/gate-suites.tsv`、`actions/gates/l10n-legacy-allowlist.txt`)。各簇的具体职责
+`config/gates/gate-suites.tsv`、`config/gates/l10n-legacy-allowlist.txt` 等
+纯配置/清单（集群数据与判定器留 actions/ 簇内，纯配置与钉版清单入 config/<域>/）。各簇的具体职责
 见下表「工作流一览」。（旧 `scripts/` 布局于 2026-10-07 整体迁入本结构；
 `scripts/medical-data/` 早已迁至 workspace 级 `refactor/tools/medical-data/`。）
 
@@ -55,13 +59,10 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 
 | 文件 | 触发 | 职责 | 调用簇 |
 |---|---|---|---|
-| `build-testflight.yml` | push master / PR / dispatch | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：gates（ubuntu 并行 L0 单源 reusable，挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）；∥ corekit（swift test）+ l1（编译门禁+型检预算+L1 单元/UI）。PR 上只跑 gates+corekit+l1（build 有事件守卫）。批次验收 = 本工作流全绿；upload 不依赖测试 job（「上传 ≠ 验收」保持） | gates / release / requirements |
-| `l0-static-gate.yml` | workflow_call | **L0 门禁单源 reusable（2026-10-07）**：workflow_call 定义体 = checkout→swiftc 断言→PyYAML 钉版→L0 十九节+schema→发布契约测试离线矩阵→诊断 artifact（名字由调用方 input 指定）。调用方必须显式 `permissions: contents: read`；本文件与发布链同级评审 | gates / release / requirements |
+| `build-testflight.yml` | push master / PR / dispatch | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：gates（ubuntu 并行 L0 单源 composite（.github/actions/l0-gate），挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）；∥ corekit（swift test）+ l1（编译门禁+型检预算+L1 单元/UI）。PR 上只跑 gates+corekit+l1（build 有事件守卫）。批次验收 = 本工作流全绿；upload 不依赖测试 job（「上传 ≠ 验收」保持） | gates / release / requirements |
 | `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
-| `seed-cnb-assets.yml` | dispatch（choice 输入） | 一次性资产迁移（2026-10-03 cutover Task 2）：历史模型资产校验后上传 CNB 资源 Release；`--plan` 干跑零写入，手动触发即隐式批准（定案 §7.6）。当前仅实现 asr-models tag——退役与否待业主确认（2026-10-07 委员会登记） | release / requirements |
-| `distill-llm.yml` | workflow_dispatch | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release(checkpoint Release 化随 P2 train job) | distill / requirements |
-| `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
-| `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`） | release / requirements |
+| `distill-llm.yml` | workflow_dispatch（task 输入：llm-pipeline / llama-xcframework） | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release。**llama XCFramework 构建自 build-llama-xcframework.yml 并入**（task=llama-xcframework；原自路径触发有意删除——合并后任何编辑都会触发 15-20min 重建+clobber，重建改手动） | distill / release / requirements |
+| `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（三 job 全跑） | 维护三合一（2026-09-29）：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`；`seed-cnb-assets.yml` 已删——业主 2026-10-07：本地离线执行完成） | release / requirements |
 
 **Release/sqlite 契约**:公开仓无 `medical-data` Release 时 Publish 步骤自动 `gh release create`;`medical-catalog.sqlite`(schema v4+FTS)每轮全量重建、age 加密后以 `medical-data.bin` 上传同标签(内容哈希未变则跳过)。
 

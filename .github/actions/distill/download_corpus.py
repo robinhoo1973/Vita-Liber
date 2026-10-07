@@ -82,7 +82,7 @@ def main() -> int:
 
     raw = json.loads(args.assets_json.read_text(encoding="utf-8"))
     # 兼容两种形态:裸列表,或带 _comment 的对象 {"_comment": [...], "assets": [...]}
-    # (仓内 .github/actions/distill/assets.json 即对象形态;历史教训:CLI 只认裸列表,
+    # (仓内 .github/config/distill/assets.json 即对象形态;历史教训:CLI 只认裸列表,
     # 模板文件填了真值也永远走不通)。
     if isinstance(raw, dict):
         raw = raw.get("assets")

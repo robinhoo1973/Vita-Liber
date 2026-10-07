@@ -12,7 +12,7 @@
 
 - [ ] 本机 `bash .github/actions/gates/l0-static-gate.sh` 全绿（19 节）
 - [ ] CoreKit `swift test` 全绿（Linux 可跑面）
-- [ ] 依赖变更已过依赖能力矩阵（L0 [18]，`.github/actions/gates/dependency-capability-matrix.tsv`）
+- [ ] 依赖变更已过依赖能力矩阵（L0 [18]，`.github/config/gates/dependency-capability-matrix.tsv`）
 - [ ] 新增依赖回答 tech-spec §2.2 准入清单并在表内登记
 
 ## 规格/文档

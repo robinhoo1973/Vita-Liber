@@ -131,6 +131,11 @@ for f in sorted(WF.iterdir()):
         continue
     if "on" not in doc and True not in doc:
         flag(f"{f.name}: 缺 on: 触发器键")
+    for jname, job in (doc.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        if "runs-on" not in job and not job.get("uses"):
+            flag(f"{f.name}: job「{jname}」既无 runs-on 也无 uses（创建期 schema 红；composite 化后 caller job 必须自带 runs-on）")
     for lineno in comment_expr_hits(f):
         flag(f"{f.name}:{lineno}: 注释内出现 ${{{{ ——0 秒红族（整文件拒载）；移除或同行加 gha-expr-ok: 豁免")
     scan_uses(f)

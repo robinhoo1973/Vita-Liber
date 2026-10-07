@@ -18,7 +18,7 @@ while ROOT != ROOT.parent and not (ROOT / "CoreKit" / "Package.swift").is_file()
 
 RESOLVED = ROOT / "CoreKit" / "Package.resolved"
 PROJECT = ROOT / "project.yml"
-MATRIX = ROOT / ".github" / "actions" / "gates" / "dependency-capability-matrix.tsv"
+MATRIX = ROOT / ".github" / "config" / "gates" / "dependency-capability-matrix.tsv"
 
 
 def load_matrix():

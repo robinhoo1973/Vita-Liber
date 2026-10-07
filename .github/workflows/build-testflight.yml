@@ -60,18 +60,23 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   # ═══════════════════════════════════════════════════════════════
   # L0 静态门禁（ubuntu 并行）：与 build 同时跑,失败挡 upload（机械冻结——
-  # 仓库无分支保护,此为五架构门禁唯一自我兑现装置）。2026-10-07 起共用单源
-  # 定义 l0-static-gate.yml；测试 job（corekit/l1）同文件下方并行运行（自
-  # ci-tests.yml 迁移）。版本解析已内联进 build。
+  # 仓库无分支保护,此为五架构门禁唯一自我兑现装置）。2026-10-07 起执行体为
+  # composite action ./.github/actions/l0-gate（workflows/ 四文件化）；测试 job
+  # （corekit/l1）同文件下方并行运行。版本解析已内联进 build。
   # ═══════════════════════════════════════════════════════════════
   gates:
     name: 'L0 静态门禁（并行）'
-    # 调用点显式权限（被调方不继承 workflow 级声明——SRE 席 F5 权限陷阱）。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # caller 显式权限（composite 无权限面，job 承担；workflow 级声明为兜底）。
     permissions:
       contents: read
-    uses: ./.github/workflows/l0-static-gate.yml
-    with:
-      artifact-name: release-gates-l0-log
+    steps:
+      # v7.0.1；固定完整 SHA（node24 运行时）。本地 action 要求先检出。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/l0-gate
+        with:
+          artifact-name: release-gates-l0-log
 
   # ═══════════════════════════════════════════════════════════════
   # 编译 + 签名归档 + 导出 IPA
