@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.7（2026-10-07）
+> 版本：V1.8（2026-10-07）
 
 ## 版本与资产来源
 
@@ -94,7 +94,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 **索引语义**：payload JSON（每 release 的 latest/history/unclassified，含名称/URL/大小/sha256；历史**每 tag 只保留最近 3 条**）→ 单 entry ZIP → aes256gcm-v1 信封（identity=`update-payload-<sha256(明文)>`，密钥 = App 内嵌公开常量）→ QR 内容 = identity 前缀(79B) + 信封字节二进制直编（ECC-L）。载荷 ≤ 预算 2800B 走 QR，**超限自动降级文本块**（双形态）。载荷是提示索引、**非信任源**，App 以签名目录/信任根为准。`vl-index.payload`（state 文件，= QR 内容字节）是模块 RMW 的唯一事实源（git 历史即备份）。
 
-**App 读取通道（实证）**：`https://cnb.cool/robinhoo1973/Resources/-/git/raw/main/tools/readme-sync/vl-index.png`（匿名 200；与 README 页 `<img>` 渲染同源）。解码双路径（本地实证 zxing 逐字节命中、zbar 走 Latin-1 映射可逆向）：Vision `payloadData`（原始字节，可能含 QR 段结构需按位剥离）优先，`payloadStringValue`→`.isoLatin1` 回退；macOS CI 金色测试（本仓 PNG+state 字节对拍）为 App 侧合入门槛；Vision 若不可用则服务器侧切换回文本形态（常量一改，向后兼容）。
+**App 读取通道（实证）**：`https://cnb.cool/robinhoo1973/Resources/-/git/raw/main/tools/readme-sync/vl-index.png`（匿名 200；与 README 页 `<img>` 渲染同源）。解码双路径（本地实证 zxing 逐字节命中、zbar 走 Latin-1 映射可逆向）：Vision `payloadData`（原始字节，可能含 QR 段结构需按位剥离；**iOS 17+/macOS 14+——App 部署目标 iOS 16，经 `#available` 守卫在 iOS 16 走字符串回退**）优先，`payloadStringValue`→`.isoLatin1` 回退；macOS CI 金色测试（本仓 PNG+state 字节对拍）为 App 侧合入门槛。**注意（2026-10-07 评审纠正）**：Vision 不可用时服务器侧切回文本形态（`QR_PAYLOAD_BUDGET=0`）会**删除 `vl-index.png`**（readme-sync `removes.append(png_path)`）——App 通道整体显示「不可用」（fail-closed），**并非**「常量一改、向后兼容」；恢复需回切 QR 形态，或待后续批次（state 文件直读机制）落地。
 
 **触发链（方案 B）**：发布步骤成功收尾后，`publish-asr-release.py` 调 `CNBReleaseClient.start_readme_sync("asr-models")`（`POST {repo}/-/build/start`，事件 `api_trigger_readme_sync`，env `README_SYNC_TAG`，`sync="false"` 异步；令牌需 `repo-cnb-trigger:rw`，`CNB_RESOURCE_TOKEN` 实测已含）。触发失败 = `::warning::` 不阻塞发布（通知通道纪律）；同步管线幂等（无变化零推送），可经 CNB 页面「同步 README」按钮（`web_trigger_readme_sync`，可输入 tag）手动重同步。
 
@@ -127,6 +127,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 ## 变更记录
 
+- V1.8（2026-10-07）：逃生门语义纠正（委员会评审）：文本形态降级会删除 `vl-index.png`、App 通道不可用（fail-closed）——原文「常量一改，向后兼容」与 readme-sync 实现不符；标注 `payloadData` 的 iOS 17 可用性（iOS 16 经 `#available` 守卫走字符串回退）。
 - V1.7（2026-10-07）：发布页正文（委员会 S3）：三语永久头模板重写（清除过期表述）+ `asr_release_page.py` 动态段（版本三元组/家族×档位统计/增量行，全部取自签名载荷）+ `update_release_body` PATCH 能力（回读比对、失败仅告警）——错误正文可随任意发布自动修正。
 - V1.6（2026-10-07）：文档与实现对齐（委员会 CI 席清单）：资产来源/分发改写为 CNB 固定名 `manifest.json` 体系（index.json / catalog.json / N.root 残留表述退役）；「publish 开关」残留清除（`-f publish=true`、`with: publish`、candidate 人工提交流程、`bundle_artifact`）；新增版本推进机制（`next-catalog-version.py` max(全源)+1、远端异常硬错、`--root-store` 链校验根）与发布后 README 触发说明。
 - V1.5（2026-10-07）：README 索引载体改为**二维码数据载体**（业主裁决）：`vl-index.png` = identity 前缀 + 信封二进制直编（ECC-L，纯数据载体）；`vl-index.payload` state 文件为 RMW 事实源；历史保留改为每 tag 最近 3 条；超 2800B 预算自动降级文本块；App 读取通道 = `/git/raw` 匿名直读（实测）+ Vision 双路径解码规格；QR 生成依赖 `qrcode==8.2`/`pypng` 钉版。
