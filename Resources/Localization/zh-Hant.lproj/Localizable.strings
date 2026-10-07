@@ -2297,7 +2297,7 @@
 "settings.auditEmpty" = "暫無審計記錄";
 
 "updateAdvice.title" = "更新通告";
-"updateAdvice.note" = "通告資訊，未在本機校驗；請以各資源內的「檢查更新」為準。";
+"updateAdvice.note" = "通告資訊，未在本機校驗；更新結論只能由本機檢查產出。";
 "updateAdvice.read" = "讀取資源索引";
 "updateAdvice.row.idle" = "尚未讀取";
 "updateAdvice.row.announced" = "通告提及有更新";
@@ -2306,3 +2306,13 @@
 "updateAdvice.row.unavailable" = "通告暫不可用";
 "updateAdvice.domain.asr" = "ASR 語音模型";
 "updateAdvice.domain.medical" = "醫療參考資料";
+"updateCenter.title" = "更新中心";
+"updateCenter.checkAll" = "檢查全部更新";
+"updateCenter.row.idle" = "尚未檢查";
+"updateCenter.row.checking" = "檢查中…";
+"updateCenter.row.updating" = "更新中…";
+"updateCenter.asrUpdatesHint" = "在下方「識別引擎」中選擇並更新";
+"updateCenter.asrBusyHint" = "正在下載模型，完成後可檢查更新";
+"updateCenter.medicalUpdatesHint" = "在下方「醫療資料目錄」中更新";
+"updateCenter.checkAllHint" = "從發布源獲取更新資訊，不會下載資料包";
+"updateCenter.adviceA11yPrefix" = "未校驗的通告：";

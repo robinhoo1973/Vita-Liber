@@ -1127,6 +1127,11 @@ extension L10n {
         "updateAdvice.title", "updateAdvice.note", "updateAdvice.read",
         "updateAdvice.row.idle", "updateAdvice.row.announced", "updateAdvice.row.notMentioned",
         "updateAdvice.row.stale", "updateAdvice.row.unavailable",
-        "updateAdvice.domain.asr", "updateAdvice.domain.medical"
+        "updateAdvice.domain.asr", "updateAdvice.domain.medical",
+        // 统一更新中心（2026-10-07）
+        "updateCenter.title", "updateCenter.checkAll",
+        "updateCenter.row.idle", "updateCenter.row.checking", "updateCenter.row.updating",
+        "updateCenter.asrUpdatesHint", "updateCenter.asrBusyHint", "updateCenter.medicalUpdatesHint",
+        "updateCenter.checkAllHint", "updateCenter.adviceA11yPrefix"
     ]
 }

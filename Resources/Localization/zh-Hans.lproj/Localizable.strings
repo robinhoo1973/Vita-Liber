@@ -2297,7 +2297,7 @@
 "settings.auditEmpty" = "暂无审计记录";
 
 "updateAdvice.title" = "更新通告";
-"updateAdvice.note" = "通告信息，未在本机校验；请以各资源内的「检查更新」为准。";
+"updateAdvice.note" = "通告信息，未在本机校验；更新结论只能由本机检查产出。";
 "updateAdvice.read" = "读取资源索引";
 "updateAdvice.row.idle" = "尚未读取";
 "updateAdvice.row.announced" = "通告提及有更新";
@@ -2306,3 +2306,13 @@
 "updateAdvice.row.unavailable" = "通告暂不可用";
 "updateAdvice.domain.asr" = "ASR 语音模型";
 "updateAdvice.domain.medical" = "医疗参考数据";
+"updateCenter.title" = "更新中心";
+"updateCenter.checkAll" = "检查全部更新";
+"updateCenter.row.idle" = "尚未检查";
+"updateCenter.row.checking" = "检查中…";
+"updateCenter.row.updating" = "更新中…";
+"updateCenter.asrUpdatesHint" = "在下方「识别引擎」中选择并更新";
+"updateCenter.asrBusyHint" = "正在下载模型，完成后可检查更新";
+"updateCenter.medicalUpdatesHint" = "在下方「医疗数据目录」中更新";
+"updateCenter.checkAllHint" = "从发布源获取更新信息，不会下载数据包";
+"updateCenter.adviceA11yPrefix" = "未校验的通告：";

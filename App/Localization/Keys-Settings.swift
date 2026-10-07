@@ -746,4 +746,25 @@ static var lifecycleSingle: String { t("lifecycle.single") }
     static var updateAdviceDomainAsr: String { t("updateAdvice.domain.asr") }
 
     static var updateAdviceDomainMedical: String { t("updateAdvice.domain.medical") }
+
+    // 统一更新中心（2026-10-07 三席评审「形态 A」：检查入口/状态跨域统一）。
+    static var updateCenterTitle: String { t("updateCenter.title") }
+
+    static var updateCenterCheckAll: String { t("updateCenter.checkAll") }
+
+    static var updateCenterRowIdle: String { t("updateCenter.row.idle") }
+
+    static var updateCenterRowChecking: String { t("updateCenter.row.checking") }
+
+    static var updateCenterRowUpdating: String { t("updateCenter.row.updating") }
+
+    static var updateCenterAsrUpdatesHint: String { t("updateCenter.asrUpdatesHint") }
+
+    static var updateCenterAsrBusyHint: String { t("updateCenter.asrBusyHint") }
+
+    static var updateCenterMedicalUpdatesHint: String { t("updateCenter.medicalUpdatesHint") }
+
+    static var updateCenterCheckAllHint: String { t("updateCenter.checkAllHint") }
+
+    static var updateCenterAdviceA11yPrefix: String { t("updateCenter.adviceA11yPrefix") }
 }

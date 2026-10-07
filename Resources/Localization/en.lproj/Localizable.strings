@@ -2297,7 +2297,7 @@
 "settings.auditEmpty" = "No audit records yet";
 
 "updateAdvice.title" = "Update notice";
-"updateAdvice.note" = "Notice information, not verified on this device; the in-resource Check for updates result is authoritative.";
+"updateAdvice.note" = "Notice information, not verified on this device; update conclusions come only from on-device checks.";
 "updateAdvice.read" = "Read resource index";
 "updateAdvice.row.idle" = "Not read yet";
 "updateAdvice.row.announced" = "The notice mentions an update";
@@ -2306,3 +2306,13 @@
 "updateAdvice.row.unavailable" = "The notice is unavailable";
 "updateAdvice.domain.asr" = "ASR models";
 "updateAdvice.domain.medical" = "Medical reference data";
+"updateCenter.title" = "Update Center";
+"updateCenter.checkAll" = "Check All Updates";
+"updateCenter.row.idle" = "Not checked yet";
+"updateCenter.row.checking" = "Checking…";
+"updateCenter.row.updating" = "Updating…";
+"updateCenter.asrUpdatesHint" = "Choose and update below in \"Recognition Engines\"";
+"updateCenter.asrBusyHint" = "A model is downloading; check again when it finishes";
+"updateCenter.medicalUpdatesHint" = "Update below in \"Medical Data Catalog\"";
+"updateCenter.checkAllHint" = "Fetches update information from the release source; does not download data packages";
+"updateCenter.adviceA11yPrefix" = "Unverified notice: ";
