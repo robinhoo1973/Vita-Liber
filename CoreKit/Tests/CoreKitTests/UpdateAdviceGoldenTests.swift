@@ -77,6 +77,10 @@ struct UpdateAdviceGoldenTests {
                 count = 0
             }
         }
+        if count > 0 {
+            // 尾比特补零至字节边界（此前丢弃尾 4bit → readBytes(count) 位不足 → 测试必红）
+            framed.append(current << (8 - count))
+        }
         let stripped = UpdatePayloadQRDecoder.stripByteModeSegment(framed)
         #expect(stripped == payload)
     }
