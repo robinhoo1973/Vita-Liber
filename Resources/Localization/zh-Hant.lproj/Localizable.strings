@@ -2295,3 +2295,14 @@
 "voice.langInputFooter" = "點擊切換選擇，首位為主語言；語言資源不可選時，到「模型與數據資源」頁下載。";
 "voiceLab.building" = "正在構建識別引擎…";
 "settings.auditEmpty" = "暫無審計記錄";
+
+"updateAdvice.title" = "更新通告";
+"updateAdvice.note" = "通告資訊，未在本機校驗；請以各資源內的「檢查更新」為準。";
+"updateAdvice.read" = "讀取資源索引";
+"updateAdvice.row.idle" = "尚未讀取";
+"updateAdvice.row.announced" = "通告提及有更新";
+"updateAdvice.row.notMentioned" = "通告未提及該資源";
+"updateAdvice.row.stale" = "通告可能已過期";
+"updateAdvice.row.unavailable" = "通告暫不可用";
+"updateAdvice.domain.asr" = "ASR 語音模型";
+"updateAdvice.domain.medical" = "醫療參考資料";

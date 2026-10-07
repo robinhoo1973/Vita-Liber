@@ -18,6 +18,9 @@ struct ResourceManagementView: View {
             Form {
                 activeSection
                 resourcesSection
+                // P3（2026-10-07）：通告区（README VL-INDEX 二维码）——明文提示面，
+                // 固定「未在本机校验」标注；检查更新权威入口仍是各资源行。
+                UpdateAdviceSection()
                 // B2-3（2026-09-28）：语音模型管理并入本页（检查更新/下载/进度/取消，
                 // 复用语音设置页同一区块视图——单一管理面，无平行视图）。
                 ASREngineSettingsSection(accessibilityPrefix: "SP-64.resource.asr")

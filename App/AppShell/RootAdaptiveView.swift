@@ -262,6 +262,9 @@ private struct PreviewRoot: View {
     /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
     private let settingsStore: AppSettingsStore
     private let medicalCatalogState: MedicalCatalogState
+    /// P3（2026-10-07）：预览同构——provider 缺省（preview 装配默认 nil）→
+    /// 读取后呈「不可用」，fail-closed 路径可视。
+    private let updateAdviceState: UpdateAdviceState
 
     init() {
         // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
@@ -279,6 +282,7 @@ private struct PreviewRoot: View {
                                                   opener: assembled.medicalCatalogOpener)
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
+        updateAdviceState = UpdateAdviceState(provider: assembled.updateAdvice)
     }
 
     var body: some View {
@@ -295,6 +299,7 @@ private struct PreviewRoot: View {
                                             composer: container.composer))
                 .environment(settingsStore)
                 .environment(medicalCatalogState)
+                .environment(updateAdviceState)
                 .environment(ObservationStoreState(store: container.observations,
                                                    allergyStore: container.allergies,
                                                    mediaAssets: container.mediaAssets))

@@ -36,6 +36,7 @@ struct VitaLiberApp: App {
     @State private var asrInstallCenter: ASRInstallCenter
     @State private var backupState: BackupState
     @State private var medicalCatalogState: MedicalCatalogState
+    @State private var updateAdviceState: UpdateAdviceState
 
     init() {
         // FR14.5 启动语言恢复（评审修正）：同步执行、首帧前完成——
@@ -56,6 +57,8 @@ struct VitaLiberApp: App {
             path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
             checker: container.medicalCatalogChecker,
             opener: container.medicalCatalogOpener))
+        // P3（2026-10-07）：通告面状态（provider 由组装根注入；缺省=全域不可用）。
+        _updateAdviceState = State(initialValue: UpdateAdviceState(provider: container.updateAdvice))
         let appRouter = AppRouter()
         self.router = appRouter
         let delegate = AppNotificationDelegate(router: appRouter)
@@ -331,5 +334,6 @@ struct VitaLiberApp: App {
              .environment(f16DeviceState)
              .environment(backupState)
              .environment(medicalCatalogState)
+             .environment(updateAdviceState)
     }
 }

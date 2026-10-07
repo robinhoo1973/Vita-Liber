@@ -2295,3 +2295,14 @@
 "voice.langInputFooter" = "Tap to select; the first language is the primary one. If a language pack isn't available, download it from Model & Data Resources.";
 "voiceLab.building" = "Building transcription engine…";
 "settings.auditEmpty" = "No audit records yet";
+
+"updateAdvice.title" = "Update notice";
+"updateAdvice.note" = "Notice information, not verified on this device; the in-resource Check for updates result is authoritative.";
+"updateAdvice.read" = "Read resource index";
+"updateAdvice.row.idle" = "Not read yet";
+"updateAdvice.row.announced" = "The notice mentions an update";
+"updateAdvice.row.notMentioned" = "The notice does not mention this resource";
+"updateAdvice.row.stale" = "The notice may be out of date";
+"updateAdvice.row.unavailable" = "The notice is unavailable";
+"updateAdvice.domain.asr" = "ASR models";
+"updateAdvice.domain.medical" = "Medical reference data";

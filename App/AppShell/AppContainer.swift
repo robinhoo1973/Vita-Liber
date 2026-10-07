@@ -90,6 +90,10 @@ struct AppContainer {
     /// AES-256-GCM 信封，无注入材料）；缺省 nil → 更新入口 fail-closed
     /// （packageInvalid），last-good 不受影响。
     let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
+    /// SP-64 通告面（README VL-INDEX 二维码；委员会 P3，2026-10-07）：固定匿名通道
+    /// + floor 落盘（与医疗支持目录同址）；读取纯显式动作、零隐式联网。
+    /// 缺省 nil → 全域「不可用」（fail-closed，同 checker 缺省语义）。
+    let updateAdvice: (any UpdateAdviceProviding)?
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
     // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
     /// FR13.1/13.2 PDF 导出（SP-22）
@@ -158,6 +162,7 @@ struct AppContainer {
         // 因此 opener 恒定可用；真正的门仍是 checker 的 pinned root。
         let catalogChecker: (any MedicalCatalogReleaseResolving)?
         let catalogOpener: (any MedicalCatalogPackageOpening)?
+        let updateAdviceProvider: (any UpdateAdviceProviding)?
         #if os(iOS) || os(macOS)
         let catalogRoot = bundledData("MedicalCatalogRoot", "json")
         catalogChecker = catalogRoot.map { root in
@@ -168,14 +173,20 @@ struct AppContainer {
                                           localVersion: { try? MedicalCatalogStore.installedVersion(path: catalogPath) }) // try?-ok: 读版本失败=按「无本地版本」处理，检查仍可用
         }
         catalogOpener = EnvelopeMedicalCatalogPackageOpening()
+        // P3（2026-10-07）：通告面通道已上线（固定 /git/raw 二维码），装配即 live；
+        // floor 与医疗信任状态同支持目录、独立文件。
+        updateAdviceProvider = UpdateAdviceService(
+            floorStore: UpdateAdviceFloorStore.production(supportDirectory: catalogSupport))
         #else
         catalogChecker = nil
         catalogOpener = nil
+        updateAdviceProvider = nil
         #endif
         return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
                         medicalCatalogUpdater: updater,
                         medicalCatalogChecker: catalogChecker,
-                        medicalCatalogOpener: catalogOpener)
+                        medicalCatalogOpener: catalogOpener,
+                        updateAdvice: updateAdviceProvider)
     }
 
     /// 生产投递门统一装配（live 与降级路径共用）——装饰器链只此一处定义：
@@ -233,7 +244,8 @@ struct AppContainer {
                                  medicalCatalog: MedicalCatalogStore? = nil,
                                  medicalCatalogUpdater: MedicalCatalogUpdateService? = nil,
                                  medicalCatalogChecker: (any MedicalCatalogReleaseResolving)? = nil,
-                                 medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil) -> AppContainer {
+                                 medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil,
+                                 updateAdvice: (any UpdateAdviceProviding)? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
         EngineRegistry.shared.registerDefaultEngines()
@@ -339,6 +351,7 @@ struct AppContainer {
                              medicalCatalogUpdater: medicalCatalogUpdater,
                              medicalCatalogChecker: medicalCatalogChecker,
                              medicalCatalogOpener: medicalCatalogOpener,
+                             updateAdvice: updateAdvice,
                              pdfExport: pdfExport,
                             healthReader: healthReader,
                             healthSync: healthSync)

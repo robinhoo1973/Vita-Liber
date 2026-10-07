@@ -50,5 +50,16 @@ enum ASRPackageCrypto {
                                                   namespace: namespace, masterKey: master,
                                                   onProgress: onProgress)
     }
+
+    /// 更新通告载荷信封解密（README VL-INDEX 二维码；identity=`update-payload-<64hex>`）。
+    /// 与 ASR 域同密钥、同 namespace——载荷是提示面，信任语义与 ASR 包一致；
+    /// 明文=单 entry ZIP(payload.json)，App 侧再以 sha256(payload.json)==identity 尾段回验。
+    static func decryptUpdatePayloadEnvelope(at source: URL, to destination: URL,
+                                             identity: String) throws {
+        let master = try PackageEnvelopeCrypto.decodeHexKey(masterKeyHex)
+        try PackageEnvelopeCrypto.decryptEnvelope(at: source, to: destination, identity: identity,
+                                                  namespace: namespace, masterKey: master,
+                                                  onProgress: nil)
+    }
 }
 #endif

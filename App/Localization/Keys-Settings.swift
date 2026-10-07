@@ -724,4 +724,26 @@ static var lifecycleSingle: String { t("lifecycle.single") }
     static var reportIssueMissing: String { t("report.issueMissing") }
     static var reportIssueLayout: String { t("report.issueLayout") }
     static var reportIssueEngine: String { t("report.issueEngine") }
+
+    // SP-64 通告区（README VL-INDEX 二维码；委员会 P3 设计 2026-10-07）。
+    // R2.3 静态断言面:四态与未读态各自独立键,禁止与「无更新」共用任何键。
+    static var updateAdviceTitle: String { t("updateAdvice.title") }
+
+    static var updateAdviceNote: String { t("updateAdvice.note") }
+
+    static var updateAdviceRead: String { t("updateAdvice.read") }
+
+    static var updateAdviceRowIdle: String { t("updateAdvice.row.idle") }
+
+    static var updateAdviceRowAnnounced: String { t("updateAdvice.row.announced") }
+
+    static var updateAdviceRowNotMentioned: String { t("updateAdvice.row.notMentioned") }
+
+    static var updateAdviceRowStale: String { t("updateAdvice.row.stale") }
+
+    static var updateAdviceRowUnavailable: String { t("updateAdvice.row.unavailable") }
+
+    static var updateAdviceDomainAsr: String { t("updateAdvice.domain.asr") }
+
+    static var updateAdviceDomainMedical: String { t("updateAdvice.domain.medical") }
 }

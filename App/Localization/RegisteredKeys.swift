@@ -1122,6 +1122,11 @@ extension L10n {
         "field.anesthesiologist", "field.anesthesia_method", "field.preop_diagnosis", "field.postop_diagnosis", "field.procedure_course",
         "field.intraop_findings", "field.implants", "field.specimen", "field.blood_loss", "field.transfusion", "field.drainage",
         "field.postop_orders", "field.complications", "field.ended_at",
-        "field.treated_at", "field.treatment_type", "field.executor", "field.drugs_text", "field.session", "field.adverse_reaction", "field.result"
+        "field.treated_at", "field.treatment_type", "field.executor", "field.drugs_text", "field.session", "field.adverse_reaction", "field.result",
+        // SP-64 通告区（2026-10-07 P3）：四态 + 未读态独立键（R2.3）
+        "updateAdvice.title", "updateAdvice.note", "updateAdvice.read",
+        "updateAdvice.row.idle", "updateAdvice.row.announced", "updateAdvice.row.notMentioned",
+        "updateAdvice.row.stale", "updateAdvice.row.unavailable",
+        "updateAdvice.domain.asr", "updateAdvice.domain.medical"
     ]
 }
