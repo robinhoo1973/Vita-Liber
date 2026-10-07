@@ -25,7 +25,7 @@
   training_feed_manifest.json 血缘(构建器随语料 manifest 收录)
 
 用法:
-  python3 scripts/distill/extract/catalog_source.py \
+  python3 .github/actions/distill/extract/catalog_source.py \
       --catalog-sqlite corpus-assets/catalog.sqlite --out-dir extract-data \
       [--source-json corpus-assets/source.json]
 """

@@ -193,7 +193,7 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
 
     读取 catalog_meta 校验 schema 版本与 data_version;只消费
     name/alias/match_status 三族字段,usage/价格/展示字段一律不读
-    (抽取语料构建器是另一消费者,其读数纪律见 scripts/distill/extract/catalog_source.py)。
+    (抽取语料构建器是另一消费者,其读数纪律见 .github/actions/distill/extract/catalog_source.py)。
 
     group_by_name=True:把同域同 name_zh 的**多行**合并为一个实体(别名并集)。
     生产目录的药品行按许可编号逐行物化(NHSA 273k 行 ≈ 40k 唯一名),逐行建实体

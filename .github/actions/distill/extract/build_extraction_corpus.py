@@ -2,12 +2,12 @@
 """
 抽取训练语料构建器（真实数据驱动 + 注册表可扩展，2026-09-24）
 
-—— 2026-10-07 迁入 CI 簇（scripts/distill/extract/）说明：本文件是
+—— 2026-10-07 迁入 CI 簇（.github/actions/distill/extract/）说明：本文件是
    refactor/tools/training/{macos,windows}/scripts/corpus/build_extraction_corpus.py
    的正本迁入（同轮迁入 extraction_noise.py 与 datamatrix.py 裁剪版），改动仅三处：
    ① 数据源路径说明（CI 的 data-dir 由 catalog_source.py 从 CNB Release 目录物化）；
    ② datamatrix 改为同目录 import（CI 无 trainlib 包布局）；
-   ③ 默认路径改为仓锚定（prompts 落本目录 prompts/、tokenizer 取 scripts/distill/gen/）。
+   ③ 默认路径改为仓锚定（prompts 落本目录 prompts/、tokenizer 取 .github/actions/distill/gen/）。
    生成逻辑（REGISTRY/POOLS/噪声/预算/verbatim 守卫）与训练机逐字一致——
    两端同步纪律：任何修改必须两侧同步（训练/推理同分布的组成部分）。
 
@@ -29,7 +29,7 @@
                  cn|hk|tw）。药品池按地区加载；医院/科室/诊断/检验名称池优先取 data/ref/<域>_<地区>.jsonl，
                  缺文件退回内置名单并在清单 pools.ref 标 fallback。样本按所选地区分布生成（TW/HK 繁体版式）。
                  --regions/--types 交叉、旧 --sources（药品源）仍可用，取舍规则见 datamatrix.resolve_cells。
-   --prompts-dir prompts/（scripts/distill/extract/export_prompts.sh 从 CoreKit Domain 编译导出）
+   --prompts-dir prompts/（.github/actions/distill/extract/export_prompts.sh 从 CoreKit Domain 编译导出）
 
 —— 输出（--out-dir，默认 out/extract-dataset）：
    extraction_sft.jsonl      多任务 SFT（conversations 形状；assistant=span JSON）
@@ -263,7 +263,7 @@ def load_specs(prompts_dir, kinds):
         prompt_path = os.path.join(prompts_dir, f"prompt_{kind}.txt")
         spec_path = os.path.join(prompts_dir, f"spec_{kind}.json")
         if not (os.path.exists(prompt_path) and os.path.exists(spec_path)):
-            log(f"[skip] {kind}: 缺 prompt_/spec_ 文件（跑 scripts/distill/extract/export_prompts.sh 导出）")
+            log(f"[skip] {kind}: 缺 prompt_/spec_ 文件（跑 .github/actions/distill/extract/export_prompts.sh 导出）")
             continue
         with open(prompt_path, "r", encoding="utf-8") as fh:
             prompt = fh.read().strip("\n")
@@ -1015,7 +1015,7 @@ def main():
     kinds = [k.strip() for k in args.kinds.split(",") if k.strip()] or list(REGISTRY.keys())
     specs = load_specs(args.prompts_dir, kinds)
     if not specs:
-        log("[FAIL] 无可用规格文件——先跑 scripts/distill/extract/export_prompts.sh")
+        log("[FAIL] 无可用规格文件——先跑 .github/actions/distill/extract/export_prompts.sh")
         return 2
     kinds = [k for k in kinds if k in specs]
 

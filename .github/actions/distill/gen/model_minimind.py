@@ -1,7 +1,7 @@
 # 来源:refactor/tools/training/{macos,windows}/scripts/model/model_minimind.py
 #   (本工程自 2026-09 起的医学域训练栈正本,派生自 MiniMind;upstream
 #    jingyaogong/minimind 为 Apache-2.0 许可,已验证)。2026-10-07 迁入 CI 簇
-#   (scripts/distill/gen/),供 CI 侧生成式 SFT 烟雾训练;逐字节一致为纪律——
+#   (.github/actions/distill/gen/),供 CI 侧生成式 SFT 烟雾训练;逐字节一致为纪律——
 #   权重/配置与本副本的不兼容改动必须两侧同步。
 import math, torch, torch.nn.functional as F
 from torch import nn

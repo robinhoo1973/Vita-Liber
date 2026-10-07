@@ -1,4 +1,4 @@
-# scripts/distill/ —— 蒸馏/训练簇(实体链接 + 抽取 + 接地对话)
+# .github/actions/distill/ —— 蒸馏/训练簇(实体链接 + 抽取 + 接地对话)
 
 > 设计依据:`refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md`(§7 训练落点/§10 评测闸)
 > 数据源(2026-10-07):CNB `robinhoo1973/Resources` release `medical-data`(匿名只读;
@@ -58,16 +58,16 @@ distill/
 ## 本地验证
 
 ```bash
-bash scripts/distill/run_tests.sh                     # 单元测试 + py_compile(零第三方依赖即可跑)
+bash .github/actions/distill/run_tests.sh                     # 单元测试 + py_compile(零第三方依赖即可跑)
 # 数据面端到端(需 cryptography/pypinyin/tokenizers,见 requirements-distill-prepare-linux):
-python3 scripts/distill/fetch_catalog.py --out-dir corpus-assets            # CNB 匿名 + 信封解密(约 288MB 下载)
-python3 scripts/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets   # 开发旁路
-python3 scripts/distill/extract/catalog_source.py --catalog-sqlite corpus-assets/catalog.sqlite --out-dir extract-data
-bash scripts/distill/extract/export_prompts.sh                              # 需 swiftc(CI runner 预装)
-python3 scripts/distill/extract/build_extraction_corpus.py --data-dir extract-data \
-    --prompts-dir scripts/distill/extract/prompts --out-dir extraction-out --dry-run
-python3 scripts/distill/dialogue/builder.py --catalog-dir extract-data --out-dir dialogue-out --dry-run
-python3 scripts/distill/build_corpus.py --catalog-sqlite corpus-assets/catalog.sqlite \
+python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets            # CNB 匿名 + 信封解密(约 288MB 下载)
+python3 .github/actions/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets   # 开发旁路
+python3 .github/actions/distill/extract/catalog_source.py --catalog-sqlite corpus-assets/catalog.sqlite --out-dir extract-data
+bash .github/actions/distill/extract/export_prompts.sh                              # 需 swiftc(CI runner 预装)
+python3 .github/actions/distill/extract/build_extraction_corpus.py --data-dir extract-data \
+    --prompts-dir .github/actions/distill/extract/prompts --out-dir extraction-out --dry-run
+python3 .github/actions/distill/dialogue/builder.py --catalog-dir extract-data --out-dir dialogue-out --dry-run
+python3 .github/actions/distill/build_corpus.py --catalog-sqlite corpus-assets/catalog.sqlite \
     --out entlink-out/corpus.jsonl --group-by-name --include-canonical-names --exclude-domains department \
     --max-terms-per-entity 3 --max-samples-per-domain "drug=200000,hospital=80000,diagnosis=60000,exam=30000" \
     --dump-entities corpus-assets/entities.jsonl
@@ -83,8 +83,8 @@ macOS MPS 探测段)/ smoke(编码器 30 步 + 生成式 SFT 两语料 20 步 + 
 eval(entlink 基线闸 + 抽取/对话复验闸,双闸合一 verdict=fail 阻断 publish)
 → publish(内容寻址 append-only 到 Release distill-corpus)`。
 
-- 依赖钉版:`scripts/requirements/requirements-distill-{prepare-linux,train-linux,train-macos}.txt`
-  (S-M6 哈希钉版;生成脚本 `scripts/distill/make-requirements.sh`)。
+- 依赖钉版:`.github/config/requirements/requirements-distill-{prepare-linux,train-linux,train-macos}.txt`
+  (S-M6 哈希钉版;生成脚本 `.github/actions/distill/make-requirements.sh`)。
 - **零 secrets**:医疗数据匿名读取;信封主钥 = App 内嵌公开常量(与
   `ASRPackageCrypto.swift` 同值断言见 tests/test_fetch_catalog.py)。
 - 语料产物:`corpus.jsonl`(实体链接)/`extraction_*.jsonl`(抽取)/`dialogue_*.jsonl`(对话)

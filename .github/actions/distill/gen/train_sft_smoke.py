@@ -3,7 +3,7 @@
 
 职责边界(计划文档 §7):托管 CPU 只跑「训练循环/checkpoint/预算停机」的烟雾回归;
 全量训练在私仓自托管 GPU 消费本流水线冻结发布的语料(§7.5 dispatch 契约)。
-本脚本即烟雾执行体:真实 minimind 模型代码(scripts/distill/gen/model_minimind.py,
+本脚本即烟雾执行体:真实 minimind 模型代码(.github/actions/distill/gen/model_minimind.py,
 与训练机正本逐字节同源)+ 真实 ChatML 数据管线(gen/sft_dataset.py)+ 小步数。
 
 纪律:
@@ -13,7 +13,7 @@
 - 模型配置与训练机一致(hidden 768 × 8 层,勿在 CI 侧改动——权重必须能被训练机/导出链消费)。
 
 用法:
-  python3 scripts/distill/gen/train_sft_smoke.py --corpus extraction_sft.jsonl \
+  python3 .github/actions/distill/gen/train_sft_smoke.py --corpus extraction_sft.jsonl \
       --out-dir smoke-extraction --max-steps 30 --budget-seconds 600 --batch 8 --seq 512
 """
 from __future__ import annotations

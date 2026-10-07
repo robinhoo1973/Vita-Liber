@@ -11,7 +11,7 @@ from pathlib import Path
 from fetch_catalog import (MEDICAL_PACKAGE_KEY_HEX, parse_catalog_pointer, select_manifest_asset)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-RELEASE_DIR = REPO_ROOT / "scripts" / "release"
+RELEASE_DIR = REPO_ROOT / ".github" / "actions" / "release"
 
 SQLITE_SHA = "ff6d955e4394b70d6c3f29601463df787bc7f3484e0c5b6dc091211daf225258"
 CIPHER_SHA = "bf82d8890d80fcd3aba5f0832fb9e9c4be71bf4573a98346dae3d115a76f148f"

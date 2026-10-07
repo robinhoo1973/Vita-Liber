@@ -9,8 +9,8 @@
   展示件可短暂缺席)/ `package-<catalogVersion>.bin`(append-only)。v2 旧名已删,
   **无双重文法**——本脚本不做旧名回退,缺固定名即响亮失败(防静默吃旧资产)。
 - 匿名通道:tag 页 SSR(`__NEXT_DATA__`)做资产发现,`/-/releases/download/` 做下载。
-  两条通道与 App 侧解析器同源(scripts/release/prepare-asr-source.py,路径加载,零复刻)。
-- 包为 AES-256-GCM 分块信封(与 ASR 同构,scripts/release/asr_envelope.py 正本)。
+  两条通道与 App 侧解析器同源(.github/actions/release/prepare-asr-source.py,路径加载,零复刻)。
+- 包为 AES-256-GCM 分块信封(与 ASR 同构,.github/actions/release/asr_envelope.py 正本)。
   identity = 验签指针里的 sqliteSha256(也是包名第一段);master = App 内嵌公开常量
   (ASRPackageCrypto.masterKeyHex,CoreKit/Sources/Infrastructure/ASRPackageCrypto.swift)。
   **非秘密**——该钥匙随 App 二进制公开;此处不经任何 secret 注入。
@@ -18,8 +18,8 @@
   内层 SQLite SHA-256,任一层不符即拒绝产出(绝不落半成品)。
 
 用法:
-  python3 scripts/distill/fetch_catalog.py --out-dir corpus-assets
-  python3 scripts/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets  # 开发旁路
+  python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets
+  python3 .github/actions/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets  # 开发旁路
 """
 from __future__ import annotations
 
@@ -39,9 +39,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent
 while REPO_ROOT != REPO_ROOT.parent and not (REPO_ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
     REPO_ROOT = REPO_ROOT.parent
-RELEASE_DIR = REPO_ROOT / "scripts" / "release"
+RELEASE_DIR = REPO_ROOT / ".github" / "actions" / "release"
 
-# scripts/release 的解析器/信封实现按需加载(与 probe_cnb_resources.py 同一路径加载法):
+# .github/actions/release 的解析器/信封实现按需加载(与 probe_cnb_resources.py 同一路径加载法):
 # 模块顶层保持 stdlib——零依赖测试闸可直接 import 本模块;信封路径(需 cryptography)
 # 只在真正下载/解密时加载,缺依赖时报错信息落在使用点上。
 _PREPARE_MODULE = None

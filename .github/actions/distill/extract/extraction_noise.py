@@ -2,7 +2,7 @@
 """
 OCR / ASR 噪声模型（抽取训练语料专用，2026-09-24）
 
-2026-10-07 迁入 CI 簇（scripts/distill/extract/；来源 refactor/tools/training/
+2026-10-07 迁入 CI 簇（.github/actions/distill/extract/；来源 refactor/tools/training/
 {macos,windows}/scripts/corpus/extraction_noise.py，训练机正本）。**逐字节一致为
 纪律**：任何修改必须两侧同步（训练/推理同分布的组成部分——噪声分布即输入分布）。
 本副本不参与训练机部署，仅由 CI 语料构建器消费。

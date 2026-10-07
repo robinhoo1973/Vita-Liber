@@ -9,7 +9,7 @@
 #                   tokenizers 预算守卫——语料构建器与 eval 的轻量子集)
 #
 # 用法:
-#   bash scripts/distill/make-requirements.sh <wheel-dir-linux> <wheel-dir-macos> <out-dir>
+#   bash .github/actions/distill/make-requirements.sh <wheel-dir-linux> <wheel-dir-macos> <out-dir>
 # 前置:linux 目录含全量 wheel(2026-10-07 起含 transformers 栈;生成命令见
 #   requirements-distill-train-linux.txt 头部注记);macos 目录含 torch arm64
 #   wheel(PyPI JSON 直取,跨平台 pip 解析有 platform_system 标记陷阱)。
@@ -46,7 +46,7 @@ emit() {
 }
 
 {
-  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner;torch 走 pytorch.org CPU 索引,无 CUDA)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   echo "# 内容(2026-10-07 起):torch CPU + pypinyin + transformers 栈(生成式 SFT 烟雾"
@@ -56,7 +56,7 @@ emit() {
 
 if compgen -G "$MACOS_DIR/*.whl" > /dev/null; then
   {
-    echo "# 蒸馏/训练依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+    echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
     echo "# 平台:macosx arm64 cp313(macos-15 runner;PyPI arm64 wheel 自带 MPS)"
     echo "# 生成日期:$(date -u +%Y-%m-%d)"
     emit "# -- macos --" "$MACOS_DIR"/*.whl
@@ -68,7 +68,7 @@ fi
 # eval job 只钉 pypinyin(纯 Python 零传递依赖,py3-none-any 双平台同一 wheel):
 # 基线臂须与 prepare 构建语料时同拼音层可用性,且不拖入 torch 全量训练依赖。
 {
-  echo "# 蒸馏/评测闸依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏/评测闸依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   echo "#"
@@ -88,7 +88,7 @@ fi
 # + tokenizers(抽取构建器预算守卫必须与训练侧同一分词口径)。tests job 同装本
 # 清单——解密往返等单测因此得以在 CI 实跑(缺依赖时测试自动 skip 而非假绿)。
 {
-  echo "# 蒸馏 prepare/测试依赖钉版清单(S-M6;由 scripts/distill/make-requirements.sh 生成,勿手改)"
+  echo "# 蒸馏 prepare/测试依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   echo "# -- prepare --"

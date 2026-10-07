@@ -24,7 +24,7 @@ App 层经 L10n 渲染(本契约只承载结构 + 事实片段,7 段结构仍由
   ④ 全语料复扫(问题文本 + 复述残余)——任一条违规即抛,不落半成品。
 
 用法:
-  python3 scripts/distill/dialogue/builder.py \
+  python3 .github/actions/distill/dialogue/builder.py \
       --catalog-dir extract-data --out-dir dialogue-out --count 4000 \
       --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
       --safety-source CoreKit/Sources/Domain/AILocal.swift

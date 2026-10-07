@@ -18,7 +18,7 @@
                 (用户问题全文 + 复述残余;资料原文(引用)不扫——与 App 口径一致)。
 退出码:0=pass;2=RED(verdict=fail,阻断 publish);1=运行错误。
 用法:
-  python3 scripts/distill/eval_corpora.py \
+  python3 .github/actions/distill/eval_corpora.py \
       --extraction-dir out/extraction --dialogue-dir out/dialogue \
       --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
       --write-verdict verdict-corpora.json

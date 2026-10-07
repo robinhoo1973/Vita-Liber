@@ -11,8 +11,8 @@
 # Linux(含 GitHub ubuntu runner 的 Swift 工具链)与 macOS 均可运行。
 #
 # 用法:
-#   bash scripts/distill/extract/export_prompts.sh [out_dir]
-#   默认 out_dir = scripts/distill/extract/prompts
+#   bash .github/actions/distill/extract/export_prompts.sh [out_dir]
+#   默认 out_dir = .github/actions/distill/extract/prompts
 # ============================================================================
 set -euo pipefail
 
