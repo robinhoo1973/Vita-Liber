@@ -1,0 +1,639 @@
+{
+  "formatVersion": 1,
+  "bundledModels": [
+    {
+      "id": "zipformer",
+      "variant": "large"
+    }
+  ],
+  "shared": [
+    {
+      "role": "vad",
+      "path": "silero/silero_vad.onnx",
+      "url": "https://raw.githubusercontent.com/snakers4/silero-vad/6478567951ae5c9979ad7b234185b5515f4be7a1/src/silero_vad/data/silero_vad.onnx",
+      "bytes": 2327524,
+      "sha256": "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f",
+      "watch": {
+        "kind": "github-commit",
+        "repo": "snakers4/silero-vad",
+        "member": "src/silero_vad/data/silero_vad.onnx"
+      }
+    },
+    {
+      "role": "notice",
+      "path": "silero/LICENSE",
+      "url": "https://raw.githubusercontent.com/snakers4/silero-vad/6478567951ae5c9979ad7b234185b5515f4be7a1/LICENSE",
+      "bytes": 1075,
+      "sha256": "2e63e9a38b6e8fc0c7bc37ce174caca1862870856c6daf5697cfb785e925520b",
+      "watch": {
+        "kind": "github-commit",
+        "repo": "snakers4/silero-vad",
+        "member": "LICENSE"
+      }
+    }
+  ],
+  "models": [
+    {
+      "id": "qwen3",
+      "variant": "medium",
+      "license": "Apache-2.0",
+      "revision": "0.6B-int8-2026-03-25",
+      "source": "https://github.com/QwenLM/Qwen3-ASR",
+      "watch": {
+        "kind": "github-release",
+        "repo": "k2-fsa/sherpa-onnx",
+        "asset": "sherpa-onnx-qwen3-asr-*-int8-*.tar.bz2"
+      },
+      "versionPolicy": {
+        "prefix": "0.6b-int8",
+        "dateSource": "filename"
+      },
+      "files": [],
+      "archive": {
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+        "bytes": 878702423,
+        "sha256": "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+        "root": "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+        "parts": [
+          {
+            "role": "frontend",
+            "member": "conv_frontend.onnx",
+            "path": "qwen3/conv_frontend.onnx"
+          },
+          {
+            "role": "encoder",
+            "member": "encoder.int8.onnx",
+            "path": "qwen3/encoder.int8.onnx"
+          },
+          {
+            "role": "decoder",
+            "member": "decoder.int8.onnx",
+            "path": "qwen3/decoder.int8.onnx"
+          },
+          {
+            "role": "vocab",
+            "member": "tokenizer/vocab.json",
+            "path": "qwen3/tokenizer/vocab.json"
+          },
+          {
+            "role": "merges",
+            "member": "tokenizer/merges.txt",
+            "path": "qwen3/tokenizer/merges.txt"
+          },
+          {
+            "role": "tokenizerConfig",
+            "member": "tokenizer/tokenizer_config.json",
+            "path": "qwen3/tokenizer/tokenizer_config.json"
+          },
+          {
+            "role": "notice",
+            "member": "README.md",
+            "path": "qwen3/README.md"
+          }
+        ]
+      }
+    },
+    {
+      "id": "zipformer",
+      "variant": "large",
+      "license": "Apache-2.0",
+      "revision": "98590b7ed6443e77b714204da2757d75e1a642f4",
+      "source": "https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
+      },
+      "versionPolicy": {
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "zipformer/encoder-epoch-99-avg-1.int8.onnx",
+          "member": "encoder-epoch-99-avg-1.int8.onnx",
+          "bytes": 181895032,
+          "sha256": "8fa764187a261844f859d7143ebaa563af5d10adfece4c18a8f414c88cba2a9b"
+        },
+        {
+          "role": "decoder",
+          "path": "zipformer/decoder-epoch-99-avg-1.onnx",
+          "member": "decoder-epoch-99-avg-1.onnx",
+          "bytes": 13876452,
+          "sha256": "2e3b5ec371f8899ee6acd829fd753ba45772df57a91bdf37cde3136354e7db7d"
+        },
+        {
+          "role": "joiner",
+          "path": "zipformer/joiner-epoch-99-avg-1.int8.onnx",
+          "member": "joiner-epoch-99-avg-1.int8.onnx",
+          "bytes": 3228404,
+          "sha256": "1ed689c5ed19dbaa725d9d191bb4822b5f4855a39e1ffd28cbc1f340d25b2ee0"
+        },
+        {
+          "role": "tokens",
+          "path": "zipformer/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 56317,
+          "sha256": "a8e0e4ec53810e433789b54a5c0134a7eaa2ffca595a6334d54c00da858841d3"
+        },
+        {
+          "role": "bpe",
+          "path": "zipformer/bpe.vocab",
+          "member": "bpe.vocab",
+          "bytes": 12564,
+          "sha256": "d0b642f3a2eacd5fadefdeff9e0e1358cab729647cbb7fe58cf738e1f7407029"
+        },
+        {
+          "role": "notice",
+          "path": "zipformer/README.md",
+          "member": "README.md",
+          "bytes": 296,
+          "sha256": "b6f9458f4208ae821beaaf11dc983486916a4089a2f3677b40f9ff06ec4e6440"
+        }
+      ]
+    },
+    {
+      "id": "dolphin",
+      "variant": "small",
+      "license": "Apache-2.0",
+      "revision": "c8b6689509acfcd744c04e5e169164f9ac4cae32",
+      "source": "https://github.com/DataoceanAI/Dolphin",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-dolphin-small-ctc-multi-lang-int8-2025-04-02"
+      },
+      "versionPolicy": {
+        "prefix": "ctc-int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "model",
+          "path": "dolphin/model.int8.onnx",
+          "member": "model.int8.onnx",
+          "bytes": 249658954,
+          "sha256": "c1afcb9265de0ebd853eb8f570b371f399a6f9b2b9af9a3cb17c2e509171e697"
+        },
+        {
+          "role": "tokens",
+          "path": "dolphin/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 504662,
+          "sha256": "c3788261a51df1899ea4b210b552cd42139204de72c0ad60f6cebb199078872e"
+        },
+        {
+          "role": "notice",
+          "path": "dolphin/README.md",
+          "member": "README.md",
+          "bytes": 141,
+          "sha256": "0ed3b1f1fb25f000be670f4b3dba24989f939609b89be84e91579eec397702a9"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "variant": "small",
+      "license": "MIT",
+      "revision": "8f3c18b358db4d1f2fc1eae49d75cd20989e4309",
+      "source": "https://github.com/openai/whisper",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-whisper-small"
+      },
+      "versionPolicy": {
+        "prefix": "int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/small-encoder.int8.onnx",
+          "member": "small-encoder.int8.onnx",
+          "bytes": 112442483,
+          "sha256": "4cbe7b22fa9026b843b60a68640c747de05bafb1a11b57edc0e66c232d9f33a9"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/small-decoder.int8.onnx",
+          "member": "small-decoder.int8.onnx",
+          "bytes": 262226114,
+          "sha256": "acad50b5c782696e91b55914cc5ab4f756f1532f76e22aa6fc615f39fb69a8ee"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/small-tokens.txt",
+          "member": "small-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/LICENSE",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "variant": "base",
+      "license": "MIT",
+      "revision": "bb53ee204431c90d314c1cc08d28d23e5b7927cc",
+      "source": "https://github.com/openai/whisper",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-whisper-base"
+      },
+      "versionPolicy": {
+        "prefix": "int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/base-encoder.int8.onnx",
+          "member": "base-encoder.int8.onnx",
+          "bytes": 29120534,
+          "sha256": "0b8fb1304b6109976038efff5ace81720e00386f3ff6b54ee8c75291ca0a1e11"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/base-decoder.int8.onnx",
+          "member": "base-decoder.int8.onnx",
+          "bytes": 130672026,
+          "sha256": "9759d217388a01b3a4c7c15533201067b48ae819c4daafc8624e64b9409dc02d"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/base-tokens.txt",
+          "member": "base-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/base/LICENSE",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d"
+        }
+      ]
+    },
+    {
+      "id": "dolphin",
+      "variant": "base",
+      "license": "Apache-2.0",
+      "revision": "1f3a53d0ecf658f8b0974e2cfde368eee40732fa",
+      "source": "https://github.com/DataoceanAI/Dolphin",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02"
+      },
+      "versionPolicy": {
+        "prefix": "ctc-int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "model",
+          "path": "dolphin-base/model.int8.onnx",
+          "member": "model.int8.onnx",
+          "bytes": 103729802,
+          "sha256": "a3aa46c97f3f60f135ff949793cb05fabe7a0b3c484dc2e3cc699d354ee11b76"
+        },
+        {
+          "role": "tokens",
+          "path": "dolphin-base/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 504662,
+          "sha256": "c3788261a51df1899ea4b210b552cd42139204de72c0ad60f6cebb199078872e"
+        },
+        {
+          "role": "notice",
+          "path": "dolphin-base/README.md",
+          "member": "README.md",
+          "bytes": 141,
+          "sha256": "ca23d725948155103227b7df3da70a564098ce6a8958ffdfbfaed74217e66ed8"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "variant": "medium",
+      "license": "MIT",
+      "revision": "8c31d28503847560985df21f90e14f0c736e075e",
+      "source": "https://github.com/openai/whisper",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-whisper-medium"
+      },
+      "versionPolicy": {
+        "prefix": "int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/medium-encoder.int8.onnx",
+          "member": "medium-encoder.int8.onnx",
+          "bytes": 374196283,
+          "sha256": "1c54582b4d829de0089f6cb63bbbdb3bf7555398bacaf855fbecf1a84dfd193e"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/medium-decoder.int8.onnx",
+          "member": "medium-decoder.int8.onnx",
+          "bytes": 571059257,
+          "sha256": "595d00a338a365a7bfa0ca7f296cabc639583bef770ab6130df90f49a6412747"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/medium-tokens.txt",
+          "member": "medium-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/medium/LICENSE",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "variant": "tiny",
+      "license": "MIT",
+      "revision": "65176e2deb88badc814a94058666cadccc29b61c",
+      "source": "https://github.com/openai/whisper",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-whisper-tiny"
+      },
+      "versionPolicy": {
+        "prefix": "int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/tiny-encoder.int8.onnx",
+          "member": "tiny-encoder.int8.onnx",
+          "bytes": 12937772,
+          "sha256": "d24fb083ae3b1041fc24e97971d60e280c9342201fbb67b0ab428a8b4a51a434"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/tiny-decoder.int8.onnx",
+          "member": "tiny-decoder.int8.onnx",
+          "bytes": 89855401,
+          "sha256": "d2fece8dd42771f1df975c6c0445770d0c292bf7547c2cae04a6c0cc57540925"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/tiny-tokens.txt",
+          "member": "tiny-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/tiny/LICENSE",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d"
+        }
+      ]
+    },
+    {
+      "id": "whisper",
+      "variant": "turbo",
+      "license": "MIT",
+      "revision": "2ca6ff69fc878651b770880507669577ac41c2ff",
+      "source": "https://github.com/openai/whisper",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-whisper-turbo"
+      },
+      "versionPolicy": {
+        "prefix": "int8",
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "whisper/turbo-encoder.int8.onnx",
+          "member": "turbo-encoder.int8.onnx",
+          "bytes": 674716297,
+          "sha256": "b02dcdf54f348741e93fe732b67d933c8dcb6735655f710640143081db38878b"
+        },
+        {
+          "role": "decoder",
+          "path": "whisper/turbo-decoder.int8.onnx",
+          "member": "turbo-decoder.int8.onnx",
+          "bytes": 361080764,
+          "sha256": "20accd02388482eb3a46bd615631adfdc85e1eb2c7db9ea3f02a40ffe6b81547"
+        },
+        {
+          "role": "tokens",
+          "path": "whisper/turbo-tokens.txt",
+          "member": "turbo-tokens.txt",
+          "bytes": 816730,
+          "sha256": "b34b360dbb493e781e479794586d661700670d65564001f23024971d1f2fa126"
+        },
+        {
+          "role": "notice",
+          "path": "whisper/turbo/LICENSE",
+          "url": "https://raw.githubusercontent.com/openai/whisper/86098128c0b4f24f0e2aa2994de830614b474227/LICENSE",
+          "bytes": 1063,
+          "sha256": "b5d65a59060e68c4ff940e1eddfa6f94b2d68fdf58ed7f4dd57721c997e35e9d"
+        }
+      ]
+    },
+    {
+      "id": "zipformer",
+      "variant": "small",
+      "license": "Apache-2.0",
+      "revision": "204ad334e2e683fd295359930cc16fc0432a23ac",
+      "source": "https://huggingface.co/pfluo/k2fsa-zipformer-chinese-english-mixed",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23"
+      },
+      "versionPolicy": {
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "encoder",
+          "path": "zipformer-small/encoder-epoch-99-avg-1.int8.onnx",
+          "member": "encoder-epoch-99-avg-1.int8.onnx",
+          "bytes": 21621684,
+          "sha256": "1c556ea57cec304e55ec4b72e52c1cc098bb01476ed7d90f3de939fe126487b1"
+        },
+        {
+          "role": "decoder",
+          "path": "zipformer-small/decoder-epoch-99-avg-1.onnx",
+          "member": "decoder-epoch-99-avg-1.onnx",
+          "bytes": 7509745,
+          "sha256": "5ee0f03a2768ff1d5c83ef3a493243c7935d316cd41280037b14783a3467cc78"
+        },
+        {
+          "role": "joiner",
+          "path": "zipformer-small/joiner-epoch-99-avg-1.int8.onnx",
+          "member": "joiner-epoch-99-avg-1.int8.onnx",
+          "bytes": 1795562,
+          "sha256": "a7cf9d82757bdcf786059454495a9ca95e4bd7347f72473fc08d794475c36169"
+        },
+        {
+          "role": "tokens",
+          "path": "zipformer-small/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 48697,
+          "sha256": "8b294db9045d6e5f94647f4c1eec1af4da143a75053c399611444b378ff966ac"
+        },
+        {
+          "role": "notice",
+          "path": "zipformer-small/README.md",
+          "member": "README.md",
+          "bytes": 226,
+          "sha256": "515751f07faad368f0863ae41773ff09635eba5920122d549abb8e45d5c88282"
+        }
+      ]
+    },
+    {
+      "id": "sense-voice",
+      "variant": "small",
+      "license": "model-license",
+      "revision": "2365baeacb507f821a0c8120fcee3d484dba7a07",
+      "source": "https://github.com/FunAudioLLM/SenseVoice",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+      },
+      "versionPolicy": {
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "model",
+          "path": "sense-voice-small/model.int8.onnx",
+          "member": "model.int8.onnx",
+          "bytes": 239233841,
+          "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"
+        },
+        {
+          "role": "tokens",
+          "path": "sense-voice-small/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 315894,
+          "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"
+        },
+        {
+          "role": "notice",
+          "path": "sense-voice-small/MODEL_LICENSE",
+          "url": "https://raw.githubusercontent.com/modelscope/FunASR/66d7a4c264a5993a2a63ed00c1f402c296ee521a/MODEL_LICENSE",
+          "bytes": 5306,
+          "sha256": "7dba975a2069691db4992b0592d70828b330d2f8a30a71450f4e152a554e84f8"
+        }
+      ]
+    },
+    {
+      "id": "fire-red",
+      "variant": "large",
+      "license": "Apache-2.0",
+      "revision": "423be1acfdc5d8aaa5a485fb6263fe4ea8570b06",
+      "source": "https://github.com/FireRedTeam/FireRedASR",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj2/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25"
+      },
+      "versionPolicy": {
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "model",
+          "path": "fire-red-large/model.int8.onnx",
+          "member": "model.int8.onnx",
+          "bytes": 775861420,
+          "sha256": "ca3dbabd82170110cc0b343c2890866d449984bc9cd92b9a18371ff80a81bb99"
+        },
+        {
+          "role": "tokens",
+          "path": "fire-red-large/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 79172,
+          "sha256": "1bc613de2112d257e61a349c3e72d1b1a9cf19c33d3ca954197ad2171e5ea07b"
+        },
+        {
+          "role": "notice",
+          "path": "fire-red-large/LICENSE",
+          "url": "https://raw.githubusercontent.com/FireRedTeam/FireRedASR/834635e4cf277ed8ca92049fc375b17c3dc20748/LICENSE",
+          "bytes": 11357,
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        }
+      ]
+    },
+    {
+      "id": "moonshine",
+      "variant": "tiny",
+      "license": "MIT",
+      "revision": "bf2b762c076d8ea61e2af0b3851c9564fb77552e",
+      "source": "https://github.com/usefulsensors/moonshine",
+      "watch": {
+        "kind": "hf-repo",
+        "repo": "csukuangfj/sherpa-onnx-moonshine-tiny-en-int8"
+      },
+      "versionPolicy": {
+        "dateSource": "commit"
+      },
+      "files": [
+        {
+          "role": "preprocessor",
+          "path": "moonshine-tiny/preprocess.onnx",
+          "member": "preprocess.onnx",
+          "bytes": 6800738,
+          "sha256": "f33addce61a143460fe753b5ee5b7db255e5140b5b779c065b94f6c83ff0bf4e"
+        },
+        {
+          "role": "encoder",
+          "path": "moonshine-tiny/encode.int8.onnx",
+          "member": "encode.int8.onnx",
+          "bytes": 18249187,
+          "sha256": "8774dfba578de027ec6595c2c654a0836434489bc963a0db124a7f181f571acb"
+        },
+        {
+          "role": "uncachedDecoder",
+          "path": "moonshine-tiny/uncached_decode.int8.onnx",
+          "member": "uncached_decode.int8.onnx",
+          "bytes": 53216096,
+          "sha256": "216737000dd5881a17aa043f6bbd286add33e4c3b0ae257153e2ec15438bdc41"
+        },
+        {
+          "role": "cachedDecoder",
+          "path": "moonshine-tiny/cached_decode.int8.onnx",
+          "member": "cached_decode.int8.onnx",
+          "bytes": 45264830,
+          "sha256": "2aff28bba6a03d8dcf5c9feac45462629bae37317442299f28115ad09da773f6"
+        },
+        {
+          "role": "tokens",
+          "path": "moonshine-tiny/tokens.txt",
+          "member": "tokens.txt",
+          "bytes": 436688,
+          "sha256": "1165c2aeb9f72f457a83be2d459a09054f27490acd9b41bd43794dfd25e296ea"
+        },
+        {
+          "role": "notice",
+          "path": "moonshine-tiny/LICENSE",
+          "member": "LICENSE",
+          "bytes": 1071,
+          "sha256": "29f60769d1779eb7e196d96b8d2dd471d0263cf8200c79e55c0c00183971ee1b"
+        }
+      ]
+    }
+  ]
+}

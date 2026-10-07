@@ -93,6 +93,9 @@ jobs:
           python3 .github/actions/release/test-cnb-release-workflow.py
           python3 .github/actions/release/test-seed-cnb-model-assets.py
           python3 .github/actions/release/test-asr-overview.py
+          # 2026-10-07 config 批：config（.github/config/asr/models.json）→
+          # 源清单投影逐字节复现（迁移验收基准）。
+          python3 .github/actions/release/test-asr-config-projection.py
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
