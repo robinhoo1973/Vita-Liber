@@ -7,7 +7,6 @@ write; --execute uploads only after the whole set verified. GitHub Release is
 read-only here and is not used by any active pipeline afterwards.
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 
+from asr_package import digest_file
 from cnb_release import ALLOWED_TAGS, CNBReleaseClient, CNBReleaseError, UrllibCNBTransport
 from model_trust import payload
 
@@ -70,7 +70,7 @@ def plan_assets(tag, source, expectations, work_dir):
         path = source(tag, github_name, Path(work_dir), size)
         if path.stat().st_size != size:
             raise SeedAssetError("Size mismatch for " + github_name)
-        if hashlib.sha256(path.read_bytes()).hexdigest() != sha256:
+        if digest_file(path) != sha256:
             raise SeedAssetError("Digest mismatch for " + github_name)
         staged[cnb_name] = path
     return staged
