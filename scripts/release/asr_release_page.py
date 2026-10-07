@@ -14,11 +14,9 @@
 硬规则（业主 2026-10-07 与委员会口径）：动态段**不列文件名 / URL / 哈希**；
 不出现任何数据来源；不出现失败 / 不可达一类措辞（禁用词由测试负样例钉住）。
 """
-import re
 
 SECTION_HEADING = "## 本次更新 / 本次資料更新 / This update"
 LANGUAGES = ("zh-Hans", "zh-Hant", "en")
-HEX64_RE = re.compile(r"[0-9a-f]{64}")
 
 _LABELS = {
     "zh-Hans": {
