@@ -31,6 +31,12 @@ class FakeCNBReleaseClient:
         self.downloads = downloads or {}
         self.readme_sync_calls = []
         self.release_body_updates = []
+        # 冷启动语义（2026-10-07 CI 37619255618 实证）：真实 CNBReleaseClient
+        # 在 Release 缺失时 list_assets 硬错；发布器首位幂等 ensure_release。
+        # 既有用例默认「Release 已存在」；冷启动回归用例显式置 False。
+        self.release_exists = True
+        self.release_creations = []
+        self.call_log = []
 
     def start_readme_sync(self, tag):
         self.readme_sync_calls.append(tag)
@@ -44,12 +50,24 @@ class FakeCNBReleaseClient:
     def update_release_body(self, tag, body):
         self.release_body_updates.append((tag, body))
 
+    def ensure_release(self, tag, title, body):
+        self.call_log.append("ensure_release")
+        if self.release_exists:
+            return {"id": "fixture-release", "tag_name": tag}
+        self.release_exists = True
+        self.release_creations.append((tag, title, body))
+        return {"id": "fixture-release", "tag_name": tag}
+
     def list_assets(self, tag):
+        if not self.release_exists:
+            raise RuntimeError("CNB release does not exist: " + tag)
+        self.call_log.append("list_assets")
         return [{"name": a["name"], "size": a["size"], "hash_algo": "sha256", "hash_value": a["sha256"],
                  "path": "/robinhoo1973/Resources/-/releases/download/" + tag + "/" + a["name"]}
                 for a in self.assets]
 
     def upload_immutable(self, tag, path, asset_name, expected_sha256, overwrite=False):
+        self.call_log.append("upload:" + asset_name)
         payload = Path(path).read_bytes()
         digest = hashlib.sha256(payload).hexdigest()
         if digest != expected_sha256:
@@ -272,6 +290,29 @@ class PublicationTests(unittest.TestCase):
             first_uploads = list(client.uploads)
             module["publish"](options, client)
             self.assertEqual(client.uploads, first_uploads)  # 复用路径不产生新上传
+
+    def test_publish_bootstraps_missing_release_before_first_read(self):
+        # 冷启动恢复（2026-10-07 CI 37619255618 实证）：CNB Release 被删除后
+        # 首个 list_assets 即硬错，3 次重试确定性无效——发布器是 Release 的
+        # 唯一创建者（业主 2026-10-07 问询落点），必须在任何远端读取前幂等
+        # 创建；创建先于一切上传（创建惯例 = release_notes_for_tag 模板）。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient()
+            client.release_exists = False
+            module["publish"](options, client)
+            self.assertEqual([tag for tag, _, _ in client.release_creations], ["asr-models"])
+            self.assertTrue(client.release_creations[0][1], "创建必须携带模板标题")
+            self.assertTrue(client.release_creations[0][2], "创建必须携带模板正文")
+            self.assertEqual(client.call_log[0], "ensure_release",
+                             "幂等创建必须先于首个远端读取/上传")
+            first_upload = next(i for i, call in enumerate(client.call_log)
+                                if call.startswith("upload:"))
+            self.assertGreater(first_upload, 0)
+            self.assertTrue(client.uploads)  # 冷启动 = 全量上传
 
     def test_same_version_different_payload_equivocation_rejected(self):
         module = runpy.run_path(str(TOOL))

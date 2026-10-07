@@ -127,6 +127,13 @@ def publish(args, client):
         raise ValueError("Package index/repository differs from the signed authorization")
     receipt = verify_packages(index, args.directory)
     # All validation above precedes the first mutating remote operation.
+    # 冷启动恢复（2026-10-07 CI 37619255618 实证）：Release 被删除后首个
+    # list_assets 即硬错（重试循环确定性无效）——发布器是 Release 的唯一
+    # 创建者（业主 2026-10-07「release 不存在是否需要创建」问询的落点：
+    # 要），首个远端读取前幂等 ensure；已存在时仅多一次 GET，创建惯例与
+    # upload_immutable 同源（release_notes_for_tag 模板）。
+    release_title, release_body = release_notes_for_tag(TAG)
+    client.ensure_release(TAG, release_title, release_body)
     remote = client.list_assets(TAG)
     previous_payload = check_remote_catalog_chain(client, args, catalog, remote_assets=remote)
 
