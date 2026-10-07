@@ -13,10 +13,19 @@ final class UpdateAdviceStateTests: XCTestCase {
         func read() async -> UpdateAdviceOutcome { outcome }
     }
 
+    /// 迟到结果用：读体可被取消（Task.sleep 响应取消）。
+    private struct SlowProvider: UpdateAdviceProviding {
+        let outcome: UpdateAdviceOutcome
+        func read() async -> UpdateAdviceOutcome {
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            return outcome
+        }
+    }
+
     @MainActor func testReadBeforeAnyActionIsIdleNotUnavailable() async {
         let state = UpdateAdviceState(provider: nil)
         XCTAssertNil(state.rowState(.asrModels), "读取前应为未读态（nil），不得预设不可用")
-        await state.read()
+        state.read()
         XCTAssertEqual(state.rowState(.asrModels), .unavailable)
         XCTAssertEqual(state.rowState(.medicalData), .unavailable)
     }
@@ -26,7 +35,8 @@ final class UpdateAdviceStateTests: XCTestCase {
             rows: [.asrModels: .announced, .medicalData: .notMentioned],
             payloadVersion: 3, generatedAt: "2026-10-07T00:00:00Z")
         let state = UpdateAdviceState(provider: StubProvider(outcome: expected))
-        await state.read()
+        state.read()
+        await state.readTask?.value
         XCTAssertEqual(state.outcome, expected)
         XCTAssertEqual(state.rowState(.asrModels), .announced)
         XCTAssertEqual(state.rowState(.medicalData), .notMentioned)
@@ -35,8 +45,33 @@ final class UpdateAdviceStateTests: XCTestCase {
     @MainActor func testStaleAndUnavailableOutcomesPassThrough() async {
         let state = UpdateAdviceState(provider: StubProvider(outcome: UpdateAdviceOutcome(
             rows: [.asrModels: .stale, .medicalData: .unavailable])))
-        await state.read()
+        state.read()
+        await state.readTask?.value
         XCTAssertEqual(state.rowState(.asrModels), .stale)
         XCTAssertEqual(state.rowState(.medicalData), .unavailable)
+    }
+
+    /// 统一更新中心批（架构席 §1.2）：取消 = 真中断 + 迟到结果丢弃，不产「暂不可用」假象。
+    @MainActor func testCancelDiscardsLateResult() async {
+        let state = UpdateAdviceState(provider: SlowProvider(outcome: UpdateAdviceOutcome(
+            rows: [.asrModels: .announced, .medicalData: .announced])))
+        state.read()
+        XCTAssertTrue(state.isReading)
+        let task = state.readTask
+        state.cancel()
+        XCTAssertFalse(state.isReading)
+        await task?.value
+        XCTAssertNil(state.outcome, "取消后不得落定任何结果（含 provider 归约出的不可用态）")
+        XCTAssertNil(state.rowState(.asrModels), "首读取消后应保持未读态")
+    }
+
+    /// R11（测试席先行发现）：outcome 已落定但域缺行 = 不可用，不得回退成「尚未读取」。
+    @MainActor func testOutcomeWithMissingDomainRowIsUnavailableNotIdle() async {
+        let state = UpdateAdviceState(provider: StubProvider(outcome: UpdateAdviceOutcome(
+            rows: [.asrModels: .announced])))
+        state.read()
+        await state.readTask?.value
+        XCTAssertEqual(state.rowState(.medicalData), .unavailable)
+        XCTAssertEqual(state.rowState(.asrModels), .announced)
     }
 }

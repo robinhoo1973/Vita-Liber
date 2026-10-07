@@ -19,8 +19,7 @@ struct UpdateAdviceSection: View {
                         .accessibilityIdentifier("SP-64.resource.advice." + domain.rawValue)
                 }
                 Button {
-                    guard let adviceState else { return }
-                    Task { await adviceState.read() }
+                    adviceState?.read()
                 } label: {
                     Label(L10n.updateAdviceRead, systemImage: "qrcode.viewfinder")
                 }
