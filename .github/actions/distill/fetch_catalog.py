@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """医疗目录资产获取器:CNB Release → 验签指针 → 下载密文 → 信封解密 → 目录 SQLite。
 
-数据纪律(2026-10-07 三域对齐裁决 + 计划文档 §7.6):
+数据纪律(2026-10-07 三域对齐裁决 + 计划文档 §7.6;同日 v3 协议对齐):
 - 医疗数据**唯一发布位置** = CNB `robinhoo1973/Resources` release tag `medical-data`
   (本地生产者是唯一写者;源站 WAF 拒云上出口 IP,CI 永不直连源站)。
+- **v3 资产文法**(生产端 names.go 白名单逐字对齐,2026-10-07 业主裁决):
+  `manifest.json`(签名信封=指针,固定名,最后上传=提交点)/ `overview.json`(固定名,
+  展示件可短暂缺席)/ `package-<catalogVersion>.bin`(append-only)。v2 旧名已删,
+  **无双重文法**——本脚本不做旧名回退,缺固定名即响亮失败(防静默吃旧资产)。
 - 匿名通道:tag 页 SSR(`__NEXT_DATA__`)做资产发现,`/-/releases/download/` 做下载。
   两条通道与 App 侧解析器同源(scripts/release/prepare-asr-source.py,路径加载,零复刻)。
 - 包为 AES-256-GCM 分块信封(与 ASR 同构,scripts/release/asr_envelope.py 正本)。
@@ -67,8 +71,10 @@ DOWNLOAD_ATTEMPTS = 3
 # test_fetch_catalog.py 逐字对齐断言——两处漂移即测试红)。公开、非秘密。
 MEDICAL_PACKAGE_KEY_HEX = "2303fac4e6aaacc328f6ac612f77fa91c32594f9c627aab2178b19486ebe7e82"
 
-_CATALOG_NAME = re.compile(r"^medical-data-catalog-progress-(\d+)-(\d{8}T\d{6}Z)\.json$")
-_PACKAGE_NAME = re.compile(r"^medical-data-package-sqlite-([0-9a-f]{64})-cipher-([0-9a-f]{64})\.bin$")
+# v3 资产文法(生产端 names.go 白名单逐字对齐):固定名指针/概览 + package-<版本>.bin。
+MANIFEST_ASSET_NAME = "manifest.json"
+OVERVIEW_ASSET_NAME = "overview.json"
+_PACKAGE_NAME = re.compile(r"^package-([1-9][0-9]{0,18})\.bin$")
 
 
 def sha256_file(path: Path) -> str:
@@ -149,9 +155,17 @@ def download_asset(repository: str, tag: str, asset: dict, dest: Path) -> None:
 # ---------------------------------------------------------------- 指针解析
 
 def parse_catalog_pointer(raw: bytes) -> dict:
-    """`medical-data-catalog-progress-*.json` → 验签指针载荷(base64 内嵌 JSON)。
+    """`manifest.json`(签名信封)→ 指针载荷(base64 内嵌 JSON;v3 协议)。
 
-    形状校验 fail-closed:缺任一关键字段即拒(指针是后续一切校验的锚)。
+    v3(2026-10-07 业主裁决,生产端 names.go/trust.go)相对 v2 的差异:
+    - 资产文法:固定名 `manifest.json`/`overview.json` + `package-<catalogVersion>.bin`
+      (append-only;续期复用旧包时 manifest 的 packageAssetName 可小于当前 catalogVersion,
+      但不可能大于——本函数按此断言);
+    - 逐源清单**内嵌** payload(`manifest` 字段),无独立 manifest 资产与 manifestSha256 间接绑定;
+    - 包名不再内嵌哈希(内容哈希全在载荷里),因此名称层交叉退化为「版本 ≤ catalogVersion」,
+      哈希校验由下载后逐层执行(页内 hashValue → 密文 SHA → GCM → 内层 sqlite SHA)。
+
+    形状校验 fail-closed:缺任一关键字段/名称文法不符即拒(指针是后续一切校验的锚)。
     """
     try:
         envelope = json.loads(raw)
@@ -160,32 +174,36 @@ def parse_catalog_pointer(raw: bytes) -> dict:
         raise ValueError(f"指针文件形状非法: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("指针载荷不是 JSON 对象")
-    for key in ("packageAssetName", "packageSha256", "sqliteSha256", "dataVersion",
-                "contentSha256", "manifestSha256"):
+    for key in ("packageAssetName", "packageSha256", "sqliteSha256", "dataVersion", "contentSha256"):
         if not isinstance(payload.get(key), str) or not payload[key]:
             raise ValueError(f"指针载荷缺字段: {key}")
-    # 包名内嵌两个 64hex:sqlite 明文 SHA 与密文 SHA——与载荷逐字交叉,先于任何下载暴露漂移。
     match = _PACKAGE_NAME.match(payload["packageAssetName"])
     if match is None:
-        raise ValueError(f"包资产名不符文法: {payload['packageAssetName']}")
-    if match.group(1) != payload["sqliteSha256"]:
-        raise ValueError(f"包名内嵌 sqlite SHA 与载荷不符: {match.group(1)} != {payload['sqliteSha256']}")
-    if match.group(2) != payload["packageSha256"]:
-        raise ValueError(f"包名内嵌密文 SHA 与载荷不符: {match.group(2)} != {payload['packageSha256']}")
+        raise ValueError(f"包资产名不符文法(package-<版本>.bin): {payload['packageAssetName']}")
+    catalog_version = payload.get("catalogVersion")
+    if not isinstance(catalog_version, int) or catalog_version <= 0:
+        raise ValueError(f"指针载荷缺有效 catalogVersion: {catalog_version!r}")
+    if int(match.group(1)) > catalog_version:
+        raise ValueError(f"包版本晚于 catalogVersion: {match.group(1)} > {catalog_version}")
+    # v3 内嵌清单一致性(签名覆盖整体;两处若漂移即载荷自相矛盾)。
+    inner = payload.get("manifest")
+    if not isinstance(inner, dict):
+        raise ValueError("指针载荷无内嵌 manifest(v3 起必填)")
+    if inner.get("sqlite_sha256") and inner["sqlite_sha256"] != payload["sqliteSha256"]:
+        raise ValueError("内嵌清单 sqlite_sha256 与指针不符")
+    if inner.get("data_version") and inner["data_version"] != payload["dataVersion"]:
+        raise ValueError("内嵌清单 data_version 与指针不符")
     return payload
 
 
-def select_latest_catalog_asset(assets: list[dict]) -> dict:
-    candidates = []
+def select_manifest_asset(assets: list[dict]) -> dict:
+    """v3 固定名指针资产(manifest.json);缺失即拒(不做任何旧名回退——生产端
+    明确「无双重文法」,迁移期旧资产已删除,静默回退会掩盖协议漂移)。"""
     for asset in assets:
-        match = _CATALOG_NAME.match(asset["name"])
-        if match:
-            candidates.append((int(match.group(1)), match.group(2), asset))
-    if not candidates:
-        names = ", ".join(a["name"] for a in assets[:10])
-        raise ValueError(f"tag 页无 medical-data-catalog-progress 资产(前 10:{names})")
-    candidates.sort(key=lambda item: (item[0], item[1]))
-    return candidates[-1][2]
+        if asset["name"] == MANIFEST_ASSET_NAME:
+            return asset
+    names = ", ".join(a["name"] for a in assets[:10]) or "(空)"
+    raise ValueError(f"tag 页缺 {MANIFEST_ASSET_NAME}(现资产前 10:{names})")
 
 
 # ---------------------------------------------------------------- 解密 + 解包
@@ -219,13 +237,6 @@ def decrypt_and_extract(cipher: Path, zip_path: Path, sqlite_out: Path, identity
     print(f"[ok] 内层 SQLite 校验通过: {names[0]} sha256={actual[:16]}…")
 
 
-def _find_asset_by_embedded_sha(assets: list[dict], prefix: str, sha: str) -> dict | None:
-    for asset in assets:
-        if asset["name"].startswith(prefix) and sha in asset["name"]:
-            return asset
-    return None
-
-
 # ---------------------------------------------------------------- 主流程
 
 def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: bool) -> dict:
@@ -234,16 +245,18 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
     assets = _prepare_asr_source().parse_cnb_tag_page(page, repository, tag)
     print(f"[fetch] 资产 {len(assets)} 件")
 
-    pointer_asset = select_latest_catalog_asset(assets)
     work = out_dir / ".fetch-work"
     work.mkdir(parents=True, exist_ok=True)
-    pointer_path = work / pointer_asset["name"]
-    download_asset(repository, tag, pointer_asset, pointer_path)
+    manifest_asset = select_manifest_asset(assets)
+    pointer_path = work / MANIFEST_ASSET_NAME
+    download_asset(repository, tag, manifest_asset, pointer_path)
     pointer = parse_catalog_pointer(pointer_path.read_bytes())
-    print(f"[fetch] 指针:catalogVersion={pointer.get('catalogVersion')} dataVersion={pointer['dataVersion'][:16]}… "
-          f"installable={pointer.get('installable')}")
+    # 原始签名信封逐字节留档(provenance;CNB 页内 hashValue 已在 download_asset 校验)。
+    shutil.copy2(pointer_path, out_dir / "pointer.json")
+    print(f"[fetch] 指针(v3 manifest.json):catalogVersion={pointer.get('catalogVersion')} "
+          f"dataVersion={pointer['dataVersion'][:16]}… installable={pointer.get('installable')}")
 
-    # 资产层与指针载荷的交叉校验(缺一件即拒):包 + 清单(+ 概览,可选)。
+    # 资产层与指针载荷的交叉校验(缺一件即拒):包必在页内且页内哈希 == 载荷密文 SHA。
     by_name = {a["name"]: a for a in assets}
     package_asset = by_name.get(pointer["packageAssetName"])
     if package_asset is None:
@@ -251,15 +264,8 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
     if package_asset["hashValue"] != pointer["packageSha256"]:
         raise ValueError("包资产页内哈希与指针不符")
 
-    manifest_asset = _find_asset_by_embedded_sha(assets, "medical-data-manifest-", pointer["manifestSha256"])
-    if manifest_asset is None:
-        raise ValueError(f"tag 页缺少清单资产(sha={pointer['manifestSha256']})")
-
-    overview_asset = None
-    overviews = [a for a in assets if a["name"].startswith("medical-data-overview-")]
-    if overviews:
-        overviews.sort(key=lambda a: a["name"])
-        overview_asset = overviews[-1]
+    # overview.json 固定名、替换发布,可短暂缺席(展示件非权威)——缺席不判失败。
+    overview_asset = by_name.get(OVERVIEW_ASSET_NAME)
 
     cipher = work / package_asset["name"]
     print(f"[fetch] 下载包 {package_asset['sizeInByte'] / 1048576:.0f} MiB …")
@@ -269,16 +275,14 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
     sqlite_out = out_dir / "catalog.sqlite"
     decrypt_and_extract(cipher, zip_path, sqlite_out, pointer["sqliteSha256"])
 
-    if manifest_asset is not None:
-        download_asset(repository, tag, manifest_asset, out_dir / "medical-data-manifest.json")
     if overview_asset is not None:
-        download_asset(repository, tag, overview_asset, out_dir / "medical-data-overview.json")
+        download_asset(repository, tag, overview_asset, out_dir / "overview.json")
 
     if not keep_intermediates:
         shutil.rmtree(work, ignore_errors=True)
 
     return {
-        "mode": "cnb-release",
+        "mode": "cnb-release-v3",
         "repository": repository,
         "tag": tag,
         "catalogVersion": pointer.get("catalogVersion"),
@@ -287,8 +291,9 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
         "sqliteSha256": pointer["sqliteSha256"],
         "packageAssetName": pointer["packageAssetName"],
         "packageSha256": pointer["packageSha256"],
-        "manifestSha256": pointer.get("manifestSha256"),
+        "sqliteSchemaVersion": pointer.get("sqliteSchemaVersion"),
         "installable": pointer.get("installable"),
+        "pointerPath": str(out_dir / "pointer.json"),
         "sqlitePath": str(sqlite_out),
         "licenses": {
             "TFDA": "藥品許可證資料集(OGDL v1 顯名聲明,三語)",

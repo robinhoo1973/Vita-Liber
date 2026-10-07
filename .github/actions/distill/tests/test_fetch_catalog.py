@@ -1,4 +1,4 @@
-"""fetch_catalog:指针解析 / 资产选择 / 包钥同源断言 / 信封解密往返(可跳)。"""
+"""fetch_catalog:v3 指针解析/固定名选择/包钥同源断言/信封解密往返(可跳)。"""
 import base64
 import importlib.util
 import json
@@ -8,25 +8,27 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fetch_catalog import (MEDICAL_PACKAGE_KEY_HEX, parse_catalog_pointer,
-                           select_latest_catalog_asset)
+from fetch_catalog import (MEDICAL_PACKAGE_KEY_HEX, parse_catalog_pointer, select_manifest_asset)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RELEASE_DIR = REPO_ROOT / "scripts" / "release"
 
+SQLITE_SHA = "ff6d955e4394b70d6c3f29601463df787bc7f3484e0c5b6dc091211daf225258"
+CIPHER_SHA = "bf82d8890d80fcd3aba5f0832fb9e9c4be71bf4573a98346dae3d115a76f148f"
+DATA_VERSION = "d9cbe8cc" + "0" * 56
+
 
 def _pointer_payload(**overrides):
-    sqlite_sha = "ff6d955e4394b70d6c3f29601463df787bc7f3484e0c5b6dc091211daf225258"
-    cipher_sha = "bf82d8890d80fcd3aba5f0832fb9e9c4be71bf4573a98346dae3d115a76f148f"
     payload = {
-        "packageAssetName": f"medical-data-package-sqlite-{sqlite_sha}-cipher-{cipher_sha}.bin",
-        "packageSha256": cipher_sha,
-        "sqliteSha256": sqlite_sha,
-        "dataVersion": "d9cbe8cc" + "0" * 56,
-        "contentSha256": "d9cbe8cc" + "0" * 56,
-        "manifestSha256": "67aabe375cf79b5cfa56df20881b90b49ef43823a945840fd07e38ccb967259d",
+        "schemaVersion": 3,
         "catalogVersion": 1791325086,
+        "packageAssetName": "package-1791325086.bin",
+        "packageSha256": CIPHER_SHA,
+        "sqliteSha256": SQLITE_SHA,
+        "dataVersion": DATA_VERSION,
+        "contentSha256": DATA_VERSION,
         "installable": False,
+        "manifest": {"sqlite_sha256": SQLITE_SHA, "data_version": DATA_VERSION},
     }
     payload.update(overrides)
     return {"payload": base64.b64encode(json.dumps(payload).encode()).decode(), "signatures": []}
@@ -36,7 +38,7 @@ class PointerTests(unittest.TestCase):
     def test_valid_pointer_roundtrip(self):
         payload = parse_catalog_pointer(json.dumps(_pointer_payload()).encode())
         self.assertEqual(payload["catalogVersion"], 1791325086)
-        self.assertEqual(payload["sqliteSha256"][:8], "ff6d955e")
+        self.assertEqual(payload["sqliteSha256"], SQLITE_SHA)
 
     def test_missing_field_rejected(self):
         bad = _pointer_payload()
@@ -46,9 +48,29 @@ class PointerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_catalog_pointer(json.dumps(bad).encode())
 
-    def test_name_payload_mismatch_rejected(self):
+    def test_bad_package_name_rejected(self):
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(json.dumps(_pointer_payload(packageSha256="0" * 64)).encode())
+            parse_catalog_pointer(json.dumps(_pointer_payload(packageAssetName="medical-data-package-x.bin")).encode())
+
+    def test_package_version_newer_than_catalog_rejected(self):
+        # 包版本 = 首次产出该包的 catalogVersion,不可能大于当前 catalogVersion
+        with self.assertRaises(ValueError):
+            parse_catalog_pointer(json.dumps(_pointer_payload(catalogVersion=100)).encode())
+
+    def test_older_package_version_accepted(self):
+        # 续期/晋升复用旧包:packageAssetName 可小于当前 catalogVersion
+        payload = parse_catalog_pointer(json.dumps(_pointer_payload(
+            catalogVersion=200, packageAssetName="package-100.bin")).encode())
+        self.assertEqual(payload["packageAssetName"], "package-100.bin")
+
+    def test_inner_manifest_mismatch_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_catalog_pointer(json.dumps(_pointer_payload(
+                manifest={"sqlite_sha256": "0" * 64, "data_version": DATA_VERSION})).encode())
+
+    def test_missing_inline_manifest_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_catalog_pointer(json.dumps(_pointer_payload(manifest=None)).encode())
 
     def test_non_json_rejected(self):
         with self.assertRaises(ValueError):
@@ -58,18 +80,16 @@ class PointerTests(unittest.TestCase):
 class AssetSelectionTests(unittest.TestCase):
     def _asset(self, name):
         return {"name": name, "path": "/x/-/releases/download/medical-data/" + name,
-                "hashAlgo": "sha256", "hashValue": "0" * 64, "sizeInByte": 1}
+                "hashAlgo": "sha256", "hashValue": CIPHER_SHA, "sizeInByte": 1}
 
-    def test_latest_by_version_then_timestamp(self):
-        assets = [self._asset("medical-data-catalog-progress-10-20260101T000000Z.json"),
-                  self._asset("medical-data-catalog-progress-9-20260102T000000Z.json"),
-                  self._asset("medical-data-manifest-" + "a" * 64 + ".json")]
-        chosen = select_latest_catalog_asset(assets)
-        self.assertIn("progress-10-", chosen["name"])
+    def test_fixed_name_selected(self):
+        assets = [self._asset("overview.json"), self._asset("manifest.json"), self._asset("package-1.bin")]
+        self.assertEqual(select_manifest_asset(assets)["name"], "manifest.json")
 
-    def test_none_rejected(self):
-        with self.assertRaises(ValueError):
-            select_latest_catalog_asset([self._asset("random.json")])
+    def test_missing_fixed_name_rejected_with_inventory(self):
+        with self.assertRaises(ValueError) as ctx:
+            select_manifest_asset([self._asset("medical-data-catalog-progress-1-x.json")])
+        self.assertIn("medical-data-catalog-progress", str(ctx.exception))   # 旧名不回落,失败信息点名现有资产
 
 
 class PackageKeySameSourceTests(unittest.TestCase):
