@@ -1,13 +1,15 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.8（2026-10-07）
+> 版本：V1.9（2026-10-07）
 
 ## 版本与资产来源
 
 - **App release 版本**：根目录 `version.txt`，一行 `major.minor.patch`，当前 `0.0.1`。GitHub Release/tag 不决定 App 版本。
 - **TestFlight build 号**：`run_number.run_attempt`；代码标识取当前提交 hash。
 - **ASR 模型版本**：`Resources/ASRModels/manifest.json` 的批准上游来源，以及 `Resources/ASRModelUpdates/manifest.json`（签名信封）的发布版本（`catalogVersion`，全链单调）/制作日期/打包修订。
-- **分发**：CNB 资源仓 `robinhoo1973/Resources` 的 `asr-models` Release——固定名 `manifest.json` 是唯一权威目录（TUF fixed-name）；GitHub Releases 不再承载模型资产。
+- **分发**：CNB 资源仓 `robinhoo1973/Resources` 的 `asr-models` Release——固定名 `manifest.json` 是唯一权威目录（TUF fixed-name）；GitHub Releases 不再承载模型资产。同批发布固定名 `overview.json`（V1.9 恢复批）：
+  家族×档位**人读概览**（非权威展示件——安全/安装判定一律以签名目录为准；由 `asr_overview.py` 从签名载荷纯函数生成，可重跑同字节；生成/上传失败仅 `::warning::` 不阻塞）。
+  发布成功后 `readme-sync` 触发并**下游确认**：`GET /-/build/status/{sn}` ≤3×10s 轮询，非 success 仅告警（V1.9）。
 - 模型下载、生成与校验都在 runner 的 `RUNNER_TEMP` 完成；仓库无 `downloads/` 目录，也不提交模型二进制。
 
 ## 模型家族与档位（2026-10-05 目录驱动，业主裁定）
@@ -136,3 +138,4 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.2（2026-10-05）：模型家族与档位改为目录驱动（families[]/tierName/tierHint 单一事实源，App 零内置模型数据表；引擎支持枚举只是渲染上限）；基线剖面按 bundledModels 声明裁剪；加密信封帧合同修正（nonce 不入帧）与 nonce 派生长度合同（python len=12 == Swift 32 字节派生前缀 12，RFC 5869 前缀性质）；HKDF 改为 HMAC 原语手动展开（CryptoKit 泛型糖 macOS CI 两轮过载解析失败 37315378507/37327812812，已记录例外，金样测试钉字节一致）。
 - V1.1（2026-10-05）：ASR_PACKAGE_KEY 本地脚本引导（`init_asr_secrets.py`：生成 → 注册 secret → 改写内嵌密钥，CI 只做有值校验）+ 轮换语义与签名密钥例外说明；签名流程更新为 CI 候选签名 + 人工提交目录；`workflow_call.secrets` 的 `required: true` 降级为 job 内前置校验（消除无日志 startup_failure 族）。
 - V1.0（2026-09-12）：Releases-only、version.txt、独立/可调用 ASR 构建、runner 临时产物与签名动态更新合同。
+- V1.9（2026-10-07）：恢复批——发布面新增签名概览 `overview.json`（人读面：家族×档位/字节统计；非权威）；README 同步触发后增加下游状态轮询确认（触发≠成功，日志出现 `readme-sync 完成: status=success`）；契约测试第 13 例 `test-asr-overview.py` 入双侧执行列（l0-gate action 与 asr.yml）；配套 Resources 仓 readme-sync：QR 尾可见「索引版本 v{n}」行 + asr-models 数据概览块。

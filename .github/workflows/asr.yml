@@ -92,6 +92,7 @@ jobs:
           python3 .github/actions/release/test-cnb-release.py
           python3 .github/actions/release/test-cnb-release-workflow.py
           python3 .github/actions/release/test-seed-cnb-model-assets.py
+          python3 .github/actions/release/test-asr-overview.py
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |

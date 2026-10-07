@@ -61,7 +61,8 @@ runs:
         for t in test-release-version test-next-catalog-version test-asr-assets \
                  test-asr-secrets-init test-asr-package-integrity test-model-trust \
                  test-asr-release test-asr-release-page test-medical-package-fixture \
-                 test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets; do
+                 test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets \
+                 test-asr-overview; do
           echo "── $t"
           python3 "$GITHUB_ACTION_PATH/../release/$t.py"
         done 2>&1 | tee -a /tmp/l0-gate.log

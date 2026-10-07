@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import tarfile
 import shutil
+import sys
 import time
 
 from asr_package import (ASR_SOURCE_ENTRY_BUDGET_BYTES, ASR_SOURCE_UNPACKED_BUDGET_BYTES,

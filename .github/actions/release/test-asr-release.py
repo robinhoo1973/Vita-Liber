@@ -36,6 +36,11 @@ class FakeCNBReleaseClient:
         self.readme_sync_calls.append(tag)
         return {"sn": "fixture-sn", "buildLogUrl": "https://cnb.cool/fixture-build"}
 
+    def readme_sync_status(self, sn):
+        self.readme_sync_status_calls = getattr(self, "readme_sync_status_calls", [])
+        self.readme_sync_status_calls.append(sn)
+        return {"sn": sn, "status": "success"}
+
     def update_release_body(self, tag, body):
         self.release_body_updates.append((tag, body))
 
@@ -164,16 +169,37 @@ class PublicationTests(unittest.TestCase):
             # 单一 JSON 架构(2026-10-06 业主裁定):资产面 = 模型包 + index.json;
             # 根/版本化目录/回执不再上传。
             self.assertTrue({m["url"] for m in models} | {"manifest.json"} <= names)
+            # 人读概览（2026-10-07 恢复批）：固定名 overview.json 随发布上传。
+            self.assertIn("overview.json", names)
             self.assertFalse(any(name.endswith(".root.json") or name.endswith(".catalog.json")
                                  or name.endswith("package-validation.json") for name in names))
             # 方案 B(2026-10-07):发布成功后触发 README 同步管线。
             self.assertEqual(client.readme_sync_calls, ["asr-models"])
+            # 下游确认（触发≠成功）：轮询到 status=success 才静默。
+            self.assertEqual(getattr(client, "readme_sync_status_calls", []), ["fixture-sn"])
             # 发布页正文(委员会 S3):永久头 + 动态段经 PATCH 刷新。
             self.assertEqual(len(client.release_body_updates), 1)
             body_tag, body = client.release_body_updates[0]
             self.assertEqual(body_tag, "asr-models")
             self.assertIn("## 本次更新 / 本次資料更新 / This update", body)
             self.assertIn("catalog version: v", body)
+
+    def test_readme_sync_status_failure_does_not_block_publish(self):
+        # 触发成功但下游状态查询异常 ⇒ 仅告警，发布结果不受影响（展示面纪律）。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient()
+
+            def failing_status(sn):
+                raise RuntimeError("status query exploded")
+
+            client.readme_sync_status = failing_status
+            result = module["publish"](options, client)   # 不得抛
+            self.assertTrue(result)
+            self.assertEqual(client.readme_sync_calls, ["asr-models"])
 
     def test_readme_sync_trigger_failure_does_not_block_publish(self):
         # 通知通道纪律(2026-10-07):触发失败仅告警,发布结果不受影响;

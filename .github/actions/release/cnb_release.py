@@ -311,6 +311,28 @@ def start_readme_sync(repository, tag, token, transport, api_base=API_BASE,
     raise CNBReleaseError("README sync trigger failed: " + last_error)
 
 
+def readme_sync_status(repository, sn, token, transport, api_base=API_BASE):
+    """查询 README 同步 build 状态（只读；平台席 2026-10-07「触发≠同步成功」闭环）。
+
+    `GET {api_base}/{repository}/-/build/status/{sn}`（Bearer；路径经 swagger 实证
+    于 2026-10-07）。调用方按有界轮询 + 非 success 仅告警使用（展示面不阻塞发布）。
+    """
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise CNBReleaseError("Invalid CNB repository")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", sn):
+        raise CNBReleaseError("Invalid build sn")
+    url = api_base.rstrip("/") + "/" + repository + "/-/build/status/" + sn
+    validate_https_url(url, require_host=urllib.parse.urlsplit(api_base).hostname,
+                       purpose="readme sync status")
+    headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
+    response = transport.request("GET", url, headers, None)
+    if not 200 <= response.status < 300:
+        detail = response.body[:200].decode("utf-8", errors="replace") if response.body else ""
+        raise CNBReleaseError("README sync status query failed with HTTP %d: %s"
+                              % (response.status, detail))
+    return _json(response, "readme sync status")
+
+
 class CNBReleaseClient:
     """Authenticated CNB Release publisher.
 
@@ -364,6 +386,11 @@ class CNBReleaseClient:
         """发布收尾:触发 README 同步管线(方案 B;失败由调用方决定降级)。"""
         return start_readme_sync(self.repository, tag, self.token, self.transport,
                                  api_base=self.api_base)
+
+    def readme_sync_status(self, sn):
+        """发布收尾:查询同步 build 状态（触发≠成功；调用方有界轮询+告警）。"""
+        return readme_sync_status(self.repository, sn, self.token, self.transport,
+                                  api_base=self.api_base)
 
     def update_release_body(self, tag, body):
         """已存在 Release 的正文刷新（PATCH；不存在 = 硬错，绝不隐式创建）。

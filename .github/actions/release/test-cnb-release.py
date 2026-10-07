@@ -434,6 +434,37 @@ class UpdateReleaseBodyTests(unittest.TestCase):
         self.assertEqual([call.method for call in transport.calls].count("PATCH"), 3)
 
 
+class ReadmeSyncStatusTests(unittest.TestCase):
+    """下游确认契约（2026-10-07 平台席）：GET build/status/{sn} 只读查询。"""
+
+    def test_request_contract(self):
+        from cnb_release import readme_sync_status
+        transport = ScriptedCNBTransport(
+            api_responses=[CNBResponse(200, {}, json.dumps({"sn": "cnb-x", "status": "success"}).encode())],
+            put_responses=[])
+        result = readme_sync_status("owner/resources", "cnb-x", "fixture-token", transport)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(transport.calls), 1)
+        call = transport.calls[0]
+        self.assertEqual(call.method, "GET")
+        self.assertEqual(call.url, "https://api.cnb.cool/owner/resources/-/build/status/cnb-x")
+        self.assertEqual(call.headers.get("Authorization"), "Bearer fixture-token")
+
+    def test_4xx_raises(self):
+        from cnb_release import readme_sync_status
+        transport = ScriptedCNBTransport(
+            api_responses=[CNBResponse(404, {}, b'{"errmsg":"not found"}')], put_responses=[])
+        with self.assertRaises(CNBReleaseError):
+            readme_sync_status("owner/resources", "cnb-x", "fixture-token", transport)
+
+    def test_invalid_sn_rejected(self):
+        from cnb_release import readme_sync_status
+        transport = ScriptedCNBTransport(api_responses=[], put_responses=[])
+        with self.assertRaises(CNBReleaseError):
+            readme_sync_status("owner/resources", "../escape", "fixture-token", transport)
+        self.assertEqual(len(transport.calls), 0)
+
+
 class CNBReadModuleTests(unittest.TestCase):
     """cnb_read 有界并行批下载（2026-10-07 平台席 A 方案）：并发路径与
     fail-fast 语义的离线钉（注入 download 缝，无网络）。"""

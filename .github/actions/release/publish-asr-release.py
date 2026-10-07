@@ -14,9 +14,11 @@ import os
 from pathlib import Path
 import re
 import sys
+import time
 import tempfile
 
 from asr_package import decode_json, validate_index, verify_packages, decode_manifest_data_file
+from asr_overview import OVERVIEW_NAME, build as build_overview, verify as verify_overview
 from asr_release_page import render_release_body
 from cnb_release import (CNBReleaseClient, CNBReleaseError, print_masked_upload_prefix,
                          RecordingUploadTransport, release_notes_for_tag)
@@ -150,6 +152,24 @@ def publish(args, client):
         missing.append("manifest.json")
     if missing:
         raise ValueError("A required model asset is still missing: " + missing[0])
+    # 人读概览（2026-10-07 委员会恢复批）：固定名 overview.json 与 manifest 同批
+    # 覆盖发布——纯函数自签名载荷（可重跑同字节），自验不通过或上传失败仅告警：
+    # 展示面绝不阻塞数据发布（医疗 v3 同纪律；非权威件，安全判定一律以签名为准）。
+    try:
+        payload_bytes = _envelope_payload_bytes(args.catalog)
+        overview_bytes = build_overview(payload_bytes)
+        verify_overview(overview_bytes, payload_bytes)
+        overview_path = args.catalog.parent / OVERVIEW_NAME
+        overview_path.write_bytes(overview_bytes)
+        client.upload_immutable(TAG, overview_path, OVERVIEW_NAME,
+                                hashlib.sha256(overview_bytes).hexdigest(), overwrite=True)
+        document = json.loads(overview_bytes)
+        print("overview.json 已发布：families=%d tiers=%d bytes=%d"
+              % (document["totals"]["families"], document["totals"]["tiers"],
+                 document["totals"]["bytes"]), flush=True)
+    except (CNBReleaseError, ValueError, OSError, KeyError, TypeError) as error:
+        print("::warning::overview.json 生成/上传失败(不阻塞发布): " + str(error),
+              file=sys.stderr)
     # 发布页正文(委员会 S3 设计,2026-10-07):永久头(三语模板)+ 动态段(版本三元组/
     # 家族×档位统计/增量行——全部取自签名载荷,零新文案、零墙钟)。提交点之后刷新;
     # 失败仅告警:页面正文是展示面,绝不阻塞数据发布(与医疗纪律同构)。
@@ -164,12 +184,45 @@ def publish(args, client):
     # 通知通道失败不阻塞发布:README 是索引提示面,同步管线幂等且可手动按钮重跑。
     try:
         receipt = client.start_readme_sync(TAG)
-        print("readme-sync 已触发: sn=" + str(receipt.get("sn")), flush=True)
+        sn = str(receipt.get("sn"))
+        print("readme-sync 已触发: sn=" + sn, flush=True)
+        _confirm_readme_sync(client, sn)
     except (CNBReleaseError, ValueError, OSError) as error:
         print("::warning::README 同步触发失败(不阻塞发布,可手动重同步): " + str(error),
               file=sys.stderr)
     print(f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}", flush=True)
     return f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}"
+
+
+def _confirm_readme_sync(client, sn, attempts=3, interval=10):
+    """下游确认（平台席 2026-10-07）：触发成功 ≠ 同步成功——有界轮询 build 状态。
+
+    非 success / 查询异常一律 ::warning::（展示面不阻塞发布；业主「README 未更新」
+    的观测盲区由此闭环：日志将出现明确的「readme-sync 完成: status=success」）。
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            status = client.readme_sync_status(sn)
+        except (CNBReleaseError, ValueError, OSError, KeyError, TypeError, RuntimeError) as error:
+            print("::warning::readme-sync 状态查询失败(不阻塞发布): " + str(error),
+                  file=sys.stderr)
+            return
+        state = str(status.get("status", ""))
+        if state == "success":
+            print("readme-sync 完成: status=success sn=" + sn, flush=True)
+            return
+        if attempt < attempts:
+            time.sleep(interval)
+    print("::warning::readme-sync 未在 %d 次查询内完成(最后状态=%s, sn=%s)——可手动重同步"
+          % (attempts, state, sn), file=sys.stderr)
+
+
+def _envelope_payload_bytes(catalog_path):
+    import base64 as _base64
+    raw = decode_json(Path(catalog_path).read_bytes())
+    if isinstance(raw, dict) and "payload" in raw and "signatures" in raw:
+        return _base64.b64decode(raw["payload"])
+    return Path(catalog_path).read_bytes()
 
 
 def main():
