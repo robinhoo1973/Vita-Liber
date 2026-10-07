@@ -23,7 +23,11 @@ HELPER_RE = re.compile(r"python3\s+([^\s\\]+\.py)")
 class ReleaseVersionTests(unittest.TestCase):
     def run_step(self, version, *, ref_type="branch", ref_name="master"):
         document = yaml.safe_load((WORKFLOWS / "build-testflight.yml").read_text())
-        step = next(s for s in document["jobs"]["version"]["steps"] if s.get("id") == "ver")
+        # 2026-10-07 P2：version job 已内联进 build job——按步骤 id 跨 job 定位，
+        # 不再绑定 job 名（jobs.version KeyError 是本测试的历史断点：
+        # 步骤搬迁后测试滞后，ASR 发布链的「版本规则回归」步会连带必红）。
+        step = next(s for job in document["jobs"].values()
+                    for s in job.get("steps", []) if s.get("id") == "ver")
         script = step["run"].replace("${{ github.run_number }}", "27").replace("${{ github.run_attempt }}", "2")
         match = HELPER_RE.search(script)
         if not match:

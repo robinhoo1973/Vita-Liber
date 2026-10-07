@@ -80,11 +80,13 @@ jobs:
       - name: 校验构建、签名及版本规则
         run: |
           python3 scripts/release/test-release-version.py
+          python3 scripts/release/test-next-catalog-version.py
           python3 scripts/release/test-asr-assets.py
           python3 scripts/release/test-asr-secrets-init.py
           python3 scripts/release/test-asr-package-integrity.py
           python3 scripts/release/test-model-trust.py
           python3 scripts/release/test-asr-release.py
+          python3 scripts/release/test-medical-package-fixture.py
 
       - name: 准备完整钉版权重（优先复用已验证 CNB Release）
         run: |
@@ -176,6 +178,7 @@ jobs:
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \
                 --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
+                --root-store Resources/ASRModelUpdates \
                 --repository "$CNB_RESOURCE_REPOSITORY"; then
               exit 0
             fi

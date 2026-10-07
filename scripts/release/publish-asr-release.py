@@ -95,7 +95,13 @@ def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
         client.download_asset(TAG, name, destination, max_bytes=2 << 20)
         old_envelope = decode_json(destination.read_bytes())
         old_payload = payload(old_envelope)
-        old_root_file = args.catalog.parent / f"{old_payload['rootVersion']}.root.json"
+        # 版本化根(N.root.json)所在目录:默认与候选目录同址(本地/测试),
+        # CI 显式 --root-store Resources/ASRModelUpdates(2026-10-07 审查:
+        # 此前 CI 从不暂存根文件 → 有远端基线时必 FileNotFoundError,
+        # 固定名首发布早退掩盖了该回归)。
+        root_store = getattr(args, "root_store", None)
+        store = Path(root_store) if root_store else args.catalog.parent
+        old_root_file = store / f"{old_payload['rootVersion']}.root.json"
         old_root = trusted_root(decode_json(old_root_file.read_bytes()))
         verify_envelope(old_envelope, old_root, "catalog")
         if old_payload["rootVersion"] > catalog["rootVersion"]:
@@ -172,6 +178,8 @@ def main():
     parser.add_argument("--assets", type=Path)
     parser.add_argument("--directory", type=Path)
     parser.add_argument("--root", type=Path)
+    parser.add_argument("--root-store", type=Path,
+                        help="版本化根目录(N.root.json 所在;默认=catalog 同目录)")
     parser.add_argument("--catalog", type=Path)
     parser.add_argument("--repository")
     args = parser.parse_args()
