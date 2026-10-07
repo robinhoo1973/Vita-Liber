@@ -59,7 +59,8 @@ public enum UpdatePayloadQRDecoder {
     }
 
     /// byte-mode 段头剥离：4bit 模式须为 `0b0100`；字符计数按 8/16bit 两种宽度各试一次
-    /// （宽度由 QR 版本决定、载荷里不可见——确定性穷举，命中即返回）。
+    /// （宽度由 QR 版本决定、载荷里不可见——确定性穷举，**形状校验通过才返回**；
+    /// 首个"结构可读"可能是 16bit 计数的高字节误读，未过形状门即换下一宽度）。
     static func stripByteModeSegment(_ bytes: Data) -> Data? {
         var reader = BitReader(bytes)
         guard let mode = reader.read(4), mode == 0b0100 else { return nil }
@@ -68,7 +69,8 @@ public enum UpdatePayloadQRDecoder {
             guard let count = probe.read(width), count > 0,
                   count <= UpdateAdvicePayloadContract.maxEnvelopeBytes
                       + UpdateAdvicePayloadContract.identityPrefixLength,
-                  let payload = probe.readBytes(count) else { continue }
+                  let payload = probe.readBytes(count),
+                  isValidPayloadShape(payload) else { continue }
             return payload
         }
         return nil
