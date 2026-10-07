@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.4（2026-10-07）
+> 版本：V1.5（2026-10-07）
 
 ## 版本与资产来源
 
@@ -94,13 +94,17 @@ gh workflow run release-asr-models.yml --repo robinhoo1973/Vita-Liber -f publish
 
 把新的公开配置提交并部署后，再运行 `publish=true`。生成字节与签名不一致会失败，不能通过更新远端自报哈希规避。
 
-## README 同步（CNB 资源仓，2026-10-07 业主定案「方案 B」）
+## README 同步（CNB 资源仓，2026-10-07 业主定案「方案 B」；索引载体 = 二维码）
 
-CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-sync` 模块（CNB 流水线执行）自动维护，三部分：**永久介绍段**（`README-header.md`，逐发布字节稳定；显式修订走 git 历史）+ **人类分节**（标题链接下载页、仅列最新文件；ASR 按家族分块，描述文案在 `sections.json`）+ **尾部 `VL-INDEX v1` 加密索引**（payload JSON → 单 entry ZIP → aes256gcm-v1 信封，identity=`update-payload-<sha256(明文)>`，密钥 = App 内嵌公开常量；载荷是提示索引、**非信任源**，App 以签名目录/信任根为准；载荷含每 release 的 latest/history/unclassified 与名称/URL/大小/sha256）。
+CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-sync` 模块（CNB 流水线执行）自动维护，三部分：**永久介绍段**（`README-header.md`，逐发布字节稳定；显式修订走 git 历史）+ **人类分节**（标题链接下载页、仅列最新文件；ASR 按家族分块，描述文案在 `sections.json`）+ **App 索引（`vl-index.png` 二维码数据载体**，2026-10-07 业主裁决；纯数据载体、无需扫描）。
+
+**索引语义**：payload JSON（每 release 的 latest/history/unclassified，含名称/URL/大小/sha256；历史**每 tag 只保留最近 3 条**）→ 单 entry ZIP → aes256gcm-v1 信封（identity=`update-payload-<sha256(明文)>`，密钥 = App 内嵌公开常量）→ QR 内容 = identity 前缀(79B) + 信封字节二进制直编（ECC-L）。载荷 ≤ 预算 2800B 走 QR，**超限自动降级文本块**（双形态）。载荷是提示索引、**非信任源**，App 以签名目录/信任根为准。`vl-index.payload`（state 文件，= QR 内容字节）是模块 RMW 的唯一事实源（git 历史即备份）。
+
+**App 读取通道（实证）**：`https://cnb.cool/robinhoo1973/Resources/-/git/raw/main/tools/readme-sync/vl-index.png`（匿名 200；与 README 页 `<img>` 渲染同源）。解码双路径（本地实证 zxing 逐字节命中、zbar 走 Latin-1 映射可逆向）：Vision `payloadData`（原始字节，可能含 QR 段结构需按位剥离）优先，`payloadStringValue`→`.isoLatin1` 回退；macOS CI 金色测试（本仓 PNG+state 字节对拍）为 App 侧合入门槛；Vision 若不可用则服务器侧切换回文本形态（常量一改，向后兼容）。
 
 **触发链（方案 B）**：发布步骤成功收尾后，`publish-asr-release.py` 调 `CNBReleaseClient.start_readme_sync("asr-models")`（`POST {repo}/-/build/start`，事件 `api_trigger_readme_sync`，env `README_SYNC_TAG`，`sync="false"` 异步；令牌需 `repo-cnb-trigger:rw`，`CNB_RESOURCE_TOKEN` 实测已含）。触发失败 = `::warning::` 不阻塞发布（通知通道纪律）；同步管线幂等（无变化零推送），可经 CNB 页面「同步 README」按钮（`web_trigger_readme_sync`，可输入 tag）手动重同步。
 
-**同步管线纪律**：资源仓不声明 push 事件（README 回写不再次触发流水线，防回环）；流水线锁 `readme-sync` 串行（单写者）；非 force push（≤3 次 fetch+rebase 重算）；git + blob（SSR）双读回；README 尾块存在但畸形 = **硬错**（不静默重建、不销毁历史）；依赖 `cryptography==49.0.0`（`--require-hashes`，与 `requirements-model-tools.txt` 同源）。
+**同步管线纪律**：资源仓不声明 push 事件（README 回写不再次触发流水线，防回环）；流水线锁 `readme-sync` 串行（单写者）；非 force push（≤3 次 fetch+rebase 重算）；四通道读回——git（硬）+ blob（软）+ `/git/raw` README（软）+ `/git/raw` PNG（硬，App 通道）；state/尾块存在但畸形 = **硬错**（不静默重建、不销毁历史）；依赖 `cryptography==49.0.0` + `qrcode==8.2`/`pypng`（`--require-hashes`）。
 
 ## 密钥引导与轮换（ASR_PACKAGE_KEY）
 
@@ -118,6 +122,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 ## 变更记录
 
+- V1.5（2026-10-07）：README 索引载体改为**二维码数据载体**（业主裁决）：`vl-index.png` = identity 前缀 + 信封二进制直编（ECC-L，纯数据载体）；`vl-index.payload` state 文件为 RMW 事实源；历史保留改为每 tag 最近 3 条；超 2800B 预算自动降级文本块；App 读取通道 = `/git/raw` 匿名直读（实测）+ Vision 双路径解码规格；QR 生成依赖 `qrcode==8.2`/`pypng` 钉版。
 - V1.4（2026-10-07）：README 同步（方案 B 触发链）：发布成功后经 `CNBReleaseClient.start_readme_sync` 触发资源仓 `api_trigger_readme_sync` 管线（`repo-cnb-trigger:rw`；失败仅 `::warning::` 不阻塞发布）；资源仓 README 三部分自动生成（`tools/readme-sync` 模块）/ VL-INDEX v1 加密索引 / 流水线锁 + 非 force push + git/blob 双读回 + 尾块畸形硬错纪律。
 - V1.3（2026-10-06）：13 档全矩阵（7 家族实档）与单一 JSON 架构（manifest.json 固定名 + 包级 Ed25519 签名 + publish 开关删除 + 命名去重段）；CNB 资产面收敛为「模型包 + manifest.json」。
 - V1.2（2026-10-05）：模型家族与档位改为目录驱动（families[]/tierName/tierHint 单一事实源，App 零内置模型数据表；引擎支持枚举只是渲染上限）；基线剖面按 bundledModels 声明裁剪；加密信封帧合同修正（nonce 不入帧）与 nonce 派生长度合同（python len=12 == Swift 32 字节派生前缀 12，RFC 5869 前缀性质）；HKDF 改为 HMAC 原语手动展开（CryptoKit 泛型糖 macOS CI 两轮过载解析失败 37315378507/37327812812，已记录例外，金样测试钉字节一致）。
