@@ -76,18 +76,61 @@ public enum UpdatePayloadQRDecoder {
         return nil
     }
 
-    /// 全流唯一 needle 切片：`update-payload-` 出现 0 或 ≥2 次 = 拒（歧义即不可信）。
+    /// 全流唯一 needle 切片（**按位**对齐）：`update-payload-` 在 8 个比特偏移上合计
+    /// 出现恰好 1 次才取切片；0 或 ≥2 次 = 拒（歧义即不可信）。真实段式载荷起点
+    /// （段头 4+8 或 4+16 bit）非字节对齐，字节级搜索必然空集——按位扫描即通用兜底。
+    /// 切片按**信封自述长度**收口（QR 帧尾比特填充会多出 0–1 字节，须剔除后与
+    /// `/git/raw` state 字节逐字节一致）。
     static func sliceAtUniqueNeedle(_ bytes: Data) -> Data? {
         let needle = Data("update-payload-".utf8)
-        var positions: [Int] = []
-        var searchStart = bytes.startIndex
-        while let found = bytes.range(of: needle, in: searchStart..<bytes.endIndex) {
-            positions.append(found.lowerBound - bytes.startIndex)
-            searchStart = bytes.index(after: found.lowerBound)
+        func shifted(by bits: Int) -> Data {
+            guard bits > 0 else { return bytes }
+            let source = Array(bytes)
+            var out = Data(capacity: source.count)
+            for index in source.indices {
+                let high = UInt16(source[index]) << 8
+                let low = index + 1 < source.count ? UInt16(source[index + 1]) : 0
+                out.append(UInt8(((high | low) >> (8 - bits)) & 0xFF))
+            }
+            return out
         }
-        guard positions.count == 1, let offset = positions.first else { return nil }
-        let sliced = Data(bytes.dropFirst(offset))
-        return isValidPayloadShape(sliced) ? sliced : nil
+        // 信封精确字节长度：23B 头（明文）+ 逐块 u32BE 密文长度表；边界检查与
+        // PackageEnvelopeCrypto.decryptEnvelope 镜像（该层解密时还会拒绝尾随字节）。
+        func exactPayloadByteCount(_ full: Data) -> Int? {
+            let prefix = UpdateAdvicePayloadContract.identityPrefixLength
+            let headerSize = 6 + 1 + 4 + 8 + 4
+            let plain = Array(full)
+            guard plain.count >= prefix + headerSize, plain[prefix + 6] == 1 else { return nil }
+            func be32(_ offset: Int) -> UInt32 {
+                UInt32(plain[offset]) << 24 | UInt32(plain[offset + 1]) << 16
+                    | UInt32(plain[offset + 2]) << 8 | UInt32(plain[offset + 3])
+            }
+            let chunkSize = be32(prefix + 7), chunkCount = be32(prefix + 19)
+            guard chunkSize > 0, chunkSize <= 256 * 1024 * 1024,
+                  chunkCount > 0, chunkCount <= 512 else { return nil }
+            var offset = prefix + headerSize
+            for _ in 0..<chunkCount {
+                guard plain.count >= offset + 4 else { return nil }
+                let cipherLength = be32(offset)
+                guard cipherLength >= 1, UInt64(cipherLength) <= UInt64(chunkSize) + 16 else { return nil }
+                offset += 4 + Int(cipherLength)
+            }
+            guard plain.count >= offset else { return nil }
+            return offset
+        }
+        var slices: [Data] = []
+        for shift in 0..<8 {
+            let stream = shifted(by: shift)
+            var searchStart = stream.startIndex
+            while let found = stream.range(of: needle, in: searchStart..<stream.endIndex) {
+                slices.append(Data(stream[found.lowerBound...]))
+                searchStart = stream.index(after: found.lowerBound)
+            }
+        }
+        guard slices.count == 1, let sliced = slices.first,
+              let total = exactPayloadByteCount(sliced) else { return nil }
+        let trimmed = Data(sliced.prefix(total))
+        return isValidPayloadShape(trimmed) ? trimmed : nil
     }
 
     /// MSB-first 位读取器（QR 段结构为大端位序）。
