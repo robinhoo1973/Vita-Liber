@@ -29,7 +29,9 @@ public enum UpdatePayloadQRDecoder {
         }
         guard let observation = (request.results ?? []).first else { throw Failure.noCode }
         var candidates: [Data] = []
-        if let raw = observation.payloadData { candidates.append(raw) }
+        if #available(iOS 17.0, macOS 14.0, *) {
+            if let raw = observation.payloadData { candidates.append(raw) }
+        }
         if let text = observation.payloadStringValue, let latin = text.data(using: .isoLatin1) {
             candidates.append(latin)
         }
