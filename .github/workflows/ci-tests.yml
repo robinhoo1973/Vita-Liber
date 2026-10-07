@@ -51,6 +51,20 @@ jobs:
           bash scripts/gates/l0-static-gate.sh 2>&1 | tee /tmp/l0-gate.log
           python3 scripts/gates/test-schema-integrity.py 2>&1 | tee -a /tmp/l0-gate.log
 
+      # 发布契约测试左移（2026-10-07 委员会：原仅在 release-asr-models.yml 的
+      # dispatch 链路执行——引用面断裂/断言失配要等下次 ASR 发布才暴露，天级延迟。
+      # 12 脚本全部纯离线、Linux 本地实测 rc=0 全绿；release 链保留原步为发布前复检。
+      - name: 发布契约测试（离线矩阵）
+        run: |
+          set -o pipefail
+          for t in test-release-version test-next-catalog-version test-asr-assets \
+                   test-asr-secrets-init test-asr-package-integrity test-model-trust \
+                   test-asr-release test-asr-release-page test-medical-package-fixture \
+                   test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets; do
+            echo "── $t"
+            python3 "scripts/release/$t.py"
+          done 2>&1 | tee -a /tmp/l0-gate.log
+
       - name: 上传 L0 诊断日志（失败时）
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
