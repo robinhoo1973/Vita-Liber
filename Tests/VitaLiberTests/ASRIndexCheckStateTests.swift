@@ -58,7 +58,7 @@ final class ASRIndexCheckStateTests: XCTestCase {
         XCTAssertEqual(state.state, .idle)
         XCTAssertNil(state.index)
         // 迟到窗口内确认无回写（取消的 fetch 抛出，外层守卫丢弃）
-        try? await Task.sleep(nanoseconds: 400_000_000)
+        try? await Task.sleep(nanoseconds: 400_000_000)   // try?-ok: 迟到结果观察窗口（等待即返回，无语义）
         XCTAssertEqual(state.state, .idle)
         XCTAssertNil(state.index, "取消后不得落定任何结果")
     }

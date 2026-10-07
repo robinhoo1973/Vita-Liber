@@ -6,7 +6,7 @@ import Testing
 /// 委员会 2026-10-07：INV-1（通告态变化不改主行/动作集）、INV-2（域链态永远决定主行）、
 /// 覆盖规则（终态抑制通告）——全部在此穷举钉死。
 /// binds: SU-M15-UPDATECENTER
-@Suite("统一更新中心 · 合并规则")
+@Suite("SU-M15-UPDATECENTER · 统一更新中心合并规则")
 struct UpdateCenterRulesTests {
     private let allChains: [UpdateChainRowState] = [
         .notChecked, .checking, .updating, .upToDate, .updateAvailable,

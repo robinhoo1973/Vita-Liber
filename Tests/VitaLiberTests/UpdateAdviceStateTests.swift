@@ -17,7 +17,7 @@ final class UpdateAdviceStateTests: XCTestCase {
     private struct SlowProvider: UpdateAdviceProviding {
         let outcome: UpdateAdviceOutcome
         func read() async -> UpdateAdviceOutcome {
-            try? await Task.sleep(nanoseconds: 200_000_000)
+            try? await Task.sleep(nanoseconds: 200_000_000)   // try?-ok: 测试用可取消休眠（取消即返回，属预期）
             return outcome
         }
     }
