@@ -51,7 +51,7 @@ workflows/ 或 scripts/ 顶层;辅助数据文件随所属簇存放(如
 | 文件 | 触发 | 职责 | 调用簇 |
 |---|---|---|---|
 | `build-testflight.yml` | push master / dispatch | **单纯编译+上传 TestFlight（2026-10-07 瘦身 P2）**：gates（ubuntu 并行 L0,schema；挡 upload 的机械冻结）→ build（版本内联→签名材料→archive→export→IPA 校验→artifact）→ upload（altool→buildUploads 秒级证据+≤90s 列表确认）。测试全量在 ci-tests.yml 并行跑；v* tag 触发已删（无版本语义） | gates / requirements |
-| `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 GitHub Releases | release / requirements |
+| `release-asr-models.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
 | `ci-tests.yml` | push master / PR / dispatch | **测试与静态门禁（2026-10-06 拆分批 P1）**：L0 十八节（ubuntu，含 swiftc 断言）→ CoreKit swift test ∥ 编译门禁+型检预算+L1 单元/UI（macOS）；与发布链完全并行（测试不再阻塞上传；批次验收 = 两工作流全绿；`cancel-in-progress: true` 与发布链排队语义相反） | gates / requirements |
 | `distill-llm.yml` | workflow_dispatch | tests(53 例单测+语法)→语料冻结(prepare)→标定(calibrate,MPS 探测段)→smoke 训练回归→评测闸(eval,verdict=fail 阻断 publish)→发布;语料内容寻址存 Release(checkpoint Release 化随 P2 train job) | distill / requirements |
 | `build-llama-xcframework.yml` | dispatch / 自身路径变更 | 自建 llama.cpp XCFramework 并发布 | (外部上游脚本) |
