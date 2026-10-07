@@ -25,6 +25,10 @@ class BootstrapTests(unittest.TestCase):
             "decoder-epoch-99-avg-1.onnx": "decoder",
             "joiner-epoch-99-avg-1.int8.onnx": "joiner",
             "model.int8.onnx": "model",
+            "tiny-encoder.int8.onnx": "encoder",
+            "tiny-decoder.int8.onnx": "decoder",
+            "tiny-tokens.txt": "tokens",
+            "MODEL_LICENSE": "notice",
             "tokens.txt": "tokens",
             "bpe.vocab": "bpe",
             "vocab.json": "vocab",
@@ -91,6 +95,59 @@ class BootstrapTests(unittest.TestCase):
         existing["files"][0]["sha256"] = "2" * 64
         report = compare(draft, existing)
         self.assertTrue(any("tiny-encoder" in line for line in report["mismatch"]))
+
+    def test_drift_check_hf_repo(self):
+        check = MODULE["drift_check"]
+        entry = {"id": "whisper", "variant": "tiny", "revision": "a" * 40,
+                 "watch": {"kind": "hf-repo", "repo": "r/x"},
+                 "files": [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                            "path": "p", "bytes": 1, "sha256": "1" * 64}]}
+
+        def fetch_ok(url):
+            return {"sha": "a" * 40,
+                    "siblings": [{"rfilename": "tiny-encoder.int8.onnx"},
+                                 {"rfilename": ".gitattributes"},
+                                 {"rfilename": "README.md"}]}
+
+        row = check(entry, fetch_json=fetch_ok)
+        self.assertEqual(row["status"], "ok", row["findings"])
+
+        def fetch_moved(url):
+            return {"sha": "b" * 40,
+                    "siblings": [{"rfilename": "tiny-encoder.int8.onnx"},
+                                 {"rfilename": "tiny-encoder.fp32.onnx"}]}
+
+        row = check(entry, fetch_json=fetch_moved)
+        self.assertEqual(row["status"], "ok", "修订滚动=info 非 drift")
+        messages = " ".join(f["message"] for f in row["findings"])
+        self.assertIn("修订已滚动", messages)
+        self.assertIn("未收录成员", messages)
+
+        def fetch_missing(url):
+            return {"sha": "a" * 40, "siblings": [{"rfilename": "other.onnx"}]}
+
+        self.assertEqual(check(entry, fetch_json=fetch_missing)["status"], "drift")
+
+        def fetch_fail(url):
+            raise OSError("network down")
+
+        self.assertEqual(check(entry, fetch_json=fetch_fail)["status"], "unknown")
+
+    def test_drift_check_github_release(self):
+        check = MODULE["drift_check"]
+        entry = {"id": "qwen3", "variant": "medium",
+                 "watch": {"kind": "github-release", "repo": "k2-fsa/sherpa-onnx"},
+                 "archive": {"url": "https://github.com/x/y/releases/download/asr-models/qwen3-asr.tar.bz2"}}
+
+        def fetch_ok(url):
+            return [{"assets": [{"name": "qwen3-asr.tar.bz2"}]}]
+
+        self.assertEqual(check(entry, fetch_json=fetch_ok)["status"], "ok")
+
+        def fetch_gone(url):
+            return [{"assets": [{"name": "other.tar.bz2"}]}]
+
+        self.assertEqual(check(entry, fetch_json=fetch_gone)["status"], "drift")
 
 
 if __name__ == "__main__":

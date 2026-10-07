@@ -20,11 +20,18 @@
 #      查询 App Store Connect 最近 builds / buildUploads 处理状态（2026-09-10
 #      诊断资产）：主流水线复核窗口只覆盖上传后 6 分钟，Apple 处理偶发 >40 分钟
 #      （build 320.1/321.1 实证）——本 job 是发布前/卡单时的独立核对通道。
+#   4) catalog-drift job（2026-10-08 新增，非合并而来）
+#      ASR 目录漂移周检（业主「方案三：bootstrap 迁 CI + 零输入 + cron」）：
+#      读取 .github/config/asr/models.json 全量条目（模型名自动获取，零输入），
+#      逐条 API 级检查（镜像仓修订滚动=info / 钉版成员缺失或归档远端缺位
+#      =::warning:: / 网络形状失败=unknown）；报告 artifact，**不红灯**（cron
+#      静默）；哈希级验证由发布链承担（缓存/回源校验）。
 #
 # 触发矩阵（job 级 if 用 github.event.schedule 区分是哪个 cron 触发）：
 #   cron '0 16 * * *'  （每日 UTC 16:00 = 北京时间 00:00）→ 仅 cleanup-runs
 #   cron '17 23 * * 0' （每周日 UTC 23:17）              → 仅 signing-expiry
-#   workflow_dispatch                                    → 三个 job 全部执行
+#   cron '23 3 * * 1'  （每周一 UTC 03:23）              → 仅 catalog-drift
+#   workflow_dispatch                                    → 四个 job 全部执行
 # ============================================================================
 name: Maintenance
 
@@ -32,9 +39,37 @@ on:
   schedule:
     - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00（记录清理）
     - cron: '17 23 * * 0'  # 每周日 UTC 23:17（签名材料到期周检）
+    - cron: '23 3 * * 1'   # 每周一 UTC 03:23（ASR 目录漂移周检）
   workflow_dispatch:
 
 jobs:
+  catalog-drift:
+    name: 'ASR 目录漂移检查'
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * 1'
+    # 钉版 ubuntu-24.04（与同文件其余 job 同纪律：拒绝隐式工具链漂移）。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - name: 漂移检查（config 驱动，零输入）
+        run: |
+          python3 .github/actions/release/bootstrap-asr-model.py \
+            --from-config .github/config/asr/models.json \
+            --drift-report "$RUNNER_TEMP/asr-drift.json"
+      - name: 上传漂移报告
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-catalog-drift
+          path: ${{ runner.temp }}/asr-drift.json
+          retention-days: 7
+          if-no-files-found: warn
+
   cleanup-runs:
     name: '清理历史执行记录'
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 16 * * *'

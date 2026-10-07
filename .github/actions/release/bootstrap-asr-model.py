@@ -56,23 +56,26 @@ FAMILY_SOURCES = {
 }
 FAMILY_VERSION_PREFIX = {"whisper": "int8", "dolphin": "ctc-int8", "qwen3": "0.6b-int8"}
 SKIP_PATTERNS = (".gitattributes", "test_wavs/*", "*.wav", "*trans.txt", ".git/*")
+# 角色推断 = 有序正则（search 式；前缀 glob 对 whisper 系带档位前缀的成员名
+# 如 tiny-encoder.int8.onnx 全数失配——2026-10-08 实证修复）。notice 规则置前
+# （防 MODEL_LICENSE 被 model 规则误吞；IGNORECASE 下依赖顺序保证正确性）。
 ROLE_RULES = (
-    ("preprocess*.onnx", "preprocessor"),
-    ("encode*.onnx", "encoder"),
-    ("uncached_decode*.onnx", "uncachedDecoder"),
-    ("cached_decode*.onnx", "cachedDecoder"),
-    ("conv_frontend*.onnx", "frontend"),
-    ("encoder*.onnx", "encoder"),
-    ("decoder*.onnx", "decoder"),
-    ("joiner*.onnx", "joiner"),
-    ("model*.onnx", "model"),
-    ("tokens.txt", "tokens"),
-    ("bpe.vocab", "bpe"),
-    ("vocab.json", "vocab"),
-    ("merges.txt", "merges"),
-    ("tokenizer_config.json", "tokenizerConfig"),
-    ("LICENSE*", "notice"),
-    ("README.md", "notice"),
+    (r"^MODEL_LICENSE", "notice"),
+    (r"^LICENSE", "notice"),
+    (r"uncached[_-]?decode", "uncachedDecoder"),
+    (r"cached[_-]?decode", "cachedDecoder"),
+    (r"preprocess", "preprocessor"),
+    (r"conv[_-]?frontend", "frontend"),
+    (r"encoder?", "encoder"),
+    (r"decoder?", "decoder"),
+    (r"joiner", "joiner"),
+    (r"(^|[-_/])model[\._-]", "model"),
+    (r"tokens\.txt$", "tokens"),
+    (r"bpe\.vocab$", "bpe"),
+    (r"vocab\.json$", "vocab"),
+    (r"merges\.txt$", "merges"),
+    (r"tokenizer_config\.json$", "tokenizerConfig"),
+    (r"^README\.md$", "notice"),
 )
 
 
@@ -80,7 +83,12 @@ class BootstrapError(Exception):
     pass
 
 
-def _request_json(url, attempts=3):
+def _request_json(url, *, fetch_json=None, attempts=3):
+    if fetch_json is not None:
+        try:
+            return fetch_json(url)
+        except (OSError, ValueError) as error:
+            raise BootstrapError("fetch failed: %s (%s)" % (url, error))
     headers = {"User-Agent": "vitaliber-asr-bootstrap/1"}
     last = None
     for attempt in range(attempts):
@@ -142,8 +150,8 @@ def search_hf(name, author=None, limit=10):
     return hits
 
 
-def fetch_repo(repo):
-    info = _request_json("https://huggingface.co/api/models/" + repo)
+def fetch_repo(repo, *, fetch_json=None):
+    info = _request_json("https://huggingface.co/api/models/" + repo, fetch_json=fetch_json)
     sha = info.get("sha") or ""
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise BootstrapError("repo has no resolvable revision: " + repo)
@@ -160,7 +168,7 @@ def member_selected(member):
 def infer_role(member):
     base = member.rsplit("/", 1)[-1]
     for pattern, role in ROLE_RULES:
-        if fnmatch.fnmatch(base, pattern) or fnmatch.fnmatch(member, pattern):
+        if re.search(pattern, base, re.IGNORECASE):
             return role
     return None
 
@@ -271,10 +279,73 @@ def compare_entry(draft, existing):
     return report
 
 
+def drift_check(entry, *, fetch_json=None):
+    """单条目 API 级漂移检查（不做全量哈希——哈希级验证由发布链承担）。
+
+    severity：drift=钉版引用的事实与远端不符（值得人工看）；info=预期内/候选变化。
+    """
+    watch = entry.get("watch") or {}
+    kind = watch.get("kind")
+    where = "%s.%s" % (entry.get("id"), entry.get("variant"))
+    findings = []
+    try:
+        if kind == "hf-repo":
+            sha, members = fetch_repo(watch["repo"], fetch_json=fetch_json)
+            if sha != entry.get("revision"):
+                findings.append({"severity": "info",
+                                 "message": "上游修订已滚动（发布链 resolver 将在下次发布自动采纳）"})
+            entry_members = {f["member"] for f in entry.get("files", []) if "member" in f}
+            member_set = set(members)
+            missing = entry_members - member_set
+            if missing:
+                findings.append({"severity": "drift",
+                                 "message": "钉版成员在镜像仓缺失: " + ", ".join(sorted(missing))})
+            candidates = sorted(member for member in member_set - entry_members
+                                if member_selected(member) and infer_role(member) != "notice")
+            if candidates:
+                findings.append({"severity": "info",
+                                 "message": "镜像仓存在未收录成员（如上游全精度导出；是否收录由人工）: "
+                                            + ", ".join(candidates[:8])})
+        elif kind == "github-release":
+            releases = _request_json("https://api.github.com/repos/%s/releases?per_page=100"
+                                     % watch["repo"], fetch_json=fetch_json)
+            asset_name = (entry.get("archive") or {}).get("url", "").rsplit("/", 1)[-1]
+            names = {asset.get("name")
+                     for release in (releases if isinstance(releases, list) else [])
+                     for asset in release.get("assets") or []}
+            if asset_name and asset_name not in names:
+                findings.append({"severity": "drift",
+                                 "message": "钉版归档在远端 Releases 缺失: " + asset_name})
+        else:
+            return {"entry": where, "status": "unknown",
+                    "findings": [{"severity": "unknown",
+                                  "message": "未支持的 watch kind: " + str(kind)}]}
+    except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
+        return {"entry": where, "status": "unknown",
+                "findings": [{"severity": "unknown", "message": str(error)}]}
+    status = "drift" if any(f["severity"] == "drift" for f in findings) else "ok"
+    return {"entry": where, "status": status, "findings": findings}
+
+
+def drift_report(config, *, fetch_json=None):
+    """config 全量条目的漂移报告（cron/CI 消费；模型名从 config 自动获取）。"""
+    results = [drift_check(entry, fetch_json=fetch_json)
+               for entry in config.get("models", [])]
+    summary = {"entries": len(results),
+               "ok": sum(1 for row in results if row["status"] == "ok"),
+               "drift": sum(1 for row in results if row["status"] == "drift"),
+               "unknown": sum(1 for row in results if row["status"] == "unknown")}
+    return {"summary": summary, "results": results}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--name", action="append", required=True,
-                        help="模型名称（可多次；如 'moonshine tiny'）")
+    parser.add_argument("--name", action="append",
+                        help="模型名称（可多次，如 'moonshine tiny'；与 --from-config 二选一）")
+    parser.add_argument("--from-config", type=Path,
+                        help="漂移检查模式：读取 config 全部模型名（零输入；cron/CI 消费）")
+    parser.add_argument("--drift-report", type=Path,
+                        help="漂移报告 JSON 输出路径（--from-config 模式）")
     parser.add_argument("--author", default="csukuangfj", help="HF 作者域（默认 csukuangfj）")
     parser.add_argument("--repo", help="跳过发现层，直接指定 HF 仓库（逆测用）")
     parser.add_argument("--compare-config", type=Path,
@@ -283,6 +354,28 @@ def main():
     parser.add_argument("--out", type=Path, help="draft JSON 输出路径")
     args = parser.parse_args()
     try:
+        if args.from_config is not None:
+            config = json.loads(args.from_config.read_bytes())
+            report = drift_report(config)
+            for row in report["results"]:
+                print("drift: %-24s %s" % (row["entry"], row["status"]), flush=True)
+                for finding in row["findings"]:
+                    if finding["severity"] == "drift":
+                        print("::warning::drift[%s] %s" % (row["entry"], finding["message"]),
+                              file=sys.stderr)
+                    elif finding["severity"] == "info":
+                        print("  [info] %s" % finding["message"], flush=True)
+            summary = report["summary"]
+            print("drift summary: ok=%d drift=%d unknown=%d (共 %d 条)"
+                  % (summary["ok"], summary["drift"], summary["unknown"], summary["entries"]),
+                  flush=True)
+            if args.drift_report is not None:
+                args.drift_report.parent.mkdir(parents=True, exist_ok=True)
+                args.drift_report.write_bytes(
+                    json.dumps(report, ensure_ascii=False, indent=2).encode() + b"\n")
+            return 0
+        if not args.name:
+            raise BootstrapError("--name 或 --from-config 必须提供其一")
         drafts = []
         for name in args.name:
             repo = args.repo or (search_hf(name, args.author) or [None])[0]
