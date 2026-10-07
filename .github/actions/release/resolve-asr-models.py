@@ -31,11 +31,25 @@ import hashlib
 import json
 import os
 import re
+import socket
 import sys
 import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+# 本机 IPv6 路由对部分 CDN 为黑洞：urllib 无 Happy Eyeballs，会卡死在
+# IPv6 SYN-SENT（2026-10-08 实证：HF 直连下载僵死 5 分钟，curl 同 URL 1 秒）。
+# 统一优先 IPv4（CI runner 通常仅 IPv4，等价无副作用）。
+_ORIGINAL_GETADDRINFO = socket.getaddrinfo
+
+
+def _ipv4_first(*args, **kwargs):
+    answers = _ORIGINAL_GETADDRINFO(*args, **kwargs)
+    return [answer for answer in answers if answer[0] == socket.AF_INET] or answers
+
+
+socket.getaddrinfo = _ipv4_first
 
 USER_AGENT = "vitaliber-asr-resolver/1"
 HF_API = "https://huggingface.co/api/models/"

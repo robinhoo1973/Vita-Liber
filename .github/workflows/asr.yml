@@ -104,6 +104,8 @@ jobs:
           # 2026-10-08 文案链批：投影器（负清单/覆盖/修订键控）+ 变化集单源。
           python3 .github/actions/release/test-apply-asr-catalog-copy.py
           python3 .github/actions/release/test-asr-change-set.py
+          # 2026-10-08 bootstrap 批：按名发现工具的纯函数面（离线）。
+          python3 .github/actions/release/test-bootstrap-asr-model.py
           # 2026-10-08 治理批：仓库模板信封必须验签——此前 Linux 链无人验，
           # 「改模板不重签」可经 CI 重签发布；发布前硬红闭合该盲路。
           python3 .github/actions/release/model-trust.py verify \
