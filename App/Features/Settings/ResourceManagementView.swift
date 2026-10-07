@@ -17,10 +17,11 @@ struct ResourceManagementView: View {
         WithPerceptionTracking {
             Form {
                 activeSection
+                // 2026-10-07 统一更新中心批（委员会三席评审「形态 A」）：
+                // 检查入口与状态语法跨域统一（ASR+医疗），安装/更新动作留域内；
+                // 原独立通告区删除（呈现合并入中心，R2 边界由 Domain 规则守）。
+                UpdateCenterSection()
                 resourcesSection
-                // P3（2026-10-07）：通告区（README VL-INDEX 二维码）——明文提示面，
-                // 固定「未在本机校验」标注；检查更新权威入口仍是各资源行。
-                UpdateAdviceSection()
                 // B2-3（2026-09-28）：语音模型管理并入本页（检查更新/下载/进度/取消，
                 // 复用语音设置页同一区块视图——单一管理面，无平行视图）。
                 ASREngineSettingsSection(accessibilityPrefix: "SP-64.resource.asr")
@@ -184,30 +185,12 @@ struct ResourceManagementView: View {
         }
     }
 
+    /// 2026-10-07 统一更新中心批（委员会裁定 D4）：检查入口与**检查态呈现**收敛到
+    /// 页首「更新中心」（单一状态单渲染点）；本节只保留**更新动作闭环**——候选
+    /// 详情 + [更新]（及下方进度/错误/完成行由父视图按态追加）。
     @ViewBuilder
     private var remoteRow: some View {
-        switch catalogState.remoteState {
-        case .idle:
-            catalogActionButton(L10n.resourceCatalogCheck, id: "check") { catalogState.check() }
-        case .checking:
-            HStack(spacing: 8) {
-                ProgressView()
-                Text(L10n.resourceCatalogChecking)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(L10n.commonCancel) { catalogState.cancelCheck() }
-                    .font(.caption)
-                    .frame(minHeight: 44)
-                    .accessibilityHint(L10n.resourceCatalogCancelCheckHint)
-                    .accessibilityIdentifier("SP-64.medicalCatalog.cancelCheck")
-            }
-            .frame(minHeight: 44)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("SP-64.medicalCatalog.status")
-        case .upToDate:
-            catalogStatusRow(L10n.resourceCatalogUpToDate, id: "status.upToDate", systemImage: "checkmark.circle")
-        case .updateAvailable(let candidate):
+        if case .updateAvailable(let candidate) = catalogState.remoteState {
             VStack(alignment: .leading, spacing: 8) {
                 Label(L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion),
                       systemImage: "arrow.down.circle")
@@ -229,53 +212,8 @@ struct ResourceManagementView: View {
                 .disabled(catalogState.isUpdating)
                 .accessibilityHint(L10n.resourceCatalogUpdateHint)
                 .accessibilityIdentifier("SP-64.medicalCatalog.update")
-                catalogActionButton(L10n.resourceCatalogRecheck, id: "recheck") { catalogState.check() }
             }
-        case .noInstallableAvailable:
-            catalogStatusRow(L10n.resourceCatalogNoInstallable, id: "status.noInstallable", systemImage: "info.circle")
-        case .unavailable:
-            catalogStatusRow(L10n.resourceCatalogUnavailable, id: "status.unavailable", systemImage: "tray")
-        case .rateLimited(let retryAfter):
-            catalogStatusRow(retryLimitedText(retryAfter), id: "status.rateLimited", systemImage: "clock")
-        case .verificationFailed:
-            catalogStatusRow(L10n.resourceCatalogVerificationFailed, id: "status.verificationFailed",
-                             systemImage: "exclamationmark.triangle", warning: true)
-        case .networkUnavailable:
-            catalogStatusRow(L10n.resourceCatalogNetworkUnavailable, id: "status.networkUnavailable", systemImage: "wifi.slash")
         }
-    }
-
-    /// 状态行（图标 + 文案）+ 边框「重新检查」（检查与更新是分离的两个显式动作）。
-    private func catalogStatusRow(_ text: String, id: String, systemImage: String? = nil,
-                                  warning: Bool = false) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .foregroundStyle(.secondary)
-                }
-                Text(text)
-                    .font(.subheadline)
-                    .foregroundStyle(warning
-                        ? AnyShapeStyle(Color("semantic-warning", bundle: .main))
-                        : AnyShapeStyle(.secondary))
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("SP-64.medicalCatalog.\(id)")
-            catalogActionButton(L10n.resourceCatalogRecheck, id: "recheck") { catalogState.check() }
-        }
-    }
-
-    private func catalogActionButton(_ title: String, id: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.bordered)
-        .frame(minHeight: 44)
-        .disabled(catalogState.isUpdating)
-        .accessibilityHint(L10n.resourceCatalogCheckHint)
-        .accessibilityIdentifier("SP-64.medicalCatalog.\(id)")
     }
 
     private func updateProgressRow(_ progress: MedicalCatalogDownloadProgress) -> some View {
@@ -339,16 +277,6 @@ struct ResourceManagementView: View {
         case .catalogNotInstallable: return L10n.resourceCatalogNotInstallable
         default: return L10n.resourceCatalogUpdateFailed
         }
-    }
-
-    /// 限流可重试时间：App 内语言 locale（L10n.bundleLanguage）+ 过期守护（
-    /// 已过可重试时间只呈限流事实，避免「…前」逆文案）；无时间信息只呈限流事实。
-    private func retryLimitedText(_ retryAfter: Date?) -> String {
-        guard let retryAfter, retryAfter > Date() else { return L10n.resourceCatalogRateLimited }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: L10n.bundleLanguage)
-        let relative = formatter.localizedString(for: retryAfter, relativeTo: Date())
-        return L10n.resourceCatalogRateLimitedFmt(relative)
     }
 
     /// 本地更新时间：App 内语言 locale 的短日期+时间。

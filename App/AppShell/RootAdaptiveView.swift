@@ -265,10 +265,16 @@ private struct PreviewRoot: View {
     /// P3（2026-10-07）：预览同构——provider 缺省（preview 装配默认 nil）→
     /// 读取后呈「不可用」，fail-closed 路径可视。
     private let updateAdviceState: UpdateAdviceState
+    /// 统一更新中心批（2026-10-07）：预览同构——ASR 检查态 + 中心编排。
+    private let asrCheckState: ASRIndexCheckState
+    private let updateCenterState: UpdateCenterState
 
     init() {
         // 与 VitaLiberApp 同构装配：内存库 + 内存调度器，仅 live 路径换成 preview。
-        asrInstallCenter = ASRInstallCenter(dataChange: dataChange)
+        // 局部常量中转（同款 definite-initialization 纪律）：后续对象构造引用它们，
+        // 不触 self 属性访问。
+        let installCenter = ASRInstallCenter(dataChange: dataChange)
+        asrInstallCenter = installCenter
         let assembled: AppContainer
         do {
             assembled = try AppContainer.preview()
@@ -276,13 +282,22 @@ private struct PreviewRoot: View {
             fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
         }
         container = assembled
-        medicalCatalogState = MedicalCatalogState(store: assembled.medicalCatalog,
-                                                  updater: assembled.medicalCatalogUpdater,
-                                                  checker: assembled.medicalCatalogChecker,
-                                                  opener: assembled.medicalCatalogOpener)
+        let medicalState = MedicalCatalogState(store: assembled.medicalCatalog,
+                                               updater: assembled.medicalCatalogUpdater,
+                                               checker: assembled.medicalCatalogChecker,
+                                               opener: assembled.medicalCatalogOpener)
+        medicalCatalogState = medicalState
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
-        updateAdviceState = UpdateAdviceState(provider: assembled.updateAdvice)
+        let adviceState = UpdateAdviceState(provider: assembled.updateAdvice)
+        updateAdviceState = adviceState
+        // 统一更新中心批（2026-10-07）：ASR 检查态 + 中心编排（与生产同构）。
+        let checkState = ASRIndexCheckState(
+            isInstallActive: { installCenter.active.contains { !$0.isPaused } })
+        asrCheckState = checkState
+        updateCenterState = UpdateCenterState(
+            advice: adviceState,
+            chains: [.asrModels: checkState, .medicalData: medicalState])
     }
 
     var body: some View {
@@ -300,6 +315,8 @@ private struct PreviewRoot: View {
                 .environment(settingsStore)
                 .environment(medicalCatalogState)
                 .environment(updateAdviceState)
+                .environment(asrCheckState)
+                .environment(updateCenterState)
                 .environment(ObservationStoreState(store: container.observations,
                                                    allergyStore: container.allergies,
                                                    mediaAssets: container.mediaAssets))

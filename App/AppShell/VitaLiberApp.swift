@@ -37,6 +37,9 @@ struct VitaLiberApp: App {
     @State private var backupState: BackupState
     @State private var medicalCatalogState: MedicalCatalogState
     @State private var updateAdviceState: UpdateAdviceState
+    /// 统一更新中心批（2026-10-07）：ASR 检查态 + 中心编排（App 级跨页存活）。
+    @State private var asrCheckState: ASRIndexCheckState
+    @State private var updateCenterState: UpdateCenterState
 
     init() {
         // FR14.5 启动语言恢复（评审修正）：同步执行、首帧前完成——
@@ -51,14 +54,16 @@ struct VitaLiberApp: App {
         // body 显示可见引导——原静默降级内存库、用户看到空档案且写入即丢
         let container = AppContainer.liveOrDegraded(databasePath: AppContainer.defaultDatabasePath())
         self.container = container
-        _medicalCatalogState = State(initialValue: MedicalCatalogState(
+        let medicalState = MedicalCatalogState(
             store: container.medicalCatalog,
             updater: container.medicalCatalogUpdater,
             path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
             checker: container.medicalCatalogChecker,
-            opener: container.medicalCatalogOpener))
+            opener: container.medicalCatalogOpener)
+        _medicalCatalogState = State(initialValue: medicalState)
         // P3（2026-10-07）：通告面状态（provider 由组装根注入；缺省=全域不可用）。
-        _updateAdviceState = State(initialValue: UpdateAdviceState(provider: container.updateAdvice))
+        let adviceState = UpdateAdviceState(provider: container.updateAdvice)
+        _updateAdviceState = State(initialValue: adviceState)
         let appRouter = AppRouter()
         self.router = appRouter
         let delegate = AppNotificationDelegate(router: appRouter)
@@ -128,7 +133,17 @@ struct VitaLiberApp: App {
         // 后续 State 的 initialValue 一律引用本局部常量，闭包惰性捕获不受限。
         let dataChange = AppDataChangeCenter()
         _dataChangeCenter = State(initialValue: dataChange)
-        _asrInstallCenter = State(initialValue: ASRInstallCenter(dataChange: dataChange))
+        let installCenter = ASRInstallCenter(dataChange: dataChange)
+        _asrInstallCenter = State(initialValue: installCenter)
+        // 统一更新中心批（2026-10-07）：ASR 检查状态机上提为 App 级（跨页存活 +
+        // 供中心编排驱动）；安装互斥口径与提升前按钮禁用条件逐字同源
+        // （暂停中的安装不参与——任务已退出、暂存保留）。
+        let asrCheckState = ASRIndexCheckState(
+            isInstallActive: { installCenter.active.contains { !$0.isPaused } })
+        _asrCheckState = State(initialValue: asrCheckState)
+        _updateCenterState = State(initialValue: UpdateCenterState(
+            advice: adviceState,
+            chains: [.asrModels: asrCheckState, .medicalData: medicalState]))
         _documentsState = State(initialValue: DocumentsState(
             store: container.documents,
             pipeline: OCRPipeline(
@@ -335,5 +350,7 @@ struct VitaLiberApp: App {
              .environment(backupState)
              .environment(medicalCatalogState)
              .environment(updateAdviceState)
+             .environment(asrCheckState)
+             .environment(updateCenterState)
     }
 }
