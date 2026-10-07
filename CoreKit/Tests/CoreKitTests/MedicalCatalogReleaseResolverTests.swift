@@ -8,21 +8,26 @@ import Testing
 
 /// SU-M15-MEDCATALOG · binds: SU-M15-MEDCATALOG（TC-M15-12 检查 resolver，委员会测试席）
 /// SP-64 检查 resolver 行为钉（tech-spec §5.53 / ui-ux §5.12.4）：
-/// inventory → 最高 installable pointer → pinned root 验签 → floor 反回退 →
-/// 本地比较；ETag/304、限流、404/410/5xx、取消、单飞、字节上限、主机白名单、
+/// tag 页清单（SSR）→ 最高 installable pointer → pinned root 验签 → floor 反回退 →
+/// 本地比较；ETag/304、限流、404/410/5xx、取消、单飞、字节上限、逐跳主机门、
 /// 重定向与 delegate/ETag 缓存直测。夹具复用 `MedicalCatalogFixture`（同目标）。
 ///
-/// 主机属主纪律（CNB 2026-10-03 接入）：本套件占 **api.cnb.cool**
-/// （inventory）+ **asset.cnb.cool**（pointer）——cnb.cool 由
-/// fetcher 传输套件独占，不再双重占用（URLProtocolStub 静态表跨套件并行）。
+/// 作用域属主纪律（2026-10-07 通道迁移）：检查面 = cnb.cool 的两个 URL 前缀——
+/// `/releases/tag/medical-data`（SSR 清单）与 `/releases/download/medical-data/
+/// medical-data-catalog-*`（pointer，常量构造）；同主机的 fetcher 套件独占
+/// `…/releases/download/medical-data/medical-data-package-*` 前缀。两套件按
+/// **URL 前缀**清表（URLProtocolStub.reset(urlPrefixes:)）——主机会域会互擦
+/// （旧 api.cnb.cool 属主随匿名 401 修复退役）。
 @Suite("SU-M15-MEDCATALOG · SP-64 检查 resolver 行为钉", .serialized)
 struct MedicalCatalogReleaseResolverTests {
 
     // MARK: - 组装助手
 
     private static func resetStubs() {
-        URLProtocolStub.reset(host: "api.cnb.cool")
-        URLProtocolStub.reset(host: "asset.cnb.cool")
+        URLProtocolStub.reset(urlPrefixes: [
+            "https://cnb.cool/robinhoo1973/Resources/-/releases/tag/medical-data",
+            "https://cnb.cool/robinhoo1973/Resources/-/releases/download/medical-data/medical-data-catalog-",
+        ])
     }
 
     private static func makeSession() -> URLSession {
@@ -31,14 +36,33 @@ struct MedicalCatalogReleaseResolverTests {
         return URLSession(configuration: configuration)
     }
 
-    private static func inventoryJSON(_ assets: [(name: String, url: String)]) -> Data {
-        let array = assets.map { ["name": $0.name, "browser_download_url": $0.url] as [String: String] }
-        return try! JSONSerialization.data(withJSONObject: ["assets": array]) // try?-ok: 测试夹具 JSON 由字面量字典构造，无失败路径
+    /// SSR tag 页夹具（2026-10-07 通道迁移）：`releaseDetailStatus=success` +
+    /// `release.tagRef` 绑定 + 资产表逐项形状合规（`CNBReleasePageInventoryParser`
+    /// 全门通过）。`pathFor` 供越界 path 负例注入。
+    private static func tagPageHTML(_ names: [String],
+                                    pathFor: (String) -> String = { name in
+                                        "/robinhoo1973/Resources/-/releases/download/medical-data/" + name
+                                    }) -> Data {
+        let assets: [[String: Any]] = names.map { name in
+            ["name": name,
+             "path": pathFor(name),
+             "hashAlgo": "sha256",
+             "hashValue": String(repeating: "a", count: 64),
+             "sizeInByte": 1024]
+        }
+        let payload: [String: Any] = ["props": ["pageProps": [
+            "releaseDetailStatus": "success",
+            "releasesDetailData": ["release": [
+                "tagRef": "refs/tags/medical-data",
+                "assets": assets]]]]]
+        let json = try! JSONSerialization.data(withJSONObject: payload) // try?-ok: 测试夹具 JSON 由字面量字典构造，无失败路径
+        return Data(#"<script id="__NEXT_DATA__" type="application/json">"#.utf8) + json
+            + Data("</script>".utf8)
     }
 
-    /// pointer 由本套件独占主机服务（见套件头注）。
+    /// pointer 用与 resolver 相同的协议常量构造（单一事实源：地址不采信页面数据）。
     private static func pointerURL(_ assetName: String) -> String {
-        "https://asset.cnb.cool/medical-data/" + assetName
+        MedicalCatalogReleaseProtocol.releaseBaseURL + "/" + assetName
     }
 
     private static func makeResolver(fixture: MedicalCatalogFixture,
@@ -57,13 +81,13 @@ struct MedicalCatalogReleaseResolverTests {
                                       now: { MedicalCatalogFixture.clock })
     }
 
-    /// 发布 inventory + installable-30 pointer 的标准路由（逐键写入——整字典赋值
-    /// 会跨套件清表，违反 URLProtocolStub 主机作用域纪律）。
+    /// 发布 tag 页 + installable-30 pointer 的标准路由（逐键写入——整字典赋值
+    /// 会跨套件清表，违反 URLProtocolStub 作用域纪律）。
     private static func installRoutes(_ fixture: MedicalCatalogFixture,
                                       pointerBody: Data? = nil) -> [(URL, URLProtocolStub.Script)] {
         [
-            (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-                body: inventoryJSON([(fixture.pointerAssetName, pointerURL(fixture.pointerAssetName))]))),
+            (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+                body: tagPageHTML([fixture.pointerAssetName]))),
             (URL(string: pointerURL(fixture.pointerAssetName))!, URLProtocolStub.Script(
                 body: pointerBody ?? fixture.signedPointerJSON)),
         ]
@@ -92,7 +116,7 @@ struct MedicalCatalogReleaseResolverTests {
     }
 
     private func inventoryHits() -> Int {
-        URLProtocolStub.requestLog.filter { $0.url == MedicalCatalogReleaseResolver.inventoryURL }.count
+        URLProtocolStub.requestLog.filter { $0.url == MedicalCatalogReleaseResolver.tagPageURL }.count
     }
 
     // MARK: - 候选选择与状态归约
@@ -170,8 +194,8 @@ struct MedicalCatalogReleaseResolverTests {
         let progressName = MedicalCatalogReleaseProtocol.pointerAssetName(installable: false, catalogVersion: 30,
                                                                              issuedAt: fixture.signedExpectation.issuedAt)
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Self.inventoryJSON([(progressName, Self.pointerURL(progressName))]))))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([progressName]))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .noInstallableAvailable)
     }
@@ -185,11 +209,8 @@ struct MedicalCatalogReleaseResolverTests {
                                                                              issuedAt: fixture.signedExpectation.issuedAt)
         Self.resetStubs()
         Self.apply([
-            (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-                body: Self.inventoryJSON([
-                    (progressName, Self.pointerURL(progressName)),
-                    (fixture.pointerAssetName, Self.pointerURL(fixture.pointerAssetName)),
-                ]))),
+            (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+                body: Self.tagPageHTML([progressName, fixture.pointerAssetName]))),
             (URL(string: Self.pointerURL(fixture.pointerAssetName))!, URLProtocolStub.Script(body: fixture.signedPointerJSON)),
         ])
         let resolver = Self.makeResolver(fixture: fixture)
@@ -201,20 +222,34 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(candidate.catalogVersion == 30)
     }
 
-    @Test("资产名不在 pointer 文法内/URL 越白名单 → 不进入候选")
-    func checkIgnoresJunkAndOffListAssets() async throws {
+    @Test("清单里非 pointer 文法的名字（README/包文法等）不进入候选")
+    func checkIgnoresNonPointerNames() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Self.inventoryJSON([
-                ("medical-data-catalog-installable-30.json", "https://evil.example.com/p"),
-                ("medical-data-catalog-installable-30-20260926T120000Z.json", "http://asset.cnb.cool/x.json"),
-                ("README.md", "https://cnb.cool/robinhoo1973/Resources/README.md"),
-                ("medical-data-catalog-progress-30.json", Self.pointerURL("medical-data-catalog-progress-30.json")),
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([
+                "README.md",
+                "medical-data-package-sqlite-" + String(repeating: "b", count: 64)
+                    + "-cipher-" + String(repeating: "c", count: 64) + ".bin",
+                "medical-data-catalog-progress-30.json",
             ]))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .noInstallableAvailable)
+    }
+
+    @Test("tag 页资产 path 越界（页面数据不可信）→ 整页拒绝 fail-closed")
+    func checkRejectsPageWithOffScopePath() async throws {
+        // 2026-10-07：页面只提供名字集合——任何越界 path 由页面解析器整页拒绝，
+        // 注入面从「URL 白名单过滤」前移为「页面形状 fail-closed」。
+        let fixture = try MedicalCatalogFixture.make()
+        defer { fixture.cleanUp() }
+        Self.resetStubs()
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([fixture.pointerAssetName],
+                                   pathFor: { _ in "https://evil.example.com/catalog.json" }))))
+        let resolver = Self.makeResolver(fixture: fixture)
+        #expect(try await resolver.check().state == .verificationFailed)
     }
 
     @Test("pointer 文法边界：0/负数/非数字/Int64 溢出 → 不进入候选")
@@ -222,12 +257,12 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Self.inventoryJSON([
-                ("medical-data-catalog-installable-0.json", Self.pointerURL("x")),
-                ("medical-data-catalog-installable--1.json", Self.pointerURL("x")),
-                ("medical-data-catalog-installable-30x.json", Self.pointerURL("x")),
-                ("medical-data-catalog-installable-99999999999999999999.json", Self.pointerURL("x")),
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([
+                "medical-data-catalog-installable-0.json",
+                "medical-data-catalog-installable--1.json",
+                "medical-data-catalog-installable-30x.json",
+                "medical-data-catalog-installable-99999999999999999999.json",
             ]))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .noInstallableAvailable)
@@ -240,7 +275,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 404)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 404)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .unavailable)
     }
@@ -250,7 +285,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 410)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 410)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .unavailable)
     }
@@ -260,7 +295,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
             statusCode: 429, headers: ["Retry-After": "120"])))
         let resolver = Self.makeResolver(fixture: fixture)
         let outcome = try await resolver.check()
@@ -274,7 +309,7 @@ struct MedicalCatalogReleaseResolverTests {
         defer { fixture.cleanUp() }
         Self.resetStubs()
         let resetDate = MedicalCatalogFixture.clock.addingTimeInterval(300)
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
             statusCode: 403, headers: ["x-ratelimit-reset": String(Int(resetDate.timeIntervalSince1970))])))
         let resolver = Self.makeResolver(fixture: fixture)
         let outcome = try await resolver.check()
@@ -286,7 +321,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 403)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 403)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .rateLimited(retryAfter: nil))
     }
@@ -296,7 +331,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 503)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 503)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .networkUnavailable)
     }
@@ -306,7 +341,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
             body: Data("x".utf8), failEveryRequest: true)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .networkUnavailable)
@@ -317,28 +352,28 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 400)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 400)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .verificationFailed)
     }
 
-    @Test("inventory 畸形 JSON → verificationFailed（fail-closed）")
+    @Test("tag 页畸形（无 __NEXT_DATA__/非 JSON）→ verificationFailed（fail-closed）")
     func checkFailsClosedOnMalformedInventory() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(body: Data("{not json".utf8))))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(body: Data("{not json".utf8))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .verificationFailed)
     }
 
-    @Test("inventory 体超 4 MB 上限 → 中止传输 → verificationFailed")
+    @Test("tag 页体超 8 MiB 上限 → 中止传输 → verificationFailed")
     func checkBoundsInventoryBody() async throws {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Data(repeating: 0, count: (4 << 20) + 1))))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Data(repeating: 0, count: (8 << 20) + 1))))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .verificationFailed)
     }
@@ -403,9 +438,12 @@ struct MedicalCatalogReleaseResolverTests {
                                                      session: URLSession(configuration: configuration),
                                                      now: { MedicalCatalogFixture.clock })
         #expect(try await resolver.check().state == .unavailable)
-        // 按本套件主机过滤（全局日志有跨套件并发写，评审修复）
+        // 按本套件 URL 前缀过滤（全局日志有跨套件并发写，评审修复；同一 cnb.cool
+        // 主机上的 fetcher 包请求必须排除在「零网络」断言之外）
         let ownHits = URLProtocolStub.requestLog.filter {
-            $0.url.host == "api.cnb.cool" || $0.url.host == "asset.cnb.cool"
+            $0.url.absoluteString.hasPrefix("https://cnb.cool/robinhoo1973/Resources/-/releases/tag/medical-data")
+                || $0.url.absoluteString.hasPrefix(MedicalCatalogReleaseProtocol.releaseBaseURL
+                                                   + "/medical-data-catalog-")
         }
         #expect(ownHits.isEmpty)
     }
@@ -416,7 +454,7 @@ struct MedicalCatalogReleaseResolverTests {
     func redirectGuardAllowsAllowlistedURL() throws {
         let box = RequestBox()
         let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: 10, allowsURL: { _ in true })
-        let url = try #require(URL(string: "https://api.cnb.cool/x"))
+        let url = try #require(URL(string: "https://cnb.cool/x"))
         let task = URLSession.shared.dataTask(with: url)
         let redirect = try #require(HTTPURLResponse(url: url, statusCode: 301, httpVersion: nil, headerFields: nil))
         delegate.urlSession(URLSession.shared, task: task, willPerformHTTPRedirection: redirect,
@@ -460,7 +498,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 301)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 301)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .networkUnavailable)
     }
@@ -473,17 +511,16 @@ struct MedicalCatalogReleaseResolverTests {
         defer { fixture.cleanUp() }
         Self.resetStubs()
         var routes = Self.installRoutes(fixture)
-        routes[0] = (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            headers: ["ETag": "inv-1"], body: Self.inventoryJSON(
-                [(fixture.pointerAssetName, Self.pointerURL(fixture.pointerAssetName))]), etag304: true))
+        routes[0] = (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            headers: ["ETag": "inv-1"], body: Self.tagPageHTML([fixture.pointerAssetName]), etag304: true))
         Self.apply(routes)
         let resolver = Self.makeResolver(fixture: fixture)
         guard case .updateAvailable = (try await resolver.check()).state else {
             Issue.record("首次检查应发现更新")
             return
         }
-        // 缓存后把 inventory 体换成垃圾：304 命中必须复用旧体，绝不解析新体
-        routes[0] = (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
+        // 缓存后把 tag 页体换成垃圾：304 命中必须复用旧体，绝不解析新体
+        routes[0] = (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
             headers: ["ETag": "inv-1"], body: Data("{broken".utf8), etag304: true))
         Self.apply(routes)
         guard case .updateAvailable = (try await resolver.check()).state else {
@@ -523,7 +560,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        Self.apply((MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(statusCode: 304)))
+        Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(statusCode: 304)))
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .verificationFailed)
         #expect(inventoryHits() == 2, "304 无缓存应恰好一次无条件重试，实际请求 \(inventoryHits()) 次")
@@ -597,13 +634,13 @@ struct MedicalCatalogReleaseResolverTests {
         Self.resetStubs()
         var routes = Self.installRoutes(fixture)
         // 分块延时下发：让首次检查在途，制造确定性并发窗口
-        routes[0] = (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Self.inventoryJSON([(fixture.pointerAssetName, Self.pointerURL(fixture.pointerAssetName))]),
+        routes[0] = (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([fixture.pointerAssetName]),
             chunkBytes: 64, chunkDelay: 0.3))
         Self.apply(routes)
         let resolver = Self.makeResolver(fixture: fixture)
         let first = Task { try await resolver.check() }
-        try await waitForRequest(MedicalCatalogReleaseResolver.inventoryURL)
+        try await waitForRequest(MedicalCatalogReleaseResolver.tagPageURL)
         #expect(try await resolver.check().state == .checking)
         // 一次取值再断言：诊断信息取真实 state，避免第二次 await 与 try?（L0 [1/18] try? 禁令）
         let firstOutcome = try await first.value
@@ -620,18 +657,18 @@ struct MedicalCatalogReleaseResolverTests {
         defer { fixture.cleanUp() }
         Self.resetStubs()
         var routes = Self.installRoutes(fixture)
-        routes[0] = (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Self.inventoryJSON([(fixture.pointerAssetName, Self.pointerURL(fixture.pointerAssetName))]),
+        routes[0] = (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([fixture.pointerAssetName]),
             chunkBytes: 64, chunkDelay: 0.3))
         Self.apply(routes)
         let resolver = Self.makeResolver(fixture: fixture)
         let task = Task { try await resolver.check() }
-        try await waitForRequest(MedicalCatalogReleaseResolver.inventoryURL)
+        try await waitForRequest(MedicalCatalogReleaseResolver.tagPageURL)
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
         // 「无状态污染」兑现：换快速脚本再查 → isChecking 已复位、正常发现更新
-        routes[0] = (MedicalCatalogReleaseResolver.inventoryURL, URLProtocolStub.Script(
-            body: Self.inventoryJSON([(fixture.pointerAssetName, Self.pointerURL(fixture.pointerAssetName))])))
+        routes[0] = (MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
+            body: Self.tagPageHTML([fixture.pointerAssetName])))
         Self.apply(routes)
         guard case .updateAvailable = (try await resolver.check()).state else {
             Issue.record("取消后重查应正常发现更新")
@@ -644,7 +681,7 @@ struct MedicalCatalogReleaseResolverTests {
     @Test("有界 delegate 超限即停止累计并置 exceeded")
     func boundedDelegateStopsAccumulatingAfterLimit() {
         let delegate = MedicalCatalogBoundedDataDelegate(maxBytes: 4, allowsURL: { _ in true })
-        let task = URLSession.shared.dataTask(with: MedicalCatalogReleaseResolver.inventoryURL)
+        let task = URLSession.shared.dataTask(with: MedicalCatalogReleaseResolver.tagPageURL)
         delegate.urlSession(URLSession.shared, dataTask: task, didReceive: Data([1, 2, 3, 4]))
         #expect(!delegate.exceeded)
         delegate.urlSession(URLSession.shared, dataTask: task, didReceive: Data([5]))

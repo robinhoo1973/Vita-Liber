@@ -1,7 +1,6 @@
 #if os(iOS) || os(macOS)
-// linux-blind: URLSession/AgeKit/ZIPFoundation/GRDB 安装链路 —— Linux 型检编译空单元，改动须经 macOS CI 验证
+// linux-blind: URLSession/ZIPFoundation/GRDB 安装链路 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
-import AgeKit
 import ZIPFoundation
 
 extension MedicalCatalogUpdateService {
@@ -79,7 +78,11 @@ extension MedicalCatalogUpdateService {
         progress(.decrypting)
         let sqlite = work.appendingPathComponent(MedicalCatalogReleaseProtocol.sqliteEntryName)
         do {
-            try await opener.open(packageURL: package, sqliteURL: sqlite, maxSQLiteBytes: limits.maxSQLiteBytes)
+            // identity = 验签后的候选里携带的 sqliteSha256（信封 key/nonce 的
+            // 派生输入）。2026-10-06：此前 opener 自持 age 身份、与包内容无关。
+            try await opener.open(packageURL: package, sqliteURL: sqlite,
+                                  identity: candidate.sqliteSHA256,
+                                  maxSQLiteBytes: limits.maxSQLiteBytes)
         } catch {
             throw Self.mapped(error, fallback: .packageInvalid)
         }
@@ -365,66 +368,33 @@ final class MedicalCatalogPackageTransfer: NSObject, URLSessionDownloadDelegate,
 
 // MARK: - Package opening
 
-/// AgeKit（X25519）解密 + 单 entry ZIP 解包。identity 文本由 App 发布配置注入，
-/// 仓库内不保存私钥。
-public struct AgeKitMedicalCatalogPackageOpening: MedicalCatalogPackageOpening, Sendable {
-    private let identityText: Data
+/// 分块 AES-256-GCM 信封解密 + 单 entry ZIP 解包（2026-10-06 业主裁决：
+/// 医疗包加密改为与 ASR CI 一致，App 只保留一条解压解密路径）。
+///
+/// 直接复用 ASR 的 `ASRPackageCrypto.decryptEnvelope`——同一把主密钥、同一
+/// 帧格式、同一 HKDF info 名空间。合并的代价是该主密钥**不是对 App 用户的
+/// 秘密**（它按设计内嵌在 `ASRPackageCrypto.masterKeyHex` 里，任何拿到 App
+/// 的人都能提取）；医疗包的真实性从来不由加密承担，而由 Ed25519 双签指针 +
+/// 下载前 `packageSHA256` + 解密后 `sqliteSHA256` 校验承担（见调用点）。
+public struct EnvelopeMedicalCatalogPackageOpening: MedicalCatalogPackageOpening, Sendable {
+    public init() {}
 
-    public init(identityText: String) {
-        self.identityText = Data(identityText.utf8)
-    }
-
-    public func open(packageURL: URL, sqliteURL: URL, maxSQLiteBytes: Int64) async throws {
+    /// `identity` 必须是信封加密时使用的包身份 = 明文 SQLite 的 SHA-256，
+    /// 由调用方从**验签后的** `candidate.sqliteSHA256` 传入。identity 漂移
+    /// （例如误传 dataVersion 或 catalogVersion）会以 GCM 认证失败拒绝，
+    /// 而不是解出垃圾——ASR 侧的金样测试已钉死这一失败语义。
+    public func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws {
         let zipURL = sqliteURL.deletingLastPathComponent()
             .appendingPathComponent("medical-catalog-\(UUID().uuidString).zip")
         defer { try? FileManager.default.removeItem(at: zipURL) } // try?-ok: 解密中间件清理
-        try decrypt(packageURL, to: zipURL)
-        try MedicalCatalogPackageExtractor.extractSQLite(from: zipURL, to: sqliteURL, maxSQLiteBytes: maxSQLiteBytes)
-    }
-
-    /// age 明文不大于密文，超出即拒绝。AgeKit `StreamReader` 没有 EOF 信号：只有末块可短于
-    /// 64 KiB；明文恰为整块倍数时，末块后的下一次读取抛错即流结束——截断/篡改由已校验的
-    /// 包 SHA 与随后的 ZIP CRC、SQLite SHA 兜底。
-    private func decrypt(_ packageURL: URL, to zipURL: URL) throws {
-        let limit = try MedicalCatalogUpdateService.fileSize(of: packageURL)
-        guard let input = InputStream(url: packageURL) else { throw MedicalCatalogUpdateError.packageInvalid }
-        let keyInput = InputStream(data: identityText)
-        input.open()
-        keyInput.open()
-        defer { input.close(); keyInput.close() }
-        let identities = try Age.parseIdentities(input: keyInput)
-        guard identities.count == 1, let identity = identities.first else {
+        do {
+            try ASRPackageCrypto.decryptEnvelope(at: packageURL, to: zipURL, identity: identity)
+        } catch {
+            // 认证失败/畸形/尺寸不符一律归约为 packageInvalid：调用点已有
+            // `mapped(error, fallback: .packageInvalid)`，这里保持错误域单一。
             throw MedicalCatalogUpdateError.packageInvalid
         }
-        var reader = try Age.decrypt(src: input, identities: identity)
-        guard FileManager.default.createFile(atPath: zipURL.path, contents: nil) else {
-            throw MedicalCatalogUpdateError.insufficientStorage
-        }
-        let output = try FileHandle(forWritingTo: zipURL)
-        defer { try? output.close() } // try?-ok: 写句柄关闭失败由后续 ZIP 解析判红
-        let chunk = 64 * 1024
-        var written: Int64 = 0
-        var lastReadFilled = false
-        // 审查修复（2026-09-26）：缓冲提升到循环外——此前每轮分配一个 64KB Data
-        // （百 MB 包 ≈ 数千次分配/清零/ARC 抖动），reader.read(&buffer) 从首字节覆写，
-        // 复用语义不变（重构前旧实现即如此）。
-        var buffer = Data(count: chunk)
-        while true {
-            let count: Int
-            do {
-                count = try reader.read(&buffer)
-            } catch {
-                guard written > 0, lastReadFilled else { throw error }
-                break
-            }
-            guard count > 0 else { break }
-            written += Int64(count)
-            guard written <= limit else { throw MedicalCatalogUpdateError.packageInvalid }
-            try output.write(contentsOf: buffer.prefix(count))
-            lastReadFilled = count == chunk
-            if !lastReadFilled { break }
-        }
-        try output.synchronize()
+        try MedicalCatalogPackageExtractor.extractSQLite(from: zipURL, to: sqliteURL, maxSQLiteBytes: maxSQLiteBytes)
     }
 }
 

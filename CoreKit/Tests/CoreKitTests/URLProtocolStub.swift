@@ -66,11 +66,14 @@ final class URLProtocolStub: URLProtocol {
 
     /// 2026-09-27 CI 36305107324：两传输套件虽各 .serialized，但**彼此仍并行**且共享
     /// 全表——A 套件 reset 擦掉 B 套件脚本（badResponse(618)=协议类不处理请求的
-    /// 合成状态）。改为按主机作用域清表。**主机属主表（2026-10-04 CNB 迁移二次更新）**：
+    /// 合成状态）。改为作用域清表。**作用域属主表（2026-10-07 通道迁移更新）**：
     /// release-assets.githubusercontent.com=ASR 套件（ASR 链仍 GitHub）·
-    /// cnb.cool=医疗目录 fetcher 传输套件（独占，packageURL 单一事实源）·
-    /// api.cnb.cool + asset.cnb.cool=医疗目录检查 resolver 套件（独占）。
-    /// 新套件必须登记新主机，不得复用已有属主。
+    /// cnb.cool `/releases/download/medical-data/medical-data-package-*`=医疗 fetcher
+    /// 套件 · cnb.cool `/releases/tag/medical-data` + `/releases/download/medical-data/
+    /// medical-data-catalog-*`=医疗 resolver 套件（2026-10-07 P0：检查面迁至 SSR tag
+    /// 页，与 fetcher 同主机不同前缀——**同主机的多套件必须用 URL 前缀作用域**，
+    /// 主机作用域会互擦（旧 api.cnb.cool 属主已随匿名 401 修复退役））。
+    /// 新套件必须登记新前缀，不得复用已有属主。
     static func reset(host: String? = nil) {
         lock.lock(); defer { lock.unlock() }
         if let host {
@@ -79,6 +82,18 @@ final class URLProtocolStub: URLProtocol {
         } else {
             _scripts = [:]
             _requestLog = []
+        }
+    }
+
+    /// 前缀作用域清表（2026-10-07）：同一主机上多套件分属不同 URL 前缀时，
+    /// 主机作用域会互相清表——按 `absoluteString` 前缀切分属主。
+    static func reset(urlPrefixes: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        _scripts = _scripts.filter { entry in
+            !urlPrefixes.contains { entry.key.absoluteString.hasPrefix($0) }
+        }
+        _requestLog = _requestLog.filter { entry in
+            !urlPrefixes.contains { entry.url.absoluteString.hasPrefix($0) }
         }
     }
 

@@ -18,13 +18,6 @@ let package = Package(
         // MIT 许可、SPM、无网络/遥测、纯 Swift+zlib；退出成本低（仅在
         // ASRModelDownloadService 一处使用，替换为 AppleArchive 只改该文件）。
         .package(url: "https://github.com/weichsel/ZIPFoundation.git", from: "0.9.19"),
-        // Medical catalog Release: age X25519 decryption adapter. The catalog
-        // remains a separate read-only SQLite; this dependency is used only by
-        // the explicit update path, never by the patient database.
-        // 2026-10-07 恢复：本段曾随 e0ecb93 误吞并发 WIP 的移除 hunk（AgeKit→签名方案
-        // 迁移在途未完成）——迁移完成前声明必须与 Install.swift 的 import 一致。
-        .package(url: "https://github.com/jamesog/AgeKit.git",
-                 revision: "7d3a1c53d056c410a7b459671c3f37ad4c654544"),
         // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
                  revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
@@ -64,9 +57,9 @@ let package = Package(
                 // ZIPFoundation：仅 iOS/macOS 链接（Linux 测试宿主不涉运行时下载）。
                 .product(name: "ZIPFoundation", package: "ZIPFoundation",
                          condition: .when(platforms: [.iOS, .macOS])),
-                // 2026-10-07 恢复：同包声明段（e0ecb93 误吞并发 WIP），见上注。
-                .product(name: "AgeKit", package: "AgeKit",
-                         condition: .when(platforms: [.iOS, .macOS])),
+                // AgeKit 已退役（2026-10-07 收尾）：医疗包加密与 ASR 同构为
+                // AES-256-GCM 信封，App 侧无任何 import AgeKit；Legacy age 包
+                // 由信封 opener 魔数预检响亮拒绝（负例测试钉住）。
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS])),
                 // T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）。

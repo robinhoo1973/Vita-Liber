@@ -161,10 +161,10 @@ public actor ASRModelDownloadService {
             }
             catch Failure.badResponse(404) { break }
         }
-        // 2026-10-06 单一 JSON 架构:目录资产 = 固定名 index.json(TUF
-        // fixed-name 形态,单调版本在签名载荷 catalogVersion)。tag 页清单
-        // 只做 index.json 存在性确认,下载地址由基址构造;served-name 绑定
-        // = index.json。回滚防护 = 载荷单调闸 + 信任库持久化回滚守卫。
+        // 单一 JSON 架构:目录资产 = 固定名 manifest.json(TUF fixed-name
+        // 形态,单调版本在签名载荷 catalogVersion)。tag 页清单只做
+        // manifest.json 存在性确认,下载地址由基址构造;served-name 绑定
+        // = manifest.json。回滚防护 = 载荷单调闸 + 信任库持久化回滚守卫。
         let page = try await metadata(from: url, maxBytes: CNBReleasePageInventoryParser.maxPageBytes)
         let assets = try CNBReleasePageInventoryParser.assets(fromPage: page,
                                                               repository: ASRModelReleaseProtocol.repository,

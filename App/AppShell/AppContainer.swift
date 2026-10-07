@@ -86,8 +86,9 @@ struct AppContainer {
     /// SP-64 手动检查 resolver（2026-09-27）：pinned root 由 bundle 发布配置注入；
     /// provisioning 前为 nil——检查 fail-closed 呈「暂不可用」，绝不联网。
     let medicalCatalogChecker: (any MedicalCatalogReleaseResolving)?
-    /// SP-64 更新解包 opener（2026-09-27）：age identity 由 bundle 发布配置注入；
-    /// 缺省 nil → 更新入口 fail-closed（packageInvalid），last-good 不受影响。
+    /// SP-64 更新解包 opener（2026-09-27；2026-10-07 起为与 ASR 同构的
+    /// AES-256-GCM 信封，无注入材料）；缺省 nil → 更新入口 fail-closed
+    /// （packageInvalid），last-good 不受影响。
     let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
     // 业主裁决 D2（2026-09-18）：F12 AI 助手永久退役——AIHistoryStore /
     // AIHistoryState / AssistantHistoryView 已删除，装配根不再持有会话历史仓。
@@ -149,15 +150,16 @@ struct AppContainer {
             // irrecoverable 从不静默吞掉（本处吞的是「目录功能」，不是状态）。
             logger.error("医疗目录恢复失败，目录功能降级: \(String(describing: error))")
         }
-        // SP-64 检查/更新链（2026-09-27）：pinned root 与 age identity 随发布配置
-        // provisioning 注入 bundle；provisioning 前资源缺省 → checker/opener 为 nil，
-        // 检查/更新 fail-closed（「暂不可用」/ packageInvalid），本机 last-good 不受影响。
+        // SP-64 检查/更新链（2026-09-27）：pinned root 随发布配置 provisioning 注入
+        // bundle；provisioning 前资源缺省 → checker 为 nil，检查/更新 fail-closed
+        // （「暂不可用」/ packageInvalid），本机 last-good 不受影响。
+        // 2026-10-06：包加密换成与 ASR 同构的信封后，opener 不再需要 provisioning
+        // 资源——它直接调用 ASRPackageCrypto（主密钥内嵌于 App，见该文件说明），
+        // 因此 opener 恒定可用；真正的门仍是 checker 的 pinned root。
         let catalogChecker: (any MedicalCatalogReleaseResolving)?
         let catalogOpener: (any MedicalCatalogPackageOpening)?
         #if os(iOS) || os(macOS)
         let catalogRoot = bundledData("MedicalCatalogRoot", "json")
-        let catalogIdentity = bundledData("MedicalCatalogAgeIdentity", "txt")
-            .flatMap { String(data: $0, encoding: .utf8) }
         catalogChecker = catalogRoot.map { root in
             MedicalCatalogReleaseResolver(pinnedRootJSON: root,
                                           makeVerifier: { CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: $0) },
@@ -165,7 +167,7 @@ struct AppContainer {
                                           trust: catalogTrust,
                                           localVersion: { try? MedicalCatalogStore.installedVersion(path: catalogPath) }) // try?-ok: 读版本失败=按「无本地版本」处理，检查仍可用
         }
-        catalogOpener = catalogIdentity.map { AgeKitMedicalCatalogPackageOpening(identityText: $0) }
+        catalogOpener = EnvelopeMedicalCatalogPackageOpening()
         #else
         catalogChecker = nil
         catalogOpener = nil

@@ -6,7 +6,7 @@ import Testing
 import ZIPFoundation
 @testable import Infrastructure
 
-/// medical-data Release 信任链与安装边界验收（CryptoKit/GRDB/ZIPFoundation/AgeKit，仅 macOS CI）。
+/// medical-data Release 信任链与安装边界验收（CryptoKit/GRDB/ZIPFoundation，仅 macOS CI）。
 /// 每条拒绝用例同时断言：目录 destination 与同目录患者库字节不变、journal 未进入。
 /// 测试桩有界轮询超时错误（D4：挂起改清晰红）
 struct StubDeadlineTimeout: Error {}
@@ -470,15 +470,17 @@ struct MedicalCatalogReleaseAcceptanceTests {
         }
     }
 
-    @Test("Go age package opens to the signed SQLite and passes the release gate")
-    func goAgePackageOpens() async throws {
+    @Test("Go envelope package opens to the signed SQLite and passes the release gate")
+    func goEnvelopePackageOpens() async throws {
         let expected = try GoMedicalFixture.expected()
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
-        let identity = String(decoding: try GoMedicalFixture.data("age-identity.txt"), as: UTF8.self)
         let sqlite = fixture.directory.appendingPathComponent("go-open.sqlite")
-        try await AgeKitMedicalCatalogPackageOpening(identityText: identity)
-            .open(packageURL: GoMedicalFixture.url(expected.packageAssetName), sqliteURL: sqlite, maxSQLiteBytes: 1 << 20)
+        // 2026-10-06：包加密 age → 与 ASR 同构的分块 AES-256-GCM 信封；identity
+        // 是**明文 SQLite 的 SHA-256**，与签名指针里的 sqliteSha256 同值。
+        try await EnvelopeMedicalCatalogPackageOpening()
+            .open(packageURL: GoMedicalFixture.url(expected.packageAssetName), sqliteURL: sqlite,
+                  identity: expected.sqliteSha256, maxSQLiteBytes: 1 << 20)
         #expect(fixture.sha256(sqlite) == expected.sqliteSha256)
         #expect(fixture.sha256(sqlite) == fixture.sha256(GoMedicalFixture.url("catalog.sqlite")))
         try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: expected.sqliteSchemaVersion,
@@ -487,11 +489,31 @@ struct MedicalCatalogReleaseAcceptanceTests {
             try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: expected.sqliteSchemaVersion,
                                                     dataVersion: String(repeating: "0", count: 64))
         }
-        let wrongKey = "AGE-SECRET-KEY-1" + String(repeating: "Q", count: 58)
+        // 错 identity ⇒ GCM 认证失败（而不是解出垃圾）。这条同时钉死
+        // 「identity 漂移必须 fail-closed」——ASR 侧同型断言。
         await #expect(throws: (any Error).self) {
-            try await AgeKitMedicalCatalogPackageOpening(identityText: wrongKey)
+            try await EnvelopeMedicalCatalogPackageOpening()
                 .open(packageURL: GoMedicalFixture.url(expected.packageAssetName),
-                      sqliteURL: fixture.directory.appendingPathComponent("wrong.sqlite"), maxSQLiteBytes: 1 << 20)
+                      sqliteURL: fixture.directory.appendingPathComponent("wrong.sqlite"),
+                      identity: String(repeating: "a", count: 64), maxSQLiteBytes: 1 << 20)
+        }
+    }
+
+    @Test("legacy age 格式包对新信封 opener 响亮失败（旧资产安全语义）")
+    func goEnvelopeOpenerRejectsLegacyAgePackage() async throws {
+        // 迁移期 age 资产以 -cipher- 名留存（三代 orphan fixture）——新 opener
+        // 只认 VLASR 信封魔数，age 字节必须**响亮失败**而非静默误判：
+        // 魔数预检 = fail-closed（旧包解不开即拒绝，绝不产出垃圾 sqlite）。
+        let legacy = "medical-data-package-sqlite-"
+            + "2eeeccca7189103e0e2049e441f690fe0b8d71116c880b283a637f58ffc51050"
+            + "-cipher-10b60fdbfc8a77e7334a68142ec082aa3510bb6deb120ac7da6648fa6f868a16.bin"
+        let fixture = try MedicalCatalogFixture.make()
+        defer { fixture.cleanUp() }
+        await #expect(throws: (any Error).self) {
+            try await EnvelopeMedicalCatalogPackageOpening()
+                .open(packageURL: GoMedicalFixture.url(legacy),
+                      sqliteURL: fixture.directory.appendingPathComponent("legacy.sqlite"),
+                      identity: String(repeating: "2", count: 64), maxSQLiteBytes: 1 << 20)
         }
     }
 }
@@ -548,7 +570,9 @@ struct MedicalCatalogFixture {
         let sqliteSHA = hasher.sha256Hex(sqliteBytes)
         let packageSHA = hasher.sha256Hex(packageBytes)
         let fields: [String: Any] = [
-            "schemaVersion": 1, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
+            // 2026-10-06 评审修复（B3）：catalog 指针的 wire 版本对齐生产 Go
+            // （无条件写 2）。根文档的 schemaVersion 仍为 1（两侧一致，勿改）。
+            "schemaVersion": 2, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
             "rootVersion": 1, "catalogVersion": 30,
             "issuedAt": "2026-09-26T12:00:00Z", "expiresAt": "2026-10-27T12:00:00Z",
             "sqliteSha256": sqliteSHA, "packageSha256": packageSHA, "packageSize": packageBytes.count,
@@ -739,13 +763,13 @@ final class StubPackageFetcher: MedicalCatalogPackageFetching, @unchecked Sendab
     }
 }
 
-/// Swift 夹具的包是明文 ZIP（测试宿主不链 AgeKit）；解包走生产同一 extractor。
+/// Swift 夹具的包是明文 ZIP（测试宿主不链 CryptoKit 信封）；解包走生产同一 extractor。
 final class CountingZIPOpener: MedicalCatalogPackageOpening, @unchecked Sendable {
     private let lock = NSLock()
     private var count = 0
     var openCount: Int { lock.lock(); defer { lock.unlock() }; return count }
 
-    func open(packageURL: URL, sqliteURL: URL, maxSQLiteBytes: Int64) async throws {
+    func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws {
         lock.lock(); count += 1; lock.unlock()
         try MedicalCatalogPackageExtractor.extractSQLite(from: packageURL, to: sqliteURL, maxSQLiteBytes: maxSQLiteBytes)
     }

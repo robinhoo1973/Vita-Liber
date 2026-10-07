@@ -213,7 +213,9 @@ struct MedicalCatalogUpdateTests {
             (.invalidScope, { $0["role"] = "root" }),
             (.invalidScope, { $0["app"] = "other" }),
             (.invalidScope, { $0["assetKind"] = "asr-model" }),
-            (.invalidScope, { $0["schemaVersion"] = 2 }),
+            // 2026-10-06（B3）：catalog 指针的 wire schemaVersion 门从 1 改为 2
+            // 以对齐生产 Go（无条件写 2）；此负例随之改为拿 **1** 去撞门。
+            (.invalidScope, { $0["schemaVersion"] = 1 }),
             (.invalidField, { $0["sqliteSchemaVersion"] = 6 }),
             (.invalidField, { $0["packageSize"] = 0 }),
             (.invalidField, { $0["sqliteSha256"] = upper }),

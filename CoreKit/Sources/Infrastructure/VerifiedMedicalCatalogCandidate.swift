@@ -229,7 +229,7 @@ extension VerifiedMedicalCatalogCandidate {
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         let fields: [String: Any] = [
-            "schemaVersion": 1, "role": "catalog", "app": MedicalCatalogReleaseProtocol.app,
+            "schemaVersion": 2, "role": "catalog", "app": MedicalCatalogReleaseProtocol.app,
             "assetKind": MedicalCatalogReleaseProtocol.assetKind, "rootVersion": 1,
             "catalogVersion": catalogVersion,
             "issuedAt": formatter.string(from: issuedAt), "expiresAt": formatter.string(from: expiresAt),
@@ -349,7 +349,13 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         var pointer = try MedicalCatalogJSON.strict(Self.self, from: payload,
                                                    keys: Set(CodingKeys.allCases.map(\.rawValue)),
                                                    onFailure: .invalidField)
-        guard pointer.schemaVersion == 1, pointer.role == "catalog", pointer.app == MedicalCatalogReleaseProtocol.app,
+        // 2026-10-06 评审修复（B3）:此前这里是 `== 1`,而 Go 生产签名器无条件
+        // 写 `schemaVersion = 2`(trust.go:489)且只认 2(trust.go:390);Go 的 v1
+        // 形态被它自己限制为 **legacy 迁移专用**(sqlite v5/6 且禁止 planSet)。
+        // 而本解码器同时要求 planSetSHA256 存在(下一段 digests)且物理 sqlite v7
+        // ——两个集合的交集为空,App 因此永远拒绝每一个真实指针。本解码器对
+        // planSetSHA256 的要求本身就是 v2 契约,故门值改为 2。
+        guard pointer.schemaVersion == 2, pointer.role == "catalog", pointer.app == MedicalCatalogReleaseProtocol.app,
               pointer.assetKind == MedicalCatalogReleaseProtocol.assetKind else {
             throw MedicalCatalogTrustError.invalidScope
         }

@@ -77,7 +77,7 @@ final class MedicalCatalogStateTests: XCTestCase {
     /// 无操作 opener：让取消用例的链路到达挂起 fetcher（无 opener 会被状态机
     /// 前置短路为 catalogNotConfigured，1-vote 验证发现的接线遗漏）。
     private struct NoopOpener: MedicalCatalogPackageOpening {
-        func open(packageURL: URL, sqliteURL: URL, maxSQLiteBytes: Int64) async throws {}
+        func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws {}
     }
 
     /// 挂起式 fetcher：取消响应经 withTaskCancellationHandler 还原（生产 URLSession

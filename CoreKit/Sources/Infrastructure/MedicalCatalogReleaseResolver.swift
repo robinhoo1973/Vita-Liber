@@ -17,8 +17,8 @@ public struct MedicalCatalogCheckOutcome: Sendable, Equatable {
     }
 }
 
-/// 医疗目录手动检查端口（SP-64 / tech-spec §5.53）：只读 GitHub public Release
-/// inventory 与被选中的小 pointer，绝不下载 `.bin` 包体；请求不携带任何凭据。
+/// 医疗目录手动检查端口（SP-64 / tech-spec §5.53）：只读 CNB Release tag 页
+/// 清单（SSR，匿名）与被选中的小 pointer，绝不下载 `.bin` 包体；请求不携带任何凭据。
 /// 唯一可抛错误 = CancellationError（任务取消）；其余失败全部归约进 outcome 状态。
 public protocol MedicalCatalogReleaseResolving: Sendable {
     func check() async throws -> MedicalCatalogCheckOutcome
@@ -28,7 +28,7 @@ public protocol MedicalCatalogReleaseResolving: Sendable {
 /// 2026-09-27 评审修复：`tooLarge` 曾挪作非尺寸语义（终点主机越界/inventory 畸形），
 /// 错误词汇失真会误导调试与未来 UI 细分——按 throw 现场语义拆分。
 enum MedicalCatalogResolveError: Error, Equatable {
-    /// 响应体超过声明上限（inventory 4 MB / pointer 2 MB），传输已中止。
+    /// 响应体超过声明上限（tag 页 8 MiB / pointer 2 MB），传输已中止。
     case tooLarge
     /// 终点/资产 URL 不在检查面主机门内（scheme/host/端口/userinfo 任一不符）。
     case hostMismatch
@@ -37,8 +37,9 @@ enum MedicalCatalogResolveError: Error, Equatable {
 }
 
 /// SP-64 检查实现（tech-spec §5.53）：
-/// 1. GET 固定 public Release inventory（ETag 配对、有界读取、逐跳主机门）；
-/// 2. 资产表里选**最高** `installable` pointer（progress 永不进入候选）；
+/// 1. GET 固定 CNB Release tag 页（SSR `__NEXT_DATA__` 清单；ETag 配对、有界读取
+///    （8 MiB）、逐跳主机门；2026-10-07 P0 自匿名不可用的 api.cnb.cool 迁入）；
+/// 2. 清单里选**最高** `installable` pointer（progress 永不进入候选）；
 /// 3. 只下载被选中的小 pointer（≤2 MB），pinned root 验签后才构造候选；
 /// 4. 反回退 floor（`MedicalCatalogTrustStore`）：验签通过即推进，更低版本/同版本异
 ///    摘要就地拒绝——「metadata 信任地板」与安装结果无关（TrustStore 契约）；
@@ -47,14 +48,17 @@ enum MedicalCatalogResolveError: Error, Equatable {
 /// pinned root 缺失（发布配置尚未 provisioning）时 fail-closed **不联网**——
 /// 未配置≠网络错误，UI 呈「暂不可用」；检查永不自动重试限流（§5.53 限流纪律）。
 public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
-    /// 检查面固定地址（CNB public API；无 Authorization/cookie/令牌）。
-    public static let inventoryURL = URL(string: "https://api.cnb.cool/"
-        + MedicalCatalogReleaseProtocol.repository + "/-/releases/tags/"
+    /// 检查面入口 = CNB Release tag 页（SSR `__NEXT_DATA__` 清单；匿名可用，
+    /// 无 Authorization/cookie/令牌）。2026-10-07 P0：api.cnb.cool 全部端点匿名
+    /// 401，旧 API inventory 恒败——迁至 SSR 直取，逐项对齐
+    /// `ASRModelDownloadService.fetchIndex` 先例（含「地址由常量构造、不采信
+    /// 页面数据」的同款纪律）。
+    public static let tagPageURL = URL(string: "https://cnb.cool/"
+        + MedicalCatalogReleaseProtocol.repository + "/-/releases/tag/"
         + MedicalCatalogReleaseProtocol.releaseTag)!
-    /// inventory 上界（覆盖 1000 资产上限内的 Release 元数据）。
-    static let maxInventoryBytes = 4 << 20
-    /// 检查面允许的逐跳/终点主机 = 下载面钉定主机 + CNB API 主机。
-    static let checkAllowedHosts = MedicalCatalogReleaseProtocol.allowedHosts.union(["api.cnb.cool"])
+    /// 检查面允许的逐跳/终点主机 = 下载面钉定主机（tag 页与 pointer 均在 cnb.cool，
+    /// 302 终点 asset.cnb.cool；api.cnb.cool 已于 2026-10-07 从信任面退役）。
+    static let checkAllowedHosts = MedicalCatalogReleaseProtocol.allowedHosts
 
     /// 检查面 URL 门（2026-09-27 评审修复）：此前三个检查点只查 host，弱于下载面
     /// `allowsTransferURL`（scheme/https/无 userinfo/端口 443 全查）——被篡改的
@@ -124,7 +128,11 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         }
         do {
             try Task.checkCancellation()
-            let inventory = try await fetch(Self.inventoryURL, maxBytes: Self.maxInventoryBytes, etag: true)
+            // etag 保留 true：SSR ETag 实测不稳定（If-None-Match 恒 200，无缓存收益
+            // 也无害）；304 语义由本机能测试钉住，缓存一致性不断链。
+            let inventory = try await fetch(Self.tagPageURL,
+                                            maxBytes: CNBReleasePageInventoryParser.maxPageBytes,
+                                            etag: true)
             try Task.checkCancellation()
             if let failure = Self.failureOutcome(inventory) { return failure }
             guard let inventoryBody = inventory.body else {
@@ -301,21 +309,29 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         let catalogVersion: Int64
     }
 
+    /// tag 页（SSR）→ 最高 installable pointer 候选。
+    /// 2026-10-07 P0：页面只提供「名字集合」（形状门由 `CNBReleasePageInventoryParser`
+    /// 全量把关）；pointer 地址由协议常量构造——**不采信页面给出的任何 URL**
+    /// （ASRModelDownloadService.fetchIndex 同款纪律：页面数据是候选定位，不是
+    /// 地址来源）。任何页面形状漂移 = malformedInventory = fail-closed。
     private func parseInventory(_ data: Data) throws -> PointerRef? {
-        guard data.count <= Self.maxInventoryBytes else { throw MedicalCatalogResolveError.tooLarge }
-        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let assets = object["assets"] as? [Any] else {
+        let assets: [CNBInventoryAsset]
+        do {
+            assets = try CNBReleasePageInventoryParser.assets(
+                fromPage: data,
+                repository: MedicalCatalogReleaseProtocol.repository,
+                tag: MedicalCatalogReleaseProtocol.releaseTag)
+        } catch {
             throw MedicalCatalogResolveError.malformedInventory
         }
         var highest: PointerRef?
         for asset in assets {
-            guard let entry = asset as? [String: Any],
-                  let name = entry["name"] as? String,
-                  let rawURL = entry["browser_download_url"] as? String,
-                  let url = URL(string: rawURL), Self.allowsCheckURL(url),
-                  let version = Self.installablePointerVersion(name) else { continue }
+            guard let version = Self.installablePointerVersion(asset.name),
+                  let url = URL(string: MedicalCatalogReleaseProtocol.releaseBaseURL
+                                + "/" + asset.name),
+                  Self.allowsCheckURL(url) else { continue }
             if highest == nil || version > highest!.catalogVersion {
-                highest = PointerRef(name: name, url: url, catalogVersion: version)
+                highest = PointerRef(name: asset.name, url: url, catalogVersion: version)
             }
         }
         return highest

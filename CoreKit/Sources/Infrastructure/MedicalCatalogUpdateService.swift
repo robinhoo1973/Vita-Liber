@@ -1,10 +1,16 @@
 import Foundation
 import Domain
 
-/// 包解密 + 解包端口；identity 由 App 发布配置注入，更新服务本身不保存/生成私钥。
+/// 包解密 + 解包端口；identity 由调用方从**已验签的候选**传入，更新服务本身不保存/生成私钥。
 /// 实现须把解出的 SQLite 限制在 `maxSQLiteBytes` 内。
+///
+/// 2026-10-06：新增 `identity` —— 包加密从 age X25519（随机化、密钥与包内容无关）
+/// 换成与 ASR CI 同构的分块 AES-256-GCM 信封后，信封的 key/nonce 由
+/// (主密钥, identity) 确定性派生，App 必须在解密前知道 identity。唯一安全的
+/// 来源是**验签后的** `candidate.sqliteSHA256`（绝不可取资产名或 inventory——
+/// 那些是攻击者可控字符串）。
 public protocol MedicalCatalogPackageOpening: Sendable {
-    func open(packageURL: URL, sqliteURL: URL, maxSQLiteBytes: Int64) async throws
+    func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws
 }
 
 /// 按签名的 packageAssetName 取密文包；实现须把落盘字节限制在 `expectedSize` 内。

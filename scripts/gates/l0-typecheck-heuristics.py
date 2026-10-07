@@ -3,8 +3,17 @@
 # ============================================================================
 # L0 [15] 类型层启发式门禁 —— l0-typecheck-heuristics.py
 # 背景：App/（SwiftUI）无法在 Linux 上编译，swiftc -parse 只查语法不查语义，
-# 以下十八族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
-# 本脚本用静态启发式在 L0 左移拦截：
+# 以下二十族类型错误只有 macOS L1 编译门禁才能暴露（每族均有 CI 实证或部署目标实证），
+# 本脚本用静态启发式在 L0 左移拦截（近期新增族置首，其余按字母序）：
+#   S. 泛型类型内存储型 static 属性 —— CI 37428471794（评审批）：
+#      ModelTaskSwipeRow<Content> 的 static let 存储属性，Swift 语言禁
+#      （'static stored properties not supported in generic types'）
+#   T. await 出现在 autoclosure 操作数位 —— CI 37430843824（评审批）：
+#      `||`/`&&`/`??` 右侧禁 await（'await cannot appear to the right of a
+#      non-assignment operator'）；左操作数与三元分支合法不报
+#   U. View.frame 固定键与弹性键混用 —— 评审批三度评审实证（评审期拦截）：
+#      (width:|height:) 与 (min*|ideal*|max*) 不可同调用（'extra argument' 形态），
+#      合法形态为链式 .frame(width:...).frame(minHeight:...)
 #   A. 跨层引用缺 import —— CI d0c1008：RootAdaptiveView 引用 Infrastructure
 #      符号但未 import Infrastructure（parse 不解析符号，本地一直绿）
 #   B. Date 与 Double/TimeInterval 混比较 —— CI 34032245120（8bc49b8）：
