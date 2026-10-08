@@ -20,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-REQUIRED_TOP = ("schema_version", "policy_version", "corpus", "gates", "noise", "publish", "licenses", "weights")
+REQUIRED_TOP = ("schema_version", "policy_version", "corpus", "gates", "noise", "publish", "licenses", "training", "weights")
 
 
 def policy_path() -> Path:
@@ -84,6 +84,13 @@ def validate(policy: dict) -> None:
             raise ValueError(f"licenses.sources[{src}] 缺 attribution(许可类 {cls} 要求顯名)")
     if lic.get("changeRequires") != "owner":
         raise ValueError("licenses 变更须业主裁决(changeRequires=owner)")
+    # 训练链(2026-10-09):chunk 预算/maxChunks 形态 fail-closed
+    if not isinstance(policy["training"].get("chunkMinutes"), int) or policy["training"]["chunkMinutes"] <= 0:
+        raise ValueError("training.chunkMinutes 必须正整数")
+    if not isinstance(policy["training"].get("maxChunks"), dict) or not policy["training"]["maxChunks"]:
+        raise ValueError("training.maxChunks 必须非空 dict")
+    if not isinstance(policy["training"].get("chainEnabled"), bool):
+        raise ValueError("training.chainEnabled 必须布尔")
 
 
 def get(policy: dict, dotted: str):

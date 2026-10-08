@@ -117,33 +117,32 @@
     "version_comment": "2.1=长度补偿 L_eff=max(len,7)(2026-10-08:R0 首测 0.73× → 锚 6 实测 → 锚 7 反推落点 0.112/0.266/0.485/0.707 全入容差)"
   },
   "training": {
-    "encoder": {
-      "replayRatio": 0.2,
-      "replayRatio_provisional": true,
-      "forgetting": {
-        "maxDropPp": 2.0,
-        "minSamplesPerUnit": 200,
-        "test": "mcnemar_exact"
-      },
-      "negatives": {
-        "mode": "off",
-        "modes": [
-          "off",
-          "corpus"
-        ],
-        "corpusThenMined": true
-      },
-      "pinyinInEncoder": false,
-      "domainPrefixToken": false
+    "_comment": "CPU 分块训练链(2026-10-09 无私仓/无 GPU;公开仓 ubuntu 4vCPU/6h job)。chain_chain 状态机三重闸:失败即停/maxChunks/零进度;产物=Release llama-models(draft,autoPromote=false)。",
+    "chunkMinutes": 350,
+    "chainEnabled": true,
+    "maxChunks": {
+      "train-encoder": 8,
+      "train-sft": 40
     },
-    "generation": {
-      "generalReplayRatio": [
-        0.1,
-        0.2
-      ],
-      "dormant": true,
-      "curriculum": "off"
-    }
+    "encoder": {
+      "steps": 940,
+      "batch": 64,
+      "seq": 128,
+      "lr": 2e-05
+    },
+    "sft": {
+      "epochs": 1,
+      "batch": 2,
+      "seq": 2048,
+      "lr": 2e-05,
+      "fallback26M": {
+        "enabled": true,
+        "minTokensPerSecond": 150,
+        "provisional": true,
+        "why": "首 chunk 探针实测吞吐<阈值即切 26M 底座(质量/墙钟再裁决)"
+      }
+    },
+    "changeRequires": "owner"
   },
   "publish": {
     "dialogue": {
