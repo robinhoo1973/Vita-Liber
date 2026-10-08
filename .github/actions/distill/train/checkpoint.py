@@ -2,8 +2,10 @@
 
 - 内容:模型权重 + optimizer 状态 + scheduler + RNG 状态 + step/epoch + 元数据。
 - 原子性:tmp 写入 + rename + sha256 sidecar;恢复前校验 sha256 通过才加载。
-- 恢复自检三层(§7.4 第 7 条):
-  L1 loss:恢复后首个训练步 loss 与断点记录相对偏差 <5%(由训练循环调用 check_resume_loss)
+- 恢复自检三层(§7.4 第 7 条,2026-10-08 校准):
+  L1 loss:同一探测批(probe batch)在保存前与恢复后的 loss 相对偏差 <5%
+    ——同数据同权重的确定性对拍。旧版比较"恢复后首步训练 loss vs 断点记录",
+    两批不同数据,批次间方差远大于 5%,首跑 CI 37710699326 实证恒红;
   L2 状态:step 严格单调、epoch 精确续接无重放(load 时校验)
   L3 权重:首末层哈希须变化、vocab 不变(由训练循环调用 check_weight_progress)
 - 文件名:checkpoint-{step:08d}.pt + checkpoint-latest.json 指针 + *.sha256 sidecar。
@@ -29,6 +31,7 @@ class CheckpointMeta:
     model_config_sha256: str
     rng: dict                      # torch RNG 状态(CPU tensors)
     extra: dict | None = None
+    probe_loss: float | None = None  # L1 同批探测基 loss(2026-10-08;旧 ckpt 缺省 None)
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> str:
@@ -72,6 +75,7 @@ def save_checkpoint(checkpoint_dir: Path, payload: dict, meta: CheckpointMeta) -
             "dataset_sha256": meta.dataset_sha256,
             "model_config_sha256": meta.model_config_sha256,
             "rng": meta.rng, "extra": meta.extra or {},
+            "probe_loss": meta.probe_loss,
         },
         "payload": payload,
     }
@@ -115,6 +119,7 @@ def load_checkpoint(checkpoint_dir: Path, expected_step: int | None = None,
         dataset_sha256=meta_raw["dataset_sha256"],
         model_config_sha256=meta_raw["model_config_sha256"],
         rng=meta_raw["rng"], extra=meta_raw.get("extra"),
+        probe_loss=meta_raw.get("probe_loss"),
     )
     if expected_step is not None and meta.step != expected_step:
         raise ValueError(f"L2 状态闸: checkpoint step={meta.step} != 期望 {expected_step}(续接非精确)")
@@ -127,14 +132,20 @@ def load_checkpoint(checkpoint_dir: Path, expected_step: int | None = None,
 
 
 def check_resume_loss(recorded_loss: float, first_step_loss: float, tolerance: float = 0.05) -> None:
-    """L1 恢复自检:恢复后首个 loss 与断点记录值相对偏差 < tolerance。"""
+    """L1 恢复自检:同一探测批在保存前与恢复后的 loss 相对偏差 < tolerance。
+
+    调用契约(2026-10-08 校准):两侧 loss 必须来自**同一批数据、同一权重语义**——
+    保存侧=save 前对该 probe batch 的 eval-mode loss,恢复侧=load 后同批再算一次。
+    旧契约比较"恢复后首个训练步 loss vs 断点记录"(不同批次),批次方差远大于
+    容差,闸近恒红(首跑 CI 37710699326 实证 0.0429 vs 0.1374,68.8%)。
+    """
     if recorded_loss <= 0:
         raise ValueError(f"L1 恢复自检: 断点 loss 非法({recorded_loss})")
     deviation = abs(first_step_loss - recorded_loss) / recorded_loss
     if deviation >= tolerance:
         raise ValueError(
-            f"L1 恢复自检: loss 相对偏差 {deviation:.4f} ≥ {tolerance}——"
-            f"恢复后 {first_step_loss:.4f} vs 断点 {recorded_loss:.4f},拒绝续训(device-lost 教训闸)")
+            f"L1 恢复自检: 同批探测基 loss 相对偏差 {deviation:.4f} ≥ {tolerance}——"
+            f"恢复后 {first_step_loss:.4f} vs 保存前 {recorded_loss:.4f},拒绝续训(device-lost 教训闸)")
 
 
 def weight_fingerprint(model, vocab: int) -> dict:

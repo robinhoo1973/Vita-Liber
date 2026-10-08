@@ -5,8 +5,9 @@
 - 墙钟预算优雅停机:--budget-seconds(默认 19800=5.5h),到预算即保存 checkpoint
   退出码 0——托管 6h 是强杀无钩子,绝不撞线;
 - checkpoint = 权重+optimizer+scheduler+RNG+step/epoch+元数据,原子写+sha256 sidecar;
-- 恢复自检三层:加载时 L2(数据集 sha 精确续接),恢复后首步 L1(loss 偏差 <5%)
-  与 L3(首末层权重指纹变化、参数量/vocab 不变);
+- 恢复自检三层:加载时 L2(数据集 sha 精确续接)+ L1(同批探测基 loss 对拍——
+  2026-10-08 校准:固定 probe batch 保存前/恢复后各以 eval-mode 算一次,同数据
+  同权重),恢复后首步 L3(首末层权重指纹变化、参数量/vocab 不变);
 - 逐 epoch 种子打乱:恢复不重放;pin_memory 关闭(XPU 教训)、固定 seq(无动态填充);
 - 训练侧指标只作进度信号(计划文档 §10):评测闸唯一权威=部署件 CPU 打分。
 """
@@ -129,6 +130,22 @@ def main() -> int:
     total_steps = args.epochs * batches_per_epoch
     scheduler = build_scheduler(optimizer, warmup_steps=max(total_steps // 10, 1), total_steps=total_steps)
 
+    # L1 同批探测基(2026-10-08 修复):固定取数据集前 batch 行作为 probe——语料 sha
+    # 冻结 ⇒ 跨进程重建确定;保存前与恢复后各以 eval-mode 算一次 loss,同数据同
+    # 权重,5% 容差才有判别力。旧判据比较"恢复后首步训练 loss vs 断点记录"(不同
+    # 批次),批次方差远大于容差,首跑 CI 37710699326 实证恒红(0.0429 vs 0.1374)。
+    probe_xq = queries[:args.batch].to(device)
+    probe_xd = gold_tokens[:args.batch].to(device)
+
+    def compute_probe_loss() -> float:
+        was_training = model.training
+        model.eval()
+        with torch.no_grad():
+            probe = contrastive_loss(model(probe_xq), model(probe_xd), args.temperature)
+        if was_training:
+            model.train()
+        return float(probe.detach().cpu())
+
     start_step, start_epoch, recorded_loss = 0, 0, None
     if args.resume_dir is not None:
         payload, meta = load_checkpoint(args.resume_dir, expected_dataset_sha256=dataset_sha,
@@ -140,14 +157,20 @@ def main() -> int:
         random.setstate(payload["rng"]["python"])
         start_step, start_epoch, recorded_loss = meta.step, meta.epoch, meta.loss
         print(f"RESUMED step={start_step} epoch={start_epoch} loss={recorded_loss}")
+        if meta.probe_loss is not None:
+            resumed_probe = compute_probe_loss()
+            check_resume_loss(meta.probe_loss, resumed_probe)  # L1:同批探测基对拍
+            print(f"L1 同批探测基: {meta.probe_loss:.6f} -> {resumed_probe:.6f}(通过)")
+        else:
+            print("WARN: checkpoint 无 probe_loss(旧格式)——L1 同批对拍跳过", file=sys.stderr)
         fingerprint_before = weight_fingerprint(model, len(vocab))  # L3 基线(恢复首步后对比)
     else:
         fingerprint_before = None
 
-    # 恢复不重放(§7.4 第 7 条):续接 epoch 内已完成的 batch 直接跳过。旧实现从
-    # epoch 头重放已训 batch——浪费算力且 L1 loss 自检首步与断点记录不同分布
-    # (不同 batch),5% 偏差闸被随机性误触发。前提 accum=1(step 与 batch 一一
-    # 对应);accum>1 时为近似偏移,由 L1/L3 自检兜底。
+    # 恢复不重放(§7.4 第 7 条):续接 epoch 内已完成的 batch 直接跳过(前提
+    # accum=1,step 与 batch 一一对应;accum>1 时为近似偏移,由 L1/L3 自检兜底)。
+    # 注:续训正确性现由"同批探测基" L1 保证(加载时对拍);旧"首步 loss 与断点
+    # 记录比"因两批不同数据方差远超容差,已按 2026-10-08 校准移除。
     skip_batches = (start_step - batches_per_epoch * start_epoch) if args.resume_dir is not None else 0
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -168,7 +191,8 @@ def main() -> int:
                            dataset_sha256=dataset_sha,
                            model_config_sha256=config.sha256(),
                            rng=_rng_state(torch, random),
-                           extra=extra or {"device": device, "amp": args.amp}))
+                           extra=extra or {"device": device, "amp": args.amp},
+                           probe_loss=compute_probe_loss()))
 
     try:
         for epoch in range(start_epoch, args.epochs):
@@ -204,11 +228,8 @@ def main() -> int:
                     scheduler.step()
                     step += 1
                     last_loss = float(loss.detach().cpu())
-                    if step == start_step + 1:
-                        if recorded_loss is not None:
-                            check_resume_loss(recorded_loss, last_loss)  # L1
-                        if fingerprint_before is not None:
-                            check_weight_progress(fingerprint_before, weight_fingerprint(model, len(vocab)))  # L3
+                    if step == start_step + 1 and fingerprint_before is not None:
+                        check_weight_progress(fingerprint_before, weight_fingerprint(model, len(vocab)))  # L3
                     if step % args.log_interval == 0:
                         row = {"step": step, "epoch": epoch, "loss": last_loss,
                                "wall_s": round(time.monotonic() - start_wall, 1),
