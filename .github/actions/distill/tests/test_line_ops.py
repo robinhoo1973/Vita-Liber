@@ -27,7 +27,8 @@ class LineOpsTests(unittest.TestCase):
         out, shared, rows, st = apply_line_ops(lines, list(spans), [], random.Random(1), band="clean")
         self.assertEqual(out, lines)
         self.assertEqual([s["lineIndex"] for s in shared], [0, 1])
-        self.assertEqual(st, {"drop": 0, "merge": 0, "interleave": 0, "split": 0})
+        self.assertEqual(st, {"drop": 0, "merge": 0, "interleave": 0, "split": 0,
+                              "linsert": 0, "pinterl": 0})
 
     def test_drop_only_no_span_lines(self):
         lines = ["A 医院", "中间噪声行", "科室：心内科"]
@@ -127,6 +128,42 @@ class LineOpsTests(unittest.TestCase):
                 for s in list(sh) + [s for r in rw for s in r]:
                     self.assertIn(s["value"], out[s["lineIndex"]],
                                   f"band={band} seed={seed} key={s['key']}")
+
+    def test_linsert_inserts_spanless_donor(self):
+        lines = ["A 医院", "噪声一", "噪声二"]
+        shared = [sp("hospital", "A 医院", 0)]
+        with with_rates("light", {"linsert": 1.0}):
+            out, shared, _, st = apply_line_ops(lines, list(shared), [], random.Random(5),
+                                                band="light", donors=["页眉残片"])
+        self.assertEqual(st["linsert"], 1)
+        self.assertIn("页眉残片", out)
+        self.assertEqual(shared[0]["lineIndex"], out.index("A 医院"))
+
+    def test_linsert_no_donors_noop(self):
+        lines = ["A 医院", "噪声一"]
+        with with_rates("light", {"linsert": 1.0}):
+            out, _, _, st = apply_line_ops(lines, [], [], random.Random(5), band="light")
+        self.assertEqual(st["linsert"], 0)
+
+    def test_pinterl_swaps_block_halves(self):
+        lines = ["S带span", "N1", "N2", "N3", "N4", "尾"]
+        shared = [sp("k", "S带span", 0)]
+        with with_rates("light", {"pinterl": 1.0}):
+            out, shared, _, st = apply_line_ops(lines, list(shared), [], random.Random(3),
+                                                band="light")
+        self.assertEqual(st["pinterl"], 1)
+        self.assertEqual(shared[0]["lineIndex"], 0)          # span 行不参与
+        # 无 span 连跑 [N1,N2,N3,N4,尾] 整段对半交换 → [N3,N4,尾,N1,N2]
+        self.assertEqual(sorted(out[1:6]), ["N1", "N2", "N3", "N4", "尾"])
+        self.assertEqual(out[1:4], ["N3", "N4", "尾"])
+
+    def test_pinterl_needs_four_spanless(self):
+        lines = ["S带span", "N1", "N2", "N3"]
+        shared = [sp("k", "S带span", 0)]
+        with with_rates("light", {"pinterl": 1.0}):
+            out, _, _, st = apply_line_ops(lines, list(shared), [], random.Random(3),
+                                           band="light")
+        self.assertEqual(st["pinterl"], 0)
 
 
 if __name__ == "__main__":

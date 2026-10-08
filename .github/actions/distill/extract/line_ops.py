@@ -19,9 +19,11 @@ import re
 BAND_LINE_RATES: dict[str, dict[str, float]] = {
     "clean": {},
     "light": {"drop": 0.02, "merge": 0.02},
-    "medium": {"drop": 0.04, "merge": 0.04, "interleave": 0.03},
-    "heavy": {"drop": 0.06, "merge": 0.06, "interleave": 0.05, "split": 0.04},
-    "extreme": {"drop": 0.08, "merge": 0.08, "interleave": 0.07, "split": 0.06},
+    "medium": {"drop": 0.04, "merge": 0.04, "interleave": 0.03, "linsert": 0.03},
+    "heavy": {"drop": 0.06, "merge": 0.06, "interleave": 0.05, "split": 0.04,
+              "linsert": 0.05, "pinterl": 0.04},
+    "extreme": {"drop": 0.08, "merge": 0.08, "interleave": 0.07, "split": 0.06,
+                "linsert": 0.07, "pinterl": 0.06},
 }
 
 # 切分候选位:行内分隔符串(全角冒号/半角冒号/双空格/中点/单空格兜底)
@@ -33,12 +35,15 @@ def _eligible_split_positions(text: str) -> list:
 
 
 def apply_line_ops(lines: list, shared: list, rows: list, rng: random.Random, *,
-                   band: str) -> tuple[list, list, list, dict]:
+                   band: str, donors: list | None = None) -> tuple[list, list, list, dict]:
     """对样本行列表施加结构算子;span 的 lineIndex 经映射重算(原地更新 span 字典)。
 
-    返回 (new_lines, shared, rows, stats);stats={"drop","merge","interleave","split"}。
+    v2.2 补 StruNRAG 两类(round2 X 席对照):linsert=孤立元素行插入(页眉/分页残片
+    混入正文块;donor 文本由调用方提供)、pinterl=块级交错(≥4 连续无 span 行对半交换=
+    阅读顺序错误的段落级形态)。仍守安全约束:插入行无 span、块级交换仅无 span 行。
+    返回 (new_lines, shared, rows, stats)。
     """
-    stats = {"drop": 0, "merge": 0, "interleave": 0, "split": 0}
+    stats = {"drop": 0, "merge": 0, "interleave": 0, "split": 0, "linsert": 0, "pinterl": 0}
     rates = BAND_LINE_RATES.get(band, {})
     n = len(lines)
     if not rates or n == 0:
@@ -101,6 +106,28 @@ def apply_line_ops(lines: list, shared: list, rows: list, rng: random.Random, *,
                     stats["split"] += 1
                     continue
         expanded.append(e)
+
+    # ⑤ LInsert(孤立元素插入;StruNRAG LInsert 近似——页眉/页码残片混入正文块)
+    draw = rng.random()
+    if donors and expanded and draw < rates.get("linsert", 0.0):
+        pos = rng.randrange(len(expanded))
+        expanded.insert(pos, {"text": rng.choice(donors), "olds": [], "spanned": False})
+        stats["linsert"] += 1
+
+    # ⑥ PInterl(块级交错;≥4 连续无 span 行对半交换=段落阅读顺序错误)
+    draw = rng.random()
+    if draw < rates.get("pinterl", 0.0):
+        start = None
+        for i in range(len(expanded) + 1):
+            if i < len(expanded) and not expanded[i]["spanned"]:
+                start = i if start is None else start
+                continue
+            if start is not None and i - start >= 4:
+                mid = start + (i - start) // 2
+                expanded[start:i] = expanded[mid:i] + expanded[start:mid]
+                stats["pinterl"] += 1
+                break
+            start = None
 
     old_to_new = {}
     for pos, e in enumerate(expanded):

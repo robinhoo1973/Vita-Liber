@@ -1825,8 +1825,10 @@ def main():
                 lines, shared, rows, nz = BUILDERS[kind](pools, rng, vocab_chars)
                 # 行级结构噪声(round5 §2.2;lineIndex 结构映射重算)——
                 # 在构造期自检之前施加,ops 破坏 verbatim 即整条丢弃(兜底闸)
+                _donor_cn = ("页眉：门诊系统打印", "分页标识", "扫描件残片", "设备编号 SCAN-2026")
                 lines, shared, rows, line_stats = apply_line_ops(
-                    lines, shared, rows, rng, band=nz["band"])
+                    lines, shared, rows, rng, band=nz["band"],
+                    donors=list(_donor_cn) + [L("TW", s) for s in _donor_cn])
                 if not check_verbatim(lines, shared, rows):
                     bump("verbatim_construct")  # 构造期自检失败（理论不可达；响了就是噪声模块改坏了）
                     continue
@@ -1852,10 +1854,9 @@ def main():
                 sample["noise"] = noise_ctx_summary(nz)
                 if any(line_stats.values()):
                     sample["line_ops"] = dict(line_stats)
-                glo = stats.setdefault("line_ops",
-                                       {"drop": 0, "merge": 0, "interleave": 0, "split": 0})
+                glo = stats.setdefault("line_ops", {})
                 for k, v in line_stats.items():
-                    glo[k] += v
+                    glo[k] = glo.get(k, 0) + v
                 band_stats = stats.setdefault("noise", {"version": NOISE_VERSION, "bands": {}})
                 agg = band_stats["bands"].setdefault(
                     nz["band"], {"samples": 0, "spans": 0, "damaged": 0, "cer_n": 0, "cer_sum": 0.0})
