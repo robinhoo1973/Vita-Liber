@@ -179,6 +179,18 @@ def publish(args, client):
         print("overview.json 已发布：families=%d tiers=%d bytes=%d"
               % (document["totals"]["families"], document["totals"]["tiers"],
                  document["totals"]["bytes"]), flush=True)
+        # T8 内容级回读（2026-10-08 委员会）：清单级回读已由 upload_immutable
+        # 内部承担（声明 sha256/size/path 比对）；此处补匿名下载面实际字节
+        # 对账——「App/人读通道能取到且字节一致」的正面证据。展示面纪律：
+        # 不一致仅 ::warning::（不阻塞数据发布；权威面仍以签名为准）。
+        with tempfile.TemporaryDirectory(prefix="asr-overview-readback-") as readback_root:
+            fetched = client.download_asset(TAG, OVERVIEW_NAME,
+                                            Path(readback_root) / OVERVIEW_NAME, 1024 * 1024)
+            if hashlib.sha256(fetched.read_bytes()).hexdigest() != hashlib.sha256(overview_bytes).hexdigest():
+                print("::warning::overview.json 匿名回读字节不一致(清单级回读已过,内容级对账失败,不阻塞发布)",
+                      file=sys.stderr)
+            else:
+                print("overview.json 匿名回读对账一致", flush=True)
     except (CNBReleaseError, ValueError, OSError, KeyError, TypeError) as error:
         print("::warning::overview.json 生成/上传失败(不阻塞发布): " + str(error),
               file=sys.stderr)

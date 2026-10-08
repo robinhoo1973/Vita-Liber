@@ -333,5 +333,40 @@ class PublicationTests(unittest.TestCase):
                 module["publish"](options, client)
 
 
+    def test_publish_overview_readback_content_mismatch_warns_only(self):
+        # T8（2026-10-08 委员会）：overview.json 上传后匿名回读的**实际字节**
+        # 与本地 sha256 不一致 ⇒ 仅 ::warning::，发布不阻塞（展示面纪律；
+        # 清单级回读由 upload_immutable 内部承担，此处是内容级补充腿）。
+        import contextlib
+        import io
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient(downloads={"overview.json": b"tampered-readback-bytes"})
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                result = module["publish"](options, client)   # 不得抛
+            self.assertTrue(result)
+            self.assertIn("::warning::overview.json 匿名回读字节不一致", stderr.getvalue())
+
+    def test_publish_overview_readback_content_match_logs(self):
+        # 一致路径：默认桩回读上传后的真实字节 ⇒ 打印对账一致（防回退：
+        # 内容级回读腿整体缺失时该行消失即红）。
+        import contextlib
+        import io
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            client = FakeCNBReleaseClient()
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                module["publish"](options, client)
+            self.assertIn("overview.json 匿名回读对账一致", stdout.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
