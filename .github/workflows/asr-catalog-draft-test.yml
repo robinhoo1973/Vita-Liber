@@ -12,6 +12,9 @@ on:
     paths:
       - ".github/actions/release/bootstrap-asr-model.py"
       - ".github/actions/release/generate-asr-source-manifest.py"
+      - ".github/actions/release/suggest-asr-metadata.py"
+      - ".github/actions/release/distill-asr-metadata.py"
+      - ".github/actions/release/test-distill-asr-metadata.py"
       - ".github/config/asr/**"
       - ".github/workflows/asr-catalog-draft-test.yml"
 
@@ -151,5 +154,61 @@ jobs:
         with:
           name: asr-suggested-${{ github.run_id }}
           path: ${{ runner.temp }}/asr-config-candidates/suggested
+          retention-days: 7
+          if-no-files-found: warn
+
+  distill:
+    name: ③ 蒸馏合并（候选 × 建议 → 逐项择优终稿 + provenance 报告）
+    needs: [draft, llm]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版,L0 检查 e 契约:跑 release 测试面须装）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      - name: 下载候选 artifact（① 的产出）
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: asr-draft-test-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - name: 下载侧车 artifact（② 的产出;缺失不阻塞——纯确定性仍成稿）
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: asr-suggested-${{ github.run_id }}
+          path: ${{ runner.temp }}/asr-config-candidates/suggested
+
+      - name: 离线冒烟（suggester 与 distiller 纯函数面）
+        run: |
+          python3 .github/actions/release/test-suggest-asr-metadata.py
+          python3 .github/actions/release/test-distill-asr-metadata.py
+
+      - name: 蒸馏合并（逐项择优 + provenance 报告）
+        run: |
+          set -o pipefail
+          python3 .github/actions/release/distill-asr-metadata.py \
+            --candidates "$RUNNER_TEMP/asr-config-candidates" \
+            --suggested "$RUNNER_TEMP/asr-config-candidates/suggested" \
+            --out "$RUNNER_TEMP/asr-distilled" \
+            --min-confidence 0.6 2>&1 | tee "$RUNNER_TEMP/distill.log"
+          echo "── distill-report.json ──"
+          cat "$RUNNER_TEMP/asr-distilled/distill-report.json"
+
+      - name: 上传终稿与报告（distilled/）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-distilled-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/asr-distilled
+            ${{ runner.temp }}/distill.log
           retention-days: 7
           if-no-files-found: warn
