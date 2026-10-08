@@ -420,7 +420,7 @@ jobs:
         run: |
           pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
-      - name: Encoder smoke(≤30 步 + 断点续训回归)
+      - name: Encoder smoke(≤30 步 + 断点续训回归 + 负例消费短冒烟)
         run: |
           python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-out \
@@ -428,6 +428,11 @@ jobs:
           python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-resume --resume-dir smoke-out/checkpoints \
             --max-steps 40 --budget-seconds 240 --batch 32 --epochs 2 --device cpu
+          # 负例消费路径(阶段 1)短冒烟:默认 off 不触达新代码,此条实跑拼入/掩蔽接线
+          python3 .github/actions/distill/train_encoder.py \
+            --corpus corpus.jsonl --out-dir smoke-negatives \
+            --max-steps 5 --budget-seconds 120 --batch 8 --epochs 1 --device cpu \
+            --negatives corpus
       - name: Upload smoke artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
@@ -435,6 +440,7 @@ jobs:
           path: |
             smoke-out/
             smoke-resume/
+            smoke-negatives/
           # 训练第一步就崩时目录可能不全——缺件不掩盖真失败(训练步已红)。
           if-no-files-found: ignore
           retention-days: 7

@@ -27,7 +27,9 @@ from corpus.manifest import verify_manifest  # noqa: E402
 from train.checkpoint import (CheckpointMeta, check_resume_loss,  # noqa: E402
                               check_weight_progress, load_checkpoint,
                               save_checkpoint, weight_fingerprint)
-from train.corpus_loader import build_vocab, load_samples, sha256_file, tokenize  # noqa: E402
+from train.corpus_loader import (build_vocab, load_negative_terms,  # noqa: E402
+                                 load_samples, negative_terms_for_samples,
+                                 sha256_file, tokenize)
 from train.model import EncoderConfig, build_encoder  # noqa: E402
 
 DEFAULT_BUDGET_SECONDS = 19800  # 5.5h(托管 6h 强杀前留边)
@@ -47,11 +49,28 @@ def build_scheduler(optimizer, warmup_steps: int, total_steps: int):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
-def contrastive_loss(q_emb, d_emb, temperature):
+def contrastive_loss(q_emb, d_emb, temperature, neg_emb=None, neg_valid=None, gold_ids=None):
+    """InfoNCE;可选负例列拼接与同实体假负例掩蔽(2026-10-08 仲裁席 β 代码方案)。
+
+    - 默认路径(probe 用)逐字节不变:probe_loss 语义/记录不受影响;
+    - neg_emb (B,K,D) 与 neg_valid (B,K) 拼为 (B,B+K) 的附加列(零重构);
+    - gold_ids (B,):batch 内同实体(≠自身)的行在正例矩阵中掩 -inf——
+      每实体 ≤3 词条×4 带≈12 行,batch=64 下同实体重复正例必然成串,
+      现状把它们当负例=已存在的假负例源。
+    """
     import torch
     import torch.nn.functional as F
 
     scores = q_emb @ d_emb.t() / temperature
+    if gold_ids is not None:
+        same = gold_ids.unsqueeze(0) == gold_ids.unsqueeze(1)
+        eye = torch.eye(scores.size(0), dtype=torch.bool, device=scores.device)
+        scores = scores.masked_fill(same & ~eye, float("-inf"))
+    if neg_emb is not None:
+        neg_scores = torch.einsum("bd,bkd->bk", q_emb, neg_emb) / temperature
+        if neg_valid is not None:
+            neg_scores = neg_scores.masked_fill(~neg_valid, float("-inf"))
+        scores = torch.cat([scores, neg_scores], dim=1)
     labels = torch.arange(scores.size(0), device=scores.device)
     return F.cross_entropy(scores, labels)
 
@@ -78,6 +97,9 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--temperature", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260929)
+    parser.add_argument("--negatives", choices=["off", "corpus"], default="off",
+                        help="off=只看 in-batch(旧行为);corpus=拼入语料负例词面"
+                             "(阶段 1;阶段 2 挖掘负例另批——round5 仲裁席 β)")
     parser.add_argument("--amp", action="store_true", help="bf16 autocast(仅 MPS;禁 GradScaler,PR#184286)")
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--log-interval", type=int, default=20)
@@ -122,6 +144,33 @@ def main() -> int:
     gold_terms = [row["gold"]["term"] for row in samples]
     gold_tokens, _ = tokenize([{"query": t} for t in gold_terms], vocab, args.seq)
 
+    # 负例词面表(--negatives corpus;阶段 1)与同实体掩蔽索引(恒开——假负例修复)。
+    neg_terms: list[list[str]] = [[] for _ in samples]
+    neg_stats: dict = {}
+    if args.negatives == "corpus":
+        term_map = load_negative_terms(args.corpus)
+        neg_terms, neg_stats = negative_terms_for_samples(samples, term_map)
+        expected = sum(len(r.get("negatives") or []) for r in samples)
+        resolve_rate = 1.0 - neg_stats["neg_resolve_missing"] / max(expected, 1)
+        if resolve_rate < 0.95:
+            print(f"FAILED: 负例词面解析率 {resolve_rate:.3f} < 0.95——拒绝训练(fail-closed)",
+                  file=sys.stderr)
+            return 1
+        neg_stats["neg_resolve_rate"] = round(resolve_rate, 4)
+        neg_stats["neg_per_sample"] = round(
+            sum(len(t) for t in neg_terms) / max(len(samples), 1), 3)
+    eid_index: dict[str, int] = {}
+    entity_ids: list[int] = []
+    for i, row in enumerate(samples):
+        eid = (row.get("gold") or {}).get("entity_id")
+        if eid is None:
+            entity_ids.append(-(i + 1))  # 无金标实体:唯一负值,永不与他行同实体
+            continue
+        if eid not in eid_index:
+            eid_index[eid] = len(eid_index) + 1
+        entity_ids.append(eid_index[eid])
+    gold_ids_t = torch.tensor(entity_ids, dtype=torch.long)
+
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     model = build_encoder(config).to(device)
@@ -145,6 +194,25 @@ def main() -> int:
         if was_training:
             model.train()
         return float(probe.detach().cpu())
+
+    def neg_batch(bidx) -> tuple:
+        """按批现 tokenize 负例词面(不预张量化:37 万样本×4×128 预张量≈1.5GB 会爆)。"""
+        rows = [neg_terms[i] for i in bidx.tolist()]
+        k_max = max(1, max((len(r) for r in rows), default=1))
+        flat, valid = [], []
+        for r in rows:
+            for k in range(k_max):
+                if k < len(r):
+                    flat.append({"query": r[k]})
+                    valid.append(True)
+                else:
+                    flat.append({"query": r[0] if r else ""})
+                    valid.append(False)  # 占位列,掩 -inf,不参与损失
+        n_tokens, _ = tokenize(flat, vocab, args.seq)
+        neg_emb = model(n_tokens.to(device)).view(len(rows), k_max, -1)
+        neg_valid = torch.tensor(valid, dtype=torch.bool,
+                                 device=device).view(len(rows), k_max)
+        return neg_emb, neg_valid
 
     start_step, start_epoch, recorded_loss = 0, 0, None
     if args.resume_dir is not None:
@@ -200,10 +268,10 @@ def main() -> int:
                 break
             g = torch.Generator()
             g.manual_seed(args.seed + epoch)
-            dataset = TensorDataset(queries, gold_tokens)
+            dataset = TensorDataset(queries, gold_tokens, torch.arange(len(queries)))
             loader = DataLoader(dataset, batch_size=args.batch, shuffle=True, generator=g,
                                 num_workers=args.workers, pin_memory=False, drop_last=True)
-            for batch_idx, (xq, xd) in enumerate(loader):
+            for batch_idx, (xq, xd, bidx) in enumerate(loader):
                 if epoch == start_epoch and batch_idx < skip_batches:
                     continue  # 续训跳过已完成的 batch(无重放纪律)
                 if args.max_steps is not None and step - start_step >= args.max_steps:
@@ -213,13 +281,21 @@ def main() -> int:
                     graceful = True
                     break
                 xq, xd = xq.to(device), xd.to(device)
+                gids = gold_ids_t[bidx].to(device)
+
+                def _forward():
+                    q_emb, d_emb = model(xq), model(xd)
+                    neg_emb = neg_valid = None
+                    if args.negatives == "corpus":
+                        neg_emb, neg_valid = neg_batch(bidx)
+                    return contrastive_loss(q_emb, d_emb, args.temperature,
+                                            neg_emb, neg_valid, gids)
+
                 if args.amp and device == "mps":
                     with torch.autocast(device_type="mps", dtype=torch.bfloat16):
-                        q_emb, d_emb = model(xq), model(xd)
-                        loss = contrastive_loss(q_emb, d_emb, args.temperature)
+                        loss = _forward()
                 else:
-                    q_emb, d_emb = model(xq), model(xd)
-                    loss = contrastive_loss(q_emb, d_emb, args.temperature)
+                    loss = _forward()
                 (loss / args.accum).backward()
                 if (batch_idx + 1) % args.accum == 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -249,6 +325,7 @@ def main() -> int:
     summary = {"status": "budget_stop" if graceful else "complete", "steps": step - start_step,
                "total_steps": step, "loss_last": last_loss, "device": device, "amp": args.amp,
                "vocab_size": len(vocab), "dataset_sha256": dataset_sha,
+               "negatives_mode": args.negatives, **neg_stats,
                "note": "训练侧指标只作进度信号;评测闸唯一权威=部署件 CPU 打分(计划文档 §10)"}
     (args.out_dir / "train-summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
