@@ -508,8 +508,9 @@ def inventory_report(seeds, existing_config, *, authors=None, only=None,
     """家族档位清单（轻层，API 级零下载）：逐家族列出候选镜像仓的在册状态。
 
     - 匹配以 **watch.repo 精确相等**为准（比 (id,variant) 猜测可靠）；
-    - github-release 家族（qwen3）：按 Releases 资产名匹配既有 archive；
-    - 另报「钉版仓库未在候选出现」（发现层回归信号）。
+    - github-release 型家族（watch.kind 驱动,零家族名硬编码）：按 tag 单发布
+      查询 Releases 资产，资产名与 watch.asset 通配匹配既有 archive；
+    - 另报「钉版仓库未在候选出现」（发现层回归信号，hf-repo 型专属）。
     """
     if authors is None:
         authors = resolve_authors(existing_config, fetch_json=fetch_json)
@@ -521,21 +522,30 @@ def inventory_report(seeds, existing_config, *, authors=None, only=None,
             continue
         known = {((entry.get("watch") or {}).get("repo")): "%s.%s" % (entry.get("id"), entry.get("variant"))
                  for entry in entries if entry.get("id") == family}
+        release_entry = next((item for item in entries
+                              if item.get("id") == family
+                              and (item.get("watch") or {}).get("kind") == "github-release"), None)
         rows = []
         try:
-            if family == "qwen3":
-                entry = next((item for item in entries if item.get("id") == "qwen3"), None)
-                archive_url = (entry.get("archive") or {}).get("url", "") if entry else ""
+            if release_entry is not None:
+                # github-release 型（watch 驱动,无家族名硬编码）：按 tag 单发布
+                # 查询（全量 releases 响应超读上限,实测截断——2026-10-08）；资产名
+                # 以 watch.asset 通配匹配（repo/模式/pin 全来自 config）。
+                watch = release_entry.get("watch") or {}
+                repo = watch.get("repo") or ""
+                pattern = watch.get("asset") or "*"
+                archive_url = (release_entry.get("archive") or {}).get("url", "")
                 tag = _release_tag_from_url(archive_url) or "asr-models"
-                release = _request_json("https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/"
-                                        + tag, fetch_json=fetch_json)
+                release = _request_json("https://api.github.com/repos/%s/releases/tags/%s" % (repo, tag),
+                                        fetch_json=fetch_json)
                 for asset in (release or {}).get("assets") or []:
                     name = asset.get("name") or ""
-                    if "qwen3-asr" not in name:
+                    if not fnmatch.fnmatch(name, pattern):
                         continue
-                    in_config = bool(entry) and archive_url.endswith(name)
+                    in_config = archive_url.endswith(name)
                     rows.append({"repo": name, "variant": None,
-                                 "status": ("in-config:%s.%s" % (entry.get("id"), entry.get("variant")))
+                                 "status": ("in-config:%s.%s" % (release_entry.get("id"),
+                                                                 release_entry.get("variant")))
                                  if in_config else "new-candidate"})
             else:
                 for candidate in discover_family(family, authors=authors, fetch_json=fetch_json):
@@ -545,9 +555,9 @@ def inventory_report(seeds, existing_config, *, authors=None, only=None,
         except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
             results.append({"family": family, "status": "unknown", "reason": str(error)})
             continue
-        discovered_repos = {row["repo"] for row in rows if row.get("variant") is not None or "qwen3-asr" not in row["repo"]}
+        discovered_repos = {row["repo"] for row in rows}
         missing = sorted(repo for repo, key in known.items()
-                         if repo and family != "qwen3" and repo not in discovered_repos)
+                         if repo and release_entry is None and repo not in discovered_repos)
         results.append({"family": family, "rows": rows,
                         "missing_pinned": missing,
                         "in_config": sum(1 for row in rows if str(row["status"]).startswith("in-config")),

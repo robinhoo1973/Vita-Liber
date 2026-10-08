@@ -300,6 +300,35 @@ class BootstrapTests(unittest.TestCase):
                          ["csukuangfj/sherpa-onnx-whisper-base"],
                          "钉版仓库未在候选出现必须暴露")
 
+    def test_inventory_report_github_release_kind(self):
+        # github-release 型家族（2026-10-08 通用化,零家族名硬编码）：repo/tag/
+        # 资产模式全来自 config 的 watch/archive；资产名与 watch.asset 通配匹配,
+        # 通配外资产不入行;该型不做「钉版仓库缺失」检查（repo 语义是发布仓）。
+        inventory = MODULE["inventory_report"]
+        config = {"models": [
+            {"id": "familyx", "variant": "medium",
+             "watch": {"kind": "github-release", "repo": "some/repo",
+                       "asset": "sherpa-onnx-familyx-*.tar.bz2"},
+             "archive": {"url": "https://github.com/x/y/releases/download/asr-models/sherpa-onnx-familyx-2026.tar.bz2"}},
+        ]}
+
+        def fetch(url):
+            if "huggingface" in url:
+                return []
+            self.assertIn("api.github.com/repos/some/repo/releases/tags/asr-models", url)
+            return {"assets": [{"name": "sherpa-onnx-familyx-2026.tar.bz2"},
+                               {"name": "sherpa-onnx-familyx-int8-2026.tar.bz2"},
+                               {"name": "unrelated.tar.bz2"}]}
+
+        report = inventory([{"name": "familyx"}], config, fetch_json=fetch)
+        rows = report["results"][0]["rows"]
+        statuses = {row["repo"]: row["status"] for row in rows}
+        self.assertEqual(statuses["sherpa-onnx-familyx-2026.tar.bz2"], "in-config:familyx.medium")
+        self.assertEqual(statuses["sherpa-onnx-familyx-int8-2026.tar.bz2"], "new-candidate")
+        self.assertNotIn("unrelated.tar.bz2", statuses, "watch.asset 通配外资产不入行")
+        self.assertEqual(report["results"][0]["missing_pinned"], [],
+                         "github-release 型不做钉版仓库缺失检查")
+
     def test_live_seeds_file_shape(self):
         seeds = json.loads((ROOT / ".github" / "config" / "asr" / "seeds.json").read_bytes())
         self.assertEqual(seeds["formatVersion"], 1)
