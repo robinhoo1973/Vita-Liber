@@ -112,6 +112,30 @@ class BootstrapTests(unittest.TestCase):
                        {"role": "encoder", "member": "encode.int8.onnx"}]
         self.assertEqual(prefer(only_readme), only_readme, "无许可文本时保留 README 兜底")
 
+    def test_apply_template(self):
+        # 对账继承（防硬编码）：约定字段随模板走，字节事实不继承
+        apply = MODULE["apply_template"]
+        template = {"id": "whisper", "variant": "tiny", "license": "MIT",
+                    "source": "https://github.com/openai/whisper",
+                    "versionPolicy": {"prefix": "int8", "dateSource": "commit"},
+                    "files": [{"role": "encoder", "path": "whisper/tiny-encoder.int8.onnx",
+                               "member": "tiny-encoder.int8.onnx", "bytes": 1,
+                               "sha256": "1" * 64}]}
+        draft = {"id": "whisper", "variant": "tiny", "license": "REVIEW", "source": "REVIEW",
+                 "versionPolicy": {"prefix": "", "dateSource": "commit"},
+                 "files": [{"role": "encoder", "path": "whisper-tiny/tiny-encoder.int8.onnx",
+                            "member": "tiny-encoder.int8.onnx", "bytes": 1,
+                            "sha256": "2" * 64}]}
+        merged = apply(draft, template)
+        self.assertEqual(merged["source"], template["source"])
+        self.assertEqual(merged["versionPolicy"]["prefix"], "int8")
+        self.assertEqual(merged["license"], "MIT")
+        self.assertEqual(merged["files"][0]["path"], "whisper/tiny-encoder.int8.onnx",
+                         "path 目录前缀继承既有约定")
+        self.assertEqual(merged["files"][0]["sha256"], "2" * 64,
+                         "字节事实不继承——对账须暴露真实差异")
+        self.assertIs(apply(draft, None), draft, "无模板原样返回")
+
     def test_compare_entry(self):
         compare = MODULE["compare_entry"]
         draft = {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "a" * 40,
@@ -146,6 +170,34 @@ class BootstrapTests(unittest.TestCase):
         report = compare(draft, existing)
         self.assertEqual(report["mismatch"], [])
 
+    def test_discover_authors(self):
+        # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局
+        discover = MODULE["discover_authors"]
+
+        def fetch(url):
+            self.assertIn("search=sherpa-onnx", url)
+            return ([{"id": "csukuangfj/sherpa-onnx-x%d" % i} for i in range(5)]
+                    + [{"id": "k2-fsa/sherpa-onnx-y%d" % i} for i in range(2)]
+                    + [{"id": "one-off/sherpa-onnx-z"}])
+
+        self.assertEqual(discover(fetch_json=fetch), ("csukuangfj", "k2-fsa"))
+
+    def test_resolve_authors(self):
+        # 三级解析：显式 → config 提取 → 自动发现
+        resolve = MODULE["resolve_authors"]
+        config = {"models": [
+            {"watch": {"kind": "hf-repo", "repo": "alpha/x"}},
+            {"watch": {"kind": "github-release", "repo": "beta/y"}},
+        ]}
+        self.assertEqual(resolve(config, explicit="zzz"), ("zzz",), "显式最高优先")
+        self.assertEqual(resolve(config), ("alpha",), "config 提取；非 hf-repo 不入域")
+
+        def fetch(url):
+            return [{"id": "gamma/a"}, {"id": "gamma/b"}]
+
+        self.assertEqual(resolve({"models": []}, fetch_json=fetch), ("gamma",),
+                         "无 config 时自动发现兜底")
+
     def test_inventory_report(self):
         inventory = MODULE["inventory_report"]
         config = {"models": [
@@ -156,6 +208,8 @@ class BootstrapTests(unittest.TestCase):
         ]}
 
         def fetch(url):
+            self.assertIn("author=csukuangfj", url,
+                          "作者域应自 config 的 hf-repo watch 提取（零硬编码）")
             if "huggingface" in url:
                 return [{"id": "csukuangfj/sherpa-onnx-whisper-tiny"},
                         {"id": "csukuangfj/sherpa-onnx-whisper-large-v3"}]

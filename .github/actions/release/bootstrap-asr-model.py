@@ -45,16 +45,9 @@ socket.getaddrinfo = _ipv4_first
 
 # 传输面与 resolver 同构（内联实现；本工具仅本地/离线运行，不参与 CI）。
 
-FAMILY_SOURCES = {
-    "whisper": "https://github.com/openai/whisper",
-    "zipformer": "https://github.com/k2-fsa/icefall",
-    "dolphin": "https://github.com/DataoceanAI/Dolphin",
-    "sense-voice": "https://github.com/FunAudioLLM/SenseVoice",
-    "fire-red": "https://github.com/FireRedTeam/FireRedASR",
-    "moonshine": "https://github.com/usefulsensors/moonshine",
-    "qwen3": "https://github.com/QwenLM/Qwen3-ASR",
-}
-FAMILY_VERSION_PREFIX = {"whisper": "int8", "dolphin": "ctc-int8", "qwen3": "0.6b-int8"}
+# 家族级约定（上游 source、versionPolicy 前缀、path 目录）不写死在代码里：
+# 对账模式经 apply_template 从既有条目继承（单一事实源=config），无模板落 REVIEW。
+REVIEW = "REVIEW"
 SKIP_PATTERNS = (".gitattributes", "test_wavs/*", "*.wav", "*trans.txt", ".git/*")
 # 角色推断 = 有序正则（search 式；前缀 glob 对 whisper 系带档位前缀的成员名
 # 如 tiny-encoder.int8.onnx 全数失配——2026-10-08 实证修复）。notice 规则置前
@@ -264,17 +257,42 @@ def probe_repo(repo, *, workdir, fetch_json=None):
     if not files:
         raise BootstrapError("no model members discovered in: " + repo)
     files = prefer_license_notice(files)
-    license_name = infer_license(license_texts) or "REVIEW"
+    license_name = infer_license(license_texts) or REVIEW
     entry = {
         "id": family, "variant": variant, "license": license_name, "revision": sha,
-        "source": FAMILY_SOURCES.get(family, "REVIEW"),
+        "source": REVIEW,
         "watch": {"kind": "hf-repo", "repo": repo},
-        "versionPolicy": {"prefix": FAMILY_VERSION_PREFIX.get(family, ""),
-                          "dateSource": "commit"},
+        "versionPolicy": {"prefix": "", "dateSource": "commit"},
         "files": [{k: f[k] for k in ("role", "path", "member", "bytes", "sha256")}
                   for f in files],
     }
     return entry
+
+
+def apply_template(draft, template):
+    """对账继承：draft 的约定字段从既有条目补全（单一事实源=config，防代码硬编码）。
+
+    - source/versionPolicy/license：draft 缺失或占位（REVIEW/空）时继承模板；
+    - path 目录前缀：模板文件目录唯一时按模板约定重排 draft path；
+    - 字节事实（bytes/sha256/member 集合）绝不继承——对账必须暴露真实差异。
+    """
+    if not template:
+        return draft
+    merged = dict(draft)
+    if merged.get("source") in (None, "", REVIEW) and template.get("source"):
+        merged["source"] = template["source"]
+    if not (merged.get("versionPolicy") or {}).get("prefix") and template.get("versionPolicy"):
+        merged["versionPolicy"] = dict(template["versionPolicy"])
+    if merged.get("license") in (None, "", REVIEW) and template.get("license"):
+        merged["license"] = template["license"]
+    dirs = {f["path"].rsplit("/", 1)[0] for f in template.get("files", [])
+            if "path" in f and "/" in f["path"]}
+    if len(dirs) == 1:
+        dirname = dirs.pop()
+        merged["files"] = [
+            dict(f, path=dirname + "/" + f["path"].rsplit("/", 1)[-1]) if "path" in f else f
+            for f in merged.get("files", [])]
+    return merged
 
 
 def compare_entry(draft, existing):
@@ -382,17 +400,43 @@ def drift_report(config, *, fetch_json=None):
     return {"summary": summary, "results": results}
 
 
-DEFAULT_AUTHORS = ("csukuangfj", "csukuangfj2")  # 业主转换仓账号域（fire-red 在 csukuangfj2）
+def discover_authors(*, fetch_json=None, min_repos=2):
+    """HF 上发布 sherpa-onnx 转换仓的账号域（自动发现，防硬编码名单）。
+
+    阈值=同一账号在 top-100 "sherpa-onnx" 命中中出现 ≥min_repos 次（转换仓账号是
+    批量发布者；社区偶发同名单仓被过滤）。2026-10-08 实测 csukuangfj=76、k2-fsa=11；
+    csukuangfj2 单账号仓少，由 resolve_authors 的 config 提取层覆盖。
+    """
+    counts = {}
+    for repo in search_hf("sherpa-onnx", limit=100, fetch_json=fetch_json):
+        author = repo.split("/", 1)[0]
+        counts[author] = counts.get(author, 0) + 1
+    return tuple(sorted(a for a, n in counts.items() if n >= min_repos))
 
 
-def discover_family(family, *, author=None, limit=100, fetch_json=None):
+def resolve_authors(existing_config, *, explicit=None, fetch_json=None):
+    """作者域解析（防硬编码）：显式 → 既有 config 提取（hf-repo watch）→ 自动发现。"""
+    if explicit:
+        return (explicit,)
+    from_config = set()
+    for entry in existing_config.get("models", []):
+        watch = entry.get("watch") or {}
+        repo = watch.get("repo") or ""
+        if watch.get("kind") == "hf-repo" and "/" in repo:
+            from_config.add(repo.split("/", 1)[0])
+    if from_config:
+        return tuple(sorted(from_config))
+    return discover_authors(fetch_json=fetch_json)
+
+
+def discover_family(family, *, authors=None, limit=100, fetch_json=None):
     """家族名 → 候选镜像仓清单（repo/variant；身份不可判定的命中剔除）。
 
     2026-10-08 业主口径：seeds 只给家族名，repo 与档位规格由工具自行找出——
-    发现层=HF 结构化搜索（作者域限流；默认覆盖两个转换仓账号，dedupe），
+    发现层=HF 结构化搜索（作者域限流，域由 resolve_authors 解析；dedupe），
     身份=infer_identity 词边界匹配。
     """
-    authors = (author,) if author else DEFAULT_AUTHORS
+    authors = tuple(authors or ())
     candidates, seen = [], set()
     for account in authors:
         for repo in search_hf(family, account, limit=limit, fetch_json=fetch_json):
@@ -409,7 +453,7 @@ def discover_family(family, *, author=None, limit=100, fetch_json=None):
     return candidates
 
 
-def inventory_report(seeds, existing_config, *, author=None, only=None,
+def inventory_report(seeds, existing_config, *, authors=None, only=None,
                      fetch_json=None):
     """家族档位清单（轻层，API 级零下载）：逐家族列出候选镜像仓的在册状态。
 
@@ -417,6 +461,8 @@ def inventory_report(seeds, existing_config, *, author=None, only=None,
     - github-release 家族（qwen3）：按 Releases 资产名匹配既有 archive；
     - 另报「钉版仓库未在候选出现」（发现层回归信号）。
     """
+    if authors is None:
+        authors = resolve_authors(existing_config, fetch_json=fetch_json)
     entries = existing_config.get("models", [])
     results = []
     for seed in seeds:
@@ -442,7 +488,7 @@ def inventory_report(seeds, existing_config, *, author=None, only=None,
                                  "status": ("in-config:%s.%s" % (entry.get("id"), entry.get("variant")))
                                  if in_config else "new-candidate"})
             else:
-                for candidate in discover_family(family, author=author, fetch_json=fetch_json):
+                for candidate in discover_family(family, authors=authors, fetch_json=fetch_json):
                     key = known.get(candidate["repo"])
                     rows.append({**candidate,
                                  "status": "in-config:" + key if key else "new-candidate"})
@@ -481,7 +527,8 @@ def main():
     parser.add_argument("--only", action="append",
                         help="种子过滤（子串，可多次；部分验证用）")
     parser.add_argument("--author", default=None,
-                        help="HF 作者域（默认覆盖 csukuangfj + csukuangfj2 两转换仓账号）")
+                        help="HF 作者域（缺省=从 --compare-config 的 hf-repo watch 自动提取，"
+                             "无则自动发现转换仓账号）")
     parser.add_argument("--repo", help="跳过发现层，直接指定 HF 仓库（逆测用）")
     parser.add_argument("--compare-config", type=Path,
                         help="逆测对账：与现有 config 的 (id,variant) 条目逐字段比对")
@@ -500,7 +547,8 @@ def main():
             config = (json.loads(args.compare_config.read_bytes())
                       if args.compare_config is not None else {"models": []})
             inventory = inventory_report(seeds_doc.get("seeds", []), config,
-                                         author=args.author, only=args.only)
+                                         authors=(args.author,) if args.author else None,
+                                         only=args.only)
             for row in inventory["results"]:
                 print("family: %s" % row["family"], flush=True)
                 if row.get("status") == "unknown":
@@ -532,7 +580,8 @@ def main():
                         if entry is None or (entry.get("watch") or {}).get("kind") != "hf-repo":
                             continue
                         try:
-                            draft = probe_repo(item["repo"], workdir=args.workdir)
+                            draft = apply_template(
+                                probe_repo(item["repo"], workdir=args.workdir), entry)
                         except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
                             probes.append({"entry": key_str, "repo": item["repo"],
                                            "status": "error", "reason": str(error)})
@@ -580,6 +629,9 @@ def main():
             return 0
         if not args.name:
             raise BootstrapError("--name 或 --from-config 必须提供其一")
+        config = (json.loads(args.compare_config.read_bytes())
+                  if args.compare_config is not None else {"models": []})
+        by_key = {(e["id"], e.get("variant")): e for e in config.get("models", [])}
         drafts = []
         for name in args.name:
             repo = args.repo or (search_hf(name, args.author) or [None])[0]
@@ -587,11 +639,10 @@ def main():
                 raise BootstrapError("no candidate repo found for: " + name)
             print("bootstrap: %s -> %s" % (name, repo), flush=True)
             entry = probe_repo(repo, workdir=args.workdir)
+            entry = apply_template(entry, by_key.get((entry["id"], entry["variant"])))
             drafts.append(entry)
         output = {"drafts": drafts}
         if args.compare_config is not None:
-            config = json.loads(args.compare_config.read_bytes())
-            by_key = {(e["id"], e.get("variant")): e for e in config.get("models", [])}
             reports = []
             for entry in drafts:
                 existing = by_key.get((entry["id"], entry["variant"]))
