@@ -49,6 +49,32 @@
   "publish": {
     "dialogue": {"publish": false, "provisional": true, "reviewDue": "2026-12-31", "changeRequires": "owner"}
   },
+  "licenses": {
+    "_comment": "数据源许可准入矩阵(H5 合规席 2026-10-08):新来源必须先落此矩阵;redistribution=prohibited 的许可类不得进入任何语料面(含 manifest 登记);attribution_required=true 的来源在 manifest.licenses 必带 attribution(fail-closed,先例=TFDA OGDL 顯名)。",
+    "admission": {
+      "cn-gov-public-doc": {"attribution_required": true, "redistribution": "ok", "basis": "著作权法第5条(行政文件)+来源标注纪律"},
+      "tw-ogdl-v1": {"attribution_required": true, "redistribution": "ok", "basis": "政府資料開放授權條款第1版(顯名未盡=自始未取得授權)"},
+      "hk-data-gov-hk": {"attribution_required": true, "redistribution": "ok", "basis": "data.gov.hk 条款:署名+权利承认+赔偿承诺"},
+      "apache-2.0": {"attribution_required": true, "redistribution": "ok", "basis": "Apache-2.0 §4(c) 保留声明"},
+      "unicode-v3": {"attribution_required": true, "redistribution": "ok", "basis": "UNICODE LICENSE V3:随附声明"},
+      "us-gov-pd": {"attribution_required": true, "redistribution": "ok", "basis": "17 U.S.C. §105 + CDC 四项告知(来源/非背书/不改实质/可免费获取)"},
+      "cc0": {"attribution_required": false, "redistribution": "ok", "basis": "CC0 1.0(Wikidata);第三方溯源需逐条核对"},
+      "public-domain": {"attribution_required": false, "redistribution": "ok", "basis": "古籍/公有领域(百家姓)"},
+      "who-cc-by-nd": {"attribution_required": true, "redistribution": "prohibited", "basis": "ICD-10/11 ND+映射须书面协议——弃用"},
+      "cc-by-sa": {"attribution_required": true, "redistribution": "prohibited", "basis": "SA 传染+append-only 无逐条撤回通道——语料面弃用"},
+      "odbl": {"attribution_required": true, "redistribution": "prohibited", "basis": "ODbL 实质提取传染——弃用"},
+      "cc-by-nc": {"attribution_required": true, "redistribution": "prohibited", "basis": "NC 与永久免费产品形态及再分发冲突——弃用"},
+      "unknown": {"attribution_required": true, "redistribution": "prohibited", "basis": "许可不明不得依赖"}
+    },
+    "sources": {
+      "TFDA": {"class": "tw-ogdl-v1", "attribution": "藥品許可證資料集(OGDL v1 顯名聲明,三語)"},
+      "NHSA": {"class": "cn-gov-public-doc", "attribution": "国家医保局公开目录(来源标注随 manifest;频控纪律见 lexicon-data-sources.md §2)"},
+      "HK": {"class": "hk-data-gov-hk", "attribution": "data.gov.hk / HA 公開數據(署名+权利承认)"},
+      "CN-REF": {"class": "cn-gov-public-doc", "attribution": "国家卫健委/医保局公开目录(来源标注随 manifest)"},
+      "PyCorrector": {"class": "apache-2.0", "attribution": "pycorrector 混淆表 v1.1.4(Apache-2.0;extract/tables/PROVENANCE.md)"}
+    },
+    "changeRequires": "owner"
+  },
   "weights": {
     "modelId": "medical-llm-64m-q4-k-m",
     "autoPromote": false,

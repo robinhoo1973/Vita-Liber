@@ -14,9 +14,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 MANIFEST_VERSION = "1.0"
+
+
+def licenses_from_policy(source_keys) -> dict:
+    """从 policy.licenses 生成 manifest 许可块(单一事实源;H5 合规席 2026-10-08)。
+
+    训练机平铺布局无 policy.json → 抛 FileNotFoundError,调用方兜底 legacy inline。
+    """
+    try:
+        import policy as _policy
+    except ImportError:  # 直跑(cwd=corpus/)的相对导入回落
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        import policy as _policy
+    pol = _policy.load()
+    srcs = pol["licenses"]["sources"]
+    out = {}
+    for key in source_keys:
+        entry = srcs.get(key)
+        if not entry:
+            raise ValueError(f"来源 {key} 未登记于 policy.licenses.sources——先登记再采")
+        out[key] = {"class": entry["class"], "attribution": entry["attribution"]}
+    return out
 
 
 def sha256_file(path: Path) -> str:
@@ -84,4 +106,12 @@ def verify_manifest(manifest_path: Path, corpus_path: Path) -> dict:
     licenses = manifest.get("licenses")
     if isinstance(licenses, dict) and "TFDA" in licenses and not licenses["TFDA"].get("attribution"):
         raise ValueError("含 TFDA 派生数据但缺顯名 attribution——OGDL v1 义务必须随 manifest")
+    # 泛化(H5):凡带 class 的来源,beyond 免署名类,attribution 必填(fail-closed)
+    if isinstance(licenses, dict):
+        for src, entry in licenses.items():
+            if not isinstance(entry, dict):
+                continue
+            cls = entry.get("class")
+            if cls and cls not in ("cc0", "public-domain") and not entry.get("attribution"):
+                raise ValueError(f"来源 {src}({cls}) 缺 attribution——许可义务必须随 manifest")
     return manifest

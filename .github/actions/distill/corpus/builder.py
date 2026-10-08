@@ -24,7 +24,7 @@ from entlink.confusion_miner import MinedConfusions, mine as mine_confusions
 from entlink.fold import fold
 from entlink.noise import NoiseSimulator
 
-from .manifest import build_manifest, write_manifest
+from .manifest import build_manifest, licenses_from_policy, write_manifest
 
 BANDS = ("light", "medium", "heavy", "extreme")
 
@@ -254,11 +254,15 @@ def build_corpus(catalog: Catalog, out_path: Path, config: BuildConfig | None = 
     noise_model["noise_model_sha256"] = hashlib.sha256(
         json.dumps(noise_model, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    licenses = {
-        "TFDA": {"attribution": "藥品許可證資料集(OGDL v1 顯名聲明,三語)", "covers": ["TW"]},
-        "NHSA": {"note": "医保药品目录批次数据;频控纪律见 lexicon-data-sources.md §2", "covers": ["CN"]},
-        "HK": {"note": "data.gov.hk / HA 公開數據", "covers": ["HK"]},
-    }
+    # 许可块:policy.licenses 单一事实源(H5 矩阵);训练机平铺布局无 policy.json → legacy 兜底
+    try:
+        licenses = licenses_from_policy(["TFDA", "NHSA", "HK"])
+    except (FileNotFoundError, ValueError):
+        licenses = {
+            "TFDA": {"attribution": "藥品許可證資料集(OGDL v1 顯名聲明,三語)", "covers": ["TW"]},
+            "NHSA": {"note": "医保药品目录批次数据;频控纪律见 lexicon-data-sources.md §2", "covers": ["CN"]},
+            "HK": {"note": "data.gov.hk / HA 公開數據", "covers": ["HK"]},
+        }
     manifest = build_manifest(
         corpus_path=out_path,
         catalog_data_version=catalog.data_version,

@@ -1379,6 +1379,7 @@ def main():
     # 噪声常量 vs policy.json 单一事实源交叉断言(CI 布局有 policy.json;训练机副本
     # 无此布局 → 记 not-found,由 tests 侧断言兜)。不一致 = 拒绝产出(fail-closed)。
     policy_note = {"status": "not-found"}
+    license_entries = {}
     policy_path = os.path.join(ROOT, ".github", "config", "distill", "policy.json")
     if os.path.exists(policy_path):
         try:
@@ -1391,6 +1392,14 @@ def main():
             if not same:
                 log("[FAIL] 噪声常量与 policy.json 不一致——拒绝产出(先同步两处)")
                 return 2
+            # 许可块:policy.licenses 单一事实源(H5 矩阵)——来源必须已登记且非禁再分发类
+            lic_srcs = pol["licenses"]["sources"]
+            for key in ("TFDA", "NHSA", "HK", "CN-REF", "PyCorrector"):
+                entry = lic_srcs.get(key)
+                if not entry:
+                    log(f"[FAIL] 来源 {key} 未登记于 policy.licenses.sources")
+                    return 2
+                license_entries[key] = {"class": entry["class"], "attribution": entry["attribution"]}
         except (OSError, ValueError, KeyError) as exc:
             log(f"[FAIL] policy.json 读取失败: {exc}")
             return 2
@@ -1607,6 +1616,7 @@ def main():
                        "rate": round(agg["damaged"] / max(agg["spans"], 1), 4)}
                 for band, agg in (stats.get("noise", {}).get("bands") or {}).items()},
             "policy": policy_note,
+            "licenses": license_entries,   # 逐源许可义务(H5 矩阵;policy 单一事实源)
         },
         "stats": stats,
         "files": {},

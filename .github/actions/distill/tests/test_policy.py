@@ -66,5 +66,36 @@ class PolicyLoadTests(unittest.TestCase):
         self.assertTrue(policy_path().is_file())
 
 
+# —— 许可准入矩阵(H5 合规席 2026-10-08)——
+    def test_unknown_license_class_rejected(self):
+        bad = copy.deepcopy(self.policy)
+        bad["licenses"]["sources"]["TFDA"]["class"] = "made-up-class"
+        with self.assertRaisesRegex(ValueError, "不在准入矩阵"):
+            validate(bad)
+
+    def test_prohibited_class_in_sources_rejected(self):
+        bad = copy.deepcopy(self.policy)
+        bad["licenses"]["sources"]["Wikipedia"] = {"class": "cc-by-sa", "attribution": "x"}
+        with self.assertRaisesRegex(ValueError, "禁再分发"):
+            validate(bad)
+
+    def test_missing_attribution_for_required_class_rejected(self):
+        bad = copy.deepcopy(self.policy)
+        del bad["licenses"]["sources"]["TFDA"]["attribution"]
+        with self.assertRaisesRegex(ValueError, "缺 attribution"):
+            validate(bad)
+
+    def test_licenses_change_requires_owner(self):
+        bad = copy.deepcopy(self.policy)
+        bad["licenses"]["changeRequires"] = "ci"
+        with self.assertRaisesRegex(ValueError, "业主裁决"):
+            validate(bad)
+
+    def test_cc0_needs_no_attribution(self):
+        ok = copy.deepcopy(self.policy)
+        ok["licenses"]["sources"]["Wikidata"] = {"class": "cc0", "attribution": None}
+        validate(ok)  # 不抛即通过
+
+
 if __name__ == "__main__":
     unittest.main()

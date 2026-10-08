@@ -20,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-REQUIRED_TOP = ("schema_version", "policy_version", "corpus", "gates", "noise", "publish", "weights")
+REQUIRED_TOP = ("schema_version", "policy_version", "corpus", "gates", "noise", "publish", "licenses", "weights")
 
 
 def policy_path() -> Path:
@@ -64,6 +64,26 @@ def validate(policy: dict) -> None:
         raise ValueError("weights.autoPromote 必须为布尔")
     if policy["publish"]["dialogue"]["publish"] and policy["publish"]["dialogue"].get("changeRequires") != "owner":
         raise ValueError("dialogue 发布开关变更须业主裁决(changeRequires=owner)")
+    # 许可准入矩阵(H5 合规席):prohibited 类不得进 sources;attribution_required 的来源必带 attribution
+    lic = policy["licenses"]
+    admission = lic.get("admission") or {}
+    if not admission:
+        raise ValueError("licenses.admission 缺失/为空(新来源必须落矩阵)")
+    for cls, rules in admission.items():
+        if rules.get("redistribution") not in ("ok", "prohibited"):
+            raise ValueError(f"licenses.admission[{cls}].redistribution 非 ok/prohibited")
+        if not isinstance(rules.get("attribution_required"), bool):
+            raise ValueError(f"licenses.admission[{cls}].attribution_required 非布尔")
+    for src, entry in (lic.get("sources") or {}).items():
+        cls = entry.get("class")
+        if cls not in admission:
+            raise ValueError(f"licenses.sources[{src}] 许可类 {cls} 不在准入矩阵——先登记再采")
+        if admission[cls]["redistribution"] == "prohibited":
+            raise ValueError(f"licenses.sources[{src}] 许可类 {cls} 禁再分发——不得进入语料面")
+        if admission[cls]["attribution_required"] and not entry.get("attribution"):
+            raise ValueError(f"licenses.sources[{src}] 缺 attribution(许可类 {cls} 要求顯名)")
+    if lic.get("changeRequires") != "owner":
+        raise ValueError("licenses 变更须业主裁决(changeRequires=owner)")
 
 
 def get(policy: dict, dotted: str):
