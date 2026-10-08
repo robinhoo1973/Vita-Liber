@@ -175,10 +175,20 @@ DISEASE_SUFFIXES = ("病", "炎", "症", "瘤", "癌", "溃疡", "综合征", "�
 # ================================================================ 注册表（扩展点）
 
 REGISTRY = {
-    "prescription": {"mode": "ocr", "weight": 0.45, "builder": "gen_prescription"},
-    "medication":   {"mode": "asr", "weight": 0.20, "builder": "gen_medication"},
-    "encounter":    {"mode": "ocr", "weight": 0.20, "builder": "gen_encounter"},
-    "metric_sample": {"mode": "ocr", "weight": 0.15, "builder": "gen_metric_sample"},
+    "prescription": {"mode": "ocr", "weight": 0.20, "builder": "gen_prescription"},
+    "medication":   {"mode": "asr", "weight": 0.09, "builder": "gen_medication"},
+    "encounter":    {"mode": "ocr", "weight": 0.10, "builder": "gen_encounter"},
+    "metric_sample": {"mode": "ocr", "weight": 0.06, "builder": "gen_metric_sample"},
+    # 卡种 4→13（2026-10-08 数据批；App ExtractionSpecRegistry 单一事实源）
+    "hospitalization": {"mode": "ocr", "weight": 0.09, "builder": "gen_generic_card"},
+    "exam_report":     {"mode": "ocr", "weight": 0.09, "builder": "gen_generic_card"},
+    "diagnosis":       {"mode": "ocr", "weight": 0.08, "builder": "gen_generic_card"},
+    "health_exam":     {"mode": "ocr", "weight": 0.08, "builder": "gen_generic_card"},
+    "claim_item":      {"mode": "ocr", "weight": 0.05, "builder": "gen_generic_card"},
+    "surgery":         {"mode": "ocr", "weight": 0.05, "builder": "gen_generic_card"},
+    "treatment_record": {"mode": "ocr", "weight": 0.05, "builder": "gen_generic_card"},
+    "clinical_conclusion": {"mode": "ocr", "weight": 0.03, "builder": "gen_generic_card"},
+    "immunization":    {"mode": "ocr", "weight": 0.03, "builder": "gen_generic_card"},
 }
 
 
@@ -327,6 +337,9 @@ def load_specs(prompts_dir, kinds):
             "required_row": [f["key"] for f in spec.get("row", []) if f.get("required")],
             "rowAnchor": spec.get("rowAnchor") or "",
             "maxRows": int(spec.get("maxRowsPerRegion") or 8),
+            # 通用卡种生成需要完整字段元数据（labels/type/枚举词形/fallback 打印词形）
+            "shared_fields": spec.get("shared", []),
+            "row_fields": spec.get("row", []),
         }
     return specs
 
@@ -1007,6 +1020,280 @@ BUILDERS = {
 }
 
 
+# ================================================================ 通用卡种（卡种 4→13；2026-10-08 数据批）
+# spec 驱动：标签（labels）/ 枚举打印词形（value_tokens、fallback_tokens）随导出 spec 单一
+# 事实源流入；值由 provider 表合成，兜底序=provider → fallback_tokens → 枚举域 → 类型兜底。
+# 覆盖：hospitalization / diagnosis / exam_report / claim_item / immunization /
+# health_exam / clinical_conclusion / surgery / treatment_record（均为 OCR 面）。
+
+VACCINES = ["乙肝疫苗", "流感疫苗", "肺炎球菌疫苗", "麻腮风疫苗", "水痘疫苗", "HPV疫苗",
+            "新冠疫苗", "带状疱疹疫苗", "百白破疫苗"]
+SURGERY_NAMES = ["腹腔镜胆囊切除术", "阑尾切除术", "骨折切开复位内固定术", "冠状动脉支架植入术",
+                 "剖宫产术", "甲状腺部分切除术", "经尿道前列腺电切术", "全膝关节置换术"]
+SURGERY_LEVELS = ["一级手术", "二级手术", "三级手术", "四级手术"]
+ANESTHESIA_METHODS = ["全身麻醉", "椎管内麻醉", "局部麻醉", "硬膜外麻醉"]
+EXAM_PARTS = ["胸部", "腹部", "头颅", "腰椎", "膝关节", "甲状腺", "心脏", "肝胆脾胰", "盆腔", "颈部血管"]
+EXAM_METHODS = ["平扫", "增强扫描", "彩色多普勒超声", "数字化摄影", "内镜检查"]
+CLAIM_ITEMS = [("门诊诊查费", "30.00"), ("血常规", "25.00"), ("尿常规", "18.00"),
+               ("胸部CT平扫", "320.00"), ("腹部彩超", "180.00"), ("心电图", "35.00"),
+               ("静脉输液", "12.00"), ("西药费", "86.50"), ("中药费", "42.30"), ("换药", "20.00")]
+PACKAGE_NAMES = ["基础健康体检套餐", "入职体检套餐A", "老年人健康体检套餐", "女性专项体检套餐",
+                 "心脑血管风险筛查套餐"]
+ADMIT_ROUTES = ["门诊", "急诊", "转入"]
+PAYMENT_TYPES = ["医保", "自费", "公费医疗"]
+DISCHARGE_WAYS = ["医嘱离院", "转院", "自动离院"]
+SEVERITIES = ["轻度", "中度", "重度", "未见异常"]
+THERAPIES = ["针灸", "推拿", "理疗", "雾化吸入", "换药", "静脉输液"]
+GENERIC_TEXT_FALLBACK = ["无", "未见异常", "详见报告", "略"]
+
+_CARD_DATES = ("date", "prescribed_at", "measured_at", "exam_at", "reported_at", "report_date",
+               "treated_at", "surgery_at", "diagnosed_at", "administered_at", "admit_at",
+               "discharge_at", "ended_at", "summary_date")
+_CARD_HOSPITALS = ("hospital", "org_name", "merchant", "provider")
+_CARD_DEPTS = ("department", "admit_dept", "discharge_dept")
+_CARD_DOCTORS = ("doctor", "attending_physician", "surgeon", "apply_doctor", "report_doctor",
+                 "review_doctor", "summary_doctor", "total_doctor", "executor", "anesthesiologist")
+
+NARRATIVE_TEMPLATES = {
+    "present_illness": ["患者{t}前无明显诱因出现{d}，伴乏力，无发热，为进一步诊治来院。",
+                        "患者{t}前出现{d}，症状逐渐加重，现门诊收入院。"],
+    "past_history": ["既往体健，否认高血压、糖尿病史。", "既往{d}病史5年，规律服药，病情稳定。"],
+    "physical_exam": ["T 36.8℃，P 82次/分，R 18次/分，BP 128/82mmHg；神志清楚，双肺呼吸音清，心律齐，腹软无压痛。",
+                      "神志清楚，查体合作；心肺未见明显异常，腹平软，肝脾肋下未及。"],
+    "diagnosis_text": ["{d}", "{d}、{d2}"],
+    "visit_summary": ["本次因{d}就诊，予对症治疗，嘱{adv}。"],
+    "admit_condition": ["患者{t}前出现{d}，入院时神志清楚，生命体征平稳。"],
+    "discharge_condition": ["患者一般情况可，{d}症状好转，生命体征平稳。"],
+    "discharge_orders": ["{adv}。", "规律服药，{adv}。"],
+    "take_home_drugs": ["出院带药：{drug}，按医嘱服用。"],
+    "treatment_course": ["入院后完善相关检查，予对症支持治疗，{d}症状逐步改善。",
+                         "入院后予药物治疗及饮食指导，病情平稳。"],
+    "preop_diagnosis": ["{d}"],
+    "postop_diagnosis": ["{d}"],
+    "procedure_course": ["{anes}下行{op}，术中止血确切，清点无误，术毕安返病房。"],
+    "intraop_findings": ["术中探查可见{d}相关改变，无活动性出血，周围组织未见明显异常。"],
+    "complications": ["无。", "术后出现切口疼痛，予对症处理后缓解。"],
+    "postop_orders": ["{adv}。", "卧床休息，{adv}。"],
+    "content": ["{d}予{therapy}治疗，患者耐受良好。", "予{therapy}治疗，过程顺利。"],
+    "drugs_text": ["{drug}，按医嘱使用。"],
+    "adverse_reaction": ["无药物过敏及不良反应。", "治疗后出现轻度皮疹，停药后缓解。", "无。"],
+    "overall_conclusion": ["未见明显异常。", "血压偏高，建议内科随诊；血脂异常，建议低脂饮食并复查。"],
+    "health_guidance": ["{adv}。", "适量运动，{adv}。"],
+    "findings": ["{part}未见明显异常。", "{part}可见结节样高密度影，边界清楚。",
+                 "{part}形态及信号未见明显异常。"],
+    "impression": ["未见明显异常，建议随访复查。", "考虑{d}可能，建议结合临床进一步检查。",
+                   "{d}待排，建议复查。"],
+}
+
+
+def set_specs(specs):
+    """main() 注入 load_specs 结果（通用卡种需要字段元数据：labels/type/枚举词形）。"""
+    global _SPECS
+    _SPECS = specs
+
+
+_SPECS = {}
+
+
+def _card_label(fd, rng, region):
+    labels = fd.get("labels") or [fd.get("key", "")]
+    return L(region, rng.choice(labels))
+
+
+def _card_drug_text(pools, rng, region):
+    drugs = pools["drugs_by_region"].get(region) or pools["drugs"]
+    d = rng.choice(drugs)
+    unit = L(region, _dose_unit(d["form"], rng))
+    return f"{d['name']} {rng.choice(['1', '2'])}{unit} {rng.choice(FREQ_TIMES)} {rng.choice(ROUTES)}"
+
+
+def _card_sentence(key, rng, pools, region):
+    d = (rng.choice(pools["diseases"]) if pools["diseases"] else "高血压")
+    tmpl = rng.choice(NARRATIVE_TEMPLATES[key])
+    return L(region, tmpl.format(d=d, d2=d, t=rng.choice(["3天", "1周", "2月", "半年"]),
+                                 adv=rng.choice(TCM_ADVICES),
+                                 drug=_card_drug_text(pools, rng, region),
+                                 op=rng.choice(SURGERY_NAMES),
+                                 anes=rng.choice(ANESTHESIA_METHODS),
+                                 therapy=rng.choice(THERAPIES),
+                                 part=rng.choice(EXAM_PARTS)))
+
+
+def _card_value(key, fd, pools, rng, region):
+    """单字段值：provider → 打印词形 → 枚举域 → 类型兜底。返回 None = 该字段此行跳过。"""
+    if key in _CARD_DATES:
+        return _date(rng)
+    if key in _CARD_HOSPITALS:
+        return _hospital(pools, rng, region)
+    if key in _CARD_DEPTS:
+        return _department(pools, rng, region)
+    if key in _CARD_DOCTORS:
+        return _doctor(rng, trad=region != "CN")
+    if key in NARRATIVE_TEMPLATES:
+        return sanitize_hard(_card_sentence(key, rng, pools, region))
+    if key in ("chief_complaint",):
+        return L(region, rng.choice(COMPLAINTS))
+    if key == "allergy_history":
+        return L(region, rng.choice(ALLERGY_LINES + ["否认药物过敏史"]))
+    if key == "advice_text":
+        return L(region, "，".join(rng.sample(TCM_ADVICES, rng.randint(1, 2))))
+    if key == "exam_part":
+        return L(region, rng.choice(EXAM_PARTS))
+    if key == "exam_method":
+        return L(region, rng.choice(EXAM_METHODS))
+    if key == "report_type":
+        vt = fd.get("value_tokens") or []
+        if vt:
+            return rng.choice(vt)["tokens"][0]
+    if key in ("treatment_type", "diagnosis_type", "conclusion_type"):
+        vt = fd.get("value_tokens") or []
+        if vt:
+            return rng.choice(vt)["tokens"][0]
+    if key == "severity":
+        return L(region, rng.choice(SEVERITIES))
+    if key == "vaccine_name":
+        return L(region, rng.choice(VACCINES))
+    if key == "dose_number":
+        return str(rng.randint(1, 4))
+    if key == "lot_number":
+        return f"L{rng.randint(2023, 2026)}{rng.randint(1000, 9999)}"
+    if key in ("medical_record_no", "report_no", "exam_no"):
+        return f"{rng.choice(['ZY', 'JZ', 'BG', 'TJ'])}{rng.randint(1000000, 9999999)}"
+    if key == "invoice_no":
+        return f"No.{rng.randint(10000000, 99999999)}"
+    if key == "surgery_name":
+        return L(region, rng.choice(SURGERY_NAMES))
+    if key == "surgery_level":
+        return L(region, rng.choice(SURGERY_LEVELS))
+    if key == "anesthesia_method":
+        return L(region, rng.choice(ANESTHESIA_METHODS))
+    if key == "surgery_code":
+        return f"{rng.randint(40, 99)}.{rng.randint(1, 9)}"
+    if key == "assistants":
+        return _doctor(rng, trad=region != "CN") + "、" + _doctor(rng, trad=region != "CN")
+    if key in ("ward",):
+        return L(region, f"{rng.randint(1, 30)}病区")
+    if key == "bed_no":
+        return L(region, f"{rng.randint(1, 45)}床")
+    if key == "admit_route":
+        return L(region, rng.choice(ADMIT_ROUTES))
+    if key == "payment_type":
+        return L(region, rng.choice(PAYMENT_TYPES))
+    if key == "discharge_way":
+        return L(region, rng.choice(DISCHARGE_WAYS))
+    if key in ("actual_days",):
+        return str(rng.randint(2, 14))
+    if key in ("inpatient_times",):
+        return str(rng.randint(1, 3))
+    if key == "session":
+        return L(region, f"第{rng.randint(1, 10)}次")
+    if key == "package_name":
+        return L(region, rng.choice(PACKAGE_NAMES))
+    if key in ("height",):
+        return f"{rng.randint(150, 185)}cm"
+    if key == "weight":
+        return f"{rng.randint(45, 95)}kg"
+    if key == "bmi":
+        return f"{rng.randint(17, 28)}.{rng.randint(0, 9)}"
+    if key == "pulse":
+        return f"{rng.randint(60, 100)}次/分"
+    if key == "waist":
+        return f"{rng.randint(60, 105)}cm"
+    if key in ("vision_left", "vision_right"):
+        return rng.choice(["4.8", "4.9", "5.0", "1.0", "0.8"])
+    if key in ("total_cost", "amount", "item_amount", "unit_price", "reimbursed_amount", "out_of_pocket"):
+        return f"{rng.randint(6, 380)}.{rng.randint(10, 99)}"
+    if key in ("currency", "item_type"):
+        ftok = fd.get("fallback_tokens") or []
+        if ftok:
+            return rng.choice(ftok)
+        return rng.choice(fd.get("domain") or ["invoice"])
+    if key in ("implants", "specimen", "transfusion", "drainage"):
+        return L(region, {"implants": ["无", "留置支架一枚"],
+                          "specimen": ["胆囊组织，已送病理", "无"],
+                          "transfusion": ["无", "红细胞2U"],
+                          "drainage": ["留置引流管，引流通畅", "无"]}[key][rng.randint(0, 1)])
+    if key == "blood_loss":
+        return rng.choice(["20ml", "50ml", "100ml", "200ml"])
+    if key == "code_text":
+        return f"{rng.choice('ABEIJKMN')}{rng.randint(10, 99)}.{rng.randint(0, 9)}"
+    if key == "code_system":
+        return "ICD-10"
+    if key == "item_name":
+        return L(region, rng.choice(CLAIM_ITEMS)[0])
+    if key == "item_quantity":
+        return f"{rng.randint(1, 3)}{rng.choice(QUANTITY_UNITS)}"
+    if key == "item_spec":
+        return rng.choice(["10ml", "0.25g", "12s", "100ml", "5mg"])
+    if key == "name":
+        return _diagnosis(pools, rng, region)
+    if key == "diagnosis_text":
+        return _card_sentence("diagnosis_text", rng, pools, region)
+    ftype = fd.get("type")
+    if ftype == "enumerated":
+        dom = fd.get("domain") or []
+        if dom:
+            return rng.choice(dom)
+    if ftype == "date":
+        return _date(rng)
+    if ftype == "number":
+        return str(rng.randint(1, 200)) if fd.get("integer") else f"{rng.randint(1, 99)}.{rng.randint(0, 9)}"
+    if ftype == "quantityWithUnit":
+        return f"{rng.randint(1, 200)}{rng.choice(['mg', 'g', 'ml', 'mm'])}"
+    if ftype in ("text", "narrative"):
+        return L(region, rng.choice(GENERIC_TEXT_FALLBACK))
+    return None
+
+
+def gen_generic_card(kind, pools, rng, vocab_chars):
+    """spec 驱动的通用卡种生成（shared 行 + row 块）；行锚必出，行内 ≥2 键。"""
+    spec = _SPECS.get(kind) or {}
+    nz = new_noise_ctx(rng, mode="ocr")
+    region = _region(pools, rng, need_drugs=kind in ("treatment_record", "surgery"))
+    lines, shared, rows = [], [], []
+
+    def push(line, spans):
+        idx = len(lines)
+        lines.append(line)
+        for key, value in spans:
+            if value:
+                shared.append(span(key, value, idx))
+
+    for fd in spec.get("shared_fields") or []:
+        value = _card_value(fd.get("key", ""), fd, pools, rng, region)
+        if not value:
+            continue
+        push(*make_line([(_card_label(fd, rng, region) + "：", "label", None),
+                         (value, "value", fd["key"])], rng, nz=nz))
+
+    row_fields = spec.get("row_fields") or []
+    if row_fields:
+        max_rows = min(int(spec.get("maxRows") or 3), 3)
+        for _ in range(rng.randint(1, max(1, max_rows))):
+            segs = []
+            for fd in row_fields:
+                value = _card_value(fd.get("key", ""), fd, pools, rng, region)
+                if not value:
+                    continue
+                segs.append((_card_label(fd, rng, region) + "：", "label", None))
+                segs.append((value, "value", fd["key"]))
+            if len(segs) < 4:      # 行锚 + ≥1 键（rowMinFields≥1）
+                continue
+            line, sp = make_line(segs, rng, nz=nz)
+            lines.append(line)
+            li = len(lines) - 1
+            rows.append([span(k, v, li) for k, v in sp])
+
+    return lines, shared, rows, nz
+
+
+GENERIC_KINDS = ("hospitalization", "diagnosis", "exam_report", "claim_item", "immunization",
+                 "health_exam", "clinical_conclusion", "surgery", "treatment_record")
+for _gk in GENERIC_KINDS:
+    BUILDERS[_gk] = (lambda k: (lambda pools, rng, vocab_chars:
+                                gen_generic_card(k, pools, rng, vocab_chars)))(_gk)
+
+
 # ================================================================ 预训练语料
 
 def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
@@ -1117,6 +1404,7 @@ def main():
 
     kinds = [k.strip() for k in args.kinds.split(",") if k.strip()] or list(REGISTRY.keys())
     specs = load_specs(args.prompts_dir, kinds)
+    set_specs(specs)   # 通用卡种生成器需要完整字段元数据（labels/type/枚举词形）
     if not specs:
         log("[FAIL] 无可用规格文件——先跑 .github/actions/distill/extract/export_prompts.sh")
         return 2

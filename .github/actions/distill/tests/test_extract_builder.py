@@ -36,6 +36,25 @@ SPECS = {
                 dict(key="unit"), dict(key="reference_range"), dict(key="abnormal_flag")],
         "rowAnchor": "", "maxRowsPerRegion": 4,
     },
+    # 通用卡种覆盖（gen_generic_card 路径；labels/枚举词形/fallback 打印词形随 spec 流入）
+    "hospitalization": {
+        "shared": [dict(key="hospital", required=True, labels=["医院", "醫院"]),
+                   dict(key="admit_at", labels=["入院日期"]),
+                   dict(key="actual_days", type="number", integer=True, labels=["实际住院天数"]),
+                   dict(key="bed_no", labels=["床号"]),
+                   dict(key="discharge_orders", type="narrative", labels=["出院医嘱"])],
+        "row": [], "rowAnchor": "", "maxRowsPerRegion": 0,
+    },
+    "claim_item": {
+        "shared": [dict(key="date", required=True, labels=["开票日期"]),
+                   dict(key="amount", type="number", integer=False, labels=["合计"]),
+                   dict(key="item_type", type="enumerated", domain=["invoice", "fee", "receipt"],
+                        fallback_tokens=["发票", "收費單", "收据"], labels=["票据类型"])],
+        "row": [dict(key="item_name", required=True, labels=["项目"]),
+                dict(key="item_amount", type="number", integer=False, labels=["金额"]),
+                dict(key="item_quantity", labels=["数量"])],
+        "rowAnchor": "item_name", "maxRowsPerRegion": 6,
+    },
 }
 
 

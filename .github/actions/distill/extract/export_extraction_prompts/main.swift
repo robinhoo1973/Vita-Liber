@@ -50,6 +50,30 @@ enum ExtractionPromptExporter {
             case .enumerated(let domain):
                 dict["type"] = "enumerated"; dict["domain"] = domain
             }
+            // 2026-10-08 语料批(卡种 4→13):标签与打印词形随 spec 一并导出,供 CI 语料
+            // 构建器给任意卡种打印行文本——单一事实源(禁 Python 复刻第二套标签)。
+            dict["labels"] = f.labelAliases
+            if let fb = f.fallback {
+                switch fb {
+                case .lineContaining(let tokens), .lineEndingWithAny(let tokens):
+                    dict["fallback_tokens"] = tokens
+                case .firstDateInRegion:
+                    break
+                }
+            }
+            // 枚举键的打印词形表(ClinicalFieldLabels 词表;键→表映射为导出器本地胶水)。
+            let vocab: [(type: String, tokens: [String])]? = {
+                switch f.key {
+                case "report_type": return ClinicalFieldLabels.reportTypeVocabulary
+                case "treatment_type": return ClinicalFieldLabels.treatmentTypeVocabulary
+                case "diagnosis_type": return ClinicalFieldLabels.diagnosisTypeLabels
+                case "conclusion_type": return ClinicalFieldLabels.conclusionTypeLabels
+                default: return nil
+                }
+            }()
+            if let vocab {
+                dict["value_tokens"] = vocab.map { ["type": $0.type, "tokens": $0.tokens] }
+            }
             return dict
         }
 
