@@ -111,12 +111,13 @@ jobs:
           if-no-files-found: warn
 
   llm:
-    name: ② LLM 辅助草拟（下载候选 → 安装·启动·草拟 → 侧车 artifact）
+    name: ② LLM 辅助草拟（下载候选 → GitHub Models 在线建议 → 侧车 artifact）
     needs: [draft]
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
+      models: read   # GitHub Models 内置 token 认证（零新增密钥;2026-10-08 业主选型）
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
 
@@ -126,67 +127,29 @@ jobs:
           name: asr-draft-test-${{ github.run_id }}
           path: ${{ runner.temp }}
 
-      - name: 取模型（Release 资产 + 哈希校验;GGUF 不随 git,run 37781264712 实证）
-        run: python3 .github/actions/release/materialize-llama-model.py
-
-      - name: 安装 llama.cpp（官方预构建;钉 tag+sha256）
+      # 在线免费 LLM（GitHub Models,内置 GITHUB_TOKEN;零新增密钥）——只发公开
+      # 模型元数据（治理条款）;建议只落 suggested/ 侧车,人工采纳;失败仅告警。
+      - name: LLM 辅助草拟（GitHub Models → suggested/ 侧车）
         env:
-          LLAMA_TAG: b11499
-          LLAMA_SHA256: 19ce793dad78858ec5c89231975d0aa71de31219089bcd06dc5ebe01b403c00d
-        run: |
-          set -euo pipefail
-          curl -L --fail --silent --show-error -o "$RUNNER_TEMP/llama.tar.gz" \
-            "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-x64.tar.gz"
-          echo "${LLAMA_SHA256}  $RUNNER_TEMP/llama.tar.gz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/llama"
-          tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C "$RUNNER_TEMP/llama" --strip-components=1
-          SERVER_BIN="$(find "$RUNNER_TEMP/llama" -name llama-server -type f | head -1)"
-          if [ -z "$SERVER_BIN" ]; then
-            echo "::error::解包内未找到 llama-server"
-            find "$RUNNER_TEMP/llama" -maxdepth 3 | head -30
-            exit 1
-          fi
-          echo "LLAMA_SERVER=${SERVER_BIN}" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$(dirname "$SERVER_BIN"):${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
-
-      - name: 启动 llama-server（后台 + 健康检查;仓内 0.5B GGUF）
-        run: |
-          set -euo pipefail
-          "$LLAMA_SERVER" \
-            -m Resources/LLMModels/qwen2.5-0.5b-instruct-q4_k_m.gguf \
-            --host 127.0.0.1 --port 8080 --ctx-size 2048 --threads 4 \
-            > "$RUNNER_TEMP/llama-server.log" 2>&1 &
-          echo "LLAMA_PID=$!" >> "$GITHUB_ENV"
-          ready=0
-          for i in $(seq 1 60); do
-            if curl -sf http://127.0.0.1:8080/health >/dev/null; then ready=1; break; fi
-            sleep 2
-          done
-          if [ "$ready" != "1" ]; then
-            echo "::error::llama-server 未就绪（60×2s）——诊断见 artifact"
-            tail -30 "$RUNNER_TEMP/llama-server.log" || true
-            exit 1
-          fi
-
-      - name: LLM 辅助草拟（suggest → suggested/ 侧车）
+          GH_MODELS_KEY: ${{ github.token }}
         run: |
           set -euo pipefail
           if ! python3 .github/actions/release/suggest-asr-metadata.py \
               --candidates "$RUNNER_TEMP/asr-config-candidates" \
               --out "$RUNNER_TEMP/asr-config-candidates/suggested" \
-              --endpoint http://127.0.0.1:8080/v1 --model "qwen2.5-0.5b-${LLAMA_TAG:-local}" \
+              --endpoint "https://models.github.ai/inference" \
+              --model "openai/gpt-4o-mini" \
+              --api-key-env GH_MODELS_KEY \
               --temperature 0.2; then
             echo "::warning::LLM 草拟失败（建议面,不阻塞;诊断见 artifact）"
           fi
           ls -la "$RUNNER_TEMP/asr-config-candidates/suggested" 2>/dev/null || true
 
-      - name: 上传侧车与日志（suggested/ + llama-server.log）
+      - name: 上传侧车（suggested/）
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
         with:
           name: asr-suggested-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/asr-config-candidates/suggested
-            ${{ runner.temp }}/llama-server.log
+          path: ${{ runner.temp }}/asr-config-candidates/suggested
           retention-days: 7
           if-no-files-found: warn
