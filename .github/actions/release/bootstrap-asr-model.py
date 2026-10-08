@@ -282,6 +282,10 @@ def apply_template(draft, template):
     if not template:
         return draft
     merged = dict(draft)
+    if merged.get("variant") is None and template.get("variant"):
+        # 命名不可判定档（如 14M/bilingual）在无模板时保 None 供人审；
+        # 对账场景从既有条目继承（watch.repo 已精确匹配到 template）。
+        merged["variant"] = template["variant"]
     if merged.get("source") in (None, "", REVIEW) and template.get("source"):
         merged["source"] = template["source"]
     if not (merged.get("versionPolicy") or {}).get("prefix") and template.get("versionPolicy"):

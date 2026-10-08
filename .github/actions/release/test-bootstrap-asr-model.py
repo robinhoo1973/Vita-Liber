@@ -138,6 +138,10 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(merged["files"][0]["sha256"], "2" * 64,
                          "字节事实不继承——对账须暴露真实差异")
         self.assertIs(apply(draft, None), draft, "无模板原样返回")
+        # 2026-10-08 全量深探：14M/bilingual 命名 variant 不可判定 → 对账时继承
+        unnamed = {"id": "zipformer", "variant": None, "files": []}
+        self.assertEqual(apply(unnamed, {"variant": "large", "files": []})["variant"],
+                         "large", "variant=None 且模板存在时继承（仅对账口径）")
 
     def test_compare_entry(self):
         compare = MODULE["compare_entry"]
