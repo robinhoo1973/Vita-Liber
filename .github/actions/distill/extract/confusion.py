@@ -91,15 +91,20 @@ class ConfusionTables:
         return cls(load_same_stroke(base / "same_stroke.txt"),
                    load_same_pinyin(base / "same_pinyin.txt"), hub_cap=hub_cap)
 
-    def mirrors_for(self, ch: str) -> tuple[tuple[str, str], ...]:
-        """[(镜像字符, 族)];层优先 形近→同音同调→同音异调;每层内码点序;总数≤hub_cap。"""
-        tiers: list[tuple[str, set[str]]] = [
+    def mirrors_for(self, ch: str, tiers: tuple[str, ...] | None = None) -> tuple[tuple[str, str], ...]:
+        """[(镜像字符, 族)];层优先 形近→同音同调→同音异调;每层内码点序;总数≤hub_cap。
+
+        tiers 过滤(ASR 侧只取同音两层;None=全层,默认行为不变)。
+        """
+        all_tiers: list[tuple[str, set[str]]] = [
             ("stroke", self._stroke.get(ch, set())),
             ("pinyin_same_tone", (self._pinyin.get(ch) or {}).get("same_tone", set())),
             ("pinyin_diff_tone", (self._pinyin.get(ch) or {}).get("diff_tone", set())),
         ]
+        if tiers is not None:
+            all_tiers = [t for t in all_tiers if t[0] in tiers]
         out: list[tuple[str, str]] = []
-        for family, members in tiers:
+        for family, members in all_tiers:
             for mirror in sorted(members):
                 if len(out) >= self.hub_cap:
                     return tuple(out)

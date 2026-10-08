@@ -196,3 +196,117 @@ def voiced(qty_unit: str, rng: random.Random) -> str:
     if m and rng.random() < 0.5 and m.group(1) in _CN_NUM:
         return _CN_NUM[m.group(1)] + m.group(2)
     return qty_unit
+
+
+# ================================================================ 噪声 v2(目标 CER 编辑预算;2026-10-08 round5 α/C 终案)
+#
+# 与 legacy 的关系:legacy 函数原样保留(训练机兼容);v2 由构建器主路径消费。
+# 常量镜像 policy.json(.github/config/distill/policy.json 为单一事实源):
+# - extract 侧运行期不依赖 policy 文件(训练机副本无此布局)→ 常量在此 + 双侧断言:
+#   ①tests/test_noise_policy_sync.py(CI 零依赖断言两处相等)
+#   ②builder main 启动时若找到 policy.json 则再断一次(fail-closed)。
+
+NOISE_VERSION = "2.0"
+BAND_CER = {"clean": 0.0, "light": 0.02, "medium": 0.05, "heavy": 0.10, "extreme": 0.18}
+# 与 policy.json noise.trainMix 同口径(分数,非百分数——交叉断言逐值相等)
+DEFAULT_TRAIN_MIX = {"clean": 0.15, "light": 0.30, "medium": 0.30, "heavy": 0.17, "extreme": 0.08}
+
+# ASR 族份额(音近为主:同音表 + 增删字;数字风格由 asr_number_style 前置处理)
+ASR_BAND_SHARES = {
+    "light": {"confusion": 0.75, "delete": 0.25},
+    "medium": {"confusion": 0.70, "delete": 0.15, "insert": 0.15},
+    "heavy": {"confusion": 0.65, "delete": 0.20, "insert": 0.15},
+    "extreme": {"confusion": 0.60, "delete": 0.25, "insert": 0.15},
+}
+
+_TABLES = None
+
+
+def _confusion_tables():
+    global _TABLES
+    if _TABLES is None:
+        try:
+            from extract.confusion import ConfusionTables  # CI 布局
+        except ImportError:
+            from confusion import ConfusionTables  # 训练机平铺布局
+        _TABLES = ConfusionTables.load()
+    return _TABLES
+
+
+class _PinyinTierTables:
+    """ASR 侧表视图:只暴露同音两层(音近错误主族;形近层留给 OCR 侧)。"""
+
+    def __init__(self, tables):
+        self._tables = tables
+
+    def mirrors_for(self, ch):
+        return self._tables.mirrors_for(ch, tiers=("pinyin_same_tone", "pinyin_diff_tone"))
+
+
+def confusion_tables_sha256():
+    """入仓两表合哈希(manifest provenance;加载失败返 None 不阻断)。"""
+    try:
+        return _confusion_tables().tables_sha256()
+    except Exception:  # noqa: BLE001 - 表缺失属环境问题,由构建端其它断言兜
+        return None
+
+
+def new_noise_ctx(rng: random.Random, *, mode: str = "ocr", mix: dict | None = None) -> dict:
+    """样本级噪声上下文:抽带位(混比)+表+计数槽;随样本落 noise 元数据。"""
+    weights = dict(mix or DEFAULT_TRAIN_MIX)
+    bands = list(weights)
+    band = rng.choices(bands, weights=[weights[b] for b in bands])[0]
+    tables = _confusion_tables()
+    return {"version": NOISE_VERSION, "mode": mode, "band": band,
+            "cer_target": BAND_CER[band],
+            "tables": _PinyinTierTables(tables) if mode == "asr" else tables,
+            "span_total": 0, "span_damaged": 0, "ops": {}}
+
+
+def noise_ctx_summary(ctx: dict) -> dict:
+    """样本 noise 元数据(不携带 tables 对象)。"""
+    return {"version": ctx["version"], "mode": ctx["mode"], "band": ctx["band"],
+            "cer_target": ctx["cer_target"],
+            "spans": ctx["span_total"], "spans_damaged": ctx["span_damaged"],
+            "ops": dict(sorted(ctx["ops"].items()))}
+
+
+def ocr_noise_segment_v2(seg: str, rng: random.Random, *, band: str,
+                         tables=None) -> tuple[str, dict]:
+    """OCR 段级 v2:调度器驱动(族份额见 noise_scheduler.BAND_SHARES)。"""
+    try:
+        from extract.noise_scheduler import noisify_segment
+    except ImportError:
+        from noise_scheduler import noisify_segment
+    clean = sanitize_hard(seg)
+    if not clean or band == "clean":
+        return (clean or seg), {"band": band, "cer_target": BAND_CER.get(band, 0.0),
+                                "cer_measured": 0.0, "families": [], "ops": {},
+                                "damaged": False}
+    noisy, meta = noisify_segment(clean, band=band, cer_target=BAND_CER[band],
+                                  rng=rng, tables=tables or _confusion_tables())
+    noisy = sanitize_hard(noisy) or clean
+    meta["damaged"] = noisy != clean
+    return noisy, meta
+
+
+def asr_noise_segment_v2(seg: str, rng: random.Random, *, band: str,
+                         tables=None) -> tuple[str, dict]:
+    """ASR 段级 v2:数字风格前置 + 音近/增删字族(无标点输出)。"""
+    try:
+        from extract.noise_scheduler import noisify_segment
+    except ImportError:
+        from noise_scheduler import noisify_segment
+    clean = sanitize_hard(seg)
+    if not clean or band == "clean":
+        return (clean or seg), {"band": band, "cer_target": BAND_CER.get(band, 0.0),
+                                "cer_measured": 0.0, "families": [], "ops": {},
+                                "damaged": False}
+    styled = asr_number_style(clean, rng)
+    noisy, meta = noisify_segment(styled, band=band, cer_target=BAND_CER[band],
+                                  rng=rng, tables=tables or _PinyinTierTables(_confusion_tables()),
+                                  shares=ASR_BAND_SHARES[band])
+    noisy = noisy.replace("。", "").replace("，", " ").replace(",", " ")
+    noisy = sanitize_hard(noisy) or clean
+    meta["damaged"] = noisy != clean  # 与 clean 比(数字风格也是伤害)
+    return noisy, meta

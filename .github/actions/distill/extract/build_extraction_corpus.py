@@ -70,6 +70,8 @@ for _std in (sys.stdout, sys.stderr):
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from extraction_noise import (  # noqa: E402
     sanitize_hard, ocr_noise_segment, ocr_separator, asr_noise_segment, voiced,
+    NOISE_VERSION, BAND_CER, DEFAULT_TRAIN_MIX, new_noise_ctx, noise_ctx_summary,
+    ocr_noise_segment_v2, asr_noise_segment_v2, confusion_tables_sha256,
 )
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -520,9 +522,13 @@ def normalize_doses(text, rng):
     return text
 
 
-def make_line(segments, rng, level=None):
+def make_line(segments, rng, level=None, nz=None):
     """segments: (text, role, key|None)（旧两元组兼容）；value 段加噪后即 span 基。
-    返回 (行文本, [(key, 加噪后段文本)…]) —— span value 取加噪后原文，verbatim 由构造保证。"""
+    返回 (行文本, [(key, 加噪后段文本)…]) —— span value 取加噪后原文，verbatim 由构造保证。
+
+    nz(样本级噪声上下文,噪声 v2)给定时走目标 CER 编辑预算路径并累计 span 损伤;
+    nz=None 时保持 legacy level 分布路径(逐字节兼容)。
+    """
     norm = []
     for seg in segments:
         if len(seg) == 3:
@@ -531,6 +537,28 @@ def make_line(segments, rng, level=None):
             text, role = seg
             key = None
         norm.append((text, role, key))
+    if nz is not None:
+        noised = []
+        for text, role, key in norm:
+            if not text:
+                noised.append(text)
+                continue
+            fn = asr_noise_segment_v2 if nz["mode"] == "asr" else ocr_noise_segment_v2
+            noisy, meta = fn(text, rng, band=nz["band"], tables=nz["tables"])
+            noised.append(noisy)
+            if key:
+                nz["span_total"] += 1
+                if meta.get("damaged"):
+                    nz["span_damaged"] += 1
+            for op, count in (meta.get("ops") or {}).items():
+                nz["ops"][op] = nz["ops"].get(op, 0) + count
+        line = ""
+        for i, seg in enumerate(noised):
+            if i:
+                line += ocr_separator(rng)
+            line += seg
+        spans = [(key, noised[i]) for i, (_, _, key) in enumerate(norm) if key and noised[i]]
+        return line, spans
     noised = []
     for text, role, _ in norm:
         seg_level = level if role == "value" else ("light" if level == "clean" else level)
@@ -658,6 +686,7 @@ def _doctor(rng, trad=False):
 
 
 def gen_prescription(pools, rng, vocab_chars):
+    nz = new_noise_ctx(rng, mode="ocr")
     """处方页面：表头（日期/医院/科室/医师/处方号/诊断/医嘱）+ 1-3 行药品行（三种版式）。"""
     region = _region(pools, rng, need_drugs=True)   # 一张处方一个地区：机构/科别/版式/药品同地区
     drugs = pools["drugs_by_region"][region]
@@ -675,25 +704,25 @@ def gen_prescription(pools, rng, vocab_chars):
 
     # —— 表头（行序号即 lineIndex）——
     h = _hospital(pools, rng, region)
-    push(*make_line([(h, "value", "hospital"), (L(region, "门诊处方笺"), "label", None)], rng))
+    push(*make_line([(h, "value", "hospital"), (L(region, "门诊处方笺"), "label", None)], rng, nz=nz))
 
     dept = _department(pools, rng, region)
-    push(*make_line([(L(region, "科室"), "label", None), (dept, "value", "department")], rng))
+    push(*make_line([(L(region, "科室"), "label", None), (dept, "value", "department")], rng, nz=nz))
 
     if rng.random() < 0.7:
-        push(*make_line([(L(region, "医师"), "label", None), (_doctor(rng, trad), "value", "doctor")], rng))
-    push(*make_line([(L(region, "处方日期"), "label", None), (_date(rng), "value", "prescribed_at")], rng))  # 必填：恒定出现
+        push(*make_line([(L(region, "医师"), "label", None), (_doctor(rng, trad), "value", "doctor")], rng, nz=nz))
+    push(*make_line([(L(region, "处方日期"), "label", None), (_date(rng), "value", "prescribed_at")], rng, nz=nz))  # 必填：恒定出现
     if rng.random() < 0.6:
         no = f"{rng.choice('ABC')}{rng.randint(100000, 999999)}"
-        push(*make_line([(L(region, "处方号"), "label", None), (no, "value", "prescription_no")], rng))
+        push(*make_line([(L(region, "处方号"), "label", None), (no, "value", "prescription_no")], rng, nz=nz))
     if rng.random() < 0.6 and (pools["diseases"] or pools["ref"]["diagnoses"].get(region)):
         d1 = _diagnosis(pools, rng, region)
         d2 = _diagnosis(pools, rng, region) if rng.random() < 0.35 else ""
         diag = d1 + ("、" + d2 if d2 else "")
-        push(*make_line([(L(region, "临床诊断"), "label", None), (diag, "value", "clinical_diagnosis")], rng))
+        push(*make_line([(L(region, "临床诊断"), "label", None), (diag, "value", "clinical_diagnosis")], rng, nz=nz))
     if rng.random() < 0.35:
         # 硬负例：过敏史里出现的药名不得建行（无 key 即不入 span）
-        push(*make_line([(L(region, "既往"), "label", None), (L(region, rng.choice(ALLERGY_LINES)), "value", None)], rng))
+        push(*make_line([(L(region, "既往"), "label", None), (L(region, rng.choice(ALLERGY_LINES)), "value", None)], rng, nz=nz))
 
     # —— 药品行 ——
     for i, drug in enumerate(chosen):
@@ -778,9 +807,9 @@ def gen_prescription(pools, rng, vocab_chars):
             rows.append(row)
 
     if rng.random() < 0.4:
-        push(*make_line([(L(region, "医嘱"), "label", None), (L(region, rng.choice(TCM_ADVICES)), "value", "advice_text")], rng))
+        push(*make_line([(L(region, "医嘱"), "label", None), (L(region, rng.choice(TCM_ADVICES)), "value", "advice_text")], rng, nz=nz))
 
-    return lines, shared, rows
+    return lines, shared, rows, nz
 
 
 # ================================================================ 用药（ASR 口述）
@@ -796,6 +825,7 @@ ASR_FRAMES = [
 
 
 def gen_medication(pools, rng, vocab_chars):
+    nz = new_noise_ctx(rng, mode="asr")
     region = _region(pools, rng, need_drugs=True)   # 一段口述一个说话人/地区
     drugs = pools["drugs_by_region"][region]
     n = rng.choices([1, 2], weights=[80, 20])[0]
@@ -829,12 +859,13 @@ def gen_medication(pools, rng, vocab_chars):
                 row.append(span(key, v, idx))
         if row:
             rows.append(row)
-    return lines, shared, rows
+    return lines, shared, rows, nz
 
 
 # ================================================================ 门诊记录（OCR 页）
 
 def gen_encounter(pools, rng, vocab_chars):
+    nz = new_noise_ctx(rng, mode="ocr")
     lines, shared, rows = [], [], []
 
     def push(line, spans):
@@ -846,26 +877,27 @@ def gen_encounter(pools, rng, vocab_chars):
 
     region = _region(pools, rng, need_drugs=False)
     trad = region != "CN"
-    push(*make_line([(L(region, "就诊日期"), "label", None), (_date(rng), "value", "date")], rng))  # 必填：恒定出现
+    push(*make_line([(L(region, "就诊日期"), "label", None), (_date(rng), "value", "date")], rng, nz=nz))  # 必填：恒定出现
     h = _hospital(pools, rng, region)
-    push(*make_line([(h, "value", "hospital"), (L(region, "门诊病历"), "label", None)], rng))
+    push(*make_line([(h, "value", "hospital"), (L(region, "门诊病历"), "label", None)], rng, nz=nz))
     dept = _department(pools, rng, region)
-    push(*make_line([(L(region, "科室"), "label", None), (dept, "value", "department")], rng))
+    push(*make_line([(L(region, "科室"), "label", None), (dept, "value", "department")], rng, nz=nz))
     if rng.random() < 0.7:
-        push(*make_line([(L(region, "医师"), "label", None), (_doctor(rng, trad), "value", "doctor")], rng))
-    push(*make_line([(L(region, "主诉"), "label", None), (L(region, rng.choice(COMPLAINTS)), "value", "chief_complaint")], rng))
+        push(*make_line([(L(region, "医师"), "label", None), (_doctor(rng, trad), "value", "doctor")], rng, nz=nz))
+    push(*make_line([(L(region, "主诉"), "label", None), (L(region, rng.choice(COMPLAINTS)), "value", "chief_complaint")], rng, nz=nz))
     d1 = _diagnosis(pools, rng, region)
     d2 = _diagnosis(pools, rng, region) if rng.random() < 0.4 else ""
     diag = d1 + ("、" + d2 if d2 else "")
-    push(*make_line([(L(region, "诊断"), "label", None), (diag, "value", "diagnosis_text")], rng))
+    push(*make_line([(L(region, "诊断"), "label", None), (diag, "value", "diagnosis_text")], rng, nz=nz))
     if rng.random() < 0.4:  # advice_text 在 encounter spec 的 shared 键内（见 spec_encounter.json）
-        push(*make_line([(L(region, "医嘱"), "label", None), (L(region, rng.choice(TCM_ADVICES)), "value", "advice_text")], rng))
-    return lines, shared, rows
+        push(*make_line([(L(region, "医嘱"), "label", None), (L(region, rng.choice(TCM_ADVICES)), "value", "advice_text")], rng, nz=nz))
+    return lines, shared, rows, nz
 
 
 # ================================================================ 检验报告（字母数字表）
 
 def gen_metric_sample(pools, rng, vocab_chars):
+    nz = new_noise_ctx(rng, mode="ocr")
     lines, shared, rows = [], [], []
 
     def push(line, spans):
@@ -876,11 +908,11 @@ def gen_metric_sample(pools, rng, vocab_chars):
                 shared.append(span(key, value, idx))
 
     region = _region(pools, rng, need_drugs=False)
-    push(*make_line([(L(region, "报告日期"), "label", None), (_date(rng), "value", "measured_at")], rng))
+    push(*make_line([(L(region, "报告日期"), "label", None), (_date(rng), "value", "measured_at")], rng, nz=nz))
     if rng.random() < 0.6:
-        push(*make_line([(L(region, "医院"), "label", None), (_hospital(pools, rng, region), "value", "hospital")], rng))
+        push(*make_line([(L(region, "医院"), "label", None), (_hospital(pools, rng, region), "value", "hospital")], rng, nz=nz))
     if rng.random() < 0.5:
-        push(*make_line([(L(region, "标本类型"), "label", None), (L(region, "静脉血"), "value", "specimen_type")], rng))
+        push(*make_line([(L(region, "标本类型"), "label", None), (L(region, "静脉血"), "value", "specimen_type")], rng, nz=nz))
     n = rng.randint(3, 7)
     ref_exams = pools["ref"]["exams"].get(region) or []
     if ref_exams and rng.random() < 0.5:
@@ -890,10 +922,10 @@ def gen_metric_sample(pools, rng, vocab_chars):
             segs = [(item["name"], "value", "raw_label"), (f"{round(rng.uniform(lo, hi), digits) if digits else int(rng.uniform(lo, hi))}", "value", "value")]
             if item["unit"]:
                 segs.append((item["unit"], "value", "unit"))
-            line, seg_spans = make_line(segs, rng, level=rng.choices(["clean", "light"], weights=[45, 55])[0])
+            line, seg_spans = make_line(segs, rng, nz=nz)
             lines.append(line)
             rows.append([span(key, v, len(lines) - 1) for key, v in seg_spans if v and key])
-        return lines, shared, rows
+        return lines, shared, rows, nz
     items = rng.sample(LAB_ITEMS, min(n, len(LAB_ITEMS)))
     for label, abbr, unit, lo, hi in items:
         label = L(region, label)
@@ -909,12 +941,12 @@ def gen_metric_sample(pools, rng, vocab_chars):
                 (unit, "value", "unit"), (f"{lo}-{hi}", "value", "reference_range")]
         if abn:
             segs.append((abn, "value", "abnormal_flag"))
-        line, seg_spans = make_line(segs, rng, level=rng.choices(["clean", "light"], weights=[45, 55])[0])
+        line, seg_spans = make_line(segs, rng, nz=nz)
         lines.append(line)
         idx = len(lines) - 1
         row = [span(key, v, idx) for key, v in seg_spans if v and key]
         rows.append(row)
-    return lines, shared, rows
+    return lines, shared, rows, nz
 
 
 BUILDERS = {
@@ -1004,6 +1036,25 @@ def main():
     if not args.data_dir or not os.path.isdir(args.data_dir):
         log("[FAIL] 缺 --data-dir（CI：先跑 catalog_source.py 物化；或设 VITALIBER_DATA_DIR）")
         return 2
+
+    # 噪声常量 vs policy.json 单一事实源交叉断言(CI 布局有 policy.json;训练机副本
+    # 无此布局 → 记 not-found,由 tests 侧断言兜)。不一致 = 拒绝产出(fail-closed)。
+    policy_note = {"status": "not-found"}
+    policy_path = os.path.join(ROOT, ".github", "config", "distill", "policy.json")
+    if os.path.exists(policy_path):
+        try:
+            with open(policy_path, encoding="utf-8") as fh:
+                pol = json.load(fh)
+            same = (pol["noise"]["bandTargets"] == BAND_CER
+                    and pol["noise"]["trainMix"] == DEFAULT_TRAIN_MIX)
+            policy_note = {"status": "match" if same else "mismatch",
+                           "sha256": sha256_file(policy_path)}
+            if not same:
+                log("[FAIL] 噪声常量与 policy.json 不一致——拒绝产出(先同步两处)")
+                return 2
+        except (OSError, ValueError, KeyError) as exc:
+            log(f"[FAIL] policy.json 读取失败: {exc}")
+            return 2
 
     rng = random.Random(args.seed)
     global _EST
@@ -1100,7 +1151,7 @@ def main():
             made, attempts = 0, 0
             while made < counts[kind] and attempts < counts[kind] * 8:
                 attempts += 1
-                lines, shared, rows = BUILDERS[kind](pools, rng, vocab_chars)
+                lines, shared, rows, nz = BUILDERS[kind](pools, rng, vocab_chars)
                 if not check_verbatim(lines, shared, rows):
                     bump("verbatim_construct")  # 构造期自检失败（理论不可达；响了就是噪声模块改坏了）
                     continue
@@ -1122,6 +1173,16 @@ def main():
                     stats["trimmed"] += 1
                 est_vals.append(est)
                 target = feval if rng.random() < args.eval_ratio else fsft
+                # 噪声 v2 元数据:样本 id(评测/对账主键)+ 带位/损伤/ops(D14⑤/round5 §2.2)
+                split_tag = "eval" if target is feval else "sft"
+                sample["id"] = f"extract-{kind}-{split_tag}-{made:06d}"
+                sample["noise"] = noise_ctx_summary(nz)
+                band_stats = stats.setdefault("noise", {"version": NOISE_VERSION, "bands": {}})
+                agg = band_stats["bands"].setdefault(
+                    nz["band"], {"samples": 0, "spans": 0, "damaged": 0})
+                agg["samples"] += 1
+                agg["spans"] += nz["span_total"]
+                agg["damaged"] += nz["span_damaged"]
                 target.write(json.dumps(sample, ensure_ascii=False) + "\n")
                 if target is feval:
                     stats["eval"] += 1
@@ -1166,6 +1227,19 @@ def main():
         "pools": {"drugs": len(pools["drugs"]), "drugs_by_region": {k: len(v) for k, v in sorted(drugs_by_region.items())},
                   "ref": ref_stats, "aliases": len(pools["aliases"]),
                   "groups": len(pools["groups"]), "diseases": len(pools["diseases"])},
+        "noise": {
+            "version": NOISE_VERSION,
+            "band_targets": dict(BAND_CER),
+            "train_mix": dict(DEFAULT_TRAIN_MIX),
+            "tables_sha256": confusion_tables_sha256(),
+            # 带位验收量:span 损伤率(samples/spans/damaged;目标见 policy/round5 §2.2)
+            "span_damage_by_band": {
+                band: {"samples": agg["samples"], "spans": agg["spans"],
+                       "damaged": agg["damaged"],
+                       "rate": round(agg["damaged"] / max(agg["spans"], 1), 4)}
+                for band, agg in (stats.get("noise", {}).get("bands") or {}).items()},
+            "policy": policy_note,
+        },
         "stats": stats,
         "files": {},
     }
