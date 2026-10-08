@@ -106,7 +106,9 @@ def check_dialogue(corpus_path: Path, manifest_path: Path, guard: WordingGuard,
     if recorded != actual:
         failures.append(f"dialogue {corpus_path.name} sha256 对账失败: manifest={recorded} actual={actual}")
     modes: dict[str, int] = {}
+    count = 0
     for lineno, record in _read_jsonl(corpus_path):
+        count += 1
         fact_cache: list[str] = []
         for message in record["conversations"]:
             if message["role"] == "user":
@@ -137,6 +139,10 @@ def check_dialogue(corpus_path: Path, manifest_path: Path, guard: WordingGuard,
                     failures.append(f"dialogue {corpus_path.name}:{lineno} refuse 形态非法: {payload}")
             elif mode != "emergency":
                 failures.append(f"dialogue {corpus_path.name}:{lineno} 未知 mode: {mode}")
+    # count 必须写入 stats[corpus_path.name](与 check_extraction 同形)——空切分判据
+    # 查的正是该键;2026-10-08 修:此前只写 .modes 子键,判据恒真 → verdict 恒 fail
+    # → publish 永被阻断(首跑 CI 37710699326 实证的「永红闸」)。
+    stats[corpus_path.name] = count
     stats[f"{corpus_path.name}.modes"] = modes
     if modes.get("emergency", 0) < 1:
         failures.append(f"dialogue {corpus_path.name} 缺 emergency 样本(安全行为覆盖缺失)")
