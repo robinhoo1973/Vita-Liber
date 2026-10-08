@@ -6,6 +6,11 @@
 # 的 watch 规则解析上游最新版——内容有变即滚动 pin（下载实测）→ 动态派生身份
 # （version/builtAt/artifactRevision r+1）→ 强制重建；无变则全量复用。次源锁定文件
 # 与解析失败条目保留现行 pin（解析失败仅告警，绝不猜测版本）。
+# 生成链入流（2026-10-09 业主指令）：③ 目录草案（seeds→发现→深探）→ ④ LLM
+# 辅助草拟（非阻塞）→ ⑤ 蒸馏合并（逐项择优+provenance+结构闸）→ ⑥ 上游解析
+# 起全链消费**蒸馏终稿**（models.json→rolling pin;catalog-copy.json→build
+# 文案投影）;⑪⑫ 验收链挂 ⑤ 产出。git 金样 config 仍为生成基底（深探对账 +
+# 手写知识载体）——退役迁移（含 LLM 建议采纳口径）见 ASR_RELEASE.md。
 name: Build ASR Model Packages
 
 on:
@@ -30,6 +35,10 @@ on:
       # 有值(见「包加密密钥前置校验」步)。required 降为 false 消除无日志
       # startup_failure 族(elizaOS 同族修复最佳实践)。
       ASR_PACKAGE_KEY:
+        required: false
+      # 2026-10-09 生成链入流:④ LLM 辅助草拟（智谱 GLM-4.7-Flash 免费档）
+      # 需要密钥;缺失/限流 = 显式降级（纯确定性成稿）,不阻塞构建发布。
+      LLM_API_KEY:
         required: false
   workflow_dispatch:
   # 全自动化（2026-10-08 业主指令：无开关、无门禁的全自动 CI）：asr 相关
@@ -147,344 +156,8 @@ jobs:
       # 实测并滚动 pin；解析失败保留现行 pin 仅告警；实测失败=硬错（fail-closed）。
 
 
-  resolve:
-    name: ③ 上游解析（滚动 pin → config artifact）
-    needs: [preflight, battery]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    outputs:
-      resolved_artifact: ${{ steps.names.outputs.resolved_artifact }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: '3.13.5'
-
-      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
-
-      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
-      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
-      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
-
-      - name: 生成 artifact 标识
-        id: names
-        run: echo "resolved_artifact=asr-resolved-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-
-      - name: 解析上游最新版（config 驱动，全自动）
-        env:
-          # 提高 api.github.com 匿名限额（只增限额，不改语义；缺失亦可运行）。
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          python3 .github/actions/release/resolve-asr-models.py \
-            --config .github/config/asr/models.json \
-            --apply "$RUNNER_TEMP/asr-resolved/config.json" \
-            --report "$RUNNER_TEMP/asr-resolved/report.json" \
-            --workdir "$RUNNER_TEMP/asr-resolve-dl"
-
-      - name: 上传解析产物（artifact:asr-resolved）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
-        with:
-          name: ${{ steps.names.outputs.resolved_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-resolved/config.json
-            ${{ runner.temp }}/asr-resolved/report.json
-            ${{ runner.temp }}/asr-resolved/manifest.json
-          retention-days: 7
-          if-no-files-found: error
-
-
-  project:
-    name: ④ 源清单投影（config → manifest artifact）
-    needs: [resolve]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    outputs:
-      manifest_artifact: ${{ steps.names.outputs.manifest_artifact }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: '3.13.5'
-
-      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
-
-      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
-      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
-      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
-
-      - name: 生成 artifact 标识
-        id: names
-        run: echo "manifest_artifact=asr-manifest-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-
-      - name: 下载解析产物（artifact:asr-resolved）
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
-        with:
-          name: ${{ needs.resolve.outputs.resolved_artifact }}
-          path: ${{ runner.temp }}/asr-resolved
-
-      - name: 投影源清单（config → manifest.json）
-        run: |
-          python3 .github/actions/release/generate-asr-source-manifest.py \
-            --config "$RUNNER_TEMP/asr-resolved/config.json" \
-            --output "$RUNNER_TEMP/asr-resolved/manifest.json"
-
-      - name: 上传源清单（artifact:asr-manifest）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
-        with:
-          name: ${{ steps.names.outputs.manifest_artifact }}
-          path: ${{ runner.temp }}/asr-resolved/manifest.json
-          retention-days: 7
-          if-no-files-found: error
-
-
-  build:
-    name: ⑤ 源树准备·打包·文案投影（→ packages artifact）
-    needs: [resolve, project]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    outputs:
-      packages_artifact: ${{ steps.names.outputs.packages_artifact }}
-      index_artifact: ${{ steps.names.outputs.index_artifact }}
-    env:
-      # 包加密主密钥注入本段（prepare 缓存解密 / build 加密共用;非 CNB
-      # 写令牌）。缺失/为空由 ① 带日志硬红。
-      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: '3.13.5'
-
-      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
-
-      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
-      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
-      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
-
-      - name: 下载解析产物（artifact:asr-resolved）
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
-        with:
-          name: ${{ needs.resolve.outputs.resolved_artifact }}
-          path: ${{ runner.temp }}/asr-resolved
-
-      - name: 下载源清单（artifact:asr-manifest）
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
-        with:
-          name: ${{ needs.project.outputs.manifest_artifact }}
-          path: ${{ runner.temp }}/asr-resolved
-
-      - name: 暂存源清单输入（manifest + 告知/许可件）
-        run: |
-          mkdir -p "$RUNNER_TEMP/asr-source-input"
-          cp "$RUNNER_TEMP/asr-resolved/manifest.json" "$RUNNER_TEMP/asr-source-input/manifest.json"
-          cp Resources/ASRModels/NOTICE.md "$RUNNER_TEMP/asr-source-input/NOTICE.md"
-          cp Resources/ASRModels/LICENSE-APACHE-2.0.txt "$RUNNER_TEMP/asr-source-input/LICENSE-APACHE-2.0.txt"
-
-      - name: 准备完整钉版权重（优先复用已验证 CNB Release）
-        run: |
-          python3 .github/actions/release/prepare-asr-source.py \
-            --index Resources/ASRModelUpdates/manifest.json \
-            --source "$RUNNER_TEMP/asr-source-input" \
-            --root "$RUNNER_TEMP/asr-source" \
-            --cache "$RUNNER_TEMP/asr-cache" \
-            --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}"
-
-      - name: 构建全部模型 ZIP（加密信封；上游滚动条目动态派生新身份）
-        run: |
-          python3 .github/actions/release/build-asr-packages.py \
-            --source-root "$RUNNER_TEMP/asr-source" \
-            --index Resources/ASRModelUpdates/manifest.json \
-            --output "$RUNNER_TEMP/asr-packages" \
-            --reuse-directory "$RUNNER_TEMP/asr-cache" \
-            --config "$RUNNER_TEMP/asr-resolved/config.json"
-
-      # 2026-10-06 业主指令(不建议 publish 开关):构建→签名→验证→发布一气呵成。
-      # 构建产物在现场以签名密钥签名成发布用 manifest.json(无密钥=硬错,
-      # 发布需要签名目录;签名器内置 verify_catalog 自校验含包级签名验真)。
-      # 文案链（2026-10-08 委员会终裁）：明文 copy 源在**签名前**投影进构建索引——
-      # 文案改动零重建、零本地重签；投影缺失/不齐由投影器 fail-closed，R3 闸兜底。
-      - name: 投影文案到构建索引（签名前，copy 源）
-        run: |
-          python3 .github/actions/release/apply-asr-catalog-copy.py \
-            --index "$RUNNER_TEMP/asr-packages/index.json" \
-            --copy .github/config/asr/catalog-copy.json
-
-      - name: 生成 artifact 标识
-        id: names
-        run: |
-          echo "packages_artifact=asr-packages-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-          echo "index_artifact=asr-index-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-
-      - name: 上传构建索引（artifact:asr-index,供签名段）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
-        with:
-          name: ${{ steps.names.outputs.index_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-packages/index.json
-            ${{ runner.temp }}/asr-packages/package-validation.json
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: 输出完整候选包和校验回执
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ${{ steps.names.outputs.packages_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-packages/*.zip
-            ${{ runner.temp }}/asr-packages/index.json
-            ${{ runner.temp }}/asr-packages/package-validation.json
-          compression-level: 0
-          retention-days: 7
-          if-no-files-found: error
-
-
-
-  sign:
-    name: ⑥ 签名目录与验签核对（→ metadata artifact）
-    needs: [build]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    outputs:
-      metadata_artifact: ${{ steps.names.outputs.metadata_artifact }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: '3.13.5'
-
-      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
-
-      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
-      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
-      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
-
-      - name: 生成 artifact 标识
-        id: names
-        run: echo "metadata_artifact=asr-metadata-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-
-      - name: 下载构建索引（artifact:asr-index）
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
-        with:
-          name: ${{ needs.build.outputs.index_artifact }}
-          path: ${{ runner.temp }}/asr-packages
-
-      - name: 生成签名目录（发布面单一 manifest.json）
-        env:
-          ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
-        run: |
-          if [ -z "$ASR_SIGNING_KEYS_JSON" ]; then
-            echo "::error::ASR_SIGNING_KEYS_JSON 缺失——发布需要签名目录（init_asr_secrets 时代已注册,检查 secret）" >&2
-            exit 1
-          fi
-          root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
-          catalog_version=$(python3 .github/actions/release/next-catalog-version.py --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}")
-          python3 .github/actions/release/sign-asr-catalog.py \
-            --root Resources/ModelTrustRoot.json \
-            --index "$RUNNER_TEMP/asr-packages/index.json" \
-            --root-version "$root_version" \
-            --catalog-version "$catalog_version" \
-            --output "$RUNNER_TEMP/asr-packages/manifest.json"
-          echo "manifest.json 已签名（catalogVersion=$catalog_version）"
-
-      - name: 核对签名目录与实际生成的包索引
-        run: |
-          python3 .github/actions/release/model-trust.py verify \
-            --root Resources/ModelTrustRoot.json \
-            --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
-            --index "$RUNNER_TEMP/asr-packages/index.json"
-
-      - name: 上传签名目录（artifact:asr-metadata）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
-        with:
-          name: ${{ steps.names.outputs.metadata_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-packages/index.json
-            ${{ runner.temp }}/asr-packages/package-validation.json
-            ${{ runner.temp }}/asr-packages/manifest.json
-          retention-days: 7
-          if-no-files-found: error
-
-  publish:
-    name: ⑦ CNB 发布（下载 artifact·回读核对）
-    needs: [build, sign]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      # 包加密主密钥注入本段（发布校验需解密信封比对字节）——拆分后 env 面
-      # 逐段重审（2026-10-08 run 37747632496 实证:⑦ 漏注入即 publish 硬红）。
-      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
-        with:
-          python-version: '3.13.5'
-
-      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
-        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
-
-      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
-      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
-      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
-
-      - name: 下载完整候选包（artifact:packages,compression-level 0）
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
-        with:
-          name: ${{ needs.build.outputs.packages_artifact }}
-          path: ${{ runner.temp }}/asr-packages
-
-      - name: 下载签名目录（artifact:metadata）
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
-        with:
-          name: ${{ needs.sign.outputs.metadata_artifact }}
-          path: ${{ runner.temp }}/asr-meta
-
-      - name: 合并签名目录进发布目录
-        run: cp "$RUNNER_TEMP/asr-meta/manifest.json" "$RUNNER_TEMP/asr-packages/manifest.json"
-
-      - name: 发布 ASR Release 至 CNB（不可变资产；回读核对）
-        env:
-          # 令牌仅注入本步骤(定案约束 17):读取/构建步骤无 CNB 写面。
-          CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
-          CNB_RESOURCE_REPOSITORY: ${{ vars.CNB_RESOURCE_REPOSITORY }}
-        run: |
-          set -euo pipefail
-          # 有界重试防 CNB 资产表最终一致性误杀:发布成功但回读暂不可见是分布式
-          # 系统常态;上传幂等(同名同摘要=复用),重试安全。重试仍失败 = 硬红阻断
-          # TestFlight(回读失败不得降级为 warning——发布完整性唯一守门点)。
-          for attempt in 1 2 3; do
-            if python3 .github/actions/release/publish-asr-release.py publish \
-                --index "$RUNNER_TEMP/asr-packages/index.json" \
-                --directory "$RUNNER_TEMP/asr-packages" \
-                --root Resources/ModelTrustRoot.json \
-                --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
-                --root-store Resources/ASRModelUpdates \
-                --repository "$CNB_RESOURCE_REPOSITORY"; then
-              exit 0
-            fi
-            if [ "$attempt" -lt 3 ]; then
-              echo "::warning::CNB publish attempt $attempt failed; retrying" >&2
-              sleep $((attempt * 15))
-            fi
-          done
-          echo "::error::CNB publish failed after 3 attempts" >&2
-          exit 1
-
-
-  # ═══════════════════════════════════════════════════════════════
-  # ⑧⑨ 目录面（2026-10-08 业主指令：seeds→config 生成显性化）：
-  #   ⑧ 目录草案生成——seeds 家族名 → 发现（API 级）→ 深探（重下载实测）
-  #      → 产出「可采纳物」:models/catalog-copy 候选 artifact（治理裁决：
-  #      CI 只读不直写金样；人工采纳半环 = 复核后写回提交）。
-  #   ⑨ 复现验收——下载 ⑤ 的报告 artifact 后断言 + 全景表 + 非 hf-repo
-  #      字节补测。零密钥消费、零 CNB 写；全事件运行（push/dispatch/call）。
-  #      闭环判据：inventory 全数在册、缺候选 0、未知 0 且 probe 零 mismatch。
-  # ═══════════════════════════════════════════════════════════════
   catalog-draft:
-    name: ⑧ 目录草案生成（seeds→发现→深探→候选 artifact）
+    name: ③ 目录草案生成（seeds→发现→深探→候选 artifact）
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -558,9 +231,520 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-  verify:
-    name: ⑨ 复现断言与全景（下载报告 artifact）
+
+  llm-suggest:
+    name: ④ LLM 辅助草拟（候选 → 建议侧车;非阻塞）
     needs: [catalog-draft]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      - name: 下载候选 artifact（③ 的产出）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: asr-config-candidates
+          path: ${{ runner.temp }}
+
+      # 在线免费 LLM（智谱 GLM-4.7-Flash,免费档;密钥=repo secret LLM_API_KEY）。
+      # 只发公开模型元数据（治理条款）;逐字段容错+429 退避重试（run 37857357547
+      # 实证）;全败/限流=显式降级（errors.json 台账）,不阻塞——纯确定性仍成稿。
+      - name: LLM 辅助草拟（智谱 GLM-4.7-Flash → suggested/ 侧车）
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          set -euo pipefail
+          if ! python3 .github/actions/release/suggest-asr-metadata.py \
+              --candidates "$RUNNER_TEMP/asr-config-candidates" \
+              --out "$RUNNER_TEMP/asr-config-candidates/suggested" \
+              --endpoint "https://open.bigmodel.cn/api/paas/v4" \
+              --model "glm-4.7-flash" \
+              --api-key-env LLM_API_KEY \
+              --temperature 0.2 \
+              --max-seconds 1200; then
+            echo "::warning::LLM 草拟失败/降级（建议面,不阻塞;诊断见 errors.json）"
+          fi
+          ls -la "$RUNNER_TEMP/asr-config-candidates/suggested" 2>/dev/null || true
+
+      - name: 上传侧车（suggested/）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-suggested
+          path: ${{ runner.temp }}/asr-config-candidates/suggested
+          retention-days: 7
+          if-no-files-found: warn
+
+  distill:
+    name: ⑤ 蒸馏合并（候选 × 建议 → 终稿 + provenance;结构闸）
+    needs: [catalog-draft, llm-suggest]
+    # ④ 为显式非阻塞面（缺密钥/限流/超时=降级,非失败语义）——needs 成功门在此
+    # 不适用:上游红仍成稿（纯确定性）,侧车缺失由诊断步显式告警。
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      distilled_artifact: ${{ steps.names.outputs.distilled_artifact }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版,L0 检查 e 契约:跑 release 测试面须装）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      - name: 下载候选 artifact（③ 的产出）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: asr-config-candidates
+          path: ${{ runner.temp }}
+
+      - name: 下载侧车 artifact（④ 的产出;缺失不阻塞——纯确定性仍成稿）
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: asr-suggested
+          path: ${{ runner.temp }}/asr-config-candidates/suggested
+
+      - name: 侧车状态诊断（缺失/限流降级可见化;run 37857357547 教训）
+        run: |
+          sidecar="$RUNNER_TEMP/asr-config-candidates/suggested"
+          if [ -f "$sidecar/models.suggested.json" ] || [ -f "$sidecar/catalog-copy.suggested.json" ]; then
+            echo "侧车在位:"
+            ls -la "$sidecar"
+            if [ -f "$sidecar/errors.json" ]; then
+              echo "── errors.json（单字段失败台账;非空=限流降级,采纳面收窄）──"
+              cat "$sidecar/errors.json"
+            fi
+          else
+            echo "::warning::侧车缺失（④ 全败/超时）——纯确定性成稿,本轮采纳=0"
+          fi
+
+      - name: 离线冒烟（suggester 与 distiller 纯函数面）
+        run: |
+          python3 .github/actions/release/test-suggest-asr-metadata.py
+          python3 .github/actions/release/test-distill-asr-metadata.py
+
+      - name: 蒸馏合并（逐项择优 + provenance 报告）
+        run: |
+          set -o pipefail
+          python3 .github/actions/release/distill-asr-metadata.py \
+            --candidates "$RUNNER_TEMP/asr-config-candidates" \
+            --suggested "$RUNNER_TEMP/asr-config-candidates/suggested" \
+            --out "$RUNNER_TEMP/asr-distilled" \
+            --min-confidence 0.6 2>&1 | tee "$RUNNER_TEMP/distill.log"
+          echo "── distill-report.json ──"
+          cat "$RUNNER_TEMP/asr-distilled/distill-report.json"
+
+      # 结构闸（fail-closed;把 verify 的 g1/g2 语义左移到消费前）:终稿含
+      # REVIEW/variant=null/家族覆盖缺失/files 空 = 硬红。确定性+LLM 双面都
+      # 填不上的字段 = 真人工缺口,红线比带病发布优先。
+      - name: 终稿结构闸（REVIEW / variant=null / 家族覆盖 / 空 files = 硬红）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-distilled/models.json" <<'PYEOF'
+          import json
+          import sys
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          models = json.loads(raw)
+          seeds = json.load(open(".github/config/asr/seeds.json", encoding="utf-8"))
+          problems = []
+          if "REVIEW" in raw:
+              problems.append("终稿含 REVIEW 占位（确定性+LLM 均未定,须人工）")
+          if '"variant": null' in raw:
+              problems.append("终稿含 variant=null（档位待人工判定）")
+          expected = {s["name"] for s in seeds["seeds"]}
+          families = {m["id"] for m in models["models"]}
+          missing = sorted(expected - families)
+          if missing:
+              problems.append("seeds 家族缺席终稿: %s" % missing)
+          empties = ["%s/%s" % (m["id"], m.get("variant") or "-")
+                     for m in models["models"] if not m.get("files")]
+          if empties:
+              problems.append("files 为空: %s" % empties)
+          if problems:
+              print("::error::蒸馏终稿结构闸失败: " + "; ".join(problems))
+              raise SystemExit(1)
+          print("蒸馏终稿结构闸通过: %d 档 / %d 家族 / 0 REVIEW"
+                % (len(models["models"]), len(families)))
+          PYEOF
+
+      - name: 生成 artifact 标识
+        id: names
+        run: echo "distilled_artifact=asr-distilled-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: 上传终稿与报告（artifact:asr-distilled）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.distilled_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-distilled
+            ${{ runner.temp }}/distill.log
+          retention-days: 7
+          if-no-files-found: error
+
+
+  resolve:
+    name: ⑥ 上游解析（蒸馏终稿 → 滚动 pin → config artifact）
+    needs: [preflight, battery, distill]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      resolved_artifact: ${{ steps.names.outputs.resolved_artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
+      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
+      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
+
+      - name: 生成 artifact 标识
+        id: names
+        run: echo "resolved_artifact=asr-resolved-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: 下载蒸馏终稿（artifact:asr-distilled;⑥ 起消费生成物）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.distill.outputs.distilled_artifact }}
+          path: ${{ runner.temp }}/asr-distilled
+
+      - name: 解析上游最新版（蒸馏终稿驱动，全自动）
+        env:
+          # 提高 api.github.com 匿名限额（只增限额，不改语义；缺失亦可运行）。
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 .github/actions/release/resolve-asr-models.py \
+            --config "$RUNNER_TEMP/asr-distilled/models.json" \
+            --apply "$RUNNER_TEMP/asr-resolved/config.json" \
+            --report "$RUNNER_TEMP/asr-resolved/report.json" \
+            --workdir "$RUNNER_TEMP/asr-resolve-dl"
+
+      - name: 上传解析产物（artifact:asr-resolved）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.resolved_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-resolved/config.json
+            ${{ runner.temp }}/asr-resolved/report.json
+            ${{ runner.temp }}/asr-resolved/manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+
+  project:
+    name: ⑦ 源清单投影（config → manifest artifact）
+    needs: [resolve]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      manifest_artifact: ${{ steps.names.outputs.manifest_artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
+      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
+      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
+
+      - name: 生成 artifact 标识
+        id: names
+        run: echo "manifest_artifact=asr-manifest-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: 下载解析产物（artifact:asr-resolved）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.resolve.outputs.resolved_artifact }}
+          path: ${{ runner.temp }}/asr-resolved
+
+      - name: 投影源清单（config → manifest.json）
+        run: |
+          python3 .github/actions/release/generate-asr-source-manifest.py \
+            --config "$RUNNER_TEMP/asr-resolved/config.json" \
+            --output "$RUNNER_TEMP/asr-resolved/manifest.json"
+
+      - name: 上传源清单（artifact:asr-manifest）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.manifest_artifact }}
+          path: ${{ runner.temp }}/asr-resolved/manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+
+  build:
+    name: ⑧ 源树准备·打包·文案投影（→ packages artifact）
+    needs: [resolve, project, distill]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      packages_artifact: ${{ steps.names.outputs.packages_artifact }}
+      index_artifact: ${{ steps.names.outputs.index_artifact }}
+    env:
+      # 包加密主密钥注入本段（prepare 缓存解密 / build 加密共用;非 CNB
+      # 写令牌）。缺失/为空由 ① 带日志硬红。
+      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
+      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
+      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
+
+      - name: 下载解析产物（artifact:asr-resolved）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.resolve.outputs.resolved_artifact }}
+          path: ${{ runner.temp }}/asr-resolved
+
+      - name: 下载源清单（artifact:asr-manifest）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.project.outputs.manifest_artifact }}
+          path: ${{ runner.temp }}/asr-resolved
+
+      - name: 下载蒸馏终稿（artifact:asr-distilled;文案投影来源）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.distill.outputs.distilled_artifact }}
+          path: ${{ runner.temp }}/asr-distilled
+
+      - name: 暂存源清单输入（manifest + 告知/许可件）
+        run: |
+          mkdir -p "$RUNNER_TEMP/asr-source-input"
+          cp "$RUNNER_TEMP/asr-resolved/manifest.json" "$RUNNER_TEMP/asr-source-input/manifest.json"
+          cp Resources/ASRModels/NOTICE.md "$RUNNER_TEMP/asr-source-input/NOTICE.md"
+          cp Resources/ASRModels/LICENSE-APACHE-2.0.txt "$RUNNER_TEMP/asr-source-input/LICENSE-APACHE-2.0.txt"
+
+      - name: 准备完整钉版权重（优先复用已验证 CNB Release）
+        run: |
+          python3 .github/actions/release/prepare-asr-source.py \
+            --index Resources/ASRModelUpdates/manifest.json \
+            --source "$RUNNER_TEMP/asr-source-input" \
+            --root "$RUNNER_TEMP/asr-source" \
+            --cache "$RUNNER_TEMP/asr-cache" \
+            --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}"
+
+      - name: 构建全部模型 ZIP（加密信封；上游滚动条目动态派生新身份）
+        run: |
+          python3 .github/actions/release/build-asr-packages.py \
+            --source-root "$RUNNER_TEMP/asr-source" \
+            --index Resources/ASRModelUpdates/manifest.json \
+            --output "$RUNNER_TEMP/asr-packages" \
+            --reuse-directory "$RUNNER_TEMP/asr-cache" \
+            --config "$RUNNER_TEMP/asr-resolved/config.json"
+
+      # 2026-10-06 业主指令(不建议 publish 开关):构建→签名→验证→发布一气呵成。
+      # 构建产物在现场以签名密钥签名成发布用 manifest.json(无密钥=硬错,
+      # 发布需要签名目录;签名器内置 verify_catalog 自校验含包级签名验真)。
+      # 文案链（2026-10-08 委员会终裁）：明文 copy 源在**签名前**投影进构建索引——
+      # 文案改动零重建、零本地重签；投影缺失/不齐由投影器 fail-closed，R3 闸兜底。
+      - name: 投影文案到构建索引（签名前，copy 源）
+        run: |
+          python3 .github/actions/release/apply-asr-catalog-copy.py \
+            --index "$RUNNER_TEMP/asr-packages/index.json" \
+            --copy "$RUNNER_TEMP/asr-distilled/catalog-copy.json"
+
+      - name: 生成 artifact 标识
+        id: names
+        run: |
+          echo "packages_artifact=asr-packages-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "index_artifact=asr-index-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: 上传构建索引（artifact:asr-index,供签名段）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.index_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-packages/index.json
+            ${{ runner.temp }}/asr-packages/package-validation.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 输出完整候选包和校验回执
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ steps.names.outputs.packages_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-packages/*.zip
+            ${{ runner.temp }}/asr-packages/index.json
+            ${{ runner.temp }}/asr-packages/package-validation.json
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: error
+
+
+
+  sign:
+    name: ⑨ 签名目录与验签核对（→ metadata artifact）
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      metadata_artifact: ${{ steps.names.outputs.metadata_artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
+      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
+      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
+
+      - name: 生成 artifact 标识
+        id: names
+        run: echo "metadata_artifact=asr-metadata-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
+      - name: 下载构建索引（artifact:asr-index）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.build.outputs.index_artifact }}
+          path: ${{ runner.temp }}/asr-packages
+
+      - name: 生成签名目录（发布面单一 manifest.json）
+        env:
+          ASR_SIGNING_KEYS_JSON: ${{ secrets.ASR_SIGNING_KEYS_JSON }}
+        run: |
+          if [ -z "$ASR_SIGNING_KEYS_JSON" ]; then
+            echo "::error::ASR_SIGNING_KEYS_JSON 缺失——发布需要签名目录（init_asr_secrets 时代已注册,检查 secret）" >&2
+            exit 1
+          fi
+          root_version=$(python3 -c 'import json,base64;print(json.loads(base64.b64decode(json.load(open("Resources/ModelTrustRoot.json"))["payload"]))["version"])')
+          catalog_version=$(python3 .github/actions/release/next-catalog-version.py --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}")
+          python3 .github/actions/release/sign-asr-catalog.py \
+            --root Resources/ModelTrustRoot.json \
+            --index "$RUNNER_TEMP/asr-packages/index.json" \
+            --root-version "$root_version" \
+            --catalog-version "$catalog_version" \
+            --output "$RUNNER_TEMP/asr-packages/manifest.json"
+          echo "manifest.json 已签名（catalogVersion=$catalog_version）"
+
+      - name: 核对签名目录与实际生成的包索引
+        run: |
+          python3 .github/actions/release/model-trust.py verify \
+            --root Resources/ModelTrustRoot.json \
+            --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
+            --index "$RUNNER_TEMP/asr-packages/index.json"
+
+      - name: 上传签名目录（artifact:asr-metadata）
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.metadata_artifact }}
+          path: |
+            ${{ runner.temp }}/asr-packages/index.json
+            ${{ runner.temp }}/asr-packages/package-validation.json
+            ${{ runner.temp }}/asr-packages/manifest.json
+          retention-days: 7
+          if-no-files-found: error
+
+  publish:
+    name: ⑩ CNB 发布（下载 artifact·回读核对）
+    needs: [build, sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # 包加密主密钥注入本段（发布校验需解密信封比对字节）——拆分后 env 面
+      # 逐段重审（2026-10-08 run 37747632496 实证:⑦ 漏注入即 publish 硬红）。
+      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      # 2026-10-05 业主指令:密钥引导为本地脚本(.github/actions/release/init_asr_secrets.py,
+      # 初始化阶段已执行:生成 → 注册 secret → 改写 App 内嵌密钥与测试常量);
+      # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
+
+      - name: 下载完整候选包（artifact:packages,compression-level 0）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.build.outputs.packages_artifact }}
+          path: ${{ runner.temp }}/asr-packages
+
+      - name: 下载签名目录（artifact:metadata）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.sign.outputs.metadata_artifact }}
+          path: ${{ runner.temp }}/asr-meta
+
+      - name: 合并签名目录进发布目录
+        run: cp "$RUNNER_TEMP/asr-meta/manifest.json" "$RUNNER_TEMP/asr-packages/manifest.json"
+
+      - name: 发布 ASR Release 至 CNB（不可变资产；回读核对）
+        env:
+          # 令牌仅注入本步骤(定案约束 17):读取/构建步骤无 CNB 写面。
+          CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
+          CNB_RESOURCE_REPOSITORY: ${{ vars.CNB_RESOURCE_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          # 有界重试防 CNB 资产表最终一致性误杀:发布成功但回读暂不可见是分布式
+          # 系统常态;上传幂等(同名同摘要=复用),重试安全。重试仍失败 = 硬红阻断
+          # TestFlight(回读失败不得降级为 warning——发布完整性唯一守门点)。
+          for attempt in 1 2 3; do
+            if python3 .github/actions/release/publish-asr-release.py publish \
+                --index "$RUNNER_TEMP/asr-packages/index.json" \
+                --directory "$RUNNER_TEMP/asr-packages" \
+                --root Resources/ModelTrustRoot.json \
+                --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
+                --root-store Resources/ASRModelUpdates \
+                --repository "$CNB_RESOURCE_REPOSITORY"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::CNB publish attempt $attempt failed; retrying" >&2
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "::error::CNB publish failed after 3 attempts" >&2
+          exit 1
+
+
+  # ═══════════════════════════════════════════════════════════════
+  # ⑪⑫ 验收面（2026-10-08 业主指令 + 2026-10-09 生成链入流）：
+  #   ⑪ 复现验收——断言 + 全景表（深探报告 × 蒸馏终稿）。零密钥消费、
+  #      零 CNB 写；全事件运行（push/dispatch/call）。
+  #      闭环判据：inventory 全数在册、缺候选 0、未知 0、probe 零 mismatch、
+  #      终稿无 REVIEW/variant=null。
+  #   ⑫ 非 hf-repo 字节补测——以蒸馏终稿（将被发布物）为对象逐字节复现。
+  # ═══════════════════════════════════════════════════════════════
+  verify:
+    name: ⑪ 复现断言与全景（深探报告 × 蒸馏终稿）
+    needs: [distill]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -580,6 +764,12 @@ jobs:
           name: asr-bootstrap-repro
           path: ${{ runner.temp }}
 
+      - name: 下载蒸馏终稿（artifact:asr-distilled;验收对象=被消费物）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.distill.outputs.distilled_artifact }}
+          path: ${{ runner.temp }}/asr-distilled
+
       - name: 流程全景与待人工项表（step summary）
         run: |
           python3 -I - "$RUNNER_TEMP/asr-repro.json" >> "$GITHUB_STEP_SUMMARY" <<'PYEOF'
@@ -588,7 +778,7 @@ jobs:
           doc = json.load(open(sys.argv[1], encoding="utf-8"))
           print("## ASR 流水线全景（verify：seeds → 家族发现 → 档位深探）")
           print("")
-          print("- `seeds.json`：家族名清单——**⑧ 生成链的输入**（发现→深探→候选两文件）")
+          print("- `seeds.json`：家族名清单——**③ 生成链的输入**（发现→深探→候选两文件）")
           print("- `models.json` / `catalog-copy.json`：提交配置金样（人工维护，本 job 只读校验）")
           print("- 深探 draft 见 artifact `asr-bootstrap-repro`（可采纳物：待人工项就地复核后写回）")
           print("")
@@ -648,7 +838,7 @@ jobs:
 
       - name: 断言（13 在册/0 缺失/0 未知；12/12 复现/0 mismatch/0 error）
         run: |
-          python3 -I - "$RUNNER_TEMP/asr-repro.json" <<'PYEOF'
+          python3 -I - "$RUNNER_TEMP/asr-repro.json" "$RUNNER_TEMP/asr-distilled/models.json" <<'PYEOF'
           import json
           import sys
           doc = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -696,6 +886,13 @@ jobs:
               problems.append("models.json 含 REVIEW 占位（人工裁决未完成不得进金样）")
           elif '"variant": null' in config_raw:
               problems.append("models.json 含 variant=null（档位待人工判定不得进金样）")
+          # 验收对象=本 run 真正被下游消费的蒸馏终稿（2026-10-09 生成链入流）：
+          # ⑤ 结构闸同义复查（红在消费前,此处为链路末端独立复验）。
+          distilled_raw = open(sys.argv[2], encoding="utf-8").read()
+          if "REVIEW" in distilled_raw:
+              problems.append("蒸馏终稿含 REVIEW 占位（须人工裁决后才能发布）")
+          elif '"variant": null' in distilled_raw:
+              problems.append("蒸馏终稿含 variant=null")
           if errors != 0:
               problems.append("error=%d (期望 0)" % errors)
           if problems:
@@ -711,8 +908,8 @@ jobs:
       # api.github.com）。无家族硬编码——新家族进 config 即自动纳入。
 
   archive-check:
-    name: ⑩ 非 hf-repo 字节补测（archive 面）
-    needs: [catalog-draft]
+    name: ⑫ 非 hf-repo 字节补测（蒸馏终稿 archive 面）
+    needs: [distill]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -726,12 +923,19 @@ jobs:
       # 契约电池中的 yaml 消费测试（test-release-version / test-cnb-release-workflow
       # / test-model-trust）需要 PyYAML——与 models job 同一步骤同钉版清单
       # （CI 37722650928 实证：缺装即 ModuleNotFoundError 红）。
+      - name: 下载蒸馏终稿（artifact:asr-distilled;补测对象=将被发布物）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.distill.outputs.distilled_artifact }}
+          path: ${{ runner.temp }}/asr-distilled
+
       - name: 非 hf-repo 条目字节级补测（archive 面）
         run: |
           set -euo pipefail
-          python3 -I - > "$RUNNER_TEMP/asr-archives.txt" <<'PYEOF'
+          python3 -I - "$RUNNER_TEMP/asr-distilled/models.json" > "$RUNNER_TEMP/asr-archives.txt" <<'PYEOF'
           import json
-          for entry in json.load(open(".github/config/asr/models.json"))["models"]:
+          import sys
+          for entry in json.load(open(sys.argv[1], encoding="utf-8"))["models"]:
               if (entry.get("watch") or {}).get("kind") == "hf-repo":
                   continue
               archive = entry.get("archive")

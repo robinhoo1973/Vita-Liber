@@ -143,7 +143,8 @@ jobs:
               --endpoint "https://open.bigmodel.cn/api/paas/v4" \
               --model "glm-4.7-flash" \
               --api-key-env LLM_API_KEY \
-              --temperature 0.2; then
+              --temperature 0.2 \
+              --max-seconds 1200; then
             echo "::warning::LLM 草拟失败（建议面,不阻塞;诊断见 artifact）"
           fi
           ls -la "$RUNNER_TEMP/asr-config-candidates/suggested" 2>/dev/null || true
@@ -160,6 +161,9 @@ jobs:
   distill:
     name: ③ 蒸馏合并（候选 × 建议 → 逐项择优终稿 + provenance 报告）
     needs: [draft, llm]
+    # ② 为显式非阻塞面（缺密钥/限流/超时=降级,非失败语义）——上游红仍成稿
+    # （纯确定性）,侧车缺失由诊断步显式告警。
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
