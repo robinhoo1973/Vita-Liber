@@ -63,11 +63,16 @@ def tokenize(samples: list[dict], vocab: dict[str, int], seq: int):
     return queries, golds
 
 
-def load_negative_terms(corpus_path: Path) -> dict[str, str]:
+def load_negative_terms(corpus_path: Path, entities_path: Path | None = None) -> dict[str, str]:
     """entity_id → 词面映射(扫**全量行含 eval**;只取词面,不取任何 eval query 无泄漏面)。
 
     负例行内只有 entity_id+hard,不携词面;金标实体在部署侧本就全量入索引,
     故全量扫描与部署语义一致。规范名(canonical)优先,保证与检索层词面同源。
+
+    entities_path(entities.jsonl 全量实体导出;2026-10-08 R0 修复):负例按**全实体表**
+    抽样,而语料 gold 受 caps 截断——仅扫语料时约 6.5% 负例(80,784/1,252,092)结构性
+    不可解析(<0.95 fail-closed 拒绝)。补全量实体导出与部署索引同义,缺失率归零;
+    语料 golden 词面仍优先(同源优先级不变)。
     """
     terms: dict[str, str] = {}
     with open(corpus_path, encoding="utf-8") as fh:
@@ -80,6 +85,26 @@ def load_negative_terms(corpus_path: Path) -> dict[str, str]:
                 continue
             if eid not in terms or kind == "canonical":
                 terms[eid] = term
+    if entities_path is not None and Path(entities_path).is_file():
+        with open(entities_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                eid = rec.get("entity_id")
+                if not eid or eid in terms or "_meta" in rec:
+                    continue
+                names = rec.get("names") or {}
+                term = None
+                for k in ("name_zh", "name", "name_en"):
+                    if isinstance(names.get(k), str) and names[k].strip():
+                        term = names[k].strip()
+                        break
+                if term is None and isinstance(rec.get("aliases"), list) and rec["aliases"]:
+                    term = str(rec["aliases"][0]).strip()
+                if term:
+                    terms[eid] = term
     return terms
 
 

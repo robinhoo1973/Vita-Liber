@@ -97,6 +97,8 @@ def main() -> int:
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--temperature", type=float, default=0.05)
     parser.add_argument("--seed", type=int, default=20260929)
+    parser.add_argument("--entities", type=Path, default=None,
+                        help="entities.jsonl 全量实体导出(负例词面解析回退源;缺省只扫语料 gold)")
     parser.add_argument("--negatives", choices=["off", "corpus"], default="off",
                         help="off=只看 in-batch(旧行为);corpus=拼入语料负例词面"
                              "(阶段 1;阶段 2 挖掘负例另批——round5 仲裁席 β)")
@@ -148,7 +150,7 @@ def main() -> int:
     neg_terms: list[list[str]] = [[] for _ in samples]
     neg_stats: dict = {}
     if args.negatives == "corpus":
-        term_map = load_negative_terms(args.corpus)
+        term_map = load_negative_terms(args.corpus, args.entities)
         neg_terms, neg_stats = negative_terms_for_samples(samples, term_map)
         expected = sum(len(r.get("negatives") or []) for r in samples)
         resolve_rate = 1.0 - neg_stats["neg_resolve_missing"] / max(expected, 1)

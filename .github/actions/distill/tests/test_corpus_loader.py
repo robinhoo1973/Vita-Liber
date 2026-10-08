@@ -65,6 +65,32 @@ class NegativeTermsTests(unittest.TestCase):
         self.assertEqual(per_sample, [[]])
         self.assertEqual(stats["neg_resolve_missing"], 1)
 
+    def test_negative_terms_entities_fallback(self):
+        # R0 修复:负例按全实体表抽样,语料 gold 受 caps 截断——entities.jsonl 回退源
+        # 必须解析语料中从未出现为 gold 的 entity_id(实测缺失率 6.5%→0)
+        import json as _json
+        import tempfile as _tempfile
+        from pathlib import Path as _Path
+        from train.corpus_loader import load_negative_terms
+        tmp = _Path(_tempfile.mkdtemp())
+        corpus = tmp / "corpus.jsonl"
+        corpus.write_text(_json.dumps({"gold": {"entity_id": "D1", "term": "阿司匹林",
+                                                "kind": "canonical"}}, ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+        ents = tmp / "entities.jsonl"
+        ents.write_text(
+            _json.dumps({"_meta": {"data_version": "x"}}, ensure_ascii=False) + "\n" +
+            _json.dumps({"domain": "drug", "entity_id": "D1", "region": "CN",
+                         "names": {"name_zh": "阿司匹林"}, "aliases": []}, ensure_ascii=False) + "\n" +
+            _json.dumps({"domain": "drug", "entity_id": "D2", "region": "CN",
+                         "names": {"name_zh": "布洛芬"}, "aliases": []}, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        only_corpus = load_negative_terms(corpus)
+        self.assertNotIn("D2", only_corpus)
+        with_entities = load_negative_terms(corpus, ents)
+        self.assertEqual(with_entities.get("D2"), "布洛芬")
+        self.assertEqual(with_entities.get("D1"), "阿司匹林")   # 语料 gold 词面优先
+
 
 if __name__ == "__main__":
     unittest.main()

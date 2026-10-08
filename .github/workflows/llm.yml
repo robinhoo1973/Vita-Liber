@@ -406,6 +406,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
         with:
           name: distill-corpus
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        with:
+          name: corpus-entities
       - name: Install deps(哈希钉版)
         run: |
           pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
@@ -422,6 +425,7 @@ jobs:
           python3 .github/actions/distill/train_encoder.py \
             --corpus corpus.jsonl --out-dir smoke-negatives \
             --max-steps 5 --budget-seconds 120 --batch 8 --epochs 1 --device cpu \
+            --entities entities.jsonl \
             --negatives corpus
       - name: Upload smoke artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
