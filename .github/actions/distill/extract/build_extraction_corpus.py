@@ -1260,6 +1260,10 @@ def gen_generic_card(kind, pools, rng, vocab_chars):
                 shared.append(span(key, value, idx))
 
     for fd in spec.get("shared_fields") or []:
+        # 真实文档字段残缺常态:非必填按 40% 概率出现(全量输出会超 token 预算;
+        # 也避免模型学到「字段必成对出现」的版式先验)
+        if not fd.get("required") and rng.random() > 0.4:
+            continue
         value = _card_value(fd.get("key", ""), fd, pools, rng, region)
         if not value:
             continue
