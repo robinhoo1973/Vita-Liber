@@ -115,6 +115,12 @@ def _download_once(url, destination):
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(request, timeout=600) as response:
+        # 完整性校验（2026-10-08 run 37741139452 实证:连接悄断时 read 直接
+        # EOF,半截文件被当作完整——probe 报出 144MB vs 金样 374MB 的假
+        # mismatch）。有 Content-Length 时收流后必核;不符抛 OSError 走
+        # 重试/报错路径,绝不把截断字节当事实。
+        expected = response.headers.get("Content-Length")
+        expected = int(expected) if expected and expected.isdigit() else None
         with destination.open("wb") as target:
             while True:
                 chunk = response.read(1 << 20)
@@ -123,6 +129,8 @@ def _download_once(url, destination):
                 received += len(chunk)
                 digest.update(chunk)
                 target.write(chunk)
+    if expected is not None and received != expected:
+        raise OSError("download truncated: %d/%d bytes" % (received, expected))
     return received, digest.hexdigest()
 
 
