@@ -63,9 +63,12 @@ class PublicReleaseWorkflowTests(unittest.TestCase):
         self.assertIn("publish-asr-release.py publish", text)
 
     def test_prepare_step_uses_anonymous_cnb_repository(self):
+        # 结构无关（2026-10-08 九段拆分实证 KeyError: 'models'——按步名全局搜,
+        # 不绑 job 名;job 重组不得再破坏本断言）。
         workflow = workflow_yaml("asr.yml")
-        steps = workflow["jobs"]["models"]["steps"]
-        prepare = next(s for s in steps if "prepare-asr-source" in s.get("run", ""))
+        prepare = next(s for job in workflow["jobs"].values()
+                       for s in (job.get("steps") or [])
+                       if "prepare-asr-source" in s.get("run", ""))
         self.assertNotIn("GH_TOKEN", prepare.get("env", {}) or {})
         self.assertIn("CNB_RESOURCE_REPOSITORY", prepare["run"])
 
