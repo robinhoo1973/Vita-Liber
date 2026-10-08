@@ -148,6 +148,13 @@ class BuilderSmokeTests(unittest.TestCase):
         self.assertIn("PyCorrector", manifest["licenses"])
         self.assertTrue(manifest["licenses"]["TFDA"]["attribution"])
 
+    def test_line_ops_trigger_surface_nonzero(self):
+        # round2 X 席:行噪声曾全卡种触发率 0(所有行带 span)——诱饵行补齐后
+        # 集成断言触发面必须 >0(seed=7 确定性)
+        manifest = json.loads((self.out / "extraction_manifest.json").read_text(encoding="utf-8"))
+        ops = manifest["stats"].get("line_ops") or {}
+        self.assertGreater(sum(ops.values()), 0, f"行噪声触发面为 0: {ops}")
+
 
 if __name__ == "__main__":
     unittest.main()

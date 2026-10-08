@@ -802,6 +802,10 @@ def gen_prescription(pools, rng, vocab_chars):
             if value:
                 shared.append(span(key, value, idx))
 
+    for pos, text in decoy_lines(rng, region):
+        if pos == "head":
+            lines.append(text)
+
     # —— 表头（行序号即 lineIndex）——
     h = _hospital(pools, rng, region)
     push(*make_line([(h, "value", "hospital"), (L(region, "门诊处方笺"), "label", None)], rng, nz=nz))
@@ -911,6 +915,9 @@ def gen_prescription(pools, rng, vocab_chars):
     if rng.random() < 0.4:
         push(*make_line([(L(region, "医嘱"), "label", None), (L(region, rng.choice(TCM_ADVICES)), "value", "advice_text")], rng, nz=nz))
 
+    for pos, text in decoy_lines(rng, region):
+        if pos == "foot":
+            lines.append(text)
     return lines, shared, rows, nz
 
 
@@ -978,6 +985,9 @@ def gen_encounter(pools, rng, vocab_chars):
                 shared.append(span(key, value, idx))
 
     region = _region(pools, rng, need_drugs=False)
+    for pos, text in decoy_lines(rng, region):
+        if pos == "head":
+            lines.append(text)
     trad = region != "CN"
     push(*make_line([(L(region, "就诊日期"), "label", None), (_date(rng), "value", "date")], rng, nz=nz))  # 必填：恒定出现
     h = _hospital(pools, rng, region)
@@ -993,6 +1003,9 @@ def gen_encounter(pools, rng, vocab_chars):
     push(*make_line([(L(region, "诊断"), "label", None), (diag, "value", "diagnosis_text")], rng, nz=nz))
     if rng.random() < 0.4:  # advice_text 在 encounter spec 的 shared 键内（见 spec_encounter.json）
         push(*make_line([(L(region, "医嘱"), "label", None), (L(region, rng.choice(TCM_ADVICES)), "value", "advice_text")], rng, nz=nz))
+    for pos, text in decoy_lines(rng, region):
+        if pos == "foot":
+            lines.append(text)
     return lines, shared, rows, nz
 
 
@@ -1010,6 +1023,9 @@ def gen_metric_sample(pools, rng, vocab_chars):
                 shared.append(span(key, value, idx))
 
     region = _region(pools, rng, need_drugs=False)
+    for pos, text in decoy_lines(rng, region):
+        if pos == "head":
+            lines.append(text)
     push(*make_line([(L(region, "报告日期"), "label", None), (_date(rng), "value", "measured_at")], rng, nz=nz))
     if rng.random() < 0.6:
         push(*make_line([(L(region, "医院"), "label", None), (_hospital(pools, rng, region), "value", "hospital")], rng, nz=nz))
@@ -1027,6 +1043,9 @@ def gen_metric_sample(pools, rng, vocab_chars):
             line, seg_spans = make_line(segs, rng, nz=nz)
             lines.append(line)
             rows.append([span(key, v, len(lines) - 1) for key, v in seg_spans if v and key])
+        for pos, text in decoy_lines(rng, region):
+            if pos == "foot":
+                lines.append(text)
         return lines, shared, rows, nz
     items = rng.sample(LAB_ITEMS, min(n, len(LAB_ITEMS)))
     for label, abbr, unit, lo, hi in items:
@@ -1048,6 +1067,9 @@ def gen_metric_sample(pools, rng, vocab_chars):
         idx = len(lines) - 1
         row = [span(key, v, idx) for key, v in seg_spans if v and key]
         rows.append(row)
+    for pos, text in decoy_lines(rng, region):
+        if pos == "foot":
+            lines.append(text)
     return lines, shared, rows, nz
 
 
@@ -1246,7 +1268,20 @@ def _card_value(key, fd, pools, rng, region):
         return f"{rng.randint(60, 105)}cm"
     if key in ("vision_left", "vision_right"):
         return rng.choice(["4.8", "4.9", "5.0", "1.0", "0.8"])
-    if key in ("total_cost", "amount", "item_amount", "unit_price", "reimbursed_amount", "out_of_pocket"):
+    if key in ("total_cost", "amount", "reimbursed_amount", "out_of_pocket"):
+        return f"{rng.randint(6, 380)}.{rng.randint(10, 99)}"
+    if key in ("item_amount", "unit_price"):
+        # 票据行自洽(round2 X 席:金额=单价×数量此前恒不成立)——行级三元由 row_ctx 提供,
+        # 无上下文时退回随机(旧行为)以不破坏单字段调用。
+        ctx = pools.get("_row_ctx") if isinstance(pools, dict) else None
+        if key == "unit_price":
+            if ctx is not None:
+                ctx["unit_price"] = f"{rng.randint(6, 380)}.{rng.randint(10, 99)}"
+                return ctx["unit_price"]
+            return f"{rng.randint(6, 380)}.{rng.randint(10, 99)}"
+        if ctx is not None and "unit_price" in ctx:
+            qty = int(ctx.get("qty") or 1)
+            return f"{float(ctx['unit_price']) * qty:.2f}"
         return f"{rng.randint(6, 380)}.{rng.randint(10, 99)}"
     if key in ("currency", "item_type"):
         ftok = fd.get("fallback_tokens") or []
@@ -1266,13 +1301,27 @@ def _card_value(key, fd, pools, rng, region):
         return "ICD-10"
     if key == "item_name":
         fees = (pools.get("derived", {}).get("fees") or []) if region == "TW" else []
-        if fees:
-            return _clean(rng.choice(fees)["name"])
-        return L(region, rng.choice(CLAIM_ITEMS)[0])
+        name = _clean(rng.choice(fees)["name"]) if fees else L(region, rng.choice(CLAIM_ITEMS)[0])
+        ctx = pools.get("_row_ctx") if isinstance(pools, dict) else None
+        if ctx is not None:
+            ctx["item_name"] = name
+        return name
     if key == "item_quantity":
-        return f"{rng.randint(1, 3)}{rng.choice(QUANTITY_UNITS)}"
+        n = rng.randint(1, 3)
+        ctx = pools.get("_row_ctx") if isinstance(pools, dict) else None
+        if ctx is not None:
+            ctx["qty"] = n
+        return f"{n}{rng.choice(QUANTITY_UNITS)}"
     if key == "item_spec":
-        return rng.choice(["10ml", "0.25g", "12s", "100ml", "5mg"])
+        # 非药品项目不带药械规格(round2 X 席:血常规/换药 100% 带 '12s/5mg' 为伪形态);
+        # 仅"药/费"类项目名(西药费/中药费/材料)给规格,其余返回 None → 该字段跳过
+        name = ""
+        ctx = pools.get("_row_ctx") if isinstance(pools, dict) else None
+        if ctx is not None:
+            name = ctx.get("item_name") or ""
+        if ("药" in name) or ("材料" in name):
+            return rng.choice(["10ml", "0.25g", "12s", "100ml", "5mg"])
+        return None
     if key == "name":
         return _diagnosis(pools, rng, region)
     if key == "diagnosis_text":
@@ -1293,6 +1342,26 @@ def _card_value(key, fd, pools, rng, region):
     return None
 
 
+_DECOY_HEADERS = ("门诊病历", "住院病案首页", "检查报告单", "收费票据", "体检报告", "出院记录", "检验报告单")
+_DECOY_FOOTERS = ("本页信息仅供参考，以原件为准", "打印时间：{d} {t}", "第{n}页 共{m}页",
+                  "审核人：{doc}", "机打单据 请妥善保存")
+
+
+def decoy_lines(rng, region, n_max=2):
+    """无 span 诱饵行(表头/页脚/页码)——行级噪声(drop/merge/interleave/split)的触发面
+    (round2 X 席:实现后全卡种触发率 0,因所有行都带 span)。返回 [(text, None)] 段列表。"""
+    out = []
+    if rng.random() < 0.55:
+        out.append(("head", L(region, rng.choice(_DECOY_HEADERS))))
+    if rng.random() < 0.5:
+        tmpl = rng.choice(_DECOY_FOOTERS)
+        text = tmpl.format(d=f"{rng.randint(2023, 2026)}-{rng.randint(1, 12):02d}-{rng.randint(1, 28):02d}",
+                           t=f"{rng.randint(8, 20):02d}:{rng.randint(0, 59):02d}",
+                           n=rng.randint(1, 3), m=rng.randint(1, 5), doc=_doctor(rng, trad=region != "CN"))
+        out.append(("foot", L(region, text)))
+    return out[:n_max]
+
+
 def gen_generic_card(kind, pools, rng, vocab_chars):
     """spec 驱动的通用卡种生成（shared 行 + row 块）；行锚必出，行内 ≥2 键。"""
     spec = _SPECS.get(kind) or {}
@@ -1307,6 +1376,9 @@ def gen_generic_card(kind, pools, rng, vocab_chars):
             if value:
                 shared.append(span(key, value, idx))
 
+    for pos, text in decoy_lines(rng, region):
+        if pos == "head":
+            lines.append(text)
     for fd in spec.get("shared_fields") or []:
         # 真实文档字段残缺常态:非必填按 40% 概率出现(全量输出会超 token 预算;
         # 也避免模型学到「字段必成对出现」的版式先验)
@@ -1322,19 +1394,30 @@ def gen_generic_card(kind, pools, rng, vocab_chars):
     if row_fields:
         max_rows = min(int(spec.get("maxRows") or 3), 3)
         for _ in range(rng.randint(1, max(1, max_rows))):
+            # 两遍:先定 item_name/unit_price/qty(自洽三元),再生成其余字段(如 item_amount=单价×数量)
+            pools["_row_ctx"] = {}
+            pre = {}
+            for fd in row_fields:
+                if fd.get("key") in ("item_name", "unit_price", "item_quantity"):
+                    pre[fd["key"]] = _card_value(fd["key"], fd, pools, rng, region)
             segs = []
             for fd in row_fields:
-                value = _card_value(fd.get("key", ""), fd, pools, rng, region)
+                value = pre.get(fd.get("key")) or _card_value(fd.get("key", ""), fd, pools, rng, region)
                 if not value:
                     continue
                 segs.append((_card_label(fd, rng, region) + "：", "label", None))
                 segs.append((value, "value", fd["key"]))
             if len(segs) < 4:      # 行锚 + ≥1 键（rowMinFields≥1）
                 continue
+            pools.pop("_row_ctx", None)
             line, sp = make_line(segs, rng, nz=nz)
             lines.append(line)
             li = len(lines) - 1
             rows.append([span(k, v, li) for k, v in sp])
+
+    for pos, text in decoy_lines(rng, region):
+        if pos == "foot":
+            lines.append(text)
 
     return lines, shared, rows, nz
 
@@ -1412,6 +1495,8 @@ def main():
     ap.add_argument("--sft-count", type=int, default=27000, help="SFT 样本总量（按注册表权重切分）")
     ap.add_argument("--pretrain-count", type=int, default=40000)
     ap.add_argument("--eval-ratio", type=float, default=0.03)
+    ap.add_argument("--allow-deferred", action="store_true",
+                    help="显式解冻 policy.corpus.deferredKinds(默认跳过)")
     ap.add_argument("--eval-min-per-cell", type=int, default=60,
                     help="eval 定额/kinc×band 单元(round5 §2.2;dry-run 不计定额)")
     ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET)
@@ -1432,6 +1517,7 @@ def main():
     # 无此布局 → 记 not-found,由 tests 侧断言兜)。不一致 = 拒绝产出(fail-closed)。
     policy_note = {"status": "not-found"}
     license_entries = {}
+    deferred_kinds = {}
     policy_path = os.path.join(ROOT, ".github", "config", "distill", "policy.json")
     if os.path.exists(policy_path):
         try:
@@ -1445,6 +1531,7 @@ def main():
                 log("[FAIL] 噪声常量与 policy.json 不一致——拒绝产出(先同步两处)")
                 return 2
             # 许可块:policy.licenses 单一事实源(H5 矩阵)——来源必须已登记且非禁再分发类
+            deferred_kinds = pol.get("corpus", {}).get("deferredKinds") or {}
             lic_srcs = pol["licenses"]["sources"]
             for key in ("TFDA", "NHSA", "HK", "CN-REF", "PyCorrector"):
                 entry = lic_srcs.get(key)
@@ -1464,6 +1551,13 @@ def main():
         f"{'none(byte-level BPE，无 OOV)' if vocab_chars is None else len(vocab_chars)}; budget={args.budget}")
 
     kinds = [k.strip() for k in args.kinds.split(",") if k.strip()] or list(REGISTRY.keys())
+    # 预算冻结卡种(policy.corpus.deferredKinds;round2:prompt>budget=整类零样本,
+    # 空跑浪费 CI 墙钟)——--allow-deferred 显式解冻
+    if deferred_kinds and not args.allow_deferred:
+        skipped = [k for k in kinds if k in deferred_kinds]
+        if skipped:
+            log(f"[skip] 预算冻结卡种(policy.deferredKinds): {', '.join(skipped)}")
+        kinds = [k for k in kinds if k not in deferred_kinds]
     specs = load_specs(args.prompts_dir, kinds)
     set_specs(specs)   # 通用卡种生成器需要完整字段元数据（labels/type/枚举词形）
     if not specs:
