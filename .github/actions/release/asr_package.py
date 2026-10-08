@@ -1,7 +1,6 @@
 """Shared ASR package contract for build, publish and CI verification (no signing keys)."""
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
@@ -9,10 +8,10 @@ import tempfile
 import unicodedata
 import zipfile
 
+from asr_constants import MODELS, VARIANTS  # 轻依赖常量（2026-10-08 拆出；本模块 re-export）
 from asr_envelope import (ENCRYPTION_SCHEME, decrypt_package, env_package_key,
                           identity_string, is_envelope_file)
 
-MODELS = {"qwen3", "zipformer", "dolphin", "whisper", "sense-voice", "fire-red", "moonshine"}
 ROLES = {
     "qwen3": {"frontend", "encoder", "decoder", "vocab", "merges", "tokenizerConfig"},
     "zipformer": {"encoder", "decoder", "joiner", "tokens", "bpe"},
@@ -22,9 +21,6 @@ ROLES = {
     "fire-red": {"model", "tokens"},
     "moonshine": {"preprocessor", "encoder", "uncachedDecoder", "cachedDecoder", "tokens"},
 }
-# 尺寸档位(FR17.15):按上游真实档名(whisper tiny/base/small/medium/turbo 等),
-# 每模型家族 1..5 档,上游缺档如实缺省(2026-10-05 委员会:iOS 适用性评估后扩档)。
-VARIANTS = {"tiny", "base", "small", "medium", "large", "turbo"}
 MAX_TIERS_PER_MODEL = 5
 # 各家族许可:非 Apache-2.0 家族逐名登记(2026-10-06 钉版实测:
 # sense-voice 权重为 FunASR 模型开源许可协议 v1.1,fire-red 为 Apache-2.0

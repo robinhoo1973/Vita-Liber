@@ -174,7 +174,8 @@ class TrustTests(unittest.TestCase):
         helper_rel = re.search(r'\$SRCROOT/([^"\s]+\.py)', script).group(1)
         helpers = self.root / Path(helper_rel).parent
         helpers.mkdir(parents=True)
-        for name in ("model-trust.py", "model_trust.py", "asr_package.py", "asr_envelope.py", "asr_signing.py"):
+        for name in ("model-trust.py", "model_trust.py", "asr_package.py", "asr_constants.py",
+                     "asr_envelope.py", "asr_signing.py"):
             shutil.copyfile(TOOLS / name, helpers / name)
         derived = self.root / "derived"
         bundle = self.root / "build/Example.app"
