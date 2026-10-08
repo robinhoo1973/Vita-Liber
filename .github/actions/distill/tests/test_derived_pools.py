@@ -83,6 +83,24 @@ class DerivedPoolTests(unittest.TestCase):
         self.assertEqual(r.returncode, 2, msg=r.stdout[-800:])
         self.assertIn("派生域缺失", r.stdout)
 
+    def test_cn_import_slots_preferred(self):
+        # CN 官方件导入槽(procedure_cn/fee_cn):文件在场时 provider 优先导入值
+        (self.tmp / "ref" / "procedure_cn.jsonl").write_text(
+            json.dumps({"name_zh": "腹腔镜胆囊切除术", "price_ref": ""}, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        (self.tmp / "ref" / "fee_cn.jsonl").write_text(
+            json.dumps({"name_zh": "门诊诊察费", "price_ref": ""}, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+        from build_extraction_corpus import _card_value, load_derived_pools
+        pools = {"derived": load_derived_pools(str(self.tmp), ["cn"], random.Random(1))}
+        rng = random.Random(2)
+        self.assertEqual(_card_value("surgery_name", {}, pools, rng, "CN"), "腹腔镜胆囊切除术")
+        self.assertEqual(_card_value("item_name", {}, pools, rng, "CN"), "门诊诊察费")
+        # 无导入文件时 CN 常量兜底(回归)
+        pools2 = {"derived": {"vaccines": {}, "procedures": [], "fees": [],
+                              "procedures_cn": [], "fees_cn": []}}
+        self.assertTrue(_card_value("surgery_name", {}, pools2, rng, "CN"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -530,7 +530,7 @@ def load_derived_pools(data_dir, regions, rng, cap=8000):
     """派生值域(2026-10-08 数据批;round2 X 席实证):目录物化的
     ref/vaccine_<r>.jsonl(药表谓词派生,去重)、ref/procedure_tw.jsonl(術式∪處置)、
     ref/fee_tw.jsonl(TW 支付标准全量带价)。缺文件→空(调用方常量兜底+fail-closed 判定)。"""
-    out = {"vaccines": {}, "procedures": [], "fees": []}
+    out = {"vaccines": {}, "procedures": [], "fees": [], "procedures_cn": [], "fees_cn": []}
     for region in regions:
         path = os.path.join(data_dir, "ref", f"vaccine_{region.lower()}.jsonl")
         names = []
@@ -545,7 +545,9 @@ def load_derived_pools(data_dir, regions, rng, cap=8000):
                         names.append(name)
         if names:
             out["vaccines"][region.upper()] = names[:cap]
-    for key, fname in (("procedures", "procedure_tw.jsonl"), ("fees", "fee_tw.jsonl")):
+    # CN 导入槽(官方件一次性导入;文件缺席=常量兜底——CN 术式/收费项目录登录墙,导入批)
+    for key, fname in (("procedures", "procedure_tw.jsonl"), ("fees", "fee_tw.jsonl"),
+                       ("procedures_cn", "procedure_cn.jsonl"), ("fees_cn", "fee_cn.jsonl")):
         path = os.path.join(data_dir, "ref", fname)
         rows = []
         if os.path.isfile(path):
@@ -1318,7 +1320,10 @@ def _card_value(key, fd, pools, rng, region):
     if key == "invoice_no":
         return f"No.{rng.randint(10000000, 99999999)}"
     if key == "surgery_name":
-        procs = (pools.get("derived", {}).get("procedures") or []) if region == "TW" else []
+        if region == "TW":
+            procs = pools.get("derived", {}).get("procedures") or []
+        else:
+            procs = pools.get("derived", {}).get("procedures_cn") or []
         if procs:
             return _clean(rng.choice(procs)["name"])
         return L(region, rng.choice(SURGERY_NAMES))
@@ -1392,7 +1397,8 @@ def _card_value(key, fd, pools, rng, region):
     if key == "code_system":
         return "ICD-10"
     if key == "item_name":
-        fees = (pools.get("derived", {}).get("fees") or []) if region == "TW" else []
+        fees = (pools.get("derived", {}).get("fees") if region == "TW"
+                else pools.get("derived", {}).get("fees_cn")) or []
         name = _clean(rng.choice(fees)["name"]) if fees else L(region, rng.choice(CLAIM_ITEMS)[0])
         ctx = pools.get("_row_ctx") if isinstance(pools, dict) else None
         if ctx is not None:
@@ -1896,7 +1902,9 @@ def main():
                   # 派生值域来源构成(H3 D 席;值来源可审计——常量占比治理的数据面)
                   "source_mix": {"vaccines": {r: len(v) for r, v in sorted(derived["vaccines"].items())},
                                  "procedures_tw": len(derived["procedures"]),
-                                 "fees_tw": len(derived["fees"])}},
+                                 "fees_tw": len(derived["fees"]),
+                                 "procedures_cn_import": len(derived["procedures_cn"]),
+                                 "fees_cn_import": len(derived["fees_cn"])}},
         "noise": {
             "version": NOISE_VERSION,
             "band_targets": dict(BAND_CER),
