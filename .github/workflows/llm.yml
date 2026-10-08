@@ -1,5 +1,11 @@
-# 蒸馏/训练流水线 v2 —— 医疗数据 → 三面语料(实体链接/抽取/对话) → 训练冒烟 → 评测闸 → 发布
+# 蒸馏训练流水线 v2 —— 医疗数据 → 三面语料(实体链接/抽取/对话) → 训练冒烟 → 评测闸 → 验收裁决器 → publish-corpus
 # 设计依据:refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md(§7 训练落点/§10 评测闸)
+#
+# 本图只到「语料冻结发布」(distill-corpus Release = **训练输入件**,artifact_role=
+# training-feedstock,不含模型;全量训练/模型评测/模型发布在私仓训练机与后续
+# task 批次,不在本作业图内——2026-10-08 委员会 round4 设计)。语料可见性由
+# acceptance 裁决器**统一门控**(tests∧prepare∧eval∧smoke 全绿才翻转 draft→可见;
+# 业主 2026-10-08 裁决,解除「smoke 入发布语义须单独裁决」登记禁止项)。
 #
 # 数据源纪律(2026-10-07 三域对齐裁决):医疗数据唯一位置 = CNB
 # robinhoo1973/Resources release medical-data(本地 producer 是唯一写者;源站 WAF
@@ -69,6 +75,7 @@ jobs:
     # 零密钥测试闸:stdlib 单测 + 全簇语法;prepare 轻依赖同装(信封解密往返等
     # 单测由此在 CI 实跑——缺依赖时测试 skip 而非假绿)。
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07 委员会：浮动 tag→固定完整 SHA）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
@@ -84,6 +91,7 @@ jobs:
     # 语料冻结:CNB 医疗数据 → 校验/解密 → 目录装载 → 三面语料 JSONL + manifest。
     needs: tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
@@ -190,8 +198,9 @@ jobs:
 
   calibrate:
     if: ${{ inputs.task != 'llama-xcframework' }}
-    # 100 步标定:MPS 探测段先行(真分配+matmul 对拍),CPU/MPS 双通道吞吐实测(§7.4 第 8 条)
-    needs: prepare
+    # 100 步标定:MPS 探测段先行(真分配+matmul 对拍),CPU/MPS 双通道吞吐实测(§7.4 第 8 条)。
+    # needs= tests(不消费 prepare 产物;解绑省≈7min——流程 v2,2026-10-08 四席结论)。
+    needs: tests
     strategy:
       fail-fast: false
       matrix:
@@ -201,6 +210,7 @@ jobs:
           - os: macos-15
             device: probe
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
@@ -257,6 +267,7 @@ jobs:
     # 训练循环回归:编码器(对比学习) + 生成式 SFT(抽取/对话两语料;含断点续训路径)。
     needs: prepare
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
@@ -318,9 +329,10 @@ jobs:
   eval:
     if: ${{ inputs.task != 'llama-xcframework' }}
     # 评测闸:entlink 数据基线对照臂 + 五层闸(SU-M15-ENTLINK)+ 抽取/对话冻结产物复验;
-    # verdict=fail 阻断 publish(§10 机器裁决)。
+    # verdict=fail 阻断 publish-corpus(§10 机器裁决;经 acceptance 裁决器)。
     needs: prepare
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       # job 级 outputs 必须显式映射 step 输出,needs.eval.outputs.verdict 才有值
       # (历史教训:缺本映射 → publish 的 if 恒假,publish 永远不跑且无任何报错)。
@@ -421,13 +433,65 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
-  publish:
-    # 闸门后发布:verdict=pass 才放行;语料内容寻址,append-only(同名 --clobber 幂等)。
-    # 对话面(2026-10-08 暂缓):publish 清单在 D-1(FR25.10/D3)裁决前不含 dialogue_*——
-    # 语料照常构建/复验(artifact 留证),裁决后再开上传。
-    needs: [eval, prepare]
-    if: ${{ inputs.task != 'llama-xcframework' && needs.eval.outputs.verdict == 'pass' }}
+  acceptance:
+    # 验收裁决器(2026-10-08 业主裁决定稿;round4 §4.2):单一机器裁决点——tests∧
+    # prepare∧eval∧smoke 全绿且 verdict=pass 才 go;calibrate 等记录面写入裁决件
+    # 不阻断。未达=run 判红(补"不吞红":此前 verdict=fail 时 run 仍绿)。判据冻结于
+    # gate/acceptance.py(变更=PR 可审计);负测 tests/test_acceptance.py。
+    needs: [tests, prepare, calibrate, smoke, eval]
+    if: ${{ always() && inputs.task != 'llama-xcframework' }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      # job 级 outputs 必须显式映射 step 输出(历史教训:缺映射→下游 if 恒假且无报错)
+      go: ${{ steps.verdict.outputs.go }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
+      - name: Acceptance verdict(裁决器)
+        id: verdict
+        env:
+          R_TESTS: ${{ needs.tests.result }}
+          R_PREPARE: ${{ needs.prepare.result }}
+          R_EVAL: ${{ needs.eval.result }}
+          R_SMOKE: ${{ needs.smoke.result }}
+          R_CALIBRATE: ${{ needs.calibrate.result }}
+          VERDICT: ${{ needs.eval.outputs.verdict }}
+        run: |
+          set +e
+          python3 .github/actions/distill/gate/acceptance.py \
+            --result "tests=$R_TESTS" --result "prepare=$R_PREPARE" \
+            --result "eval=$R_EVAL" --result "smoke=$R_SMOKE" \
+            --verdict "$VERDICT" \
+            --record "calibrate=$R_CALIBRATE" \
+            --out acceptance.json
+          RC=$?
+          set -e
+          cat acceptance.json
+          GO=$(python3 -c "import json;print('true' if json.load(open('acceptance.json'))['go'] else 'false')")
+          echo "go=$GO" >> "$GITHUB_OUTPUT"
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::验收未过(裁决器 exit=$RC)——run 判红,发布不放行(不吞红)"
+            exit 1
+          fi
+      - name: Upload acceptance
+        # always():裁决红/上游红时同样留证——acceptance.json 是唯一验收现场。
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
+        with:
+          name: acceptance
+          path: acceptance.json
+          if-no-files-found: ignore
+          retention-days: 30
+
+  publish-corpus:
+    # 语料冻结发布(训练输入件;可见性由 acceptance 裁决器统一门控,2026-10-08 业主
+    # 裁决):draft→REST ?name= 上传→digest 复核→裁决器放行才翻转可见;内容寻址,
+    # append-only。对话面(2026-10-08 暂缓):本 job 清单在 D-1(FR25.10/D3)裁决前不含
+    # dialogue_*——语料照常构建/复验(artifact 留证),裁决后再开上传。
+    needs: [acceptance]
+    if: ${{ inputs.task != 'llama-xcframework' && needs.acceptance.outputs.go == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write  # 业务 job 唯一需要写权限者(gh release;最小权限)
     steps:
@@ -506,9 +570,11 @@ jobs:
           # 已发布资产在 immutable 下不可增;gh release upload 的 # 语法只设
           # display label 不设资产 name——2026-10-08 R0 实证:资产落成 corpus.jsonl
           # 而 label 才是目标名,读回复核按设计判红。改名必须走 REST ?name=。
+          DATA_VERSION=$(python3 -c "import json;print(json.load(open('corpus.jsonl.manifest.json')).get('catalog_data_version',''))")
           if ! gh release view distill-corpus -R "$REPO" >/dev/null 2>&1; then
             gh release create distill-corpus -R "$REPO" --draft \
-              --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only);发布=schema 复核通过"
+              --title "distill corpus（训练输入件冻结）" \
+              --notes "artifact_role=training-feedstock；不含模型；内容寻址,append-only。dataVersion=$DATA_VERSION；run=$GITHUB_RUN_ID（可见性由 acceptance 裁决器门控）"
           fi
           # draft 不创建 git tag(REST by-tag 对 draft 404——2026-10-08 架构席 gh 源码级
           # 实证:FetchRelease 对 draft 走 GraphQL,原话"REST doesn't have this ability";
@@ -599,6 +665,7 @@ jobs:
   llama-xcframework:
     if: ${{ inputs.task == 'llama-xcframework' }}
     runs-on: macos-26
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
