@@ -90,6 +90,21 @@ class ChatSFTDataset(torch.utils.data.Dataset):
     def __getitem__(self, index):
         input_ids = self.tokenizer(self.render(self.samples[index])).input_ids[: self.max_length]
         labels = self.generate_labels(input_ids)
+        # 部分截断守卫(research B1;Unsloth #11040 / TRL #6025 族):末个 assistant 段
+        # 必须**完整**含 <|im_end|>——尾部被切=模型学不会停 / 输出未闭合 JSON,且
+        # 全 -100 守卫看不见(它只管"整段不可见")。生产语料 max_length 由 seq 闸保证,
+        # 此处 fail-closed 兜底。
+        last_bos = None
+        for i in range(len(input_ids) - len(self.bos_id), -1, -1):
+            if input_ids[i:i + len(self.bos_id)] == self.bos_id:
+                last_bos = i
+                break
+        if last_bos is not None:
+            tail = input_ids[last_bos + len(self.bos_id):]
+            if not any(tail[j:j + len(self.eos_id)] == self.eos_id for j in range(len(tail))):
+                raise ValueError(
+                    f"样本 {index} assistant 段尾部被截断(max_length={self.max_length} 下缺 "
+                    f"<|im_end|>)——提高 --seq 或缩短 system 段(部分截断会静默教出'不会停')")
         if all(label == -100 for label in labels):
             # 截断把 assistant 段整个切掉 → 该样本零监督信号(全 -100 的 loss 是 nan,
             # 静默毒化训练)。历史教训:盲目砍 max_length 时此族只会以 loss=nan 现身。

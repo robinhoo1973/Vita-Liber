@@ -405,6 +405,7 @@ def load_specs(prompts_dir, kinds):
             "required_row": [f["key"] for f in spec.get("row", []) if f.get("required")],
             "rowAnchor": spec.get("rowAnchor") or "",
             "maxRows": int(spec.get("maxRowsPerRegion") or 8),
+            "output_token_budget": int(spec.get("outputTokenBudget") or 0),
             # 通用卡种生成需要完整字段元数据（labels/type/枚举词形/fallback 打印词形）
             "shared_fields": spec.get("shared", []),
             "row_fields": spec.get("row", []),
@@ -1961,6 +1962,16 @@ def main():
                 for band, agg in (stats.get("noise", {}).get("bands") or {}).items()},
             "policy": policy_note,
         },
+        # 运行时 headroom 表(research B1 H4;解冻决策数据面):推理不变式 =
+        # system + user + outputTokenBudget + 帧 ≤ min(seq, n_ctx=4096)。
+        # 训练侧守卫按实际 assistant 长,运行时按最大输出预算预留——两者不同源,
+        # 本表把差额显式化(hospitalization/surgery 解冻评估依赖它)。
+        "prompt_budget": {
+            kind: {"prompt_tokens": _EST(specs[kind]["prompt"]),
+                   "output_budget": specs[kind].get("output_token_budget", 0),
+                   "runtime_user_headroom_4096": 4096 - _EST(specs[kind]["prompt"])
+                                                - specs[kind].get("output_token_budget", 0) - 15}
+            for kind in kinds if kind in specs},
         "stats": stats,
         "files": {},
     }

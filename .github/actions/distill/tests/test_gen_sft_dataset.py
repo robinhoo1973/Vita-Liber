@@ -71,6 +71,18 @@ class SftDatasetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ChatSFTDataset(str(bad), self.tokenizer, max_length=64)
 
+    def test_partial_truncation_guard_fails_loud(self):
+        # research B1/Unsloth #11040 族:末 assistant 段尾部被切(缺 <|im_end|>)——
+        # 全掩蔽守卫看不见,必须显式拒绝(否则静默教出"不会停")
+        from gen.sft_dataset import ChatSFTDataset
+        full_ids = self.tokenizer(self.dataset.render(self.dataset.samples[0])).input_ids
+        cut = max(9, len(full_ids) - 2)   # 切掉 eos 尾部(保留 assistant 开头)
+        partial = ChatSFTDataset(str(_write_corpus(self.tmp)), self.tokenizer, max_length=cut)
+        if all(l == -100 for l in partial.generate_labels(full_ids[:cut])):
+            self.skipTest("该长度下全掩蔽守卫先命中(等价保护)")
+        with self.assertRaisesRegex(ValueError, "截断"):
+            _ = partial[0]
+
 
 if __name__ == "__main__":
     unittest.main()
