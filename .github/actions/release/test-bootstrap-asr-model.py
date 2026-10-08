@@ -73,6 +73,26 @@ class BootstrapTests(unittest.TestCase):
         self.assertFalse(selected("test_wavs/0.wav"))
         self.assertFalse(selected(".gitattributes"))
 
+    def test_select_quantized_members(self):
+        # 2026-10-08 全量深探实证：whisper 仓 fp32+int8 孪生全收会与在册约定失配
+        select = MODULE["select_quantized_members"]
+        members = ["tiny-encoder.onnx", "tiny-encoder.int8.onnx",
+                   "tiny-decoder.onnx", "tiny-decoder.int8.onnx",
+                   "tiny-tokens.txt", "test_wavs/0.wav", "README.md"]
+        self.assertEqual(select(members),
+                         ["tiny-encoder.int8.onnx", "tiny-decoder.int8.onnx",
+                          "tiny-tokens.txt", "test_wavs/0.wav", "README.md"],
+                         "int8 优先且保持原顺序；非 onnx 透传")
+        self.assertEqual(select(["tiny-encoder.fp16.onnx", "tiny-encoder.onnx"]),
+                         ["tiny-encoder.fp16.onnx"],
+                         "无 int8 时 fp16 优于 fp32（且无角色名不参与判定，原样透传）")
+        self.assertEqual(select(["model.onnx", "model2.onnx"]),
+                         ["model.onnx", "model2.onnx"],
+                         "不同基名不是孪生，不得合并")
+        self.assertEqual(select(["encode.onnx", "cached_decode.onnx"]),
+                         ["encode.onnx", "cached_decode.onnx"],
+                         "异角色同后缀不误并")
+
     def test_infer_license(self):
         infer = MODULE["infer_license"]
         self.assertEqual(infer(["MIT License\nCopyright ..."]), "MIT")

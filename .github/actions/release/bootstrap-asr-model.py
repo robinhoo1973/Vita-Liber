@@ -215,11 +215,39 @@ def prefer_license_notice(files):
     return [f for f in files if f["role"] != "notice" or is_license(f["member"])]
 
 
+def select_quantized_members(members):
+    """同基名的 .onnx 量化孪生只留移动端优先形态：int8 > fp16 > fp32。
+
+    2026-10-08 全量深探对账实证：whisper 镜像仓同时含 fp32 与 int8 导出，全收
+    会让 draft 与在册约定（versionPolicy.prefix=int8，iOS 部署惯例）失配；
+    非 onnx 成员（tokens/bpe/notice 等）原样透传，不同基名不合并。
+    """
+    def group_key(member):
+        base = member.rsplit("/", 1)[-1].lower()
+        if not base.endswith(".onnx") or infer_role(member) is None:
+            return None
+        return re.sub(r"\.(int8|fp16)(?=\.onnx$)", "", base)
+
+    def level(member):
+        base = member.rsplit("/", 1)[-1].lower()
+        return 0 if ".int8." in base else (1 if ".fp16." in base else 2)
+
+    chosen = {}
+    for member in members:
+        group = group_key(member)
+        if group is None:
+            continue
+        if group not in chosen or level(member) < level(chosen[group]):
+            chosen[group] = member
+    picked = set(chosen.values())
+    return [m for m in members if group_key(m) is None or m in picked]
+
+
 def probe_repo(repo, *, workdir, fetch_json=None):
     sha, members = fetch_repo(repo, fetch_json=fetch_json)
     family, variant = infer_identity(repo)
     files, license_texts = [], []
-    for member in members:
+    for member in select_quantized_members(members):
         role = infer_role(member)
         if role is None or not member_selected(member):
             continue
