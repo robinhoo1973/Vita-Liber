@@ -111,7 +111,7 @@ jobs:
           if-no-files-found: warn
 
   llm:
-    name: ② LLM 辅助草拟（下载候选 → GitHub Models 在线建议 → 侧车 artifact）
+    name: ② LLM 辅助草拟（下载候选 → 智谱 GLM-4.7-Flash → 侧车 artifact）
     needs: [draft]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -126,10 +126,10 @@ jobs:
           name: asr-draft-test-${{ github.run_id }}
           path: ${{ runner.temp }}
 
-      # 在线免费 LLM（智谱 GLM-4-Flash,免费档;密钥=repo secret LLM_API_KEY）——
+      # 在线免费 LLM（智谱 GLM-4.7-Flash,免费档;密钥=repo secret LLM_API_KEY）——
       # 只发公开模型元数据（治理条款）;建议只落 suggested/ 侧车,人工采纳;
       # 失败仅告警。端点先试大陆 bigmodel.cn;若认证/网络不符换 z.ai 一行切换。
-      - name: LLM 辅助草拟（智谱 GLM-4-Flash → suggested/ 侧车）
+      - name: LLM 辅助草拟（智谱 GLM-4.7-Flash → suggested/ 侧车）
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         run: |
@@ -138,7 +138,7 @@ jobs:
               --candidates "$RUNNER_TEMP/asr-config-candidates" \
               --out "$RUNNER_TEMP/asr-config-candidates/suggested" \
               --endpoint "https://open.bigmodel.cn/api/paas/v4" \
-              --model "glm-4-flash" \
+              --model "glm-4.7-flash" \
               --api-key-env LLM_API_KEY \
               --temperature 0.2; then
             echo "::warning::LLM 草拟失败（建议面,不阻塞;诊断见 artifact）"
