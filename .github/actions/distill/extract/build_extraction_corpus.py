@@ -134,9 +134,39 @@ _S2T_PAIRS = ("临臨 丸丸 乳乳 关關 冠冠 减減 凝凝 刺刺 劳勞 �
 S2T = str.maketrans({pair[0]: pair[1] for pair in _S2T_PAIRS.split() if len(pair) == 2 and pair[0] != pair[1]})
 
 
+_S2T_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tables", "s2t")
+
+
+def _load_char_map(name):
+    """读入仓钉版简繁表(OpenCC 数据;PROVENANCE.md 记来源/sha256/许可)。缺文件→{}。"""
+    path = os.path.join(_S2T_DIR, name)
+    out = {}
+    if os.path.isfile(path):
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 2:
+                    out.setdefault(parts[0], parts[1])
+    return out
+
+
+_S2T_OTC = _load_char_map("STCharacters.txt")
+_TW_VARIANTS = _load_char_map("TWVariants.txt")
+_HK_VARIANTS = _load_char_map("HKVariants.txt")
+
+
 def L(region, text):
-    """地区版式文字：CN 原样；TW/HK 按 S2T 字表转繁体（仅用于本文件模板常量）。"""
-    return text if region == "CN" else text.translate(S2T)
+    """地区版式文字：CN 原样；TW/HK 走 OpenCC 钉版表(STCharacters + 地区变体;
+    2026-10-08 换表,手抄 120 对表仅剩兜底——表缺失=训练机旧布局回落)。"""
+    if region == "CN":
+        return text
+    if _S2T_OTC:
+        out = "".join(_S2T_OTC.get(ch, ch) for ch in text)
+        variants = _TW_VARIANTS if region == "TW" else _HK_VARIANTS
+        if variants:
+            out = "".join(variants.get(ch, ch) for ch in out)
+        return out
+    return text.translate(S2T)
 
 
 DOCTOR_SURNAMES = ["王", "李", "张", "刘", "陈", "杨", "赵", "黄", "周", "吴", "徐", "孙", "马", "朱", "胡", "郭", "何", "林"]
