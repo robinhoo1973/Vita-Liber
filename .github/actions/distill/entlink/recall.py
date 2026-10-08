@@ -41,15 +41,34 @@ class RecallCandidate:
 
 
 class RecallEngine:
-    """确定性召回。build() 之后 search() 线程安全(只读索引)。"""
+    """确定性召回。build() 之后 search() 线程安全(只读索引)。
 
-    def __init__(self, max_edit: int = 2):
+    E1 参数化(2026-10-08 round5 红队实证;默认=修复态,可通过参数回退旧行为):
+    - fuzzy_max_len: fuzzy 索引键长上限。None=不设限(修复:旧实现 >24 字符长名
+      被排除在 fuzzy 索引外,长药名/检查项名被 1 次编辑扰动后 exact/别名/拼音
+      三层全失效、fuzzy 层又无索引 → 零候选;drug light 拒识 11.4% 全属此类);
+      传 24 即精确回退旧行为(回归对拍用)。
+    - layer_multi_owner: initials/pinyin 层是否收录同键全部属主。False=只保留
+     首位(旧行为:56,573 家医院只有 43,309 个首字母键,碰撞键静默丢实体);
+      True=全收录、同层同分、按 (词条,实体 id) 确定性排序(实验开关,配负测)。
+    - layer_order: 层优先级可重排(默认 LAYER_ORDER);须为五层全集的排列。
+      说明:红队反事实证明单点重排是零和(hospital medium +3.8pt ↔ diagnosis
+      light −26.4pt),故仅作实验参数暴露,默认不变。
+    """
+
+    def __init__(self, max_edit: int = 2, *, fuzzy_max_len: int | None = None,
+                 layer_multi_owner: bool = False, layer_order: tuple = LAYER_ORDER):
+        if set(layer_order) != set(LAYER_ORDER) or len(layer_order) != len(LAYER_ORDER):
+            raise ValueError(f"layer_order 须为 {LAYER_ORDER} 的排列,得到 {layer_order}")
         self.max_edit = max_edit
+        self.fuzzy_max_len = fuzzy_max_len
+        self.layer_multi_owner = layer_multi_owner
+        self._layer_priority = {name: i for i, name in enumerate(layer_order)}
         self._by_domain: dict[str, list[Entity]] = {}
         self._exact: dict[str, dict[str, Entity]] = {}       # domain -> folded name -> entity
         self._alias: dict[str, dict[str, Entity]] = {}       # domain -> folded alias -> entity
-        self._initials: dict[str, dict[str, Entity]] = {}    # domain -> norm(initials) -> entity
-        self._pinyin: dict[str, dict[str, Entity]] = {}      # domain -> norm(pinyin) -> entity
+        self._initials: dict[str, dict[str, list[Entity]]] = {}  # domain -> norm(initials) -> owners
+        self._pinyin: dict[str, dict[str, list[Entity]]] = {}    # domain -> norm(pinyin) -> owners
         self._fuzzy: dict[str, CharSymSpell] = {}
         self.pinyin_available = False
 
@@ -66,8 +85,17 @@ class RecallEngine:
         for domain, entities in grouped.items():
             exact: dict[str, Entity] = {}
             alias: dict[str, Entity] = {}
-            initials: dict[str, Entity] = {}
-            full_py: dict[str, Entity] = {}
+            initials: dict[str, list[Entity]] = {}
+            full_py: dict[str, list[Entity]] = {}
+
+            def _add_owner(table: dict[str, list[Entity]], key: str, entity: Entity) -> None:
+                owners = table.get(key)
+                if owners is None:
+                    table[key] = [entity]
+                elif self.layer_multi_owner and entity not in owners:
+                    owners.append(entity)
+                # layer_multi_owner=False 时保留首位(旧行为)
+
             for entity in entities:
                 for kind in ("name_zh", "short_name", "name_en"):
                     raw = entity.names.get(kind)
@@ -85,12 +113,13 @@ class RecallEngine:
                             continue
                         ini = pinyin.to_initials(raw)
                         if ini:
-                            initials.setdefault(pinyin.norm_key(ini), entity)
+                            _add_owner(initials, pinyin.norm_key(ini), entity)
                         full = pinyin.to_pinyin(raw)
                         if full:
-                            full_py.setdefault(pinyin.norm_key(full), entity)
+                            _add_owner(full_py, pinyin.norm_key(full), entity)
             sym = CharSymSpell(max_edit=self.max_edit)
-            sym.build([k for k in (*exact.keys(), *alias.keys()) if len(k) <= 24])
+            sym.build([k for k in (*exact.keys(), *alias.keys())
+                       if self.fuzzy_max_len is None or len(k) <= self.fuzzy_max_len])
             self._by_domain[domain] = entities
             self._exact[domain] = exact
             self._alias[domain] = alias
@@ -112,10 +141,24 @@ class RecallEngine:
             for cand in self._search_domain(key, dom, max_dist):
                 ckey = (cand.domain, cand.entity_id)
                 prev = best.get(ckey)
-                if prev is None or _better(cand, prev):
+                if prev is None or _better(cand, prev, self._layer_priority):
                     best[ckey] = cand
-        ordered = sorted(best.values(), key=_sort_key)
+        ordered = sorted(best.values(), key=lambda c: _sort_key(c, self._layer_priority))
         return ordered[:top_k]
+
+    def near_ties(self, query: str, domain: str | None = None, top_k: int = 10) -> list[RecallCandidate]:
+        """对称歧义指示:与 rank1 同层同分的其余候选(确定性)。
+
+        红队实证:light/medium 带多实体落入同一容差球时,rank1 由层优先与字典序
+        决定——层序调参是零和,正确产品出口=候选列表+用户确认(clarify)。本方法
+        给运行时提供"该问用户"的机器信号,不改 rank1 决策。
+        """
+        hits = self.search(query, domain=domain, top_k=top_k)
+        if len(hits) < 2:
+            return []
+        rank1 = hits[0]
+        return [c for c in hits[1:]
+                if c.layer == rank1.layer and c.score == rank1.score]
 
     def _search_domain(self, key: str, domain: str, max_dist: int | None) -> Iterable[RecallCandidate]:
         exact = self._exact.get(domain, {})
@@ -129,15 +172,13 @@ class RecallEngine:
         ini = self._initials.get(domain, {})
         if ini:
             norm_ini = pinyin.norm_key(pinyin.to_initials(key) or "")
-            entity = ini.get(norm_ini)
-            if entity is not None:
-                yield RecallCandidate(entity.entity_id, domain, entity.region, key, "initials", _LAYER_BASE_SCORE["initials"])
+            for owner in ini.get(norm_ini, ()):
+                yield RecallCandidate(owner.entity_id, domain, owner.region, key, "initials", _LAYER_BASE_SCORE["initials"])
         full = self._pinyin.get(domain, {})
         if full:
             norm_full = pinyin.norm_key(pinyin.to_pinyin(key) or "")
-            entity = full.get(norm_full)
-            if entity is not None:
-                yield RecallCandidate(entity.entity_id, domain, entity.region, key, "pinyin", _LAYER_BASE_SCORE["pinyin"])
+            for owner in full.get(norm_full, ()):
+                yield RecallCandidate(owner.entity_id, domain, owner.region, key, "pinyin", _LAYER_BASE_SCORE["pinyin"])
         for term, dist in self._fuzzy.get(domain, CharSymSpell()).lookup(key, max_dist=max_dist):
             owner = exact.get(term) or alias.get(term)
             if owner is None:
@@ -158,21 +199,24 @@ class RecallEngine:
             "pinyin_available": self.pinyin_available,
             "pinyin_reason": pinyin.unavailable_reason(),
             "max_edit": self.max_edit,
+            "fuzzy_max_len": self.fuzzy_max_len,
+            "layer_multi_owner": self.layer_multi_owner,
+            "layer_order": [name for name, _ in sorted(self._layer_priority.items(), key=lambda kv: kv[1])],
         }
 
 
-def _better(cand: RecallCandidate, prev: RecallCandidate) -> bool:
+def _better(cand: RecallCandidate, prev: RecallCandidate, priority: dict) -> bool:
     """替换判定须与 _sort_key 同序:同层同分时,词条/实体 id 更靠前者胜。
 
     历史教训:旧实现只比 (layer, score),同层同分候选保留「先见」者,而
     先见者按 (层级, 分数, 词条) 排序恰恰更靠后——保留的 matched_term 决定
     top_k 落位,文档宣称的确定性排序与实际不符。
     """
-    key_c, key_p = _sort_key(cand), _sort_key(prev)
+    key_c, key_p = _sort_key(cand, priority), _sort_key(prev, priority)
     if key_c != key_p:
         return key_c < key_p
     return False  # 完全同键(跨域同 id 同词条)保留先见者
 
 
-def _sort_key(cand: RecallCandidate):
-    return (_LAYER_PRIORITY[cand.layer], -cand.score, cand.matched_term, cand.entity_id)
+def _sort_key(cand: RecallCandidate, priority: dict):
+    return (priority[cand.layer], -cand.score, cand.matched_term, cand.entity_id)
