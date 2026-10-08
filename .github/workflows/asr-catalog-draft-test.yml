@@ -56,6 +56,55 @@ jobs:
             --catalog-copy .github/config/asr/catalog-copy.json \
             2>&1 | tee "$RUNNER_TEMP/draft.log"
 
+      # LLM 辅助草拟（2026-10-08 业主指令:先在本 TEMP 验证,通过后再迁 asr.yml）
+      # ——来源 github.com/ggml-org/llama.cpp 官方 releases 预构建（钉 tag+sha256,
+      # CPU 版）,模型=仓内 GGUF（git 内,checkout 可得）。runner 自跑开源模型=
+      # 零外部 LLM 供应商,「发布链零在线 AI」裁决不破;建议只落 suggested/
+      # 侧车（人工采纳;失败仅告警不阻塞,诊断见 artifact）。
+      - name: LLM 辅助草拟（runner 自跑 llama.cpp → suggested/ 侧车）
+        env:
+          LLAMA_TAG: b11499
+          LLAMA_SHA256: 19ce793dad78858ec5c89231975d0aa71de31219089bcd06dc5ebe01b403c00d
+        run: |
+          set -euo pipefail
+          curl -L --fail --silent --show-error -o "$RUNNER_TEMP/llama.tar.gz" \
+            "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_TAG}/llama-${LLAMA_TAG}-bin-ubuntu-x64.tar.gz"
+          echo "${LLAMA_SHA256}  $RUNNER_TEMP/llama.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/llama"
+          tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C "$RUNNER_TEMP/llama" --strip-components=1
+          export LD_LIBRARY_PATH="$RUNNER_TEMP/llama/bin:${LD_LIBRARY_PATH:-}"
+          "$RUNNER_TEMP/llama/bin/llama-server" \
+            -m Resources/LLMModels/qwen2.5-0.5b-instruct-q4_k_m.gguf \
+            --host 127.0.0.1 --port 8080 --ctx-size 2048 --threads 4 \
+            > "$RUNNER_TEMP/llama-server.log" 2>&1 &
+          ready=0
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8080/health >/dev/null; then ready=1; break; fi
+            sleep 2
+          done
+          if [ "$ready" != "1" ]; then
+            echo "::error::llama-server 未就绪（60×2s）——诊断见 artifact"
+            tail -30 "$RUNNER_TEMP/llama-server.log" || true
+            exit 1
+          fi
+          if ! python3 .github/actions/release/suggest-asr-metadata.py \
+              --candidates "$RUNNER_TEMP/asr-config-candidates" \
+              --out "$RUNNER_TEMP/asr-config-candidates/suggested" \
+              --endpoint http://127.0.0.1:8080/v1 --model "qwen2.5-0.5b-${LLAMA_TAG}" \
+              --temperature 0.2; then
+            echo "::warning::LLM 草拟失败（建议面,不阻塞;诊断见 artifact）"
+          fi
+          ls -la "$RUNNER_TEMP/asr-config-candidates/suggested" 2>/dev/null || true
+
+      - name: 上传 llama-server 日志
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-llama-server-log-${{ github.run_id }}
+          path: ${{ runner.temp }}/llama-server.log
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: 候选自检（在册档漂移=红;新增=黄）
         run: |
           python3 -I - "$RUNNER_TEMP/asr-config-candidates/models.json" <<'PYEOF'
