@@ -8,6 +8,7 @@
 import json
 from pathlib import Path
 import runpy
+import tempfile
 import unittest
 
 TOOLS = Path(__file__).resolve().parent
@@ -242,6 +243,38 @@ class BootstrapTests(unittest.TestCase):
         draft_missing = dict(base, files=[])
         report = compare(draft_missing, existing)
         self.assertTrue(any("only in existing" in line for line in report["mismatch"]))
+
+    def test_emit_config_candidates(self):
+        # 生成链第一步（2026-10-08 业主指令）：只追加新家族提案;既有条目零触碰
+        # （人工字段原样）;catalog-copy 骨架三语空串（投影器 fail-closed 拒
+        # 空串——骨架不可能静默出厂）。
+        emit = MODULE["emit_config_candidates"]
+        proposals = [{"entry": "newfam.small", "repo": "r",
+                      "draft": {"id": "newfam", "variant": "small", "license": "REVIEW",
+                                "source": "REVIEW", "revision": "a" * 40,
+                                "watch": {"kind": "hf-repo", "repo": "r"},
+                                "versionPolicy": {"prefix": "", "dateSource": "commit"},
+                                "files": []}}]
+        config = {"formatVersion": 1, "models": [
+            {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "b" * 40,
+             "source": "s", "watch": {"kind": "hf-repo", "repo": "w"},
+             "versionPolicy": {"prefix": "int8"}, "files": []}]}
+        copy_doc = {"formatVersion": 1,
+                    "families": [{"id": "whisper", "name": {"en": "W", "zh-Hans": "W", "zh-Hant": "W"}}],
+                    "tiers": [{"id": "whisper", "variant": "tiny"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            written = emit(proposals, config, copy_doc, Path(directory))
+            self.assertEqual(len(written), 2)
+            models = json.loads((Path(directory) / "models-candidate.json").read_text())
+            copy_out = json.loads((Path(directory) / "catalog-copy-candidate.json").read_text())
+        self.assertEqual([m["id"] for m in models["models"]], ["whisper", "newfam"],
+                         "仅追加新家族,既有条目原样")
+        self.assertEqual(models["models"][0]["license"], "MIT", "既有条目零触碰")
+        family = next(f for f in copy_out["families"] if f["id"] == "newfam")
+        self.assertEqual(family["name"], {"en": "", "zh-Hans": "", "zh-Hant": ""},
+                         "文案骨架=空串（投影器 fail-closed 拒）")
+        self.assertTrue(any(t["id"] == "newfam" and t["variant"] == "small"
+                            for t in copy_out["tiers"]))
 
     def test_discover_authors(self):
         # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局

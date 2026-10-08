@@ -17,6 +17,7 @@ catalog-copy.json 的候选内容由搜索抓取生成，人工过目一次后�
 输出：draft JSON（models.json 条目候选 + copy 骨架 + 对账报告）。
 """
 import argparse
+import copy
 import fnmatch
 import hashlib
 import json
@@ -510,6 +511,50 @@ def discover_family(family, *, authors=None, limit=100, fetch_json=None):
     return candidates
 
 
+def emit_config_candidates(proposals, config, copy_doc, out_dir):
+    """生成候选配置（生成链第一步,2026-10-08 业主指令:CI 生成、人工采纳）。
+
+    只追加新家族提案（proposals 的 draft）;既有条目零触碰（人工字段原样保留）。
+    catalog-copy 骨架以三语空串占位——投影器 fail-closed 拒空串,骨架不可能
+    静默出厂（制品只是待填模板,不构成「已生成文案」）。返回写入路径列表。
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    models = copy.deepcopy(config)
+    models.setdefault("models", [])
+    existing_ids = {entry.get("id") for entry in models["models"]}
+    for proposal in proposals:
+        draft = proposal["draft"]
+        if draft.get("id") in existing_ids:
+            continue
+        models["models"].append(draft)
+    copy_out = copy.deepcopy(copy_doc or {"formatVersion": 1, "families": [], "tiers": []})
+    copy_out.setdefault("families", [])
+    copy_out.setdefault("tiers", [])
+    empty = {"en": "", "zh-Hans": "", "zh-Hant": ""}
+    existing_families = {f.get("id") for f in copy_out["families"]}
+    existing_tiers = {(t.get("id"), t.get("variant")) for t in copy_out["tiers"]}
+    for proposal in proposals:
+        draft = proposal["draft"]
+        if draft.get("id") not in existing_families:
+            copy_out["families"].append({"id": draft.get("id"), "name": dict(empty),
+                                         "hint": dict(empty), "strengths": dict(empty),
+                                         "limitations": dict(empty)})
+            existing_families.add(draft.get("id"))
+        key = (draft.get("id"), draft.get("variant"))
+        if key not in existing_tiers:
+            copy_out["tiers"].append({"id": draft.get("id"), "variant": draft.get("variant"),
+                                      "tierName": dict(empty), "tierHint": dict(empty)})
+            existing_tiers.add(key)
+    written = []
+    for name, doc in (("models-candidate.json", models),
+                      ("catalog-copy-candidate.json", copy_out)):
+        path = out_dir / name
+        path.write_bytes(json.dumps(doc, ensure_ascii=False, indent=2).encode() + b"\n")
+        written.append(path)
+    return written
+
+
 def inventory_report(seeds, existing_config, *, authors=None, only=None,
                      fetch_json=None):
     """家族档位清单（轻层，API 级零下载）：逐家族列出候选镜像仓的在册状态。
@@ -604,6 +649,11 @@ def main():
     parser.add_argument("--workdir", type=Path,
                         default=Path.home() / ".cache" / "vitaliber-asr-bootstrap")
     parser.add_argument("--out", type=Path, help="报告/draft JSON 输出路径")
+    parser.add_argument("--emit-config-candidates", type=Path,
+                        help="新家族草案的候选配置输出目录（生成链第一步:CI 生成、"
+                             "人工采纳;models/catalog-copy 候选,文案骨架空串待人填）")
+    parser.add_argument("--catalog-copy", type=Path,
+                        help="现有 catalog-copy.json（候选生成时用作全量基底）")
     parser.add_argument("--probe", action="store_true",
                         help="种子深探模式：对在册候选下载实测并与现有条目对账（重下载；"
                              "默认仅出家族档位清单，API 级零下载）")
@@ -636,11 +686,14 @@ def main():
                 by_key = {(entry["id"], entry.get("variant")): entry
                           for entry in config.get("models", [])}
                 probes = []
+                proposals = []
                 for row in inventory["results"]:
+                    in_config_any = False
                     for item in row.get("rows", []):
                         status = str(item.get("status", ""))
                         if not status.startswith("in-config:"):
                             continue
+                        in_config_any = True
                         key_str = status.split(":", 1)[1]
                         entry_id, _, variant = key_str.partition(".")
                         entry = by_key.get((entry_id, variant))
@@ -665,6 +718,34 @@ def main():
                                  len(compare["cosmetic"])), flush=True)
                         for line in compare["mismatch"]:
                             print("  [mismatch] " + line, flush=True)
+                    # 新家族深探（生成链第一步,2026-10-08 业主指令）:家族零在册时,
+                    # 候选按档位分组定序择一（repo 名排序首）构造 draft 提案——
+                    # 无金样对账;draft 即「可采纳物」,人工复核后写回 config
+                    # （CI 不直写金样,治理席裁决）。
+                    if not in_config_any and row.get("status") != "unknown":
+                        grouped = {}
+                        for item in row.get("rows", []):
+                            if item.get("status") != "new-candidate":
+                                continue
+                            try:
+                                _, candidate_variant = infer_identity(item["repo"])
+                            except BootstrapError:
+                                candidate_variant = None
+                            grouped.setdefault(candidate_variant, []).append(item["repo"])
+                        for candidate_variant, repos in sorted(grouped.items(),
+                                                               key=lambda kv: kv[0] or ""):
+                            repo = sorted(repos)[0]
+                            key_str = "%s.%s" % (row.get("family"), candidate_variant or "std")
+                            try:
+                                draft = probe_repo(repo, workdir=args.workdir)
+                            except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
+                                probes.append({"entry": key_str, "repo": repo,
+                                               "status": "error", "reason": str(error)})
+                                print("proposal: %-18s ERROR %s" % (key_str, error), flush=True)
+                                continue
+                            proposals.append({"entry": key_str, "repo": repo, "draft": draft})
+                            print("proposal: %-18s %s（新家族草案,draft 见报告）"
+                                  % (key_str, repo), flush=True)
                 reproduced = sum(1 for row in probes if isinstance(row.get("compare"), dict)
                                  and not row["compare"]["mismatch"])
                 print("probe summary: 复现 %d / 不一致 %d / 错误 %d（共 %d 档）"
@@ -674,9 +755,18 @@ def main():
                          sum(1 for row in probes if row.get("status") == "error"), len(probes)),
                       flush=True)
                 output["probes"] = probes
+                if proposals:
+                    output["proposals"] = proposals
             if args.out is not None:
                 args.out.parent.mkdir(parents=True, exist_ok=True)
                 args.out.write_bytes(json.dumps(output, ensure_ascii=False, indent=2).encode() + b"\n")
+            if args.emit_config_candidates is not None and proposals:
+                catalog_copy = (json.loads(args.catalog_copy.read_bytes())
+                                if args.catalog_copy is not None else None)
+                written = emit_config_candidates(proposals, config, catalog_copy,
+                                                 args.emit_config_candidates)
+                for path in written:
+                    print("候选配置已生成: " + str(path), flush=True)
             return 0
         if args.from_config is not None:
             config = json.loads(args.from_config.read_bytes())

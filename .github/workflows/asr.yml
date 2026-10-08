@@ -328,7 +328,9 @@ jobs:
             --compare-config .github/config/asr/models.json \
             --probe \
             --workdir "$RUNNER_TEMP/asr-bootstrap" \
-            --out "$RUNNER_TEMP/asr-repro.json"
+            --out "$RUNNER_TEMP/asr-repro.json" \
+            --emit-config-candidates "$RUNNER_TEMP/asr-config-candidates" \
+            --catalog-copy .github/config/asr/catalog-copy.json
 
       # 流程全景与待人工项表（2026-10-08 委员会:可见性+生成物归属）——仅读
       # 报告 JSON,零额外下载;来源标注消除「seeds 如何进 config」歧义。
@@ -374,6 +376,28 @@ jobs:
                       row.get("entry"), row.get("repo"), len(compare.get("match") or []),
                       len(compare.get("mismatch") or []), len(compare.get("cosmetic") or []),
                       ", ".join(review) or "—"))
+          proposals = doc.get("proposals", [])
+          if proposals:
+              print("")
+              print("### 新家族草案（生成链第一步:CI 生成、人工采纳）")
+              print("")
+              print("| 提案 | 仓 | 待人工项 |")
+              print("|---|---|---|")
+              for row in proposals:
+                  draft = row.get("draft") or {}
+                  review = []
+                  if str(draft.get("license", "")).upper() == "REVIEW":
+                      review.append("license")
+                  if draft.get("variant") is None:
+                      review.append("variant")
+                  if not (draft.get("versionPolicy") or {}).get("prefix"):
+                      review.append("versionPolicy.prefix")
+                  print("| %s | %s | %s |" % (row.get("entry"), row.get("repo"),
+                                              ", ".join(review) or "—"))
+              print("")
+              print("候选配置见 artifact `asr-config-candidates`"
+                    "（models-candidate.json / catalog-copy-candidate.json;"
+                    "文案骨架空串待人填,空串被投影器 fail-closed 拒）。")
           PYEOF
 
       - name: 断言（13 在册/0 缺失/0 未知；12/12 复现/0 mismatch/0 error）
@@ -399,9 +423,12 @@ jobs:
               problems.append("unknown=%s (期望 0)" % summary["unknown"])
           probes = doc.get("probes", [])
           errors = sum(1 for row in probes if row.get("status") == "error")
-          if len(probes) != expected_probes:
+          # compare 行=在册对账（计期望数）;新家族草案行（无 compare）不计数
+          # （其待人工项由 g1 红出面+summary 表呈现,供采纳回路）。
+          compare_rows = [row for row in probes if isinstance(row.get("compare"), dict)]
+          if len(compare_rows) != expected_probes:
               problems.append("probes=%d (期望 %d=hf-repo 在册数;非 hf-repo 面另行字节补测)"
-                              % (len(probes), expected_probes))
+                              % (len(compare_rows), expected_probes))
           # 选件差异（单件替换）已在 compare_entry 归 cosmetic（2026-10-08 业主
           # 指令：无家族白名单硬编码）——此处只数真 mismatch（冗余多件/角色缺失/
           # 内容不符）。
@@ -466,6 +493,15 @@ jobs:
             echo "$mid 字节复现通过: sha256+bytes 与金样一致 ($actual_bytes bytes)"
             rm -f "$archive_path"
           done < "$RUNNER_TEMP/asr-archives.txt"
+
+      - name: 上传候选配置（新家族草案,如有）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-config-candidates
+          path: ${{ runner.temp }}/asr-config-candidates
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: 上传复现报告
         if: ${{ always() }}
