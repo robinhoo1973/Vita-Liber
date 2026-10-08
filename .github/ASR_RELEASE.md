@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.14（2026-10-08）
+> 版本：V1.15（2026-10-08）
 
 ## 版本与资产来源
 
@@ -38,6 +38,11 @@
   - 组装层 = draft（models.json 条目候选 + copy 骨架 + 溯源）；`--compare-config` 逆测对账：与现有条目逐字段比对（match / mismatch / cosmetic 三分——路径约定差异只算外观），证明「从名字可复得人工钉版」。
 - **边界**：机械字段（repo/revision/哈希/字节/角色）自动；档位映射语义、许可判定、文案表述 = 人工确认一次。
 - 契约测试第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列。
+- **家族种子层（V1.15，业主口径）**：`.github/config/asr/seeds.json` **只放家族名**（7 条：whisper/zipformer/dolphin/sense-voice/fire-red/moonshine/qwen3）——repo 与档位规格全部由工具自找：
+  - `--from-seeds` 默认=**家族档位清单（轻层，API 零下载，秒级）**：逐家族列候选镜像仓的在册（`in-config:`，按 watch.repo 精确匹配）/未收录（`new-candidate`）状态，以及对「钉版仓库未在候选出现」的发现层回归告警。**实测 13/13 在册、钉版缺候选 0、未知 0；另发现 128 个未收录候选（拓展空间）**；
+  - `--from-seeds --probe [--only <家族>]`=**深探验证**：对在册候选下载实测（bytes/sha256 + 角色推断）并与现有条目逐字段对账（match/mismatch/cosmetic 三分）——重下载，人工触发的验证运行；
+  - 发现层两账号域（csukuangfj + csukuangfj2，fire-red 在后者的实测修复）+ 词边界身份识别（连字家族 sense-voice/fire-red 拆词扫描曾全数失配）+ qwen3 按 tag 单发布查询（全量 releases 响应 287 资产超 8MB 读取上限截断的实测修复）。
+- **轻依赖拆分（V1.15）**：家族/档位常量拆至 `asr_constants.py`——漂移/bootstrap 等轻工具免装 cryptography（CI maintenance 漂移 job `ModuleNotFoundError` 实证；asr_package 继续 re-export，消费面零改动）。
 - **漂移周检（V1.14，方案三落地）**：同一工具的 `--from-config` 模式被 `maintenance.yml` 的 `catalog-drift` job 消费——**模型名自 `.github/config/asr/models.json` 自动获取（零 Actions 输入）**；调度=每周一 UTC 03:23 cron + 手动 dispatch；逐条 API 级检查（镜像仓修订滚动=info；**钉版成员缺失 / 归档远端缺位=::warning::**；网络形状失败=unknown）；报告上传 artifact `asr-catalog-drift`，**不红灯**（cron 静默）；只读权限（`contents: read`）；哈希级验证由发布链承担。**边界**：silero 共享件未纳入 v1。
 - 模型下载、生成与校验都在 runner 的 `RUNNER_TEMP` 完成；仓库无 `downloads/` 目录，也不提交模型二进制。
 
@@ -173,3 +178,4 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.12（2026-10-08）：文案链批（委员会四席两轮终裁）——明文 copy 源 `.github/config/asr/catalog-copy.json`（唯一文案手工面：name/hint/strengths/limitations + tierName/tierHint + 修订键控 changeNote）+ 签名前投影器 `apply-asr-catalog-copy.py`（fail-closed：覆盖/三语/负清单/超长）；R3 闸扩展（families 必带 strengths/limitations）；overview 增确定性 `changes` 块（单源 `asr_change_set.py`，发布页共用）；迁移改写存量绝对化文案（zipformer「最高质量」、dolphin/zipformer「首选/优选」、英文 highest/best）；发布前模板验签补闸（`model-trust.py verify` 入校验步——闭合「改模板不重签」盲路）；第 16/17 例 `test-apply-asr-catalog-copy.py` / `test-asr-change-set.py` 入双侧执行列；信封刷新规程（2026-11-05 到期）与文案链 P2 登记（见「文案链」节）。
 - V1.13（2026-10-08）：bootstrap 批（业主「按名启动」目标）——`bootstrap-asr-model.py`（本地/离线：HF/GitHub 结构化 API 按名发现 → 下载实测探针 + 角色/许可推断 → draft 组装；`--compare-config` 逆测对账三分法）；第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列；配套模板信封已刷新至 v10（提交 run 现场签名目录：时效 +30 天 / 版本对齐 / 文案缓存三合一）。
 - V1.14（2026-10-08）：漂移周检批（业主「方案三 + 零输入 + cron」）——`bootstrap-asr-model.py` 增 `--from-config`（模型名自 config 自动获取；漂移三态 ok/drift/unknown）；`maintenance.yml` 增 `catalog-drift` job（周一 UTC 03:23 cron + dispatch；只读；报告 artifact，不红灯）；角色规则修复（旧前缀 glob 对 whisper 系带档位前缀成员名全失配 → 有序正则；漂移 job 遍历全目录的前置——whisper 五档曾会直接报错）。
+- V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。

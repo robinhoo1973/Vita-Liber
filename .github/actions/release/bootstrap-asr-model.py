@@ -28,7 +28,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from asr_package import MODELS, VARIANTS
+from asr_constants import MODELS, VARIANTS
 
 # 本机 IPv6 路由对部分 CDN 为黑洞：urllib 无 Happy Eyeballs，会卡死在
 # IPv6 SYN-SENT（2026-10-08 实证：HF 直连下载僵死 5 分钟，curl 同 URL 1 秒）。
@@ -136,13 +136,13 @@ def _download(url, destination, attempts=3):
     raise BootstrapError("download failed: %s (%s)" % (url, last))
 
 
-def search_hf(name, author=None, limit=10):
+def search_hf(name, author=None, limit=10, *, fetch_json=None):
     def query(term):
         url = "https://huggingface.co/api/models?search=" + urllib.parse.quote(term, safe="")
         if author:
             url += "&author=" + author
         url += "&limit=%d" % limit
-        result = _request_json(url)
+        result = _request_json(url, fetch_json=fetch_json)
         return [entry.get("id") for entry in result if entry.get("id")]
     hits = query(name)
     if not hits and " " in name:
@@ -176,18 +176,24 @@ def infer_role(member):
 def infer_identity(repo):
     """镜像仓名 → (family, variant)；variant 令牌扫描，无法判定时 None（供人审）。
 
-    例：sherpa-onnx-whisper-turbo → (whisper, turbo)；
-        sherpa-onnx-moonshine-tiny-en-int8 → (moonshine, tiny)；
-        sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23 → (zipformer, None)（人审补档位）。
+    家族=**词边界子串**匹配（最长优先）——同时覆盖：
+    - 单词家族在中段：streaming-zipformer-… → zipformer；
+    - 连字家族（sense-voice / fire-red）：整段边界匹配（2026-10-08 实测：拆词
+      扫描会让两家族全数失配、钉版仓库被判"缺失"）。
+    例：whisper-turbo → (whisper, turbo)；moonshine-tiny-en-int8 → (moonshine, tiny)；
+        sense-voice-zh-en-ja-ko-yue-2024-07-17 → (sense-voice, None)（人审补档位）。
     """
     tail = repo.split("/")[-1]
     tail = re.sub(r"^sherpa-onnx-", "", tail)
-    tokens = tail.split("-")
-    family = next((token for token in tokens if token in MODELS), None)
-    if family is None:
-        raise BootstrapError("cannot infer family from repo name: " + repo)
-    variant = next((token for token in tokens if token in VARIANTS), None)
-    return family, variant
+    for family in sorted(MODELS, key=len, reverse=True):
+        match = re.search(r"(^|[-_/])" + re.escape(family) + r"($|[-_/])", tail)
+        if match is None:
+            continue
+        remainder = tail[match.end():]
+        tokens = remainder.replace("_", "-").split("-")
+        variant = next((token for token in tokens if token in VARIANTS), None)
+        return family, variant
+    raise BootstrapError("cannot infer family from repo name: " + repo)
 
 
 def infer_license(license_texts):
@@ -209,8 +215,8 @@ def prefer_license_notice(files):
     return [f for f in files if f["role"] != "notice" or is_license(f["member"])]
 
 
-def probe_repo(repo, *, workdir):
-    sha, members = fetch_repo(repo)
+def probe_repo(repo, *, workdir, fetch_json=None):
+    sha, members = fetch_repo(repo, fetch_json=fetch_json)
     family, variant = infer_identity(repo)
     files, license_texts = [], []
     for member in members:
@@ -279,6 +285,12 @@ def compare_entry(draft, existing):
     return report
 
 
+def _release_tag_from_url(url):
+    """从资产 URL 解析发布 tag（…/releases/download/<tag>/<asset>）。"""
+    match = re.search(r"/releases/download/([^/]+)/", url or "")
+    return match.group(1) if match else None
+
+
 def drift_check(entry, *, fetch_json=None):
     """单条目 API 级漂移检查（不做全量哈希——哈希级验证由发布链承担）。
 
@@ -307,15 +319,17 @@ def drift_check(entry, *, fetch_json=None):
                                  "message": "镜像仓存在未收录成员（如上游全精度导出；是否收录由人工）: "
                                             + ", ".join(candidates[:8])})
         elif kind == "github-release":
-            releases = _request_json("https://api.github.com/repos/%s/releases?per_page=100"
-                                     % watch["repo"], fetch_json=fetch_json)
-            asset_name = (entry.get("archive") or {}).get("url", "").rsplit("/", 1)[-1]
-            names = {asset.get("name")
-                     for release in (releases if isinstance(releases, list) else [])
-                     for asset in release.get("assets") or []}
+            # 单发布按 tag 查询（2026-10-08 修复：全量 releases 响应含 287 资产
+            # 超 8MB 读取上限被截断——本地实测 Unterminated string）。
+            archive_url = (entry.get("archive") or {}).get("url", "")
+            tag = _release_tag_from_url(archive_url) or "asr-models"
+            release = _request_json("https://api.github.com/repos/%s/releases/tags/%s"
+                                    % (watch["repo"], tag), fetch_json=fetch_json)
+            names = {asset.get("name") for asset in (release or {}).get("assets") or []}
+            asset_name = archive_url.rsplit("/", 1)[-1]
             if asset_name and asset_name not in names:
                 findings.append({"severity": "drift",
-                                 "message": "钉版归档在远端 Releases 缺失: " + asset_name})
+                                 "message": "钉版归档在远端 Releases(%s) 缺失: %s" % (tag, asset_name)})
         else:
             return {"entry": where, "status": "unknown",
                     "findings": [{"severity": "unknown",
@@ -338,6 +352,91 @@ def drift_report(config, *, fetch_json=None):
     return {"summary": summary, "results": results}
 
 
+DEFAULT_AUTHORS = ("csukuangfj", "csukuangfj2")  # 业主转换仓账号域（fire-red 在 csukuangfj2）
+
+
+def discover_family(family, *, author=None, limit=100, fetch_json=None):
+    """家族名 → 候选镜像仓清单（repo/variant；身份不可判定的命中剔除）。
+
+    2026-10-08 业主口径：seeds 只给家族名，repo 与档位规格由工具自行找出——
+    发现层=HF 结构化搜索（作者域限流；默认覆盖两个转换仓账号，dedupe），
+    身份=infer_identity 词边界匹配。
+    """
+    authors = (author,) if author else DEFAULT_AUTHORS
+    candidates, seen = [], set()
+    for account in authors:
+        for repo in search_hf(family, account, limit=limit, fetch_json=fetch_json):
+            if repo in seen:
+                continue
+            try:
+                family_id, variant = infer_identity(repo)
+            except BootstrapError:
+                continue
+            if family_id != family:
+                continue
+            seen.add(repo)
+            candidates.append({"repo": repo, "variant": variant})
+    return candidates
+
+
+def inventory_report(seeds, existing_config, *, author=None, only=None,
+                     fetch_json=None):
+    """家族档位清单（轻层，API 级零下载）：逐家族列出候选镜像仓的在册状态。
+
+    - 匹配以 **watch.repo 精确相等**为准（比 (id,variant) 猜测可靠）；
+    - github-release 家族（qwen3）：按 Releases 资产名匹配既有 archive；
+    - 另报「钉版仓库未在候选出现」（发现层回归信号）。
+    """
+    entries = existing_config.get("models", [])
+    results = []
+    for seed in seeds:
+        family = seed.get("name") or ""
+        if only and family not in only:
+            continue
+        known = {((entry.get("watch") or {}).get("repo")): "%s.%s" % (entry.get("id"), entry.get("variant"))
+                 for entry in entries if entry.get("id") == family}
+        rows = []
+        try:
+            if family == "qwen3":
+                entry = next((item for item in entries if item.get("id") == "qwen3"), None)
+                archive_url = (entry.get("archive") or {}).get("url", "") if entry else ""
+                tag = _release_tag_from_url(archive_url) or "asr-models"
+                release = _request_json("https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/"
+                                        + tag, fetch_json=fetch_json)
+                for asset in (release or {}).get("assets") or []:
+                    name = asset.get("name") or ""
+                    if "qwen3-asr" not in name:
+                        continue
+                    in_config = bool(entry) and archive_url.endswith(name)
+                    rows.append({"repo": name, "variant": None,
+                                 "status": ("in-config:%s.%s" % (entry.get("id"), entry.get("variant")))
+                                 if in_config else "new-candidate"})
+            else:
+                for candidate in discover_family(family, author=author, fetch_json=fetch_json):
+                    key = known.get(candidate["repo"])
+                    rows.append({**candidate,
+                                 "status": "in-config:" + key if key else "new-candidate"})
+        except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
+            results.append({"family": family, "status": "unknown", "reason": str(error)})
+            continue
+        discovered_repos = {row["repo"] for row in rows if row.get("variant") is not None or "qwen3-asr" not in row["repo"]}
+        missing = sorted(repo for repo, key in known.items()
+                         if repo and family != "qwen3" and repo not in discovered_repos)
+        results.append({"family": family, "rows": rows,
+                        "missing_pinned": missing,
+                        "in_config": sum(1 for row in rows if str(row["status"]).startswith("in-config")),
+                        "new_candidates": sum(1 for row in rows if row["status"] == "new-candidate")})
+    summary = {
+        "families": len(results),
+        "candidates": sum(len(row.get("rows", [])) for row in results),
+        "in_config": sum(row.get("in_config", 0) for row in results),
+        "new_candidates": sum(row.get("new_candidates", 0) for row in results),
+        "missing_pinned": sum(len(row.get("missing_pinned", [])) for row in results),
+        "unknown": sum(1 for row in results if row.get("status") == "unknown"),
+    }
+    return {"summary": summary, "results": results}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", action="append",
@@ -346,14 +445,89 @@ def main():
                         help="漂移检查模式：读取 config 全部模型名（零输入；cron/CI 消费）")
     parser.add_argument("--drift-report", type=Path,
                         help="漂移报告 JSON 输出路径（--from-config 模式）")
-    parser.add_argument("--author", default="csukuangfj", help="HF 作者域（默认 csukuangfj）")
+    parser.add_argument("--from-seeds", type=Path,
+                        help="种子验证模式：读取 seeds.json（名字清单），逐种子发现→探针→"
+                             "与 --compare-config 金样对账（重下载，人工触发的验证运行）")
+    parser.add_argument("--only", action="append",
+                        help="种子过滤（子串，可多次；部分验证用）")
+    parser.add_argument("--author", default=None,
+                        help="HF 作者域（默认覆盖 csukuangfj + csukuangfj2 两转换仓账号）")
     parser.add_argument("--repo", help="跳过发现层，直接指定 HF 仓库（逆测用）")
     parser.add_argument("--compare-config", type=Path,
                         help="逆测对账：与现有 config 的 (id,variant) 条目逐字段比对")
-    parser.add_argument("--workdir", type=Path, default=Path("/tmp/asr-bootstrap"))
-    parser.add_argument("--out", type=Path, help="draft JSON 输出路径")
+    # 默认落磁盘面（~/.cache）：本机 /tmp 为 3.9G tmpfs，GB 级探针会 ENOSPC
+    # （2026-10-08 实测）；CI runner /tmp 大，默认同样安全。
+    parser.add_argument("--workdir", type=Path,
+                        default=Path.home() / ".cache" / "vitaliber-asr-bootstrap")
+    parser.add_argument("--out", type=Path, help="报告/draft JSON 输出路径")
+    parser.add_argument("--probe", action="store_true",
+                        help="种子深探模式：对在册候选下载实测并与现有条目对账（重下载；"
+                             "默认仅出家族档位清单，API 级零下载）")
     args = parser.parse_args()
     try:
+        if args.from_seeds is not None:
+            seeds_doc = json.loads(args.from_seeds.read_bytes())
+            config = (json.loads(args.compare_config.read_bytes())
+                      if args.compare_config is not None else {"models": []})
+            inventory = inventory_report(seeds_doc.get("seeds", []), config,
+                                         author=args.author, only=args.only)
+            for row in inventory["results"]:
+                print("family: %s" % row["family"], flush=True)
+                if row.get("status") == "unknown":
+                    print("  [unknown] " + row.get("reason", ""), flush=True)
+                    continue
+                for item in row.get("rows", []):
+                    print("  %-8s %-58s %s"
+                          % (item.get("variant") or "-", item["repo"], item["status"]), flush=True)
+                for repo in row.get("missing_pinned", []):
+                    print("::warning::钉版仓库未在候选出现: %s" % repo, file=sys.stderr)
+            summary = inventory["summary"]
+            print("inventory summary: 家族 %d / 候选 %d / 在册 %d / 未收录候选 %d / 钉版缺候选 %d / 未知 %d"
+                  % (summary["families"], summary["candidates"], summary["in_config"],
+                     summary["new_candidates"], summary["missing_pinned"], summary["unknown"]),
+                  flush=True)
+            output = {"inventory": inventory}
+            if args.probe:
+                by_key = {(entry["id"], entry.get("variant")): entry
+                          for entry in config.get("models", [])}
+                probes = []
+                for row in inventory["results"]:
+                    for item in row.get("rows", []):
+                        status = str(item.get("status", ""))
+                        if not status.startswith("in-config:"):
+                            continue
+                        key_str = status.split(":", 1)[1]
+                        entry_id, _, variant = key_str.partition(".")
+                        entry = by_key.get((entry_id, variant))
+                        if entry is None or (entry.get("watch") or {}).get("kind") != "hf-repo":
+                            continue
+                        try:
+                            draft = probe_repo(item["repo"], workdir=args.workdir)
+                        except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
+                            probes.append({"entry": key_str, "repo": item["repo"],
+                                           "status": "error", "reason": str(error)})
+                            print("probe: %-22s ERROR %s" % (key_str, error), flush=True)
+                            continue
+                        compare = compare_entry(draft, entry)
+                        probes.append({"entry": key_str, "repo": item["repo"], "compare": compare})
+                        print("probe: %-22s matched=%d mismatch=%d cosmetic=%d"
+                              % (key_str, len(compare["match"]), len(compare["mismatch"]),
+                                 len(compare["cosmetic"])), flush=True)
+                        for line in compare["mismatch"]:
+                            print("  [mismatch] " + line, flush=True)
+                reproduced = sum(1 for row in probes if isinstance(row.get("compare"), dict)
+                                 and not row["compare"]["mismatch"])
+                print("probe summary: 复现 %d / 不一致 %d / 错误 %d（共 %d 档）"
+                      % (reproduced,
+                         sum(1 for row in probes if isinstance(row.get("compare"), dict)
+                             and row["compare"]["mismatch"]),
+                         sum(1 for row in probes if row.get("status") == "error"), len(probes)),
+                      flush=True)
+                output["probes"] = probes
+            if args.out is not None:
+                args.out.parent.mkdir(parents=True, exist_ok=True)
+                args.out.write_bytes(json.dumps(output, ensure_ascii=False, indent=2).encode() + b"\n")
+            return 0
         if args.from_config is not None:
             config = json.loads(args.from_config.read_bytes())
             report = drift_report(config)

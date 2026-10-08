@@ -2,13 +2,18 @@
 """test-bootstrap-asr-model：bootstrap 纯函数面钉（2026-10-08，纯离线）。
 
 角色推断 / 身份推断（family+variant 令牌扫描）/ 成员筛选 / 许可启发 /
-逆测对账（match/mismatch/cosmetic 三分——「从名字可复得人工钉版」的可测面）。
+候选择优（exact-name → token+int8）/ 逆测对账（match/mismatch/cosmetic 三分）
+/ seeds 文件形状。
 """
+import json
 from pathlib import Path
 import runpy
 import unittest
 
 TOOLS = Path(__file__).resolve().parent
+ROOT = TOOLS
+while ROOT != ROOT.parent and not (ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
+    ROOT = ROOT.parent
 MODULE = runpy.run_path(str(TOOLS / "bootstrap-asr-model.py"))
 
 
@@ -51,6 +56,14 @@ class BootstrapTests(unittest.TestCase):
                          ("zipformer", None))
         self.assertEqual(infer("csukuangfj/sherpa-onnx-dolphin-base-ctc-multi-lang-int8-2025-04-02"),
                          ("dolphin", "base"))
+        # 连字家族（2026-10-08 实测修复：拆词扫描会让两家族全数失配）
+        self.assertEqual(infer("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"),
+                         ("sense-voice", None))
+        self.assertEqual(infer("csukuangfj2/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25"),
+                         ("fire-red", None))
+        # 单词家族在中段（streaming- 前缀）
+        self.assertEqual(infer("csukuangfj/sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23"),
+                         ("zipformer", None))
         with self.assertRaises(MODULE["BootstrapError"]):
             infer("someone/random-model")
 
@@ -96,6 +109,41 @@ class BootstrapTests(unittest.TestCase):
         report = compare(draft, existing)
         self.assertTrue(any("tiny-encoder" in line for line in report["mismatch"]))
 
+    def test_inventory_report(self):
+        inventory = MODULE["inventory_report"]
+        config = {"models": [
+            {"id": "whisper", "variant": "tiny",
+             "watch": {"kind": "hf-repo", "repo": "csukuangfj/sherpa-onnx-whisper-tiny"}},
+            {"id": "whisper", "variant": "base",
+             "watch": {"kind": "hf-repo", "repo": "csukuangfj/sherpa-onnx-whisper-base"}},
+        ]}
+
+        def fetch(url):
+            if "huggingface" in url:
+                return [{"id": "csukuangfj/sherpa-onnx-whisper-tiny"},
+                        {"id": "csukuangfj/sherpa-onnx-whisper-large-v3"}]
+            return []
+
+        report = inventory([{"name": "whisper"}], config, fetch_json=fetch)
+        rows = report["results"][0]["rows"]
+        statuses = {row["repo"]: row["status"] for row in rows}
+        self.assertEqual(statuses["csukuangfj/sherpa-onnx-whisper-tiny"],
+                         "in-config:whisper.tiny")
+        self.assertEqual(statuses["csukuangfj/sherpa-onnx-whisper-large-v3"], "new-candidate")
+        self.assertEqual(report["summary"]["in_config"], 1)
+        self.assertEqual(report["summary"]["new_candidates"], 1)
+        self.assertEqual(report["results"][0]["missing_pinned"],
+                         ["csukuangfj/sherpa-onnx-whisper-base"],
+                         "钉版仓库未在候选出现必须暴露")
+
+    def test_live_seeds_file_shape(self):
+        seeds = json.loads((ROOT / ".github" / "config" / "asr" / "seeds.json").read_bytes())
+        self.assertEqual(seeds["formatVersion"], 1)
+        self.assertEqual([seed["name"] for seed in seeds["seeds"]],
+                         ["whisper", "zipformer", "dolphin", "sense-voice",
+                          "fire-red", "moonshine", "qwen3"],
+                         "业务口径（2026-10-08 业主）：seeds 仅家族名，repo/档位由工具自找")
+
     def test_drift_check_hf_repo(self):
         check = MODULE["drift_check"]
         entry = {"id": "whisper", "variant": "tiny", "revision": "a" * 40,
@@ -140,12 +188,13 @@ class BootstrapTests(unittest.TestCase):
                  "archive": {"url": "https://github.com/x/y/releases/download/asr-models/qwen3-asr.tar.bz2"}}
 
         def fetch_ok(url):
-            return [{"assets": [{"name": "qwen3-asr.tar.bz2"}]}]
+            self.assertIn("/releases/tags/asr-models", url, "必须按 tag 单发布查询（全量响应会截断）")
+            return {"assets": [{"name": "qwen3-asr.tar.bz2"}]}
 
         self.assertEqual(check(entry, fetch_json=fetch_ok)["status"], "ok")
 
         def fetch_gone(url):
-            return [{"assets": [{"name": "other.tar.bz2"}]}]
+            return {"assets": [{"name": "other.tar.bz2"}]}
 
         self.assertEqual(check(entry, fetch_json=fetch_gone)["status"], "drift")
 

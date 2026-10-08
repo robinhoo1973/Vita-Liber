@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "seeds": [
+    {"name": "whisper"},
+    {"name": "zipformer"},
+    {"name": "dolphin"},
+    {"name": "sense-voice"},
+    {"name": "fire-red"},
+    {"name": "moonshine"},
+    {"name": "qwen3"}
+  ]
+}
