@@ -73,6 +73,7 @@ from extraction_noise import (  # noqa: E402
     NOISE_VERSION, BAND_CER, DEFAULT_TRAIN_MIX, new_noise_ctx, noise_ctx_summary,
     ocr_noise_segment_v2, asr_noise_segment_v2, confusion_tables_sha256,
 )
+from line_ops import apply_line_ops  # noqa: E402
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 while ROOT != os.path.dirname(ROOT) and not os.path.isdir(os.path.join(ROOT, "CoreKit", "Sources", "Domain")):
@@ -251,6 +252,53 @@ def sha256_file(path):
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+# eval 分配(round5 §2.2):per-sample 确定性抽样键 + 每单元(kind×band)定额 ≥60,
+# 不再盲抽固定比例;同输入逐位可复现(eval=内容寻址冻结快照,可重放)。
+EVAL_MAX_SHARE = 0.15  # 微构建保护:eval 占比上限,小样本时 SFT 份额不被配额吃穿
+
+
+def sample_draw(seed: int, sample_id: str) -> int:
+    """per-sample 抽样键 = hash(master_seed, sample_id) 前 64 位(整数比较,无浮点)。"""
+    digest = hashlib.sha256(f"{seed}:{sample_id}".encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big")
+
+
+def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
+                       max_share: float = EVAL_MAX_SHARE):
+    """确定性 eval/SFT 分配(round5 §2.2 定额制)。
+
+    entries: [(cell, draw, key)];cell=(kind, band),draw=sample_draw(...),key=样本 id。
+    规则:①主分配 draw < eval_ratio·2^64;②cell 不足定额 quota 时按 draw 升序补足,
+    补足量受 max_share 限(微构建/冒烟自动保 SFT);③quota=0 等价纯比例(冒烟/测试)。
+    返回 (split_by_key, cells);cells[cell] = {"total","eval","primary","promoted","deficit"}。
+    """
+    from collections import defaultdict
+    threshold = int(eval_ratio * (1 << 64))
+    by_cell = defaultdict(list)
+    for cell, draw, key in entries:
+        by_cell[cell].append((draw, key))
+    split, cells = {}, {}
+    for cell, items in sorted(by_cell.items()):
+        items.sort()
+        n = len(items)
+        prim = {k for d, k in items if d < threshold}
+        cap = int(n * max_share)
+        promote = min(max(0, quota - len(prim)), max(0, cap - len(prim)))
+        promoted = 0
+        for _, k in items:
+            if k in prim:
+                split[k] = "eval"
+            elif promoted < promote:
+                split[k] = "eval"
+                promoted += 1
+            else:
+                split[k] = "sft"
+        cells[f"{cell[0]}|{cell[1]}"] = {
+            "total": n, "eval": len(prim) + promoted, "primary": len(prim),
+            "promoted": promoted, "deficit": max(0, quota - (len(prim) + promoted))}
+    return split, cells
 
 
 def spec_char_ok(value, vocab_chars):
@@ -1023,6 +1071,8 @@ def main():
     ap.add_argument("--sft-count", type=int, default=27000, help="SFT 样本总量（按注册表权重切分）")
     ap.add_argument("--pretrain-count", type=int, default=40000)
     ap.add_argument("--eval-ratio", type=float, default=0.03)
+    ap.add_argument("--eval-min-per-cell", type=int, default=60,
+                    help="eval 定额/kinc×band 单元(round5 §2.2;dry-run 不计定额)")
     ap.add_argument("--budget", type=int, default=DEFAULT_BUDGET)
     ap.add_argument("--kinds", default="", help="只生成指定卡种（逗号分隔；默认全部）")
     ap.add_argument("--cells", default="", help="训练数据格子 <类型>/<地区>，逗号分隔（drugs|hospitals|departments|diagnoses|exams × cn|hk|tw）；"
@@ -1142,6 +1192,7 @@ def main():
 
     stats = {"counts": {}, "dropped": {}, "est": [], "trimmed": 0, "eval": 0, "oov_values": 0}
     est_vals = []
+    pending, eval_entries = [], []
 
     def bump(reason):
         stats["dropped"][reason] = stats["dropped"].get(reason, 0) + 1
@@ -1152,6 +1203,10 @@ def main():
             while made < counts[kind] and attempts < counts[kind] * 8:
                 attempts += 1
                 lines, shared, rows, nz = BUILDERS[kind](pools, rng, vocab_chars)
+                # 行级结构噪声(round5 §2.2;lineIndex 结构映射重算)——
+                # 在构造期自检之前施加,ops 破坏 verbatim 即整条丢弃(兜底闸)
+                lines, shared, rows, line_stats = apply_line_ops(
+                    lines, shared, rows, rng, band=nz["band"])
                 if not check_verbatim(lines, shared, rows):
                     bump("verbatim_construct")  # 构造期自检失败（理论不可达；响了就是噪声模块改坏了）
                     continue
@@ -1172,23 +1227,44 @@ def main():
                 if reason == "trimmed":
                     stats["trimmed"] += 1
                 est_vals.append(est)
-                target = feval if rng.random() < args.eval_ratio else fsft
-                # 噪声 v2 元数据:样本 id(评测/对账主键)+ 带位/损伤/ops(D14⑤/round5 §2.2)
-                split_tag = "eval" if target is feval else "sft"
-                sample["id"] = f"extract-{kind}-{split_tag}-{made:06d}"
+                # 噪声 v2 元数据:样本 id(评测/对账主键,与 split 无关=内容寻址可重放)
+                sample["id"] = f"extract-{kind}-{made:06d}"
                 sample["noise"] = noise_ctx_summary(nz)
+                if any(line_stats.values()):
+                    sample["line_ops"] = dict(line_stats)
+                glo = stats.setdefault("line_ops",
+                                       {"drop": 0, "merge": 0, "interleave": 0, "split": 0})
+                for k, v in line_stats.items():
+                    glo[k] += v
                 band_stats = stats.setdefault("noise", {"version": NOISE_VERSION, "bands": {}})
                 agg = band_stats["bands"].setdefault(
                     nz["band"], {"samples": 0, "spans": 0, "damaged": 0})
                 agg["samples"] += 1
                 agg["spans"] += nz["span_total"]
                 agg["damaged"] += nz["span_damaged"]
-                target.write(json.dumps(sample, ensure_ascii=False) + "\n")
-                if target is feval:
-                    stats["eval"] += 1
+                pending.append(sample)
+                eval_entries.append(((kind, nz["band"]),
+                                     sample_draw(args.seed, sample["id"]), sample["id"]))
                 made += 1
             stats["counts"][kind] = made
             log(f"[gen] {kind}: {made} 条（尝试 {attempts}）")
+
+        # —— eval/SFT 分配(定额制;round5 §2.2)——
+        quota = 0 if args.dry_run else args.eval_min_per_cell
+        split, eval_cells = assign_eval_splits(
+            eval_entries, eval_ratio=args.eval_ratio, quota=quota)
+        n_eval = 0
+        for sample in pending:
+            if split[sample["id"]] == "eval":
+                feval.write(json.dumps(sample, ensure_ascii=False) + "\n")
+                n_eval += 1
+            else:
+                fsft.write(json.dumps(sample, ensure_ascii=False) + "\n")
+        stats["eval"] = n_eval
+        stats["eval_cells"] = eval_cells
+        deficits = {c: v["deficit"] for c, v in eval_cells.items() if v["deficit"]}
+        log(f"[eval] quota={quota}/单元 cells={len(eval_cells)} eval={n_eval}/{len(pending)}"
+            + (f" deficit={deficits}" if deficits else ""))
 
     with open(pre_tmp_path, "w", encoding="utf-8", newline="\n") as fpre:
         n_pre = 60 if args.dry_run else args.pretrain_count
@@ -1222,6 +1298,8 @@ def main():
         "params": {"cells": list(cells), "regions": list(regions), "types": list(types), "sources": list(sources),
                    "kinds": list(kinds), "sft_count": args.sft_count,
                    "pretrain_count": args.pretrain_count, "eval_ratio": args.eval_ratio,
+                   "eval_min_per_cell": args.eval_min_per_cell,
+                   "eval_max_share": EVAL_MAX_SHARE,
                    "seed": args.seed, "budget": args.budget},
         "data_feed": data_feed,
         "pools": {"drugs": len(pools["drugs"]), "drugs_by_region": {k: len(v) for k, v in sorted(drugs_by_region.items())},
