@@ -35,6 +35,9 @@ jobs:
         with:
           python-version: '3.13.5'
 
+      - name: 安装公开校验工具依赖（哈希钉版,L0 检查 e 契约:跑 release 测试面须装）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
       - name: 离线冒烟（bootstrap 纯函数面）
         run: python3 .github/actions/release/test-bootstrap-asr-model.py
 
