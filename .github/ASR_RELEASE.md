@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.15（2026-10-08）
+> 版本：V1.16（2026-10-08）
 
 ## 版本与资产来源
 
@@ -9,7 +9,7 @@
 - **ASR 模型版本**：`Resources/ASRModels/manifest.json` 的批准上游来源，以及 `Resources/ASRModelUpdates/manifest.json`（签名信封）的发布版本（`catalogVersion`，全链单调）/制作日期/打包修订。
 - **分发**：CNB 资源仓 `robinhoo1973/Resources` 的 `asr-models` Release——固定名 `manifest.json` 是唯一权威目录（TUF fixed-name）；GitHub Releases 不再承载模型资产。同批发布固定名 `overview.json`（V1.9 恢复批）：
   家族×档位**人读概览**（非权威展示件——安全/安装判定一律以签名目录为准；由 `asr_overview.py` 从签名载荷纯函数生成，可重跑同字节；生成/上传失败仅 `::warning::` 不阻塞）。
-  发布成功后 `readme-sync` 触发并**下游确认**：`GET /-/build/status/{sn}` ≤3×10s 轮询，非 success 仅告警（V1.9）。
+  发布成功后 `readme-sync` 触发并**下游确认**：`GET /-/build/status/{sn}` ≤5×15s 轮询（V1.16：3×10s 实测两次 marginal 超窗——success 实测需 ~40s，窗口放宽），非 success 仅告警（V1.9）。
 
 ## config（模型目录配置，2026-10-07 业主指令）
 
@@ -24,7 +24,7 @@
 - **R3 闸扩展**：签名点要求 families 必带 strengths/limitations——投影步被误删时硬红，**绝不静默回退模板旧文案**。
 - **「最新变化」**：`overview.json` 增 `changes` 块（非签名面；added/updated/removed + 版本迁移，判定与发布页增量行共用单源 `asr_change_set.py`；previous 缺失/同版本 → 整块 null，绝不解释）。App 不消费 changes；签名载荷保持确定性。
 - **模板文案字段**：保留为**生成物缓存**（App 离线基线经 `build_baseline` 嵌模板内容，删除=改 App 合同）；刷新方式=提交某次 run 的 metadata_artifact（现场签名信封）回仓（顺带闭合信封时效与版本滞后，见下）。
-- **信封刷新规程（治理）**：仓库模板信封 `expiresAt` 为签发 +30 天（当前 v7 → **2026-11-05 到期**）；逾期后果 = TestFlight preBuild（`model-trust.py build` 验签）全红。刷新=**提交最近一次 run 的 `asr-metadata-*` artifact 中的 manifest.json 回仓**（三合一：时效 + repo/远端版本对齐 + 模板文案缓存刷新）；`catalogVersion` 无需与远端强对齐（next-catalog-version 取 max，模板仅是地板；禁止把模板版本号抬到远端之上——App 基线同版本异字节=rollback 拒收）。
+- **信封刷新规程（治理）**：仓库模板信封 `expiresAt` 为签发 +30 天（当前 v10 → **2026-11-06 到期**，2026-10-08 按仓库模板 payload 实证核对）；逾期后果 = TestFlight preBuild（`model-trust.py build` 验签）全红。刷新=**提交最近一次 run 的 `asr-metadata-*` artifact 中的 manifest.json 回仓**（三合一：时效 + repo/远端版本对齐 + 模板文案缓存刷新）；`catalogVersion` 无需与远端强对齐（next-catalog-version 取 max，模板仅是地板；禁止把模板版本号抬到远端之上——App 基线同版本异字节=rollback 拒收）。
 - **发布前模板验签（V1.12 补闸）**：`asr.yml`「校验构建、签名及版本规则」步内新增 `model-trust.py verify --root … --catalog Resources/ASRModelUpdates/manifest.json`——此前 Linux 链无人验模板签名，「改模板不重签」可经 CI 重签发布、直到 macOS App 构建才翻车；现在发布前硬红闭合该盲路。（不进 L0：该验证含挂钟时效，L0 必须时间无关。）
 
 **文案链 P2 登记**：①AI 离线草拟工具（本地、人审、内容寻址缓存；CI 零 AI 供应商——四席一致裁决）；②`families[].languages` 语义修复（whisper 目录 [zh,en] vs 上游 100 语种、fire-red [zh] vs zh_en；**行为数据，需业主裁决**，或拆 covers/autoEligible）；③NOTICE.md 补署名 sense-voice/fire-red/moonshine（⚠ 需 13 包全量重建+重传，GB 级成本）；④README `sections.json` 与 copy 单源统一；⑤overview 上游 member 级变化（resolver report 接线）；⑥App 展示批（详情页 tierHint、strengths/limitations、changeNote 上屏）。
@@ -40,7 +40,7 @@
 - 契约测试第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列。
 - **家族种子层（V1.15，业主口径）**：`.github/config/asr/seeds.json` **只放家族名**（7 条：whisper/zipformer/dolphin/sense-voice/fire-red/moonshine/qwen3）——repo 与档位规格全部由工具自找：
   - `--from-seeds` 默认=**家族档位清单（轻层，API 零下载，秒级）**：逐家族列候选镜像仓的在册（`in-config:`，按 watch.repo 精确匹配）/未收录（`new-candidate`）状态，以及对「钉版仓库未在候选出现」的发现层回归告警。**实测 13/13 在册、钉版缺候选 0、未知 0；另发现 128 个未收录候选（拓展空间）**；
-  - `--from-seeds --probe [--only <家族>]`=**深探验证**：对在册候选下载实测（bytes/sha256 + 角色推断）并与现有条目逐字段对账（match/mismatch/cosmetic 三分）——重下载，人工触发的验证运行；
+  - `--from-seeds --probe [--only <家族>]`=**深探验证**：对在册候选下载实测（bytes/sha256 + 角色推断）并与现有条目逐字段对账（match/mismatch/cosmetic 三分）——重下载，人工触发的验证运行；**口径（V1.16）：「13/13 在册」属轻层（API 零下载）清单；深探=12/13 档复现**——qwen3 为 `github-release` 型，probe 仅覆盖 `hf-repo`，其字节复现由 verify job 下载补测承担；
   - 发现层两账号域（csukuangfj + csukuangfj2，fire-red 在后者的实测修复）+ 词边界身份识别（连字家族 sense-voice/fire-red 拆词扫描曾全数失配）+ qwen3 按 tag 单发布查询（全量 releases 响应 287 资产超 8MB 读取上限截断的实测修复）。
 - **轻依赖拆分（V1.15）**：家族/档位常量拆至 `asr_constants.py`——漂移/bootstrap 等轻工具免装 cryptography（CI maintenance 漂移 job `ModuleNotFoundError` 实证；asr_package 继续 re-export，消费面零改动）。
 - **漂移周检（V1.14，方案三落地）**：同一工具的 `--from-config` 模式被 `maintenance.yml` 的 `catalog-drift` job 消费——**模型名自 `.github/config/asr/models.json` 自动获取（零 Actions 输入）**；调度=每周一 UTC 03:23 cron + 手动 dispatch；逐条 API 级检查（镜像仓修订滚动=info；**钉版成员缺失 / 归档远端缺位=::warning::**；网络形状失败=unknown）；报告上传 artifact `asr-catalog-drift`，**不红灯**（cron 静默）；只读权限（`contents: read`）；哈希级验证由发布链承担。**边界**：silero 共享件未纳入 v1。
@@ -179,3 +179,4 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.13（2026-10-08）：bootstrap 批（业主「按名启动」目标）——`bootstrap-asr-model.py`（本地/离线：HF/GitHub 结构化 API 按名发现 → 下载实测探针 + 角色/许可推断 → draft 组装；`--compare-config` 逆测对账三分法）；第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列；配套模板信封已刷新至 v10（提交 run 现场签名目录：时效 +30 天 / 版本对齐 / 文案缓存三合一）。
 - V1.14（2026-10-08）：漂移周检批（业主「方案三 + 零输入 + cron」）——`bootstrap-asr-model.py` 增 `--from-config`（模型名自 config 自动获取；漂移三态 ok/drift/unknown）；`maintenance.yml` 增 `catalog-drift` job（周一 UTC 03:23 cron + dispatch；只读；报告 artifact，不红灯）；角色规则修复（旧前缀 glob 对 whisper 系带档位前缀成员名全失配 → 有序正则；漂移 job 遍历全目录的前置——whisper 五档曾会直接报错）。
 - V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。
+- V1.16（2026-10-08）：遗留项批（委员会四席两轮，业主授权自主决策）——①`_confirm_readme_sync` 窗口 3×10s→5×15s；②overview.json 上传后**内容级匿名回读对账**（清单级回读由 `upload_immutable` 内建；内容级不一致仅 `::warning::`，展示面不阻塞）；③build **T4 配对闸**：身份未滚动 + 已签名时，缓存文件存在但摘要不符=硬红（缓存损坏不得被静默重建掩盖）；缓存缺失=显式降级消息后重建（保留冷启动恢复语义）；④publish 逐资产计时打点（skip 形态 ~0.0s 可辨识）；⑤`asr.yml` 增**零密钥验收 job `verify`**（dispatch 并联；`verify_only=true` 时跳过 models 构建/发布——脚本改动唯一零副作用验证通道）：离线契约电池 + bootstrap 复现验收（inventory 13/13 在册/0 缺候选/0 未知；probe 12/12 复现/0 mismatch/0 error）+ qwen3 字节级补测（直连 GitHub 下载面比 sha256+bytes）；闭环判据=一次绿色 verify dispatch。
