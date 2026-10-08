@@ -9,7 +9,8 @@
   展示件可短暂缺席)/ `package-<catalogVersion>.bin`(append-only)。v2 旧名已删,
   **无双重文法**——本脚本不做旧名回退,缺固定名即响亮失败(防静默吃旧资产)。
 - 匿名通道:tag 页 SSR(`__NEXT_DATA__`)做资产发现,`/-/releases/download/` 做下载。
-  两条通道与 App 侧解析器同源(.github/actions/release/prepare-asr-source.py,路径加载,零复刻)。
+  两条通道与 App 侧解析器同源(.github/actions/release/cnb_read.py,路径加载,零复刻;
+  2026-10-08 换源:该实现自 prepare-asr-source.py 收敛进 cnb_read.py,见下方 _cnb_read)。
 - 包为 AES-256-GCM 分块信封(与 ASR 同构,.github/actions/release/asr_envelope.py 正本)。
   identity = 验签指针里的 sqliteSha256(也是包名第一段);master = App 内嵌公开常量
   (ASRPackageCrypto.masterKeyHex,CoreKit/Sources/Infrastructure/ASRPackageCrypto.swift)。
@@ -44,20 +45,30 @@ RELEASE_DIR = REPO_ROOT / ".github" / "actions" / "release"
 # .github/actions/release 的解析器/信封实现按需加载(与 probe_cnb_resources.py 同一路径加载法):
 # 模块顶层保持 stdlib——零依赖测试闸可直接 import 本模块;信封路径(需 cryptography)
 # 只在真正下载/解密时加载,缺依赖时报错信息落在使用点上。
-_PREPARE_MODULE = None
+_CNB_READ_MODULE = None
 
 
-def _prepare_asr_source():
-    global _PREPARE_MODULE
-    if _PREPARE_MODULE is None:
+def _cnb_read():
+    """路径加载 release 簇的 CNB 匿名读实现(cnb_read.py——单一事实源,零复刻)。
+
+    2026-10-08 修复:此前加载 prepare-asr-source.py 的 parse_cnb_tag_page,而 master
+    四文件化把该函数收敛进 cnb_read.py(旧文件只剩兼容壳)——跨簇路径加载耦合到
+    函数名,单侧重构即断,首跑 CI 37709201847 实证 AttributeError。
+    加载后显式断言函数存在:漂移时响亮失败并指明契约,不得静默 AttributeError。
+    """
+    global _CNB_READ_MODULE
+    if _CNB_READ_MODULE is None:
         if str(RELEASE_DIR) not in sys.path:
             sys.path.insert(0, str(RELEASE_DIR))
-        # 连字符文件名不可 import → 路径加载;其依赖(cnb_release/asr_package)已在 sys.path 可见
-        spec = importlib.util.spec_from_file_location("prepare_asr_source", RELEASE_DIR / "prepare-asr-source.py")
+        spec = importlib.util.spec_from_file_location("cnb_read", RELEASE_DIR / "cnb_read.py")
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        _PREPARE_MODULE = module
-    return _PREPARE_MODULE
+        if not hasattr(module, "parse_cnb_tag_page"):
+            raise RuntimeError(
+                f"跨簇 API 漂移: {RELEASE_DIR / 'cnb_read.py'} 缺 parse_cnb_tag_page——"
+                "distill 簇的路径加载契约须随 release 簇重构同步(见 .github/workflows/README.md 簇内耦合规则)")
+        _CNB_READ_MODULE = module
+    return _CNB_READ_MODULE
 
 
 DEFAULT_REPOSITORY = "robinhoo1973/Resources"
@@ -242,7 +253,7 @@ def decrypt_and_extract(cipher: Path, zip_path: Path, sqlite_out: Path, identity
 def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: bool) -> dict:
     print(f"[fetch] tag 页: {repository} / {tag}")
     page = fetch_tag_page(repository, tag)
-    assets = _prepare_asr_source().parse_cnb_tag_page(page, repository, tag)
+    assets = _cnb_read().parse_cnb_tag_page(page, repository, tag)
     print(f"[fetch] 资产 {len(assets)} 件")
 
     work = out_dir / ".fetch-work"
