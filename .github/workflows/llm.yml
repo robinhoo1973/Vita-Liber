@@ -442,27 +442,97 @@ jobs:
           name: gate-report
       - name: Freeze corpora to Release(content-addressed, append-only)
         run: |
-          # 本 job 不 checkout 仓库:gh 必须显式 -R 指明仓库——否则 gh 走 git 上下文
-          # 报 `fatal: not a git repository`,9 秒即红(2026-10-08 首跑 CI 37713834389
-          # 实证;与本文件 llama 作业首行注记同源教训,publish 段此前从未被执行过)。
+          # 本 job 不 checkout 仓库:gh 必须显式 -R 指明仓库——否则走 git 上下文
+          # 报 `fatal: not a git repository`(2026-10-08 首跑 CI 37713834389 实证)。
+          #
+          # D2(2026-10-08 委员会):名=内容 sha,逐件**实测**命名并对账,fail-closed。
+          # 三件抽取资产此前复用 sft 的 sha 命名(eval/pretrain/manifest),内容寻址失真:
+          # sft 不变而 eval 变时同名 --clobber 会静默覆盖,append-only 契约当场破坏。
+          # 现每文件用自身 sha256(全 64hex,带算法前缀以区别于 40hex git sha)命名;
+          # manifest 已声明 sha 的四件先断言实测==声明,不符即拒绝发布(绝不落半成品)。
           REPO="$GITHUB_REPOSITORY"
-          SHA=$(python3 -c "import json;print(json.load(open('corpus.jsonl.manifest.json'))['corpus_sha256'])")
-          EXT_SHA=$(python3 -c "import json;print(json.load(open('extraction_manifest.json'))['files']['extraction_sft.jsonl']['sha256'])")
+          SHA_LIST=$(python3 - <<'PY'
+          import hashlib, json, sys
+          from pathlib import Path
+
+
+          def sha(p):
+              h = hashlib.sha256()
+              with open(p, "rb") as fh:
+                  for chunk in iter(lambda: fh.read(1 << 20), b""):
+                      h.update(chunk)
+              return h.hexdigest()
+
+
+          declared = {
+              "corpus.jsonl": json.loads(Path("corpus.jsonl.manifest.json").read_text(encoding="utf-8"))["corpus_sha256"],
+              "extraction_sft.jsonl": json.loads(Path("extraction_manifest.json").read_text(encoding="utf-8"))["files"]["extraction_sft.jsonl"]["sha256"],
+              "extraction_eval.jsonl": json.loads(Path("extraction_manifest.json").read_text(encoding="utf-8"))["files"]["extraction_eval.jsonl"]["sha256"],
+              "extraction_pretrain.jsonl": json.loads(Path("extraction_manifest.json").read_text(encoding="utf-8"))["files"]["extraction_pretrain.jsonl"]["sha256"],
+          }
+          bad = []
+          for name, want in sorted(declared.items()):
+              got = sha(name)
+              if got != want:
+                  bad.append(f"{name}: 实测 {got} != manifest 声明 {want}")
+          if bad:
+              print("::error::发布前对账失败——名=内容 sha 无法成立", file=sys.stderr)
+              for line in bad:
+                  print(f"::error::{line}", file=sys.stderr)
+              sys.exit(1)
+          # 资产名模板:<kind>-sha256-<64hex>.<ext>;manifest 资产无自指声明,取实测值
+          assets = [
+              ("distill-corpus-sha256-{h}.jsonl", "corpus.jsonl"),
+              ("distill-corpus-manifest-sha256-{h}.json", "corpus.jsonl.manifest.json"),
+              ("distill-extraction-sft-sha256-{h}.jsonl", "extraction_sft.jsonl"),
+              ("distill-extraction-eval-sha256-{h}.jsonl", "extraction_eval.jsonl"),
+              ("distill-extraction-pretrain-sha256-{h}.jsonl", "extraction_pretrain.jsonl"),
+              ("distill-extraction-manifest-sha256-{h}.json", "extraction_manifest.json"),
+          ]
+          for template, name in assets:
+              print(f"{template.format(h=sha(name))}\t{name}\t{sha(name)}")
+          PY
+          )
+          echo "$SHA_LIST"
           gh release view distill-corpus -R "$REPO" >/dev/null 2>&1 || gh release create distill-corpus -R "$REPO" --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only)"
-          # 上传失败必须炸 job(fail-closed):内容寻址同名资产 --clobber 重传幂等,
-          # 无竞态场景;历史教训:|| true 曾把静默丢资产包装成绿 run。
-          gh release upload distill-corpus "corpus.jsonl#distill-corpus-$SHA.jsonl" --clobber -R "$REPO"
-          gh release upload distill-corpus "corpus.jsonl.manifest.json#distill-corpus-$SHA.manifest.json" --clobber -R "$REPO"
-          gh release upload distill-corpus "extraction_sft.jsonl#distill-extraction-$EXT_SHA.jsonl" --clobber -R "$REPO"
-          gh release upload distill-corpus "extraction_eval.jsonl#distill-extraction-eval-$EXT_SHA.jsonl" --clobber -R "$REPO"
-          gh release upload distill-corpus "extraction_pretrain.jsonl#distill-extraction-pretrain-$EXT_SHA.jsonl" --clobber -R "$REPO"
-          gh release upload distill-corpus "extraction_manifest.json#distill-extraction-manifest-$EXT_SHA.json" --clobber -R "$REPO"
+          # 上传失败必须炸 job(fail-closed);名=内容 sha 后同名必同内容,clobber 重传即幂等。
+          while IFS=$'\t' read -r asset file sha; do
+            [ -n "$asset" ] || continue
+            gh release upload distill-corpus "$file#$asset" --clobber -R "$REPO"
+          done <<< "$SHA_LIST"
           # 对话面 dialogue_* 三条上传在 D-1 裁决前暂缓(见 job 头注)。
           # §10 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
           # (artifact 30 天即过期;P3 模型只对比同版本基线行,不得丢)。
           for f in baseline-out/*.json; do
             gh release upload distill-corpus "$f#baseline-$(basename "$f")" --clobber -R "$REPO"
           done
+          # 写后读回复核:远端资产 digest 必须等于本地实测 sha(名内嵌值同样被复核)。
+          gh api "repos/$REPO/releases/tags/distill-corpus" > release-assets.json
+          SHA_LIST="$SHA_LIST" python3 - <<'PY'
+          import json, os, sys
+
+          remote = {a["name"]: (a.get("digest") or "") for a in json.load(open("release-assets.json", encoding="utf-8"))["assets"]}
+          missing, mismatch = [], []
+          count = 0
+          for line in os.environ["SHA_LIST"].splitlines():
+              if not line.strip():
+                  continue
+              asset, _file, sha = line.split("\t")
+              count += 1
+              got = remote.get(asset)
+              if got is None:
+                  missing.append(asset)
+              elif got != f"sha256:{sha}":
+                  mismatch.append(f"{asset}: 远端 {got} != 本地 sha256:{sha}")
+          if missing or mismatch:
+              print("::error::发布读回复核失败——远端资产与本地内容不一致", file=sys.stderr)
+              for a in missing:
+                  print(f"::error::缺资产 {a}", file=sys.stderr)
+              for m in mismatch:
+                  print(f"::error::digest 不符 {m}", file=sys.stderr)
+              sys.exit(1)
+          print(f"published+verified {count} content-addressed assets")
+          PY
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
