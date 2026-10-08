@@ -492,6 +492,45 @@ def load_ref_pool(data_dir, dtype, region, rng, cap=5000):
     return items, total
 
 
+def load_derived_pools(data_dir, regions, rng, cap=8000):
+    """派生值域(2026-10-08 数据批;round2 X 席实证):目录物化的
+    ref/vaccine_<r>.jsonl(药表谓词派生,去重)、ref/procedure_tw.jsonl(術式∪處置)、
+    ref/fee_tw.jsonl(TW 支付标准全量带价)。缺文件→空(调用方常量兜底+fail-closed 判定)。"""
+    out = {"vaccines": {}, "procedures": [], "fees": []}
+    for region in regions:
+        path = os.path.join(data_dir, "ref", f"vaccine_{region.lower()}.jsonl")
+        names = []
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        name = _clean(json.loads(line).get("name_zh") or "")
+                    except Exception:
+                        continue
+                    if name:
+                        names.append(name)
+        if names:
+            out["vaccines"][region.upper()] = names[:cap]
+    for key, fname in (("procedures", "procedure_tw.jsonl"), ("fees", "fee_tw.jsonl")):
+        path = os.path.join(data_dir, "ref", fname)
+        rows = []
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        d = json.loads(line)
+                    except Exception:
+                        continue
+                    name = _clean(d.get("name_zh") or "")
+                    if name:
+                        rows.append({"name": name, "price": _clean(str(d.get("price_ref") or ""))})
+        out[key] = rows[:cap]
+    if any(out[k] for k in ("procedures", "fees")) or out["vaccines"]:
+        log(f"[pool] derived: vaccines={ {r: len(v) for r, v in out['vaccines'].items()} } "
+            f"procedures_tw={len(out['procedures'])} fees_tw={len(out['fees'])}")
+    return out
+
+
 def load_details(data_dir, tw_names, diseases_out, rng):
     """medical_details.jsonl 单遍流式：① 抽 TW 用法；② 每 25 行抽 indications 扩充疾病词表。"""
     path = os.path.join(data_dir, "medical_details.jsonl")
@@ -1152,6 +1191,9 @@ def _card_value(key, fd, pools, rng, region):
     if key == "severity":
         return L(region, rng.choice(SEVERITIES))
     if key == "vaccine_name":
+        pool = (pools.get("derived", {}).get("vaccines") or {}).get(region) or []
+        if pool:
+            return _clean(rng.choice(pool))
         return L(region, rng.choice(VACCINES))
     if key == "dose_number":
         return str(rng.randint(1, 4))
@@ -1162,6 +1204,9 @@ def _card_value(key, fd, pools, rng, region):
     if key == "invoice_no":
         return f"No.{rng.randint(10000000, 99999999)}"
     if key == "surgery_name":
+        procs = (pools.get("derived", {}).get("procedures") or []) if region == "TW" else []
+        if procs:
+            return _clean(rng.choice(procs)["name"])
         return L(region, rng.choice(SURGERY_NAMES))
     if key == "surgery_level":
         return L(region, rng.choice(SURGERY_LEVELS))
@@ -1220,6 +1265,9 @@ def _card_value(key, fd, pools, rng, region):
     if key == "code_system":
         return "ICD-10"
     if key == "item_name":
+        fees = (pools.get("derived", {}).get("fees") or []) if region == "TW" else []
+        if fees:
+            return _clean(rng.choice(fees)["name"])
         return L(region, rng.choice(CLAIM_ITEMS)[0])
     if key == "item_quantity":
         return f"{rng.randint(1, 3)}{rng.choice(QUANTITY_UNITS)}"
@@ -1471,8 +1519,25 @@ def main():
             ref_stats[key] = {"records": total, "sampled": len(items), "fallback": not items}
             if not items:
                 log(f"[pool] ref {key}: 本机无 {', '.join(DM.CELL_BY_KEY[key].files)} → 退回内置名单（{DM.CELL_BY_KEY[key].how}）")
+    derived = load_derived_pools(args.data_dir, regions, rng)
+    # fail-closed(round2 X 席 F:声明走目录却回落常量=「缺证据当有证据」的反面)——
+    # 仅在「已物化的生产 data-dir」(training_feed_manifest.json 在场)下强制;
+    # 测试夹具/训练机自造目录不触发。TW 在选且术式/收费派生为空 = 目录版本异常,拒绝产出。
+    if os.path.exists(os.path.join(args.data_dir, "training_feed_manifest.json")):
+        missing = []
+        if not derived["vaccines"]:
+            missing.append("vaccine_*.jsonl(疫苗谓词派生)")
+        if "TW" in [r.upper() for r in regions]:
+            if not derived["procedures"]:
+                missing.append("procedure_tw.jsonl(術式∪處置)")
+            if not derived["fees"]:
+                missing.append("fee_tw.jsonl(TW 带价收费项)")
+        if missing:
+            log(f"[FAIL] 派生域缺失(生产目录下 fail-closed): {', '.join(missing)}——"
+                f"检查 catalog_source 物化/目录 schema")
+            return 2
     pools = {"drugs": drugs, "drugs_by_region": drugs_by_region, "regions": [r.upper() for r in regions], "drug_regions": drug_regions,
-             "ref": ref, "diseases": sorted(diseases), "aliases": aliases, "groups": groups}
+             "ref": ref, "derived": derived, "diseases": sorted(diseases), "aliases": aliases, "groups": groups}
 
     # ---- 样本生成 ----
     total = 60 if args.dry_run else args.sft_count
@@ -1609,7 +1674,11 @@ def main():
         "licenses": license_entries,
         "pools": {"drugs": len(pools["drugs"]), "drugs_by_region": {k: len(v) for k, v in sorted(drugs_by_region.items())},
                   "ref": ref_stats, "aliases": len(pools["aliases"]),
-                  "groups": len(pools["groups"]), "diseases": len(pools["diseases"])},
+                  "groups": len(pools["groups"]), "diseases": len(pools["diseases"]),
+                  # 派生值域来源构成(H3 D 席;值来源可审计——常量占比治理的数据面)
+                  "source_mix": {"vaccines": {r: len(v) for r, v in sorted(derived["vaccines"].items())},
+                                 "procedures_tw": len(derived["procedures"]),
+                                 "fees_tw": len(derived["fees"])}},
         "noise": {
             "version": NOISE_VERSION,
             "band_targets": dict(BAND_CER),

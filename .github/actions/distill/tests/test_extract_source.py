@@ -23,7 +23,7 @@ def _make_fixture() -> Path:
     CREATE TABLE diagnosis (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, name_zh TEXT NOT NULL,
         chapter_zh TEXT);
     CREATE TABLE exam_item (region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, name_zh TEXT NOT NULL,
-        name_en TEXT, category TEXT, specimen TEXT, unit TEXT);
+        name_en TEXT, category TEXT, specimen TEXT, unit TEXT, price_ref TEXT);
     """)
     conn.execute("INSERT INTO catalog_meta VALUES ('schema_version','7'),('data_version','v7-fixture')")
     conn.executemany(
@@ -41,7 +41,7 @@ def _make_fixture() -> Path:
                  "VALUES ('TW','H1','高雄市立民生醫院','綜合醫院','區域醫院','高雄市','[{\"name_zh\":\"家醫科\"},{\"name_zh\":\"內科\"}]')")
     conn.execute("INSERT INTO department VALUES ('CN','DEP1','内科','内科')")
     conn.execute("INSERT INTO diagnosis VALUES ('CN','R05','咳嗽','症状、体征和临床与实验室异常所见')")
-    conn.execute("INSERT INTO exam_item VALUES ('TW','E1','血球計數檢查',NULL,'檢查','血液',NULL)")
+    conn.execute("INSERT INTO exam_item VALUES ('TW','E1','血球計數檢查',NULL,'檢查','血液',NULL,'250')")
     conn.commit()
     conn.close()
     return tmp

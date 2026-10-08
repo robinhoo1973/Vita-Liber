@@ -216,6 +216,42 @@ def materialize(sqlite_path: Path, out_dir: Path) -> dict:
                 rel = rel_tpl.format(r=region.lower())
                 counts[rel] = _write_jsonl(out_dir / rel, rows)
 
+        # —— 派生域(2026-10-08 数据批;round2 探针复核:X 席实证 348/141 疫苗、466 术式/处置、6173 带价) ——
+        # 疫苗:药表后缀谓词派生(非目录独立域);去重(348 行=141 名)
+        for region in ("CN", "HK", "TW"):
+            seen, rows = set(), []
+            for row in conn.execute(
+                    "SELECT name_zh FROM drug WHERE region=? AND name_zh LIKE '%疫苗%'", (region,)):
+                name = (row["name_zh"] or "").strip()
+                if name and name not in seen:
+                    seen.add(name)
+                    rows.append({"name_zh": name})
+            counts[f"ref/vaccine_{region.lower()}.jsonl"] = _write_jsonl(
+                out_dir / "ref" / f"vaccine_{region.lower()}.jsonl", rows)
+
+        # TW 术式/处置:exam_item 支付标准分类(手術∪處置=466;CN 无术式域=真缺口,走导入批)
+        proc_rows, seen = [], set()
+        for row in conn.execute(
+                "SELECT name_zh, category, price_ref FROM exam_item WHERE region='TW' "
+                "AND (name_zh LIKE '%手術%' OR name_zh LIKE '%處置%')"):
+            name = (row["name_zh"] or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                proc_rows.append({"name_zh": name, "category": (row["category"] or "").strip(),
+                                  "price_ref": str(row["price_ref"] or "").strip()})
+        counts["ref/procedure_tw.jsonl"] = _write_jsonl(out_dir / "ref" / "procedure_tw.jsonl", proc_rows)
+
+        # TW 收费项:exam_item 全量带价(6173)
+        fee_rows, seen = [], set()
+        for row in conn.execute(
+                "SELECT name_zh, price_ref FROM exam_item WHERE region='TW' "
+                "AND price_ref IS NOT NULL AND CAST(price_ref AS TEXT) != ''"):
+            name = (row["name_zh"] or "").strip()
+            if name and name not in seen:
+                seen.add(name)
+                fee_rows.append({"name_zh": name, "price_ref": str(row["price_ref"]).strip()})
+        counts["ref/fee_tw.jsonl"] = _write_jsonl(out_dir / "ref" / "fee_tw.jsonl", fee_rows)
+
         descriptor = {
             "catalog_data_version": meta.get("data_version", ""),
             "catalog_schema_version": meta.get("schema_version", ""),
