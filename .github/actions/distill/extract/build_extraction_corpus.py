@@ -267,6 +267,9 @@ def sha256_file(path):
 # eval 分配(round5 §2.2):per-sample 确定性抽样键 + 每单元(kind×band)定额 ≥60,
 # 不再盲抽固定比例;同输入逐位可复现(eval=内容寻址冻结快照,可重放)。
 EVAL_MAX_SHARE = 0.15  # 微构建保护:eval 占比上限,小样本时 SFT 份额不被配额吃穿
+# 值级 holdout(round2 X2 裁决):实体池按稳定哈希留出 10%——SFT 永不见,强制入 eval,
+# 度量「部署真实条件」(每天新药名/新机构/新术式)下的泛化。
+VALUE_HOLDOUT_RATIO = 0.10
 
 
 def sample_draw(seed: int, sample_id: str) -> int:
@@ -276,7 +279,7 @@ def sample_draw(seed: int, sample_id: str) -> int:
 
 
 def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
-                       max_share: float = EVAL_MAX_SHARE):
+                       max_share: float = EVAL_MAX_SHARE, forced_eval=()):
     """确定性 eval/SFT 分配(round5 §2.2 定额制)。
 
     entries: [(cell, draw, key)];cell=(kind, band),draw=sample_draw(...),key=样本 id。
@@ -286,6 +289,7 @@ def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
     """
     from collections import defaultdict
     threshold = int(eval_ratio * (1 << 64))
+    forced = set(forced_eval)
     by_cell = defaultdict(list)
     for cell, draw, key in entries:
         by_cell[cell].append((draw, key))
@@ -293,7 +297,7 @@ def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
     for cell, items in sorted(by_cell.items()):
         items.sort()
         n = len(items)
-        prim = {k for d, k in items if d < threshold}
+        prim = {k for d, k in items if d < threshold or k in forced}
         cap = int(n * max_share)
         promote = min(max(0, quota - len(prim)), max(0, cap - len(prim)))
         promoted = 0
@@ -1116,34 +1120,92 @@ _CARD_DOCTORS = ("doctor", "attending_physician", "surgeon", "apply_doctor", "re
                  "review_doctor", "summary_doctor", "total_doctor", "executor", "anesthesiologist")
 
 NARRATIVE_TEMPLATES = {
+    # 2026-10-08 字节批扩面(round2 X 席:23 键/40 句→5 键 top1>10%/9 键单句)——
+    # 每键 ≥5 变体,槽位语法({d}{d2}{t}{adv}{drug}{op}{anes}{therapy}{part})组合;
+    # 措辞中性(源文档文本,不引入诊断/剂量结论语气;BR-006 抽面闸待扩)。
     "present_illness": ["患者{t}前无明显诱因出现{d}，伴乏力，无发热，为进一步诊治来院。",
-                        "患者{t}前出现{d}，症状逐渐加重，现门诊收入院。"],
-    "past_history": ["既往体健，否认高血压、糖尿病史。", "既往{d}病史5年，规律服药，病情稳定。"],
+                        "患者{t}前出现{d}，症状逐渐加重，现门诊收入院。",
+                        "患者{t}前起病，主要表现为{d}，于外院未行系统诊治，今来我院。",
+                        "患者{t}前出现{d}，休息后可稍缓解，为明确诊治来诊。",
+                        "患者自述{t}前开始出现{d}，无明显加重或缓解因素。",
+                        "患者{t}前出现{d}，伴食欲减退，二便如常。",
+                        "患者{t}前出现{d}，病程中无意识障碍，无咯血。",
+                        "患者{t}前无明显诱因出现{d}，曾自行口服药物，效果欠佳。"],
+    "past_history": ["既往体健，否认高血压、糖尿病史。",
+                     "既往{d}病史5年，规律服药，病情稳定。",
+                     "既往{d}病史，间断治疗，控制一般。",
+                     "既往否认肝炎、结核等传染病史，无手术外伤史。",
+                     "既往体健，无药物及食物过敏史。",
+                     "既往{d}病史3年，未规律监测。",
+                     "既往曾于外院诊断{d}，具体诊治不详。"],
     "physical_exam": ["T 36.8℃，P 82次/分，R 18次/分，BP 128/82mmHg；神志清楚，双肺呼吸音清，心律齐，腹软无压痛。",
-                      "神志清楚，查体合作；心肺未见明显异常，腹平软，肝脾肋下未及。"],
-    "diagnosis_text": ["{d}", "{d}、{d2}"],
-    "visit_summary": ["本次因{d}就诊，予对症治疗，嘱{adv}。"],
-    "admit_condition": ["患者{t}前出现{d}，入院时神志清楚，生命体征平稳。"],
-    "discharge_condition": ["患者一般情况可，{d}症状好转，生命体征平稳。"],
-    "discharge_orders": ["{adv}。", "规律服药，{adv}。"],
-    "take_home_drugs": ["出院带药：{drug}，按医嘱服用。"],
+                      "神志清楚，查体合作；心肺未见明显异常，腹平软，肝脾肋下未及。",
+                      "T 37.1℃，P 88次/分，R 20次/分，BP 136/85mmHg；咽部稍充血，双肺呼吸音粗，未闻及干湿啰音。",
+                      "神清，全身皮肤黏膜无黄染，浅表淋巴结未触及肿大；双下肢无水肿。",
+                      "T 36.5℃，P 76次/分，R 18次/分，BP 120/78mmHg；心律齐，各瓣膜听诊区未闻及杂音。",
+                      "腹部平坦，无压痛及反跳痛，肠鸣音正常；神经系统查体未见异常。"],
+    "diagnosis_text": ["{d}", "{d}、{d2}", "{d}；{d2}", "初步诊断：{d}", "{d}（{d2}）"],
+    "visit_summary": ["本次因{d}就诊，予对症治疗，嘱{adv}。",
+                      "本次以{d}收入院，完善检查后予相应处理，嘱{adv}。",
+                      "因{d}来诊，经治疗后症状缓解，嘱{adv}。",
+                      "本次就诊考虑与{d}相关，予对症支持治疗，嘱{adv}。",
+                      "为诊治{d}入院，治疗过程顺利，嘱{adv}。"],
+    "admit_condition": ["患者{t}前出现{d}，入院时神志清楚，生命体征平稳。",
+                        "入院时患者一般情况尚可，{d}症状明显，生命体征平稳。",
+                        "入院时神清，{d}反复发作，饮食睡眠一般。",
+                        "入院时患者精神状态可，因{d}收入院进一步诊治。"],
+    "discharge_condition": ["患者一般情况可，{d}症状好转，生命体征平稳。",
+                            "出院时患者神清，{d}症状明显缓解，饮食睡眠改善。",
+                            "出院时一般情况良好，{d}未再发作。",
+                            "出院时生命体征平稳，{d}症状较入院时减轻。"],
+    "discharge_orders": ["{adv}。", "规律服药，{adv}。", "遵医嘱服药，{adv}。",
+                         "定期复查，{adv}。", "如有不适及时就诊，{adv}。"],
+    "take_home_drugs": ["出院带药：{drug}，按医嘱服用。",
+                        "出院带药：{drug}；余药按医嘱继续服用。",
+                        "带药：{drug}，用药期间注意观察。",
+                        "出院带药：{drug}，按说明书及医嘱使用。"],
     "treatment_course": ["入院后完善相关检查，予对症支持治疗，{d}症状逐步改善。",
-                         "入院后予药物治疗及饮食指导，病情平稳。"],
-    "preop_diagnosis": ["{d}"],
-    "postop_diagnosis": ["{d}"],
-    "procedure_course": ["{anes}下行{op}，术中止血确切，清点无误，术毕安返病房。"],
-    "intraop_findings": ["术中探查可见{d}相关改变，无活动性出血，周围组织未见明显异常。"],
-    "complications": ["无。", "术后出现切口疼痛，予对症处理后缓解。"],
-    "postop_orders": ["{adv}。", "卧床休息，{adv}。"],
-    "content": ["{d}予{therapy}治疗，患者耐受良好。", "予{therapy}治疗，过程顺利。"],
-    "drugs_text": ["{drug}，按医嘱使用。"],
-    "adverse_reaction": ["无药物过敏及不良反应。", "治疗后出现轻度皮疹，停药后缓解。", "无。"],
-    "overall_conclusion": ["未见明显异常。", "血压偏高，建议内科随诊；血脂异常，建议低脂饮食并复查。"],
-    "health_guidance": ["{adv}。", "适量运动，{adv}。"],
+                         "入院后予药物治疗及饮食指导，病情平稳。",
+                         "入院后完善相关检查，明确{d}，予相应治疗，恢复顺利。",
+                         "入院后予对症治疗，{d}症状较前减轻，未见明显不良反应。",
+                         "入院后积极完善检查并予综合治疗，病情逐步好转。"],
+    "preop_diagnosis": ["{d}", "{d}；{d2}", "{d}待查", "{d}（{d2}）"],
+    "postop_diagnosis": ["{d}", "{d}；{d2}", "术后诊断同术前：{d}", "{d}（{d2}）"],
+    "procedure_course": ["{anes}下行{op}，术中止血确切，清点无误，术毕安返病房。",
+                         "{anes}下行{op}，手术过程顺利，术中出血不多。",
+                         "在{anes}下完成{op}，操作顺利，术后安返。",
+                         "{anes}下施{op}，探查所见如前，术程平稳。"],
+    "intraop_findings": ["术中探查可见{d}相关改变，无活动性出血，周围组织未见明显异常。",
+                         "术中所见：{part}区域可见轻度粘连，未见明显占位。",
+                         "术中探查组织色泽血运可，未见明确异常结构。",
+                         "术中所见与术前评估基本相符，创面渗血少。"],
+    "complications": ["无。", "术后出现切口疼痛，予对症处理后缓解。",
+                      "术后第一天出现低热，物理降温后好转。", "未出现明显并发症。"],
+    "postop_orders": ["{adv}。", "卧床休息，{adv}。", "术后禁食至肛门排气，{adv}。",
+                      "观察切口情况，{adv}。"],
+    "content": ["{d}予{therapy}治疗，患者耐受良好。",
+                "予{therapy}治疗，过程顺利。",
+                "针对{d}行{therapy}，治疗后症状减轻。",
+                "予{therapy}综合治疗，无特殊不适。",
+                "行{therapy}治疗，疗程中病情平稳。"],
+    "drugs_text": ["{drug}，按医嘱使用。", "予{drug}，观察用药反应。",
+                   "{drug}，用法用量遵医嘱。", "予以{drug}对症处理。"],
+    "adverse_reaction": ["无药物过敏及不良反应。", "治疗后出现轻度皮疹，停药后缓解。",
+                         "无。", "治疗后有一过性头晕，休息后自行缓解。",
+                         "未诉特殊不适。", "输液部位轻微疼痛，调整后好转。"],
+    "overall_conclusion": ["未见明显异常。", "血压偏高，建议内科随诊；血脂异常，建议低脂饮食并复查。",
+                           "本次体检各项指标基本正常。", "个别指标轻度异常，建议定期复查。",
+                           "总体健康状况良好，建议保持规律作息。"],
+    "health_guidance": ["{adv}。", "适量运动，{adv}。", "合理膳食，{adv}。",
+                        "保持良好作息，{adv}。", "戒烟限酒，{adv}。"],
     "findings": ["{part}未见明显异常。", "{part}可见结节样高密度影，边界清楚。",
-                 "{part}形态及信号未见明显异常。"],
+                 "{part}形态及信号未见明显异常。",
+                 "{part}扫描显示结构清晰，未见异常密度灶。",
+                 "{part}可见少量积液信号，范围局限。",
+                 "{part}纹理增多，未见实变影。"],
     "impression": ["未见明显异常，建议随访复查。", "考虑{d}可能，建议结合临床进一步检查。",
-                   "{d}待排，建议复查。"],
+                   "{d}待排，建议复查。", "所见与{d}相符，建议结合临床。",
+                   "未见明确异常征象，必要时复查。", "{d}可能，建议随诊观察。"],
 }
 
 
@@ -1632,6 +1694,26 @@ def main():
             return 2
     pools = {"drugs": drugs, "drugs_by_region": drugs_by_region, "regions": [r.upper() for r in regions], "drug_regions": drug_regions,
              "ref": ref, "derived": derived, "diseases": sorted(diseases), "aliases": aliases, "groups": groups}
+    # —— 值级 holdout 集(round2 X2:实体池 10% 稳定哈希留出;仅目录来源域) ——
+    def _is_holdout_value(v):
+        return sample_draw(args.seed, f"holdout:{v}") < int(VALUE_HOLDOUT_RATIO * (1 << 64))
+
+    domain_names = {
+        "drug_name": [d["name"] for d in drugs] + list(aliases),
+        "generic_name": [d["name"] for d in drugs],
+        "hospital": [i["name"] for r in ref["hospitals"].values() for i in r],
+        "org_name": [i["name"] for r in ref["hospitals"].values() for i in r],
+        "merchant": [i["name"] for r in ref["hospitals"].values() for i in r],
+        "provider": [i["name"] for r in ref["hospitals"].values() for i in r],
+        "raw_label": [i["name"] for r in ref["exams"].values() for i in r],
+        "name": [i["name"] for r in ref["diagnoses"].values() for i in r] or sorted(diseases),
+        "vaccine_name": [n for names in derived["vaccines"].values() for n in names],
+        "surgery_name": [p["name"] for p in derived["procedures"]],
+        "item_name": [f["name"] for f in derived["fees"]],
+    }
+    holdout_by_key = {k: {v for v in names if _is_holdout_value(v)}
+                      for k, names in domain_names.items() if names}
+    log(f"[holdout] 值级留出集: " + ", ".join(f"{k}={len(v)}" for k, v in sorted(holdout_by_key.items())))
 
     # ---- 样本生成 ----
     total = 60 if args.dry_run else args.sft_count
@@ -1655,6 +1737,7 @@ def main():
     stats = {"counts": {}, "dropped": {}, "est": [], "trimmed": 0, "eval": 0, "oov_values": 0}
     est_vals = []
     pending, eval_entries = [], []
+    forced_eval_ids = set()
 
     def bump(reason):
         stats["dropped"][reason] = stats["dropped"].get(reason, 0) + 1
@@ -1704,6 +1787,14 @@ def main():
                 agg["samples"] += 1
                 agg["spans"] += nz["span_total"]
                 agg["damaged"] += nz["span_damaged"]
+                forced = False
+                for s in list(shared) + [s for row in rows for s in row]:
+                    if s["value"] in holdout_by_key.get(s["key"], ()):
+                        forced = True
+                        break
+                if forced:
+                    sample["value_holdout"] = True
+                    forced_eval_ids.add(sample["id"])
                 pending.append(sample)
                 eval_entries.append(((kind, nz["band"]),
                                      sample_draw(args.seed, sample["id"]), sample["id"]))
@@ -1714,7 +1805,8 @@ def main():
         # —— eval/SFT 分配(定额制;round5 §2.2)——
         quota = 0 if args.dry_run else args.eval_min_per_cell
         split, eval_cells = assign_eval_splits(
-            eval_entries, eval_ratio=args.eval_ratio, quota=quota)
+            eval_entries, eval_ratio=args.eval_ratio, quota=quota,
+            forced_eval=forced_eval_ids)
         n_eval = 0
         for sample in pending:
             if split[sample["id"]] == "eval":
@@ -1724,6 +1816,8 @@ def main():
                 fsft.write(json.dumps(sample, ensure_ascii=False) + "\n")
         stats["eval"] = n_eval
         stats["eval_cells"] = eval_cells
+        stats["value_holdout"] = {"ratio": VALUE_HOLDOUT_RATIO, "forced": len(forced_eval_ids),
+                                  "keys": {k: len(v) for k, v in sorted(holdout_by_key.items())}}
         deficits = {c: v["deficit"] for c, v in eval_cells.items() if v["deficit"]}
         log(f"[eval] quota={quota}/单元 cells={len(eval_cells)} eval={n_eval}/{len(pending)}"
             + (f" deficit={deficits}" if deficits else ""))

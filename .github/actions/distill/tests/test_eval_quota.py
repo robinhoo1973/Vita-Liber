@@ -76,6 +76,16 @@ class EvalQuotaTests(unittest.TestCase):
         self.assertNotEqual(sample_draw(7, "a"), sample_draw(8, "a"))
         self.assertLess(sample_draw(7, "a"), 1 << 64)
 
+    def test_forced_eval_always_eval(self):
+        # 值级 holdout 强制入 eval:即便 quota=0 且 draw 高于阈值
+        es = entries(self.CELL, 0, 10)
+        forced = {es[0][2], es[5][2]}
+        split, cells = assign_eval_splits(es, eval_ratio=0.03, quota=0, forced_eval=forced)
+        for k in forced:
+            self.assertEqual(split[k], "eval")
+        self.assertEqual(cells["prescription|light"]["eval"], 2)
+
+
 
 if __name__ == "__main__":
     unittest.main()

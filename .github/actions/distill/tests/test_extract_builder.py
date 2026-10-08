@@ -155,6 +155,12 @@ class BuilderSmokeTests(unittest.TestCase):
         ops = manifest["stats"].get("line_ops") or {}
         self.assertGreater(sum(ops.values()), 0, f"行噪声触发面为 0: {ops}")
 
+    def test_sft_never_contains_holdout_values(self):
+        # 值级 holdout(round2 X2):SFT 侧样本不得携带 value_holdout 标记
+        sft = self.out / "extraction_sft.jsonl"
+        rows = [json.loads(l) for l in sft.read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(sum(1 for r in rows if r.get("value_holdout")), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
