@@ -219,7 +219,7 @@ jobs:
         run: echo "manifest_artifact=asr-manifest-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
       - name: 下载解析产物（artifact:asr-resolved）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: ${{ needs.resolve.outputs.resolved_artifact }}
           path: ${{ runner.temp }}/asr-resolved
@@ -265,13 +265,13 @@ jobs:
       # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
 
       - name: 下载解析产物（artifact:asr-resolved）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: ${{ needs.resolve.outputs.resolved_artifact }}
           path: ${{ runner.temp }}/asr-resolved
 
       - name: 下载源清单（artifact:asr-manifest）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: ${{ needs.project.outputs.manifest_artifact }}
           path: ${{ runner.temp }}/asr-resolved
@@ -367,7 +367,7 @@ jobs:
         run: echo "metadata_artifact=asr-metadata-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
       - name: 下载构建索引（artifact:asr-index）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: ${{ needs.build.outputs.index_artifact }}
           path: ${{ runner.temp }}/asr-packages
@@ -431,13 +431,13 @@ jobs:
       # CI 只校验有值——缺失/为空 = 带日志硬错(绝不静默发明文包)。
 
       - name: 下载完整候选包（artifact:packages,compression-level 0）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: ${{ needs.build.outputs.packages_artifact }}
           path: ${{ runner.temp }}/asr-packages
 
       - name: 下载签名目录（artifact:metadata）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: ${{ needs.sign.outputs.metadata_artifact }}
           path: ${{ runner.temp }}/asr-meta
@@ -575,7 +575,7 @@ jobs:
       # / test-model-trust）需要 PyYAML——与 models job 同一步骤同钉版清单
       # （CI 37722650928 实证：缺装即 ModuleNotFoundError 红）。
       - name: 下载复现报告（artifact:asr-bootstrap-repro）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: asr-bootstrap-repro
           path: ${{ runner.temp }}

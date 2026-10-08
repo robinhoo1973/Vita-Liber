@@ -124,7 +124,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
 
       - name: 下载候选 artifact（① 的产出）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: asr-draft-test-${{ github.run_id }}
           path: ${{ runner.temp }}
@@ -174,17 +174,31 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
 
       - name: 下载候选 artifact（① 的产出）
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: asr-draft-test-${{ github.run_id }}
           path: ${{ runner.temp }}
 
       - name: 下载侧车 artifact（② 的产出;缺失不阻塞——纯确定性仍成稿）
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093   # v4 线钉版（2026-10-07）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
         with:
           name: asr-suggested-${{ github.run_id }}
           path: ${{ runner.temp }}/asr-config-candidates/suggested
+
+      - name: 侧车状态诊断（缺失/限流降级可见化;run 37857357547 教训）
+        run: |
+          sidecar="$RUNNER_TEMP/asr-config-candidates/suggested"
+          if [ -f "$sidecar/models.suggested.json" ] || [ -f "$sidecar/catalog-copy.suggested.json" ]; then
+            echo "侧车在位:"
+            ls -la "$sidecar"
+            if [ -f "$sidecar/errors.json" ]; then
+              echo "── errors.json（单字段失败台账;非空=限流降级,采纳面收窄）──"
+              cat "$sidecar/errors.json"
+            fi
+          else
+            echo "::warning::侧车缺失（② 全败/超时）——纯确定性成稿,本轮采纳=0"
+          fi
 
       - name: 离线冒烟（suggester 与 distiller 纯函数面）
         run: |
