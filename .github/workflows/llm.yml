@@ -51,7 +51,7 @@ on:
       task:
         description: "运行哪条管线（2026-10-07 业主指令:build-llama-xcframework 并入本文件）"
         type: choice
-        options: [llm-pipeline, llama-xcframework]
+        options: [llm-pipeline, llama-xcframework, train-encoder]
         default: llm-pipeline
       sft_count:
         description: "抽取 SFT 样本数(空=policy.json corpus.counts.sft;小集原型可覆盖)"
@@ -993,3 +993,100 @@ jobs:
           echo "::notice::llama xcframework checksum=${CHECKSUM}"
         env:
           GH_TOKEN: ${{ github.token }}
+
+  train-encoder:
+    if: ${{ inputs.task == 'train-encoder' }}
+    # CPU 分块训练链(2026-10-09 无私仓/无 GPU 决策;公开仓 ubuntu 4vCPU)。
+    # 状态机=gen/chunk_chain.py(失败即停/maxChunks/零进度三重闸);三重闸通过且
+    # chainEnabled 才自派发下一 chunk;checkpoint/状态经 llama-models Release(draft 门控)。
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    permissions:
+      contents: write   # Release:corpus 读取 + checkpoint/状态回传
+      actions: write    # 链式续跑自派发(workflow_dispatch)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
+        with:
+          python-version: "3.13"
+      - name: Install deps(哈希钉版;CPU 训练面)
+        run: |
+          pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: 语料/实体解析(Release 内容寻址最新;实体走 artifact 兜底通道)
+        run: |
+          PY="python3 .github/actions/distill/gen/release_io.py"
+          $PY pick --release distill-corpus --pattern 'distill-corpus-sha256-.*[.]jsonl$' --out pick-corpus.txt
+          CORPUS=$(cut -f1 pick-corpus.txt)
+          $PY fetch --release distill-corpus --name "$CORPUS" --out .
+          mv "$CORPUS" corpus.jsonl
+          if ! $PY fetch --release llama-models --name enc-entities.jsonl --out . --optional; then
+            $PY latest-run-asset --workflow llm.yml --name corpus-entities --out entities-dir || true
+            if [ -f entities-dir/entities.jsonl ]; then cp entities-dir/entities.jsonl .; fi
+          fi
+          ls -la corpus.jsonl || true
+          ls -la entities.jsonl 2>/dev/null || echo "提示:无实体件 → 负例路径将关闭"
+      - name: 训练状态与 checkpoint 取回(幂等;缺状态=首链)
+        run: |
+          PY="python3 .github/actions/distill/gen/release_io.py"
+          POL="python3 .github/actions/distill/policy.py"
+          if $PY fetch --release llama-models --name train-state-train-encoder.json --out . --optional; then
+            mv train-state-train-encoder.json state.json
+          else
+            python3 .github/actions/distill/gen/chunk_chain.py init --out state.json \
+              --task train-encoder \
+              --total-steps "$($POL --get training.encoder.steps)" \
+              --max-chunks "$(python3 -c 'import sys;sys.path.insert(0,".github/actions/distill");import policy;print(policy.get(policy.load(),"training.maxChunks")["train-encoder"])')"
+          fi
+          mkdir -p ckpt
+          $PY fetch-ckpt --release llama-models --prefix enc --out ckpt || echo "无既往 checkpoint=首跑"
+          cat state.json
+      - name: Train chunk(墙钟预算优雅停机;CPU;负例消费)
+        id: train
+        run: |
+          POL="python3 .github/actions/distill/policy.py"
+          MINS=$($POL --get training.chunkMinutes)
+          RESUME=""
+          [ -f ckpt/checkpoint-latest.json ] && RESUME="--resume-dir ckpt"
+          NEG="off"; ENT=""
+          if [ -f entities.jsonl ]; then NEG="corpus"; ENT="--entities entities.jsonl"; fi
+          set +e
+          python3 .github/actions/distill/train_encoder.py \
+            --corpus corpus.jsonl --out-dir train-out $RESUME \
+            --budget-seconds $((MINS * 60 - 900)) --device cpu \
+            --batch "$($POL --get training.encoder.batch)" \
+            --seq "$($POL --get training.encoder.seq)" \
+            --lr "$($POL --get training.encoder.lr)" \
+            --negatives "$NEG" $ENT > train-log.txt 2>&1
+          RC=$?
+          set -e
+          tail -50 train-log.txt
+          STEPS=$(grep -oE '"steps": [0-9]+' train-log.txt | tail -1 | grep -oE '[0-9]+' || echo 0)
+          LOSS=$(grep -oE '"loss_last": [-0-9.eE+]+' train-log.txt | tail -1 | awk '{print $2}' || true)
+          echo "rc=$RC" >> "$GITHUB_OUTPUT"
+          echo "steps=$STEPS" >> "$GITHUB_OUTPUT"
+          echo "loss=$LOSS" >> "$GITHUB_OUTPUT"
+          [ "$RC" -eq 0 ] || echo "::warning::训练 chunk 非零退出(rc=$RC;由状态机判停,不吞红)"
+      - name: Checkpoint 回传 + 状态决策
+        id: chain
+        run: |
+          PY="python3 .github/actions/distill/gen/release_io.py"
+          $PY push-ckpt --release llama-models --prefix enc --dir train-out/checkpoints || \
+            echo "::warning::checkpoint 回传失败(重跑幂等,不吞红由状态机)"
+          FAILED=""
+          [ "${{ steps.train.outputs.rc }}" = "0" ] || FAILED="--failed"
+          LOSSARG=""
+          [ -n "${{ steps.train.outputs.loss }}" ] && LOSSARG="--last-loss ${{ steps.train.outputs.loss }}"
+          DEC=$(python3 .github/actions/distill/gen/chunk_chain.py decide \
+            --state state.json --out state-new.json \
+            --chunk-steps "${{ steps.train.outputs.steps }}" $FAILED $LOSSARG)
+          mv state-new.json train-state-train-encoder.json
+          $PY push --release llama-models --file train-state-train-encoder.json --replace
+          echo "decision=$DEC" >> "$GITHUB_OUTPUT"
+      - name: Chain(自派发下一 chunk;三重闸后唯一放行)
+        if: steps.chain.outputs.decision == 'next'
+        run: |
+          ENABLED=$(python3 .github/actions/distill/policy.py --get training.chainEnabled)
+          if [ "$ENABLED" != "True" ]; then echo "chainEnabled=false——停链(人工放行)"; exit 0; fi
+          gh workflow run llm.yml --ref "$GITHUB_REF_NAME" -f task=train-encoder
+          echo "next chunk dispatched"
