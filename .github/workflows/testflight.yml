@@ -13,12 +13,9 @@
 # 一级任一红不进二级（L0 不过不进 L1 字面兑现）；二级 l1∥build 并联（两个编译
 # 互相独立,绿路径省 ≈13-22 分钟）；upload 依赖四者 success——测试红 ⇒ 不上传
 # TestFlight（安全闸口不变,二级红白烧的只是免费分钟）。
-# 触发（2026-10-07 业主指令：取消 push 自动触发）：dispatch / pull_request。
+# 触发（2026-10-08 业主指令：仅手动触发）：workflow_dispatch（唯一入口）。
 # push master 不再自动跑整流/上传——发布入口 = 手动 dispatch；推送链路的静态面
 # 由本地 pre-push 钩子承担（L0 十九节 + CoreKit 测试 + symcheck）。
-# PR 上只跑 gates+corekit+l1（build 有事件守卫 ⇒ upload 因 needs.build≠success 自动跳过）。
-# ⚠ 并发语义：master 快推时本工作流整体排队（原 ci-tests cancel-in-progress:true
-# 的快反馈让位于 P9 排队语义）——public 仓分钟免费，代价是延迟非成本。
 # 2026-10-06 业主指令：ASR/LLAMA 构建步骤已删除（归 asr.yml）。
 # 2026-10-07 业主指令：ASR/LLAMA 痕迹零残留之延伸；v* tag 触发删除（无版本语义）。
 # 委员会重设计全文：refactor/discussions/2026-10-06-build-testflight-slim-round1.md。
@@ -31,7 +28,8 @@
 # Xcode 主版本升级指引：①确认全绿基线；②同步「环境与工具链」断言；③L0→L1→归档→上传
 #   全链路回归；④新工具链若令编译/测试变红，按错误族修复并沉淀。
 # CI/CD 审计脉络：2026-09-10 round1 / 2026-09-21 hardening / 2026-10-06 slim-round1 /
-#   2026-10-07 ci-tests 消解 / 2026-10-07 触发面手动化（取消 push 自动触发，本轮）。
+#   2026-10-07 ci-tests 消解 / 2026-10-07 触发面手动化（取消 push 自动触发） /
+#   2026-10-08 PR 触发删除——仅手动 dispatch（本轮）。
 #
 name: Build + TestFlight
 
@@ -41,11 +39,6 @@ on:
   # TestFlight（发布入口改为手动 dispatch；同 llm.yml 先例「重建改手动」同族法理）。
   # 历史：v* tag 触发亦已于 2026-10-07 删除（tag 不携带 App 版本语义，版本唯一
   # 来源 version.txt，tag run 独立并发组可与上传并行造成重复构建）。
-  #
-  # 2026-10-07 业主指令（消解 ci-tests.yml）：PR 通道并入本文件——PR 上只跑
-  # gates + corekit + l1（build 经下方事件守卫跳过，upload 因 build≠success 自动
-  # 跳过）；dispatch 全链语义不变（并发组按 ref 隔离，PR 各占 refs/pull/N/merge）。
-  pull_request:
 
 concurrency:
   group: testflight-${{ github.ref }}
@@ -87,9 +80,6 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   # 测试面（2026-10-07 自 ci-tests.yml 迁入——业主指令消解该文件；与
   # gates/build 并行；2026-10-07 业主裁决：upload 四依赖门控（测试红不上传）。）
-  # PR 事件同样运行本区（发布面被 build 守卫跳过）。⚠ 合并后果：master 快推
-  # 时本区随发布 run 排队（原 ci-tests 的 cancel-in-progress:true 快反馈语义
-  # 让位于发布链排队语义 P9）——public 仓分钟免费，代价是延迟而非成本。
   # ═══════════════════════════════════════════════════════════════
   corekit:
     name: 'CoreKit 域层测试（swift test）'
@@ -477,9 +467,6 @@ jobs:
     # 互相独立，串行白等 l1 的 UI 测试时长（≈13-22 分钟/绿路径）；l1 红在 upload
     # 闸口拦截（四依赖门控见下），安全语义不变。
     needs: [gates, corekit]
-    # PR 事件守卫（2026-10-07 消解 ci-tests.yml）：PR 只跑测试面（gates+corekit+l1）；
-    # 发布面仅在 push/dispatch 运行——upload 因 needs.build.result ≠ success 自动跳过。
-    if: ${{ github.event_name != 'pull_request' }}
     # 密钥面收窄：job 级 env 只保留存在性布尔，实际密钥值由各消费步骤
     # 以 step 级 env 注入——不消费密钥的步骤（artifact 上传等）
     # 不再可见密钥内容。
