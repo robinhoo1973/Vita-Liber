@@ -126,6 +126,9 @@ jobs:
           name: asr-draft-test-${{ github.run_id }}
           path: ${{ runner.temp }}
 
+      - name: 取模型（Release 资产 + 哈希校验;GGUF 不随 git,run 37781264712 实证）
+        run: python3 .github/actions/release/materialize-llama-model.py
+
       - name: 安装 llama.cpp（官方预构建;钉 tag+sha256）
         env:
           LLAMA_TAG: b11499
