@@ -1,4 +1,7 @@
-# ASR 下载文件构建与发布：可被 TestFlight 调用，也可独立手动运行。
+# ASR 下载文件构建与发布（2026-10-08 业主指令＝无开关、无门禁的全自动 CI）：
+# asr 相关路径的 master 推送自动触发全链（verify 验收 ∥ models 构建发布并联），
+# workflow_dispatch 手动等价、workflow_call 供上层调用；链路幂等（无变全复用/
+# 同名同摘要跳过），测试红即整 run 红且不发布（链内自动闸）。
 # 版本面（2026-10-07 业主裁决＝全自动）：每次 run 由 .github/config/asr/models.json
 # 的 watch 规则解析上游最新版——内容有变即滚动 pin（下载实测）→ 动态派生身份
 # （version/builtAt/artifactRevision r+1）→ 强制重建；无变则全量复用。次源锁定文件
@@ -29,14 +32,19 @@ on:
       ASR_PACKAGE_KEY:
         required: false
   workflow_dispatch:
-    inputs:
-      # 2026-10-08 委员会（架构席终审）：verify_only=true 时跳过 models 构建/
-      # 发布 job，只跑零密钥验收 job——脚本改动平时唯一执行点=真发布
-      # （副作用：catalogVersion+1+README sync），verify 是唯一零副作用通道。
-      verify_only:
-        description: "仅运行零密钥验收（bootstrap 复现：inventory+probe；跳过构建/发布）"
-        type: boolean
-        default: false
+  # 全自动化（2026-10-08 业主指令：无开关、无门禁的全自动 CI）：asr 相关
+  # 路径的 master 推送即自动跑全链（verify 验收 ∥ models 构建发布）——
+  # 链路幂等（无变全复用/同名同摘要跳过），测试红即红不发布（链内自动闸,
+  # 非人工开关）。verify_only 输入已删除（单形态:dispatch=push=全链）。
+  push:
+    branches: [master]
+    paths:
+      - ".github/actions/release/**"
+      - ".github/config/asr/**"
+      - ".github/config/requirements/**"
+      - ".github/workflows/asr.yml"
+      - "Resources/ASRModels/**"
+      - "Resources/ASRModelUpdates/**"
 
 permissions:
   contents: read
@@ -48,9 +56,6 @@ concurrency:
 jobs:
   models:
     name: 构建、校验与发布 ASR 下载文件
-    # verify_only=true（手动零副作用验收）时跳过本 job；workflow_call 事件下
-    # 无该输入（空值 != true 为真）且事件名非 dispatch，条件恒真（不受影响）。
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -258,19 +263,15 @@ jobs:
           exit 1
 
   # ═══════════════════════════════════════════════════════════════
-  # 零密钥验收 job（2026-10-08 委员会,架构席终审）：
-  # bootstrap 六提交「复现验收」的唯一零副作用通道——models job 是脚本改动
-  # 平时唯一执行点，但带真发布副作用（catalogVersion+1+README sync）；
-  # 本 job 零密钥消费（不引用任何 secrets）、零 CNB 写、仅读 GitHub/HF 下载面。
-  # 仅 workflow_dispatch 运行（workflow_call 调用方为历史面）；与 models 并联
-  # （不 gate，发布时延不变），共享 concurrency 组。verify_only=true 时是其
-  # 唯一运行 job。闭环判据（架构席）：inventory 13/13 在册、缺候选 0、未知 0
-  # 且 probe 12/12 零 mismatch 即 bootstrap 批实弹闭环（qwen3=github-release
-  # 面由下方字节级补测承担——probe 仅覆盖 hf-repo，见 probe 循环跳过分派）。
+  # 零密钥验收 job（2026-10-08 委员会,架构席终审；2026-10-08 夜全自动化）：
+  # bootstrap 复现验收——零密钥消费（不引用任何 secrets）、零 CNB 写、仅读
+  # GitHub/HF 下载面。全事件运行（push/dispatch/workflow_call 与 models 并联,
+  # 不 gate,共享 concurrency 组）；闭环判据：inventory 全数在册、缺候选 0、
+  # 未知 0 且 probe 全档零 mismatch（非 hf-repo 面由下方字节级补测承担——
+  # probe 仅覆盖 hf-repo,见 probe 循环跳过分派）。
   # ═══════════════════════════════════════════════════════════════
   verify:
     name: 零密钥验收（bootstrap 复现：inventory+probe）
-    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -288,7 +289,7 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
 
       # 离线契约电池与 models job「校验构建、签名及版本规则」步保持同一清单
-      # （零网络、秒级；verify_only 模式下 models job 不跑，此为该面的执行点）。
+      # （零网络、秒级；本 job 自足——任一通道红即整 run 红）。
       - name: 离线契约电池（零网络）
         run: |
           python3 .github/actions/release/test-release-version.py
