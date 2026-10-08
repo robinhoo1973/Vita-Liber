@@ -587,7 +587,18 @@ def emit_config_candidates(proposals, config, copy_doc, out_dir, probes=None):
             if draft.get("revision"):
                 entry["revision"] = draft["revision"]
             if draft.get("files"):
-                entry["files"] = draft["files"]
+                # 按金样顺序合并:member 件以实测重填,**url 基件（无 member,
+                # 如 whisper 各档外部 LICENSE）原位保留**——它们不在探针下载面,
+                # 直接替换 files 会丢件（2026-10-08 自检步实弹抓到该缺陷）。
+                measured_by_member = {f["member"]: f for f in draft["files"] if "member" in f}
+                merged = []
+                for gold_file in entry.get("files", []):
+                    if "member" in gold_file:
+                        merged.append(measured_by_member.pop(gold_file["member"], gold_file))
+                    else:
+                        merged.append(gold_file)
+                merged.extend(measured_by_member.values())
+                entry["files"] = merged
             if "archive" in draft:
                 entry["archive"] = draft["archive"]
     # (id,variant) 键控（2026-10-08:G1 修复——原按 id 去重会丢同族新档位）。

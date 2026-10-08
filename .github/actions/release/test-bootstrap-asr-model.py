@@ -391,6 +391,33 @@ class BootstrapTests(unittest.TestCase):
                          "实测漂移必须出现在生成物（自检步据此判红）")
         self.assertEqual(drifted["models"][0]["license"], "MIT", "人工面保持金样")
 
+    def test_emit_refill_preserves_url_based_files(self):
+        # 自检步实弹抓到的缺陷（2026-10-08）:重填 files 必须按金样顺序合并,
+        # url 基件（无 member,如 whisper 外部 LICENSE）原位保留,不得丢件。
+        emit = MODULE["emit_config_candidates"]
+        config = {"formatVersion": 1, "models": [
+            {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "b" * 40,
+             "source": "s", "watch": {"kind": "hf-repo", "repo": "w"},
+             "versionPolicy": {"prefix": "int8"},
+             "files": [
+                 {"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                  "path": "whisper/tiny-encoder.int8.onnx", "bytes": 1, "sha256": "1" * 64},
+                 {"role": "notice", "path": "whisper/tiny/LICENSE",
+                  "url": "https://raw.example/LICENSE", "bytes": 5, "sha256": "2" * 64}]}]}
+        draft = json.loads(json.dumps(config["models"][0]))
+        draft["files"] = [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                           "path": "whisper/tiny-encoder.int8.onnx", "bytes": 7,
+                           "sha256": "7" * 64}]
+        with tempfile.TemporaryDirectory() as directory:
+            emit([], config, {"formatVersion": 1, "families": [], "tiers": []},
+                 Path(directory), probes=[{"entry": "whisper.tiny", "repo": "w", "draft": draft}])
+            generated = json.loads((Path(directory) / "models.json").read_text())
+        files = generated["models"][0]["files"]
+        self.assertEqual([f.get("member") for f in files], ["tiny-encoder.int8.onnx", None],
+                         "url 基件原位保留")
+        self.assertEqual(files[0]["sha256"], "7" * 64, "member 件实测重填")
+        self.assertEqual(files[1]["url"], "https://raw.example/LICENSE")
+
     def test_discover_authors(self):
         # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局
         discover = MODULE["discover_authors"]
