@@ -1026,26 +1026,37 @@ jobs:
           fi
           ls -la corpus.jsonl || true
           ls -la entities.jsonl 2>/dev/null || echo "提示:无实体件 → 负例路径将关闭"
-      - name: 训练状态与 checkpoint 取回(幂等;缺状态=首链)
+      - name: 训练状态与 checkpoint 取回(幂等;状态按 corpus 谱系命名)
         run: |
           PY="python3 .github/actions/distill/gen/release_io.py"
           POL="python3 .github/actions/distill/policy.py"
-          if $PY fetch --release llama-models --name train-state-train-encoder.json --out . --optional; then
-            mv train-state-train-encoder.json state.json
+          # 谱系键 = corpus 内容 sha 前 8(内容寻址文件名内);dataVersion 从 corpus manifest
+          CORPUS_SHA=$(ls corpus.jsonl >/dev/null 2>&1; python3 -c "import hashlib;print(hashlib.sha256(open('corpus.jsonl','rb').read()).hexdigest())")
+          SHA8="${CORPUS_SHA:0:8}"
+          M=$($PY pick --release distill-corpus --pattern 'distill-corpus-manifest-sha256-.*[.]json$' --out /tmp/cm-pick.txt)
+          $PY fetch --release distill-corpus --name "$M" --out . --optional || true
+          CORPUS_DV=$(python3 -c "import json,glob;print(json.load(open(glob.glob('distill-corpus-manifest-*.json')[0]))['catalog_data_version'])" 2>/dev/null || echo "")
+          STATE_NAME="train-state-train-encoder-${SHA8}.json"
+          if $PY fetch --release llama-models --name "$STATE_NAME" --out . --optional; then
+            mv "$STATE_NAME" state.json
+            echo "续跑谱系 $SHA8(数据版本 ${CORPUS_DV:0:16}…)"
           else
             python3 .github/actions/distill/gen/chunk_chain.py init --out state.json \
               --task train-encoder \
               --total-steps "$($POL --get training.encoder.steps)" \
-              --max-chunks "$(python3 -c 'import sys;sys.path.insert(0,".github/actions/distill");import policy;print(policy.get(policy.load(),"training.maxChunks")["train-encoder"])')"
+              --max-chunks "$(python3 -c 'import sys;sys.path.insert(0,".github/actions/distill");import policy;print(policy.get(policy.load(),"training.maxChunks")["train-encoder"])')" \
+              --corpus-sha "$SHA8" --data-version "$CORPUS_DV"
+            echo "新谱系 $SHA8"
           fi
+          echo "STATE_NAME=$STATE_NAME" >> "$GITHUB_ENV"
           mkdir -p ckpt
-          $PY fetch-ckpt --release llama-models --prefix enc --out ckpt || echo "无既往 checkpoint=首跑"
+          $PY fetch-ckpt --release llama-models --prefix "enc-$SHA8" --out ckpt || echo "本谱系无既往 checkpoint=首跑"
           cat state.json
       - name: Train chunk(墙钟预算优雅停机;CPU;负例消费)
         id: train
         run: |
           POL="python3 .github/actions/distill/policy.py"
-          MINS=$($POL --get training.chunkMinutes)
+          MINS=$($POL --get training.schedule.workMinutes)
           RESUME=""
           [ -f ckpt/checkpoint-latest.json ] && RESUME="--resume-dir ckpt"
           NEG="off"; ENT=""
@@ -1071,7 +1082,8 @@ jobs:
         id: chain
         run: |
           PY="python3 .github/actions/distill/gen/release_io.py"
-          $PY push-ckpt --release llama-models --prefix enc --dir train-out/checkpoints || \
+          SHA8="${STATE_NAME#train-state-train-encoder-}"; SHA8="${SHA8%.json}"
+          $PY push-ckpt --release llama-models --prefix "enc-$SHA8" --dir train-out/checkpoints || \
             echo "::warning::checkpoint 回传失败(重跑幂等,不吞红由状态机)"
           FAILED=""
           [ "${{ steps.train.outputs.rc }}" = "0" ] || FAILED="--failed"
@@ -1080,8 +1092,8 @@ jobs:
           DEC=$(python3 .github/actions/distill/gen/chunk_chain.py decide \
             --state state.json --out state-new.json \
             --chunk-steps "${{ steps.train.outputs.steps }}" $FAILED $LOSSARG)
-          mv state-new.json train-state-train-encoder.json
-          $PY push --release llama-models --file train-state-train-encoder.json --replace
+          mv state-new.json "$STATE_NAME"
+          $PY push --release llama-models --file "$STATE_NAME" --replace
           echo "decision=$DEC" >> "$GITHUB_OUTPUT"
       - name: Chain(自派发下一 chunk;三重闸后唯一放行)
         if: steps.chain.outputs.decision == 'next'

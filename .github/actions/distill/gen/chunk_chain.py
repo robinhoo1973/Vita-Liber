@@ -26,10 +26,17 @@ from pathlib import Path
 STATUSES = ("running", "done", "stopped")
 
 
-def new_state(task: str, total_steps: int, max_chunks: int) -> dict:
+def new_state(task: str, total_steps: int, max_chunks: int,
+              corpus_sha: str | None = None,
+              trained_data_version: str | None = None) -> dict:
+    """谱系字段(2026-10-09 调度四规则):corpus_sha=状态谱系键(文件名 <sha8>);
+    trained_data_version=本条链针对的 sqlite/corpus dataVersion(规则①数据门禁用;
+    done 后即成"已训版本"标记)。"""
     return {"task": task, "total_steps": int(total_steps), "done_steps": 0,
             "chunks_done": 0, "max_chunks": int(max_chunks), "status": "running",
-            "stop_reason": None, "last_loss": None, "updated_at": _now()}
+            "stop_reason": None, "last_loss": None,
+            "corpus_sha": corpus_sha, "trained_data_version": trained_data_version,
+            "updated_at": _now()}
 
 
 def _now() -> str:
@@ -85,6 +92,8 @@ def main() -> int:
     p0.add_argument("--task", required=True)
     p0.add_argument("--total-steps", type=int, required=True)
     p0.add_argument("--max-chunks", type=int, required=True)
+    p0.add_argument("--corpus-sha", default=None)
+    p0.add_argument("--data-version", default=None)
 
     p1 = sub.add_parser("decide")
     p1.add_argument("--state", type=Path, required=True)
@@ -95,8 +104,10 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.cmd == "init":
-        args.out.write_text(json.dumps(new_state(args.task, args.total_steps, args.max_chunks),
-                                       ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        args.out.write_text(json.dumps(
+            new_state(args.task, args.total_steps, args.max_chunks,
+                      corpus_sha=args.corpus_sha, trained_data_version=args.data_version),
+            ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print("initialized")
         return 0
     state, decision = decide(load_state(args.state), chunk_failed=args.failed,

@@ -336,7 +336,25 @@ def main() -> int:
                         help="开发旁路:跳过网络,直接用本机目录 SQLite(仅本地原型期)")
     parser.add_argument("--keep-intermediates", action="store_true",
                         help="保留 .fetch-work/(密文+ZIP,供失败诊断;默认成功后清理)")
+    parser.add_argument("--pointer-only", action="store_true",
+                        help="只读指针信封(manifest.json):打印 dataVersion/catalogVersion 即退"
+                             "(训练调度器数据门禁用;不下载 package)")
     args = parser.parse_args()
+
+    if args.pointer_only:
+        try:
+            work = args.out_dir / ".pointer-work"
+            work.mkdir(parents=True, exist_ok=True)
+            pointer_path = work / MANIFEST_ASSET_NAME
+            download_asset(args.repository, args.tag, MANIFEST_ASSET_NAME, pointer_path)
+            pointer = parse_catalog_pointer(pointer_path.read_bytes())
+            print(json.dumps({"dataVersion": pointer.get("dataVersion", ""),
+                              "catalogVersion": pointer.get("catalogVersion", "")},
+                             ensure_ascii=False))
+        except (OSError, ValueError, urllib.error.URLError) as exc:
+            print(f"FAILED: {exc}", file=sys.stderr)
+            return 1
+        return 0
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     try:

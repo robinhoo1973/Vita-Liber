@@ -150,6 +150,17 @@
       "bucketing": "sft-only",
       "bf16": "probe-gated",
       "compile": "deferred"
+    },
+    "schedule": {
+      "_comment": "业主四规则 2026-10-09:②窗口=maintenance.yml cron '0 0,8,16'(UTC 00:00 起算);④workMinutes=330 工作 + 25min 收尾在 6h 顶内(job timeout 355);①skipIfDataUnchanged;③未完成续跑(状态机)",
+      "windowsUtc": [
+        0,
+        8,
+        16
+      ],
+      "workMinutes": 330,
+      "maxJobMinutes": 355,
+      "skipIfDataUnchanged": true
     }
   },
   "publish": {
