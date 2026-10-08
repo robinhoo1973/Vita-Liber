@@ -844,8 +844,10 @@ def gen_prescription(pools, rng, vocab_chars):
             line1, sp1 = make_line(segs1, rng, nz=nz)
             lines.append(line1)
             li1 = len(lines) - 1
-            segs2 = [(f"用法：{dosage_seg}", "value", "dosage"), (freq, "value", "frequency"),
-                     (route, "value", "route")]
+            # 金标统一(round5 数据批):「用法」归 label 段,dosage 金标=数量+单位,
+            # 与 cols/labeled 变式一致——此前 (f"用法：{dosage_seg}") 使同字段两套金标
+            segs2 = [(L(region, "用法"), "label", None), (dosage_seg, "value", "dosage"),
+                     (freq, "value", "frequency"), (route, "value", "route")]
             if days:
                 segs2.append((f"{days}天", "value", "days"))
             line2, sp2 = make_line(segs2, rng, nz=nz)
