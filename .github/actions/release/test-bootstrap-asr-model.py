@@ -245,6 +245,24 @@ class BootstrapTests(unittest.TestCase):
         report = compare(draft_missing, existing)
         self.assertTrue(any("only in existing" in line for line in report["mismatch"]))
 
+    def test_apply_template_dir_ignores_url_based_files(self):
+        # TEMP 专测实弹（2026-10-08）:dir 约定判定必须只看 member 件——url 基件
+        # 的 path 带档位子目录（whisper/tiny/LICENSE）曾致 member 件不重排,
+        # probe 原始前缀（whisper-tiny/）残留、生成物与金样漂移。
+        apply = MODULE["apply_template"]
+        template = {"id": "whisper", "variant": "tiny",
+                    "files": [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                               "path": "whisper/tiny-encoder.int8.onnx"},
+                              {"role": "notice", "path": "whisper/tiny/LICENSE",
+                               "url": "https://raw.example/LICENSE"}]}
+        draft = {"id": "whisper", "variant": "tiny",
+                 "files": [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                            "path": "whisper-tiny/tiny-encoder.int8.onnx"},
+                           {"role": "notice", "path": "whisper-tiny/LICENSE"}]}
+        merged = apply(draft, template)
+        self.assertEqual(merged["files"][0]["path"], "whisper/tiny-encoder.int8.onnx",
+                         "member 件重排到金样目录约定（url 基件不干扰判定）")
+
     def test_emit_config_candidates(self):
         # 生成链第一步（2026-10-08 业主指令）：只追加新家族提案;既有条目零触碰
         # （人工字段原样）;catalog-copy 骨架三语空串（投影器 fail-closed 拒

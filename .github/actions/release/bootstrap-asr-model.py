@@ -336,8 +336,11 @@ def apply_template(draft, template):
         merged["versionPolicy"] = dict(template["versionPolicy"])
     if merged.get("license") in (None, "", REVIEW) and template.get("license"):
         merged["license"] = template["license"]
+    # dir 约定只取 **member 件**（2026-10-08 TEMP 专测实弹:url 基件的 path 是
+    # 外部引用落位,不代表目录约定——whisper 各档 url 基 LICENSE 带档位子目录,
+    # 曾把 dir 集合变为双元素致 member 件不重排、probe 原始前缀残留）。
     dirs = {f["path"].rsplit("/", 1)[0] for f in template.get("files", [])
-            if "path" in f and "/" in f["path"]}
+            if "path" in f and "/" in f["path"] and "member" in f}
     if len(dirs) == 1:
         dirname = dirs.pop()
         merged["files"] = [
