@@ -281,6 +281,12 @@ jobs:
         with:
           python-version: '3.13.5'
 
+      # 契约电池中的 yaml 消费测试（test-release-version / test-cnb-release-workflow
+      # / test-model-trust）需要 PyYAML——与 models job 同一步骤同钉版清单
+      # （CI 37722650928 实证：缺装即 ModuleNotFoundError 红）。
+      - name: 安装公开校验工具依赖（哈希钉版，S-M6）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
       # 离线契约电池与 models job「校验构建、签名及版本规则」步保持同一清单
       # （零网络、秒级；verify_only 模式下 models job 不跑，此为该面的执行点）。
       - name: 离线契约电池（零网络）
