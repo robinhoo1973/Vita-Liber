@@ -52,8 +52,27 @@ def llm_chat(endpoint, model, prompt, *, api_key=None, temperature=0.2, timeout=
         headers["Authorization"] = "Bearer " + api_key
     request = urllib.request.Request(endpoint.rstrip("/") + "/chat/completions",
                                      data=payload, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        document = json.loads(response.read(1 << 20))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read(1 << 20)
+            final_url = response.geturl()
+    except urllib.error.HTTPError as error:
+        detail = ""
+        try:
+            detail = error.read(300).decode("utf-8", "replace")
+        except OSError:
+            pass
+        raise SuggestError("HTTP %d（%s）: %s" % (error.code, error.geturl(), detail))
+    except (OSError, ValueError) as error:
+        raise SuggestError("请求失败: %s" % error)
+    try:
+        document = json.loads(raw)
+    except ValueError:
+        # 诊断增强（2026-10-08 TEMP 实证:空/重定向响应曾只报
+        # "Expecting value"——附最终 URL 与片段,直接暴露认证/重定向类问题）。
+        raise SuggestError("非 JSON 响应（%d 字节,最终 URL=%s）: %s"
+                           % (len(raw), final_url,
+                              raw[:300].decode("utf-8", "replace")))
     return document["choices"][0]["message"]["content"]
 
 
