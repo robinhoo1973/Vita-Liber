@@ -134,6 +134,9 @@ jobs:
           python3 .github/actions/release/test-asr-change-set.py
           # 2026-10-08 bootstrap 批：按名发现工具的纯函数面（离线）。
           python3 .github/actions/release/test-bootstrap-asr-model.py
+          # 2026-10-08 LLM 草拟批：旁路侧车纯离线面（mock LLM;禁本地跑 asr 任务
+          # 不覆盖纯草拟器——不下载/不构建/不发布,只读候选+LLM+写旁路）。
+          python3 .github/actions/release/test-suggest-asr-metadata.py
           # 2026-10-08 治理批：仓库模板信封必须验签——此前 Linux 链无人验，
           # 「改模板不重签」可经 CI 重签发布；发布前硬红闭合该盲路。
           python3 .github/actions/release/model-trust.py verify \
