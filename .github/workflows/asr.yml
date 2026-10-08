@@ -29,6 +29,14 @@ on:
       ASR_PACKAGE_KEY:
         required: false
   workflow_dispatch:
+    inputs:
+      # 2026-10-08 委员会（架构席终审）：verify_only=true 时跳过 models 构建/
+      # 发布 job，只跑零密钥验收 job——脚本改动平时唯一执行点=真发布
+      # （副作用：catalogVersion+1+README sync），verify 是唯一零副作用通道。
+      verify_only:
+        description: "仅运行零密钥验收（bootstrap 复现：inventory+probe；跳过构建/发布）"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,6 +48,9 @@ concurrency:
 jobs:
   models:
     name: 构建、校验与发布 ASR 下载文件
+    # verify_only=true（手动零副作用验收）时跳过本 job；workflow_call 事件下
+    # 无该输入（空值 != true 为真）且事件名非 dispatch，条件恒真（不受影响）。
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.verify_only != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -245,3 +256,128 @@ jobs:
           done
           echo "::error::CNB publish failed after 3 attempts" >&2
           exit 1
+
+  # ═══════════════════════════════════════════════════════════════
+  # 零密钥验收 job（2026-10-08 委员会,架构席终审）：
+  # bootstrap 六提交「复现验收」的唯一零副作用通道——models job 是脚本改动
+  # 平时唯一执行点，但带真发布副作用（catalogVersion+1+README sync）；
+  # 本 job 零密钥消费（不引用任何 secrets）、零 CNB 写、仅读 GitHub/HF 下载面。
+  # 仅 workflow_dispatch 运行（workflow_call 调用方为历史面）；与 models 并联
+  # （不 gate，发布时延不变），共享 concurrency 组。verify_only=true 时是其
+  # 唯一运行 job。闭环判据（架构席）：inventory 13/13 在册、缺候选 0、未知 0
+  # 且 probe 12/12 零 mismatch 即 bootstrap 批实弹闭环（qwen3=github-release
+  # 面由下方字节级补测承担——probe 仅覆盖 hf-repo，见 probe 循环跳过分派）。
+  # ═══════════════════════════════════════════════════════════════
+  verify:
+    name: 零密钥验收（bootstrap 复现：inventory+probe）
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      # 离线契约电池与 models job「校验构建、签名及版本规则」步保持同一清单
+      # （零网络、秒级；verify_only 模式下 models job 不跑，此为该面的执行点）。
+      - name: 离线契约电池（零网络）
+        run: |
+          python3 .github/actions/release/test-release-version.py
+          python3 .github/actions/release/test-next-catalog-version.py
+          python3 .github/actions/release/test-asr-assets.py
+          python3 .github/actions/release/test-asr-secrets-init.py
+          python3 .github/actions/release/test-asr-package-integrity.py
+          python3 .github/actions/release/test-model-trust.py
+          python3 .github/actions/release/test-asr-release.py
+          python3 .github/actions/release/test-asr-release-page.py
+          python3 .github/actions/release/test-medical-package-fixture.py
+          python3 .github/actions/release/test-cnb-release.py
+          python3 .github/actions/release/test-cnb-release-workflow.py
+          python3 .github/actions/release/test-seed-cnb-model-assets.py
+          python3 .github/actions/release/test-asr-overview.py
+          python3 .github/actions/release/test-asr-config-projection.py
+          python3 .github/actions/release/test-resolve-asr-models.py
+          python3 .github/actions/release/test-apply-asr-catalog-copy.py
+          python3 .github/actions/release/test-asr-change-set.py
+          python3 .github/actions/release/test-bootstrap-asr-model.py
+          python3 .github/actions/release/model-trust.py verify \
+            --root Resources/ModelTrustRoot.json \
+            --catalog Resources/ASRModelUpdates/manifest.json
+
+      # 复现验收：inventory（名字→候选映射，API 级）+ probe（对 13 在册中
+      # hf-repo 的 12 档重下载实测，与 models.json 金样逐字段对账）。
+      - name: bootstrap 复现验收（inventory + 12 仓 probe）
+        run: |
+          python3 .github/actions/release/bootstrap-asr-model.py \
+            --from-seeds .github/config/asr/seeds.json \
+            --compare-config .github/config/asr/models.json \
+            --probe \
+            --workdir "$RUNNER_TEMP/asr-bootstrap" \
+            --out "$RUNNER_TEMP/asr-repro.json"
+
+      - name: 断言（13 在册/0 缺失/0 未知；12/12 复现/0 mismatch/0 error）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-repro.json" <<'PYEOF'
+          import json
+          import sys
+          doc = json.load(open(sys.argv[1], encoding="utf-8"))
+          summary = doc["inventory"]["summary"]
+          problems = []
+          if summary["in_config"] != 13:
+              problems.append("in_config=%s (期望 13)" % summary["in_config"])
+          if summary["missing_pinned"] != 0:
+              problems.append("missing_pinned=%s (期望 0)" % summary["missing_pinned"])
+          if summary["unknown"] != 0:
+              problems.append("unknown=%s (期望 0)" % summary["unknown"])
+          probes = doc.get("probes", [])
+          mismatches = sum(1 for row in probes if isinstance(row.get("compare"), dict)
+                           and row["compare"]["mismatch"])
+          errors = sum(1 for row in probes if row.get("status") == "error")
+          if len(probes) != 12:
+              problems.append("probes=%d (期望 12;qwen3 为 github-release 面另行字节补测)" % len(probes))
+          if mismatches != 0:
+              problems.append("mismatch=%d (期望 0)" % mismatches)
+          if errors != 0:
+              problems.append("error=%d (期望 0)" % errors)
+          if problems:
+              print("::error::bootstrap 复现验收失败: " + "; ".join(problems))
+              raise SystemExit(1)
+          print("bootstrap 复现验收通过: 13/13 在册 / 12/12 复现 / 0 mismatch / 0 error")
+          PYEOF
+
+      # probe 只覆盖 hf-repo 在册项（见 bootstrap 主流程的 kind 跳过分派），
+      # qwen3（github-release 型）的字节复现由此补测承担：直接下载 GitHub
+      # release tar.bz2 与 models.json 金样比 sha256+bytes（不依赖 api.github.com）。
+      - name: qwen3 字节级补测（github-release 面）
+        run: |
+          set -euo pipefail
+          read -r url expected_bytes expected_sha < <(python3 -I - <<'PYEOF'
+          import json
+          entry = next(e for e in json.load(open(".github/config/asr/models.json"))["models"]
+                       if e["id"] == "qwen3")
+          archive = entry["archive"]
+          print(archive["url"], archive["bytes"], archive["sha256"])
+          PYEOF
+          )
+          archive_path="$RUNNER_TEMP/qwen3-archive.bin"
+          curl -L --fail --silent --show-error "$url" -o "$archive_path"
+          actual_sha=$(sha256sum "$archive_path" | cut -d' ' -f1)
+          actual_bytes=$(stat -c %s "$archive_path")
+          if [ "$actual_sha" != "$expected_sha" ] || [ "$actual_bytes" != "$expected_bytes" ]; then
+            echo "::error::qwen3 字节复现失败: sha=$actual_sha/$expected_sha bytes=$actual_bytes/$expected_bytes"
+            exit 1
+          fi
+          echo "qwen3 字节复现通过: sha256+bytes 与金样一致 ($actual_bytes bytes)"
+          rm -f "$archive_path"
+
+      - name: 上传复现报告
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-bootstrap-repro
+          path: ${{ runner.temp }}/asr-repro.json
+          retention-days: 7
+          if-no-files-found: warn
