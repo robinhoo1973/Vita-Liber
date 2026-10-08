@@ -45,6 +45,46 @@ emit() {
   echo
 }
 
+closure() {
+  # 计算 LINUX_DIR 中给定顶层包的完整传递闭包(按 wheel METADATA 的 Requires-Dist
+  # 名对名逐级展开;跳过 extras 标记,不做平台 marker 求值——目录本身已是
+  # pip download 按目标平台解析的产物集)。2026-10-08 修复:此前 prepare 段用
+  # 手选包名过滤,漏掉 tokenizers→huggingface-hub 传递链,首跑 CI 37707957974
+  # 在 --require-hashes 下实证红(「all requirements must be pinned with ==」)。
+  python3 - "$LINUX_DIR" "$@" <<'PY'
+import sys, zipfile, re
+from pathlib import Path
+wheel_dir = Path(sys.argv[1])
+tops = [n.lower().replace('-', '_') for n in sys.argv[2:]]
+wheels = {}
+for p in sorted(wheel_dir.glob('*.whl')):
+    dist = p.name.split('-')[0].lower().replace('-', '_')
+    wheels.setdefault(dist, p)
+def requires(path):
+    with zipfile.ZipFile(path) as z:
+        meta = next(n for n in z.namelist() if n.endswith('.dist-info/METADATA'))
+        for line in z.read(meta).decode('utf-8', 'replace').splitlines():
+            if line.startswith('Requires-Dist:'):
+                spec = line.split(':', 1)[1].strip()
+                name, _, marker = spec.partition(';')
+                if 'extra ==' in marker:
+                    continue
+                yield re.split(r'[<>=!~\[ (]', name.strip(), 1)[0].lower().replace('-', '_')
+seen, order = set(), []
+def visit(name):
+    if name in seen or name not in wheels:
+        return
+    seen.add(name)
+    order.append(wheels[name])
+    for dep in requires(wheels[name]):
+        visit(dep)
+for t in tops:
+    visit(t)
+for p in sorted(order, key=lambda x: x.name.lower()):
+    print(p)
+PY
+}
+
 {
   echo "# 蒸馏/训练依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)"
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner;torch 走 pytorch.org CPU 索引,无 CUDA)"
@@ -92,10 +132,12 @@ fi
   echo "# 平台:linux x86_64 cp313(ubuntu-24.04 runner)"
   echo "# 生成日期:$(date -u +%Y-%m-%d)"
   echo "# -- prepare --"
-  for name in cryptography cffi pycparser pypinyin tokenizers; do
-    for wheel in "$LINUX_DIR"/"$name"-*.whl; do
-      [ -e "$wheel" ] && hash_of "$wheel"
-    done
+  # prepare 段闭包修正(2026-10-08):手选 5 包名曾漏 tokenizers→huggingface-hub 链,
+  # 首跑 CI 实证红;现由 closure() 按 METADATA 展开完整传递闭包。
+  # 注:清单以「pip download 对 prepare 顶层集合的独立解析」为准(如 hub 1.x 链),
+  # 本闭包函数在并集 wheel 目录上为等价重建——两者都须经目标平台安装验证。
+  for wheel in $(closure cryptography pypinyin tokenizers); do
+    hash_of "$wheel"
   done
   echo
 } > "$OUT_DIR/requirements-distill-prepare-linux.txt"
