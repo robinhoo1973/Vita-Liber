@@ -47,6 +47,19 @@ sys.path.insert(0, os.path.dirname(_HERE))      # distill 根(extract/gate 包)
 from grounding import GroundingError, check_grounding, residual_of  # noqa: E402
 from safety_lexicon import load_safety_lexicon  # noqa: E402
 
+
+def _licenses_block() -> dict:
+    """逐源许可义务(H5 矩阵):policy.licenses 单一事实源;训练机平铺布局兜底 note。"""
+    keys = ("TFDA", "NHSA", "HK", "CN-REF")
+    try:
+        import policy as _policy
+        srcs = _policy.load()["licenses"]["sources"]
+        return {k: {"class": srcs[k]["class"], "attribution": srcs[k]["attribution"]}
+                for k in keys if k in srcs}
+    except (ImportError, FileNotFoundError, ValueError, KeyError):
+        return {k: {"note": "policy 布局缺失——训练机兜底(CI 侧必由 policy.licenses 单源)"}
+                for k in keys}
+
 from extract.extraction_noise import asr_noise_segment, sanitize_hard  # noqa: E402
 from gate.wording import WordingGuard, export_wording_blacklist  # noqa: E402
 
@@ -418,6 +431,8 @@ def build(catalog_dir: Path, out_dir: Path, *, count: int, eval_ratio: float, se
                            "emergency": len(lexicon["emergency"]), "high_risk": len(lexicon["high_risk"])},
         "facts": {t: len(rows) for t, rows in sorted(facts.items())},
         "stats": stats,
+        # 逐源许可义务(H5 矩阵;round2 E:三面 manifest 统一顶层 licenses)
+        "licenses": _licenses_block(),
         "data_feed": {"stamp": feed.get("stamp"), "generated_at": feed.get("generated_at"),
                       "source": feed.get("source", {})},
         "files": {},

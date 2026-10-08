@@ -139,6 +139,15 @@ class BuilderSmokeTests(unittest.TestCase):
         self.assertIn("files", manifest)
         self.assertTrue(manifest["files"]["extraction_sft.jsonl"]["sha256"])
 
+    def test_manifest_licenses_top_level_not_in_noise(self):
+        # round2 E:licenses 必须顶层(曾误埋 noise 块内);且逐源义务来自 policy 单源
+        manifest = json.loads((self.out / "extraction_manifest.json").read_text(encoding="utf-8"))
+        self.assertIn("licenses", manifest)
+        self.assertNotIn("licenses", manifest.get("noise", {}))
+        self.assertIn("TFDA", manifest["licenses"])
+        self.assertIn("PyCorrector", manifest["licenses"])
+        self.assertTrue(manifest["licenses"]["TFDA"]["attribution"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1605,6 +1605,8 @@ def main():
                    "eval_max_share": EVAL_MAX_SHARE,
                    "seed": args.seed, "budget": args.budget},
         "data_feed": data_feed,
+        # 逐源许可义务(H5 矩阵;policy 单一事实源)——顶层键(round2 质询席 E:不得埋进 noise 块)
+        "licenses": license_entries,
         "pools": {"drugs": len(pools["drugs"]), "drugs_by_region": {k: len(v) for k, v in sorted(drugs_by_region.items())},
                   "ref": ref_stats, "aliases": len(pools["aliases"]),
                   "groups": len(pools["groups"]), "diseases": len(pools["diseases"])},
@@ -1620,7 +1622,6 @@ def main():
                        "rate": round(agg["damaged"] / max(agg["spans"], 1), 4)}
                 for band, agg in (stats.get("noise", {}).get("bands") or {}).items()},
             "policy": policy_note,
-            "licenses": license_entries,   # 逐源许可义务(H5 矩阵;policy 单一事实源)
         },
         "stats": stats,
         "files": {},

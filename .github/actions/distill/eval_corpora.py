@@ -55,8 +55,30 @@ def _read_jsonl(path: Path):
                 yield lineno, json.loads(line)
 
 
+def check_licenses(manifest: dict, label: str, failures: list[str]) -> None:
+    """许可对账(H5 矩阵;round2 质询席 E 裁决):manifest.licenses 非空、来源已登记、义务齐。
+
+    eval-corpora job 有 checkout 可读 policy.json;训练机平铺布局 import 失败→跳过。
+    """
+    lic = manifest.get("licenses")
+    if not isinstance(lic, dict) or not lic:
+        failures.append(f"{label} manifest 缺 licenses 块(fail-closed;round2 E)")
+        return
+    try:
+        import policy as _policy
+        srcs = _policy.load()["licenses"]["sources"]
+    except (ImportError, FileNotFoundError, ValueError):
+        return
+    for src, entry in lic.items():
+        if src not in srcs:
+            failures.append(f"{label} 许可来源 {src} 未登记于 policy.licenses.sources")
+        elif not (entry.get("attribution") or entry.get("note")):
+            failures.append(f"{label} 来源 {src} 缺 attribution/note")
+
+
 def check_extraction(corpus_path: Path, manifest_path: Path, failures: list[str], stats: dict) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    check_licenses(manifest, f"extraction {corpus_path.name}", failures)
     recorded = manifest.get("files", {}).get(corpus_path.name, {}).get("sha256")
     actual = sha256_file(corpus_path)
     if recorded != actual:
@@ -101,6 +123,7 @@ def _fact_lines_from_user(content: str) -> list[str]:
 def check_dialogue(corpus_path: Path, manifest_path: Path, guard: WordingGuard,
                    failures: list[str], stats: dict) -> None:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    check_licenses(manifest, f"dialogue {corpus_path.name}", failures)
     recorded = manifest.get("files", {}).get(corpus_path.name, {}).get("sha256")
     actual = sha256_file(corpus_path)
     if recorded != actual:
