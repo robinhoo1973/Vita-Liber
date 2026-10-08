@@ -66,6 +66,17 @@ def fetch_asset(release: str, name: str, out_dir: Path, optional: bool = False) 
     return True
 
 
+def fetch_exit_code(fetched: bool, optional: bool) -> int:
+    """fetch 子命令退出码:0=取到;3=optional 跳过;1=硬失败。
+
+    2026-10-09 修(CI 实跑 37858840825):此前 optional 恒 0,workflow 的
+    `if fetch --optional`(状态续跑分支)与 `if ! fetch --optional`(实体兜底
+    分支)两头皆误——取到/跳过无法区分。跳过与成功必须不同码,条件分支才成立。"""
+    if fetched:
+        return 0
+    return 3 if optional else 1
+
+
 def ensure_draft(release: str, title: str) -> int:
     """存在(任意态)→ 返回 id;不存在 → 建 draft,返回 id。"""
     r = _run(["gh", "release", "view", release, "-R", repo(), "--json", "databaseId", "--jq", ".databaseId"])
@@ -181,7 +192,8 @@ def main() -> int:
     p2.add_argument("--release", required=True)
     p2.add_argument("--name", required=True)
     p2.add_argument("--out", type=Path, required=True)
-    p2.add_argument("--optional", action="store_true")
+    p2.add_argument("--optional", action="store_true",
+                    help="缺件不硬错;退出码 3=跳过(供 workflow 条件分支区分)")
 
     p3 = sub.add_parser("push")
     p3.add_argument("--release", required=True)
@@ -212,7 +224,7 @@ def main() -> int:
         print(a["name"])
     elif args.cmd == "fetch":
         ok = fetch_asset(args.release, args.name, args.out, optional=args.optional)
-        return 0 if ok or args.optional else 1
+        return fetch_exit_code(ok, args.optional)
     elif args.cmd == "push":
         upload_asset(args.release, args.file, args.name, replace=args.replace)
     elif args.cmd == "push-ckpt":

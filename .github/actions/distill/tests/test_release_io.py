@@ -73,6 +73,14 @@ class ReleaseIoTests(unittest.TestCase):
         finally:
             release_io._run = orig
 
+    def test_fetch_exit_code_optional_distinguishable(self):
+        # 2026-10-09(CI 37858840825):optional 跳过必须 ≠0,否则 `if fetch --optional`
+        # 与 `if ! fetch --optional` 条件两头皆误(mv 缺失文件 / 兜底死分支)
+        self.assertEqual(release_io.fetch_exit_code(True, False), 0)
+        self.assertEqual(release_io.fetch_exit_code(True, True), 0)
+        self.assertEqual(release_io.fetch_exit_code(False, True), 3)
+        self.assertEqual(release_io.fetch_exit_code(False, False), 1)
+
 
 class _ok:
     def __init__(self, stdout="", stderr="", returncode=0):
