@@ -238,7 +238,7 @@ jobs:
 
   build:
     name: ⑤ 源树准备·打包·文案投影（→ packages artifact）
-    needs: [project]
+    needs: [resolve, project]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     outputs:
@@ -407,7 +407,7 @@ jobs:
 
   publish:
     name: ⑦ CNB 发布（下载 artifact·回读核对）
-    needs: [sign]
+    needs: [build, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
