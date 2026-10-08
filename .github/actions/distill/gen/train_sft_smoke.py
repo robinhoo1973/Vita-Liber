@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 import time
@@ -33,6 +34,7 @@ import torch  # noqa: E402
 
 from model_minimind import MiniMindConfig, MiniMindForCausalLM  # noqa: E402
 from sft_dataset import ChatSFTDataset, collate_pad  # noqa: E402
+from smoke_assert import verify_smoke_summary  # noqa: E402
 
 
 def sha256_file(path: Path) -> str:
@@ -93,6 +95,10 @@ def main() -> int:
         model.load_state_dict(payload["state_dict"])
         optimizer.load_state_dict(payload["optimizer"])
         start_step = int(payload.get("step", 0))
+        if start_step >= args.max_steps:
+            raise SystemExit(
+                f"[smoke] 拒绝空跑: resume start_step={start_step} >= max_steps={args.max_steps}"
+                "(历史教训:0 新步会以绿色收场,结构断言上游先拒)")
     model.train()
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -105,17 +111,25 @@ def main() -> int:
 
     started = time.time()
     step = start_step
+    first_loss = None
     last_loss = float("nan")
+    grad_norm_max = 0.0
     stopped_by = "max_steps"
     while step < args.max_steps:
         for input_ids, labels in loader:
             loss = model(input_ids, labels=labels).loss
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            grad_norm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
             optimizer.step()
             optimizer.zero_grad()
             step += 1
             last_loss = float(loss.detach())
+            if not math.isfinite(last_loss) or not math.isfinite(grad_norm):
+                raise SystemExit(
+                    f"[smoke] 数值发散: step={step} loss={last_loss} grad_norm={grad_norm}")
+            if first_loss is None:
+                first_loss = last_loss
+            grad_norm_max = max(grad_norm_max, grad_norm)
             if step % args.log_every == 0 or step == args.max_steps:
                 print(json.dumps({"step": step, "loss": round(last_loss, 4),
                                   "elapsed_s": round(time.time() - started, 1)}), flush=True)
@@ -130,10 +144,28 @@ def main() -> int:
 
     checkpoint = args.out_dir / f"{args.label}-smoke.pt"
     save_checkpoint(checkpoint, model, optimizer, step=step, loss=last_loss, meta=meta)
-    summary = {"label": args.label, "steps": step, "started_at_step": start_step,
-               "elapsed_s": round(time.time() - started, 1), "last_loss": round(last_loss, 4),
-               "stopped_by": stopped_by, "checkpoint": str(checkpoint),
-               "checkpoint_sha256": sha256_file(checkpoint)}
+    # D5/D6(2026-10-08 委员会):summary 扩字段 + 五条结构断言=唯一绿判据
+    # (判据冻结在 gen/smoke_assert.py;负测 tests/test_smoke_assert.py)。
+    summary = {
+        "label": args.label, "steps": step, "started_at_step": start_step,
+        "new_steps": step - start_step,
+        "consumed_samples": (step - start_step) * args.batch,
+        "elapsed_s": round(time.time() - started, 1),
+        "first_loss": None if first_loss is None else round(first_loss, 6),
+        "last_loss": round(last_loss, 6),
+        "grad_norm_max": round(grad_norm_max, 6),
+        "stopped_by": stopped_by, "checkpoint": str(checkpoint),
+        "checkpoint_sha256": sha256_file(checkpoint),
+        "corpus_sha256": meta["corpus_sha256"],
+        "corpus_records": len(dataset),
+        "git_sha": os.environ.get("GITHUB_SHA", ""),
+    }
+    try:
+        verify_smoke_summary(summary, checkpoint)
+    except ValueError as exc:
+        print(json.dumps({"[smoke]": "assert_failed", "error": str(exc), **meta},
+                         ensure_ascii=False), flush=True)
+        return 1
     (args.out_dir / f"{args.label}-smoke.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"[smoke]": "done", **summary}, ensure_ascii=False), flush=True)
