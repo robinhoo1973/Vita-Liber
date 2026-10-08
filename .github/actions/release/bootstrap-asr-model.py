@@ -314,7 +314,15 @@ def apply_template(draft, template):
 
 
 def compare_entry(draft, existing):
-    """逆测对账：返回 {'match': [...], 'mismatch': [...], 'cosmetic': [...]}。"""
+    """逆测对账：返回 {'match': [...], 'mismatch': [...], 'cosmetic': [...]}。
+
+    选件口径（2026-10-08 无硬编码化,业主指令）：生成器对每个角色择**单件**
+    （量化孪生择一/许可择一）。单侧独有的成员若「本侧该角色恰 1 件、对侧该
+    角色存在（含 url 基件）」⇒ 选件差异（人工偏好的等价替换）,记 cosmetic
+    不判红——覆盖 zipformer decoder 非量化偏好 / 金样 notice 为外部 url 基件
+    等全部已知差异,无需家族白名单。生成器产出冗余多件（fp32 混入类）或
+    对侧角色缺失仍记 mismatch。
+    """
     report = {"match": [], "mismatch": [], "cosmetic": []}
     for key in ("id", "variant", "license", "revision"):
         (report["match"] if draft.get(key) == existing.get(key) else report["mismatch"]).append(
@@ -325,12 +333,30 @@ def compare_entry(draft, existing):
         report["mismatch"].append("watch.repo: %r vs %r" % (
             (draft.get("watch") or {}).get("repo"), (existing.get("watch") or {}).get("repo")))
     # 既有条目可含 url 基文件（如 whisper 各档的外部 LICENSE，无 member 键）——
-    # 其不在镜像仓探针的对照面内（2026-10-08 全量深探首跑 KeyError 实证）。
-    by_member = {f["member"]: f for f in existing.get("files", []) if "member" in f}
-    for item in draft.get("files", []):
+    # 其不在镜像仓探针的对照面内（2026-10-08 全量深探首跑 KeyError 实证），
+    # 但计入「角色存在性」（选件替换判定的对侧依据）。
+    existing_files = existing.get("files", [])
+    by_member = {f["member"]: f for f in existing_files if "member" in f}
+
+    def role_counts(files):
+        counts = {}
+        for f in files:
+            counts[f.get("role")] = counts.get(f.get("role"), 0) + 1
+        return counts
+
+    draft_files = draft.get("files", [])
+    draft_counts = role_counts(draft_files)
+    existing_counts = role_counts(existing_files)
+    for item in draft_files:
         existing_item = by_member.get(item["member"])
         if existing_item is None:
-            report["mismatch"].append("member only in draft: " + item["member"])
+            role = item.get("role")
+            if draft_counts.get(role) == 1 and existing_counts.get(role) == 1:
+                report["cosmetic"].append(
+                    "role %s: draft selected %s (existing picked a different single member)"
+                    % (role, item["member"]))
+            else:
+                report["mismatch"].append("member only in draft: " + item["member"])
             continue
         if (item["sha256"], item["bytes"], item["role"]) == \
                 (existing_item["sha256"], existing_item["bytes"], existing_item["role"]):
@@ -344,10 +370,16 @@ def compare_entry(draft, existing):
             report["cosmetic"].append("path %s: %s vs %s" % (
                 item["member"], item["path"], existing_item["path"]))
     existing_members = set(by_member)
-    for item in draft.get("files", []):
+    for item in draft_files:
         existing_members.discard(item["member"])
     for extra in sorted(existing_members):
-        report["mismatch"].append("member only in existing: " + extra)
+        extra_role = by_member[extra].get("role")
+        if existing_counts.get(extra_role) == 1 and draft_counts.get(extra_role) == 1:
+            report["cosmetic"].append(
+                "role %s: existing has %s (draft picked a different single member)"
+                % (extra_role, extra))
+        else:
+            report["mismatch"].append("member only in existing: " + extra)
     return report
 
 

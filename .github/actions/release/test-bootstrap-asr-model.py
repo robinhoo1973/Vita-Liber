@@ -194,6 +194,55 @@ class BootstrapTests(unittest.TestCase):
         report = compare(draft, existing)
         self.assertEqual(report["mismatch"], [])
 
+    def test_compare_entry_single_member_substitution_is_cosmetic(self):
+        # 选件口径（2026-10-08 无硬编码化）：同角色两侧各 1 件而选件不同 ⇒
+        # cosmetic（zipformer decoder 非量化偏好 / 金样 notice 为 url 基件等
+        # 全部已知差异走此口径,无需家族白名单）。
+        compare = MODULE["compare_entry"]
+        base = {"id": "zipformer", "variant": "large", "license": "Apache-2.0",
+                "revision": "a" * 40, "watch": {"repo": "r"}}
+        draft = dict(base, files=[
+            {"role": "decoder", "member": "decoder.int8.onnx", "path": "p", "bytes": 2, "sha256": "2" * 64},
+        ])
+        existing = dict(base, files=[
+            {"role": "decoder", "member": "decoder.onnx", "path": "p", "bytes": 1, "sha256": "1" * 64},
+        ])
+        report = compare(draft, existing)
+        self.assertEqual(report["mismatch"], [], "单件替换不判红")
+        self.assertEqual(len(report["cosmetic"]), 2, "两侧各记一条选件差异")
+        # 对侧为 url 基件（无 member）时同样成立（fire-red/sense-voice 形态）
+        existing_url = dict(base, files=[
+            {"role": "notice", "path": "p/LICENSE", "url": "https://x/LICENSE",
+             "bytes": 1, "sha256": "1" * 64},
+        ])
+        draft_readme = dict(base, files=[
+            {"role": "notice", "member": "README.md", "path": "p/README.md", "bytes": 2, "sha256": "2" * 64},
+        ])
+        report = compare(draft_readme, existing_url)
+        self.assertEqual(report["mismatch"], [], "对侧 url 基单件同角色 ⇒ cosmetic")
+        self.assertTrue(report["cosmetic"])
+
+    def test_compare_entry_redundant_same_role_is_mismatch(self):
+        # 防御保留：生成器同角色产出多件（fp32 混入类）⇒ mismatch（不得被
+        # 选件口径放行——07ed7b3 防混入的验收面）。
+        compare = MODULE["compare_entry"]
+        base = {"id": "whisper", "variant": "tiny", "license": "MIT",
+                "revision": "a" * 40, "watch": {"repo": "r"}}
+        draft = dict(base, files=[
+            {"role": "encoder", "member": "tiny-encoder.int8.onnx", "path": "p", "bytes": 1, "sha256": "1" * 64},
+            {"role": "encoder", "member": "tiny-encoder.onnx", "path": "p", "bytes": 1, "sha256": "1" * 64},
+        ])
+        existing = dict(base, files=[
+            {"role": "encoder", "member": "tiny-encoder.int8.onnx", "path": "p", "bytes": 1, "sha256": "1" * 64},
+        ])
+        report = compare(draft, existing)
+        self.assertTrue(any("tiny-encoder.onnx" in line for line in report["mismatch"]),
+                        "冗余多件必须判红")
+        # 角色缺失（draft 无该角色文件）⇒ mismatch,不放行
+        draft_missing = dict(base, files=[])
+        report = compare(draft_missing, existing)
+        self.assertTrue(any("only in existing" in line for line in report["mismatch"]))
+
     def test_discover_authors(self):
         # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局
         discover = MODULE["discover_authors"]
