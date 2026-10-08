@@ -768,7 +768,7 @@ def gen_prescription(pools, rng, vocab_chars):
             segs += [(dosage_seg, "value", "dosage"), (freq, "value", "frequency"), (route, "value", "route")]
             if days:
                 segs.append((f"{days}天", "value", "days"))
-            line, seg_spans = make_line(segs, rng)
+            line, seg_spans = make_line(segs, rng, nz=nz)
             lines.append(line)
             rows.append(_finish(line, seg_spans, len(lines) - 1))
         elif variant == "labeled":
@@ -777,14 +777,14 @@ def gen_prescription(pools, rng, vocab_chars):
                 segs1 += [(L(region, "规格"), "label", None), (base_spec, "value", "spec")]
             if qty:
                 segs1 += [(L(region, "数量"), "label", None), (qty, "value", "quantity")]
-            line1, sp1 = make_line(segs1, rng)
+            line1, sp1 = make_line(segs1, rng, nz=nz)
             lines.append(line1)
             li1 = len(lines) - 1
             segs2 = [(L(region, "用法"), "label", None), (dosage_seg, "value", "dosage"),
                      (freq, "value", "frequency"), (route, "value", "route")]
             if days:
                 segs2.append((f"{days}天", "value", "days"))
-            line2, sp2 = make_line(segs2, rng)
+            line2, sp2 = make_line(segs2, rng, nz=nz)
             lines.append(line2)
             li2 = len(lines) - 1
             row = _finish(line1, sp1, li1) + _finish(line2, sp2, li2)
@@ -793,14 +793,14 @@ def gen_prescription(pools, rng, vocab_chars):
             segs1 = [(f"{i + 1}.", "label", None), (name, "value", "drug_name")]
             if base_spec:
                 segs1.append((base_spec, "value", "spec"))
-            line1, sp1 = make_line(segs1, rng)
+            line1, sp1 = make_line(segs1, rng, nz=nz)
             lines.append(line1)
             li1 = len(lines) - 1
             segs2 = [(f"用法：{dosage_seg}", "value", "dosage"), (freq, "value", "frequency"),
                      (route, "value", "route")]
             if days:
                 segs2.append((f"{days}天", "value", "days"))
-            line2, sp2 = make_line(segs2, rng)
+            line2, sp2 = make_line(segs2, rng, nz=nz)
             lines.append(line2)
             li2 = len(lines) - 1
             row = _finish(line1, sp1, li1) + _finish(line2, sp2, li2)
@@ -846,7 +846,7 @@ def gen_medication(pools, rng, vocab_chars):
         segs = [(name, "value", "generic_name"), (qty, "value", "unit_kind")]
         if spec_spoken and rng.random() < 0.6:
             segs.append((spec_spoken, "value", "spec"))
-        line, seg_spans = make_line(segs, rng)
+        line, seg_spans = make_line(segs, rng, nz=nz)
         lines.append(line)
         idx = len(lines) - 1
         row = []
