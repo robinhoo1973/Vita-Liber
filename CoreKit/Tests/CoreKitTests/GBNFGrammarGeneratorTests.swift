@@ -83,6 +83,13 @@ struct GBNFGrammarGeneratorTests {
         #expect(!g.contains("date-str"), "值统一走 str，日期专用规则应已移除")
     }
 
+    @Test("D13：str-char 补官方 json.gbnf 转义产生式（\" \\\\ \\b \\f \\n \\r \\t \\uXXXX）")
+    func escapeProductionMatchesOfficialJSONGBNF() throws {
+        let g = GBNFGrammarGenerator.generate(for: try prescription())
+        #expect(g.contains(#"str-char ::= [^"\\\u0000-\u001F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})"#),
+                "str-char 必须含官方转义产生式（D13；json.gbnf 同源）")
+    }
+
     @Test("generateAll 覆盖全部注册卡种且非空")
     func generateAllCoversRegistry() throws {
         let all = GBNFGrammarGenerator.generateAll()

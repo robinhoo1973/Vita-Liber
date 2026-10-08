@@ -49,7 +49,9 @@ public enum GBNFGrammarGenerator {
         rules.append(#"unit ::= "null" | str"#)
         rules.append(#"line-index ::= digit+"#)
         rules.append(#"str ::= "\"" str-char* "\"""#)
-        rules.append(#"str-char ::= [^"\\\u0000-\u001F]"#)
+        // D13（2026-10-08 委员会）：补官方 json.gbnf 标准转义产生式——此前无转义，
+        // 引号/反斜杠/换行字符域不可达（召回损失），多行 narrative 不可表达。
+        rules.append(#"str-char ::= [^"\\\u0000-\u001F] | [\\] (["\\bfnrt] | "u" [0-9a-fA-F]{4})"#)
         rules.append(#"digit ::= [0-9]"#)
 
         // ws 规则：llama.cpp 文法匹配自动放行 token 间空白，此规则备而不用（与旧版保留一致）。
