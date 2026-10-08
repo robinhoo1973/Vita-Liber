@@ -858,11 +858,18 @@ jobs:
             echo "upload $asset"
             ok=""
             for attempt in 1 2 3 4 5; do
-              err=$(gh api -X POST "repos/$REPO/releases/$RELEASE_ID/assets?name=$asset" \
-                -H "Content-Type: application/octet-stream" --input "$file" 2>&1 >/dev/null) && { ok=1; break; }
-              # 只对瞬态(404/5xx/连接)重试;422/401 等语义错误立即红,不得掩盖
+              # 资产上传必须走 uploads.github.com(2026-10-08 R0 实证:api.github.com
+              # 对该 POST **结构性 404**,与瞬态无关;gh api 会给 --hostname 强加
+              # api. 前缀不可用——用 curl 直连上传域)
+              err=$(curl -sS --fail-with-body -X POST \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@$file" \
+                "https://uploads.github.com/repos/$REPO/releases/$RELEASE_ID/assets?name=$asset" 2>&1 >/dev/null) && { ok=1; break; }
+              # 仅瞬态(5xx/连接)重试;404/422/401 等语义错误立即红,不得掩盖
               case "$err" in
-                *404*|*50[0-9]*|*EOF*|*timeout*|*connection*) echo "upload retry $attempt ($err)"; sleep 5 ;;
+                *50[0-9]*|*EOF*|*timeout*|*connection*) echo "upload retry $attempt ($err)"; sleep 5 ;;
                 *) echo "::error::上传失败(不可重试): $err"; exit 1 ;;
               esac
             done
