@@ -17,129 +17,31 @@
       [--api-key-env LLM_API_KEY] [--temperature 0.2] [--cache <目录>]
 """
 import argparse
-import hashlib
 import json
-import os
-import re
 import runpy
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 COPY_TOOL = HERE / "apply-asr-catalog-copy.py"
-CACHE_DEFAULT = Path.home() / ".cache" / "vitaliber-asr-suggest"
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
 
+# 通用 LLM 内核 = release/llm_client.py（2026-10-09 业主指令独立成模块；
+# 逐字抽取自本文件，行为不变）。别名保持本模块既有 API 名。
+from llm_client import (  # noqa: E402
+    LLMError, cached_chat, default_cache_dir, llm_chat, make_chat, parse_json_block,
+)
 
-class SuggestError(Exception):
-    pass
+SuggestError = LLMError
+CACHE_DEFAULT = default_cache_dir("asr-suggest")
 
 
 def load_banned_re():
     """负清单与投影器同源（防双写漂移）。"""
     module = runpy.run_path(str(COPY_TOOL))
     return module["_BANNED_RE"]
-
-
-RETRYABLE_HTTP = (429, 500, 502, 503, 504)
-
-
-def llm_chat(endpoint, model, prompt, *, api_key=None, temperature=0.2, timeout=180,
-             retries=3, backoff=5.0, _sleep=time.sleep):
-    """OpenAI 兼容 /v1/chat/completions（本机 llama-server 或任意在线兼容端点）。
-
-    429/5xx 与网络抖动按指数退避重试（free 档限流为常态,run 37857357547 实证
-    1305「访问量过大」——单次失败不得吞掉整批建议）。"""
-    payload = json.dumps({"model": model,
-                          "messages": [{"role": "user", "content": prompt}],
-                          "temperature": temperature}).encode()
-    headers = {"Content-Type": "application/json"}
-    if api_key:
-        headers["Authorization"] = "Bearer " + api_key
-    url = endpoint.rstrip("/") + "/chat/completions"
-    attempts = max(1, retries + 1)
-    for attempt in range(attempts):
-        request = urllib.request.Request(url, data=payload, headers=headers)
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                raw = response.read(1 << 20)
-                final_url = response.geturl()
-        except urllib.error.HTTPError as error:
-            detail = ""
-            try:
-                detail = error.read(300).decode("utf-8", "replace")
-            except OSError:
-                pass
-            message = "HTTP %d（%s）: %s" % (error.code, error.geturl(), detail)
-            if error.code in RETRYABLE_HTTP and attempt < attempts - 1:
-                delay = backoff * (2 ** attempt)
-                print("SUGGEST-RETRY: %s — %.0fs 后重试（%d/%d）"
-                      % (message, delay, attempt + 1, retries), file=sys.stderr)
-                _sleep(delay)
-                continue
-            raise SuggestError(message)
-        except (OSError, ValueError) as error:
-            if attempt < attempts - 1:
-                delay = backoff * (2 ** attempt)
-                print("SUGGEST-RETRY: 请求失败: %s — %.0fs 后重试（%d/%d）"
-                      % (error, delay, attempt + 1, retries), file=sys.stderr)
-                _sleep(delay)
-                continue
-            raise SuggestError("请求失败: %s" % error)
-        try:
-            document = json.loads(raw)
-        except ValueError:
-            # 诊断增强（2026-10-08 TEMP 实证:空/重定向响应曾只报
-            # "Expecting value"——附最终 URL 与片段,直接暴露认证/重定向类问题）。
-            raise SuggestError("非 JSON 响应（%d 字节,最终 URL=%s）: %s"
-                               % (len(raw), final_url,
-                                  raw[:300].decode("utf-8", "replace")))
-        return document["choices"][0]["message"]["content"]
-    raise SuggestError("重试耗尽")  # 不可达（循环内必 return/raise）
-
-
-def parse_json_block(text):
-    """取首个平衡的 {...} 块（小模型 JSON 稳定性容错;失败返回 None）。"""
-    start = text.find("{")
-    while start != -1:
-        depth = 0
-        for index in range(start, len(text)):
-            if text[index] == "{":
-                depth += 1
-            elif text[index] == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(text[start:index + 1])
-                    except ValueError:
-                        break
-        start = text.find("{", start + 1)
-    return None
-
-
-def cache_key(prompt, model, temperature, seed=0):
-    blob = json.dumps({"prompt": prompt, "model": model,
-                       "temperature": temperature, "seed": seed},
-                      ensure_ascii=False, sort_keys=True).encode()
-    return hashlib.sha256(blob).hexdigest()
-
-
-def cached_chat(chat, cache_dir, prompt, model, temperature):
-    """内容寻址缓存（治理条款 5）:命中复用;未命中调用并落盘。"""
-    key = cache_key(prompt, model, temperature)
-    cache_dir = Path(cache_dir)
-    entry = cache_dir / key
-    if (entry / "output.txt").is_file():
-        return (entry / "output.txt").read_text(encoding="utf-8"), key, True
-    output = chat(prompt)
-    entry.mkdir(parents=True, exist_ok=True)
-    (entry / "output.txt").write_text(output, encoding="utf-8")
-    (entry / "meta.json").write_text(json.dumps({
-        "model": model, "temperature": temperature, "cacheKey": key,
-    }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return output, key, False
 
 
 def license_prompt(entry):
@@ -302,10 +204,8 @@ def main():
     args = parser.parse_args()
     try:
         banned = load_banned_re()
-        api_key = os.environ.get(args.api_key_env) if args.api_key_env else None
-        def chat(prompt):
-            return llm_chat(args.endpoint, args.model, prompt,
-                            api_key=api_key, temperature=args.temperature)
+        chat = make_chat(args.endpoint, args.model,
+                         api_key_env=args.api_key_env, temperature=args.temperature)
         entries, families, tiers, rejected, errors = collect_suggestions(
             args.candidates, chat, args.cache, args.model, args.temperature, banned,
             max_seconds=args.max_seconds)

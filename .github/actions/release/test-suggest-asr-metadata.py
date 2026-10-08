@@ -107,7 +107,7 @@ class SuggestTests(unittest.TestCase):
 
     def test_retry_on_429_then_success(self):
         """429（限流）→ 指数退避重试 ≤retries;第二跳成功返回内容。"""
-        real = MODULE["urllib"]
+        real = urllib  # llm_chat 现居 llm_client.py;__globals__ 补丁机制不变(2026-10-09 抽取)
         calls, slept = [], []
 
         class FakeResponse:
@@ -151,7 +151,7 @@ class SuggestTests(unittest.TestCase):
         self.assertEqual(slept, [5.0], "退避=backoff × 2^0")
 
     def test_retry_exhausted_raises(self):
-        real = MODULE["urllib"]
+        real = urllib  # llm_chat 现居 llm_client.py;__globals__ 补丁机制不变(2026-10-09 抽取)
         calls, slept = [], []
 
         def fake_urlopen(request, timeout=None):

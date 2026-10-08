@@ -146,6 +146,9 @@ jobs:
           # 2026-10-08 LLM 草拟批：旁路侧车纯离线面（mock LLM;禁本地跑 asr 任务
           # 不覆盖纯草拟器——不下载/不构建/不发布,只读候选+LLM+写旁路）。
           python3 .github/actions/release/test-suggest-asr-metadata.py
+          # 2026-10-09 LLM 模块化批：共享内核 + 发布文本草拟器（纯离线,mock chat）。
+          python3 .github/actions/release/test-llm-client.py
+          python3 .github/actions/release/test-draft-release-text.py
           # 2026-10-08 治理批：仓库模板信封必须验签——此前 Linux 链无人验，
           # 「改模板不重签」可经 CI 重签发布；发布前硬红闭合该盲路。
           python3 .github/actions/release/model-trust.py verify \
@@ -261,6 +264,14 @@ jobs:
         run: test -f "$RUNNER_TEMP/asr-config-candidates/models.json" || {
           echo "::error::候选 artifact 未落位 asr-config-candidates/models.json（上传/下载形态契约破裂）"; exit 1; }
 
+      - name: 恢复草拟缓存（内容寻址;跨 run 复用,降免费档配额消耗）
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2（node24 运行时；固定完整 SHA）
+        with:
+          path: ~/.cache/vitaliber-asr-suggest
+          key: asr-suggest-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            asr-suggest-v1-${{ runner.os }}-
+
       # 在线免费 LLM（智谱 GLM-4.7-Flash,免费档;密钥=repo secret LLM_API_KEY）。
       # 只发公开模型元数据（治理条款）;逐字段容错+429 退避重试（run 37857357547
       # 实证）;全败/限流=显式降级（errors.json 台账）,不阻塞——纯确定性仍成稿。
@@ -349,6 +360,8 @@ jobs:
         run: |
           python3 .github/actions/release/test-suggest-asr-metadata.py
           python3 .github/actions/release/test-distill-asr-metadata.py
+          python3 .github/actions/release/test-llm-client.py
+          python3 .github/actions/release/test-draft-release-text.py
 
       - name: 蒸馏合并（逐项择优 + provenance 报告）
         run: |

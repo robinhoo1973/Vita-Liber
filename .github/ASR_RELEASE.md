@@ -159,6 +159,15 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 ## LLM 辅助草拟（旁路）（2026-10-08 业主指令 + 委员会三席定案）
 
+- **模块化（2026-10-09 业主指令）**：通用内核抽为 `release/llm_client.py`
+  （`llm_chat`/内容寻址缓存/JSON 块容错/`make_chat`；逐字抽取，行为不变——
+  `suggest-asr-metadata.py` 改为导入）。新增消费者 `draft-release-text.py`：
+  `--mode release-notes` 由公开事实（tag/资产清单/上版说明）草拟三语 Release
+  变更说明；`--mode readme-block` 草拟 readme-sync `sections.json` 的分节文案
+  （intro+blocks）。**只写 `--out` 侧车目录，绝不触碰权威模板与 sections.json**
+  （采纳 = 人工誊写）；两消费者同受下方治理条款约束。端点缺省本机 llama-server，
+  在线免费档（智谱 GLM-4.7-Flash：`--endpoint https://open.bigmodel.cn/api/paas/v4
+  --model glm-4.7-flash --api-key-env LLM_API_KEY`）。
 - **形态**：`suggest-asr-metadata.py` 独立草拟器——输入 ⑧ 的候选 artifact，输出
   `suggested/*.suggested.json` 旁路侧车（含 suggestedBy/缓存键/引文位）。**主文件
   保持 REVIEW/三语空串骨架**；采纳 = 人工誊写 + 标记剥除；绝不整文件复制回仓。
@@ -196,3 +205,4 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。
 - V1.17（2026-10-08）：LLM 辅助草拟（旁路）——suggest-asr-metadata.py（建议侧车+内容寻址缓存+同源负清单预检；本机 llama.cpp 缺省/在线兼容端点可选）+测试第 19 例入双侧执行列；治理七条（只发公开元数据/在线标注/许可三段式/CI 零 AI 不变）；「禁本地跑 asr 任务」边界=不覆盖纯草拟器。同批:生成链泛化钉（download/families 注入缝+新家族全链离线 e2e,第 28 测）。
 - V1.16（2026-10-08）：遗留项批（委员会四席两轮，业主授权自主决策）——①`_confirm_readme_sync` 窗口 3×10s→5×15s；②overview.json 上传后**内容级匿名回读对账**（清单级回读由 `upload_immutable` 内建；内容级不一致仅 `::warning::`，展示面不阻塞）；③build **T4 配对闸**：身份未滚动 + 已签名时，缓存文件存在但摘要不符=硬红（缓存损坏不得被静默重建掩盖）；缓存缺失=显式降级消息后重建（保留冷启动恢复语义）；④publish 逐资产计时打点（skip 形态 ~0.0s 可辨识）；⑤`asr.yml` 增**零密钥验收 job `verify`**（dispatch 并联；`verify_only=true` 时跳过 models 构建/发布——脚本改动唯一零副作用验证通道）：离线契约电池 + bootstrap 复现验收（inventory 13/13 在册/0 缺候选/0 未知；probe 12/12 复现/0 mismatch/0 error）+ qwen3 字节级补测（直连 GitHub 下载面比 sha256+bytes）；闭环判据=一次绿色 verify dispatch。
+- V1.18（2026-10-09）：LLM 模块化批（业主指令）——通用内核抽为 `release/llm_client.py`（`llm_chat`/`cache_key`/`cached_chat`/`parse_json_block`/`default_cache_dir`/`make_chat`；行为逐字保持，`suggest-asr-metadata.py` 改为导入 + `SuggestError = LLMError` 别名兼容）；新增 `draft-release-text.py`（release-notes 三语变更说明 / readme-block 分节文案草稿；facts JSON 只含公开内容；负清单预检与投影器同源；只写 --out）；配套 `test-llm-client.py`（6 例）与 `test-draft-release-text.py`（6 例）入双侧执行列；治理条款不变（侧车/缓存/零 AI 裁决），适用于全部消费者。
