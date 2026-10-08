@@ -30,6 +30,13 @@ class GateConfig:
     min_accepts: int = 50          # 每带×域接受数下限(tripwire;小集评测用 --min-accepts 调低)
     top_k: int = 10
     baseline_only: bool = True     # P1: 仅基线臂;模型候选出现时才跑五层
+    gate_version: str = "2"
+
+    def to_params(self) -> dict:
+        """判据落参(verdict.gate;D20——判据不自解释的缺口修复)。"""
+        return {"gate_version": self.gate_version, "recall_at1_min": self.recall_at1_min,
+                "precision_min": self.precision_min, "top3_hit_min": self.top3_hit_min,
+                "min_accepts": self.min_accepts, "top_k": self.top_k}
 
 
 @dataclass
@@ -68,10 +75,24 @@ class GateResult:
     layers: dict = field(default_factory=dict)
     index_report: dict = field(default_factory=dict)
     failures: list[str] = field(default_factory=list)
+    gate: dict = field(default_factory=dict)
+
+
+def _emit_item(items: list | None, line: dict, *, arm: str, hit1: bool, rank1,
+               in_top10: bool, in_top3: bool) -> None:
+    """逐项结果行(McNemar/离线重算用;D20 同批——verdict 只落聚合数的缺口)。
+
+    arm=baseline|model:同一 id 可在两臂各出现一行,离线配对(McNemar exact)。"""
+    if items is None:
+        return
+    items.append({"id": line["id"], "arm": arm, "domain": line["domain"],
+                  "band": line["band"], "gold": line["gold"]["entity_id"],
+                  "rank1": rank1, "hit1": hit1, "in_top10": in_top10,
+                  "in_top3": in_top3})
 
 
 def _run_baseline_arm(engine: RecallEngine, eval_lines: list[dict], config: GateConfig,
-                      wording_guard=None) -> dict[str, dict[str, BandMetrics]]:
+                      wording_guard=None, items: list | None = None) -> dict[str, dict[str, BandMetrics]]:
     """数据-only 基线臂:确定性召回在冻结评测集上的逐带×域指标。"""
     per: dict[str, dict[str, BandMetrics]] = defaultdict(lambda: defaultdict(BandMetrics))
     for line in eval_lines:
@@ -84,6 +105,8 @@ def _run_baseline_arm(engine: RecallEngine, eval_lines: list[dict], config: Gate
         ranked_ids = [h.entity_id for h in hits]
         if not ranked_ids:
             m.rejects += 1
+            _emit_item(items, line, arm="baseline", hit1=False, rank1=None,
+                       in_top10=False, in_top3=False)
             continue
         m.rank1_exists += 1
         if ranked_ids[0] == gold:
@@ -102,15 +125,24 @@ def _run_baseline_arm(engine: RecallEngine, eval_lines: list[dict], config: Gate
         if wording_guard is not None and hits[0].matched_term and \
                 wording_guard.violation(hits[0].matched_term):
             m.br006_violations += 1
+        _emit_item(items, line, arm="baseline", hit1=ranked_ids[0] == gold,
+                   rank1=ranked_ids[0], in_top10=gold in ranked_ids,
+                   in_top3=gold in ranked_ids[:3])
     return {d: {b: v for b, v in bands.items()} for d, bands in per.items()}
 
 
 def run_gate(*, engine: RecallEngine, eval_lines: list[dict], config: GateConfig,
              wording_guard=None, model_candidates: dict[str, list[dict]] | None = None,
-             known_entity_ids: set[str] | None = None) -> GateResult:
+             known_entity_ids: set[str] | None = None, collect_items: list | None = None,
+             policy_sha256: str | None = None,
+             manifest_sha256: str | None = None) -> GateResult:
     result = GateResult()
     result.index_report = engine.describe()
-    metrics = _run_baseline_arm(engine, eval_lines, config, wording_guard=wording_guard)
+    result.gate = config.to_params()
+    result.gate["policy_sha256"] = policy_sha256
+    result.gate["manifest_sha256"] = manifest_sha256
+    metrics = _run_baseline_arm(engine, eval_lines, config, wording_guard=wording_guard,
+                                items=collect_items)
     result.metrics = {d: {b: v.to_dict() for b, v in bands.items()} for d, bands in metrics.items()}
 
     # 基线臂判定:接受数 tripwire + 全拒识 tripwire(防假绿;召回不作为 P1 硬闸)
@@ -131,7 +163,7 @@ def run_gate(*, engine: RecallEngine, eval_lines: list[dict], config: GateConfig
     # 模型五层闸(部署件候选;P1 无模型 → 跳过并标注)
     if model_candidates is not None:
         _run_model_layers(result, eval_lines, model_candidates, config, wording_guard,
-                          known_entity_ids=known_entity_ids)
+                          known_entity_ids=known_entity_ids, items=collect_items)
     else:
         result.layers["model"] = "n/a(基线臂:无模型候选,五层闸随 P3 部署件启用)"
 
@@ -140,21 +172,26 @@ def run_gate(*, engine: RecallEngine, eval_lines: list[dict], config: GateConfig
 
 
 def _run_model_layers(result: GateResult, eval_lines: list[dict], candidates: dict[str, list[dict]],
-                      config: GateConfig, wording_guard, known_entity_ids: set[str] | None = None) -> None:
-    """模型候选五层闸:硬零类 / 接受精度 / 噪声带分层召回 / 提示质量 / 校准。
+                      config: GateConfig, wording_guard, known_entity_ids: set[str] | None = None,
+                      items: list | None = None) -> None:
+    """模型候选五层闸:硬零类 / 接受精度 / 噪声带分层召回 / top3 / 校准。
 
     candidates: sample_id -> [{entity_id, score, matched_term}](按 rank 排序)。
-    校准层(P5)依赖置信带约定,当前标注 n/a。
+    2026-10-08 修正(红队/验收席):L2 与 L4 原为**跨带求和聚合**,与「禁跨带
+    平均」矛盾——现逐带判定;tripwire 补齐到模型臂(每带×域接受数下限+全拒识
+    判红,此前只在基线臂有,防假绿闸恰在需要它的臂缺席)。校准层(P5)标注 n/a。
     """
     hard_violations = []
-    per_band: dict[str, BandMetrics] = defaultdict(BandMetrics)
+    per: dict[str, dict[str, BandMetrics]] = defaultdict(lambda: defaultdict(BandMetrics))
     for line in eval_lines:
-        band = line["band"]
+        domain, band = line["domain"], line["band"]
         cands = candidates.get(line["id"], [])
-        m = per_band[band]
+        m = per[domain][band]
         m.samples += 1
         if not cands:
             m.rejects += 1
+            _emit_item(items, line, arm="baseline", hit1=False, rank1=None,
+                       in_top10=False, in_top3=False)
             continue
         m.rank1_exists += 1
         top = cands[0]
@@ -182,31 +219,62 @@ def _run_model_layers(result: GateResult, eval_lines: list[dict], candidates: di
             m.recall_at10 += 1
         if gold in ranked[:3]:
             m.top3_hit += 1
-    total = sum(m.samples for m in per_band.values()) or 1
-    precision = sum(m.recall_at1 for m in per_band.values()) / max(sum(m.rank1_exists for m in per_band.values()), 1)
+        _emit_item(items, line, arm="model", hit1=top["entity_id"] == gold,
+                   rank1=top["entity_id"], in_top10=gold in ranked,
+                   in_top3=gold in ranked[:3])
+
+    # 逐带判定(禁跨带平均):L2 精度与 L4 top3 按带聚合,任一带不达即判红。
+    band_acc: dict[str, dict] = defaultdict(
+        lambda: {"hit": 0, "rank1_exists": 0, "samples": 0, "top3": 0, "rejects": 0})
+    for bands in per.values():
+        for band, m in bands.items():
+            acc = band_acc[band]
+            acc["hit"] += m.recall_at1
+            acc["rank1_exists"] += m.rank1_exists
+            acc["samples"] += m.samples
+            acc["top3"] += m.top3_hit
+            acc["rejects"] += m.rejects
+
     layers = {
         "L1_hard_zero": "fail" if hard_violations else "pass",
-        "L2_acceptance_precision": f"{precision:.4f} (≥{config.precision_min})",
+        "L2_acceptance_precision": {},
         "L3_recall_at1_per_band": {},
-        "L4_top3_hit": f"{sum(m.top3_hit for m in per_band.values()) / total:.4f} (≥{config.top3_hit_min})",
+        "L4_top3_hit": {},
         "L5_calibration": "n/a(置信带约定随 P5)",
+        "tripwire": {},
     }
-    for band, m in sorted(per_band.items()):
-        rate = m.recall_at1 / max(m.samples, 1)
-        layers["L3_recall_at1_per_band"][band] = f"{rate:.4f} (≥{config.recall_at1_min})"
-        if rate < config.recall_at1_min:
-            result.failures.append(f"L3 {band} 带 recall@1 {rate:.4f} < {config.recall_at1_min}")
+    for band, acc in sorted(band_acc.items()):
+        precision = acc["hit"] / max(acc["rank1_exists"], 1)
+        top3 = acc["top3"] / max(acc["samples"], 1)
+        layers["L2_acceptance_precision"][band] = f"{precision:.4f} (≥{config.precision_min})"
+        layers["L4_top3_hit"][band] = f"{top3:.4f} (≥{config.top3_hit_min})"
+        if precision < config.precision_min:
+            result.failures.append(f"L2 {band} 带接受精度 {precision:.4f} < {config.precision_min}")
+        if top3 < config.top3_hit_min:
+            result.failures.append(f"L4 {band} 带 top3 {top3:.4f} < {config.top3_hit_min}")
+    for domain, bands in sorted(per.items()):
+        for band, m in sorted(bands.items()):
+            key = f"{domain}:{band}"
+            rate = m.recall_at1 / max(m.samples, 1)
+            layers["L3_recall_at1_per_band"][key] = f"{rate:.4f} (≥{config.recall_at1_min})"
+            layers["tripwire"][key] = {"accepts": m.recall_at1, "min": config.min_accepts}
+            if rate < config.recall_at1_min:
+                result.failures.append(f"L3 {key} 带 recall@1 {rate:.4f} < {config.recall_at1_min}")
+            if m.recall_at1 < config.min_accepts:
+                result.failures.append(
+                    f"{key} 模型臂接受数 {m.recall_at1} < 下限 {config.min_accepts}(tripwire)")
+            if m.rejects == m.samples and m.recall_at1 == 0:
+                result.failures.append(f"{key} 模型臂全拒识(拒识率 100% 且 R@1=0)——判红")
     if hard_violations:
         result.failures.append(f"L1 硬零类 {len(hard_violations)} 例(前 3): {hard_violations[:3]}")
-    if precision < config.precision_min:
-        result.failures.append(f"L2 接受精度 {precision:.4f} < {config.precision_min}")
     result.layers["model"] = layers
 
 
 def write_verdict(path: Path, result: GateResult, data_version: str) -> None:
     payload = {"dataVersion": data_version, "verdict": result.verdict,
                "failures": result.failures, "layers": result.layers,
-               "metrics": result.metrics, "index_report": result.index_report}
+               "metrics": result.metrics, "index_report": result.index_report,
+               "gate": result.gate}
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 

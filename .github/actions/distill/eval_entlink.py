@@ -49,6 +49,8 @@ def main() -> int:
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--write-baseline", type=Path, default=None)
     parser.add_argument("--write-verdict", type=Path, default=None)
+    parser.add_argument("--write-items", type=Path, default=None,
+                        help="逐项结果 JSONL(McNemar/离线重算与 F 度量用;D20)")
     args = parser.parse_args()
 
     manifest_path = args.manifest or args.corpus.with_suffix(args.corpus.suffix + ".manifest.json")
@@ -105,12 +107,30 @@ def main() -> int:
             eval_lines.append(row)
 
     engine = RecallEngine().build(catalog)
+    manifest_sha = None
+    try:
+        import hashlib
+        manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    except OSError:
+        manifest_sha = None
+    policy_sha = None
+    try:
+        from policy import sha256_of as _policy_sha  # 判据单一事实源(round5 §7.3)
+        policy_sha = _policy_sha()
+    except (ImportError, FileNotFoundError, ValueError):
+        policy_sha = None
+    items: list | None = [] if args.write_items is not None else None
     result = run_gate(
         engine=engine, eval_lines=eval_lines,
         config=GateConfig(min_accepts=args.min_accepts, top_k=args.top_k),
         wording_guard=wording_guard, model_candidates=model_candidates,
         known_entity_ids={e.entity_id for e in catalog.entities},
+        collect_items=items, policy_sha256=policy_sha, manifest_sha256=manifest_sha,
     )
+    if args.write_items is not None and items is not None:
+        with open(args.write_items, "w", encoding="utf-8") as fh:
+            for item in items:
+                fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
     data_version = manifest["catalog_data_version"] or "unknown"
     if args.write_baseline is not None:

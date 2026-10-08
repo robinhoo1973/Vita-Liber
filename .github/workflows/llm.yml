@@ -552,6 +552,7 @@ jobs:
             --wording-source CoreKit/Sources/Domain/AlertEngine.swift \
             --min-accepts "$MIN_ACCEPTS" \
             --write-baseline baseline-out --write-verdict verdict-entlink.json \
+            --write-items items-entlink.jsonl \
             > gate-report.txt 2>&1
           RC=$?
           set -e
@@ -586,6 +587,7 @@ jobs:
           path: |
             verdict-entlink.json
             gate-report.txt
+            items-entlink.jsonl
             baseline-out/
           # 运行错误路径无 verdict.json/baseline——缺件是预期,不产警告噪声。
           if-no-files-found: ignore

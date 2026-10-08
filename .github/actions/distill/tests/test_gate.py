@@ -7,7 +7,7 @@ from pathlib import Path
 from corpus.builder import BuildConfig, build_corpus
 from entlink.catalog import load_jsonl_set
 from entlink.recall import RecallEngine
-from gate.entlink_gate import GateConfig, run_gate
+from gate.entlink_gate import GateConfig, run_gate, write_verdict
 from gate.wording import WordingGuard
 
 from tests.util import write_jsonl as _write_jsonl
@@ -43,6 +43,55 @@ def _eval_lines(tmp: Path) -> list[dict]:
     build_corpus(_catalog(), out, BuildConfig(master_seed=9, min_eval_entities=2,
                                               bands=("light", "medium")))
     return [json.loads(l) for l in out.read_text(encoding="utf-8").splitlines() if json.loads(l)["split"] == "eval"]
+
+
+class ModelArmTests(unittest.TestCase):
+    """模型臂五层闸(2026-10-08 修正:tripwire 补齐/逐带判定/落参/逐项行)。"""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.catalog = _catalog()
+        self.engine = RecallEngine().build(self.catalog)
+        self.eval_lines = _eval_lines(self.tmp)
+        self.known = {e.entity_id for e in self.catalog.entities}
+
+    def _gold_candidates(self):
+        return {line["id"]: [{"entity_id": line["gold"]["entity_id"], "score": 0.99,
+                              "matched_term": line["query"]}] for line in self.eval_lines}
+
+    def test_model_arm_all_correct_pass_with_gate_params(self):
+        items: list = []
+        result = run_gate(engine=self.engine, eval_lines=self.eval_lines,
+                          config=GateConfig(min_accepts=1),
+                          model_candidates=self._gold_candidates(),
+                          known_entity_ids=self.known,
+                          collect_items=items, policy_sha256="p", manifest_sha256="m")
+        self.assertEqual(result.verdict, "pass", result.failures)
+        self.assertEqual(result.gate["gate_version"], "2")
+        self.assertEqual(result.gate["min_accepts"], 1)
+        self.assertEqual(result.gate["policy_sha256"], "p")
+        model_items = [i for i in items if i["arm"] == "model"]
+        baseline_items = [i for i in items if i["arm"] == "baseline"]
+        self.assertTrue(model_items and all(i["hit1"] for i in model_items))
+        self.assertTrue(baseline_items)  # 双臂逐项行同批采集(离线配对)
+        model_layers = result.layers["model"]
+        self.assertIn("tripwire", model_layers)
+        self.assertTrue(any(":" in key for key in model_layers["L3_recall_at1_per_band"]))  # 逐域×带键
+
+    def test_model_arm_all_rejected_red(self):
+        result = run_gate(engine=self.engine, eval_lines=self.eval_lines,
+                          config=GateConfig(min_accepts=1), model_candidates={})
+        self.assertEqual(result.verdict, "fail")
+        self.assertTrue(any("全拒识" in f for f in result.failures))
+
+    def test_verdict_payload_contains_gate(self):
+        result = run_gate(engine=self.engine, eval_lines=self.eval_lines,
+                          config=GateConfig(min_accepts=1))
+        out = self.tmp / "verdict.json"
+        write_verdict(out, result, "dv-test")
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        self.assertIn("gate", payload)
+        self.assertEqual(payload["gate"]["gate_version"], "2")
 
 
 class GateTests(unittest.TestCase):
