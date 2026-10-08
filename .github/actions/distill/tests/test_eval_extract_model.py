@@ -95,6 +95,21 @@ class CliTests(unittest.TestCase):
         self.assertTrue(report["regressions"])
         self.assertLess(report["regressions"][0]["delta"], 0)
 
+    def test_kind_recovered_from_id_when_absent(self):
+        # round2 D:eval 行缺 kind 字段时由 id 前缀复原(否则 band×kind 静默退化)
+        from eval_extract_model import _kind_from_id, _row_gold_and_lines
+        self.assertEqual(_kind_from_id("extract-claim_item-000123"), "claim_item")
+        self.assertEqual(_kind_from_id(""), "unlabeled")
+        row = _row("light", 1)
+        del row["kind"]
+        row["id"] = "extract-metric_sample-000007"
+        _, _, _, kind = _row_gold_and_lines(row)
+        self.assertEqual(kind, "metric_sample")
+        row2 = _row("light", 1)
+        del row2["kind"]
+        _, _, _, kind2 = _row_gold_and_lines(row2)
+        self.assertEqual(kind2, "unlabeled")
+
 
 if __name__ == "__main__":
     unittest.main()

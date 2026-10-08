@@ -44,6 +44,13 @@ def _split_user_lines(user_content: str) -> list[str]:
     return lines
 
 
+def _kind_from_id(sample_id: str) -> str:
+    """id=extract-<kind>-NNNNNN → kind(round2 D 席:eval 行无 kind 字段时由 id 前缀复原,
+    否则 band×kind 网格静默退化为 band×unlabeled)。"""
+    parts = (sample_id or "").split("-")
+    return parts[1] if len(parts) >= 2 and parts[0] == "extract" else "unlabeled"
+
+
 def _row_gold_and_lines(row: dict) -> tuple[dict, list[str], str, str]:
     conv = row["conversations"]
     by_role = {m["role"]: m["content"] for m in conv}
@@ -51,7 +58,8 @@ def _row_gold_and_lines(row: dict) -> tuple[dict, list[str], str, str]:
     lines = _split_user_lines(by_role["user"])
     noise = row.get("noise") or {}
     band = row.get("band") or noise.get("band") or "unlabeled"
-    kind = row.get("kind") or row.get("meta", {}).get("kind") or "unlabeled"
+    kind = (row.get("kind") or row.get("meta", {}).get("kind")
+            or _kind_from_id(row.get("id") or ""))
     return gold, lines, band, kind
 
 
