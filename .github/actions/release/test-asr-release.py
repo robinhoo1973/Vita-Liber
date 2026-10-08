@@ -332,6 +332,33 @@ class PublicationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module["publish"](options, client)
 
+    def test_readme_sync_default_window_is_5x15(self):
+        # 2026-10-08:窗口 3×10→5×15——当日两次发布 marginal 超窗(实测 success
+        # 需 ~40s);断言默认参数防静默回退(3×10=30s<40s 必漏报)。
+        import inspect
+        module = runpy.run_path(str(TOOL))
+        params = inspect.signature(module["_confirm_readme_sync"]).parameters
+        self.assertEqual(params["attempts"].default, 5)
+        self.assertEqual(params["interval"].default, 15)
+
+    def test_readme_sync_pending_exhausts_then_warns(self):
+        # 终态始终 pending:有界轮询耗尽后 ::warning::(不阻塞发布),
+        # 且状态查询次数恰为 attempts(无多余请求)。
+        import contextlib
+        import io
+        module = runpy.run_path(str(TOOL))
+        calls = []
+
+        class PendingClient:
+            def readme_sync_status(self, sn):
+                calls.append(sn)
+                return {"sn": sn, "status": "pending"}
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            module["_confirm_readme_sync"](PendingClient(), "fixture-sn", attempts=3, interval=0)
+        self.assertEqual(calls, ["fixture-sn"] * 3)
+        self.assertIn("::warning::readme-sync 未在 3 次查询内完成", stderr.getvalue())
 
     def test_publish_overview_readback_content_mismatch_warns_only(self):
         # T8（2026-10-08 委员会）：overview.json 上传后匿名回读的**实际字节**

@@ -218,7 +218,7 @@ def publish(args, client):
     return f"https://cnb.cool/{args.repository}/-/releases/tag/{TAG}"
 
 
-def _confirm_readme_sync(client, sn, attempts=3, interval=10):
+def _confirm_readme_sync(client, sn, attempts=5, interval=15):
     """下游确认（平台席 2026-10-07）：触发成功 ≠ 同步成功——有界轮询 build 状态。
 
     非 success / 查询异常一律 ::warning::（展示面不阻塞发布；业主「README 未更新」
