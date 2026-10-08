@@ -142,7 +142,15 @@
         "why": "首 chunk 探针实测吞吐<阈值即切 26M 底座(质量/墙钟再裁决)"
       }
     },
-    "changeRequires": "owner"
+    "changeRequires": "owner",
+    "cpuTuning": {
+      "_comment": "研究席 2026-10-09:IPEX 已归档弃;bf16 无硬件慢 3-4x(闸=探测);compile 训练仅 +11.7%(冷启贵,regional+cache 后才评);fused AdamW/分桶/线程=白捡三件套",
+      "ompThreads": 4,
+      "fusedAdamW": true,
+      "bucketing": "sft-only",
+      "bf16": "probe-gated",
+      "compile": "deferred"
+    }
   },
   "publish": {
     "dialogue": {

@@ -123,12 +123,33 @@ def main() -> int:
         return 1
     dataset_sha = sha256_file(args.corpus)
 
+    # —— CPU 治理(2026-10-09 研究席):线程=4(vCPU),ISA 探测留证,bf16 闸 ——
+    import os as _os
+    try:
+        torch.set_num_threads(int(_os.environ.get("OMP_NUM_THREADS", "4")))
+    except (TypeError, ValueError):
+        torch.set_num_threads(4)
+    try:
+        from gen.cpu_probe import bf16_hardware_ok, cpu_flags, summary as _cpu_summary
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from gen.cpu_probe import bf16_hardware_ok, cpu_flags, summary as _cpu_summary
+    _flags = cpu_flags()
+    print(f"[cpu] {_cpu_summary(_flags)} threads={torch.get_num_threads()} "
+          f"mkldnn={torch.backends.mkldnn.is_available()} "
+          f"capability={torch.backends.cpu.get_cpu_capability()}", flush=True)
+
     device = args.device
     if device == "auto":
         # MPS 由 calibrate 探测结果裁决后显式传入;auto 一律 CPU(§7.2 回落条款)
         device = "cpu"
     if device == "mps" and not torch.backends.mps.is_available():
         print("FAILED: --device mps 但 is_available()=False——按 §7.2 回落 CPU 或先跑探测段", file=sys.stderr)
+        return 1
+    if args.amp and device == "cpu" and not bf16_hardware_ok(_flags):
+        # 研究席 A1:无硬件 bf16(avx512_bf16/amx_bf16)时 oneDNN bf16 慢 3-4×
+        print("FAILED: --amp 在 CPU 上要求硬件 bf16(avx512_bf16/amx_bf16)——本机未探测到",
+              file=sys.stderr)
         return 1
 
     samples = load_samples(args.corpus, "train")
@@ -176,7 +197,13 @@ def main() -> int:
     torch.manual_seed(args.seed)
     random.seed(args.seed)
     model = build_encoder(config).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    # 优化器:CPU fused(研究席:上游实测优化器内部 5.1x;数值差微小,评测闸为准)
+    try:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, fused=True)
+        print("[cpu] optimizer=AdamW(fused=True)", flush=True)
+    except (RuntimeError, TypeError):
+        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, foreach=True)
+        print("[cpu] optimizer=AdamW(foreach=True)(fused 不可用)", flush=True)
     batches_per_epoch = max(len(queries) // args.batch, 1)
     total_steps = args.epochs * batches_per_epoch
     scheduler = build_scheduler(optimizer, warmup_steps=max(total_steps // 10, 1), total_steps=total_steps)
@@ -221,7 +248,12 @@ def main() -> int:
         payload, meta = load_checkpoint(args.resume_dir, expected_dataset_sha256=dataset_sha,
                                         expected_model_config_sha256=config.sha256())
         model.load_state_dict(payload["model"])
-        optimizer.load_state_dict(payload["optimizer"])
+        try:
+            optimizer.load_state_dict(payload["optimizer"])
+        except (ValueError, KeyError) as exc:
+            # 优化器形态跨 chunk 变更(如 fused 切换)→ 无法载入旧 state:告警并冷启优化器;
+            # L1/L3 恢复自检闸仍全量生效(权重/步数/探测损失对拍),不静默
+            print(f"WARN: 优化器状态载入失败({exc})——本 chunk 冷启优化器,其余三闸照常", flush=True)
         scheduler.load_state_dict(payload["scheduler"])
         torch.set_rng_state(payload["rng"]["torch"])
         random.setstate(payload["rng"]["python"])
@@ -249,6 +281,8 @@ def main() -> int:
     deadline = start_wall + args.budget_seconds
     step = start_step
     last_loss = recorded_loss if recorded_loss is not None else 0.0
+    # 研究席 A3:前 10 步 fwd/bwd/optim 分段计时(CPU 治理数据;不引入 profiler)
+    _t_fwd, _t_bwd, _t_opt = [], [], []
     graceful = False
     model.train()
 
@@ -293,17 +327,28 @@ def main() -> int:
                     return contrastive_loss(q_emb, d_emb, args.temperature,
                                             neg_emb, neg_valid, gids)
 
+                _timed = len(_t_fwd) < 10
+                if _timed:
+                    _t0 = time.perf_counter()
                 if args.amp and device == "mps":
                     with torch.autocast(device_type="mps", dtype=torch.bfloat16):
                         loss = _forward()
                 else:
                     loss = _forward()
+                if _timed:
+                    _t1 = time.perf_counter()
                 (loss / args.accum).backward()
+                if _timed:
+                    _t2 = time.perf_counter()
                 if (batch_idx + 1) % args.accum == 0:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
                     scheduler.step()
+                    if _timed:
+                        _t_fwd.append(_t1 - _t0)
+                        _t_bwd.append(_t2 - _t1)
+                        _t_opt.append(time.perf_counter() - _t2)
                     step += 1
                     last_loss = float(loss.detach().cpu())
                     if step == start_step + 1 and fingerprint_before is not None:
@@ -324,7 +369,13 @@ def main() -> int:
 
     final_epoch = min(args.epochs - 1, start_epoch + (step - start_step) // batches_per_epoch)
     save(final_epoch, extra={"device": device, "amp": args.amp, "budget_stop": graceful})
+    if _t_fwd:
+        n = len(_t_fwd)
+        summary_timing = {"fwd_s": round(sum(_t_fwd) / n, 4), "bwd_s": round(sum(_t_bwd) / n, 4),
+                          "optim_s": round(sum(_t_opt) / n, 4), "timed_steps": n}
+        print(f"[timing] {summary_timing}", flush=True)
     summary = {"status": "budget_stop" if graceful else "complete", "steps": step - start_step,
+               "timing": summary_timing if _t_fwd else None,
                "total_steps": step, "loss_last": last_loss, "device": device, "amp": args.amp,
                "vocab_size": len(vocab), "dataset_sha256": dataset_sha,
                "negatives_mode": args.negatives, **neg_stats,
