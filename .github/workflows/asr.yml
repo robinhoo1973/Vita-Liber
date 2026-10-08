@@ -235,29 +235,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: 上传构建索引（artifact:asr-index,供签名段）
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
-        with:
-          name: ${{ steps.names.outputs.index_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-packages/index.json
-            ${{ runner.temp }}/asr-packages/package-validation.json
-          retention-days: 7
-          if-no-files-found: error
-
-      - name: 输出完整候选包和校验回执
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ${{ steps.names.outputs.packages_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-packages/*.zip
-            ${{ runner.temp }}/asr-packages/index.json
-            ${{ runner.temp }}/asr-packages/package-validation.json
-          compression-level: 0
-          retention-days: 7
-          if-no-files-found: error
-
-
 
   build:
     name: ⑤ 准备·构建·文案投影（→ artifact packages）
