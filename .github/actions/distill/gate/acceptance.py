@@ -11,7 +11,9 @@ job 细分后(2026-10-08 业主指令:job 间文件/信息经 artifacts 与 need
   smoke-encoder/smoke-extraction/smoke-dialogue/eval-entlink/eval-corpora —— 任一非
   success → 不通过;
 - 必需裁决(verdicts):entlink=pass 且 corpora=pass(经 needs.outputs 传入);
-- 记录面(record):calibrate(两矩阵腿聚合)等——写入裁决件但不阻断(§7.2 回落条款)。
+- 记录面(record):长尾记录面(如 calibrate)既不进本裁决器 needs 也不传 record——
+  "不阻断 go"与"不阻断完成时刻"必须同一口径(2026-10-08 S2 红队结构裁决);
+  --record 机制保留供未来短小记录面使用。
 
 负测:tests/test_acceptance.py(stdlib,CI tests job 无 torch 亦实跑)。
 """

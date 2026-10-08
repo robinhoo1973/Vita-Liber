@@ -5,6 +5,7 @@
 # 三份清单两种用途:
 #   train-linux   = 生成式 SFT 烟雾 + 编码器训练(torch + transformers 全量)
 #   train-macos   = MPS 探测/标定(torch;smoke 只在 ubuntu 跑,不装 transformers)
+#                   —— 2026-10-08 MPS 腿退役后 = M4 本地执行面备用件,CI 零调用
 #   prepare-linux = prepare 数据面(cryptography 信封解密 + pypinyin 拼音层 +
 #                   tokenizers 预算守卫——语料构建器与 eval 的轻量子集)
 #

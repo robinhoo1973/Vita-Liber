@@ -36,8 +36,10 @@
 # - 训练侧指标只作进度信号;评测闸唯一权威 = 冻结语料在 ubuntu 的独立复验
 #   (P3 起扩展为部署件打分,闸结构已预留)。
 # - smoke = 训练循环/断点续训/预算停机的真实执行面(编码器 + 生成式 SFT 两轨)。
-# - MPS 腿已退役(2026-10-08 业主裁定):probe 通过≠吞吐可用(100 步标定多轮
-#   40-47min 未竟);标定=ubuntu CPU 吞吐基准,训练落点=私仓自托管 GPU。
+# - MPS 腿已退役(2026-10-08 业主裁定;依据如实记录):probe 5/5 通过(托管 runner
+#   MPS 真可用),但 100 步标定 5 次运行全部以人工取消结束(0 次超时;最长跑
+#   57m56s 未完)→ 步均下界 ≥34.8s/step,对照同配置 ubuntu CPU 实测 median
+#   7.62s/step(≈2h/940 步,装得进);训练落点=私仓自托管 GPU。
 # - 本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把注释里的空表达式
 #   当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)。
 name: distill-llm
@@ -340,9 +342,11 @@ jobs:
   calibrate:
     if: ${{ inputs.task != 'llama-xcframework' }}
     # 任务=吞吐标定(单一;ubuntu CPU):100 步真实训练步测 s/step·tok/s·peak_rss,
-    # 供训练分块预算(§7.4 第 8 条)。**MPS 腿退役**(2026-10-08 业主裁定:
-    # probe 通过但 100 步标定多轮 40-47min 未完成=吞吐不可用;训练落点=私仓
-    # 自托管 GPU,托管 MPS 不再作为候选;probe_mps.py 保留备用)。
+    # 供训练分块预算(§7.4 第 8 条)。**MPS 腿退役**(2026-10-08 业主裁定,依据
+    # 如实:probe 5/5 通过,但 100 步标定 5 次全为人工取消、0 次超时、最长
+    # 57m56s 未完 → 步均 ≥34.8s/step 下界,对照 ubuntu CPU median 7.62s/step;
+    # 训练落点=私仓自托管 GPU。probe_mps.py/requirements-distill-train-macos.txt
+    # 登记为 M4 本地执行面备用件,CI 零调用)。
     needs: tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -627,11 +631,13 @@ jobs:
 
   acceptance:
     # 验收裁决器(2026-10-08 业主裁决定稿;round4 §4.2;job 细分后挂全图):
-    # 单一机器裁决点——13 个必需 job 全绿且双 verdict=pass 才 go;calibrate 等记录面
-    # 写入裁决件不阻断。未达=run 判红(补"不吞红")。判据冻结于 gate/acceptance.py。
+    # 单一机器裁决点——13 个必需 job 全绿且双 verdict=pass 才 go。未达=run 判红
+    # (补"不吞红")。判据冻结于 gate/acceptance.py。
+    # 记录面纪律(2026-10-08 S2 红队结构裁决):长尾记录面(calibrate 等)不进 needs——
+    # "不阻断 go"与"不阻断完成时刻"必须同一口径;记录随 artifact 留证,不拖裁决链。
     needs: [tests, tests-torch, export-prompts, fetch-catalog, materialize-catalog,
             build-extraction, build-entlink, build-dialogue,
-            calibrate, smoke-encoder, smoke-extraction, smoke-dialogue,
+            smoke-encoder, smoke-extraction, smoke-dialogue,
             eval-entlink, eval-corpora]
     if: ${{ always() && inputs.task != 'llama-xcframework' }}
     runs-on: ubuntu-24.04
@@ -657,7 +663,6 @@ jobs:
           R_SMOKE_DIALOGUE: ${{ needs.smoke-dialogue.result }}
           R_EVAL_ENTLINK: ${{ needs.eval-entlink.result }}
           R_EVAL_CORPORA: ${{ needs.eval-corpora.result }}
-          R_CALIBRATE: ${{ needs.calibrate.result }}
           V_ENTLINK: ${{ needs.eval-entlink.outputs.verdict_entlink }}
           V_CORPORA: ${{ needs.eval-corpora.outputs.verdict_corpora }}
         run: |
@@ -676,7 +681,6 @@ jobs:
             --result "eval-entlink=$R_EVAL_ENTLINK" \
             --result "eval-corpora=$R_EVAL_CORPORA" \
             --verdict "entlink=$V_ENTLINK" --verdict "corpora=$V_CORPORA" \
-            --record "calibrate=$R_CALIBRATE" \
             --out acceptance.json
           RC=$?
           set -e

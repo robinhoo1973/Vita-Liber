@@ -48,8 +48,8 @@ distill/
 ├── build_corpus.py       实体链接语料 CLI(抽样/规范名/域名排除/实体导出)
 ├── eval_entlink.py       实体链接评测闸 CLI(baseline/verdict 落盘)
 ├── eval_corpora.py       抽取/对话冻结产物独立复验 CLI(verdict=fail 阻断 publish)
-├── probe_mps.py          MPS 探测段(真分配+matmul 对拍;不信任 is_available)
-├── calibrate.py          100 步标定(真实训练步口径)
+├── probe_mps.py          MPS 探测(真分配+matmul 对拍)——**已退役**(2026-10-08);M4 本地执行面备用件,CI 零调用
+├── calibrate.py          100 步标定(真实训练步口径;ubuntu CPU 吞吐基准;逐步落盘+SIGTERM 部分落盘)
 ├── train_encoder.py      编码器训练循环(墙钟预算优雅停机/断点续训/smoke)
 ├── run_tests.sh          本地测试入口(stdlib 测试 + 全簇语法验证)
 └── tests/                unittest(含解密往返/物化契约/对话接地/目录 v7 等)
@@ -78,13 +78,16 @@ python3 .github/actions/distill/build_corpus.py --catalog-sqlite corpus-assets/c
 
 ## CI(workflow: llm.yml,name: distill-llm;task=llm-pipeline)
 
-`tests(单测+语法;轻依赖同装) → prepare(CNB 取数+解密+三面语料冻结) → calibrate(ubuntu CPU +
-macOS MPS 探测段)/ smoke(编码器 30 步 + 生成式 SFT 两语料 20 步 + 续训回归) /
-eval(entlink 基线闸 + 抽取/对话复验闸,双闸合一 verdict=fail 阻断 publish)
-→ publish(内容寻址 append-only 到 Release distill-corpus)`。
+`tests/tests-torch/export-prompts(前置并联) → fetch-catalog(CNB v3 零密钥取数+信封解密) →
+materialize-catalog(SQLite→data-dir) → build-extraction/build-entlink/build-dialogue(三构建并联)
+/ calibrate(ubuntu CPU 吞吐基准;记录面——不进裁决器 needs,不阻断完成时刻)
+/ smoke-encoder/smoke-extraction/smoke-dialogue(三冒烟并联) / eval-entlink/eval-corpora(双闸)
+→ acceptance(唯一裁决器:13 必需 job 全绿且 entlink∧corpora verdict=pass 才 go;未达=run 判红)
+→ publish-corpus(内容寻址 append-only 到 Release distill-corpus;裁决器放行才翻转可见)`。
 
 - 依赖钉版:`.github/config/requirements/requirements-distill-{prepare-linux,train-linux,train-macos}.txt`
-  (S-M6 哈希钉版;生成脚本 `.github/actions/distill/make-requirements.sh`)。
+  (S-M6 哈希钉版;train-macos = M4 本地执行面备用件,CI 零调用(2026-10-08 MPS 腿退役);
+  生成脚本 `.github/actions/distill/make-requirements.sh`)。
 - **零 secrets**:医疗数据匿名读取;信封主钥 = App 内嵌公开常量(与
   `ASRPackageCrypto.swift` 同值断言见 tests/test_fetch_catalog.py)。
 - 语料产物:`corpus.jsonl`(实体链接)/`extraction_*.jsonl`(抽取)/`dialogue_*.jsonl`(对话)
@@ -98,7 +101,7 @@ eval(entlink 基线闸 + 抽取/对话复验闸,双闸合一 verdict=fail 阻断
 ## 纪律速记
 
 - 训练数据零 PHI(合成+公开目录);TFDA OGDL v1 顯名义务随 manifest;用户数据进训练永久禁止;
-- 评测闸唯一权威 = 冻结语料/部署件在 ubuntu 的复验与打分;训练侧(MPS)指标只作进度信号;
+- 评测闸唯一权威 = 冻结语料/部署件在 ubuntu 的复验与打分;训练侧(私仓 GPU / M4 本地)指标只作进度信号;
 - checkpoint 存 Release(artifact 500MB 会爆);语料内容寻址 append-only;
 - BR-006 词表从 AlertEngine.swift 同源导出、BR-012/高风险词表从 AILocal.swift 同源导出,禁止 Python 复刻第二套;
 - 对话语料的 assistant 事实片段必须逐字引用资料(dialogue/grounding.py 机械复验);
