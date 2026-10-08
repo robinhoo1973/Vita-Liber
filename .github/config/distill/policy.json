@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.0.0",
+  "_comment": "distill 判据单一事实源(2026-10-08 round5 决议):阈值/混比/开关冻结于此,运行期不可改;变更=PR 可审计。provisional=true 的字段为预承诺值,首测后一行确认。",
+  "corpus": {
+    "counts": {"sft": 27000, "pretrain": 40000, "dialogue": 4000},
+    "entlinkMaxSamples": {"drug": 200000, "hospital": 80000, "diagnosis": 60000, "exam": 30000},
+    "seed": 20261007
+  },
+  "gates": {
+    "entlink": {
+      "minAcceptsPerBandDomain": 50,
+      "recallAt1Min": 0.85, "recallAt1Min_provisional": true,
+      "recallAt10MinPerBand": 0.98, "recallAt10MinPerBand_provisional": true,
+      "precisionMin": 0.98, "precisionMin_provisional": true,
+      "top3Min": 0.90, "top3Min_provisional": true,
+      "hardZero": {"overridable": false}
+    },
+    "extraction": {
+      "partialCredit": 0.5,
+      "evalPerCell": 60,
+      "tau": 0.03, "tau_provisional": true,
+      "minSamplesPerCell": 50,
+      "worstCellRule": "min_of_cells",
+      "hardZero": {"br003": 0, "jsonInvalid": 0, "nonVerbatim": 0, "negativeRow": 0, "grammarChar": 0, "overridable": false}
+    },
+    "calibrate": {"mpsFallback": "cpu", "lossRelTolerance": 0.05}
+  },
+  "noise": {
+    "version": "2.0",
+    "_bandComment": "字级 CER 目标(校准对象=4-8 字 span);alpha 席终案,现实锚定:OCR 手机翻拍 3-13.5%/ASR 9-16%",
+    "bandTargets": {"clean": 0.0, "light": 0.02, "medium": 0.05, "heavy": 0.10, "extreme": 0.18},
+    "spanDamageTargets": {"clean": 0.0, "light": 0.11, "medium": 0.26, "heavy": 0.47, "extreme": 0.70},
+    "spanDamageTolerance": {"clean": 0.0, "light": 0.03, "medium": 0.04, "heavy": 0.05, "extreme": 0.05},
+    "spanDamageMinSpans": 1000,
+    "trainMix": {"clean": 0.15, "light": 0.30, "medium": 0.30, "heavy": 0.17, "extreme": 0.08},
+    "labelPreservingCerMax": 0.20,
+    "generators": {"positionSampler": "textnoisr(BSD-2)", "confusionSource": "unihan-pycorrector", "optional": "scrambledtext(MIT,自举对照轨)"}
+  },
+  "training": {
+    "encoder": {
+      "replayRatio": 0.2, "replayRatio_provisional": true,
+      "forgetting": {"maxDropPp": 2.0, "minSamplesPerUnit": 200, "test": "mcnemar_exact"},
+      "negatives": {"mode": "off", "modes": ["off", "corpus"], "corpusThenMined": true},
+      "pinyinInEncoder": false, "domainPrefixToken": false
+    },
+    "generation": {"generalReplayRatio": [0.10, 0.20], "dormant": true, "curriculum": "off"}
+  },
+  "publish": {
+    "dialogue": {"publish": false, "provisional": true, "reviewDue": "2026-12-31", "changeRequires": "owner"}
+  },
+  "weights": {
+    "modelId": "medical-llm-64m-q4-k-m",
+    "autoPromote": false,
+    "channel": "cnb:robinhoo1973/Resources#llama-models"
+  }
+}
