@@ -65,7 +65,7 @@ jobs:
   # 签名密钥仅 ⑥,CNB 令牌仅 ⑦。
   # ═══════════════════════════════════════════════════════════════
   preflight:
-    name: ① 前置校验（密钥有值,秒级无 checkout）
+    name: ① 密钥与令牌前置校验（秒级,无 checkout）
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -92,7 +92,7 @@ jobs:
 
 
   battery:
-    name: ② 契约电池（离线测试全列）
+    name: ② 离线契约电池（测试全列+模板验签）
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -145,7 +145,7 @@ jobs:
 
 
   resolve:
-    name: ③ 解析上游最新版（→ artifact config）
+    name: ③ 上游解析（滚动 pin → config artifact）
     needs: [preflight, battery]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -192,7 +192,7 @@ jobs:
 
 
   project:
-    name: ④ 投影源清单与暂存件（→ artifact manifest）
+    name: ④ 源清单投影（config → manifest artifact）
     needs: [resolve]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -237,7 +237,7 @@ jobs:
 
 
   build:
-    name: ⑤ 准备·构建·文案投影（→ artifact packages）
+    name: ⑤ 源树准备·打包·文案投影（→ packages artifact）
     needs: [project]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -340,7 +340,7 @@ jobs:
 
 
   sign:
-    name: ⑥ 签名目录与核对（→ artifact metadata）
+    name: ⑥ 签名目录与验签核对（→ metadata artifact）
     needs: [build]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -406,7 +406,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: ⑦ 发布至 CNB（下载 artifact → 发布·回读核对）
+    name: ⑦ CNB 发布（下载 artifact·回读核对）
     needs: [sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -477,7 +477,7 @@ jobs:
   #      闭环判据：inventory 全数在册、缺候选 0、未知 0 且 probe 零 mismatch。
   # ═══════════════════════════════════════════════════════════════
   catalog-draft:
-    name: ⑧ 目录草案生成（seeds → 发现·深探 → models/catalog-copy 候选 artifact）
+    name: ⑧ 目录草案生成（seeds→发现→深探→候选 artifact）
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -528,7 +528,7 @@ jobs:
           if-no-files-found: warn
 
   verify:
-    name: ⑨ 复现断言与全景（下载 artifact → 断言·全景表）
+    name: ⑨ 复现断言与全景（下载报告 artifact）
     needs: [catalog-draft]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -680,7 +680,7 @@ jobs:
       # api.github.com）。无家族硬编码——新家族进 config 即自动纳入。
 
   archive-check:
-    name: ⑩ 非 hf-repo 字节补测（archive 面,与 ⑨ 并联）
+    name: ⑩ 非 hf-repo 字节补测（archive 面）
     needs: [catalog-draft]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
