@@ -442,22 +442,26 @@ jobs:
           name: gate-report
       - name: Freeze corpora to Release(content-addressed, append-only)
         run: |
+          # 本 job 不 checkout 仓库:gh 必须显式 -R 指明仓库——否则 gh 走 git 上下文
+          # 报 `fatal: not a git repository`,9 秒即红(2026-10-08 首跑 CI 37713834389
+          # 实证;与本文件 llama 作业首行注记同源教训,publish 段此前从未被执行过)。
+          REPO="$GITHUB_REPOSITORY"
           SHA=$(python3 -c "import json;print(json.load(open('corpus.jsonl.manifest.json'))['corpus_sha256'])")
           EXT_SHA=$(python3 -c "import json;print(json.load(open('extraction_manifest.json'))['files']['extraction_sft.jsonl']['sha256'])")
-          gh release view distill-corpus >/dev/null 2>&1 || gh release create distill-corpus --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only)"
+          gh release view distill-corpus -R "$REPO" >/dev/null 2>&1 || gh release create distill-corpus -R "$REPO" --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only)"
           # 上传失败必须炸 job(fail-closed):内容寻址同名资产 --clobber 重传幂等,
           # 无竞态场景;历史教训:|| true 曾把静默丢资产包装成绿 run。
-          gh release upload distill-corpus "corpus.jsonl#distill-corpus-$SHA.jsonl" --clobber
-          gh release upload distill-corpus "corpus.jsonl.manifest.json#distill-corpus-$SHA.manifest.json" --clobber
-          gh release upload distill-corpus "extraction_sft.jsonl#distill-extraction-$EXT_SHA.jsonl" --clobber
-          gh release upload distill-corpus "extraction_eval.jsonl#distill-extraction-eval-$EXT_SHA.jsonl" --clobber
-          gh release upload distill-corpus "extraction_pretrain.jsonl#distill-extraction-pretrain-$EXT_SHA.jsonl" --clobber
-          gh release upload distill-corpus "extraction_manifest.json#distill-extraction-manifest-$EXT_SHA.json" --clobber
+          gh release upload distill-corpus "corpus.jsonl#distill-corpus-$SHA.jsonl" --clobber -R "$REPO"
+          gh release upload distill-corpus "corpus.jsonl.manifest.json#distill-corpus-$SHA.manifest.json" --clobber -R "$REPO"
+          gh release upload distill-corpus "extraction_sft.jsonl#distill-extraction-$EXT_SHA.jsonl" --clobber -R "$REPO"
+          gh release upload distill-corpus "extraction_eval.jsonl#distill-extraction-eval-$EXT_SHA.jsonl" --clobber -R "$REPO"
+          gh release upload distill-corpus "extraction_pretrain.jsonl#distill-extraction-pretrain-$EXT_SHA.jsonl" --clobber -R "$REPO"
+          gh release upload distill-corpus "extraction_manifest.json#distill-extraction-manifest-$EXT_SHA.json" --clobber -R "$REPO"
           # 对话面 dialogue_* 三条上传在 D-1 裁决前暂缓(见 job 头注)。
           # §10 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
           # (artifact 30 天即过期;P3 模型只对比同版本基线行,不得丢)。
           for f in baseline-out/*.json; do
-            gh release upload distill-corpus "$f#baseline-$(basename "$f")" --clobber
+            gh release upload distill-corpus "$f#baseline-$(basename "$f")" --clobber -R "$REPO"
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
