@@ -268,8 +268,12 @@ def select_quantized_members(members):
     return [m for m in members if group_key(m) is None or m in picked]
 
 
-def probe_repo(repo, *, workdir, fetch_json=None, template=None):
+def probe_repo(repo, *, workdir, fetch_json=None, template=None, download=None,
+               families=None):
     """深探镜像仓:下载实测成员字节。
+
+    download=字节层注入缝（2026-10-08 委员会 P1:使新家族端到端可离线测试;
+    与 resolve-asr-models 的 download 缝同构）。
 
     template（金样条目）存在时=**选件钉版**（2026-10-08 委员会:P1a）——
     成员集以金样声明为准（每件必须在上游存在,否则硬错=真实漂移信号）;
@@ -277,7 +281,8 @@ def probe_repo(repo, *, workdir, fetch_json=None, template=None):
     改变发行选件（zipformer decoder fp32 偏好得以保持）,同时内容漂移可见。
     """
     sha, members = fetch_repo(repo, fetch_json=fetch_json)
-    family, variant = infer_identity(repo)
+    downloader = download or _download
+    family, variant = infer_identity(repo, families=families)
     files, license_texts = [], []
     if template is not None:
         gold_members = [f["member"] for f in template.get("files", []) if "member" in f]
@@ -293,7 +298,7 @@ def probe_repo(repo, *, workdir, fetch_json=None, template=None):
             continue
         url = "https://huggingface.co/%s/resolve/%s/%s" % (repo, sha, member)
         destination = Path(workdir) / repo.replace("/", "_") / member.replace("/", "_")
-        size, digest = _download(url, destination)
+        size, digest = downloader(url, destination)
         if role == "notice" and destination.stat().st_size < 65536:
             try:
                 license_texts.append(destination.read_text(errors="replace"))
@@ -842,7 +847,8 @@ def main():
                                 template["files"] = []
                             try:
                                 draft = apply_template(
-                                    probe_repo(repo, workdir=args.workdir), template)
+                                    probe_repo(repo, workdir=args.workdir,
+                                               families=(family_id,)), template)
                             except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
                                 probes.append({"entry": key_str, "repo": repo,
                                                "status": "error", "reason": str(error)})

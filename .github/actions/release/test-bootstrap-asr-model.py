@@ -436,6 +436,85 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(files[0]["sha256"], "7" * 64, "member 件实测重填")
         self.assertEqual(files[1]["url"], "https://raw.example/LICENSE")
 
+    def test_new_family_end_to_end_offline(self):
+        # 新家族全链离线 e2e（2026-10-08 席 3 泛化钉）:mock 发现层 + download
+        # 缝假字节→发现（词表注入）→未钉档位择一→深探草案→emit 追加→
+        # 投影可过（可采纳性）→文案骨架空串 fail-closed。
+        inventory = MODULE["inventory_report"]
+        groups = MODULE["unpinned_variant_groups"]
+        probe = MODULE["probe_repo"]
+        emit = MODULE["emit_config_candidates"]
+        projector = runpy.run_path(str(ROOT / ".github" / "actions" / "release"
+                                       / "generate-asr-source-manifest.py"))
+        copy_tool = runpy.run_path(str(ROOT / ".github" / "actions" / "release"
+                                      / "apply-asr-catalog-copy.py"))
+        import hashlib as _hh
+        import json as _json
+
+        repo = "csukuangfj/sherpa-onnx-newfam-small"
+        members = [".gitattributes", "README.md", "LICENSE",
+                   "newfam-small/encoder.onnx", "newfam-small/encoder.int8.onnx",
+                   "newfam-small/decoder.onnx", "newfam-small/decoder.int8.onnx",
+                   "newfam-small/tokens.txt"]
+        payloads = {"encoder.int8.onnx": b"enc" * 200,
+                    "decoder.int8.onnx": b"dec" * 200,
+                    "tokens.txt": b"tok" * 20,
+                    "LICENSE": b"MIT License\nPermission is hereby granted, free of charge",
+                    "README.md": b"# newfam"}
+        def fetch(url):
+            if "huggingface.co/api/models?search=" in url:
+                return [{"id": repo}]
+            if "huggingface.co/api/models/" in url:
+                return {"sha": "a" * 40,
+                        "siblings": [{"rfilename": m} for m in members]}
+            raise AssertionError("unexpected fetch: " + url)
+        def download(url, destination):
+            name = url.rsplit("/", 1)[-1]
+            data = payloads.get(name, b"x")
+            Path(destination).parent.mkdir(parents=True, exist_ok=True)
+            Path(destination).write_bytes(data)
+            return len(data), _hh.sha256(data).hexdigest()
+
+        config = {"formatVersion": 1,
+                  "bundledModels": [{"id": "whisper", "variant": "tiny"}],
+                  "shared": [],
+                  "models": [
+            {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "b" * 40,
+             "source": "s", "watch": {"kind": "hf-repo", "repo": "csukuangfj/w"},
+             "versionPolicy": {"prefix": "int8"}, "files": []}]}
+        inventory_doc = inventory([{"name": "newfam"}], config,
+                                  authors=("csukuangfj",), fetch_json=fetch)
+        rows = inventory_doc["results"][0]["rows"]
+        self.assertEqual([r["status"] for r in rows], ["new-candidate"])
+        selected = groups(rows, known_variants=set(), families=("newfam",))
+        self.assertEqual(selected, {"small": [repo]}, "新家族候选定序择一")
+        with tempfile.TemporaryDirectory() as directory:
+            draft = probe(repo, workdir=Path(directory), fetch_json=fetch,
+                          download=download, families=("newfam",))
+            self.assertEqual((draft["id"], draft["variant"]), ("newfam", "small"))
+            self.assertEqual(draft["license"], "MIT", "许可启发（LICENSE 内容）")
+            picked = {f["member"] for f in draft["files"]}
+            self.assertIn("newfam-small/encoder.int8.onnx", picked, "量化择一 int8 优先")
+            self.assertNotIn("newfam-small/encoder.onnx", picked)
+            self.assertIn("LICENSE", picked, "许可并入（弃 README 兜底）")
+            out = Path(directory) / "out"
+            emit([{"entry": "newfam.small", "repo": repo, "draft": draft}], config,
+                 {"formatVersion": 1, "families": [], "tiers": []}, out)
+            generated = _json.loads((out / "models.json").read_bytes())
+            copy_gen = _json.loads((out / "catalog-copy.json").read_bytes())
+        self.assertEqual(generated["models"][-1]["id"], "newfam", "草案追加")
+        self.assertEqual(generated["models"][0], config["models"][0], "既有条目零触碰")
+        family = next(f for f in copy_gen["families"] if f["id"] == "newfam")
+        self.assertEqual(family["name"]["zh-Hans"], "", "文案骨架空串")
+        projected = projector["manifest_bytes"](projector["project"](generated))
+        self.assertIn(b"newfam", projected, "生成物可过投影（可采纳性）")
+        broken = _json.loads(_json.dumps(generated))
+        del broken["models"][-1]["versionPolicy"]
+        with self.assertRaises(ValueError):
+            projector["project"](broken)
+        with self.assertRaises(ValueError):
+            copy_tool["validate_copy"](copy_gen, generated)
+
     def test_discover_authors(self):
         # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局
         discover = MODULE["discover_authors"]
