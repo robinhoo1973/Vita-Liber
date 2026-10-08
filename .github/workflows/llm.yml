@@ -85,7 +85,7 @@ env:
 
 jobs:
   tests:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 零密钥测试闸:stdlib 单测 + 全簇语法;prepare 轻依赖同装(信封解密往返等
     # 单测由此在 CI 实跑——缺依赖时测试 skip 而非假绿)。
     runs-on: ubuntu-24.04
@@ -101,7 +101,7 @@ jobs:
         run: bash .github/actions/distill/run_tests.sh
 
   tests-torch:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=torch 依赖单测(单一):gen 数据集渲染/掩码/截断守卫及同类——tests job
     # 无 torch 不装,该批在此独立实跑(一 job 一任务,失败即刻定位)。
     needs: tests
@@ -121,7 +121,7 @@ jobs:
         run: python3 -m unittest tests.test_gen_sft_dataset -v
 
   fetch-catalog:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=CNB 取数(job 细分,2026-10-08 业主指令):校验/解密 → 目录 SQLite。
     # SQLite(≈3.4GB)经 artifact 单跳传给三个构建 job;一个 job 一个任务,出错即
     # 定位到具体环。盘面峰值 ≈ 目录 3.4GB + 密文 288MB——低于 8GB 直接炸。
@@ -158,7 +158,7 @@ jobs:
           retention-days: 7
 
   materialize-catalog:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=目录物化(单一):SQLite → data-dir(drugs_*/hospitals_*/diagnoses_*/exams_*.jsonl)。
     # data-dir 经 artifact 共享给 build-extraction 与 build-dialogue——免二次物化。
     needs: fetch-catalog
@@ -189,7 +189,7 @@ jobs:
           retention-days: 7
 
   export-prompts:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=抽取提示词导出(单一):编译 CoreKit Domain 全源导出提示词/卡种规格
     # (训练/推理同分布机械保证;单一事实源)。产物极小,独立 job=编译失败即此处定位。
     needs: tests
@@ -215,7 +215,7 @@ jobs:
           retention-days: 7
 
   build-extraction:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=抽取语料合成(单一):data-dir + 提示词 → ASR/OCR 噪声 → extraction_*.jsonl。
     needs: [materialize-catalog, export-prompts]
     runs-on: ubuntu-24.04
@@ -265,7 +265,7 @@ jobs:
           retention-days: 7
 
   build-dialogue:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=接地转述对话语料(单一;四态;发布暂缓,产物留 artifact 供评证)。
     needs: materialize-catalog
     runs-on: ubuntu-24.04
@@ -304,7 +304,7 @@ jobs:
           retention-days: 7
 
   build-entlink:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=实体链接语料 + 实体模型导出(实体模型随语料走,eval 据此重建索引)。
     needs: fetch-catalog
     runs-on: ubuntu-24.04
@@ -353,7 +353,7 @@ jobs:
           retention-days: 7
 
   calibrate:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=吞吐标定(单一;ubuntu CPU):100 步真实训练步测 s/step·tok/s·peak_rss,
     # 供训练分块预算(§7.4 第 8 条)。**MPS 腿退役**(2026-10-08 业主裁定;实测:
     # 对拍 run 37750843035 平台期 350–403 s/step vs 同 run ubuntu CPU median
@@ -393,7 +393,7 @@ jobs:
           retention-days: 7
 
   smoke-encoder:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=编码器训练循环回归(30 步+断点续训;语料=entlink corpus.jsonl)。
     needs: build-entlink
     runs-on: ubuntu-24.04
@@ -440,7 +440,7 @@ jobs:
           retention-days: 7
 
   smoke-extraction:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=生成式 SFT 冒烟·抽取语料(含断点续训路径 + gen 数据集单测)。
     needs: build-extraction
     runs-on: ubuntu-24.04
@@ -478,7 +478,7 @@ jobs:
           retention-days: 7
 
   smoke-dialogue:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=生成式 SFT 冒烟·对话语料(四态接地对话;数据管线冒烟,非对话能力证据)。
     needs: build-dialogue
     runs-on: ubuntu-24.04
@@ -510,7 +510,7 @@ jobs:
           retention-days: 7
 
   eval-entlink:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=实体链接评测闸(数据基线对照臂 + 五层闸挂点);verdict=fail 经 acceptance 阻断发布。
     needs: build-entlink
     runs-on: ubuntu-24.04
@@ -590,7 +590,7 @@ jobs:
           retention-days: 30
 
   eval-corpora:
-    if: ${{ inputs.task != 'llama-xcframework' }}
+    if: ${{ inputs.task == 'llm-pipeline' }}
     # 任务=抽取/对话冻结产物独立复验(与语料构建解耦,单独 job 便于定位)。
     needs: [build-extraction, build-dialogue]
     runs-on: ubuntu-24.04
@@ -670,7 +670,7 @@ jobs:
             build-extraction, build-entlink, build-dialogue,
             smoke-encoder, smoke-extraction, smoke-dialogue,
             eval-entlink, eval-corpora]
-    if: ${{ always() && inputs.task != 'llama-xcframework' }}
+    if: ${{ always() && inputs.task == 'llm-pipeline' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -738,7 +738,7 @@ jobs:
     # append-only。对话面(2026-10-08 暂缓):本 job 清单在 D-1(FR25.10/D3)裁决前不含
     # dialogue_*——语料照常构建/复验(artifact 留证),裁决后再开上传。
     needs: [acceptance]
-    if: ${{ inputs.task != 'llama-xcframework' && needs.acceptance.outputs.go == 'true' }}
+    if: ${{ inputs.task == 'llm-pipeline' && needs.acceptance.outputs.go == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -1000,7 +1000,7 @@ jobs:
     # 状态机=gen/chunk_chain.py(失败即停/maxChunks/零进度三重闸);三重闸通过且
     # chainEnabled 才自派发下一 chunk;checkpoint/状态经 llama-models Release(draft 门控)。
     runs-on: ubuntu-24.04
-    timeout-minutes: 355
+    timeout-minutes: 359
     permissions:
       contents: write   # Release:corpus 读取 + checkpoint/状态回传
       actions: write    # 链式续跑自派发(workflow_dispatch)

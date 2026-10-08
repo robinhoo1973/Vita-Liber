@@ -152,14 +152,14 @@
       "compile": "deferred"
     },
     "schedule": {
-      "_comment": "业主四规则 2026-10-09:②窗口=maintenance.yml cron '0 0,8,16'(UTC 00:00 起算);④workMinutes=330 工作 + 25min 收尾在 6h 顶内(job timeout 355);①skipIfDataUnchanged;③未完成续跑(状态机)",
+      "_comment": "业主四规则 2026-10-09:②窗口=maintenance cron '0 0,8,16'(训练 run 自身开销实测口径:checkout+pip+fetch+wrap≈10-15min,8h 窗余量充裕——前提=管线 job 不随跑,guard 已改正值);④workMinutes=335+wrap≈20min,timeout=359,GitHub 6h 硬顶内用满",
       "windowsUtc": [
         0,
         8,
         16
       ],
-      "workMinutes": 330,
-      "maxJobMinutes": 355,
+      "workMinutes": 335,
+      "maxJobMinutes": 359,
       "skipIfDataUnchanged": true
     }
   },
