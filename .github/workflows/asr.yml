@@ -561,7 +561,7 @@ jobs:
           doc = json.load(open(sys.argv[1], encoding="utf-8"))
           print("## ASR 流水线全景（verify：seeds → 家族发现 → 档位深探）")
           print("")
-          print("- `seeds.json`：家族名清单（本 job 消费；**不进 models.json 生成链**）")
+          print("- `seeds.json`：家族名清单——**⑧ 生成链的输入**（发现→深探→候选两文件）")
           print("- `models.json` / `catalog-copy.json`：提交配置金样（人工维护，本 job 只读校验）")
           print("- 深探 draft 见 artifact `asr-bootstrap-repro`（可采纳物：待人工项就地复核后写回）")
           print("")
@@ -615,7 +615,7 @@ jobs:
                                               ", ".join(review) or "—"))
               print("")
               print("候选配置见 artifact `asr-config-candidates`"
-                    "（models-candidate.json / catalog-copy-candidate.json;"
+                    "（models.json / catalog-copy.json,仓库原名;"
                     "文案骨架空串待人填,空串被投影器 fail-closed 拒）。")
           PYEOF
 

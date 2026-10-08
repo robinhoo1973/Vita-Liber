@@ -185,7 +185,7 @@ def infer_role(member):
     return None
 
 
-def infer_identity(repo):
+def infer_identity(repo, families=None):
     """镜像仓名 → (family, variant)；variant 令牌扫描，无法判定时 None（供人审）。
 
     家族=**词边界子串**匹配（最长优先）——同时覆盖：
@@ -197,7 +197,9 @@ def infer_identity(repo):
     """
     tail = repo.split("/")[-1]
     tail = re.sub(r"^sherpa-onnx-", "", tail)
-    for family in sorted(MODELS, key=len, reverse=True):
+    # families=调用方词表（2026-10-08 生成链补完:G2——seeds 新家族名必须可发现,
+    # 不能因不在 asr_constants.MODELS 而静默失配）;缺省=内置词表。
+    for family in sorted(families if families is not None else MODELS, key=len, reverse=True):
         match = re.search(r"(^|[-_/])" + re.escape(family) + r"($|[-_/])", tail)
         if match is None:
             continue
@@ -509,7 +511,8 @@ def discover_family(family, *, authors=None, limit=100, fetch_json=None):
             if repo in seen:
                 continue
             try:
-                family_id, variant = infer_identity(repo)
+                # 以目标家族名为词表（G2）:seeds 加名即可发现,无需先扩内置词表。
+                family_id, variant = infer_identity(repo, families=(family,))
             except BootstrapError:
                 continue
             if family_id != family:
@@ -517,6 +520,31 @@ def discover_family(family, *, authors=None, limit=100, fetch_json=None):
             seen.add(repo)
             candidates.append({"repo": repo, "variant": variant})
     return candidates
+
+
+def unpinned_variant_groups(rows, known_variants, families=None, *, variant_vocab=None):
+    """候选行 → 「未钉档位」分组（生成链补完,2026-10-08:G1 纯函数,可离线单测）。
+
+    取 new-candidate 行,以 families 为词表推档位令牌,过滤：
+    - 档位不可判定（None）或已在金样（known_variants）→ 剔除；
+    - 档位须 ∈ 词表（缺省 VARIANTS;防 large-v3 类变体噪音）。
+    返回 {variant: sorted(repo 名)}——定序保证提案幂等。
+    """
+    vocab = variant_vocab if variant_vocab is not None else VARIANTS
+    grouped = {}
+    for item in rows:
+        if item.get("status") != "new-candidate":
+            continue
+        try:
+            _, candidate_variant = infer_identity(item["repo"], families=families)
+        except BootstrapError:
+            continue
+        if candidate_variant is None or candidate_variant in known_variants:
+            continue
+        if candidate_variant not in vocab:
+            continue
+        grouped.setdefault(candidate_variant, []).append(item["repo"])
+    return {variant: sorted(repos) for variant, repos in sorted(grouped.items())}
 
 
 def emit_config_candidates(proposals, config, copy_doc, out_dir):
@@ -530,10 +558,11 @@ def emit_config_candidates(proposals, config, copy_doc, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     models = copy.deepcopy(config)
     models.setdefault("models", [])
-    existing_ids = {entry.get("id") for entry in models["models"]}
+    # (id,variant) 键控（2026-10-08:G1 修复——原按 id 去重会丢同族新档位）。
+    existing_keys = {(entry.get("id"), entry.get("variant")) for entry in models["models"]}
     for proposal in proposals:
         draft = proposal["draft"]
-        if draft.get("id") in existing_ids:
+        if (draft.get("id"), draft.get("variant")) in existing_keys:
             continue
         models["models"].append(draft)
     copy_out = copy.deepcopy(copy_doc or {"formatVersion": 1, "families": [], "tiers": []})
@@ -679,6 +708,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.from_seeds is not None:
+            proposals = []  # 无条件初始化（2026-10-08 实证:--emit 不带 --probe 崩）
             seeds_doc = json.loads(args.from_seeds.read_bytes())
             config = (json.loads(args.compare_config.read_bytes())
                       if args.compare_config is not None else {"models": []})
@@ -687,6 +717,10 @@ def main():
                                          only=args.only)
             for row in inventory["results"]:
                 print("family: %s" % row["family"], flush=True)
+                if not row.get("rows") and row.get("status") != "unknown":
+                    print("::warning::%s 零候选——家族名可能不在发现词表/作者域外"
+                          "（检查 asr_constants.MODELS 或 seeds 名拼写）" % row["family"],
+                          file=sys.stderr)
                 if row.get("status") == "unknown":
                     print("  [unknown] " + row.get("reason", ""), flush=True)
                     continue
@@ -707,12 +741,10 @@ def main():
                 probes = []
                 proposals = []
                 for row in inventory["results"]:
-                    in_config_any = False
                     for item in row.get("rows", []):
                         status = str(item.get("status", ""))
                         if not status.startswith("in-config:"):
                             continue
-                        in_config_any = True
                         key_str = status.split(":", 1)[1]
                         entry_id, _, variant = key_str.partition(".")
                         entry = by_key.get((entry_id, variant))
@@ -737,33 +769,39 @@ def main():
                                  len(compare["cosmetic"])), flush=True)
                         for line in compare["mismatch"]:
                             print("  [mismatch] " + line, flush=True)
-                    # 新家族深探（生成链第一步,2026-10-08 业主指令）:家族零在册时,
-                    # 候选按档位分组定序择一（repo 名排序首）构造 draft 提案——
-                    # 无金样对账;draft 即「可采纳物」,人工复核后写回 config
+                    # 未钉档位深探（生成链补完,2026-10-08:G1——原逻辑只在
+                    # 「家族零在册」时提案,既有家族新增档位零产出,且词表外
+                    # 家族名静默失配）。候选按档位分组定序择一（repo 名排序首）,
+                    # 经纯函数 unpinned_variant_groups（可离线单测）;无金样对账
+                    # （compare 缺省）;draft=「可采纳物」,人工复核后写回 config
                     # （CI 不直写金样,治理席裁决）。
-                    if not in_config_any and row.get("status") != "unknown":
-                        grouped = {}
-                        for item in row.get("rows", []):
-                            if item.get("status") != "new-candidate":
-                                continue
+                    if row.get("status") != "unknown":
+                        family_id = row.get("family")
+                        known_variants = {v for (i, v) in by_key if i == family_id}
+                        sibling = next((entry for (i, _), entry in by_key.items()
+                                        if i == family_id), None)
+                        for candidate_variant, repos in unpinned_variant_groups(
+                                row.get("rows", []), known_variants,
+                                families=(family_id,)).items():
+                            repo = repos[0]
+                            key_str = "%s.%s" % (family_id, candidate_variant)
+                            # 同族兄弟继承约定字段（source/license/versionPolicy）,
+                            # 但**不继承 path 目录约定**（档位间目录可异,如
+                            # zipformer 与 zipformer-small——重排会错位）。
+                            template = None
+                            if sibling is not None:
+                                template = dict(sibling)
+                                template["files"] = []
                             try:
-                                _, candidate_variant = infer_identity(item["repo"])
-                            except BootstrapError:
-                                candidate_variant = None
-                            grouped.setdefault(candidate_variant, []).append(item["repo"])
-                        for candidate_variant, repos in sorted(grouped.items(),
-                                                               key=lambda kv: kv[0] or ""):
-                            repo = sorted(repos)[0]
-                            key_str = "%s.%s" % (row.get("family"), candidate_variant or "std")
-                            try:
-                                draft = probe_repo(repo, workdir=args.workdir)
+                                draft = apply_template(
+                                    probe_repo(repo, workdir=args.workdir), template)
                             except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
                                 probes.append({"entry": key_str, "repo": repo,
                                                "status": "error", "reason": str(error)})
                                 print("proposal: %-18s ERROR %s" % (key_str, error), flush=True)
                                 continue
                             proposals.append({"entry": key_str, "repo": repo, "draft": draft})
-                            print("proposal: %-18s %s（新家族草案,draft 见报告）"
+                            print("proposal: %-18s %s（未钉档位草案,draft 见报告）"
                                   % (key_str, repo), flush=True)
                 reproduced = sum(1 for row in probes if isinstance(row.get("compare"), dict)
                                  and not row["compare"]["mismatch"])

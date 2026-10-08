@@ -8,6 +8,7 @@
 import json
 from pathlib import Path
 import runpy
+import subprocess
 import tempfile
 import unittest
 
@@ -275,6 +276,92 @@ class BootstrapTests(unittest.TestCase):
                          "文案骨架=空串（投影器 fail-closed 拒）")
         self.assertTrue(any(t["id"] == "newfam" and t["variant"] == "small"
                             for t in copy_out["tiers"]))
+
+    def test_unpinned_variant_groups(self):
+        # G1 纯函数（2026-10-08）：既有家族新增档位必须可提案;已钉档/词表外变体
+        # /不可判定剔除;定序保证幂等。
+        groups = MODULE["unpinned_variant_groups"]
+        rows = [
+            {"repo": "csukuangfj/sherpa-onnx-whisper-large-v3", "status": "new-candidate"},
+            {"repo": "csukuangfj/sherpa-onnx-whisper-large-v3-turbo-alt", "status": "new-candidate"},
+            {"repo": "csukuangfj/sherpa-onnx-whisper-tiny", "status": "new-candidate"},
+            {"repo": "csukuangfj/sherpa-onnx-whisper-zzz", "status": "new-candidate"},
+        ]
+        result = groups(rows, known_variants={"tiny"}, families=("whisper",))
+        self.assertIn("large", result, "未钉档位（large）应成组")
+        self.assertNotIn("tiny", result, "已钉档位剔除")
+        self.assertNotIn("zzz", result, "词表外变体剔除")
+        self.assertEqual(result["large"],
+                         sorted(["csukuangfj/sherpa-onnx-whisper-large-v3",
+                                 "csukuangfj/sherpa-onnx-whisper-large-v3-turbo-alt"]),
+                         "组内 repo 定序（幂等）")
+        # 新家族:词表注入生效（G2）
+        fresh = groups([{"repo": "some-org/sherpa-onnx-newfam-small", "status": "new-candidate"}],
+                       known_variants=set(), families=("newfam",))
+        self.assertEqual(list(fresh), ["small"])
+
+    def test_emit_new_variant_appended(self):
+        # G1 emit 键控：（id,variant）组合键——同族新档位必须追加,不得因 id 已存在丢弃。
+        emit = MODULE["emit_config_candidates"]
+        proposals = [{"entry": "whisper.large", "repo": "r",
+                      "draft": {"id": "whisper", "variant": "large", "license": "MIT",
+                                "revision": "c" * 40, "source": "s",
+                                "watch": {"kind": "hf-repo", "repo": "r"},
+                                "versionPolicy": {"prefix": "int8"}, "files": []}}]
+        config = {"formatVersion": 1, "models": [
+            {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "b" * 40,
+             "source": "s", "watch": {"kind": "hf-repo", "repo": "w"},
+             "versionPolicy": {"prefix": "int8"}, "files": []}]}
+        with tempfile.TemporaryDirectory() as directory:
+            written = emit(proposals, config, {"formatVersion": 1, "families": [], "tiers": []},
+                           Path(directory))
+            models = json.loads((Path(directory) / "models.json").read_text())
+        self.assertEqual([(m["id"], m["variant"]) for m in models["models"]],
+                         [("whisper", "tiny"), ("whisper", "large")],
+                         "同族新档位追加（原 id 去重会丢）")
+
+    def test_emit_idempotent_bytes(self):
+        # 属性（业界:幂等 f(f(x))=f(x)）:同输入两跑逐字节一致。
+        emit = MODULE["emit_config_candidates"]
+        config = json.loads((ROOT / ".github" / "config" / "asr" / "models.json").read_bytes())
+        copy_doc = json.loads((ROOT / ".github" / "config" / "asr" / "catalog-copy.json").read_bytes())
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            emit([], config, copy_doc, Path(a))
+            emit([], config, copy_doc, Path(b))
+            for name in ("models.json", "catalog-copy.json"):
+                self.assertEqual((Path(a) / name).read_bytes(), (Path(b) / name).read_bytes(),
+                                 name + " 幂等")
+
+    def test_emit_candidate_round_trips_to_committed_manifest(self):
+        # round-trip（业界:buf/k8s generate&diff 语义）:候选 models.json 经投影器
+        # 必须与已提交源清单逐字节一致（全在册场景;生成链的端到端自证）。
+        emit = MODULE["emit_config_candidates"]
+        config = json.loads((ROOT / ".github" / "config" / "asr" / "models.json").read_bytes())
+        copy_doc = json.loads((ROOT / ".github" / "config" / "asr" / "catalog-copy.json").read_bytes())
+        projector = runpy.run_path(str(ROOT / ".github" / "actions" / "release"
+                                       / "generate-asr-source-manifest.py"))
+        with tempfile.TemporaryDirectory() as directory:
+            emit([], config, copy_doc, Path(directory))
+            generated = json.loads((Path(directory) / "models.json").read_bytes())
+        projected = projector["manifest_bytes"](projector["project"](generated))
+        committed = (ROOT / "Resources" / "ASRModels" / "manifest.json").read_bytes()
+        self.assertEqual(projected, committed, "候选→投影 == 已提交源清单（逐字节）")
+
+    def test_cli_emit_without_probe_does_not_crash(self):
+        # 回归钉（2026-10-08 实证）:--emit-config-candidates 不带 --probe 时
+        # proposals 未初始化曾致 UnboundLocalError;--only __absent__ 保证零网络。
+        tool = ROOT / ".github" / "actions" / "release" / "bootstrap-asr-model.py"
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                ["python3", str(tool),
+                 "--from-seeds", str(ROOT / ".github" / "config" / "asr" / "seeds.json"),
+                 "--compare-config", str(ROOT / ".github" / "config" / "asr" / "models.json"),
+                 "--catalog-copy", str(ROOT / ".github" / "config" / "asr" / "catalog-copy.json"),
+                 "--only", "__absent__",
+                 "--emit-config-candidates", directory],
+                text=True, capture_output=True, cwd=str(ROOT))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("UnboundLocalError", result.stdout + result.stderr)
 
     def test_discover_authors(self):
         # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局
