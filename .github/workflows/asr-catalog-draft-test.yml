@@ -57,11 +57,10 @@ jobs:
             2>&1 | tee "$RUNNER_TEMP/draft.log"
 
       # LLM 辅助草拟（2026-10-08 业主指令:先在本 TEMP 验证,通过后再迁 asr.yml）
-      # ——来源 github.com/ggml-org/llama.cpp 官方 releases 预构建（钉 tag+sha256,
-      # CPU 版）,模型=仓内 GGUF（git 内,checkout 可得）。runner 自跑开源模型=
-      # 零外部 LLM 供应商,「发布链零在线 AI」裁决不破;建议只落 suggested/
-      # 侧车（人工采纳;失败仅告警不阻塞,诊断见 artifact）。
-      - name: LLM 辅助草拟（runner 自跑 llama.cpp → suggested/ 侧车）
+      # ——runner 自跑开源模型=零外部 LLM 供应商,「发布链零在线 AI」裁决不破;
+      # 原子三段（安装/启动/草拟）便于定位出错环节;建议只落 suggested/ 侧车
+      # （人工采纳;草拟失败仅告警不阻塞,诊断见 artifact）。
+      - name: 安装 llama.cpp（官方预构建;钉 tag+sha256）
         env:
           LLAMA_TAG: b11499
           LLAMA_SHA256: 19ce793dad78858ec5c89231975d0aa71de31219089bcd06dc5ebe01b403c00d
@@ -72,18 +71,23 @@ jobs:
           echo "${LLAMA_SHA256}  $RUNNER_TEMP/llama.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/llama"
           tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C "$RUNNER_TEMP/llama" --strip-components=1
-          # 布局自适应（run 37779075258 实证:包包内层级非 bin/;find 定位）
           SERVER_BIN="$(find "$RUNNER_TEMP/llama" -name llama-server -type f | head -1)"
           if [ -z "$SERVER_BIN" ]; then
             echo "::error::解包内未找到 llama-server"
             find "$RUNNER_TEMP/llama" -maxdepth 3 | head -30
             exit 1
           fi
-          export LD_LIBRARY_PATH="$(dirname "$SERVER_BIN"):${LD_LIBRARY_PATH:-}"
-          "$SERVER_BIN" \
+          echo "LLAMA_SERVER=${SERVER_BIN}" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$(dirname "$SERVER_BIN"):${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+
+      - name: 启动 llama-server（后台 + 健康检查;仓内 0.5B GGUF）
+        run: |
+          set -euo pipefail
+          "$LLAMA_SERVER" \
             -m Resources/LLMModels/qwen2.5-0.5b-instruct-q4_k_m.gguf \
             --host 127.0.0.1 --port 8080 --ctx-size 2048 --threads 4 \
             > "$RUNNER_TEMP/llama-server.log" 2>&1 &
+          echo "LLAMA_PID=$!" >> "$GITHUB_ENV"
           ready=0
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8080/health >/dev/null; then ready=1; break; fi
@@ -94,10 +98,14 @@ jobs:
             tail -30 "$RUNNER_TEMP/llama-server.log" || true
             exit 1
           fi
+
+      - name: LLM 辅助草拟（suggest → suggested/ 侧车）
+        run: |
+          set -euo pipefail
           if ! python3 .github/actions/release/suggest-asr-metadata.py \
               --candidates "$RUNNER_TEMP/asr-config-candidates" \
               --out "$RUNNER_TEMP/asr-config-candidates/suggested" \
-              --endpoint http://127.0.0.1:8080/v1 --model "qwen2.5-0.5b-${LLAMA_TAG}" \
+              --endpoint http://127.0.0.1:8080/v1 --model "qwen2.5-0.5b-${LLAMA_TAG:-local}" \
               --temperature 0.2; then
             echo "::warning::LLM 草拟失败（建议面,不阻塞;诊断见 artifact）"
           fi
