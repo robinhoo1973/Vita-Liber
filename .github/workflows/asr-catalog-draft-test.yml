@@ -72,8 +72,15 @@ jobs:
           echo "${LLAMA_SHA256}  $RUNNER_TEMP/llama.tar.gz" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/llama"
           tar -xzf "$RUNNER_TEMP/llama.tar.gz" -C "$RUNNER_TEMP/llama" --strip-components=1
-          export LD_LIBRARY_PATH="$RUNNER_TEMP/llama/bin:${LD_LIBRARY_PATH:-}"
-          "$RUNNER_TEMP/llama/bin/llama-server" \
+          # 布局自适应（run 37779075258 实证:包包内层级非 bin/;find 定位）
+          SERVER_BIN="$(find "$RUNNER_TEMP/llama" -name llama-server -type f | head -1)"
+          if [ -z "$SERVER_BIN" ]; then
+            echo "::error::解包内未找到 llama-server"
+            find "$RUNNER_TEMP/llama" -maxdepth 3 | head -30
+            exit 1
+          fi
+          export LD_LIBRARY_PATH="$(dirname "$SERVER_BIN"):${LD_LIBRARY_PATH:-}"
+          "$SERVER_BIN" \
             -m Resources/LLMModels/qwen2.5-0.5b-instruct-q4_k_m.gguf \
             --host 127.0.0.1 --port 8080 --ctx-size 2048 --threads 4 \
             > "$RUNNER_TEMP/llama-server.log" 2>&1 &
