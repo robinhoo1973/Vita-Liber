@@ -542,6 +542,39 @@ class BootstrapTests(unittest.TestCase):
 
         self.assertEqual(resolve({"models": []}, fetch_json=fetch), ("gamma",),
                          "无 config 时自动发现兜底")
+        self.assertEqual(resolve(None, fetch_json=fetch), ("gamma",),
+                         "config 退役（None）不崩,走自动发现")
+
+    def test_discover_family_global_fallback(self):
+        # 全局兜底（2026-10-09 config 退役配套）：域内零命中→无作者域搜索一次;
+        # 域内有命中→不放全局（噪声有界）。fire-red 宿主 csukuangfj2 实证场景。
+        discover = MODULE["discover_family"]
+        fire_red = "csukuangfj2/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25"
+        seen = []
+
+        def fetch(url):
+            seen.append(url)
+            if "author=csukuangfj" in url:
+                return []  # 域内零命中（csukuangfj2 低于 discover_authors 阈值）
+            if "author=" not in url:
+                return [{"id": fire_red}, {"id": "noise/other-model"}]
+            return []
+
+        candidates = discover("fire-red", authors=("csukuangfj", "k2-fsa"),
+                              fetch_json=fetch)
+        self.assertIn(fire_red, [c["repo"] for c in candidates],
+                      "域内零命中→全局搜索兜底发现 csukuangfj2 宿主")
+        self.assertEqual(len(seen), 3, "两域各一次 + 全局一次")
+        seen.clear()
+
+        def fetch_hit(url):
+            seen.append(url)
+            return [{"id": "csukuangfj/sherpa-onnx-fire-red-asr2-x"}]
+
+        candidates = discover("fire-red", authors=("csukuangfj",),
+                              fetch_json=fetch_hit)
+        self.assertTrue(candidates)
+        self.assertEqual(len(seen), 1, "域内有命中→不做全局搜索（噪声有界）")
 
     def test_inventory_report(self):
         inventory = MODULE["inventory_report"]

@@ -510,7 +510,7 @@ def resolve_authors(existing_config, *, explicit=None, fetch_json=None):
     if explicit:
         return (explicit,)
     from_config = set()
-    for entry in existing_config.get("models", []):
+    for entry in (existing_config or {}).get("models", []):
         watch = entry.get("watch") or {}
         repo = watch.get("repo") or ""
         if watch.get("kind") == "hf-repo" and "/" in repo:
@@ -526,10 +526,15 @@ def discover_family(family, *, authors=None, limit=100, fetch_json=None):
     2026-10-08 业主口径：seeds 只给家族名，repo 与档位规格由工具自行找出——
     发现层=HF 结构化搜索（作者域限流，域由 resolve_authors 解析；dedupe），
     身份=infer_identity 词边界匹配。
+
+    全局兜底（2026-10-09 config 退役配套）：域内零命中时做一次无作者域全局
+    搜索——csukuangfj2 域（fire-red 大档宿主）低于 discover_authors 阈值，
+    仅靠域枚举不可达；兜底仅补零命中家族,不放宽已命中家族（噪声有界）。
     """
     authors = tuple(authors or ())
     candidates, seen = [], set()
-    for account in authors:
+
+    def collect(account):
         for repo in search_hf(family, account, limit=limit, fetch_json=fetch_json):
             if repo in seen:
                 continue
@@ -542,6 +547,11 @@ def discover_family(family, *, authors=None, limit=100, fetch_json=None):
                 continue
             seen.add(repo)
             candidates.append({"repo": repo, "variant": variant})
+
+    for account in authors:
+        collect(account)
+    if not candidates:
+        collect(None)
     return candidates
 
 
