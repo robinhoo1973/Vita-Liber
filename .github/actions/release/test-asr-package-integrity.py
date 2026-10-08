@@ -284,6 +284,42 @@ class PackageTests(unittest.TestCase):
             self.assertEqual((self.output / first_model["url"]).read_bytes(),
                              (rebuilt / second_model["url"]).read_bytes())
 
+    def test_corrupted_cache_with_unchanged_identity_is_rejected(self):
+        # T4 配对闸（2026-10-08 委员会）：身份未滚动 + 已签名 + 缓存文件存在
+        # 但摘要不符 ⇒ 硬红——缓存损坏（或被换字节）绝不允许被静默重建掩盖，
+        # 因为重建字节（zlib 差异）会与签名索引 sha256 不符。
+        first = self.built_index()
+        signed = json.loads(self.index.read_text())
+        signed["models"] = first["models"]
+        (self.root / "signed-index.json").write_text(json.dumps(signed))
+        target = self.output / first["models"][0]["url"]
+        damaged = bytearray(target.read_bytes())
+        damaged[0] ^= 0x01
+        target.write_bytes(bytes(damaged))
+        rebuilt = self.root / "rebuilt-corrupt"
+        result = subprocess.run(["python3", str(TOOLS / "build-asr-packages.py"), "--source-root", str(self.source),
+                                 "--index", str(self.root / "signed-index.json"), "--output", str(rebuilt),
+                                 "--reuse-directory", str(self.output)], text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("corrupted", result.stdout + result.stderr)
+
+    def test_missing_cache_with_unchanged_identity_rebuilds_with_explicit_notice(self):
+        # T4 配对闸的合法降级路径：缓存缺失（CNB 不可达/冷启动恢复，
+        # 2026-10-07 实证）⇒ 显式降级消息后重建，rc=0（发布链以
+        # overwrite+重签承载恢复语义）；消息存在防「静默降级」回退。
+        first = self.built_index()
+        signed = json.loads(self.index.read_text())
+        signed["models"] = first["models"]
+        (self.root / "signed-index.json").write_text(json.dumps(signed))
+        empty_cache = self.root / "empty-cache"
+        empty_cache.mkdir()
+        rebuilt = self.root / "rebuilt-missing"
+        result = subprocess.run(["python3", str(TOOLS / "build-asr-packages.py"), "--source-root", str(self.source),
+                                 "--index", str(self.root / "signed-index.json"), "--output", str(rebuilt),
+                                 "--reuse-directory", str(empty_cache)], text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Cached package unavailable; rebuilding with unchanged identity", result.stdout)
+
     def test_verified_release_packages_restore_the_pinned_build_tree(self):
         self.built_index()
         restored = self.root / "restored"

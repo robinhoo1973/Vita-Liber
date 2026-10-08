@@ -103,6 +103,11 @@ def build_packages(root, template, output, reuse=None, version_policies=None):
     result["sourceManifestSHA256"] = source_digest
     result["packagingProfile"] = "zip-deflate9-v2"
     prepared = []
+    # T4 配对闸（2026-10-08 委员会）：记录本次 run 中**上游滚动**（身份新派生）
+    # 的包名——只有这些包允许「缓存未命中 ⇒ 重建」；身份未滚动的已签名包
+    # 若缓存缺失/损坏而落重建，会发布与签名索引 sha256 不符的字节，必须在
+    # loop2 显式拦截（缓存缺失 = 显式降级告警；缓存存在但摘要不符 = 硬红）。
+    rolled_names = set()
     # Validate every source tree before creating any deliverable.
     for release in result["models"]:
         model_id = release["id"]
@@ -134,7 +139,9 @@ def build_packages(root, template, output, reuse=None, version_policies=None):
             release["version"] = derive_version(policy, current_rev)
             built_at = datetime.now(timezone.utc).strftime("%Y%m%d")
             revision = max(2, int(release.get("artifactRevision", 1)) + 1)
+            rolled = True
         else:
+            rolled = False
             revision = release.get("artifactRevision", 2)
             if type(revision) is not int or revision < 1:
                 raise ValueError("artifactRevision must be positive")
@@ -147,6 +154,8 @@ def build_packages(root, template, output, reuse=None, version_policies=None):
         name = f"{model_id}-{slug(release['variant'])}-{slug(release['version'])}-{built_at}-r{revision}.zip"
         release.update(url=name, packaging="zip", builtAt=built_at, artifactRevision=revision,
                        upstreamRevision=model["revision"], runtime="sherpa-onnx-1.13.4")
+        if rolled:
+            rolled_names.add(release["url"])
         prepared.append((release, files))
     for release, files in prepared:
         # 复用已验证 Release ZIP（2026-09-13 审查加固）：重建的字节取决于
@@ -169,6 +178,19 @@ def build_packages(root, template, output, reuse=None, version_policies=None):
                 # variant,重算差字节致「Expanded byte count mismatch」)。
                 print("Reusing verified Release ZIP " + release["url"], flush=True)
                 continue
+        # T4 配对闸（2026-10-08 委员会）：身份未滚动 + 已签名 ⇒ 唯一合法路径是
+        # 复用已验证字节。走到这里（缓存未命中/摘要不符）时：
+        #  · 缓存文件在且非链接（摘要不符）= 缓存损坏或模板 sha256 漂移 → 硬红，
+        #    绝不允许静默重建覆盖已发布身份（zlib 差异会让重建字节 ≠ 已签名值）。
+        #  · 缓存文件不在 = CNB 缓存不可达/冷启动恢复（2026-10-07 实证路径）→
+        #    显式降级告警后重建（发布链以 overwrite+重签承载该恢复语义）。
+        if reuse is not None and release.get("sha256") and release["url"] not in rolled_names:
+            cached = Path(reuse) / release["url"]
+            if cached.is_file() and not cached.is_symlink():
+                raise ValueError(
+                    "Cached package exists but does not match the signed index (corrupted): " + release["url"])
+            print("Cached package unavailable; rebuilding with unchanged identity: " + release["url"],
+                  flush=True)
         with tempfile.NamedTemporaryFile(dir=output, suffix=".zip", delete=False) as temporary:
             temporary_path = Path(temporary.name)
         encrypted_path = Path(str(temporary_path) + ".enc")
