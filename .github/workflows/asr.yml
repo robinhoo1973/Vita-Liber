@@ -410,6 +410,10 @@ jobs:
     needs: [build, sign]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    env:
+      # 包加密主密钥注入本段（发布校验需解密信封比对字节）——拆分后 env 面
+      # 逐段重审（2026-10-08 run 37747632496 实证:⑦ 漏注入即 publish 硬红）。
+      ASR_PACKAGE_KEY: ${{ secrets.ASR_PACKAGE_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
