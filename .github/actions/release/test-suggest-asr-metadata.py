@@ -2,13 +2,17 @@
 """test-suggest-asr-metadata：LLM 草拟器纯离线面（禁令不覆盖纯草拟器,2026-10-08）。
 
 覆盖:mock LLM（chat 注入缝）→ 建议结构 / 主文件零改动 / 负清单预检 rejected /
-内容寻址缓存命中;json 块容错解析。
+内容寻址缓存命中;json 块容错解析;429 退避重试;逐字段容错（部分成功照常落盘）。
 """
+import io
 import json
 from pathlib import Path
 import runpy
 import tempfile
+import types
 import unittest
+import urllib.error
+import urllib.request as real_request
 
 TOOL = Path(__file__).with_name("suggest-asr-metadata.py")
 MODULE = runpy.run_path(str(TOOL))
@@ -60,8 +64,9 @@ class SuggestTests(unittest.TestCase):
             before = {name: (base / name).read_bytes() for name in ("models.json", "catalog-copy.json")}
             out = base / "out"
             cache = base / "cache"
-            entries, families, tiers, rejected = MODULE["collect_suggestions"](
+            entries, families, tiers, rejected, errors = MODULE["collect_suggestions"](
                 base, chat, cache, "mock", 0.2, banned)
+            self.assertEqual(errors, [])
             MODULE_dump = None
             after = {name: (base / name).read_bytes() for name in ("models.json", "catalog-copy.json")}
         self.assertEqual(before, after, "主文件零改动（旁路隔离）")
@@ -99,6 +104,99 @@ class SuggestTests(unittest.TestCase):
         self.assertEqual(parse("noise {\"a\": 1} tail"), {"a": 1})
         self.assertIsNone(parse("no json at all"))
         self.assertEqual(parse("broken {oops} then {\"b\": 2}"), {"b": 2})
+
+    def test_retry_on_429_then_success(self):
+        """429（限流）→ 指数退避重试 ≤retries;第二跳成功返回内容。"""
+        real = MODULE["urllib"]
+        calls, slept = [], []
+
+        class FakeResponse:
+            def __init__(self, body):
+                self.body = body
+
+            def read(self, _limit=None):
+                return self.body
+
+            def geturl(self):
+                return "https://mock.invalid/chat/completions"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            calls.append(request)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError(request.full_url, 429, "Too Many",
+                                             {}, io.BytesIO(b'{"error": {"code": "1305"}}'))
+            return FakeResponse(b'{"choices": [{"message": {"content": "{\\"ok\\": 1}"}}]}')
+
+        # runpy.run_path 返回 globals 拷贝 → 须直打函数 __globals__（同 dict）
+        globals_ = MODULE["llm_chat"].__globals__
+        saved = globals_["urllib"]
+        globals_["urllib"] = types.SimpleNamespace(
+            error=real.error,
+            request=types.SimpleNamespace(Request=real_request.Request,
+                                          urlopen=fake_urlopen))
+        try:
+            content = MODULE["llm_chat"]("https://mock.invalid", "mock-model", "hi",
+                                         retries=3, backoff=5.0,
+                                         _sleep=lambda seconds: slept.append(seconds))
+        finally:
+            globals_["urllib"] = saved
+        self.assertEqual(content, '{"ok": 1}')
+        self.assertEqual(len(calls), 2, "首跳 429 后应重试一次即成功")
+        self.assertEqual(slept, [5.0], "退避=backoff × 2^0")
+
+    def test_retry_exhausted_raises(self):
+        real = MODULE["urllib"]
+        calls, slept = [], []
+
+        def fake_urlopen(request, timeout=None):
+            calls.append(request)
+            raise urllib.error.HTTPError(request.full_url, 429, "Too Many",
+                                         {}, io.BytesIO(b"{}"))
+
+        globals_ = MODULE["llm_chat"].__globals__
+        saved = globals_["urllib"]
+        globals_["urllib"] = types.SimpleNamespace(
+            error=real.error,
+            request=types.SimpleNamespace(Request=real_request.Request,
+                                          urlopen=fake_urlopen))
+        try:
+            with self.assertRaises(MODULE["SuggestError"]):
+                MODULE["llm_chat"]("https://mock.invalid", "mock-model", "hi",
+                                   retries=2, backoff=1.0,
+                                   _sleep=lambda seconds: slept.append(seconds))
+        finally:
+            globals_["urllib"] = saved
+        self.assertEqual(len(calls), 3, "retries=2 → 最多 3 跳")
+        self.assertEqual(slept, [1.0, 2.0], "退避序列 backoff×2^attempt")
+
+    def test_partial_failure_tolerated(self):
+        """单字段失败（429 类）记 errors 继续;部分成功照常返回。"""
+        banned = MODULE["load_banned_re"]()
+        def chat(prompt, *_):
+            if "SPDX license" in prompt:
+                return "{\"license\": \"MIT\", \"confidence\": 0.9, \"reason\": \"x\"}"
+            raise MODULE["SuggestError"]("HTTP 429（mock）: 访问量过大")
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            write_fixtures(base)
+            entries, families, tiers, rejected, errors = MODULE["collect_suggestions"](
+                base, chat, base / "cache", "mock", 0.2, banned)
+        self.assertEqual(len(entries), 1)
+        self.assertIn("license", entries[0]["suggestions"])
+        self.assertNotIn("versionPolicy.prefix", entries[0]["suggestions"])
+        # prefix + 家族文案 + 档位文案 三处失败均入 errors（license 成功不受累）
+        self.assertEqual(len(errors), 3)
+        self.assertEqual((errors[0]["where"], errors[0]["field"]),
+                         ("newfam/small", "versionPolicy.prefix"))
+        self.assertIn("429", errors[0]["error"])
+        self.assertEqual((families, tiers), ([], []))
+        self.assertTrue(rejected is not None)
 
 
 if __name__ == "__main__":

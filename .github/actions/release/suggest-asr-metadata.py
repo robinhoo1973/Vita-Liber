@@ -23,6 +23,7 @@ import os
 import re
 import runpy
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -42,38 +43,61 @@ def load_banned_re():
     return module["_BANNED_RE"]
 
 
-def llm_chat(endpoint, model, prompt, *, api_key=None, temperature=0.2, timeout=180):
-    """OpenAI 兼容 /v1/chat/completions（本机 llama-server 或任意在线兼容端点）。"""
+RETRYABLE_HTTP = (429, 500, 502, 503, 504)
+
+
+def llm_chat(endpoint, model, prompt, *, api_key=None, temperature=0.2, timeout=180,
+             retries=3, backoff=5.0, _sleep=time.sleep):
+    """OpenAI 兼容 /v1/chat/completions（本机 llama-server 或任意在线兼容端点）。
+
+    429/5xx 与网络抖动按指数退避重试（free 档限流为常态,run 37857357547 实证
+    1305「访问量过大」——单次失败不得吞掉整批建议）。"""
     payload = json.dumps({"model": model,
                           "messages": [{"role": "user", "content": prompt}],
                           "temperature": temperature}).encode()
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = "Bearer " + api_key
-    request = urllib.request.Request(endpoint.rstrip("/") + "/chat/completions",
-                                     data=payload, headers=headers)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read(1 << 20)
-            final_url = response.geturl()
-    except urllib.error.HTTPError as error:
-        detail = ""
+    url = endpoint.rstrip("/") + "/chat/completions"
+    attempts = max(1, retries + 1)
+    for attempt in range(attempts):
+        request = urllib.request.Request(url, data=payload, headers=headers)
         try:
-            detail = error.read(300).decode("utf-8", "replace")
-        except OSError:
-            pass
-        raise SuggestError("HTTP %d（%s）: %s" % (error.code, error.geturl(), detail))
-    except (OSError, ValueError) as error:
-        raise SuggestError("请求失败: %s" % error)
-    try:
-        document = json.loads(raw)
-    except ValueError:
-        # 诊断增强（2026-10-08 TEMP 实证:空/重定向响应曾只报
-        # "Expecting value"——附最终 URL 与片段,直接暴露认证/重定向类问题）。
-        raise SuggestError("非 JSON 响应（%d 字节,最终 URL=%s）: %s"
-                           % (len(raw), final_url,
-                              raw[:300].decode("utf-8", "replace")))
-    return document["choices"][0]["message"]["content"]
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                raw = response.read(1 << 20)
+                final_url = response.geturl()
+        except urllib.error.HTTPError as error:
+            detail = ""
+            try:
+                detail = error.read(300).decode("utf-8", "replace")
+            except OSError:
+                pass
+            message = "HTTP %d（%s）: %s" % (error.code, error.geturl(), detail)
+            if error.code in RETRYABLE_HTTP and attempt < attempts - 1:
+                delay = backoff * (2 ** attempt)
+                print("SUGGEST-RETRY: %s — %.0fs 后重试（%d/%d）"
+                      % (message, delay, attempt + 1, retries), file=sys.stderr)
+                _sleep(delay)
+                continue
+            raise SuggestError(message)
+        except (OSError, ValueError) as error:
+            if attempt < attempts - 1:
+                delay = backoff * (2 ** attempt)
+                print("SUGGEST-RETRY: 请求失败: %s — %.0fs 后重试（%d/%d）"
+                      % (error, delay, attempt + 1, retries), file=sys.stderr)
+                _sleep(delay)
+                continue
+            raise SuggestError("请求失败: %s" % error)
+        try:
+            document = json.loads(raw)
+        except ValueError:
+            # 诊断增强（2026-10-08 TEMP 实证:空/重定向响应曾只报
+            # "Expecting value"——附最终 URL 与片段,直接暴露认证/重定向类问题）。
+            raise SuggestError("非 JSON 响应（%d 字节,最终 URL=%s）: %s"
+                               % (len(raw), final_url,
+                                  raw[:300].decode("utf-8", "replace")))
+        return document["choices"][0]["message"]["content"]
+    raise SuggestError("重试耗尽")  # 不可达（循环内必 return/raise）
 
 
 def parse_json_block(text):
@@ -150,31 +174,47 @@ def copy_prompt(family_id, variant, files):
 
 
 def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, banned):
-    """扫描候选文件 → 建议集（主文件只读）。返回 (models_sugg, copy_sugg, rejected)。"""
+    """扫描候选文件 → 建议集（主文件只读）。返回 (entries, families, tiers, rejected, errors)。
+
+    逐字段容错（run 37857357547 实证:free 档 429 曾一败全弃、前段成功结果全丢）——
+    单字段失败记 errors 继续,部分成功照常落盘。"""
+    errors = []
+
+    def attempt(where, field, prompt):
+        try:
+            output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
+        except SuggestError as error:
+            errors.append({"where": where, "field": field, "error": str(error)})
+            return None
+        return output, key, cached
+
     models = json.loads((candidates_dir / "models.json").read_bytes())
     copy_doc = json.loads((candidates_dir / "catalog-copy.json").read_bytes())
     entries = []
     for entry in models.get("models", []):
         suggestions = {}
+        where = "%s/%s" % (entry.get("id"), entry.get("variant") or "-")
         needs_license = str(entry.get("license", "")).upper() in ("REVIEW", "")
         needs_prefix = not (entry.get("versionPolicy") or {}).get("prefix")
         if needs_license:
-            prompt = license_prompt(entry)
-            output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
-            parsed = parse_json_block(output) or {}
-            suggestions["license"] = {"value": parsed.get("license"),
-                                      "confidence": parsed.get("confidence"),
-                                      "reason": parsed.get("reason"),
-                                      "cacheKey": key, "cached": cached,
-                                      "raw": None if parsed else output[:400]}
+            result = attempt(where, "license", license_prompt(entry))
+            if result:
+                output, key, cached = result
+                parsed = parse_json_block(output) or {}
+                suggestions["license"] = {"value": parsed.get("license"),
+                                          "confidence": parsed.get("confidence"),
+                                          "reason": parsed.get("reason"),
+                                          "cacheKey": key, "cached": cached,
+                                          "raw": None if parsed else output[:400]}
         if needs_prefix:
-            prompt = prefix_prompt(entry)
-            output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
-            parsed = parse_json_block(output) or {}
-            suggestions["versionPolicy.prefix"] = {
-                "value": parsed.get("prefix"), "confidence": parsed.get("confidence"),
-                "reason": parsed.get("reason"), "cacheKey": key, "cached": cached,
-                "raw": None if parsed else output[:400]}
+            result = attempt(where, "versionPolicy.prefix", prefix_prompt(entry))
+            if result:
+                output, key, cached = result
+                parsed = parse_json_block(output) or {}
+                suggestions["versionPolicy.prefix"] = {
+                    "value": parsed.get("prefix"), "confidence": parsed.get("confidence"),
+                    "reason": parsed.get("reason"), "cacheKey": key, "cached": cached,
+                    "raw": None if parsed else output[:400]}
         if suggestions:
             entries.append({"id": entry.get("id"), "variant": entry.get("variant"),
                             "suggestions": suggestions})
@@ -184,8 +224,11 @@ def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, ban
                    if not (family.get(field) or {}).get("zh-Hans")]
         if not missing:
             continue
-        prompt = copy_prompt(family.get("id"), None, "family-level")
-        output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
+        result = attempt("family:%s" % family.get("id"), "copy",
+                         copy_prompt(family.get("id"), None, "family-level"))
+        if result is None:
+            continue
+        output, key, cached = result
         parsed = parse_json_block(output) or {}
         suggestions = {}
         for field in missing:
@@ -208,8 +251,12 @@ def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, ban
                    if not (tier.get(field) or {}).get("zh-Hans")]
         if not missing:
             continue
-        prompt = copy_prompt(tier.get("id"), tier.get("variant"), "tier-level")
-        output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
+        where = "tier:%s/%s" % (tier.get("id"), tier.get("variant") or "-")
+        result = attempt(where, "copy", copy_prompt(tier.get("id"), tier.get("variant"),
+                                                    "tier-level"))
+        if result is None:
+            continue
+        output, key, cached = result
         parsed = parse_json_block(output) or {}
         suggestions = {}
         for field in missing:
@@ -228,7 +275,7 @@ def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, ban
         if suggestions:
             tiers.append({"id": tier.get("id"), "variant": tier.get("variant"),
                           "suggestions": suggestions})
-    return entries, families, tiers, rejected
+    return entries, families, tiers, rejected, errors
 
 
 def main():
@@ -250,7 +297,7 @@ def main():
         def chat(prompt):
             return llm_chat(args.endpoint, args.model, prompt,
                             api_key=api_key, temperature=args.temperature)
-        entries, families, tiers, rejected = collect_suggestions(
+        entries, families, tiers, rejected, errors = collect_suggestions(
             args.candidates, chat, args.cache, args.model, args.temperature, banned)
         out = args.out
         out.mkdir(parents=True, exist_ok=True)
@@ -262,15 +309,28 @@ def main():
             "formatVersion": 1, "suggestedBy": suggested_by,
             "families": families, "tiers": tiers, "rejected": rejected,
         }, ensure_ascii=False, indent=2).encode() + b"\n")
+        # 恒写诊断文件（2026-10-08 run 37857357547 实证:全败时目录为空 →
+        # 上传告警 → 下游 download「Artifact not found」error 注解;
+        # 恒落盘后下游可据 errors.json 区分「限流降级」与「真无建议」）。
+        (out / "errors.json").write_bytes(json.dumps({
+            "formatVersion": 1, "suggestedBy": suggested_by, "errors": errors,
+        }, ensure_ascii=False, indent=2).encode() + b"\n")
         (out / "README.txt").write_bytes((
             "LLM 辅助草拟（旁路侧车）。\n\n"
             "建议仅供参考:采纳 = 人工誊写入主文件并**剥除本目录标记**;\n"
             "绝不整文件复制回仓（主文件保持 REVIEW/骨架直至人工确认）。\n"
             "负清单预检与投影器同源;投影器仍为终闸。\n"
             "仅发送公开模型元数据（禁私仓/密钥/用户数据）。\n"
+            "单字段失败（如 429 限流）记 errors.json 不中断批;"
+            "重试=指数退避（429/5xx/网络）。\n"
             "suggestedBy=%s\n" % suggested_by).encode())
-        print("建议已生成: models=%d 条目 / copy=家族 %d 档 %d（rejected %d）"
-              % (len(entries), len(families), len(tiers), len(rejected)), flush=True)
+        print("建议已生成: models=%d 条目 / copy=家族 %d 档 %d（rejected %d / errors %d）"
+              % (len(entries), len(families), len(tiers), len(rejected),
+                 len(errors)), flush=True)
+        if errors and not (entries or families or tiers):
+            print("SUGGEST-ERROR: 全部字段失败（%d 条）——诊断见 errors.json"
+                  % len(errors), file=sys.stderr)
+            return 1
         return 0
     except (SuggestError, OSError, ValueError, KeyError, TypeError) as error:
         print("SUGGEST-ERROR: %s" % error, file=sys.stderr)
