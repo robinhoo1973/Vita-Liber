@@ -5,6 +5,7 @@
   "corpus": {
     "counts": {"sft": 27000, "pretrain": 40000, "dialogue": 4000},
     "entlinkMaxSamples": {"drug": 200000, "hospital": 80000, "diagnosis": 60000, "exam": 30000},
+    "entlinkBuild": {"maxTermsPerEntity": 3, "excludeDomains": "department"},
     "seed": 20261007
   },
   "gates": {

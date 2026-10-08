@@ -54,25 +54,25 @@ on:
         options: [llm-pipeline, llama-xcframework]
         default: llm-pipeline
       sft_count:
-        description: "抽取 SFT 样本数(默认 27000,与训练机生产档一致;小集原型可调低)"
+        description: "抽取 SFT 样本数(空=policy.json corpus.counts.sft;小集原型可覆盖)"
         required: false
-        default: "27000"
+        default: ""
       pretrain_count:
-        description: "抽取继续预训练文本数(默认 40000)"
+        description: "抽取继续预训练文本数(空=policy.json corpus.counts.pretrain)"
         required: false
-        default: "40000"
+        default: ""
       dialogue_count:
-        description: "对话语料样本数(默认 4000)"
+        description: "对话语料样本数(空=policy.json corpus.counts.dialogue)"
         required: false
-        default: "4000"
+        default: ""
       entlink_max_samples:
-        description: "实体链接逐域样本上限(确定性哈希抽样;空=不限,生产默认见下)"
+        description: "实体链接逐域样本上限 k=v 串(空=policy.json corpus.entlinkMaxSamples)"
         required: false
-        default: "drug=200000,hospital=80000,diagnosis=60000,exam=30000"
+        default: ""
       min_accepts:
-        description: "评测 tripwire 每带×域接受数下限(小集原型可调低,生产默认 50)"
+        description: "评测 tripwire 每带×域接受数下限(空=policy.json gates.entlink.minAcceptsPerBandDomain)"
         required: false
-        default: "50"
+        default: ""
 
 # 权限纪律:仅 publish / llama-xcframework 声明 contents: write(gh release);其余 job 默认 read。
 concurrency:
@@ -240,10 +240,16 @@ jobs:
           SFT_COUNT: ${{ inputs.sft_count }}
           PRETRAIN_COUNT: ${{ inputs.pretrain_count }}
         run: |
+          # 判据单一事实源:空输入回退 policy.json(散抄默认值=漂移族;seed 亦单源)
+          POLICY=.github/actions/distill/policy.py
+          SFT_COUNT="${SFT_COUNT:-$(python3 $POLICY --get corpus.counts.sft)}"
+          PRETRAIN_COUNT="${PRETRAIN_COUNT:-$(python3 $POLICY --get corpus.counts.pretrain)}"
+          SEED="$(python3 $POLICY --get corpus.seed)"
           python3 .github/actions/distill/extract/build_extraction_corpus.py \
             --data-dir extract-data --prompts-dir .github/actions/distill/extract/prompts \
             --out-dir extraction-out \
             --tokenizer .github/actions/distill/gen/tokenizer.json \
+            --seed "$SEED" \
             --cells drugs/cn,drugs/hk,drugs/tw,hospitals/cn,hospitals/hk,hospitals/tw,departments/cn,departments/hk,departments/tw,diagnoses/cn,diagnoses/hk,exams/cn,exams/tw \
             --sft-count "$SFT_COUNT" --pretrain-count "$PRETRAIN_COUNT"
       - name: Upload extraction corpus
@@ -279,6 +285,8 @@ jobs:
         env:
           DIALOGUE_COUNT: ${{ inputs.dialogue_count }}
         run: |
+          POLICY=.github/actions/distill/policy.py
+          DIALOGUE_COUNT="${DIALOGUE_COUNT:-$(python3 $POLICY --get corpus.counts.dialogue)}"
           python3 .github/actions/distill/dialogue/builder.py \
             --catalog-dir extract-data --out-dir dialogue-out \
             --count "$DIALOGUE_COUNT" \
@@ -316,11 +324,15 @@ jobs:
         env:
           MAX_SAMPLES: ${{ inputs.entlink_max_samples }}
         run: |
+          POLICY=.github/actions/distill/policy.py
+          MAX_SAMPLES="${MAX_SAMPLES:-$(python3 $POLICY --get-joined corpus.entlinkMaxSamples)}"
+          MAX_TERMS="$(python3 $POLICY --get corpus.entlinkBuild.maxTermsPerEntity)"
+          EXCLUDE="$(python3 $POLICY --get corpus.entlinkBuild.excludeDomains)"
           python3 .github/actions/distill/build_corpus.py \
             --catalog-sqlite corpus-assets/catalog.sqlite \
             --out entlink-out/corpus.jsonl \
-            --group-by-name --include-canonical-names --exclude-domains department \
-            --max-terms-per-entity 3 \
+            --group-by-name --include-canonical-names --exclude-domains "$EXCLUDE" \
+            --max-terms-per-entity "$MAX_TERMS" \
             --max-samples-per-domain "$MAX_SAMPLES" \
             --dump-entities entities.jsonl
       - name: Upload entlink corpus
@@ -524,6 +536,8 @@ jobs:
           MIN_ACCEPTS: ${{ inputs.min_accepts }}
         run: |
           set +e
+          POLICY=.github/actions/distill/policy.py
+          MIN_ACCEPTS="${MIN_ACCEPTS:-$(python3 $POLICY --get gates.entlink.minAcceptsPerBandDomain)}"
           python3 .github/actions/distill/eval_entlink.py \
             --corpus corpus.jsonl \
             --catalog-entities entities.jsonl \

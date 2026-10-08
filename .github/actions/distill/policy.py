@@ -103,6 +103,8 @@ def sha256_of(path: Path | None = None) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--get", metavar="DOTTED.KEY")
+    parser.add_argument("--get-joined", metavar="DOTTED.KEY",
+                        help="dict 值转 k=v,k=v 逗号串(供 workflow CLI 传参,如 entlinkMaxSamples)")
     parser.add_argument("--dump", action="store_true")
     parser.add_argument("--sha256", action="store_true")
     args = parser.parse_args()
@@ -111,7 +113,12 @@ def main() -> int:
             print(sha256_of())
             return 0
         policy = load()
-        if args.get:
+        if args.get_joined:
+            value = get(policy, args.get_joined)
+            if not isinstance(value, dict):
+                raise ValueError(f"--get-joined 需 dict 值: {args.get_joined} 是 {type(value).__name__}")
+            print(",".join(f"{k}={v}" for k, v in value.items()))
+        elif args.get:
             value = get(policy, args.get)
             print(json.dumps(value, ensure_ascii=False) if not isinstance(value, (int, float, str, bool)) else value)
         elif args.dump:
