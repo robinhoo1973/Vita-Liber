@@ -823,7 +823,13 @@ jobs:
           RELEASE_ID=$(gh release view distill-corpus -R "$REPO" --json databaseId --jq .databaseId)
           [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ] || {
             echo "::error::release ID 解析失败(空 id 会静默破坏后续上传,onyx 教训)"; exit 1; }
-          gh api "repos/$REPO/releases/$RELEASE_ID" > release-assets.json
+          # preflight:草稿创建后 REST by-id 有瞬态 404(2026-10-08 R0 实测:创建后 1s 内
+          # 首传 404,复核时同 id 完全正常)——轮询探活至 200 再继续(≤30s,失败即红)
+          for i in 1 2 3 4 5 6; do
+            gh api "repos/$REPO/releases/$RELEASE_ID" > release-assets.json 2>/dev/null && break
+            echo "release preflight retry $i"; sleep 5
+          done
+          [ -s release-assets.json ] || { echo "::error::release 探活失败(30s)"; exit 1; }
           # 幂等:同名已存在且 digest==本地 sha → 跳过;digest 不符 → 硬红(同名必同内容)。
           TO_UPLOAD=$(SHA_LIST="$SHA_LIST" python3 - <<'PY'
           import json, os, sys
@@ -850,8 +856,17 @@ jobs:
           while IFS=$'\t' read -r asset file sha; do
             [ -n "$asset" ] || continue
             echo "upload $asset"
-            gh api -X POST "repos/$REPO/releases/$RELEASE_ID/assets?name=$asset" \
-              -H "Content-Type: application/octet-stream" --input "$file" > /dev/null
+            ok=""
+            for attempt in 1 2 3 4 5; do
+              err=$(gh api -X POST "repos/$REPO/releases/$RELEASE_ID/assets?name=$asset" \
+                -H "Content-Type: application/octet-stream" --input "$file" 2>&1 >/dev/null) && { ok=1; break; }
+              # 只对瞬态(404/5xx/连接)重试;422/401 等语义错误立即红,不得掩盖
+              case "$err" in
+                *404*|*50[0-9]*|*EOF*|*timeout*|*connection*) echo "upload retry $attempt ($err)"; sleep 5 ;;
+                *) echo "::error::上传失败(不可重试): $err"; exit 1 ;;
+              esac
+            done
+            [ -n "$ok" ] || { echo "::error::上传重试耗尽: $asset"; exit 1; }
           done <<< "$TO_UPLOAD"
           # 对话面 dialogue_* 三条上传在 D-1 裁决前暂缓(见 job 头注)。
           # 写后读回复核(重取远端,by-id 兼容 draft):资产名集合⊇期望集,且逐件 digest==本地 sha。
