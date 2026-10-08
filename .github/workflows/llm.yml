@@ -491,27 +491,70 @@ jobs:
           ]
           for template, name in assets:
               print(f"{template.format(h=sha(name))}\t{name}\t{sha(name)}")
+          # §10 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
+          # (artifact 30 天即过期;P3 模型只对比同版本基线行,不得丢);与语料同闸复核。
+          baselines = sorted(Path("baseline-out").glob("*.json"))
+          if not baselines:
+              print("::error::baseline-out 无基准文件——eval 未产基线,拒绝发布", file=sys.stderr)
+              sys.exit(1)
+          for p in baselines:
+              print(f"baseline-{p.name}\t{p.as_posix()}\t{sha(p)}")
           PY
           )
           echo "$SHA_LIST"
-          gh release view distill-corpus -R "$REPO" >/dev/null 2>&1 || gh release create distill-corpus -R "$REPO" --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only)"
-          # 上传失败必须炸 job(fail-closed);名=内容 sha 后同名必同内容,clobber 重传即幂等。
-          while IFS=$'\t' read -r asset file sha; do
-            [ -n "$asset" ] || continue
-            gh release upload distill-corpus "$file#$asset" --clobber -R "$REPO"
-          done <<< "$SHA_LIST"
-          # 对话面 dialogue_* 三条上传在 D-1 裁决前暂缓(见 job 头注)。
-          # §10 对照臂永久基线:每 dataVersion 一行 JSON 随 Release 持久化
-          # (artifact 30 天即过期;P3 模型只对比同版本基线行,不得丢)。
-          for f in baseline-out/*.json; do
-            gh release upload distill-corpus "$f#baseline-$(basename "$f")" --clobber -R "$REPO"
-          done
-          # 写后读回复核:远端资产 digest 必须等于本地实测 sha(名内嵌值同样被复核)。
-          gh api "repos/$REPO/releases/tags/distill-corpus" > release-assets.json
-          SHA_LIST="$SHA_LIST" python3 - <<'PY'
+          # 发布流程改 draft→上传→复核→publish(为 immutable releases 铺路:
+          # 已发布资产在 immutable 下不可增;gh release upload 的 # 语法只设
+          # display label 不设资产 name——2026-10-08 R0 实证:资产落成 corpus.jsonl
+          # 而 label 才是目标名,读回复核按设计判红。改名必须走 REST ?name=。
+          if ! gh release view distill-corpus -R "$REPO" >/dev/null 2>&1; then
+            gh release create distill-corpus -R "$REPO" --draft \
+              --title "distill corpus" --notes "语料冻结资产(内容寻址,append-only);发布=schema 复核通过"
+          fi
+          # draft 不创建 git tag(REST by-tag 对 draft 404——2026-10-08 架构席 gh 源码级
+          # 实证:FetchRelease 对 draft 走 GraphQL,原话"REST doesn't have this ability";
+          # onyx #12123 同形代码 CI 实测 404)。ID 解析必须走 draft-aware 的 gh release
+          # view(GraphQL),资产读取/复核走 REST by-id(响应形状与 by-tag 相同)。
+          RELEASE_ID=$(gh release view distill-corpus -R "$REPO" --json databaseId --jq .databaseId)
+          [ -n "$RELEASE_ID" ] && [ "$RELEASE_ID" != "null" ] || {
+            echo "::error::release ID 解析失败(空 id 会静默破坏后续上传,onyx 教训)"; exit 1; }
+          gh api "repos/$REPO/releases/$RELEASE_ID" > release-assets.json
+          # 幂等:同名已存在且 digest==本地 sha → 跳过;digest 不符 → 硬红(同名必同内容)。
+          TO_UPLOAD=$(SHA_LIST="$SHA_LIST" python3 - <<'PY'
           import json, os, sys
 
-          remote = {a["name"]: (a.get("digest") or "") for a in json.load(open("release-assets.json", encoding="utf-8"))["assets"]}
+          existing = {a["name"]: (a.get("digest") or "") for a in json.load(open("release-assets.json", encoding="utf-8"))["assets"]}
+          plan, bad = [], []
+          for line in os.environ["SHA_LIST"].splitlines():
+              if not line.strip():
+                  continue
+              asset, _file, sha = line.split("\t")
+              cur = existing.get(asset)
+              if cur is None:
+                  plan.append(line)
+              elif cur != f"sha256:{sha}":
+                  bad.append(f"{asset}: 现存 {cur} != 本地 sha256:{sha}")
+          if bad:
+              print("::error::同名资产 digest 不符——内容寻址契约受威胁,拒绝(人工裁决)", file=sys.stderr)
+              for b in bad:
+                  print(f"::error::{b}", file=sys.stderr)
+              sys.exit(1)
+          sys.stdout.write("\n".join(plan))
+          PY
+          )
+          while IFS=$'\t' read -r asset file sha; do
+            [ -n "$asset" ] || continue
+            echo "upload $asset"
+            gh api -X POST "repos/$REPO/releases/$RELEASE_ID/assets?name=$asset" \
+              -H "Content-Type: application/octet-stream" --input "$file" > /dev/null
+          done <<< "$TO_UPLOAD"
+          # 对话面 dialogue_* 三条上传在 D-1 裁决前暂缓(见 job 头注)。
+          # 写后读回复核(重取远端,by-id 兼容 draft):资产名集合⊇期望集,且逐件 digest==本地 sha。
+          gh api "repos/$REPO/releases/$RELEASE_ID" > release-assets.json
+          STATE_OUT=$(SHA_LIST="$SHA_LIST" python3 - <<'PY'
+          import json, os, sys
+
+          release = json.load(open("release-assets.json", encoding="utf-8"))
+          remote = {a["name"]: (a.get("digest") or "") for a in release["assets"]}
           missing, mismatch = [], []
           count = 0
           for line in os.environ["SHA_LIST"].splitlines():
@@ -531,8 +574,16 @@ jobs:
               for m in mismatch:
                   print(f"::error::digest 不符 {m}", file=sys.stderr)
               sys.exit(1)
-          print(f"published+verified {count} content-addressed assets")
+          print(f"verified {count} content-addressed assets")
+          print("draft" if release.get("draft") else "published")
           PY
+          )
+          echo "$STATE_OUT"
+          STATE=$(echo "$STATE_OUT" | tail -n 1)
+          # 复核通过才把 draft 转正式(复核失败时 release 留 draft,消费端不可见——fail-closed)。
+          if [ "$STATE" = "draft" ]; then
+            gh release edit distill-corpus -R "$REPO" --draft=false
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
