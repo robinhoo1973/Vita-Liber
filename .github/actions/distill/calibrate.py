@@ -111,8 +111,9 @@ def main() -> int:
         ts = sorted(times)
         print(f"[calibrate] step {steps_done}/{args.steps} "
               f"median={ts[len(ts) // 2]:.3f}s max={ts[-1]:.3f}s", flush=True)
-        if steps_done % 10 == 0 or steps_done == args.steps:
-            _partial(final=False)
+        # 每步落盘(2026-10-08 对拍实证:平台取消不给 SIGTERM 宽限=硬杀,
+        # 每 10 步才落盘会在第 9 步被杀时零产出)
+        _partial(final=False)
 
     try:
         result = run_calibration(device=args.device, steps=args.steps, batch=args.batch,

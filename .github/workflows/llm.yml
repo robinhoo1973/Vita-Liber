@@ -36,10 +36,11 @@
 # - 训练侧指标只作进度信号;评测闸唯一权威 = 冻结语料在 ubuntu 的独立复验
 #   (P3 起扩展为部署件打分,闸结构已预留)。
 # - smoke = 训练循环/断点续训/预算停机的真实执行面(编码器 + 生成式 SFT 两轨)。
-# - MPS 腿已退役(2026-10-08 业主裁定;依据如实记录):probe 5/5 通过(托管 runner
-#   MPS 真可用),但 100 步标定 5 次运行全部以人工取消结束(0 次超时;最长跑
-#   57m56s 未完)→ 步均下界 ≥34.8s/step,对照同配置 ubuntu CPU 实测 median
-#   7.62s/step(≈2h/940 步,装得进);训练落点=私仓自托管 GPU。
+# - MPS 腿已退役(2026-10-08 业主裁定;实测数字):probe 6/6 通过(托管 runner
+#   MPS 真可用),但 2026-10-08 对拍(calibrate-probe run 37750843035)实测平台期
+#   350–403 s/step(步 1–9;步 1 冷启 40s 后迅速塌到 ~6min/步),对同 run ubuntu
+#   CPU median 10.68 s/step 慢 33–38×;100 步 ≈10h(超 110min job/6h env 双顶,
+#   结构上不可完成)。训练落点=私仓自托管 GPU。
 # - 本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把注释里的空表达式
 #   当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)。
 name: distill-llm
@@ -342,11 +343,11 @@ jobs:
   calibrate:
     if: ${{ inputs.task != 'llama-xcframework' }}
     # 任务=吞吐标定(单一;ubuntu CPU):100 步真实训练步测 s/step·tok/s·peak_rss,
-    # 供训练分块预算(§7.4 第 8 条)。**MPS 腿退役**(2026-10-08 业主裁定,依据
-    # 如实:probe 5/5 通过,但 100 步标定 5 次全为人工取消、0 次超时、最长
-    # 57m56s 未完 → 步均 ≥34.8s/step 下界,对照 ubuntu CPU median 7.62s/step;
-    # 训练落点=私仓自托管 GPU。probe_mps.py/requirements-distill-train-macos.txt
-    # 登记为 M4 本地执行面备用件,CI 零调用)。
+    # 供训练分块预算(§7.4 第 8 条)。**MPS 腿退役**(2026-10-08 业主裁定;实测:
+    # 对拍 run 37750843035 平台期 350–403 s/step vs 同 run ubuntu CPU median
+    # 10.68 s/step(33–38×);100 步 ≈10h 结构不可完成——超 110min job 与 6h
+    # env 双顶)。probe_mps.py/requirements-distill-train-macos.txt 登记为 M4
+    # 本地执行面备用件,CI 零调用。
     needs: tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
