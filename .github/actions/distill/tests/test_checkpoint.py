@@ -8,7 +8,37 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from train.checkpoint import atomic_write_bytes
+from train.checkpoint import atomic_write_bytes, check_resume_loss
+
+
+class ResumeLossGateTests(unittest.TestCase):
+    """L1 闸负测(2026-10-08 换锚为「同批探测基」后冻结契约,验收席约束第 8 条):
+
+    - 同批对拍:相等/容差内通过;
+    - 超容差必抛(权重错配/装载错误的机械证据代理);run #3 实测 0.0429 vs
+      0.1374(68.8%)必须被拒——该数值即负测夹具;
+    - 非法断点值必抛。
+    """
+
+    def test_equal_passes(self):
+        check_resume_loss(0.1374, 0.1374)
+
+    def test_within_tolerance_passes(self):
+        check_resume_loss(0.1000, 0.1040)  # 相对偏差 4% < 5%
+
+    def test_beyond_tolerance_raises(self):
+        with self.assertRaises(ValueError):
+            check_resume_loss(0.1374, 0.0429)  # run #3 实测偏差 68.8%
+
+    def test_invalid_recorded_raises(self):
+        with self.assertRaises(ValueError):
+            check_resume_loss(0.0, 0.1)
+
+    def test_near_boundary_both_sides(self):
+        # 双侧近界(避开浮点表示噪声:0.105-0.100 实际小于 0.005)
+        check_resume_loss(1.0, 1.049)  # 4.9% 通过
+        with self.assertRaises(ValueError):
+            check_resume_loss(1.0, 1.051)  # 5.1% 拒绝
 
 
 class AtomicWriteTests(unittest.TestCase):
