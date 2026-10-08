@@ -36,7 +36,8 @@
 # - 训练侧指标只作进度信号;评测闸唯一权威 = 冻结语料在 ubuntu 的独立复验
 #   (P3 起扩展为部署件打分,闸结构已预留)。
 # - smoke = 训练循环/断点续训/预算停机的真实执行面(编码器 + 生成式 SFT 两轨)。
-# - MPS 探测段先行:真分配+matmul 对拍(#9918 假阳教训),失败自动回落 CPU(裁决自带回落条款)。
+# - MPS 腿已退役(2026-10-08 业主裁定):probe 通过≠吞吐可用(100 步标定多轮
+#   40-47min 未竟);标定=ubuntu CPU 吞吐基准,训练落点=私仓自托管 GPU。
 # - 本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把注释里的空表达式
 #   当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)。
 name: distill-llm
@@ -338,19 +339,13 @@ jobs:
 
   calibrate:
     if: ${{ inputs.task != 'llama-xcframework' }}
-    # 100 步标定:MPS 探测段先行(真分配+matmul 对拍),CPU/MPS 双通道吞吐实测(§7.4 第 8 条)。
-    # needs= tests(不消费 prepare 产物;解绑省≈7min——流程 v2,2026-10-08 四席结论)。
+    # 任务=吞吐标定(单一;ubuntu CPU):100 步真实训练步测 s/step·tok/s·peak_rss,
+    # 供训练分块预算(§7.4 第 8 条)。**MPS 腿退役**(2026-10-08 业主裁定:
+    # probe 通过但 100 步标定多轮 40-47min 未完成=吞吐不可用;训练落点=私仓
+    # 自托管 GPU,托管 MPS 不再作为候选;probe_mps.py 保留备用)。
     needs: tests
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-24.04
-            device: cpu
-          - os: macos-15
-            device: probe
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
@@ -358,29 +353,10 @@ jobs:
           python-version: "3.13"
       - name: Install deps(哈希钉版)
         run: |
-          REQ=".github/config/requirements/requirements-distill-train-linux.txt"
-          EXTRA="--extra-index-url https://download.pytorch.org/whl/cpu"
-          if [ "${{ matrix.os }}" = macos-15 ]; then
-            REQ=".github/config/requirements/requirements-distill-train-macos.txt"
-            EXTRA=""
-          fi
-          pip install --require-hashes -r "$REQ" $EXTRA
-      - name: MPS probe(仅 macOS;不信任 is_available)
-        if: matrix.device == 'probe'
-        run: |
-          # #9918 签名是 MPS 分配原生崩溃(segfault 类)——Python try/except 抓不到,
-          # 进程直接死。探测结果是数据不是失败:崩了也算 no,回落 CPU 即可。
-          python3 .github/actions/distill/probe_mps.py --json mps-probe.json || true
-      - name: Calibrate
-        run: |
-          DEVICE=cpu
-          if [ -f mps-probe.json ] && grep -q '"usable": true' mps-probe.json; then
-            DEVICE=mps
-            echo "MPS usable → mps 标定"
-          else
-            echo "MPS unusable/未探测 → CPU 标定(§7.2 回落条款)"
-          fi
-          python3 .github/actions/distill/calibrate.py --device "$DEVICE" --steps 100 --out calibrate.json
+          pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
+            --extra-index-url https://download.pytorch.org/whl/cpu
+      - name: Calibrate(100 步真实训练步;吞吐基准)
+        run: python3 .github/actions/distill/calibrate.py --device cpu --steps 100 --out calibrate.json
       - name: Calibrate verdict(汇总裁决)
         # calibrate.py 失败也 exit 0("标定失败也是数据,由 workflow 汇总裁决")——
         # 本步即该裁决:失败须显式 error 标注,不得静默绿(历史教训:裁决步缺失)。
@@ -393,13 +369,10 @@ jobs:
       - name: Upload calibrate result
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02   # v4 线钉版（2026-10-07）
         with:
-          name: calibrate-${{ matrix.os }}-${{ matrix.device }}
-          path: |
-            calibrate.json
-            mps-probe.json
-          # CPU 腿无探测文件——缺文件是预期,不是警告噪声(历史教训:默认 warn
-          # 每次 CPU 腿跑必出假警告,掩盖真缺件)。
-          if-no-files-found: ignore
+          name: calibrate-ubuntu-cpu
+          path: calibrate.json
+          # 单腿且 calibrate.py 任何失败路径都落盘 {"error"};缺件=真异常,fail-closed。
+          if-no-files-found: error
           retention-days: 7
 
   smoke-encoder:
