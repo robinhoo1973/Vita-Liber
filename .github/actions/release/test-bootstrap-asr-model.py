@@ -109,6 +109,23 @@ class BootstrapTests(unittest.TestCase):
         report = compare(draft, existing)
         self.assertTrue(any("tiny-encoder" in line for line in report["mismatch"]))
 
+    def test_compare_entry_tolerates_url_based_existing_files(self):
+        # 全量深探首跑实证：既有条目含 url 基文件（无 member 键，如 whisper 外部
+        # LICENSE）时不得 KeyError——其不在镜像仓对照面内。
+        compare = MODULE["compare_entry"]
+        draft = {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "a" * 40,
+                 "watch": {"kind": "hf-repo", "repo": "r"},
+                 "files": [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                            "path": "p", "bytes": 1, "sha256": "1" * 64}]}
+        existing = {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "a" * 40,
+                    "watch": {"repo": "r"},
+                    "files": [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                               "path": "p", "bytes": 1, "sha256": "1" * 64},
+                              {"role": "notice", "path": "whisper/tiny/LICENSE",
+                               "url": "https://raw.example/LICENSE", "bytes": 5, "sha256": "2" * 64}]}
+        report = compare(draft, existing)
+        self.assertEqual(report["mismatch"], [])
+
     def test_inventory_report(self):
         inventory = MODULE["inventory_report"]
         config = {"models": [

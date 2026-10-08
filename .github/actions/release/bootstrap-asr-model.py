@@ -260,7 +260,9 @@ def compare_entry(draft, existing):
     else:
         report["mismatch"].append("watch.repo: %r vs %r" % (
             (draft.get("watch") or {}).get("repo"), (existing.get("watch") or {}).get("repo")))
-    by_member = {f["member"]: f for f in existing.get("files", [])}
+    # 既有条目可含 url 基文件（如 whisper 各档的外部 LICENSE，无 member 键）——
+    # 其不在镜像仓探针的对照面内（2026-10-08 全量深探首跑 KeyError 实证）。
+    by_member = {f["member"]: f for f in existing.get("files", []) if "member" in f}
     for item in draft.get("files", []):
         existing_item = by_member.get(item["member"])
         if existing_item is None:
