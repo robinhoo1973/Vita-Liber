@@ -48,7 +48,10 @@ socket.getaddrinfo = _ipv4_first
 # 家族级约定（上游 source、versionPolicy 前缀、path 目录）不写死在代码里：
 # 对账模式经 apply_template 从既有条目继承（单一事实源=config），无模板落 REVIEW。
 REVIEW = "REVIEW"
-SKIP_PATTERNS = (".gitattributes", "test_wavs/*", "*.wav", "*trans.txt", ".git/*")
+# .weights/.pt 等=训练格式载荷（非 ONNX，运行时不可用）——2026-10-08 iOS 产品席
+# 实证：whisper turbo/large 仓的 turbo-encoder.weights 被 encoder 规则误收进 draft。
+SKIP_PATTERNS = (".gitattributes", "test_wavs/*", "*.wav", "*trans.txt", ".git/*",
+                 "*.weights", "*.pt", "*.pth", "*.ckpt")
 # 角色推断 = 有序正则（search 式；前缀 glob 对 whisper 系带档位前缀的成员名
 # 如 tiny-encoder.int8.onnx 全数失配——2026-10-08 实证修复）。notice 规则置前
 # （防 MODEL_LICENSE 被 model 规则误吞；IGNORECASE 下依赖顺序保证正确性）。

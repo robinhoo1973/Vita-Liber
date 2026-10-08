@@ -72,6 +72,9 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(selected("encode.int8.onnx"))
         self.assertFalse(selected("test_wavs/0.wav"))
         self.assertFalse(selected(".gitattributes"))
+        # 训练格式载荷（2026-10-08 全量深探实测误收 turbo-encoder.weights）
+        self.assertFalse(selected("turbo-encoder.weights"))
+        self.assertFalse(selected("model.pth"))
 
     def test_select_quantized_members(self):
         # 2026-10-08 全量深探实证：whisper 仓 fp32+int8 孪生全收会与在册约定失配
