@@ -77,7 +77,7 @@
     }
   },
   "noise": {
-    "version": "2.0",
+    "version": "2.1",
     "_bandComment": "字级 CER 目标(校准对象=4-8 字 span);alpha 席终案,现实锚定:OCR 手机翻拍 3-13.5%/ASR 9-16%",
     "bandTargets": {
       "clean": 0.0,
@@ -113,7 +113,8 @@
       "positionSampler": "textnoisr(BSD-2)",
       "confusionSource": "unihan-pycorrector",
       "optional": "scrambledtext(MIT,自举对照轨)"
-    }
+    },
+    "version_comment": "2.1=长度补偿 L_eff=max(len,7)(2026-10-08:R0 首测 0.73× → 锚 6 实测 → 锚 7 反推落点 0.112/0.266/0.485/0.707 全入容差)"
   },
   "training": {
     "encoder": {

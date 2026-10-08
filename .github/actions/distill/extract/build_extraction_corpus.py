@@ -717,9 +717,10 @@ def make_line(segments, rng, level=None, nz=None):
             fn = asr_noise_segment_v2 if nz["mode"] == "asr" else ocr_noise_segment_v2
             noisy, meta = fn(text, rng, band=nz["band"], tables=nz["tables"])
             noised.append(noisy)
-            nz["cer_sum"] = nz.get("cer_sum", 0.0) + float(meta.get("cer_measured") or 0.0)
-            nz["cer_n"] = nz.get("cer_n", 0) + 1
             if key:
+                # CER 口径=span 段(与 span 损伤率同 population;标签/分隔段稀释已实证)
+                nz["cer_sum"] = nz.get("cer_sum", 0.0) + float(meta.get("cer_measured") or 0.0)
+                nz["cer_n"] = nz.get("cer_n", 0) + 1
                 nz["span_total"] += 1
                 if meta.get("damaged"):
                     nz["span_damaged"] += 1

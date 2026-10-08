@@ -69,13 +69,22 @@ def check(extraction_dir: Path, policy: dict | None) -> tuple[list[str], dict]:
             if abs(agg["rate"] - targets[band]) > tol.get(band, 0.05):
                 failures.append(
                     f"span 损伤率({band}) {agg['rate']} 偏离目标 {targets[band]} 超容差 {tol.get(band)}")
-    # ② CER
-    for band, agg in sorted(sd.items()):
+    # ② CER=诊断量(round5:验收量=span 损伤率;v2.1 长度补偿后短 span 的 CER 会高于
+    # 带目标——不再对点断言,改「诊断带 0.5×–1.5×target + 带间单调」)
+    order = ["clean", "light", "medium", "heavy", "extreme"]
+    prev = None
+    for band in order:
+        agg = sd.get(band)
+        if not agg:
+            continue
         report["cer"][band] = agg.get("cer_mean")
         if band in band_cer and agg.get("cer_n", 0) >= 1000:
-            if abs(agg.get("cer_mean", 0.0) - band_cer[band]) > CER_TOLERANCE:
-                failures.append(
-                    f"CER 均值({band}) {agg.get('cer_mean')} 偏离目标 {band_cer[band]} 超 ±{CER_TOLERANCE}")
+            m, tgt = agg.get("cer_mean", 0.0), band_cer[band]
+            if band != "clean" and not (0.5 * tgt - 0.01 <= m <= 1.5 * tgt + 0.01):
+                failures.append(f"CER 均值({band}) {m} 越诊断带 [{0.5*tgt:.3f},{1.5*tgt:.3f}]")
+            if prev is not None and m + 0.005 < prev:
+                failures.append(f"CER 带间非单调: {band}({m}) < 前一档({prev})")
+            prev = m
 
     # ③ 声明式网格
     present_kinds = set((manifest.get("params") or {}).get("kinds") or [])

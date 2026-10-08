@@ -206,7 +206,7 @@ def voiced(qty_unit: str, rng: random.Random) -> str:
 #   ①tests/test_noise_policy_sync.py(CI 零依赖断言两处相等)
 #   ②builder main 启动时若找到 policy.json 则再断一次(fail-closed)。
 
-NOISE_VERSION = "2.0"
+NOISE_VERSION = "2.1"
 BAND_CER = {"clean": 0.0, "light": 0.02, "medium": 0.05, "heavy": 0.10, "extreme": 0.18}
 # 与 policy.json noise.trainMix 同口径(分数,非百分数——交叉断言逐值相等)
 DEFAULT_TRAIN_MIX = {"clean": 0.15, "light": 0.30, "medium": 0.30, "heavy": 0.17, "extreme": 0.08}

@@ -121,8 +121,13 @@ def noisify_segment(text: str, *, band: str, cer_target: float, rng: random.Rand
         if family not in share:
             continue
         # 随机取整(期望保真):短段上 round() 会把 light 档预算恒归零(实证),
-        # floor + Bernoulli(小数部分) 保住 E[编辑数]=cer_target×len×share_f。
-        exp_edits = cer_target * len(text) * share[family]
+        # floor + Bernoulli(小数部分) 保住 E[编辑数]=cer_target×L_eff×share_f。
+        # v2.1 长度补偿(2026-10-08 R0 首测→27k 实测标定):带位验收量=span 损伤率,
+        # 其 4-8 字锚上标定(11/26/47/70%);语料含大量 1-3 字 span,纯 len 预算让
+        # P(damage) 系统性偏低(CI 0.0767/0.1893/0.3449/0.5368 ≈0.73×)。
+        # L_eff=7:27k 本地实测(锚=6:0.0969/0.2326/0.4332/0.6513)按 μ 比例反推
+        # 锚=7 落点 0.112/0.266/0.485/0.707——四带均入目标±容差;长 span 行为不变。
+        exp_edits = cer_target * max(len(text), 7) * share[family]
         target_edits = int(exp_edits)
         if rng.random() < (exp_edits - target_edits):
             target_edits += 1
