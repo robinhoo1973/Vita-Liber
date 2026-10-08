@@ -1239,7 +1239,7 @@ jobs:
           # 旧 build 当成「本次已登记」（实证：本轮 306.1 上传后，复核在第 1
           # 次轮询命中旧 build 305.1 即报「已登记」）。改为精确匹配本次
           # BUILD（= CFBundleVersion），登记结论与合规告警才指向本次 build。
-          EXPECTED="${{ steps.ver.outputs.build }}"
+          EXPECTED="${{ needs.build.outputs.build_number }}"
           found=0
           # 3×30s = 90s 列表确认（2026-10-07 P2 收窄,业主裁决）：Apple 侧入列
           # 延迟是常量（实测 ~4min）——正面证据改由上方 buildUploads 秒级查询承担
