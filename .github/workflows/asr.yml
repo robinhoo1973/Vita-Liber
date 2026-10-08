@@ -509,14 +509,14 @@ jobs:
 
       # 流程全景与待人工项表（2026-10-08 委员会:可见性+生成物归属）——仅读
       # 报告 JSON,零额外下载;来源标注消除「seeds 如何进 config」歧义。
-      - name: 上传候选配置（新家族草案,如有）
+      - name: 上传候选配置（models.json / catalog-copy.json,恒产出）
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
         with:
           name: asr-config-candidates
           path: ${{ runner.temp }}/asr-config-candidates
           retention-days: 7
-          if-no-files-found: ignore
+          if-no-files-found: error
 
       - name: 上传复现报告
         if: ${{ always() }}

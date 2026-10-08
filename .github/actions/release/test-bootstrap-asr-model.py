@@ -264,9 +264,9 @@ class BootstrapTests(unittest.TestCase):
                     "tiers": [{"id": "whisper", "variant": "tiny"}]}
         with tempfile.TemporaryDirectory() as directory:
             written = emit(proposals, config, copy_doc, Path(directory))
-            self.assertEqual(len(written), 2)
-            models = json.loads((Path(directory) / "models-candidate.json").read_text())
-            copy_out = json.loads((Path(directory) / "catalog-copy-candidate.json").read_text())
+            self.assertEqual(len(written), 3, "两文件+README")
+            models = json.loads((Path(directory) / "models.json").read_text())
+            copy_out = json.loads((Path(directory) / "catalog-copy.json").read_text())
         self.assertEqual([m["id"] for m in models["models"]], ["whisper", "newfam"],
                          "仅追加新家族,既有条目原样")
         self.assertEqual(models["models"][0]["license"], "MIT", "既有条目零触碰")

@@ -555,11 +555,22 @@ def emit_config_candidates(proposals, config, copy_doc, out_dir):
                                       "tierName": dict(empty), "tierHint": dict(empty)})
             existing_tiers.add(key)
     written = []
-    for name, doc in (("models-candidate.json", models),
-                      ("catalog-copy-candidate.json", copy_out)):
+    # 文件名=仓库原名（采纳动作=diff 后复制回 .github/config/asr/）——
+    # 生成链第一步的可采纳物形态（2026-10-08 业主指令）。
+    for name, doc in (("models.json", models), ("catalog-copy.json", copy_out)):
         path = out_dir / name
         path.write_bytes(json.dumps(doc, ensure_ascii=False, indent=2).encode() + b"\n")
         written.append(path)
+    readme = out_dir / "README.txt"
+    readme.write_bytes(
+        ("CI 生成的候选配置（生成链第一步）。\n"
+         "\n"
+         "models.json        = 现行 config 全量 + 新家族草案追加（若有）\n"
+         "catalog-copy.json  = 现行文案全量 + 新家族/档位骨架（三语空串待填,若有）\n"
+         "\n"
+         "采纳 = 下载本 artifact,diff 后复制回 .github/config/asr/ 提交。\n"
+         "空串骨架会被投影器 fail-closed 拒收——未填完不可能静默出厂。\n").encode())
+    written.append(readme)
     return written
 
 
@@ -768,7 +779,9 @@ def main():
             if args.out is not None:
                 args.out.parent.mkdir(parents=True, exist_ok=True)
                 args.out.write_bytes(json.dumps(output, ensure_ascii=False, indent=2).encode() + b"\n")
-            if args.emit_config_candidates is not None and proposals:
+            if args.emit_config_candidates is not None:
+                # 无条件产出（2026-10-08 业主指令:Artifacts 里恒可见两文件）——
+                # proposals 空时=现行 config 的全量快照（幂等复现）。
                 catalog_copy = (json.loads(args.catalog_copy.read_bytes())
                                 if args.catalog_copy is not None else None)
                 written = emit_config_candidates(proposals, config, catalog_copy,
