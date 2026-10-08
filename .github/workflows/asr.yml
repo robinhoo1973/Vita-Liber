@@ -330,6 +330,52 @@ jobs:
             --workdir "$RUNNER_TEMP/asr-bootstrap" \
             --out "$RUNNER_TEMP/asr-repro.json"
 
+      # 流程全景与待人工项表（2026-10-08 委员会:可见性+生成物归属）——仅读
+      # 报告 JSON,零额外下载;来源标注消除「seeds 如何进 config」歧义。
+      - name: 流程全景与待人工项表（step summary）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-repro.json" >> "$GITHUB_STEP_SUMMARY" <<'PYEOF'
+          import json
+          import sys
+          doc = json.load(open(sys.argv[1], encoding="utf-8"))
+          print("## ASR 流水线全景（verify：seeds → 家族发现 → 档位深探）")
+          print("")
+          print("- `seeds.json`：家族名清单（本 job 消费；**不进 models.json 生成链**）")
+          print("- `models.json` / `catalog-copy.json`：提交配置金样（人工维护，本 job 只读校验）")
+          print("- 深探 draft 见 artifact `asr-bootstrap-repro`（可采纳物：待人工项就地复核后写回）")
+          print("")
+          inv = doc["inventory"]
+          s = inv["summary"]
+          print("inventory：家族 %d / 候选 %d / 在册 %d / 未收录候选 %d / 钉版缺候选 %d / 未知 %d"
+                % (s["families"], s["candidates"], s["in_config"], s["new_candidates"],
+                   s["missing_pinned"], s["unknown"]))
+          print("")
+          print("| 家族 | 在册 | 新候选 | 状态 |")
+          print("|---|---|---|---|")
+          for row in inv.get("results", []):
+              print("| %s | %s | %s | %s |" % (row.get("family"), row.get("in_config", 0),
+                                               row.get("new_candidates", 0), row.get("status", "ok")))
+          probes = doc.get("probes", [])
+          if probes:
+              print("")
+              print("| 档位 | 仓 | match | mismatch | cosmetic | 待人工项 |")
+              print("|---|---|---|---|---|---|")
+              for row in probes:
+                  compare = row.get("compare") or {}
+                  draft = row.get("draft") or {}
+                  review = []
+                  if str(draft.get("license", "")).upper() == "REVIEW":
+                      review.append("license")
+                  if draft.get("variant") is None:
+                      review.append("variant")
+                  if not (draft.get("versionPolicy") or {}).get("prefix"):
+                      review.append("versionPolicy.prefix")
+                  print("| %s | %s | %s | %s | %s | %s |" % (
+                      row.get("entry"), row.get("repo"), len(compare.get("match") or []),
+                      len(compare.get("mismatch") or []), len(compare.get("cosmetic") or []),
+                      ", ".join(review) or "—"))
+          PYEOF
+
       - name: 断言（13 在册/0 缺失/0 未知；12/12 复现/0 mismatch/0 error）
         run: |
           python3 -I - "$RUNNER_TEMP/asr-repro.json" <<'PYEOF'
@@ -363,6 +409,20 @@ jobs:
                            and row["compare"]["mismatch"])
           if mismatches != 0:
               problems.append("mismatch=%d (期望 0)" % mismatches)
+          # g1（2026-10-08 委员会,采纳回路闸）：每个 seed 家族必须 ≥1 在册——
+          # seeds 加了名而 config 未钉版时点名红（新家族深探→人工写回的指路）。
+          for row in doc["inventory"].get("results", []):
+              if row.get("status") == "unknown":
+                  continue  # unknown 已由 summary 计数判红
+              if int(row.get("in_config", 0)) < 1:
+                  problems.append("seed 家族「%s」在 config 无在册条目（新家族待钉版:"
+                                  "本地 bootstrap 深探后写回 models.json）" % row.get("family"))
+          # g2：金样不得含未完成人工裁决的占位（REVIEW / variant=null）。
+          config_raw = open(".github/config/asr/models.json", encoding="utf-8").read()
+          if "REVIEW" in config_raw:
+              problems.append("models.json 含 REVIEW 占位（人工裁决未完成不得进金样）")
+          elif '"variant": null' in config_raw:
+              problems.append("models.json 含 variant=null（档位待人工判定不得进金样）")
           if errors != 0:
               problems.append("error=%d (期望 0)" % errors)
           if problems:

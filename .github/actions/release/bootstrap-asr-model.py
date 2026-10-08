@@ -655,7 +655,11 @@ def main():
                             print("probe: %-22s ERROR %s" % (key_str, error), flush=True)
                             continue
                         compare = compare_entry(draft, entry)
-                        probes.append({"entry": key_str, "repo": item["repo"], "compare": compare})
+                        # draft 随报告输出（2026-10-08 委员会:生成物归属步骤）——
+                        # 报告 artifact 即「可采纳物」:待人工项(REVIEW/None)在
+                        # draft 内可见,人工在本机 --compare-config 复核后写回 config。
+                        probes.append({"entry": key_str, "repo": item["repo"],
+                                       "compare": compare, "draft": draft})
                         print("probe: %-22s matched=%d mismatch=%d cosmetic=%d"
                               % (key_str, len(compare["match"]), len(compare["mismatch"]),
                                  len(compare["cosmetic"])), flush=True)
