@@ -61,18 +61,19 @@ enum ExtractionPromptExporter {
                     break
                 }
             }
-            // 枚举键的打印词形表(ClinicalFieldLabels 词表;键→表映射为导出器本地胶水)。
-            let vocab: [(type: String, tokens: [String])]? = {
+            // 枚举键的打印词形表(ClinicalFieldLabels 词表;键→表映射为导出器本地胶水;
+            // 两族元组标签不同——vocabulary=tokens、TypeLabels=labels,统一归一到 [String])。
+            let vocab: [(String, [String])]? = {
                 switch f.key {
-                case "report_type": return ClinicalFieldLabels.reportTypeVocabulary
-                case "treatment_type": return ClinicalFieldLabels.treatmentTypeVocabulary
-                case "diagnosis_type": return ClinicalFieldLabels.diagnosisTypeLabels
-                case "conclusion_type": return ClinicalFieldLabels.conclusionTypeLabels
+                case "report_type": return ClinicalFieldLabels.reportTypeVocabulary.map { ($0.type, $0.tokens) }
+                case "treatment_type": return ClinicalFieldLabels.treatmentTypeVocabulary.map { ($0.type, $0.tokens) }
+                case "diagnosis_type": return ClinicalFieldLabels.diagnosisTypeLabels.map { ($0.type, $0.labels) }
+                case "conclusion_type": return ClinicalFieldLabels.conclusionTypeLabels.map { ($0.type, $0.labels) }
                 default: return nil
                 }
             }()
             if let vocab {
-                dict["value_tokens"] = vocab.map { ["type": $0.type, "tokens": $0.tokens] }
+                dict["value_tokens"] = vocab.map { ["type": $0.0, "tokens": $0.1] }
             }
             return dict
         }
