@@ -268,11 +268,26 @@ def select_quantized_members(members):
     return [m for m in members if group_key(m) is None or m in picked]
 
 
-def probe_repo(repo, *, workdir, fetch_json=None):
+def probe_repo(repo, *, workdir, fetch_json=None, template=None):
+    """深探镜像仓:下载实测成员字节。
+
+    template（金样条目）存在时=**选件钉版**（2026-10-08 委员会:P1a）——
+    成员集以金样声明为准（每件必须在上游存在,否则硬错=真实漂移信号）;
+    规则择一只用于无金样的新档位/新家族。这样在册 draft 的实测重填不会
+    改变发行选件（zipformer decoder fp32 偏好得以保持）,同时内容漂移可见。
+    """
     sha, members = fetch_repo(repo, fetch_json=fetch_json)
     family, variant = infer_identity(repo)
     files, license_texts = [], []
-    for member in select_quantized_members(members):
+    if template is not None:
+        gold_members = [f["member"] for f in template.get("files", []) if "member" in f]
+        missing = [m for m in gold_members if m not in set(members)]
+        if missing:
+            raise BootstrapError("金样成员在上游缺失: " + ", ".join(sorted(missing)))
+        selected_members = gold_members
+    else:
+        selected_members = select_quantized_members(members)
+    for member in selected_members:
         role = infer_role(member)
         if role is None or not member_selected(member):
             continue
@@ -547,7 +562,7 @@ def unpinned_variant_groups(rows, known_variants, families=None, *, variant_voca
     return {variant: sorted(repos) for variant, repos in sorted(grouped.items())}
 
 
-def emit_config_candidates(proposals, config, copy_doc, out_dir):
+def emit_config_candidates(proposals, config, copy_doc, out_dir, probes=None):
     """生成候选配置（生成链第一步,2026-10-08 业主指令:CI 生成、人工采纳）。
 
     只追加新家族提案（proposals 的 draft）;既有条目零触碰（人工字段原样保留）。
@@ -558,6 +573,23 @@ def emit_config_candidates(proposals, config, copy_doc, out_dir):
     out_dir.mkdir(parents=True, exist_ok=True)
     models = copy.deepcopy(config)
     models.setdefault("models", [])
+    # 机器事实重填（2026-10-08 委员会:P1a「真生成」——k8s verify-generated
+    # 语义）:在册档若有深探 draft,以**实测值**重填 revision/files(人工面
+    # license/source/versionPolicy/watch 保持金样;选件已由 probe 的模板钉版
+    # 固定)。全 verified 时输出=金样;实测漂移→与金样 diff 可见(⑧ 自检步判红)。
+    if probes:
+        measured = {((p.get("draft") or {}).get("id"), (p.get("draft") or {}).get("variant")):
+                    p.get("draft") for p in probes if p.get("draft")}
+        for entry in models["models"]:
+            draft = measured.get((entry.get("id"), entry.get("variant")))
+            if draft is None:
+                continue
+            if draft.get("revision"):
+                entry["revision"] = draft["revision"]
+            if draft.get("files"):
+                entry["files"] = draft["files"]
+            if "archive" in draft:
+                entry["archive"] = draft["archive"]
     # (id,variant) 键控（2026-10-08:G1 修复——原按 id 去重会丢同族新档位）。
     existing_keys = {(entry.get("id"), entry.get("variant")) for entry in models["models"]}
     for proposal in proposals:
@@ -708,7 +740,8 @@ def main():
     args = parser.parse_args()
     try:
         if args.from_seeds is not None:
-            proposals = []  # 无条件初始化（2026-10-08 实证:--emit 不带 --probe 崩）
+            # 无条件初始化（2026-10-08 实证:--emit 不带 --probe 崩;probes 同族）
+            proposals, probes = [], []
             seeds_doc = json.loads(args.from_seeds.read_bytes())
             config = (json.loads(args.compare_config.read_bytes())
                       if args.compare_config is not None else {"models": []})
@@ -752,7 +785,8 @@ def main():
                             continue
                         try:
                             draft = apply_template(
-                                probe_repo(item["repo"], workdir=args.workdir), entry)
+                                probe_repo(item["repo"], workdir=args.workdir, template=entry),
+                                entry)
                         except (BootstrapError, OSError, ValueError, KeyError, TypeError) as error:
                             probes.append({"entry": key_str, "repo": item["repo"],
                                            "status": "error", "reason": str(error)})
@@ -823,7 +857,8 @@ def main():
                 catalog_copy = (json.loads(args.catalog_copy.read_bytes())
                                 if args.catalog_copy is not None else None)
                 written = emit_config_candidates(proposals, config, catalog_copy,
-                                                 args.emit_config_candidates)
+                                                 args.emit_config_candidates,
+                                                 probes=probes)
                 for path in written:
                     print("候选配置已生成: " + str(path), flush=True)
             return 0

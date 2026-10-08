@@ -363,6 +363,34 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn("UnboundLocalError", result.stdout + result.stderr)
 
+    def test_emit_measured_refill_and_drift(self):
+        # P1a「真生成」（k8s verify-generated 语义）:在册档以实测重填 revision/
+        # files（人工面 license/source/versionPolicy 保持金样）;无漂移=与金样
+        # 逐对象相等;有漂移=输出反映实测（⑧ 自检步以此判红）。
+        emit = MODULE["emit_config_candidates"]
+        config = {"formatVersion": 1, "models": [
+            {"id": "whisper", "variant": "tiny", "license": "MIT", "revision": "b" * 40,
+             "source": "s", "watch": {"kind": "hf-repo", "repo": "w"},
+             "versionPolicy": {"prefix": "int8"},
+             "files": [{"role": "encoder", "member": "tiny-encoder.int8.onnx",
+                        "path": "whisper/tiny-encoder.int8.onnx", "bytes": 1, "sha256": "1" * 64}]}]}
+        copy_doc = {"formatVersion": 1, "families": [], "tiers": []}
+        no_op = [{"entry": "whisper.tiny", "repo": "w",
+                  "draft": json.loads(json.dumps(config["models"][0]))}]
+        with tempfile.TemporaryDirectory() as d1:
+            emit([], config, copy_doc, Path(d1), probes=no_op)
+            same = json.loads((Path(d1) / "models.json").read_text())
+        self.assertEqual(same["models"], config["models"], "全 verified ⇒ 输出=金样")
+        drifted_draft = json.loads(json.dumps(config["models"][0]))
+        drifted_draft["files"][0]["sha256"] = "9" * 64
+        with tempfile.TemporaryDirectory() as d2:
+            emit([], config, copy_doc, Path(d2),
+                 probes=[{"entry": "whisper.tiny", "repo": "w", "draft": drifted_draft}])
+            drifted = json.loads((Path(d2) / "models.json").read_text())
+        self.assertEqual(drifted["models"][0]["files"][0]["sha256"], "9" * 64,
+                         "实测漂移必须出现在生成物（自检步据此判红）")
+        self.assertEqual(drifted["models"][0]["license"], "MIT", "人工面保持金样")
+
     def test_discover_authors(self):
         # 自动发现（防硬编码名单）：批量发布者入域，偶发单仓社区账号出局
         discover = MODULE["discover_authors"]

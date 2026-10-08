@@ -513,6 +513,30 @@ jobs:
 
       # 流程全景与待人工项表（2026-10-08 委员会:可见性+生成物归属）——仅读
       # 报告 JSON,零额外下载;来源标注消除「seeds 如何进 config」歧义。
+      # 候选自检（2026-10-08 委员会:P1a,k8s verify-generated 语义）——在册档
+      # 生成物必须与金样一致（实测全 verified）;不等=确定性漂移,硬红;新增
+      # 档位/家族=合法提案（黄,summary 呈现）。
+      - name: 候选自检（在册档漂移=红;新增=黄）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-config-candidates/models.json" <<'PYEOF'
+          import json
+          import sys
+          generated = json.load(open(sys.argv[1], encoding="utf-8"))
+          committed = json.load(open(".github/config/asr/models.json", encoding="utf-8"))
+          gold = {(m["id"], m.get("variant")): m for m in committed["models"]}
+          drift, appended = [], []
+          for model in generated["models"]:
+              key = (model["id"], model.get("variant"))
+              if key not in gold:
+                  appended.append(key)
+              elif model != gold[key]:
+                  drift.append(key)
+          if drift:
+              print("::error::在册档生成漂移（实测≠金样,须人工核）: %s" % drift)
+              raise SystemExit(1)
+          print("候选自检通过: 在册全 verified,新增 %d 档" % len(appended))
+          PYEOF
+
       - name: 上传候选配置（models.json / catalog-copy.json,恒产出）
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
