@@ -25,11 +25,15 @@
      时，同 job 必须出现 requirements-model-tools.txt 安装引用——本机 pip
      装齐掩盖 CI 裸 runner 缺依赖（yaml 消费测试 ModuleNotFoundError）；新
      job 抄测试清单漏抄安装步即撞此族（asr.yml verify job 首跑即实证）。
+  f. needs 引用契约（2026-10-08，run 37745552711 实证）：`needs.X.outputs`
+     引用 X 必须在本 job 的 needs 列表——GitHub needs 上下文只含直接依赖,
+     跨层引用静默解析为空（asr.yml 十段拆分后 ⑤ 引用 needs.resolve 落错层）。
 
 用法：python3 .github/actions/gates/l0-workflow-structure.py [--ci]
       （--ci：有发现即退出码 1，供 L0 门禁第 19 节复用；0 文件扫描退出码 2——
        ERR#27 纪律：空扫不得判 PASS）
 """
+import json
 import re
 import sys
 from pathlib import Path
@@ -150,6 +154,17 @@ for f in sorted(WF.iterdir()):
             if "requirements-model-tools.txt" not in runs_text:
                 flag(f"{f.name}: job「{jname}」调用 release 测试面但未装 requirements-model-tools.txt"
                      f"（CI 裸环境缺依赖族——本机装齐不构成证据）")
+        # f. needs 引用契约（2026-10-08 run 37745552711 实证）：GitHub 的 needs
+        # 上下文只含**直接依赖**——`needs.X.outputs` 引用 X 不在本 job 的 needs
+        # 列表时解析为空值，静默致下游错行为（download-artifact 无 name 落错层）。
+        needs_refs = job.get("needs") or []
+        if isinstance(needs_refs, str):
+            needs_refs = [needs_refs]
+        job_blob = json.dumps(job, ensure_ascii=False)
+        for ref in sorted(set(re.findall(r"needs\.([A-Za-z0-9_-]+)\.", job_blob))):
+            if ref not in needs_refs:
+                flag(f"{f.name}: job「{jname}」引用 needs.{ref} 但不在其 needs 列表"
+                     f"（解析为空,静默空值族）")
     for lineno in comment_expr_hits(f):
         flag(f"{f.name}:{lineno}: 注释内出现 ${{{{ ——0 秒红族（整文件拒载）；移除或同行加 gha-expr-ok: 豁免")
     scan_uses(f)
