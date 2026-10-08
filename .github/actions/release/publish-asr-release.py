@@ -143,7 +143,12 @@ def publish(args, client):
     # `plan` 子命令;发布路径以 upload_immutable 为唯一规则owner——
     # 此前的 pre-flight 硬错会把「不同才更新上传」路径变成永久红(2026-10-05 审查)。
     for model in index["models"]:
+        # 逐资产计时（2026-10-08 委员会,可见性）：同名同摘要跳过（skip）与真实
+        # 上传（overwrite）都打点——skip 形态耗时 ~0.0s，上传形态秒级，
+        # 事后可据此区分「90s publish 花在读回/校验还是真传输」。
+        _started = time.monotonic()
         client.upload_immutable(TAG, args.directory / model["url"], model["url"], model["sha256"], overwrite=True)
+        print("[publish] %s %.1fs" % (model["url"], time.monotonic() - _started), flush=True)
 
     # 单一 JSON 架构(2026-10-06 业主裁定):CNB 只承载模型包 + index.json
     # (签名信封,固定名,payload 内单调 catalogVersion——TUF fixed-name
