@@ -2,7 +2,8 @@
 """L0 [19] 工作流结构门禁 —— .github/workflows 与 .github/actions 的静态形态断言。
 
 四查 + 一附加（2026-10-07 委员会双轮定稿；错误族背景见 refactor/memory/ci-lessons
-「工作流 run 块 shell 语法族」「注释内表达式 0 秒红」「协议遵从缺失族」）：
+「工作流 run 块 shell 语法族」「注释内表达式 0 秒红」「协议遵从缺失族」）
++ e（2026-10-08 族防御，见下）：
 
   a. 可解析 + 触发器存在：.github/workflows/*.yml 必须 YAML 可解析且含 on: 键
      （PyYAML 把 `on` 解析为布尔 True——两形态都接受）；workflows/ 下出现
@@ -19,6 +20,11 @@
      workflow_call；`uses: ./.github/actions/<name>` 必须存在 action.yml 且
      runs.using == composite。（无效引用在 GitHub 侧是创建期 0 秒红——本地左移。）
   附加. maintenance.yml 的 REQUIRED_PATHS 每条路径必须存在（悬空哨兵 = 静默失效）。
+  e. 测试电池依赖契约（2026-10-08，CI 37722650928 实证）：job 的 run 文本调用
+     release 测试面（`.github/actions/release/test-*.py` 或 `model-trust.py`）
+     时，同 job 必须出现 requirements-model-tools.txt 安装引用——本机 pip
+     装齐掩盖 CI 裸 runner 缺依赖（yaml 消费测试 ModuleNotFoundError）；新
+     job 抄测试清单漏抄安装步即撞此族（asr.yml verify job 首跑即实证）。
 
 用法：python3 .github/actions/gates/l0-workflow-structure.py [--ci]
       （--ci：有发现即退出码 1，供 L0 门禁第 19 节复用；0 文件扫描退出码 2——
@@ -136,6 +142,14 @@ for f in sorted(WF.iterdir()):
             continue
         if "runs-on" not in job and not job.get("uses"):
             flag(f"{f.name}: job「{jname}」既无 runs-on 也无 uses（创建期 schema 红；composite 化后 caller job 必须自带 runs-on）")
+        # e. 测试电池依赖契约（族防御，见文件头）
+        runs_text = "\n".join(str(step.get("run", "")) for step in (job.get("steps") or [])
+                              if isinstance(step, dict))
+        if (".github/actions/release/test-" in runs_text
+                or ".github/actions/release/model-trust.py" in runs_text):
+            if "requirements-model-tools.txt" not in runs_text:
+                flag(f"{f.name}: job「{jname}」调用 release 测试面但未装 requirements-model-tools.txt"
+                     f"（CI 裸环境缺依赖族——本机装齐不构成证据）")
     for lineno in comment_expr_hits(f):
         flag(f"{f.name}:{lineno}: 注释内出现 ${{{{ ——0 秒红族（整文件拒载）；移除或同行加 gha-expr-ok: 豁免")
     scan_uses(f)
