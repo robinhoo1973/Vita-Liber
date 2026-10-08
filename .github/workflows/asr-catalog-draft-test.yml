@@ -1,0 +1,111 @@
+# TEMP 目录草案生成专用测试（2026-10-08 业主授权创建；验证期延展——
+# 业主确认保留快通道:「为何放弃临时 yml」(2026-10-08 晚);删除需业主裁）。
+# 目的：seeds→models.json/catalog-copy.json 生成链的快速迭代通道——只跑
+# ⑧ catalog-draft 的等价内容（发现→深探→候选→自检），不触发布链；
+# bootstrap/config 改动即自动触发（paths 过滤）,作 asr.yml 全链的快速前哨。
+name: TEMP 目录草案生成测试
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - ".github/actions/release/bootstrap-asr-model.py"
+      - ".github/actions/release/generate-asr-source-manifest.py"
+      - ".github/config/asr/**"
+      - ".github/workflows/asr-catalog-draft-test.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: asr-catalog-draft-test-${{ github.repository }}
+  cancel-in-progress: true   # 临时测试面：快反馈优先（发布链的排队语义不适用）
+
+jobs:
+  draft:
+    name: 目录草案生成（seeds → 发现·深探 → 候选两文件 → 自检）
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版,L0 检查 e 契约:跑 release 测试面须装）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      - name: 离线冒烟（bootstrap 纯函数面）
+        run: python3 .github/actions/release/test-bootstrap-asr-model.py
+
+      - name: 生成候选（发现+深探+两文件）
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          python3 .github/actions/release/bootstrap-asr-model.py \
+            --from-seeds .github/config/asr/seeds.json \
+            --compare-config .github/config/asr/models.json \
+            --probe \
+            --workdir "$RUNNER_TEMP/asr-bootstrap" \
+            --out "$RUNNER_TEMP/asr-repro.json" \
+            --emit-config-candidates "$RUNNER_TEMP/asr-config-candidates" \
+            --catalog-copy .github/config/asr/catalog-copy.json \
+            2>&1 | tee "$RUNNER_TEMP/draft.log"
+
+      - name: 候选自检（在册档漂移=红;新增=黄）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-config-candidates/models.json" <<'PYEOF'
+          import json
+          import sys
+          generated = json.load(open(sys.argv[1], encoding="utf-8"))
+          committed = json.load(open(".github/config/asr/models.json", encoding="utf-8"))
+          gold = {(m["id"], m.get("variant")): m for m in committed["models"]}
+          drift, appended = [], []
+          for model in generated["models"]:
+              key = (model["id"], model.get("variant"))
+              if key not in gold:
+                  appended.append(key)
+              elif model != gold[key]:
+                  drift.append(key)
+          if drift:
+              print("::error::在册档生成漂移（实测≠金样,须人工核）: %s" % drift)
+              raise SystemExit(1)
+          print("候选自检通过: 在册 %d 档全 verified,新增 %d 档" % (len(gold), len(appended)))
+          PYEOF
+
+      - name: 候选摘要（条目/家族/待人工项）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-config-candidates" <<'PYEOF'
+          import json
+          import sys
+          from pathlib import Path
+          base = Path(sys.argv[1])
+          models = json.loads((base / "models.json").read_bytes())
+          copy_doc = json.loads((base / "catalog-copy.json").read_bytes())
+          entries = [(m["id"], m.get("variant")) for m in models["models"]]
+          review = [k for k, m in zip(entries, models["models"])
+                    if str(m.get("license", "")).upper() == "REVIEW" or m.get("variant") is None
+                    or not (m.get("versionPolicy") or {}).get("prefix")]
+          empty_names = [f["id"] for f in copy_doc.get("families", [])
+                         if not (f.get("name") or {}).get("zh-Hans")]
+          print("models=%d 档 / catalog-copy=%d 家族 %d 档"
+                % (len(entries), len(copy_doc.get("families", [])), len(copy_doc.get("tiers", []))))
+          print("待人工项（models）: %s" % (review or "无"))
+          print("待人工项（文案骨架空串家族）: %s" % (empty_names or "无"))
+          PYEOF
+
+      - name: 上传候选与报告（诊断）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-draft-test-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/asr-config-candidates
+            ${{ runner.temp }}/asr-repro.json
+            ${{ runner.temp }}/draft.log
+          retention-days: 7
+          if-no-files-found: warn
