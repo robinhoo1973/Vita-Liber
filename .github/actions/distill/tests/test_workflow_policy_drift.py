@@ -63,6 +63,20 @@ class WorkflowPolicyDriftTests(unittest.TestCase):
         self.assertEqual(out.returncode, 0, msg=out.stderr)
         self.assertEqual(out.stdout.strip(), "20261007")
 
+    def test_required_kinds_plus_deferred_equals_registry(self):
+        # 声明式网格一致性:requiredKinds ∪ deferredKinds 必须恰等于 builder REGISTRY 键集
+        sys.path.insert(0, str(DISTILL / "extract"))
+        import importlib
+        bec = importlib.import_module("build_extraction_corpus")
+        reg = set(bec.REGISTRY.keys())
+        sys.path.insert(0, str(DISTILL))
+        import policy as _policy
+        pol = _policy.load()
+        required = set(pol["corpus"]["requiredKinds"])
+        deferred = set(pol["corpus"]["deferredKinds"])
+        self.assertEqual(required | deferred, reg)
+        self.assertEqual(required & deferred, set())
+
 
 if __name__ == "__main__":
     unittest.main()

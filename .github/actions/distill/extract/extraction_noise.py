@@ -265,8 +265,10 @@ def new_noise_ctx(rng: random.Random, *, mode: str = "ocr", mix: dict | None = N
 
 def noise_ctx_summary(ctx: dict) -> dict:
     """样本 noise 元数据(不携带 tables 对象)。"""
+    cer_n = ctx.get("cer_n") or 0
     return {"version": ctx["version"], "mode": ctx["mode"], "band": ctx["band"],
             "cer_target": ctx["cer_target"],
+            "cer_mean": round(ctx.get("cer_sum", 0.0) / cer_n, 4) if cer_n else 0.0,
             "spans": ctx["span_total"], "spans_damaged": ctx["span_damaged"],
             "ops": dict(sorted(ctx["ops"].items()))}
 

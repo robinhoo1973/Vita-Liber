@@ -22,7 +22,21 @@
     "deferredKinds": {
       "hospitalization": "prompt 2187 tokens > --budget 2000(整类零样本;解冻条件=prompt 瘦身或 SFT seq 提升)",
       "surgery": "prompt 2137 tokens > --budget 2000(同上)"
-    }
+    },
+    "requiredKinds": [
+      "prescription",
+      "medication",
+      "encounter",
+      "metric_sample",
+      "diagnosis",
+      "exam_report",
+      "claim_item",
+      "health_exam",
+      "clinical_conclusion",
+      "treatment_record",
+      "immunization"
+    ],
+    "requiredKinds_comment": "声明式网格(X2):deferredKinds 之外必须每类有 kind 级 eval 单元;与 REGISTRY 的一致性由测试断言"
   },
   "gates": {
     "entlink": {
@@ -53,7 +67,9 @@
         "negativeRow": 0,
         "grammarChar": 0,
         "overridable": false
-      }
+      },
+      "evalQuotaUnit": "kind",
+      "evalQuotaUnit_provisional": true
     },
     "calibrate": {
       "mpsFallback": "cpu",

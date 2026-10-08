@@ -629,6 +629,18 @@ jobs:
             echo "::error::语料复验未产出 verdict-corpora.json(RC=$RC)——按运行错误阻断"
             exit 1
           fi
+      - name: Corpus quality gate(三闸断言化;round5 E0)
+        # span 损伤率±容差 / per-band CER±2pp / 声明式网格(kind 单元≥60,deficit>0=红) /
+        # 值 holdout 不变量——此前只记录不断言,本步 fail-closed(独立复验面,与构建解耦)。
+        run: |
+          python3 .github/actions/distill/gate/corpus_quality.py \
+            --extraction-dir . --write-verdict corpus-quality.json
+      - name: Extraction evaluator identity arm(金标当预测自证)
+        # E0:评测器自证臂——identity 下全格 F1=1、硬零=0;不平=评测器/语料契约破损。
+        run: |
+          python3 .github/actions/distill/eval_extract_model.py \
+            --eval-file extraction_eval.jsonl --gold-only \
+            --write-report identity-extraction-report.json
       - name: Verdict 记录(corpora)
         id: verdict
         run: |

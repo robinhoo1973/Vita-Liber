@@ -309,7 +309,8 @@ def sample_draw(seed: int, sample_id: str) -> int:
 
 
 def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
-                       max_share: float = EVAL_MAX_SHARE, forced_eval=()):
+                       max_share: float = EVAL_MAX_SHARE, forced_eval=(),
+                       quota_unit: str = "cell"):
     """确定性 eval/SFT 分配(round5 §2.2 定额制)。
 
     entries: [(cell, draw, key)];cell=(kind, band),draw=sample_draw(...),key=样本 id。
@@ -324,12 +325,13 @@ def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
     for cell, draw, key in entries:
         by_cell[cell].append((draw, key))
     split, cells = {}, {}
-    for cell, items in sorted(by_cell.items()):
-        items.sort()
+
+    def _promote(items, need):
+        """在 items(按 draw 序)上补足 need 个非主分配项;受 max_share 限。返回提升数。"""
         n = len(items)
         prim = {k for d, k in items if d < threshold or k in forced}
         cap = int(n * max_share)
-        promote = min(max(0, quota - len(prim)), max(0, cap - len(prim)))
+        promote = min(max(0, need - len(prim)), max(0, cap - len(prim)))
         promoted = 0
         for _, k in items:
             if k in prim:
@@ -339,9 +341,41 @@ def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
                 promoted += 1
             else:
                 split[k] = "sft"
+        return len(prim) + promoted, promoted, len(prim)
+
+    if quota_unit == "kind":
+        # 验收单元=kind(X2 裁决:band 只是噪声条件切片;细格±tau 会吃穿整语料):
+        # 以 kind 汇总为主补足单元;cells 明细按 (kind,band) 照记(诊断用)。
+        by_kind = defaultdict(list)
+        for cell, draw, key in entries:
+            by_kind[cell[0]].extend(by_cell[cell])
+        kind_eval = {}
+        for kind, items in sorted(by_kind.items()):
+            items.sort()
+            kind_eval[kind] = _promote(items, quota)
+        for cell, items in sorted(by_cell.items()):
+            items.sort()
+            n = len(items)
+            ev = sum(1 for d, k in items if split.get(k) == "eval")
+            prim = sum(1 for d, k in items if d < threshold or k in forced)
+            cells[f"{cell[0]}|{cell[1]}"] = {
+                "total": n, "eval": ev, "primary": prim,
+                "promoted": max(0, ev - prim),
+                "deficit": 0,   # 细格不再计 deficit(验收单元=kind)
+            }
+        for kind, (ev, promoted, prim) in kind_eval.items():
+            cells[f"kind:{kind}"] = {"total": len(by_kind[kind]), "eval": ev, "primary": prim,
+                                     "promoted": promoted,
+                                     "deficit": max(0, quota - ev)}
+        return split, cells
+
+    for cell, items in sorted(by_cell.items()):
+        items.sort()
+        n = len(items)
+        ev, promoted, prim = _promote(items, quota)
         cells[f"{cell[0]}|{cell[1]}"] = {
-            "total": n, "eval": len(prim) + promoted, "primary": len(prim),
-            "promoted": promoted, "deficit": max(0, quota - (len(prim) + promoted))}
+            "total": n, "eval": ev, "primary": prim,
+            "promoted": promoted, "deficit": max(0, quota - ev)}
     return split, cells
 
 
@@ -682,6 +716,8 @@ def make_line(segments, rng, level=None, nz=None):
             fn = asr_noise_segment_v2 if nz["mode"] == "asr" else ocr_noise_segment_v2
             noisy, meta = fn(text, rng, band=nz["band"], tables=nz["tables"])
             noised.append(noisy)
+            nz["cer_sum"] = nz.get("cer_sum", 0.0) + float(meta.get("cer_measured") or 0.0)
+            nz["cer_n"] = nz.get("cer_n", 0) + 1
             if key:
                 nz["span_total"] += 1
                 if meta.get("damaged"):
@@ -1616,6 +1652,7 @@ def main():
     policy_note = {"status": "not-found"}
     license_entries = {}
     deferred_kinds = {}
+    pol = None
     policy_path = os.path.join(ROOT, ".github", "config", "distill", "policy.json")
     if os.path.exists(policy_path):
         try:
@@ -1819,10 +1856,12 @@ def main():
                     glo[k] += v
                 band_stats = stats.setdefault("noise", {"version": NOISE_VERSION, "bands": {}})
                 agg = band_stats["bands"].setdefault(
-                    nz["band"], {"samples": 0, "spans": 0, "damaged": 0})
+                    nz["band"], {"samples": 0, "spans": 0, "damaged": 0, "cer_n": 0, "cer_sum": 0.0})
                 agg["samples"] += 1
                 agg["spans"] += nz["span_total"]
                 agg["damaged"] += nz["span_damaged"]
+                agg["cer_n"] += nz.get("cer_n", 0)
+                agg["cer_sum"] += nz.get("cer_sum", 0.0)
                 forced = False
                 for s in list(shared) + [s for row in rows for s in row]:
                     if s["value"] in holdout_by_key.get(s["key"], ()):
@@ -1842,7 +1881,9 @@ def main():
         quota = 0 if args.dry_run else args.eval_min_per_cell
         split, eval_cells = assign_eval_splits(
             eval_entries, eval_ratio=args.eval_ratio, quota=quota,
-            forced_eval=forced_eval_ids)
+            forced_eval=forced_eval_ids,
+            quota_unit=(pol.get("gates", {}).get("extraction", {}).get("evalQuotaUnit", "cell")
+                        if pol else "cell"))
         n_eval = 0
         for sample in pending:
             if split[sample["id"]] == "eval":
@@ -1914,7 +1955,9 @@ def main():
             "span_damage_by_band": {
                 band: {"samples": agg["samples"], "spans": agg["spans"],
                        "damaged": agg["damaged"],
-                       "rate": round(agg["damaged"] / max(agg["spans"], 1), 4)}
+                       "rate": round(agg["damaged"] / max(agg["spans"], 1), 4),
+                       "cer_mean": round(agg["cer_sum"] / max(agg["cer_n"], 1), 4),
+                       "cer_n": agg["cer_n"]}
                 for band, agg in (stats.get("noise", {}).get("bands") or {}).items()},
             "policy": policy_note,
         },
