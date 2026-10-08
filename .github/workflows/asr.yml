@@ -316,7 +316,12 @@ jobs:
 
       # 复现验收：inventory（名字→候选映射，API 级）+ probe（对 13 在册中
       # hf-repo 的 12 档重下载实测，与 models.json 金样逐字段对账）。
-      - name: bootstrap 复现验收（inventory + 12 仓 probe）
+      - name: bootstrap 复现验收（inventory + 全档 probe）
+        env:
+          # 提高 api.github.com 限额（只增限额,不改语义）——匿名共享 runner IP
+          # 极易 403 rate limit（2026-10-08 push 自动 run 实证:[unknown] qwen3
+          # releases 查询被限流致 in_config 少 1）。与「解析上游最新版」步同法。
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 .github/actions/release/bootstrap-asr-model.py \
             --from-seeds .github/config/asr/seeds.json \

@@ -20,6 +20,7 @@ import argparse
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import socket
 import sys
@@ -86,6 +87,12 @@ def _request_json(url, *, fetch_json=None, attempts=3):
         except (OSError, ValueError) as error:
             raise BootstrapError("fetch failed: %s (%s)" % (url, error))
     headers = {"User-Agent": "vitaliber-asr-bootstrap/1"}
+    # GITHUB_TOKEN 存在时注入 GitHub API 域（只增限额,不改语义）——匿名共享
+    # runner IP 极易 403 rate limit（2026-10-08 push 自动 run 实证:qwen3
+    # releases 查询被限流致 inventory unknown）。与 resolve-asr-models 同构。
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = "Bearer " + token
     last = None
     for attempt in range(attempts):
         try:
