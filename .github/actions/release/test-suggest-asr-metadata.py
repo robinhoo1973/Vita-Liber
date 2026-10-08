@@ -175,6 +175,34 @@ class SuggestTests(unittest.TestCase):
         self.assertEqual(len(calls), 3, "retries=2 → 最多 3 跳")
         self.assertEqual(slept, [1.0, 2.0], "退避序列 backoff×2^attempt")
 
+    def test_deadline_skips_remaining(self):
+        """总时限耗尽→零调用,全部字段记 deadline（重试预算不得超 job timeout）。"""
+        banned = MODULE["load_banned_re"]()
+        calls = []
+        def chat(prompt, *_):
+            calls.append(prompt)
+            return "{\"license\": \"MIT\", \"confidence\": 0.9}"
+        globals_ = MODULE["collect_suggestions"].__globals__
+        saved = globals_["time"]
+        state = {"t": 0.0}
+        def fake_monotonic():
+            value = state["t"]
+            state["t"] += 1000.0  # 首次（deadline 计算）后即远超 5s 预算
+            return value
+        globals_["time"] = types.SimpleNamespace(monotonic=fake_monotonic)
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                base = Path(directory)
+                write_fixtures(base)
+                entries, families, tiers, rejected, errors = MODULE["collect_suggestions"](
+                    base, chat, base / "cache", "mock", 0.2, banned, max_seconds=5)
+        finally:
+            globals_["time"] = saved
+        self.assertEqual(calls, [], "时限耗尽→零调用")
+        self.assertEqual(len(errors), 4, "license+prefix+家族文案+档位文案 全记 deadline")
+        self.assertTrue(all(e["error"] == "deadline exceeded" for e in errors))
+        self.assertEqual((entries, families, tiers), ([], [], []))
+
     def test_partial_failure_tolerated(self):
         """单字段失败（429 类）记 errors 继续;部分成功照常返回。"""
         banned = MODULE["load_banned_re"]()

@@ -173,14 +173,21 @@ def copy_prompt(family_id, variant, files):
             % (family_id, variant or "-", files))
 
 
-def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, banned):
+def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, banned,
+                        max_seconds=0):
     """扫描候选文件 → 建议集（主文件只读）。返回 (entries, families, tiers, rejected, errors)。
 
     逐字段容错（run 37857357547 实证:free 档 429 曾一败全弃、前段成功结果全丢）——
-    单字段失败记 errors 继续,部分成功照常落盘。"""
+    单字段失败记 errors 继续,部分成功照常落盘。max_seconds>0 时执行**总时限**
+    （2026-10-09 实证:重试预算可超 job timeout——超限字段记 deadline 跳过,
+    已得建议照常落盘,作业内必然结束）。"""
     errors = []
+    deadline = None if not max_seconds else time.monotonic() + max_seconds
 
     def attempt(where, field, prompt):
+        if deadline is not None and time.monotonic() >= deadline:
+            errors.append({"where": where, "field": field, "error": "deadline exceeded"})
+            return None
         try:
             output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
         except SuggestError as error:
@@ -289,6 +296,8 @@ def main():
     parser.add_argument("--api-key-env", default=None,
                         help="携带密钥的环境变量名（在线端点;密钥勿入仓）")
     parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument("--max-seconds", type=float, default=0,
+                        help="草拟总时限（秒;0=不限;超限字段记 deadline 跳过）")
     parser.add_argument("--cache", type=Path, default=CACHE_DEFAULT)
     args = parser.parse_args()
     try:
@@ -298,7 +307,8 @@ def main():
             return llm_chat(args.endpoint, args.model, prompt,
                             api_key=api_key, temperature=args.temperature)
         entries, families, tiers, rejected, errors = collect_suggestions(
-            args.candidates, chat, args.cache, args.model, args.temperature, banned)
+            args.candidates, chat, args.cache, args.model, args.temperature, banned,
+            max_seconds=args.max_seconds)
         out = args.out
         out.mkdir(parents=True, exist_ok=True)
         suggested_by = "llm:%s@%s" % (args.endpoint, args.model)
