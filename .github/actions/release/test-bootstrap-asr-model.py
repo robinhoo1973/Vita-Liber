@@ -115,6 +115,23 @@ class BootstrapTests(unittest.TestCase):
                        {"role": "encoder", "member": "encode.int8.onnx"}]
         self.assertEqual(prefer(only_readme), only_readme, "无许可文本时保留 README 兜底")
 
+    def test_prefer_license_notice_prefers_model_license(self):
+        # 双许可并存择一（verify 首跑实证,2026-10-08）：MODEL_LICENSE（模型
+        # 专属）优先于 LICENSE（仓级）——sense-voice 上游同存两件,金样取
+        # MODEL_LICENSE；单件家族（whisper 等）择一后集不变。
+        prefer = MODULE["prefer_license_notice"]
+        both = [{"role": "notice", "member": "README.md"},
+                {"role": "notice", "member": "LICENSE"},
+                {"role": "notice", "member": "MODEL_LICENSE"},
+                {"role": "model", "member": "model.int8.onnx"}]
+        self.assertEqual([f["member"] for f in prefer(both)],
+                         ["MODEL_LICENSE", "model.int8.onnx"],
+                         "MODEL_LICENSE 优先且弃 README")
+        single = [{"role": "notice", "member": "LICENSE"},
+                  {"role": "model", "member": "model.onnx"}]
+        self.assertEqual([f["member"] for f in prefer(single)], ["LICENSE", "model.onnx"],
+                         "单件许可不受择一影响")
+
     def test_apply_template(self):
         # 对账继承（防硬编码）：约定字段随模板走，字节事实不继承
         apply = MODULE["apply_template"]

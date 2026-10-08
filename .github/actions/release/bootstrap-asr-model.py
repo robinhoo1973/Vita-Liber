@@ -203,12 +203,23 @@ def infer_license(license_texts):
 
 def prefer_license_notice(files):
     """notice 选择精化（逆测实证 2026-10-08）：有 LICENSE/MODEL_LICENSE 类成员时
-    弃 README.md 兜底——许可文本是必需署名，README 存根只增噪（人工钉版同判）。"""
+    弃 README.md 兜底——许可文本是必需署名，README 存根只增噪（人工钉版同判）。
+
+    多许可类成员并存时择一（verify 首跑实证,2026-10-08）：MODEL_LICENSE（模型
+    专属许可）优先于 LICENSE（仓级）——上游 sense-voice 仓同存两件，人工钉版取
+    MODEL_LICENSE；whisper 等仅单件的家族不受影响（择一后集不变）。"""
+    def base_name(member):
+        return member.rsplit("/", 1)[-1].upper()
     def is_license(member):
-        return member.rsplit("/", 1)[-1].upper().startswith(("LICENSE", "MODEL_LICENSE"))
-    if not any(f["role"] == "notice" and is_license(f["member"]) for f in files):
+        return base_name(member).startswith(("LICENSE", "MODEL_LICENSE"))
+    def is_model_license(member):
+        return base_name(member).startswith("MODEL_LICENSE")
+    licenses = [f for f in files if f["role"] == "notice" and is_license(f["member"])]
+    if not licenses:
         return files
-    return [f for f in files if f["role"] != "notice" or is_license(f["member"])]
+    keep = [f for f in licenses if is_model_license(f["member"])] or licenses
+    keep_ids = {id(f) for f in keep}
+    return [f for f in files if f["role"] != "notice" or id(f) in keep_ids]
 
 
 def select_quantized_members(members):
