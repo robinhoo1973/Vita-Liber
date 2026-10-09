@@ -1,5 +1,12 @@
-"""extract.build_extraction_corpus:端口构建器在 CI 数据面上的端到端冒烟(逐字契约)。"""
+"""extract.build_extraction_corpus:端口构建器在 CI 数据面上的端到端冒烟(逐字契约)。
+
+含 C 批(2026-10-09 W20)正确性族:manifest 确定性(无墙钟)/eval 计数自洽/
+样本缺口 fail-closed/TW usage 解析控制流/两侧正本修复函数同步。
+"""
+import ast
+import hashlib
 import json
+import random
 import subprocess
 import sys
 import tempfile
@@ -160,6 +167,187 @@ class BuilderSmokeTests(unittest.TestCase):
         sft = self.out / "extraction_sft.jsonl"
         rows = [json.loads(l) for l in sft.read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertEqual(sum(1 for r in rows if r.get("value_holdout")), 0)
+
+
+def _find_training_builder():
+    """逐级上溯找训练机正本(CI 检出无 refactor/ → None,调用方 skip)。"""
+    for base in Path(__file__).resolve().parents:
+        candidate = (base / "refactor" / "tools" / "training" / "template"
+                     / "scripts" / "corpus" / "build_extraction_corpus.py")
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _function_source(path: Path, name: str) -> str:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.unparse(node)
+    raise AssertionError(f"{path}: 缺函数 {name}")
+
+
+class BuilderCorrectnessTests(unittest.TestCase):
+    """C 批负测(2026-10-09 W20):review 实证五条里的确定性/计数/缺口/控制流。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = Path(tempfile.mkdtemp())
+        cls.data = _make_data_dir(cls.tmp)
+        cls.prompts = _make_prompts_dir(cls.tmp)
+
+    def _build(self, out, *extra, cells="drugs/cn,hospitals/cn,diagnoses/cn,exams/cn"):
+        return subprocess.run(
+            [sys.executable, str(BUILDER), "--data-dir", str(self.data),
+             "--prompts-dir", str(self.prompts), "--out-dir", str(out),
+             "--cells", cells, "--seed", "7", *extra],
+            capture_output=True, text=True, timeout=300)
+
+    def test_manifest_bytes_reproducible_across_builds(self):
+        # C2:同输入两次构建 manifest 必须逐字节相等(墙钟剔除;冻结资产名=内容 sha)
+        a, b = self.tmp / "repro-a", self.tmp / "repro-b"
+        ra, rb = self._build(a, "--dry-run"), self._build(b, "--dry-run")
+        self.assertEqual(ra.returncode, 0, msg=ra.stdout[-800:])
+        self.assertEqual(rb.returncode, 0, msg=rb.stdout[-800:])
+        ma = (a / "extraction_manifest.json").read_bytes()
+        mb = (b / "extraction_manifest.json").read_bytes()
+        self.assertEqual(hashlib.sha256(ma).hexdigest(), hashlib.sha256(mb).hexdigest(),
+                         "manifest 非输入纯函数(疑似墙钟字段回归)")
+        self.assertNotIn(b"generatedAt", ma)
+        for name in ("extraction_sft.jsonl", "extraction_eval.jsonl", "extraction_pretrain.jsonl"):
+            self.assertEqual((a / name).read_bytes(), (b / name).read_bytes(), name)
+
+    def test_manifest_eval_claims_equal_eval_rows(self):
+        # C1:manifest 声称的 eval 数(=闸的判据)必须=实落行数(曾 N² 放大,声称 937/实落 831)
+        out = self.tmp / "claims"
+        r = self._build(out, "--dry-run")
+        self.assertEqual(r.returncode, 0, msg=r.stdout[-800:])
+        manifest = json.loads((out / "extraction_manifest.json").read_text(encoding="utf-8"))
+        claims = manifest["stats"]["eval_cells"]
+        kind_claims = {k: v for k, v in claims.items() if k.startswith("kind:")}
+        rows = [json.loads(l) for l in
+                (out / "extraction_eval.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual(sum(v["eval"] for v in kind_claims.values()), len(rows),
+                         f"总声称与实落不符: {kind_claims}")
+        by_kind = {}
+        for row in rows:
+            kind = row["id"].split("-")[1]
+            by_kind[kind] = by_kind.get(kind, 0) + 1
+        for cell, v in sorted(kind_claims.items()):
+            self.assertEqual(v["eval"], by_kind.get(cell[len("kind:"):], 0), cell)
+
+    def test_gap_gate_nonzero_with_named_error_and_exempt(self):
+        # C3:请求数做不满(review 实证 prescription 0/34 全被预算丢)→ rc 非零 + 具名报错;
+        # --allow-incomplete-kinds 显式豁免(仍登记);dry-run 冒烟豁免。
+        starved = self._build(self.tmp / "gap", "--kinds", "prescription,medication",
+                              "--sft-count", "20", "--budget", "1")
+        self.assertEqual(starved.returncode, 1, msg=starved.stdout[-800:])
+        self.assertIn("[缺口] prescription:", starved.stdout)
+        self.assertIn("构建失败(样本缺口)", starved.stdout)
+        manifest = json.loads((self.tmp / "gap" / "extraction_manifest.json").read_text(encoding="utf-8"))
+        self.assertTrue(manifest["stats"]["incomplete_kinds"])
+        exempt = self._build(self.tmp / "gap-ok", "--kinds", "prescription,medication",
+                             "--sft-count", "20", "--budget", "1", "--allow-incomplete-kinds")
+        self.assertEqual(exempt.returncode, 0, msg=exempt.stdout[-800:])
+        self.assertIn("样本缺口已豁免", exempt.stdout)
+
+    def test_tw_usage_joined_on_disease_sampled_lines(self):
+        # C4:疾病词表抽样行(i % 25 == 0)不得吞掉 TW 用法解析(曾 if/elif 短路,约 4% 行丢字段)
+        sys.path.insert(0, str(DISTILL / "extract"))
+        import build_extraction_corpus as builder  # noqa: E402
+        data = self.tmp / "details"
+        data.mkdir(exist_ok=True)
+        rows = []
+        for i in range(60):
+            rows.append({"source_id": f"TW-{i}",
+                         "usage_text": f"口服。一次{i + 1}錠,一日3次" if i in (0, 25, 50) else "",
+                         "indications": "用于治疗高血压" if i in (0, 25, 50) else ""})
+        (data / "medical_details.jsonl").write_text(
+            "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
+        tw_ids = {"TW-0", "TW-25", "TW-50"}
+        diseases = set()
+        usage = builder.load_details(str(data), tw_ids, diseases, random.Random(1))
+        self.assertEqual(set(usage), tw_ids, "命中疾病抽样行(i%25==0)的 TW 用法被短路吞掉")
+        self.assertIn("TW-0", usage)
+        self.assertIn("高血压", diseases, "同行的疾病词表抽取不得因独立化而丢失")
+
+    def test_gap_gate_disabled_for_dry_run(self):
+        # dry-run=冒烟(总量 60,预算丢弃属预期):缺口只登记不拒
+        r = self._build(self.tmp / "drygap", "--dry-run", "--kinds", "prescription",
+                        "--budget", "1")
+        self.assertEqual(r.returncode, 0, msg=r.stdout[-800:])
+
+
+def _find_training_exporter():
+    for base in Path(__file__).resolve().parents:
+        candidate = (base / "refactor" / "tools" / "training" / "tools"
+                     / "export-prompts" / "main.swift")
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _find_training_artifacts():
+    for base in Path(__file__).resolve().parents:
+        candidate = (base / "refactor" / "tools" / "training" / "template"
+                     / "configs" / "extraction_prompts")
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+@unittest.skipUnless(_find_training_exporter(), "本地训练树不在工作区——跨侧断言跳过")
+class PromptExporterTwinTests(unittest.TestCase):
+    """A 批(2026-10-09 W20):导出器源码与产物两侧逐字节同源 + 产物确定性形态。
+
+    产物=语料构建输入 ⇒ manifest 不得含墙钟/路径(同输入两次导出 sha 必等;
+    两侧 wrapper 各自编译同一份 main.swift 源码逐字节相同)。
+    """
+
+    def test_main_swift_twins_byte_identical(self):
+        local = _find_training_exporter()
+        ci = DISTILL / "extract" / "export_extraction_prompts" / "main.swift"
+        self.assertEqual(ci.read_bytes(), local.read_bytes(),
+                         "导出器 main.swift 两侧分叉——先同步两处(A 批同源纪律)")
+
+    def test_committed_artifacts_deterministic_shape(self):
+        artifacts = _find_training_artifacts()
+        manifest = json.loads((artifacts / "manifest.json").read_text(encoding="utf-8"))
+        self.assertNotIn("generatedAt", manifest, "提示词 manifest 含墙钟(A 批可复现性回归)")
+        self.assertEqual(manifest["generator"], "extraction-prompts-exporter",
+                         "generator 必须路径无关(两侧产物逐字节相等的前提)")
+        kinds = [entry["kind"] for entry in manifest["kinds"]]
+        self.assertEqual(len(kinds), len(set(kinds)))
+        for kind in kinds:
+            self.assertTrue((artifacts / f"prompt_{kind}.txt").is_file(), kind)
+            spec = json.loads((artifacts / f"spec_{kind}.json").read_text(encoding="utf-8"))
+            fields = list(spec.get("shared") or []) + list(spec.get("row") or [])
+            self.assertTrue(fields, f"{kind}: spec 无字段")
+            for field in fields:
+                # A 批漂移面:旧产物(2026-09-24)缺 labels/fallback_tokens/value_tokens
+                self.assertTrue(field.get("labels"), f"{kind}.{field.get('key')}: spec 缺 labels")
+
+
+@unittest.skipUnless(_find_training_builder(), "本地训练树不在工作区(CI 检出无 refactor/)——跨侧断言跳过")
+class BuilderTwinSyncTests(unittest.TestCase):
+    """C 批修复函数两侧同步:build_extraction_corpus 整体尚存历史分叉(见报告),
+    但本批修改的四个语义单元必须两侧逐字同源(先断言这四处,不假绿整体)。"""
+
+    LOCAL = _find_training_builder()
+
+    def test_c_fix_functions_identical(self):
+        for name in ("assign_eval_splits", "load_details"):
+            self.assertEqual(_function_source(BUILDER, name),
+                             _function_source(self.LOCAL, name),
+                             f"{name} 两侧分叉——先同步两处(C 批修复必须双侧同源)")
+
+    def test_gap_gate_and_determinism_markers_present_both_sides(self):
+        for path in (BUILDER, self.LOCAL):
+            src = path.read_text(encoding="utf-8")
+            for marker in ("--min-kind-fill", "--allow-incomplete-kinds",
+                           "incomplete_kinds", "eval 计数不自洽"):
+                self.assertIn(marker, src, f"{path.name} 缺 C 批标记 {marker}")
+            self.assertNotIn('"generatedAt":', src, f"{path.name} 仍有墙钟字段(C2 回归)")
 
 
 if __name__ == "__main__":
