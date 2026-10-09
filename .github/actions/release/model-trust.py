@@ -4,17 +4,7 @@ import argparse
 from pathlib import Path
 import sys
 from asr_package import decode_json, json_bytes
-from model_trust import build_baseline, verify_catalog
-
-
-def strip_package_signatures(index):
-    """比较豁免面(2026-10-06 包级签名):built 索引无签名密钥,packageSignature
-    仅存在于签名目录载荷——逐条目剥离后比较,其余字段必须逐字段一致。"""
-    import copy
-    stripped = copy.deepcopy(index)
-    for model in stripped.get("models", []):
-        model.pop("packageSignature", None)
-    return stripped
+from model_trust import build_baseline, strip_package_signatures, verify_catalog
 
 
 def _index_diff(expected, actual):

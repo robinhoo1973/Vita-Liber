@@ -22,7 +22,8 @@ from asr_overview import OVERVIEW_NAME, build as build_overview, verify as verif
 from asr_release_page import render_release_body
 from cnb_release import (CNBReleaseClient, CNBReleaseError, print_masked_upload_prefix,
                          RecordingUploadTransport, release_notes_for_tag)
-from model_trust import payload, payload_bytes, trusted_root, verify_catalog, verify_envelope
+from model_trust import (payload, payload_bytes, strip_package_signatures,
+                         trusted_root, verify_catalog, verify_envelope)
 
 TAG = "asr-models"
 
@@ -164,7 +165,13 @@ def publish(args, client):
     # 目录必须钉 CNB 资源基址(GitHub 发布面已停用,cutover 定案 §5);
     # 与客户端 catalog() 的 baseUrl==root.assetBaseURL 断言同构。
     expected_base = f"https://cnb.cool/{args.repository}/-/releases/download/{TAG}"
-    if catalog["index"] != index or index.get("baseUrl") != expected_base:
+    # 比对口径=model-trust 同款（run 37871759240 实证）:剥离 packageSignature 后
+    # 逐字段一致——索引文件的包签名可能陈旧（摘要滚动后未重签,文件面不入发布）,
+    # 权威=已验真的 **catalog 载荷内签名**（verify_catalog 已逐包阈值验真,
+    # 比旧裸比对更严:旧口径连签名有效性都不验证）。baseUrl 仍逐字段钉。
+    if (strip_package_signatures(catalog["index"])
+            != strip_package_signatures(index)
+            or index.get("baseUrl") != expected_base):
         raise ValueError("Package index/repository differs from the signed authorization")
     receipt = verify_packages(index, args.directory)
     # All validation above precedes the first mutating remote operation.

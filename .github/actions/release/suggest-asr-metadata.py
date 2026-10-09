@@ -31,7 +31,8 @@ if str(HERE) not in sys.path:
 # 通用 LLM 内核 = release/llm_client.py（2026-10-09 业主指令独立成模块；
 # 逐字抽取自本文件，行为不变）。别名保持本模块既有 API 名。
 from llm_client import (  # noqa: E402
-    LLMError, cached_chat, default_cache_dir, llm_chat, make_chat, parse_json_block,
+    LLMError, LLMQuotaExhausted, cached_chat, default_cache_dir, llm_chat,
+    make_chat, parse_json_block,
 )
 
 SuggestError = LLMError
@@ -85,13 +86,23 @@ def collect_suggestions(candidates_dir, chat, cache_dir, model, temperature, ban
     已得建议照常落盘,作业内必然结束）。"""
     errors = []
     deadline = None if not max_seconds else time.monotonic() + max_seconds
+    exhausted = {"tripped": False}
 
     def attempt(where, field, prompt):
+        if exhausted["tripped"]:
+            errors.append({"where": where, "field": field,
+                           "error": "quota exhausted（断流,免费用尽;非瞬时,不重试）"})
+            return None
         if deadline is not None and time.monotonic() >= deadline:
             errors.append({"where": where, "field": field, "error": "deadline exceeded"})
             return None
         try:
             output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
+        except LLMQuotaExhausted as error:
+            exhausted["tripped"] = True
+            errors.append({"where": where, "field": field,
+                           "error": "quota exhausted: %s" % error})
+            return None
         except SuggestError as error:
             errors.append({"where": where, "field": field, "error": str(error)})
             return None

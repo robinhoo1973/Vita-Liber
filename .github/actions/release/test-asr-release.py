@@ -5,6 +5,7 @@
 the GitHub `gh` wrapper is gone entirely. No network access is performed.
 """
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -278,6 +279,40 @@ class PublicationTests(unittest.TestCase):
             tampered["sha256"] = hashlib.sha256(tampered["content"]).hexdigest()
             with self.assertRaises((RuntimeError, ValueError)):
                 module["publish"](options, client)
+
+    def test_publish_tolerates_stale_index_signatures(self):
+        # run 37871759240 实证:上游摘要滚动后,索引文件内携带**陈旧**
+        # packageSignature（对当前 sha256 不成立）曾被裸 dict 比对误杀发布。
+        # 权威=已验真的 catalog 载荷签名;裸索引剥离签名后结构一致即放行。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            index = json.loads(options.index.read_text())
+            # 形状合法（64-hex keyId + 64 字节签名）但密码学上对当前 sha256
+            # 不成立 = 陈旧签名真实形态;validate_index 只查形状,与线上一致。
+            stale_value = base64.b64encode(b"x" * 64).decode()
+            for model in index["models"]:
+                model["packageSignature"] = {
+                    "scheme": "ed25519-sha256-v1",
+                    "signatures": [{"keyId": "ab" * 32, "value": stale_value}]}
+            options.index.write_text(json.dumps(index))
+            module["publish"](options, FakeCNBReleaseClient())  # 不抛 = 放行
+
+    def test_publish_rejects_real_index_content_drift(self):
+        # 剥离口径不放松结构一致性:内容真漂移仍硬红。
+        module = runpy.run_path(str(TOOL))
+        with tempfile.TemporaryDirectory() as directory:
+            packages, trust, _, options = make_signed_asr_fixture(Path(directory))
+            self.addCleanup(packages.doCleanups)
+            self.addCleanup(trust.doCleanups)
+            index = json.loads(options.index.read_text())
+            index["models"][0]["bytes"] = index["models"][0]["bytes"] + 1
+            options.index.write_text(json.dumps(index))
+            with self.assertRaisesRegex(ValueError,
+                                        "differs from the signed authorization"):
+                module["publish"](options, FakeCNBReleaseClient())
 
     def test_second_publish_is_idempotent_reuse(self):
         module = runpy.run_path(str(TOOL))

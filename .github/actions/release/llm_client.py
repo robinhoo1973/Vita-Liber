@@ -33,6 +33,22 @@ class LLMError(Exception):
     pass
 
 
+class LLMQuotaExhausted(LLMError):
+    """配额耗尽（非瞬时;不重试,批级应立即断流降级）。
+
+    run 37860771905 实证:免费档日配额用尽（429 code 1302「调用次数已达
+    上限」）时逐字段重试×3 纯浪费——重试只对**瞬时拥塞**（1305「访问量
+    过大」）有意义。"""
+    pass
+
+
+def _is_quota_exhausted(body):
+    lowered = (body or "").lower()
+    return ("1302" in lowered or "调用次数已达上限" in (body or "")
+            or "quota" in lowered or "余额不足" in (body or "")
+            or "insufficient" in lowered)
+
+
 def llm_chat(endpoint, model, prompt, *, api_key=None, temperature=0.2, timeout=180,
              retries=3, backoff=5.0, _sleep=time.sleep):
     """OpenAI 兼容 /v1/chat/completions（本机 llama-server 或任意在线兼容端点）。
@@ -60,6 +76,10 @@ def llm_chat(endpoint, model, prompt, *, api_key=None, temperature=0.2, timeout=
             except OSError:
                 pass
             message = "HTTP %d（%s）: %s" % (error.code, error.geturl(), detail)
+            if _is_quota_exhausted(detail):
+                # 配额耗尽 = 非瞬时,重试无意义（业主 2026-10-09:须处理免费
+                # 用完场景）——立即上抛,由消费者断流降级。
+                raise LLMQuotaExhausted(message)
             if error.code in RETRYABLE_HTTP and attempt < attempts - 1:
                 delay = backoff * (2 ** attempt)
                 print("SUGGEST-RETRY: %s — %.0fs 后重试（%d/%d）"

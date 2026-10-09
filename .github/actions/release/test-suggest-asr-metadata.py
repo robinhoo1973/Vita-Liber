@@ -203,6 +203,24 @@ class SuggestTests(unittest.TestCase):
         self.assertTrue(all(e["error"] == "deadline exceeded" for e in errors))
         self.assertEqual((entries, families, tiers), ([], [], []))
 
+    def test_quota_exhausted_trips_breaker(self):
+        """首字段配额耗尽 → 断流:后续字段零调用,全部记 quota（业主 2026-10-09:
+        须处理免费用完场景;不得逐字段烧重试）。"""
+        banned = MODULE["load_banned_re"]()
+        calls = []
+        def chat(prompt, *_):
+            calls.append(prompt)
+            raise MODULE["LLMQuotaExhausted"]("HTTP 429: code 1302 调用次数已达上限")
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            write_fixtures(base)
+            entries, families, tiers, rejected, errors = MODULE["collect_suggestions"](
+                base, chat, base / "cache", "mock", 0.2, banned)
+        self.assertEqual(len(calls), 1, "首字段过后即断流,不得继续发起")
+        self.assertEqual((entries, families, tiers), ([], [], []))
+        self.assertEqual(len(errors), 4, "全部字段均有台账")
+        self.assertTrue(all("quota exhausted" in e["error"] for e in errors))
+
     def test_partial_failure_tolerated(self):
         """单字段失败（429 类）记 errors 继续;部分成功照常返回。"""
         banned = MODULE["load_banned_re"]()

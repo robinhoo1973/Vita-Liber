@@ -19,7 +19,8 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 from llm_client import (  # noqa: E402
-    LLMError, cache_key, cached_chat, default_cache_dir, llm_chat, make_chat,
+    LLMError, LLMQuotaExhausted, cache_key, cached_chat, default_cache_dir,
+    llm_chat, make_chat,
 )
 
 
@@ -103,6 +104,42 @@ class NonRetryableTests(unittest.TestCase):
         finally:
             globals_["urllib"] = saved
         self.assertEqual(len(calls), 1, "401 非可重试——立即失败,不得退避重试")
+
+    def test_quota_exhausted_no_retry(self):
+        """429 code 1302（日配额耗尽）= 非瞬时:立即 LLMQuotaExhausted,零重试;
+        1305（访问量过大）= 瞬时:仍走退避重试。"""
+        import urllib.error
+        import urllib.request as real_request
+        import types as _types
+
+        def run(body):
+            calls, slept = [], []
+            def fake_urlopen(request, timeout=None):
+                calls.append(request)
+                raise urllib.error.HTTPError(request.full_url, 429, "Too Many",
+                                             {}, io.BytesIO(body))
+            globals_ = llm_chat.__globals__
+            saved = globals_["urllib"]
+            globals_["urllib"] = _types.SimpleNamespace(
+                error=urllib.error,
+                request=_types.SimpleNamespace(Request=real_request.Request,
+                                               urlopen=fake_urlopen))
+            try:
+                with self.assertRaises(LLMError) as ctx:
+                    llm_chat("https://mock.invalid", "m", "hi", retries=3,
+                             _sleep=lambda seconds: slept.append(seconds))
+                return ctx.exception, calls, slept
+            finally:
+                globals_["urllib"] = saved
+
+        error, calls, slept = run(b'{"error":{"code":"1302","message":"\u8c03\u7528\u6b21\u6570\u5df2\u8fbe\u4e0a\u9650"}}')
+        self.assertIsInstance(error, LLMQuotaExhausted)
+        self.assertEqual(len(calls), 1, "配额耗尽不得重试")
+        self.assertEqual(slept, [])
+
+        error, calls, slept = run(b'{"error":{"code":"1305","message":"busy"}}')
+        self.assertNotIsInstance(error, LLMQuotaExhausted)
+        self.assertEqual(len(calls), 4, "1305 瞬时:retries=3 → 4 跳")
 
 
 if __name__ == "__main__":

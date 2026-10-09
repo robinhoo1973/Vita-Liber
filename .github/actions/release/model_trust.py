@@ -42,6 +42,18 @@ def positive(value):
     return type(value) is int and 0 < value < 2**63
 
 
+def strip_package_signatures(index):
+    """比较豁免面（2026-10-06 包级签名）:built 索引不携带/可能携陈旧签名,
+    packageSignature 仅签名目录载荷内为权威——逐条目剥离后比较,其余字段
+    必须逐字段一致。run 37871759240 实证:publish 裸 dict 比对曾被索引内
+    **陈旧签名**误杀（摘要滚动后旧签名不再有效,但已在 catalog 内被重签）。"""
+    import copy
+    stripped = copy.deepcopy(index)
+    for model in stripped.get("models", []):
+        model.pop("packageSignature", None)
+    return stripped
+
+
 def validate_root(root, asset_kind="asr"):
     check_scope(root, "root", asset_kind)
     if not positive(root.get("version")):

@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.22（2026-10-09）
+> 版本：V1.23（2026-10-09）
 
 ## 版本与资产来源
 
@@ -218,8 +218,12 @@ ASR 发布页 ⑨→⑪ 接线）;后续新增消费者（含其他 CNB 发布�
   （首个平衡 `{}` 容错解析,失败 None） · `default_cache_dir(slug) →
   ~/.cache/vitaliber-<slug>` · 异常统一 `LLMError`。
 - **重试标准**：可重试集 `{429,500,502,503,504}` + 网络抖动;指数退避
-  `backoff × 2^attempt`;重试点打 stderr（`SUGGEST-RETRY:`）。重试属**传输层**;
-  批级策略（逐字段容错/`--max-seconds` 总时限/`errors.json` 台账/零采纳降级）
+  `backoff × 2^attempt`;重试点打 stderr（`SUGGEST-RETRY:`）。**配额耗尽分类**
+  （2026-10-09 业主指令:「须处理免费档用完」）:429 载荷含配额信号
+  （code 1302/「调用次数已达上限」/quota/余额不足）→ `LLMQuotaExhausted`
+  **零重试**立即上抛;消费者**断流**（首字段耗尽后余下字段零调用、全量记
+  `quota exhausted` 台账、降级走确定性面）。重试属**传输层**;批级策略
+  （逐字段容错/断流/`--max-seconds` 总时限/`errors.json` 台账/零采纳降级）
   属消费者——两层职责不得混。
 - **缓存标准**：内容寻址 `sha256(prompt‖model‖temperature‖seed)`;命中复用
   （`hit=True`）;换模型/参数=新键;CI 内由 actions/cache 跨 run 承接
@@ -272,6 +276,7 @@ ASR 发布页 ⑨→⑪ 接线）;后续新增消费者（含其他 CNB 发布�
 - V1.13（2026-10-08）：bootstrap 批（业主「按名启动」目标）——`bootstrap-asr-model.py`（本地/离线：HF/GitHub 结构化 API 按名发现 → 下载实测探针 + 角色/许可推断 → draft 组装；`--compare-config` 逆测对账三分法）；第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列；配套模板信封已刷新至 v10（提交 run 现场签名目录：时效 +30 天 / 版本对齐 / 文案缓存三合一）。
 - V1.14（2026-10-08）：漂移周检批（业主「方案三 + 零输入 + cron」）——`bootstrap-asr-model.py` 增 `--from-config`（模型名自 config 自动获取；漂移三态 ok/drift/unknown）；`maintenance.yml` 增 `catalog-drift` job（周一 UTC 03:23 cron + dispatch；只读；报告 artifact，不红灯）；角色规则修复（旧前缀 glob 对 whisper 系带档位前缀成员名全失配 → 有序正则；漂移 job 遍历全目录的前置——whisper 五档曾会直接报错）。
 - V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。
+- V1.23（2026-10-09）：两修复（run 37871759240 实证 + 业主指令）——①**发布比对口径修复**：上游摘要滚动后裸索引携带的**陈旧 packageSignature**（对当前 sha256 不成立）被 `catalog["index"] != index` 裸 dict 比对误杀发布;改为 model-trust 同款**剥离签名后结构一致**（`strip_package_signatures` 上移 model_trust.py 共享,CLI 改导入）+ 逐包签名有效性由 `verify_catalog` 承担（**比旧口径更严**:旧口径连签名有效性都不验证）;新测试:陈旧签名放行 / 内容真漂移仍硬红。②**配额耗尽断流**:`LLMQuotaExhausted` 分类（429 载荷 1302/「调用次数已达上限」/quota/余额不足,零重试立即上抛）+ suggest 断流（首字段耗尽余下零调用、全量台账）;测试:1302 单发即抛 / 1305 仍退避 / 断流零后续调用。电池 11 套全绿。
 - V1.22（2026-10-09）：发布文案蒸馏（业主指令:两源混合,类似 ASR 目录蒸馏）——`distill-release-text.py`（release-notes:逐语言 prose=llm|deterministic + final.json + 台账;readme-block:逐块 lint 门）;⑨ 增设蒸馏步（恒成稿）;⑪ 消费 `release-notes.final.json`（loader 兼容两代格式,prose=null 语种走确定性面）;数字对拍 report-only;suspicious 台账;测试 7 例入 L0 电池。**免费档配额耗尽的正式后备**=确定性动态段（今日数轮实证降级路径）。
 - V1.21（2026-10-09）：蒸馏隔离闸（run 37868483691 实证）——文案三语不齐的档位隔离出发布集（`copy_complete` 判据:家族 4 字段+档位 2 字段全 locale 非空;models/copy 双剔除 + `quarantined` 报告）;三新档（whisper/large、zipformer/medium、moonshine/base）真产物预验 16→13;隔离条目留 proposals 面,补齐后自动入流。背景:新档位骨架空串被投影器 fail-closed 拒致 ⑧ 红——纪律保留（UI 防空白）,缺的入流闸本版补齐。测试 8→9。
 - V1.20（2026-10-09）：发布文案入流（业主指令:readme/release 介绍信 LLM 化;委员会四席）——① 新 ⑨ 发布文案草拟 job（索引→facts→LLM 三语→lint 闸→release-notes.json;非阻塞;独立缓存 asr-release-text-v1;密钥面仅此段）;② 发布页动态段接线（⑪ `--notes` 消费三语,`render_release_body(notes=...)`;缺失=确定性回落 fail-open）;③ drafter 增 `--from-index`/`--repository`/`--tag` + `facts_from_index` + 长度闸（1600/语） + `release-notes.json` 机器面;④ readme-block 维持侧车人工采纳（sections.json 长驻权威面）;⑤ 全链重编号:⑨ release-text / ⑩ sign / ⑪ publish / ⑫ verify / ⑬ archive。测试:test-draft-release-text 6→8、test-asr-release-page +notes 分支、test-asr-release 兼容（getattr --notes）。
