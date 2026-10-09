@@ -363,6 +363,10 @@ jobs:
           python3 .github/actions/release/test-llm-client.py
           python3 .github/actions/release/test-draft-release-text.py
 
+      - name: 生成 artifact 标识
+        id: names
+        run: echo "distilled_artifact=asr-distilled-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+
       - name: 蒸馏合并（逐项择优 + provenance 报告）
         run: |
           set -o pipefail
@@ -395,20 +399,20 @@ jobs:
           missing = sorted(expected - families)
           if missing:
               problems.append("seeds 家族缺席终稿: %s" % missing)
+          # 条目完整口径 = hf-repo 面（files 非空）或 github-release 面
+          # （archive.url + parts;run 37861621419 实证:qwen3 本就走 archive,
+          # files 为空是设计而非缺口）。
           empties = ["%s/%s" % (m["id"], m.get("variant") or "-")
-                     for m in models["models"] if not m.get("files")]
+                     for m in models["models"]
+                     if not m.get("files") and not (m.get("archive") or {}).get("url")]
           if empties:
-              problems.append("files 为空: %s" % empties)
+              problems.append("条目缺口（files 与 archive 皆空）: %s" % empties)
           if problems:
               print("::error::蒸馏终稿结构闸失败: " + "; ".join(problems))
               raise SystemExit(1)
           print("蒸馏终稿结构闸通过: %d 档 / %d 家族 / 0 REVIEW"
                 % (len(models["models"]), len(families)))
           PYEOF
-
-      - name: 生成 artifact 标识
-        id: names
-        run: echo "distilled_artifact=asr-distilled-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
       - name: 上传终稿与报告（artifact:asr-distilled）
         if: ${{ always() }}

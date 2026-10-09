@@ -228,6 +228,36 @@ jobs:
           echo "── distill-report.json ──"
           cat "$RUNNER_TEMP/asr-distilled/distill-report.json"
 
+      - name: 终稿结构闸（REVIEW / variant=null / 家族覆盖 / 条目缺口 = 硬红）
+        run: |
+          python3 -I - "$RUNNER_TEMP/asr-distilled/models.json" <<'PYEOF'
+          import json
+          import sys
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          models = json.loads(raw)
+          seeds = json.load(open(".github/config/asr/seeds.json", encoding="utf-8"))
+          problems = []
+          if "REVIEW" in raw:
+              problems.append("终稿含 REVIEW 占位（确定性+LLM 均未定,须人工）")
+          if '"variant": null' in raw:
+              problems.append("终稿含 variant=null（档位待人工判定）")
+          expected = {s["name"] for s in seeds["seeds"]}
+          families = {m["id"] for m in models["models"]}
+          missing = sorted(expected - families)
+          if missing:
+              problems.append("seeds 家族缺席终稿: %s" % missing)
+          empties = ["%s/%s" % (m["id"], m.get("variant") or "-")
+                     for m in models["models"]
+                     if not m.get("files") and not (m.get("archive") or {}).get("url")]
+          if empties:
+              problems.append("条目缺口（files 与 archive 皆空）: %s" % empties)
+          if problems:
+              print("::error::蒸馏终稿结构闸失败: " + "; ".join(problems))
+              raise SystemExit(1)
+          print("蒸馏终稿结构闸通过: %d 档 / %d 家族 / 0 REVIEW"
+                % (len(models["models"]), len(families)))
+          PYEOF
+
       - name: 上传终稿与报告（distilled/）
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
