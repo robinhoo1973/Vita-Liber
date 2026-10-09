@@ -1038,6 +1038,9 @@ jobs:
           M=$($PY pick --release distill-corpus --pattern 'distill-corpus-manifest-sha256-.*[.]json$' --out /tmp/cm-pick.txt)
           $PY fetch --release distill-corpus --name "$M" --out . --optional || true
           CORPUS_DV=$(python3 -c "import json,glob;print(json.load(open(glob.glob('distill-corpus-manifest-*.json')[0]))['catalog_data_version'])" 2>/dev/null || echo "")
+          # 侧车契约(2026-10-09 CI 37862189389 实证):train_encoder 缺省读
+          # <corpus>.manifest.json;Release 资产名是内容寻址名,须还原为本地规范名。
+          mv "$M" corpus.jsonl.manifest.json
           STATE_NAME="train-state-train-encoder-${SHA8}.json"
           if $PY fetch --release llama-models --name "$STATE_NAME" --out . --optional; then
             mv "$STATE_NAME" state.json
