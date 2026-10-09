@@ -392,7 +392,13 @@ def main() -> int:
             work = args.out_dir / ".pointer-work"
             work.mkdir(parents=True, exist_ok=True)
             pointer_path = work / MANIFEST_ASSET_NAME
-            download_asset(args.repository, args.tag, MANIFEST_ASSET_NAME, pointer_path)
+            # 资产元数据取自同一 SSR tag 页(与 run_remote 同一条发现路径):download_asset
+            # 需要 hashValue/sizeInByte 做先验后传。此前误传资产名**字符串**,TypeError 被
+            # llm.yml 的 `2>/dev/null || echo ""` 吞成「指针不可达」——执行点复判从未生效
+            # (2026-10-09 W11 训练机直连实证);本函数自锁:契约测试断言实参是资产字典。
+            assets = _cnb_read().parse_cnb_tag_page(
+                fetch_tag_page(args.repository, args.tag), args.repository, args.tag)
+            download_asset(args.repository, args.tag, select_manifest_asset(assets), pointer_path)
             pointer = parse_catalog_pointer(pointer_path.read_bytes())
             print(json.dumps({"dataVersion": pointer.get("dataVersion", ""),
                               "catalogVersion": pointer.get("catalogVersion", "")},

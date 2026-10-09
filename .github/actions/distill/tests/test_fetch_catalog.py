@@ -139,6 +139,44 @@ class ReleaseDirOverrideTests(unittest.TestCase):
         self.assertEqual(fetch_catalog.RELEASE_DIR, RELEASE_DIR, "拒绝后不得改变生效目录")
 
 
+class PointerOnlyTests(unittest.TestCase):
+    """--pointer-only 契约:资产元数据必须先经 tag 页发现再下载（2026-10-09 W11 修）。
+
+    历史缺陷:此前把资产名**字符串**传给 download_asset（期望资产字典），运行时
+    TypeError 被 llm.yml 的 `2>/dev/null || echo ""` 吞成「指针不可达」,执行点复判
+    从未生效。本测试锁定实参形状与成功语义。
+    """
+
+    def test_pointer_only_downloads_via_tag_page_asset_metadata(self):
+        import contextlib
+        import io
+        from unittest import mock
+        import fetch_catalog
+
+        captured = {}
+
+        def fake_download(repository, tag, asset, dest):
+            captured["asset"] = asset
+            Path(dest).write_bytes(json.dumps(_pointer_payload()).encode())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(fetch_catalog, "fetch_tag_page", return_value=b"<page/>"), \
+                 mock.patch.object(fetch_catalog, "_cnb_read", return_value=mock.Mock(
+                     parse_cnb_tag_page=mock.Mock(return_value=[
+                         {"name": "manifest.json", "path": "/x/-/releases/download/medical-data/manifest.json",
+                          "hashAlgo": "sha256", "hashValue": "a" * 64, "sizeInByte": 1}]))), \
+                 mock.patch.object(fetch_catalog, "download_asset", side_effect=fake_download), \
+                 mock.patch.object(sys, "argv", ["fetch_catalog.py", "--pointer-only", "--out-dir", tmp]), \
+                 contextlib.redirect_stdout(io.StringIO()) as stdout:
+                code = fetch_catalog.main()
+                self.assertEqual(code, 0)
+        self.assertIn("dataVersion", stdout.getvalue())
+        asset = captured.get("asset")
+        self.assertIsInstance(asset, dict, "download_asset 契约是资产字典,不是资产名字符串")
+        self.assertEqual(asset["name"], "manifest.json")
+        self.assertEqual(asset["hashValue"], "a" * 64)
+
+
 def _load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
