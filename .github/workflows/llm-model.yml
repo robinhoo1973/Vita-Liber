@@ -1,0 +1,87 @@
+# ============================================================================
+# T2 本机 LLM 模型发布（2026-10-09 换型+下载化批）
+#
+# 职责：把**已在仓库内钉版**的目录条目（Resources/LLMCatalog/catalog.json：
+# URL+sha256+bytes 三者经评审与 L0 [20] 固化）对应的上游字节发布到 CNB 分发面
+# （robinhoo1973/Resources release llama-models）。发布器只搬运已钉版内容、
+# 不发明版本——换型 = 改目录条目（提交）+ dispatch 本 workflow。
+#
+# 与训练面隔离：GitHub release `llama-models`（训练 checkpoint/state，draft 门控）
+# 与本 CNB release `llama-models`（App 分发面）是两个平台的独立命名空间，不混存。
+#
+# 触发：仅手动 dispatch（业主 2026-10-09：无 dry-run 开关，一炮到底——
+# 下载→双校验→内容寻址上传→匿名回读，全链一步完成）。
+# 凭据：CNB_RESOURCE_TOKEN（asr.yml 同源 secret）；缺令牌即硬红
+# （preflight job，秒级——不做 startup 期 required，历史实证 2026-10-05）。
+# ============================================================================
+name: llm-model-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      id:
+        description: "目录条目 id（Resources/LLMCatalog/catalog.json）"
+        type: string
+        required: true
+        default: "llm-general-qwen3-0.6b-q4-k-m"
+      source:
+        description: "上游 https 直链（HF resolve 等；主机白名单见发布器）"
+        type: string
+        required: true
+        default: "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/main/Qwen3-0.6B-Q4_K_M.gguf"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: llm-model-release
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: '凭据前置校验'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: 校验发布凭据
+        env:
+          CNB_RESOURCE_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
+        run: |
+          if [ -z "$CNB_RESOURCE_TOKEN" ]; then
+            echo "::error::缺少 CNB_RESOURCE_TOKEN（Settings → Secrets 补建后重跑）"
+            exit 1
+          fi
+          echo "凭据前置校验通过"
+
+  battery:
+    name: '发布契约离线测试'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1   # 与 testflight 同钉
+        with:
+          python-version: '3.13'
+      # 结构门禁 [19]-e：run 文本调用 release 测试面 ⟹ 同 job 必须装同款依赖清单。
+      - name: 安装测试依赖（哈希钉版）
+        run: pip install --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+      - name: 发布器离线契约测试（含仓库目录一致性断言）
+        run: python3 .github/actions/release/test-publish-llm-model.py
+
+  publish:
+    name: '发布到 CNB（llama-models）'
+    needs: [preflight, battery]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13'
+      - name: 发布（下载→双校验→内容寻址上传→回读核对）
+        env:
+          CNB_TOKEN: ${{ secrets.CNB_RESOURCE_TOKEN }}
+          CNB_RESOURCE_REPOSITORY: ${{ vars.CNB_RESOURCE_REPOSITORY }}
+          MODEL_ID: ${{ inputs.id }}
+          SOURCE_URL: ${{ inputs.source }}
+        run: python3 .github/actions/release/publish-llm-model.py --id "$MODEL_ID" --source "$SOURCE_URL"

@@ -13,7 +13,7 @@
 #   - `$GITHUB_ACTION_PATH` = 本 action 目录；脚本簇位于 ../gates/ 与 ../release/。
 # ============================================================================
 name: 'L0 static gate'
-description: 'L0 十九节 + schema 完整性 + 发布契约测试离线矩阵（改动本文件 = 发布面变更）'
+description: 'L0 二十节 + schema 完整性 + 发布契约测试离线矩阵（改动本文件 = 发布面变更）'
 inputs:
   artifact-name:
     description: 失败时诊断日志 artifact 名（各链保持自身命名）
@@ -65,7 +65,8 @@ runs:
                  test-asr-overview test-asr-config-projection test-resolve-asr-models \
                  test-apply-asr-catalog-copy test-asr-change-set test-bootstrap-asr-model \
                  test-distill-asr-metadata test-llm-client test-suggest-asr-metadata \
-                 test-draft-release-text test-distill-release-text; do
+                 test-draft-release-text test-distill-release-text \
+                 test-publish-llm-model; do
           echo "── $t"
           python3 "$GITHUB_ACTION_PATH/../release/$t.py"
         done 2>&1 | tee -a /tmp/l0-gate.log

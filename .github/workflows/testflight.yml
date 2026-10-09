@@ -13,9 +13,10 @@
 # 一级任一红不进二级（L0 不过不进 L1 字面兑现）；二级 l1∥build 并联（两个编译
 # 互相独立,绿路径省 ≈13-22 分钟）；upload 依赖四者 success——测试红 ⇒ 不上传
 # TestFlight（安全闸口不变,二级红白烧的只是免费分钟）。
-# 触发（2026-10-08 业主指令：仅手动触发）：workflow_dispatch（唯一入口）。
-# push master 不再自动跑整流/上传——发布入口 = 手动 dispatch；推送链路的静态面
-# 由本地 pre-push 钩子承担（L0 十九节 + CoreKit 测试 + symcheck）。
+# 触发：workflow_dispatch 唯一发布入口（2026-10-08 业主指令）；2026-10-09 增
+#   schedule（每月 2 日）仅驱动 llama XCFramework 自动重建（最新 llama.cpp
+#   release），App 侧全链在 schedule 事件下整体跳过。push 不自动跑整流/上传；
+#   推送链路的静态面由本地 pre-push 钩子承担（L0 20 节 + CoreKit 测试 + symcheck）。
 # 2026-10-06 业主指令：ASR/LLAMA 构建步骤已删除（归 asr.yml）。
 # 2026-10-07 业主指令：ASR/LLAMA 痕迹零残留之延伸；v* tag 触发删除（无版本语义）。
 # 委员会重设计全文：refactor/discussions/2026-10-06-build-testflight-slim-round1.md。
@@ -43,6 +44,20 @@ on:
         description: "只重建 llama XCFramework（发布 zip 到 release；跳过 App 构建与上传）"
         type: boolean
         default: false
+      llama_ref:
+        # 2026-10-09 业主指令：XCF 构建自动获取最新且适合 iOS 的 llama.cpp
+        # release，每月自动 run 一次（schedule）；本输入仅在需要回钉历史版本时使用。
+        description: "（可选）llama.cpp 版本覆盖（如 b11012）；留空=自动取最新 release"
+        type: string
+        required: false
+        default: ""
+  schedule:
+    # 每月 2 日 03:41 UTC 自动重建 llama XCFramework（业主 2026-10-09 指令：
+    # 自动取最新 llama.cpp release 构建）。错开整点（cron 高峰延迟官方点名）。
+    # 产物=内容寻址新资产（绝不覆写历史资产）——App 消费的仍是 Package.swift
+    # 钉死的那一份，切换=人工提交一行（本 job 产出可粘贴行 + API digest 对账）。
+    # 注：GitHub 对 60 天无活动仓停用 schedule（本仓高频活动，风险低，登记）。
+    - cron: '41 3 2 * *'
   # 2026-10-07 业主指令：取消 push 自动触发——push master 不再自动跑整流并随之上传
   # TestFlight（发布入口改为手动 dispatch；同 llm.yml 先例「重建改手动」同族法理）。
   # 历史：v* tag 触发亦已于 2026-10-07 删除（tag 不携带 App 版本语义，版本唯一
@@ -73,6 +88,8 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   gates:
     name: 'L0 静态门禁（并行）'
+    # schedule（月度 XCF 重建）不跑 App 侧全链——只跑 llama-xcframework job。
+    if: ${{ github.event_name != 'schedule' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # caller 显式权限（composite 无权限面，job 承担；workflow 级声明为兜底）。
@@ -92,7 +109,7 @@ jobs:
   corekit:
     name: 'CoreKit 域层测试（swift test）'
     # 2026-10-09:仅重建 XCFramework 时跳过 App 侧全链(见 on.workflow_dispatch.inputs)
-    if: ${{ !inputs.build_xcframework }}
+    if: ${{ github.event_name != 'schedule' && inputs.build_xcframework != true }}
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -169,7 +186,7 @@ jobs:
     name: '编译门禁 + L1 单元/UI'
     # 2026-10-09:仅重建 XCFramework 时跳过(同 corekit;upload 四依赖门控随之
     # 整体跳过——重建 dispatch 绝不触发 TestFlight 上传)
-    if: ${{ !inputs.build_xcframework }}
+    if: ${{ github.event_name != 'schedule' && inputs.build_xcframework != true }}
     runs-on: macos-26
     timeout-minutes: 60
     # 二级闸：第一级 gates+corekit 全绿才进入（业主 2026-10-07 三阶段 DAG：
@@ -465,7 +482,7 @@ jobs:
   build:
     name: '编译 + 导出 IPA'
     # 2026-10-09:仅重建 XCFramework 时跳过(同 corekit/l1)
-    if: ${{ !inputs.build_xcframework }}
+    if: ${{ github.event_name != 'schedule' && inputs.build_xcframework != true }}
     outputs:
       # 2026-09-27 委员会裁决 P6：产物存在性输出（不信任 env 布尔，信任产物文件）
       ipa_ready: ${{ steps.ipa-ready.outputs.ipa_ready }}
@@ -887,6 +904,25 @@ jobs:
       - name: 校验 IPA 框架 minOS 与路径安全
         if: ${{ env.HAS_CERTS == 'true' }}
         run: python3 .github/actions/release/reconcile-frameworks.py --ipa Build/export/VitaLiber.ipa
+
+      # 模型单源断言（2026-10-09 换型+下载化批；L0 [20] 的产物面镜像）：
+      # 模型不随包（运行时自 CNB 下载）——包内出现 .gguf 即红；
+      # 信任锚目录 catalog.json 必须在包内（丢了 = 下载面失能而不自知）。
+      - name: 校验 IPA 不含下载件（模型单源断言）
+        if: ${{ env.HAS_CERTS == 'true' }}
+        run: |
+          set -euo pipefail
+          IPA="Build/export/VitaLiber.ipa"
+          [ -f "$IPA" ] || { echo "::error::IPA 不存在"; exit 1; }
+          if unzip -l "$IPA" | grep -E '\.gguf$'; then
+            echo "::error::IPA 内含 .gguf——模型应经运行时下载，不得随包（单一来源纪律）"
+            exit 1
+          fi
+          if ! unzip -l "$IPA" | grep -E 'LLMCatalog/catalog\.json$'; then
+            echo "::error::IPA 缺 LLMCatalog/catalog.json——信任锚目录未入包，下载面将失能"
+            exit 1
+          fi
+          echo "IPA 模型单源断言通过：无 .gguf、含 LLMCatalog/catalog.json"
 
       # ── 上传 IPA 到 Artifact（供 upload job 下载）────
       # 2026-09-27 委员会裁决 P6：IPA 产物存在性标记——签名材料缺失时 build 仍是
@@ -1355,16 +1391,21 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   # llama XCFramework（2026-10-09 业主指令：自 llm.yml 迁入——它是 App 构建
   # 依赖（CoreKit/Package.swift binaryTarget），归属发布面而非蒸馏管线）。
-  # 重建一律手动：dispatch 本 workflow 勾 build_xcframework=true。
-  # 原「文件变更即重建」push.paths 自触发**有意不恢复**：zip 含时间戳不可复现，
-  # --clobber 覆写不可复现资产。
-  # 发布资产 digest 为权威值，同步更新 CoreKit/Package.swift checksum，不得
-  # 采信运行日志。并发：workflow 级 testflight group 排队语义照旧（重建建议
-  # 在无 App 构建进行时派发，15-20min 与全链互不取消）。
+  # 2026-10-09 业主二次指令：**自动获取最新且适合 iOS 的 llama.cpp release
+  # 构建，每月 run 一次**（schedule 见 on:；dispatch 勾 build_xcframework 为
+  # 手动补跑/回钉（llama_ref 覆盖）；App 侧全链在 schedule 下自动跳过）。
+  # 分发纪律（内容寻址，绝不覆写历史）：
+  #   - 资产名 = llama-<ref>-xcframework-<设备切片内容前16位>.zip——同名=同内容
+  #     （切片二进制跨重建稳定，2026-10-09 测试席实证），重发幂等；
+  #   - **不再 --clobber**：旧钉版资产原地不动，App 消费的始终是 Package.swift
+  #     钉死的那一份；切换 = 人工提交一行（本 job 在 step summary 产出可粘贴行，
+  #     并以 API digest 与本地 sha256 对账后才给）。
+  # minOS：sed 16.4→16.0 后**硬断言已生效**（上游改字面串即红，防静默产出 16.4
+  # 切片只在末端 reconcile 才爆）；构建后断言三切片存在且 minOS==16.0。
   # ═══════════════════════════════════════════════════════════════
   llama-xcframework:
-    name: 'llama XCFramework 重建'
-    if: ${{ inputs.build_xcframework }}
+    name: 'llama XCFramework 重建（最新/指定版）'
+    if: ${{ github.event_name == 'schedule' || inputs.build_xcframework == true }}
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
@@ -1376,47 +1417,120 @@ jobs:
           cmake --version
           sysctl -n hw.logicalcpu
 
-      - name: 检出 llama.cpp（钉版 b11012）
-        run: git clone --depth 1 --branch b11012 https://github.com/ggml-org/llama.cpp.git llama-src
-
-      - name: 构建三切片 xcframework 并打包
-        working-directory: llama-src
+      - name: 解析构建版本（默认最新 release；dispatch 可用 llama_ref 覆盖）
+        id: ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OVERRIDE: ${{ inputs.llama_ref }}
         run: |
+          set -euo pipefail
+          if [ -n "$OVERRIDE" ]; then
+            REF="$OVERRIDE"
+          else
+            REF="$(gh api repos/ggml-org/llama.cpp/releases/latest --jq .tag_name)"
+          fi
+          # 只接受上游常规数字 tag（b#### 系列）——latest 指向异常标签即红，不带着怪值去构建
+          case "$REF" in
+            b[0-9]*) ;;
+            *) echo "::error::llama.cpp 版本标签异常：$REF"; exit 1 ;;
+          esac
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "resolved llama.cpp ref: $REF"
+
+      - name: 检出 llama.cpp（解析出的版本）
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: git clone --depth 1 --branch "$REF" https://github.com/ggml-org/llama.cpp.git llama-src
+
+      - name: 构建三切片 xcframework 并打包（含 minOS/切片断言）
+        id: build
+        working-directory: llama-src
+        env:
+          REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          set -euo pipefail
           # 官方脚本：参数 = 构建集合；顺序产出 build-apple/llama.xcframework
           # 平台下限改 16.0（上游默认 16.4 是随意值——llama.cpp 无 16.4 专属 API；
-          # 应用基线 V3.79 = iOS 16.0，reconcile-frameworks.py 门禁拒绝 16.4 切片，
-          # CI 实证：llama.framework requires 16.4, newer than the app deployment target）
+          # 应用基线 iOS 16.0，reconcile-frameworks.py 门禁拒绝 16.4 切片）。
+          # sed 无断言 = 上游改字面串即静默 no-op（产出 16.4 只在末端爆）——断言生效：
           sed -i.bak 's/IOS_MIN_OS_VERSION=16.4/IOS_MIN_OS_VERSION=16.0/' build-xcframework.sh
+          grep -q 'IOS_MIN_OS_VERSION=16.0' build-xcframework.sh || { echo "::error::minOS sed 未生效（上游 build-xcframework.sh 字面串漂移）"; exit 1; }
           ./build-xcframework.sh ios-sim ios-device macos
           test -d build-apple/llama.xcframework || { echo "::error::xcframework 未产出"; exit 1; }
+          python3 - <<'PY'
+          import pathlib, plistlib, sys
+          root = pathlib.Path("build-apple/llama.xcframework")
+          expected = {"ios-arm64": "16.0", "ios-arm64_x86_64-simulator": "16.0", "macos-arm64_x86_64": None}
+          missing = [name for name in expected if not (root / name).is_dir()]
+          if missing:
+              sys.exit(f"切片缺失（上游构建面变化）: {missing}")
+          for name, minos in expected.items():
+              if minos is None:
+                  continue
+              info = plistlib.loads((root / name / "llama.framework" / "Info.plist").read_bytes())
+              actual = info.get("MinimumOSVersion")
+              if actual != minos:
+                  sys.exit(f"{name} minOS={actual} ≠ {minos}（sed 未覆盖该切片路径）")
+          print("三切片与 minOS 断言通过")
+          PY
           cd build-apple
-          zip -r -y llama-b11012-xcframework.zip llama.xcframework
-          shasum -a 256 llama-b11012-xcframework.zip | tee checksum.txt
-          ls -la llama-b11012-xcframework.zip
+          # 内容寻址：设备切片二进制跨重建稳定（2026-10-09 实证）——同名=同内容，重发幂等
+          SLICE_SHA16="$(shasum -a 256 llama.xcframework/ios-arm64/llama.framework/llama | cut -c1-16)"
+          ASSET="llama-${REF}-xcframework-${SLICE_SHA16}.zip"
+          zip -r -y "$ASSET" llama.xcframework
+          shasum -a 256 "$ASSET" | tee checksum.txt
+          ls -la "$ASSET"
+          echo "asset=$ASSET" >> "$GITHUB_OUTPUT"
 
       - name: 打包产物兜底上传（发布失败不丢构建）
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # 与 asr.yml 同款 pin
         with:
           name: llama-xcframework
-          path: llama-src/build-apple/llama-b11012-xcframework.zip
+          path: llama-src/build-apple/*.zip
           retention-days: 14
 
-      - name: 发布到 release 稳定 URL
-        run: |
-          REPO="${{ github.repository }}"
-          CHECKSUM="$(cut -d' ' -f1 llama-src/build-apple/checksum.txt)"
-          # 未 checkout 本仓：gh 命令必须显式 -R 指明仓库（否则 git 报 not a git repository）
-          if gh release view llama-xcframework -R "$REPO" >/dev/null 2>&1; then
-            gh release upload llama-xcframework \
-              llama-src/build-apple/llama-b11012-xcframework.zip --clobber -R "$REPO"
-          else
-            gh release create llama-xcframework \
-              llama-src/build-apple/llama-b11012-xcframework.zip \
-              --title "llama-b11012-xcframework（三切片：ios-sim/ios-device/macos）" \
-              --notes "自建：ggml-org/llama.cpp b11012 源码经官方 build-xcframework.sh 构建；含上游发布物缺失的模拟器切片。" \
-              -R "$REPO"
-          fi
-          echo "checksum=${CHECKSUM}"
-          echo "::notice::llama xcframework checksum=${CHECKSUM}"
+      - name: 发布到 release（内容寻址资产，不覆写历史）
         env:
           GH_TOKEN: ${{ github.token }}
+          ASSET: ${{ steps.build.outputs.asset }}
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          ZIP="llama-src/build-apple/$ASSET"
+          DIR="llama-src/build-apple"
+          # 未 checkout 本仓：gh 命令必须显式 -R 指明仓库（否则 git 报 not a git repository）
+          if gh release view llama-xcframework -R "$REPO" >/dev/null 2>&1; then
+            if gh release view llama-xcframework -R "$REPO" --json assets --jq '.assets[].name' | grep -qx "$ASSET"; then
+              echo "资产已存在（同名=同内容寻址）——跳过上传：$ASSET"
+            else
+              gh release upload llama-xcframework "$ZIP" -R "$REPO"
+            fi
+          else
+            gh release create llama-xcframework "$ZIP" \
+              --title "llama XCFramework（内容寻址：<版本>-<切片内容前16位>）" \
+              --notes "自建：ggml-org/llama.cpp 源码经官方 build-xcframework.sh 构建三切片（ios-sim/ios-device/macos，minOS 16.0）；每月自动重建（latest release）或手动 dispatch（llama_ref 回钉）。" \
+              -R "$REPO"
+          fi
+          # 权威 digest：API 回读与本地 sha256 对账（不一致 = 资产与构建不符，硬红）
+          DIGEST="$(gh api "repos/$REPO/releases/tags/llama-xcframework" --jq ".assets[] | select(.name==\"$ASSET\") | .digest")"
+          LOCAL_SHA="$(cut -d' ' -f1 "$DIR/checksum.txt")"
+          if [ "$DIGEST" != "sha256:$LOCAL_SHA" ]; then
+            echo "::error::API digest(${DIGEST:-空}) ≠ 本地 sha256(sha256:$LOCAL_SHA)——资产与构建不一致，不得切换"
+            exit 1
+          fi
+          URL="https://github.com/$REPO/releases/download/llama-xcframework/$ASSET"
+          {
+            echo "## llama XCFramework 就绪（须人工切换 Pin）"
+            echo ""
+            echo "- 资产：\`$ASSET\`"
+            echo "- sha256（API digest 已对账）：\`$LOCAL_SHA\`"
+            echo ""
+            echo "CoreKit/Package.swift binaryTarget 切换行（确认后提交；旧钉版资产原地保留可直接回退）："
+            echo '```swift'
+            echo ".binaryTarget(name: \"LlamaFramework\","
+            echo "    url: \"$URL\","
+            echo "    checksum: \"$LOCAL_SHA\")"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "checksum=${LOCAL_SHA}"
+          echo "::notice::llama xcframework asset=$ASSET checksum=$LOCAL_SHA"
