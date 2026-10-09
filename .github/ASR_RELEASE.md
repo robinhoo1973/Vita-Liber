@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.17（2026-10-08）
+> 版本：V1.18（2026-10-09）
 
 ## 版本与资产来源
 
@@ -157,7 +157,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 
 **签名密钥例外**：`ASR_SIGNING_KEYS_JSON` 不做自动生成——目录签名私钥与提交入仓的信任根强耦合（新密钥必须伴随新根 envelope 人工提交，否则 App 拒绝候选目录），保持 `generate-asr-signing-keys.py` 本地生成 + 人工提交的流程。
 
-## LLM 辅助草拟（旁路）（2026-10-08 业主指令 + 委员会三席定案）
+## LLM 辅助草拟与蒸馏合并（2026-10-08 旁路 → 2026-10-09 入流;业主指令 + 委员会定案）
 
 - **模块化（2026-10-09 业主指令）**：通用内核抽为 `release/llm_client.py`
   （`llm_chat`/内容寻址缓存/JSON 块容错/`make_chat`；逐字抽取，行为不变——
@@ -168,18 +168,32 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
   （采纳 = 人工誊写）；两消费者同受下方治理条款约束。端点缺省本机 llama-server，
   在线免费档（智谱 GLM-4.7-Flash：`--endpoint https://open.bigmodel.cn/api/paas/v4
   --model glm-4.7-flash --api-key-env LLM_API_KEY`）。
-- **形态**：`suggest-asr-metadata.py` 独立草拟器——输入 ⑧ 的候选 artifact，输出
-  `suggested/*.suggested.json` 旁路侧车（含 suggestedBy/缓存键/引文位）。**主文件
-  保持 REVIEW/三语空串骨架**；采纳 = 人工誊写 + 标记剥除；绝不整文件复制回仓。
-- **引擎**：缺省本机 llama.cpp llama-server（OpenAI 兼容 `/v1`；仓内 0.5B GGUF 可
-  复用）；`--endpoint` 可指任意在线免费兼容端点（密钥经环境变量，勿入仓）。
-- **治理条款**：①只发公开模型元数据（禁私仓/密钥/用户数据）；②在线来源必标
-  vendor@版本（不可复现与本地区分）；③内容寻址缓存（prompt‖model‖温度‖seed 的
-  sha256），换模型/参数 = 新键、旧建议标 stale；④文案建议先过**与投影器同源**的
-  负清单预检（投影器仍为终闸）；⑤许可三段式：LLM 建议 → 人工逐家族确认 → 证据
-  摘录（原文 URL+sha256+抓取时间）留档；⑥CI/发布链零 AI 零外部搜索（裁决不变）；
-  ⑦「禁本地跑 asr 任务」不覆盖纯草拟器（不下载/不构建/不发布）。
-- **反过拟合**：建议不入金样 ⇒ 不成为被拟合基准；自检/逆测只对机器事实面。
+- **形态（两段工具）**：`suggest-asr-metadata.py`（建议侧车
+  `suggested/*.suggested.json` + `errors.json` 台账;429/5xx 指数退避;
+  `--max-seconds` 总时限,重试预算不得超 job timeout;逐字段容错,部分成功照常
+  落盘）→ `distill-asr-metadata.py`（逐项择优:**确定性为真值底,LLM 只填空缺**
+  （REVIEW/空串/空 prefix）;哨兵字符串归一（模型误写的 "null"）;置信度阈值
+  `--min-confidence`;与投影器同源负清单复检;provenance 报告
+  adopted/shadowed/rejected/leftOpen/orphans）。
+- **入流（2026-10-09 业主指令）**：asr.yml ③ 草案 → ④ 草拟（非阻塞:
+  `if: !cancelled()` 语义 + 显式降级告警）→ ⑤ 蒸馏（结构闸:REVIEW / variant=null /
+  seeds 家族覆盖 / 条目缺口（files 与 archive 双面皆空）= 硬红）;⑥ 上游解析起
+  全链消费**蒸馏终稿**（models.json → rolling pin;catalog-copy.json → ⑧ 文案
+  投影）,⑪⑫ 验收挂 ⑤。
+- **引擎**：智谱 GLM-4.7-Flash（免费档;密钥经 repo secret `LLM_API_KEY`）;缺省
+  端点 `open.bigmodel.cn`（z.ai 注册 key 同宗;端点一行切换）;内容寻址缓存
+  （prompt‖model‖温度‖seed 的 sha256）经 actions/cache 跨 run 复用——候选未变时
+  零调用（免费档日配额有限,run 37860771905 实证限流全败=降级照走）。
+- **治理条款（2026-10-09 修订）**：①只发公开模型元数据（禁私仓/密钥/用户数据）;
+  ②在线来源必标 vendor@版本;③内容寻址缓存,换模型/参数=新键;④文案建议先过**与
+  投影器同源**的负清单预检（投影器仍为终闸）;⑤许可三段式改为:LLM 建议 →
+  阈值采纳（conf ≥ --min-confidence）→ provenance 全量留档（蒸馏报告）;
+  ⑥**修订**（业主 2026-10-09 指令）:原「CI/发布链零 AI 零外部搜索」改为——
+  LLM 建议经**阈值 + 负清单 + provenance** 后可参与终稿生成;确定性为真值底、
+  AI 仅填空缺、可全量审计;投影器/签名仍为终闸;⑦「禁本地跑 asr 任务」不覆盖
+  纯草拟器/蒸馏器（不下载/不构建/不发布）。
+- **反过拟合**：确定性实测面不被建议覆盖（shadowed 仅参考）;蒸馏报告的 rejected/
+  leftOpen 是「LLM 未能补上」的显式台账,不静默。
 
 ## 验证边界
 
@@ -203,6 +217,7 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
 - V1.13（2026-10-08）：bootstrap 批（业主「按名启动」目标）——`bootstrap-asr-model.py`（本地/离线：HF/GitHub 结构化 API 按名发现 → 下载实测探针 + 角色/许可推断 → draft 组装；`--compare-config` 逆测对账三分法）；第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列；配套模板信封已刷新至 v10（提交 run 现场签名目录：时效 +30 天 / 版本对齐 / 文案缓存三合一）。
 - V1.14（2026-10-08）：漂移周检批（业主「方案三 + 零输入 + cron」）——`bootstrap-asr-model.py` 增 `--from-config`（模型名自 config 自动获取；漂移三态 ok/drift/unknown）；`maintenance.yml` 增 `catalog-drift` job（周一 UTC 03:23 cron + dispatch；只读；报告 artifact，不红灯）；角色规则修复（旧前缀 glob 对 whisper 系带档位前缀成员名全失配 → 有序正则；漂移 job 遍历全目录的前置——whisper 五档曾会直接报错）。
 - V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。
+- V1.18（2026-10-09）：生成链入流（业主指令）——asr.yml 新 12 段图:③ 草案 → ④ LLM 草拟（非阻塞;429 退避/总时限/逐字段容错/恒落盘+errors 台账/actions/cache 跨 run 复用）→ ⑤ 蒸馏（逐项择优+provenance+结构闸;条目完整口径=files 或 archive 双面）;⑥ 上游解析与 ⑧ 文案投影消费**蒸馏终稿**;⑪⑫ 验收挂 ⑤。配套:发现层全局兜底（域内零命中→无作者域搜索,csukuangfj2 域可达）;download-artifact v4 线→v8.0.2（node24 弃用清理）;TEMP 快车道同闸;候选 artifact 层级契约（单路径上传=扁平化,下载侧直指目标目录+就位断言）。git 金样 config 仍为生成基底（深探对账+手写知识载体:qwen3 型 github-release watch 规则/许可覆盖无法从 seeds 重建）,退役迁移另批评估。
 - V1.17（2026-10-08）：LLM 辅助草拟（旁路）——suggest-asr-metadata.py（建议侧车+内容寻址缓存+同源负清单预检；本机 llama.cpp 缺省/在线兼容端点可选）+测试第 19 例入双侧执行列；治理七条（只发公开元数据/在线标注/许可三段式/CI 零 AI 不变）；「禁本地跑 asr 任务」边界=不覆盖纯草拟器。同批:生成链泛化钉（download/families 注入缝+新家族全链离线 e2e,第 28 测）。
 - V1.16（2026-10-08）：遗留项批（委员会四席两轮，业主授权自主决策）——①`_confirm_readme_sync` 窗口 3×10s→5×15s；②overview.json 上传后**内容级匿名回读对账**（清单级回读由 `upload_immutable` 内建；内容级不一致仅 `::warning::`，展示面不阻塞）；③build **T4 配对闸**：身份未滚动 + 已签名时，缓存文件存在但摘要不符=硬红（缓存损坏不得被静默重建掩盖）；缓存缺失=显式降级消息后重建（保留冷启动恢复语义）；④publish 逐资产计时打点（skip 形态 ~0.0s 可辨识）；⑤`asr.yml` 增**零密钥验收 job `verify`**（dispatch 并联；`verify_only=true` 时跳过 models 构建/发布——脚本改动唯一零副作用验证通道）：离线契约电池 + bootstrap 复现验收（inventory 13/13 在册/0 缺候选/0 未知；probe 12/12 复现/0 mismatch/0 error）+ qwen3 字节级补测（直连 GitHub 下载面比 sha256+bytes）；闭环判据=一次绿色 verify dispatch。
 - V1.18（2026-10-09）：LLM 模块化批（业主指令）——通用内核抽为 `release/llm_client.py`（`llm_chat`/`cache_key`/`cached_chat`/`parse_json_block`/`default_cache_dir`/`make_chat`；行为逐字保持，`suggest-asr-metadata.py` 改为导入 + `SuggestError = LLMError` 别名兼容）；新增 `draft-release-text.py`（release-notes 三语变更说明 / readme-block 分节文案草稿；facts JSON 只含公开内容；负清单预检与投影器同源；只写 --out）；配套 `test-llm-client.py`（6 例）与 `test-draft-release-text.py`（6 例）入双侧执行列；治理条款不变（侧车/缓存/零 AI 裁决），适用于全部消费者。
