@@ -24,7 +24,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from corpus.manifest import verify_manifest  # noqa: E402
-from entlink.catalog import load_jsonl_set, load_sqlite_v4, parse_catalog_jsonl  # noqa: E402
+from entlink.catalog import load_entities_dump, load_jsonl_set, load_sqlite_v4, parse_catalog_jsonl  # noqa: E402
 from entlink.recall import RecallEngine  # noqa: E402
 from gate.entlink_gate import GateConfig, run_gate, write_baseline, write_verdict  # noqa: E402
 from gate.wording import WordingGuard, export_wording_blacklist  # noqa: E402
@@ -36,12 +36,21 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=None, help="缺省=corpus 路径 + .manifest.json")
     parser.add_argument("--catalog-jsonl", type=parse_catalog_jsonl, default=None)
     parser.add_argument("--catalog-sqlite", type=Path, default=None)
+    parser.add_argument("--catalog-entities", type=Path, default=None,
+                        help="build 侧 --dump-entities 的产物(首行 _meta 携带 dataVersion);"
+                             "实体模型与语料同形,免二次下载目录资产")
+    parser.add_argument("--group-by-name", action="store_true",
+                        help="与 build 侧同开:同域同名行合并为单实体(实体模型同形是第二一致性断言)")
+    parser.add_argument("--exclude-domains", default="",
+                        help="与 build 侧同开:从评测索引中排除的域(如 department)")
     parser.add_argument("--wording-source", type=Path, default=None)
     parser.add_argument("--model-candidates", type=Path, default=None)
     parser.add_argument("--min-accepts", type=int, default=50)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--write-baseline", type=Path, default=None)
     parser.add_argument("--write-verdict", type=Path, default=None)
+    parser.add_argument("--write-items", type=Path, default=None,
+                        help="逐项结果 JSONL(McNemar/离线重算与 F 度量用;D20)")
     args = parser.parse_args()
 
     manifest_path = args.manifest or args.corpus.with_suffix(args.corpus.suffix + ".manifest.json")
@@ -51,12 +60,18 @@ def main() -> int:
         print(f"FAILED manifest 校验: {exc}", file=sys.stderr)
         return 1
 
-    if (args.catalog_jsonl is None) == (args.catalog_sqlite is None):
-        parser.error("须且仅须提供 --catalog-jsonl 或 --catalog-sqlite 之一")
-    if args.catalog_sqlite is not None:
-        catalog = load_sqlite_v4(args.catalog_sqlite)
+    sources = [args.catalog_jsonl, args.catalog_sqlite, args.catalog_entities]
+    if sum(1 for s in sources if s is not None) != 1:
+        parser.error("须且仅须提供 --catalog-jsonl / --catalog-sqlite / --catalog-entities 之一")
+    if args.catalog_entities is not None:
+        catalog = load_entities_dump(args.catalog_entities)
+    elif args.catalog_sqlite is not None:
+        catalog = load_sqlite_v4(args.catalog_sqlite, group_by_name=args.group_by_name)
     else:
         catalog = load_jsonl_set(args.catalog_jsonl)
+    excluded = {d.strip() for d in args.exclude_domains.split(",") if d.strip()}
+    if excluded:
+        catalog.entities = [e for e in catalog.entities if e.domain not in excluded]
 
     # dataVersion 一致断言:目录漂移即拒评(fail-closed,计划文档 §10 漂移闸)。
     # 空版本同样拒评:曾用「两边都非空才比」,空 data_version 静默跳过漂移闸
@@ -92,12 +107,30 @@ def main() -> int:
             eval_lines.append(row)
 
     engine = RecallEngine().build(catalog)
+    manifest_sha = None
+    try:
+        import hashlib
+        manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    except OSError:
+        manifest_sha = None
+    policy_sha = None
+    try:
+        from policy import sha256_of as _policy_sha  # 判据单一事实源(round5 §7.3)
+        policy_sha = _policy_sha()
+    except (ImportError, FileNotFoundError, ValueError):
+        policy_sha = None
+    items: list | None = [] if args.write_items is not None else None
     result = run_gate(
         engine=engine, eval_lines=eval_lines,
         config=GateConfig(min_accepts=args.min_accepts, top_k=args.top_k),
         wording_guard=wording_guard, model_candidates=model_candidates,
         known_entity_ids={e.entity_id for e in catalog.entities},
+        collect_items=items, policy_sha256=policy_sha, manifest_sha256=manifest_sha,
     )
+    if args.write_items is not None and items is not None:
+        with open(args.write_items, "w", encoding="utf-8") as fh:
+            for item in items:
+                fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
     data_version = manifest["catalog_data_version"] or "unknown"
     if args.write_baseline is not None:

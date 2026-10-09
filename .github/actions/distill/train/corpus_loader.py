@@ -63,6 +63,79 @@ def tokenize(samples: list[dict], vocab: dict[str, int], seq: int):
     return queries, golds
 
 
+def load_negative_terms(corpus_path: Path, entities_path: Path | None = None) -> dict[str, str]:
+    """entity_id → 词面映射(扫**全量行含 eval**;只取词面,不取任何 eval query 无泄漏面)。
+
+    负例行内只有 entity_id+hard,不携词面;金标实体在部署侧本就全量入索引,
+    故全量扫描与部署语义一致。规范名(canonical)优先,保证与检索层词面同源。
+
+    entities_path(entities.jsonl 全量实体导出;2026-10-08 R0 修复):负例按**全实体表**
+    抽样,而语料 gold 受 caps 截断——仅扫语料时约 6.5% 负例(80,784/1,252,092)结构性
+    不可解析(<0.95 fail-closed 拒绝)。补全量实体导出与部署索引同义,缺失率归零;
+    语料 golden 词面仍优先(同源优先级不变)。
+    """
+    terms: dict[str, str] = {}
+    with open(corpus_path, encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            gold = (json.loads(line).get("gold") or {})
+            eid, term, kind = gold.get("entity_id"), gold.get("term"), gold.get("kind")
+            if not eid or not isinstance(term, str):
+                continue
+            if eid not in terms or kind == "canonical":
+                terms[eid] = term
+    if entities_path is not None and Path(entities_path).is_file():
+        with open(entities_path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                eid = rec.get("entity_id")
+                if not eid or eid in terms or "_meta" in rec:
+                    continue
+                names = rec.get("names") or {}
+                term = None
+                for k in ("name_zh", "name", "name_en"):
+                    if isinstance(names.get(k), str) and names[k].strip():
+                        term = names[k].strip()
+                        break
+                if term is None and isinstance(rec.get("aliases"), list) and rec["aliases"]:
+                    term = str(rec["aliases"][0]).strip()
+                if term:
+                    terms[eid] = term
+    return terms
+
+
+def negative_terms_for_samples(samples: list[dict], term_map: dict[str, str]) -> tuple[list[list[str]], dict]:
+    """逐样本负例词面表(缺失跳过并计数);统计含冲突负例占比(事实核查依据)。
+
+    事实注记(2026-10-08 仲裁席 β):负例是"从该域全实体表均匀采样 4 条+事后
+    hard 标"的**涌现**集(实测 conflict 仅 ≈4%),不是构造的 1 硬+3 随机。
+    """
+    per_sample: list[list[str]] = []
+    missing, with_conflict = 0, 0
+    for row in samples:
+        terms: list[str] = []
+        has_conflict = False
+        for neg in row.get("negatives") or []:
+            if neg.get("hard"):
+                has_conflict = True
+            term = term_map.get(neg.get("entity_id"))
+            if term is None:
+                missing += 1
+                continue
+            terms.append(term)
+        per_sample.append(terms)
+        with_conflict += 1 if has_conflict else 0
+    stats = {
+        "neg_resolve_missing": missing,
+        "conflict_share": round(with_conflict / max(len(samples), 1), 4),
+    }
+    return per_sample, stats
+
+
 class CorpusDataset:
     """定种子可复现的样本集(epoch 边界打乱由训练循环以 epoch seed 控制)。"""
 

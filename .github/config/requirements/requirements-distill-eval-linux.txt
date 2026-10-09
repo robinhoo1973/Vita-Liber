@@ -1,6 +1,6 @@
 # 蒸馏/评测闸依赖钉版清单(S-M6;由 .github/actions/distill/make-requirements.sh 生成,勿手改)
 # 平台:linux x86_64 cp313(ubuntu-24.04 runner)
-# 生成日期:2026-09-29
+# 生成日期:2026-10-07
 #
 # 为什么 eval job 必须安装 pypinyin:prepare 构建冻结语料时带拼音层(同音噪声、
 # manifest.pinyin_available=true),eval 基线臂若不装,确定性召回 L2/L3 层静默缺位,
@@ -9,3 +9,4 @@
 # -- eval --
 pypinyin==0.53.0 \
     --hash=sha256:a906768919da3c31771f2c5e0e5a759214dc38d0087e15e6ff67649e03df8097
+

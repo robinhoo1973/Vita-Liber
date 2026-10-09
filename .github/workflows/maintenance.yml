@@ -29,7 +29,7 @@
 #   5) train-scheduler job（2026-10-09 新增，非合并而来）
 #      训练窗口调度（业主四规则：sqlite 未更新不启动 / 每 8h 自 UTC 00:00
 #      起算 / 未完续跑 / 单轮 ≤6h 留收尾）：决策 train_scheduler.py，派发
-#      llm.yml task=train-encoder（TRAIN_REF 变量指分支代码）。
+#      llm.yml task=train-encoder（TRAIN_REF 变量,缺省 master——2026-10-09 合并后训练代码随默认分支）。
 #
 # 触发矩阵（job 级 if 用 github.event.schedule 区分是哪个 cron 触发）：
 #   cron '0 16 * * *'  （每日 UTC 16:00 = 北京时间 00:00）→ 仅 cleanup-runs
@@ -421,7 +421,7 @@ jobs:
     # 业主四规则(2026-10-09):①远端 sqlite 未更新不启动 ②每 8h(UTC 00:00 起算)
     # ③上次未完继续 ④单轮 ≤6h 留收尾(policy.training.schedule.workMinutes=335)。
     # 本 job=唯一调度入口;实际训练在 llm.yml task=train-encoder,经 TRAIN_REF
-    # 变量(默认分支 worktree-distill-medical-data)checkout 分支代码。
+    # 变量(缺省 master)checkout 目标 ref 代码。
     # 触发=本文件 cron '17 0,8,16'(整点错峰)或手动 dispatch(master scheduled
     # 先例:schedule 只在默认分支生效,故本 job 必须常驻 master)。
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 0,8,16 * * *'
@@ -433,7 +433,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
         with:
-          ref: ${{ vars.TRAIN_REF || 'worktree-distill-medical-data' }}
+          ref: ${{ vars.TRAIN_REF || 'master' }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
         with:
           python-version: "3.13"
@@ -443,7 +443,7 @@ jobs:
         run: |
           set -euo pipefail
           D=.github/actions/distill
-          REF="${{ vars.TRAIN_REF || 'worktree-distill-medical-data' }}"
+          REF="${{ vars.TRAIN_REF || 'master' }}"
           # 幂等护栏(2026-10-09 审计):只数 **train-encoder** 未完成 run——
           # 状态全枚举易再漏(并发等待态叫 pending/waiting),直接 != completed;
           # 语料链 run 不再阻断训练窗口(与 llm.yml 按任务分域并发组同批)。
@@ -472,6 +472,24 @@ jobs:
           # ④ 决策(规则①③在此)
           DEC=$(python3 "$D/gen/train_scheduler.py" --sqlite-data-version "$SQLITE_DV" --corpus-data-version "$CORPUS_DV" --state /tmp/state.json | tail -1)
           echo "decision=$DEC"
+          # 停滞告警(2026-10-09 审计席 B):running 且 state 超 2 窗(16h)未更新=
+          # 疑似"红 run 静默循环/ckpt 三连败"烧窗;仅告警不改裁决。
+          STALL=$(python3 -c "
+          import json, datetime, sys
+          try:
+              s = json.load(open('/tmp/state.json'))
+          except Exception:
+              sys.exit(0)
+          if s.get('status') != 'running':
+              sys.exit(0)
+          try:
+              u = datetime.datetime.strptime(s['updated_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
+          except Exception:
+              sys.exit(0)
+          age = (datetime.datetime.now(datetime.timezone.utc) - u).total_seconds() / 3600.0
+          print('%.1f' % age if age > 16 else '')
+          " 2>/dev/null || true)
+          if [ -n "$STALL" ]; then echo "::warning::训练链停滞告警:state ${STALL}h 未更新(>2 窗)——检查 ckpt 回传/红 run 证据"; fi
           case "$DEC" in
             start|continue) gh workflow run llm.yml --ref "$REF" -f task=train-encoder; echo "已派 train-encoder" ;;
             rebuild-corpus) gh workflow run llm.yml --ref "$REF" -f task=llm-pipeline; echo "sqlite 已更新但语料落后——先派语料管线" ;;

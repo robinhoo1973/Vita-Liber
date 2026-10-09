@@ -77,5 +77,45 @@ class ManifestTests(unittest.TestCase):
             verify_manifest(tmp / "manifest.json", corpus)
 
 
+    def test_class_entry_without_attribution_rejected(self):
+        # H5 泛化:凡带 class 的来源(免署名类除外)attribution 必填
+        tmp = Path(tempfile.mkdtemp())
+        corpus = tmp / "corpus.jsonl"
+        corpus.write_text('{"id":"x"}\n', encoding="utf-8")
+        manifest = build_manifest(
+            corpus_path=corpus, catalog_data_version="v1", catalog_source="test",
+            noise_model={}, pinyin_available=False, pinyin_reason=None,
+            split_rule={}, counts={},
+            licenses={"TFDA": {"attribution": "OGDL v1 顯名"},
+                      "NHSA": {"class": "cn-gov-public-doc"}},   # 缺 attribution
+        )
+        write_manifest(tmp / "manifest.json", manifest)
+        with self.assertRaises(ValueError):
+            verify_manifest(tmp / "manifest.json", corpus)
+
+    def test_cc0_class_without_attribution_accepted(self):
+        tmp = Path(tempfile.mkdtemp())
+        corpus = tmp / "corpus.jsonl"
+        corpus.write_text('{"id":"x"}\n', encoding="utf-8")
+        manifest = build_manifest(
+            corpus_path=corpus, catalog_data_version="v1", catalog_source="test",
+            noise_model={}, pinyin_available=False, pinyin_reason=None,
+            split_rule={}, counts={},
+            licenses={"TFDA": {"attribution": "OGDL v1 顯名"},
+                      "Wikidata": {"class": "cc0"}},
+        )
+        write_manifest(tmp / "manifest.json", manifest)
+        verify_manifest(tmp / "manifest.json", corpus)  # 不抛即通过
+
+    def test_licenses_from_policy_reads_matrix(self):
+        # CI 布局(有 policy.json)下,helper 应返回矩阵登记的来源
+        from corpus.manifest import licenses_from_policy
+        out = licenses_from_policy(["TFDA", "PyCorrector"])
+        self.assertEqual(out["TFDA"]["class"], "tw-ogdl-v1")
+        self.assertTrue(out["PyCorrector"]["attribution"])
+        with self.assertRaises(ValueError):
+            licenses_from_policy(["NotRegisteredSource"])
+
+
 if __name__ == "__main__":
     unittest.main()

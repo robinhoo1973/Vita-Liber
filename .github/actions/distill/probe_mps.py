@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""MPS 探测段(计划文档 §7.4 第 8 条):真分配 + matmul 对拍 + 架构检查。
+"""MPS 探测(计划文档 §7.4 第 8 条):真分配 + matmul 对拍 + 架构检查。
 
-不信任 torch.backends.mps.is_available()——actions/runner-images#9918 官方确认
-托管 macOS runner 的 MPS 可用性是**假阳性**(分配 256B 即崩,Apple 虚拟化框架
-不向 guest 暴露 GPU)。本探测用真实分配与数值对拍裁决。
+不信任 torch.backends.mps.is_available();本探测用真实分配与数值对拍裁决。
+**状态(2026-10-08)**:托管 macos-15-arm64 镜像上实测 5/5 通过(真可用;
+2024 期 runner-images#9918 的"假阳性"结论在本镜像不复现)。但 CI MPS 腿已
+退役(业主裁定):probe 通过≠吞吐可用——100 步标定 5 次全为人工取消、0 次
+超时、最长 57m56s 未完,步均 ≥34.8s/step 下界 vs ubuntu CPU 实测 median
+7.62s/step。本件登记为 **M4 本地执行面备用仪器(CI 零调用)**;
+requirements-distill-train-macos.txt 同此登记。
 
-输出:机器可读行 `MPS_USABLE=yes|no <reason>`(workflow 读取决定训练落点)+ JSON。
+输出:机器可读行 `MPS_USABLE=yes|no <reason>`(手动仪器使用)+ JSON。
 退出码恒为 0(探测结果是数据,不是失败)。
 """
 from __future__ import annotations

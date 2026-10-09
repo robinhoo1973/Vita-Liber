@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "policy_version": "1.0.0",
+  "_comment": "distill 判据单一事实源(2026-10-08 round5 决议):阈值/混比/开关冻结于此,运行期不可改;变更=PR 可审计。provisional=true 的字段为预承诺值,首测后一行确认。",
+  "corpus": {
+    "counts": {
+      "sft": 27000,
+      "pretrain": 40000,
+      "dialogue": 4000
+    },
+    "entlinkMaxSamples": {
+      "drug": 200000,
+      "hospital": 80000,
+      "diagnosis": 60000,
+      "exam": 30000
+    },
+    "entlinkBuild": {
+      "maxTermsPerEntity": 3,
+      "excludeDomains": "department"
+    },
+    "seed": 20261007,
+    "deferredKinds": {
+      "hospitalization": "prompt 2187 tokens > --budget 2000(整类零样本;解冻条件=prompt 瘦身或 SFT seq 提升)",
+      "surgery": "prompt 2137 tokens > --budget 2000(同上)"
+    },
+    "requiredKinds": [
+      "prescription",
+      "medication",
+      "encounter",
+      "metric_sample",
+      "diagnosis",
+      "exam_report",
+      "claim_item",
+      "health_exam",
+      "clinical_conclusion",
+      "treatment_record",
+      "immunization"
+    ],
+    "requiredKinds_comment": "声明式网格(X2):deferredKinds 之外必须每类有 kind 级 eval 单元;与 REGISTRY 的一致性由测试断言"
+  },
+  "gates": {
+    "entlink": {
+      "minAcceptsPerBandDomain": 50,
+      "recallAt1Min": 0.85,
+      "recallAt1Min_provisional": true,
+      "recallAt10MinPerBand": 0.98,
+      "recallAt10MinPerBand_provisional": true,
+      "precisionMin": 0.98,
+      "precisionMin_provisional": true,
+      "top3Min": 0.9,
+      "top3Min_provisional": true,
+      "hardZero": {
+        "overridable": false
+      }
+    },
+    "extraction": {
+      "partialCredit": 0.5,
+      "evalPerCell": 60,
+      "tau": 0.03,
+      "tau_provisional": true,
+      "minSamplesPerCell": 50,
+      "worstCellRule": "min_of_cells",
+      "hardZero": {
+        "br003": 0,
+        "jsonInvalid": 0,
+        "nonVerbatim": 0,
+        "negativeRow": 0,
+        "grammarChar": 0,
+        "overridable": false
+      },
+      "evalQuotaUnit": "kind",
+      "evalQuotaUnit_provisional": true
+    },
+    "calibrate": {
+      "mpsFallback": "cpu",
+      "lossRelTolerance": 0.05
+    }
+  },
+  "noise": {
+    "version": "2.1",
+    "_bandComment": "字级 CER 目标(校准对象=4-8 字 span);alpha 席终案,现实锚定:OCR 手机翻拍 3-13.5%/ASR 9-16%",
+    "bandTargets": {
+      "clean": 0.0,
+      "light": 0.02,
+      "medium": 0.05,
+      "heavy": 0.1,
+      "extreme": 0.18
+    },
+    "spanDamageTargets": {
+      "clean": 0.0,
+      "light": 0.11,
+      "medium": 0.26,
+      "heavy": 0.47,
+      "extreme": 0.7
+    },
+    "spanDamageTolerance": {
+      "clean": 0.0,
+      "light": 0.03,
+      "medium": 0.04,
+      "heavy": 0.05,
+      "extreme": 0.05
+    },
+    "spanDamageMinSpans": 1000,
+    "trainMix": {
+      "clean": 0.15,
+      "light": 0.3,
+      "medium": 0.3,
+      "heavy": 0.17,
+      "extreme": 0.08
+    },
+    "labelPreservingCerMax": 0.2,
+    "generators": {
+      "positionSampler": "textnoisr(BSD-2)",
+      "confusionSource": "unihan-pycorrector",
+      "optional": "scrambledtext(MIT,自举对照轨)"
+    },
+    "version_comment": "2.1=长度补偿 L_eff=max(len,7)(2026-10-08:R0 首测 0.73× → 锚 6 实测 → 锚 7 反推落点 0.112/0.266/0.485/0.707 全入容差)"
+  },
+  "training": {
+    "_comment": "CPU 分块训练链(2026-10-09 无私仓/无 GPU;公开仓 ubuntu 4vCPU/6h job)。chain_chain 状态机三重闸:失败即停/maxChunks/零进度;产物=Release llama-models(draft,autoPromote=false)。",
+    "chunkMinutes": 350,
+    "chainEnabled": true,
+    "maxChunks": {
+      "train-encoder": 8,
+      "train-sft": 40
+    },
+    "encoder": {
+      "steps": 940,
+      "batch": 64,
+      "seq": 128,
+      "lr": 2e-05
+    },
+    "sft": {
+      "epochs": 1,
+      "batch": 2,
+      "seq": 2048,
+      "lr": 2e-05,
+      "fallback26M": {
+        "enabled": true,
+        "minTokensPerSecond": 150,
+        "provisional": true,
+        "why": "首 chunk 探针实测吞吐<阈值即切 26M 底座(质量/墙钟再裁决)"
+      }
+    },
+    "changeRequires": "owner",
+    "cpuTuning": {
+      "_comment": "研究席 2026-10-09:IPEX 已归档弃;bf16 无硬件慢 3-4x(闸=探测);compile 训练仅 +11.7%(冷启贵,regional+cache 后才评);fused AdamW/分桶/线程=白捡三件套",
+      "ompThreads": 4,
+      "fusedAdamW": true,
+      "bucketing": "sft-only",
+      "bf16": "probe-gated",
+      "compile": "deferred"
+    },
+    "schedule": {
+      "_comment": "业主四规则 2026-10-09:②窗口=maintenance cron '0 0,8,16'(训练 run 自身开销实测口径:checkout+pip+fetch+wrap≈10-15min,8h 窗余量充裕——前提=管线 job 不随跑,guard 已改正值);④workMinutes=335+wrap≈20min,timeout=359,GitHub 6h 硬顶内用满",
+      "windowsUtc": [
+        0,
+        8,
+        16
+      ],
+      "workMinutes": 335,
+      "maxJobMinutes": 359,
+      "skipIfDataUnchanged": true
+    }
+  },
+  "publish": {
+    "dialogue": {
+      "publish": false,
+      "provisional": true,
+      "reviewDue": "2026-12-31",
+      "changeRequires": "owner"
+    }
+  },
+  "licenses": {
+    "_comment": "数据源许可准入矩阵(H5 合规席 2026-10-08):新来源必须先落此矩阵;redistribution=prohibited 的许可类不得进入任何语料面(含 manifest 登记);attribution_required=true 的来源在 manifest.licenses 必带 attribution(fail-closed,先例=TFDA OGDL 顯名)。",
+    "admission": {
+      "cn-gov-public-doc": {
+        "attribution_required": true,
+        "redistribution": "ok",
+        "basis": "著作权法第5条(行政文件)+来源标注纪律"
+      },
+      "tw-ogdl-v1": {
+        "attribution_required": true,
+        "redistribution": "ok",
+        "basis": "政府資料開放授權條款第1版(顯名未盡=自始未取得授權)"
+      },
+      "hk-data-gov-hk": {
+        "attribution_required": true,
+        "redistribution": "ok",
+        "basis": "data.gov.hk 条款:署名+权利承认+赔偿承诺"
+      },
+      "apache-2.0": {
+        "attribution_required": true,
+        "redistribution": "ok",
+        "basis": "Apache-2.0 §4(c) 保留声明"
+      },
+      "unicode-v3": {
+        "attribution_required": true,
+        "redistribution": "ok",
+        "basis": "UNICODE LICENSE V3:随附声明"
+      },
+      "us-gov-pd": {
+        "attribution_required": true,
+        "redistribution": "ok",
+        "basis": "17 U.S.C. §105 + CDC 四项告知(来源/非背书/不改实质/可免费获取)"
+      },
+      "cc0": {
+        "attribution_required": false,
+        "redistribution": "ok",
+        "basis": "CC0 1.0(Wikidata);第三方溯源需逐条核对"
+      },
+      "public-domain": {
+        "attribution_required": false,
+        "redistribution": "ok",
+        "basis": "古籍/公有领域(百家姓)"
+      },
+      "who-cc-by-nd": {
+        "attribution_required": true,
+        "redistribution": "prohibited",
+        "basis": "ICD-10/11 ND+映射须书面协议——弃用"
+      },
+      "cc-by-sa": {
+        "attribution_required": true,
+        "redistribution": "prohibited",
+        "basis": "SA 传染+append-only 无逐条撤回通道——语料面弃用"
+      },
+      "odbl": {
+        "attribution_required": true,
+        "redistribution": "prohibited",
+        "basis": "ODbL 实质提取传染——弃用"
+      },
+      "cc-by-nc": {
+        "attribution_required": true,
+        "redistribution": "prohibited",
+        "basis": "NC 与永久免费产品形态及再分发冲突——弃用"
+      },
+      "unknown": {
+        "attribution_required": true,
+        "redistribution": "prohibited",
+        "basis": "许可不明不得依赖"
+      }
+    },
+    "sources": {
+      "TFDA": {
+        "class": "tw-ogdl-v1",
+        "attribution": "藥品許可證資料集(OGDL v1 顯名聲明,三語)"
+      },
+      "NHSA": {
+        "class": "cn-gov-public-doc",
+        "attribution": "国家医保局公开目录(来源标注随 manifest;频控纪律见 lexicon-data-sources.md §2)"
+      },
+      "HK": {
+        "class": "hk-data-gov-hk",
+        "attribution": "data.gov.hk / HA 公開數據(署名+权利承认)"
+      },
+      "CN-REF": {
+        "class": "cn-gov-public-doc",
+        "attribution": "国家卫健委/医保局公开目录(来源标注随 manifest)"
+      },
+      "PyCorrector": {
+        "class": "apache-2.0",
+        "attribution": "pycorrector 混淆表 v1.1.4(Apache-2.0;extract/tables/PROVENANCE.md)"
+      }
+    },
+    "changeRequires": "owner"
+  },
+  "weights": {
+    "modelId": "medical-llm-64m-q4-k-m",
+    "autoPromote": false,
+    "channel": "cnb:robinhoo1973/Resources#llama-models"
+  }
+}
