@@ -3,6 +3,7 @@
 覆盖:pick 取最新/无匹配即抛/正则锚定、upload 幂等 skip、latest_run_asset 空集返回 False、
 CLI pick 写入格式。真网络往返由 CI 训练任务首跑实证(不进单测)。
 """
+import json
 import os
 import sys
 import unittest
@@ -63,6 +64,33 @@ class ReleaseIoTests(unittest.TestCase):
             self.assertEqual(calls, [])   # 幂等:未触任何命令
         finally:
             release_io.list_assets, release_io.ensure_draft, release_io._run = orig_la, orig_draft, orig_run
+
+    def test_list_assets_uses_releases_list_draft_visible(self):
+        # 2026-10-09 实证:by-tag REST 对 draft 404;列表路径可见。锁死读取通道。
+        calls = []
+        rel = {"tag_name": "llama-models",
+               "assets": [{"name": "train-state-x.json", "created_at": "t", "size": 1}]}
+        orig = release_io._run
+        release_io._run = lambda cmd, **kw: calls.append(cmd) or _ok(
+            stdout=json.dumps([{"tag_name": "distill-corpus", "assets": []}, rel]))
+        try:
+            assets = release_io.list_assets("llama-models")
+        finally:
+            release_io._run = orig
+        self.assertEqual(assets, rel["assets"])
+        self.assertIn("releases?per_page=100", calls[0][2])
+        self.assertNotIn("releases/tags/", calls[0][2], "禁止回退 by-tag 路径(draft 404)")
+
+    def test_fetch_asset_missing_optional_skip(self):
+        orig = release_io.list_assets
+        release_io.list_assets = lambda rel: []
+        try:
+            ok = release_io.fetch_asset("llama-models", "nope", Path("/tmp"), optional=True)
+            self.assertFalse(ok)
+            with self.assertRaises(SystemExit):
+                release_io.fetch_asset("llama-models", "nope", Path("/tmp"))
+        finally:
+            release_io.list_assets = orig
 
     def test_latest_run_asset_empty(self):
         orig = release_io._run

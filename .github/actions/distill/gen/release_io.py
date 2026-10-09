@@ -41,10 +41,22 @@ def _token() -> str:
 
 
 def list_assets(release: str) -> list[dict]:
-    r = _run(["gh", "api", f"repos/{repo()}/releases/tags/{release}"])
+    """按 tag 列资产(含 draft)。2026-10-09 实证：by-tag REST 对 **draft** release
+    返回 404（llama-models 训练草稿链,`repos/.../releases/tags/llama-models` 404
+    而 releases 列表可见）——旧实现致恒空：exists 失明、--replace 删不掉旧同名
+    （同名二传 422 翻红）、fetch-ckpt 永不续训。改走 releases 列表过滤（草稿对
+    push-access 令牌可见）；repo 级 releases 数远低于 100,单页足够。"""
+    r = _run(["gh", "api", f"repos/{repo()}/releases?per_page=100"])
     if r.returncode != 0:
         return []
-    return json.loads(r.stdout).get("assets") or []
+    try:
+        releases = json.loads(r.stdout)
+    except ValueError:
+        return []
+    for rel in releases:
+        if rel.get("tag_name") == release:
+            return rel.get("assets") or []
+    return []
 
 
 def pick(release: str, pattern: str) -> dict:
@@ -57,12 +69,29 @@ def pick(release: str, pattern: str) -> dict:
 
 
 def fetch_asset(release: str, name: str, out_dir: Path, optional: bool = False) -> bool:
-    r = _run(["gh", "release", "download", release, "-R", repo(), "-p", name, "-D", str(out_dir)])
-    if r.returncode != 0:
+    """按资产 id 直取(gh api Accept: octet-stream)。2026-10-09 起不走
+    `gh release download`:draft 可见性未知(draft 上 by-tag 404 已实证),
+    资产 id 由 list_assets(列表路径,draft 可见)解析,确定性最高。"""
+    assets = [a for a in list_assets(release) if a.get("name") == name]
+    if not assets:
         if optional:
             print(f"skip(optional): {name}")
             return False
-        raise SystemExit(f"下载失败 {release}/{name}: {r.stderr.strip()}")
+        raise SystemExit(f"下载失败 {release}/{name}: release 列表中不存在该资产")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dest = out_dir / name
+    with open(dest, "wb") as fh:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{repo()}/releases/assets/{assets[0]['id']}",
+             "-H", "Accept: application/octet-stream"],
+            stdout=fh, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        dest.unlink(missing_ok=True)
+        if optional:
+            print(f"skip(optional): {name}")
+            return False
+        raise SystemExit(f"下载失败 {release}/{name}: {r.stderr.decode(errors='replace').strip()}")
     return True
 
 
