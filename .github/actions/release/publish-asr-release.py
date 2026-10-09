@@ -67,6 +67,29 @@ def remote_catalog_name(cnb_assets):
     return "manifest.json" if any((a.get("name") or "") == "manifest.json" for a in cnb_assets) else None
 
 
+def load_release_notes(path):
+    """⑨ release-notes.json → {locale: 文本};缺失/不齐/损坏 = None（确定性回落,仅告警）。
+
+    发布页正文是展示面（可 PATCH 刷新）,此处 fail-open;数据面（签名/资产）
+    与文案无关,绝不受其影响。"""
+    if path is None:
+        return None
+    try:
+        doc = json.loads(Path(path).read_bytes())
+    except (OSError, ValueError) as error:
+        print("::warning::--notes 读取失败,回落确定性动态段: %s" % error,
+              file=sys.stderr)
+        return None
+    locales = doc.get("locale") or {}
+    if all(isinstance(locales.get(locale), str) and locales[locale].strip()
+           for locale in ("zh-Hans", "zh-Hant", "en")):
+        print("release-notes: %s（cacheKey=%s）"
+              % (doc.get("suggestedBy") or "llm", doc.get("cacheKey")), flush=True)
+        return {locale: locales[locale] for locale in ("zh-Hans", "zh-Hant", "en")}
+    print("::warning::--notes 三语不全,回落确定性动态段", file=sys.stderr)
+    return None
+
+
 def check_remote_catalog_chain(client, args, catalog, remote_assets=None):
     """Reject rollback/equivocation against the remote fixed-name index.json.
 
@@ -199,9 +222,12 @@ def publish(args, client):
     # 失败仅告警:页面正文是展示面,绝不阻塞数据发布(与医疗纪律同构)。
     try:
         _, permanent_body = release_notes_for_tag(TAG)
-        page_body = render_release_body(permanent_body, catalog, previous_payload)
+        notes = load_release_notes(getattr(args, "notes", None))
+        page_body = render_release_body(permanent_body, catalog, previous_payload,
+                                        notes=notes)
         client.update_release_body(TAG, page_body)
-        print("发布页正文已刷新", flush=True)
+        print("发布页正文已刷新（本次更新=%s）"
+              % ("LLM 草拟" if notes else "确定性"), flush=True)
     except (CNBReleaseError, ValueError, OSError, KeyError, TypeError) as error:
         print("::warning::发布页正文刷新失败(不阻塞发布): " + str(error), file=sys.stderr)
     # README 同步触发(业主 2026-10-07 方案 B:发布器 → api_trigger → CNB 管线)。
@@ -259,6 +285,8 @@ def main():
     parser.add_argument("--root-store", type=Path,
                         help="版本化根目录(N.root.json 所在;默认=catalog 同目录)")
     parser.add_argument("--catalog", type=Path)
+    parser.add_argument("--notes", type=Path, default=None,
+                        help="release-notes.json（⑨ 草拟产物;三语;缺失/不齐=确定性动态段回落）")
     parser.add_argument("--repository")
     args = parser.parse_args()
     try:

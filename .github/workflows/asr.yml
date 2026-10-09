@@ -639,8 +639,74 @@ jobs:
 
 
 
+  release-text:
+    name: ⑨ 发布文案草拟（索引 → 三语「本次更新」;lint 闸;非阻塞）
+    needs: [build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.13.5'
+
+      - name: 安装公开校验工具依赖（哈希钉版,L0 检查 e 契约:跑 release 测试面须装）
+        run: python3 -m pip install --disable-pip-version-check --require-hashes -r .github/config/requirements/requirements-model-tools.txt
+
+      - name: 下载构建索引（artifact:asr-index;facts 来源）
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: ${{ needs.build.outputs.index_artifact }}
+          path: ${{ runner.temp }}/asr-index
+
+      - name: 恢复草拟缓存（内容寻址;跨 run 复用,降免费档配额消耗）
+        uses: actions/cache@8b402f58fbc84540c8b491a91e594a4576fec3d7   # v5.0.2（node24 运行时；固定完整 SHA）
+        with:
+          path: ~/.cache/vitaliber-release-text
+          key: asr-release-text-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            asr-release-text-v1-${{ runner.os }}-
+
+      - name: 离线冒烟（草拟器纯函数面）
+        run: |
+          python3 .github/actions/release/test-llm-client.py
+          python3 .github/actions/release/test-draft-release-text.py
+
+      # 发布文案（业主 2026-10-09 指令）：LLM 草拟「本次更新」三语;lint 全过才
+      # 产出 release-notes.json（⑪ 发布页消费）;任何失败=缺失,⑪ 确定性回落,
+      # 绝不阻塞发布（展示面纪律,与发布页正文同构）。
+      - name: 发布文案草拟（智谱 GLM-4.7-Flash → release-notes.json）
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          set -euo pipefail
+          if ! python3 .github/actions/release/draft-release-text.py \
+              --mode release-notes \
+              --from-index "$RUNNER_TEMP/asr-index/index.json" \
+              --repository "${{ vars.CNB_RESOURCE_REPOSITORY }}" \
+              --out "$RUNNER_TEMP/asr-release-notes" \
+              --endpoint "https://open.bigmodel.cn/api/paas/v4" \
+              --model "glm-4.7-flash" \
+              --api-key-env LLM_API_KEY \
+              --temperature 0.2; then
+            echo "::warning::发布文案草拟失败/降级（展示面,不阻塞;⑪ 用确定性动态段）"
+          fi
+          ls -la "$RUNNER_TEMP/asr-release-notes" 2>/dev/null || true
+
+      - name: 上传文案与台账（artifact:asr-release-notes）
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
+        with:
+          name: asr-release-notes
+          path: ${{ runner.temp }}/asr-release-notes
+          retention-days: 7
+          if-no-files-found: warn
+
+
   sign:
-    name: ⑨ 签名目录与验签核对（→ metadata artifact）
+    name: ⑩ 签名目录与验签核对（→ metadata artifact）
     needs: [build]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -706,8 +772,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: ⑩ CNB 发布（下载 artifact·回读核对）
-    needs: [build, sign]
+    name: ⑪ CNB 发布（下载 artifact·回读核对）
+    needs: [build, sign, release-text]
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -739,6 +805,13 @@ jobs:
           name: ${{ needs.sign.outputs.metadata_artifact }}
           path: ${{ runner.temp }}/asr-meta
 
+      - name: 下载发布文案（artifact:asr-release-notes;缺失=确定性动态段回落）
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333   # v8.0.2（node24 运行时；2026-10-09 弃用 Node20 清理）
+        with:
+          name: asr-release-notes
+          path: ${{ runner.temp }}/asr-release-notes
+
       - name: 合并签名目录进发布目录
         run: cp "$RUNNER_TEMP/asr-meta/manifest.json" "$RUNNER_TEMP/asr-packages/manifest.json"
 
@@ -755,6 +828,7 @@ jobs:
           for attempt in 1 2 3; do
             if python3 .github/actions/release/publish-asr-release.py publish \
                 --index "$RUNNER_TEMP/asr-packages/index.json" \
+                --notes "$RUNNER_TEMP/asr-release-notes/release-notes.json" \
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \
                 --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \
@@ -772,15 +846,15 @@ jobs:
 
 
   # ═══════════════════════════════════════════════════════════════
-  # ⑪⑫ 验收面（2026-10-08 业主指令 + 2026-10-09 生成链入流）：
-  #   ⑪ 复现验收——断言 + 全景表（深探报告 × 蒸馏终稿）。零密钥消费、
+  # ⑫⑬ 验收面（2026-10-08 业主指令 + 2026-10-09 生成链入流）：
+  #   ⑫ 复现验收——断言 + 全景表（深探报告 × 蒸馏终稿）。零密钥消费、
   #      零 CNB 写；全事件运行（push/dispatch/call）。
   #      闭环判据：inventory 全数在册、缺候选 0、未知 0、probe 零 mismatch、
   #      终稿无 REVIEW/variant=null。
-  #   ⑫ 非 hf-repo 字节补测——以蒸馏终稿（将被发布物）为对象逐字节复现。
+  #   ⑬ 非 hf-repo 字节补测——以蒸馏终稿（将被发布物）为对象逐字节复现。
   # ═══════════════════════════════════════════════════════════════
   verify:
-    name: ⑪ 复现断言与全景（深探报告 × 蒸馏终稿）
+    name: ⑫ 复现断言与全景（深探报告 × 蒸馏终稿）
     needs: [distill]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -945,7 +1019,7 @@ jobs:
       # api.github.com）。无家族硬编码——新家族进 config 即自动纳入。
 
   archive-check:
-    name: ⑫ 非 hf-repo 字节补测（蒸馏终稿 archive 面）
+    name: ⑬ 非 hf-repo 字节补测（蒸馏终稿 archive 面）
     needs: [distill]
     runs-on: ubuntu-24.04
     timeout-minutes: 30

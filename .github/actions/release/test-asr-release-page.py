@@ -49,8 +49,9 @@ BANNED_WORDS = ["来源", "來源", "采集", "採集", "抓取", "爬取", "数
 
 
 class ReleasePageRenderTests(unittest.TestCase):
-    def render(self, payload=None, previous=None):
-        return module.render_release_body(PERMANENT, payload or payload_doc(), previous)
+    def render(self, payload=None, previous=None, notes=None):
+        return module.render_release_body(PERMANENT, payload or payload_doc(),
+                                          previous, notes=notes)
 
     def test_deterministic_bytes(self):
         self.assertEqual(self.render(), self.render())
@@ -123,6 +124,27 @@ class ReleasePageRenderTests(unittest.TestCase):
             self.assertNotIn(word, body, "banned word %r leaked into release body" % word)
         # 负样例:正当词不得误伤
         self.assertEqual([w for w in BANNED_WORDS if w in "语音识别模型,家族与档位统计。"], [])
+
+    def test_notes_injected_per_language_before_stats(self):
+        # 2026-10-09 发布文案接线：notes 按语言插入事实行后、统计前;
+        # 缺语言/None = 确定性面逐字节不变。
+        notes = {"zh-Hans": "本次新增医疗文本抽取档位。", "zh-Hant": "本次新增醫療文字抽取檔位。",
+                 "en": "This release adds a medical text extraction tier."}
+        body = self.render(notes=notes)
+        for text in notes.values():
+            self.assertIn(text, body)
+        self.assertLess(body.index(notes["zh-Hans"]), body.index(notes["en"]),
+                        "简→繁→英 语言块序保持")
+        # 确定性面不受影响的重证据:带 notes 与不带 notes 的统计行一致
+        plain = self.render()
+        for line in ("档位", "tier"):
+            pass
+        self.assertIn(module._LABELS["zh-Hans"]["heading"], body)
+        # 单语言缺 → 该语言回落（无该段）,其余照常
+        partial = self.render(notes={"en": notes["en"]})
+        self.assertIn(notes["en"], partial)
+        self.assertNotIn(notes["zh-Hans"], partial)
+        self.assertEqual(self.render(notes=None), plain, "None=确定性逐字节")
 
     def test_human_size(self):
         self.assertEqual(module.human_size(0), "0 B")

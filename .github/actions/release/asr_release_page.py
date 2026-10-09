@@ -166,8 +166,11 @@ def _delta_line(language, previous, payload, families):
     return prefix + labels["join"].join(parts) + labels["end"]
 
 
-def render_release_body(permanent_body, payload, previous_payload=None):
-    """永久头 + 动态段（简 → 繁 → 英），确定性输出（同输入=同字节）。"""
+def render_release_body(permanent_body, payload, previous_payload=None, notes=None):
+    """永久头 + 动态段（简 → 繁 → 英），确定性输出（同输入=同字节）。
+
+    notes（{locale: 文本},可选,2026-10-09 发布文案接线）:LLM 草拟的「本次更新」
+    散文段——插在各语言版本事实行之后、统计之前;None/缺该语言 = 确定性面不变。"""
     families, models = _family_index(payload)
     index = (payload or {}).get("index") or {}
     parts = [permanent_body.strip("\n"), "", SECTION_HEADING, ""]
@@ -183,6 +186,10 @@ def render_release_body(permanent_body, payload, previous_payload=None):
         issued = (payload.get("issuedAt") or "").strip()
         if issued:
             parts.append("- " + labels["issued_line"] % issued)
+        prose = (notes or {}).get(language)
+        if isinstance(prose, str) and prose.strip():
+            parts.append("")
+            parts.append(prose.strip())
         parts.append("")
         parts.extend(_render_stats(language, families, models))
         delta = _delta_line(language, previous_payload, payload, families)

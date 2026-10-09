@@ -12,14 +12,18 @@ facts JSON（只允许公开内容）：
 
 输出（**只写 --out 目录**；绝不触碰权威模板 cnb-release-notes/*.md 与
 readme-sync sections.json——采纳 = 人工誊写）：
-  release-notes.suggested.md / readme-block.suggested.json
-  meta.json（suggestedBy/factsSha256/cacheKey/cached）
+  release-notes.suggested.md（人读合并稿）/ release-notes.json（机器面:三语
+  原文 + provenance;发布页 ⑨→⑪ 接线用,lint 全过才产出）
+  readme-block.suggested.json / meta.json（suggestedBy/factsSha256/cacheKey）
   errors.json（失败/负清单拒绝台账）
 
+facts 来源二选一：`--facts <facts.json>` 或 `--from-index <index.json>`
+（构建索引自动构建 facts;对各类 CNB 发布器同面）。
+
 用法：
-  python3 draft-release-text.py --mode release-notes --facts facts.json --out /tmp/draft \
-      --endpoint https://open.bigmodel.cn/api/paas/v4 --model glm-4.7-flash \
-      --api-key-env LLM_API_KEY
+  python3 draft-release-text.py --mode release-notes --from-index index.json \
+      --out /tmp/draft --endpoint https://open.bigmodel.cn/api/paas/v4 \
+      --model glm-4.7-flash --api-key-env LLM_API_KEY
 """
 import argparse
 import hashlib
@@ -39,6 +43,7 @@ from llm_client import (  # noqa: E402
 
 LOCALES = ("zh-Hans", "zh-Hant", "en")
 SECTION_HEADING = "## 本次更新 / 本次資料更新 / This update"
+MAX_LOCALE_CHARS = 1600
 _LANG_HEADINGS = {"zh-Hans": "### 简体中文", "zh-Hant": "### 繁體中文",
                   "en": "### English"}
 
@@ -103,7 +108,9 @@ def _offending(text, banned):
 
 
 def draft_release_notes(facts, chat, cache_dir, model, temperature, banned):
-    """→ {"markdown", "cacheKey", "cached"} 或 {"error", "raw"?}。"""
+    """→ {"markdown", "doc", "cacheKey", "cached"} 或 {"error", "raw"?}。
+
+    doc=三语原文（供发布页消费:release-notes.json）;markdown=人读合并稿。"""
     prompt = build_release_notes_prompt(facts)
     try:
         output, key, cached = cached_chat(chat, cache_dir, prompt, model, temperature)
@@ -116,10 +123,33 @@ def draft_release_notes(facts, chat, cache_dir, model, temperature, banned):
         text = doc.get(locale)
         if not isinstance(text, str) or not text.strip():
             return {"error": "缺 %s 文案" % locale, "cacheKey": key}
+        if len(text) > MAX_LOCALE_CHARS:
+            return {"error": "%s 超长（%d > %d 字符）"
+                    % (locale, len(text), MAX_LOCALE_CHARS), "cacheKey": key}
         hit = _offending(text, banned)
         if hit:
             return {"error": "负清单命中 %r（%s）" % (hit, locale), "cacheKey": key}
-    return {"markdown": render_release_notes(doc), "cacheKey": key, "cached": cached}
+    return {"markdown": render_release_notes(doc), "doc": doc,
+            "cacheKey": key, "cached": cached}
+
+
+def facts_from_index(payload, *, tag="asr-models", repository=""):
+    """构建索引（build 产物 index.json）→ 公开事实 JSON（发布文案草拟输入）。
+
+    只含公开内容:档位/家族计数、目录版本三元组、资产名与字节。文件级细节
+    （路径/摘要）不进提示词。"""
+    models = payload.get("models") or []
+    assets = []
+    for model in models:
+        name = "%s%s" % (model.get("id") or "?",
+                         ("-" + model["variant"]) if model.get("variant") else "")
+        assets.append({"name": name, "size": int(model.get("bytes") or 0)})
+    families = sorted({m.get("id") for m in models if m.get("id")})
+    extra = ("catalogVersion=%s rootVersion=%s; 家族 %d; 档位 %d; 三语产品文案"
+             % (payload.get("catalogVersion"), payload.get("rootVersion"),
+                len(families), len(models)))
+    return {"tag": tag, "repository": repository, "assets": assets,
+            "extraFacts": extra}
 
 
 def draft_readme_block(facts, chat, cache_dir, model, temperature, banned):
@@ -159,7 +189,11 @@ def draft_readme_block(facts, chat, cache_dir, model, temperature, banned):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("release-notes", "readme-block"), required=True)
-    parser.add_argument("--facts", type=Path, required=True, help="公开事实 JSON")
+    parser.add_argument("--facts", type=Path, default=None, help="公开事实 JSON")
+    parser.add_argument("--from-index", type=Path, default=None,
+                        help="构建索引 index.json（自动构建 facts;与 --facts 二选一）")
+    parser.add_argument("--repository", default="", help="--from-index 的 repository 元字段")
+    parser.add_argument("--tag", default="asr-models", help="--from-index 的 tag 元字段")
     parser.add_argument("--out", type=Path, required=True, help="草稿输出目录（只写这里）")
     parser.add_argument("--endpoint", default="http://127.0.0.1:8080/v1",
                         help="OpenAI 兼容端点（缺省本机 llama-server）")
@@ -169,9 +203,16 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--cache", type=Path, default=default_cache_dir("release-text"))
     args = parser.parse_args()
+    if (args.facts is None) == (args.from_index is None):
+        parser.error("--facts 与 --from-index 必须二选一")
 
-    facts_bytes = args.facts.read_bytes()
-    facts = json.loads(facts_bytes)
+    if args.from_index is not None:
+        facts_bytes = args.from_index.read_bytes()
+        facts = facts_from_index(json.loads(facts_bytes), tag=args.tag,
+                                 repository=args.repository)
+    else:
+        facts_bytes = args.facts.read_bytes()
+        facts = json.loads(facts_bytes)
     banned = load_banned_re()
     chat = make_chat(args.endpoint, args.model,
                      api_key_env=args.api_key_env, temperature=args.temperature)
@@ -191,6 +232,14 @@ def main():
                   else out / "readme-block.suggested.json")
         if args.mode == "release-notes":
             target.write_text(draft["markdown"], encoding="utf-8")
+            # 机器消费面（发布页 ⑨→⑪ 接线）:三语原文 + provenance;发布脚本
+            # 仅在 lint 全过时由本文件驱动动态段,缺失/不齐=确定性回落。
+            (out / "release-notes.json").write_bytes(json.dumps({
+                "formatVersion": 1,
+                "suggestedBy": "llm:%s@%s" % (args.endpoint, args.model),
+                "locale": draft["doc"],
+                "cacheKey": draft.get("cacheKey"), "cached": draft.get("cached"),
+            }, ensure_ascii=False, indent=2).encode() + b"\n")
         else:
             payload = {"formatVersion": 1,
                        "suggestedBy": "llm:%s@%s" % (args.endpoint, args.model),

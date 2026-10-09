@@ -51,6 +51,34 @@ class ReleaseNotesTests(unittest.TestCase):
             self.assertIn("负清单", result["error"])
             self.assertNotIn("markdown", result)
 
+    def test_doc_key_and_overlong_rejected(self):
+        banned = MODULE["load_banned_re"]()
+        chat = lambda prompt, *_: three_lang_doc()
+        with tempfile.TemporaryDirectory() as tmp:
+            result = MODULE["draft_release_notes"](FACTS, chat, tmp, "m", 0.2, banned)
+            self.assertEqual(set(result["doc"]), {"zh-Hans", "zh-Hant", "en"},
+                             "doc=三语原文（发布页消费面）")
+        long_chat = lambda prompt, *_: three_lang_doc(
+            **{"zh-Hans": "长" * (MODULE["MAX_LOCALE_CHARS"] + 1)})
+        with tempfile.TemporaryDirectory() as tmp:
+            result = MODULE["draft_release_notes"](FACTS, long_chat, tmp, "m", 0.2, banned)
+            self.assertIn("error", result)
+            self.assertIn("超长", result["error"])
+
+    def test_facts_from_index(self):
+        payload = {"catalogVersion": 11, "rootVersion": 3,
+                   "models": [{"id": "whisper", "variant": "tiny", "bytes": 100},
+                              {"id": "whisper", "variant": "base", "bytes": 200},
+                              {"id": "qwen3", "variant": None, "bytes": 300}]}
+        facts = MODULE["facts_from_index"](payload, tag="asr-models",
+                                           repository="robinhoo1973/Resources")
+        self.assertEqual(facts["tag"], "asr-models")
+        self.assertEqual([a["name"] for a in facts["assets"]],
+                         ["whisper-tiny", "whisper-base", "qwen3"])
+        self.assertIn("catalogVersion=11", facts["extraFacts"])
+        self.assertIn("家族 2", facts["extraFacts"])
+        self.assertIn("档位 3", facts["extraFacts"])
+
     def test_non_json_rejected(self):
         banned = MODULE["load_banned_re"]()
         chat = lambda prompt, *_: "I cannot help with that."
