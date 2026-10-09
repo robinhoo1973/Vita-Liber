@@ -11,6 +11,7 @@ import Perception
 struct ResourceManagementView: View {
     @Environment(AppState.self) private var app
     @Environment(ASRInstallCenter.self) private var installCenter
+    @Environment(LLMModelInstallCenter.self) private var llmModelInstallCenter
     @Environment(MedicalCatalogState.self) private var catalogState
 
     var body: some View {
@@ -291,18 +292,98 @@ struct ResourceManagementView: View {
     private var resourcesSection: some View {
         Section(L10n.resourceCatalogTitle) {
             catalogSection
+            // T2 本机 LLM 模型（2026-10-09 换型+下载化批：模型不随包、运行时自
+            // CNB 下载；「手动更新」= 目录版本 vs 已装版本比对——网络侧最新模型
+            // 发现需签名索引，登记为后续批）。
+            t2ModelRow
+        }
+    }
 
-            // T2 本地模型（随包内置，不可更新——诚实展示）
+    /// T2 模型行：状态 + 行内进度 + 动作（下载/更新/删除/重试/取消）。
+    /// 进度/阶段读独立观察域（`ProgressBox`）——不牵连本页其余行的重渲染。
+    private var t2ModelRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Label(L10n.resourceT2Row, systemImage: "brain")
                 Spacer()
-                Text(L10n.resourceBundled)
+                Text(t2StatusText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("SP-64.resource.t2")
+            if llmModelInstallCenter.state.isBusy {
+                if let fraction = llmModelInstallCenter.progress.fraction {
+                    ProgressView(value: fraction)
+                } else {
+                    ProgressView()
+                }
+                Text(L10n.llmModelKeepForeground)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            t2Actions
         }
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("SP-64.resource.t2")
+        .task { llmModelInstallCenter.refresh() }
+    }
+
+    @ViewBuilder
+    private var t2Actions: some View {
+        switch llmModelInstallCenter.state {
+        case .downloading, .verifying, .activating:
+            Button(L10n.llmModelCancel) { llmModelInstallCenter.cancel() }
+        case .installed:
+            if llmModelInstallCenter.updateAvailable {
+                Button(L10n.llmModelUpdate) { llmModelInstallCenter.startInstall() }
+                    .buttonStyle(.borderedProminent)
+            }
+            Button(L10n.llmModelRemove, role: .destructive) { llmModelInstallCenter.remove() }
+        case .failed:
+            Button(L10n.llmModelRetry) { llmModelInstallCenter.startInstall() }
+        case .notInstalled:
+            if llmModelInstallCenter.consentGranted {
+                Button(L10n.llmModelDownload) { llmModelInstallCenter.startInstall() }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                Button(L10n.llmModelConsentDownload) { llmModelInstallCenter.grantConsentAndInstall() }
+                    .buttonStyle(.borderedProminent)
+                Text(L10n.llmModelConsentHint(t2SizeText))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// 状态副行文案（诚实呈现：相位/版本/更新可用/失败原因）。
+    private var t2StatusText: String {
+        switch llmModelInstallCenter.state {
+        case .notInstalled:
+            return L10n.llmModelStatusNotInstalled(t2SizeText)
+        case .downloading:
+            return L10n.asrModelDownloading
+        case .verifying:
+            return L10n.llmModelPhaseVerifying
+        case .activating:
+            return L10n.llmModelPhaseActivating
+        case .installed:
+            let installed = llmModelInstallCenter.installedVersion ?? "?"
+            if llmModelInstallCenter.updateAvailable, let entry = llmModelInstallCenter.entry {
+                return L10n.llmModelStatusUpdate(installed, entry.version)
+            }
+            return L10n.llmModelStatusInstalled(installed)
+        case .failed(let kind):
+            switch kind {
+            case .verify: return L10n.llmModelFailedVerify
+            case .needSpace: return L10n.llmModelFailedSpace
+            case .network: return L10n.llmModelFailedNetwork
+            case .other: return L10n.llmModelFailedOther
+            }
+        }
+    }
+
+    private var t2SizeText: String {
+        let bytes = llmModelInstallCenter.entry?.bytes ?? llmModelInstallCenter.installedBytes
+        return ByteCountFormatter.string(fromByteCount: max(bytes, 0), countStyle: .file)
     }
 
     /// ASR 阶段文案（2026-09-28 键族归并：activeSection 展示的就是 ASR 安装，

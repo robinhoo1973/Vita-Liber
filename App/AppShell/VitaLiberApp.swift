@@ -34,6 +34,9 @@ struct VitaLiberApp: App {
     @State private var dataChangeCenter: AppDataChangeCenter
     /// 模型安装中心（2026-09-16）：下载进行态 App 级可观察（首页条目 + 设置页同源）。
     @State private var asrInstallCenter: ASRInstallCenter
+    /// T2 本机 LLM 模型安装中心（2026-10-09 换型+下载化批）：模型不随包、
+    /// 运行时自 CNB 下载——状态与生命周期同样上提 App 层。
+    @State private var llmModelInstallCenter: LLMModelInstallCenter
     @State private var backupState: BackupState
     @State private var medicalCatalogState: MedicalCatalogState
     @State private var updateAdviceState: UpdateAdviceState
@@ -135,6 +138,10 @@ struct VitaLiberApp: App {
         _dataChangeCenter = State(initialValue: dataChange)
         let installCenter = ASRInstallCenter(dataChange: dataChange)
         _asrInstallCenter = State(initialValue: installCenter)
+        // T2 本机 LLM 模型安装中心（2026-10-09 换型+下载化批）：与 ASR 中心同构
+        // （状态上提、进度分离观察域、完成广播）；首启语义 = 一次显式同意后自动补齐。
+        let llmInstallCenter = LLMModelInstallCenter(dataChange: dataChange)
+        _llmModelInstallCenter = State(initialValue: llmInstallCenter)
         // 统一更新中心批（2026-10-07）：ASR 检查状态机上提为 App 级（跨页存活 +
         // 供中心编排驱动）；安装互斥口径与提升前按钮禁用条件逐字同源
         // （暂停中的安装不参与——任务已退出、暂存保留）。
@@ -351,6 +358,10 @@ struct VitaLiberApp: App {
              .environment(medicalCatalogState)
              .environment(updateAdviceState)
              .environment(asrCheckState)
+             .environment(llmModelInstallCenter)
              .environment(updateCenterState)
+             // T2 模型自动补齐（2026-10-09 换型+下载化批）：幂等——仅在
+             // 「已一次显式同意 ∧ 未安装 ∧ 非低电量」时发起；未同意绝不联网。
+             .task { llmModelInstallCenter.autoInstallIfEligible() }
     }
 }

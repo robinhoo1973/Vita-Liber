@@ -83,6 +83,34 @@ extension L10n {
         String(format: t("settings.resource.progressBytesFmt"), received, total)
     }
 
+    // SP-64 T2 本机 LLM 模型行（2026-10-09 换型+下载化批）：下载/更新/删除/重试/
+    // 取消五动作 + 相位/版本/失败四态文案（首启=一次显式同意，之后自动续传）。
+    static var llmModelDownload: String { t("settings.resource.t2.download") }
+    static var llmModelConsentDownload: String { t("settings.resource.t2.consentDownload") }
+    static func llmModelConsentHint(_ size: String) -> String {
+        String(format: t("settings.resource.t2.consentHintFmt"), size)
+    }
+    static var llmModelUpdate: String { t("settings.resource.t2.update") }
+    static var llmModelRemove: String { t("settings.resource.t2.remove") }
+    static var llmModelRetry: String { t("settings.resource.t2.retry") }
+    static var llmModelCancel: String { t("settings.resource.t2.cancel") }
+    static var llmModelKeepForeground: String { t("settings.resource.t2.keepForeground") }
+    static var llmModelPhaseVerifying: String { t("settings.resource.t2.phaseVerifying") }
+    static var llmModelPhaseActivating: String { t("settings.resource.t2.phaseActivating") }
+    static var llmModelFailedVerify: String { t("settings.resource.t2.failedVerify") }
+    static var llmModelFailedSpace: String { t("settings.resource.t2.failedSpace") }
+    static var llmModelFailedNetwork: String { t("settings.resource.t2.failedNetwork") }
+    static var llmModelFailedOther: String { t("settings.resource.t2.failedOther") }
+    static func llmModelStatusInstalled(_ version: String) -> String {
+        String(format: t("settings.resource.t2.statusInstalledFmt"), version)
+    }
+    static func llmModelStatusUpdate(_ from: String, _ to: String) -> String {
+        String(format: t("settings.resource.t2.statusUpdateFmt"), from, to)
+    }
+    static func llmModelStatusNotInstalled(_ size: String) -> String {
+        String(format: t("settings.resource.t2.statusNotInstalledFmt"), size)
+    }
+
     // SP-64 医疗目录检查/更新（2026-09-27 B2-3）：本地与远端状态分离、检查→独立更新
     static var resourceCatalogLocalLabel: String { t("settings.resource.catalog.local") }
 

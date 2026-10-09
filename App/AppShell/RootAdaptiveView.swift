@@ -258,6 +258,8 @@ private struct PreviewRoot: View {
     private let dataChange = AppDataChangeCenter()
     /// 预览同构：安装中心与生产同源（页面 .environment(ASRInstallCenter.self) 依赖）。
     private let asrInstallCenter: ASRInstallCenter
+    /// 预览同构（2026-10-09 换型+下载化批）：T2 模型安装中心同源注入。
+    private let llmModelInstallCenter: LLMModelInstallCenter
     /// 设置仓（业主 2026-09-17：F16DeviceState 构造与环境注入共用同一实例——
     /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
     private let settingsStore: AppSettingsStore
@@ -275,6 +277,7 @@ private struct PreviewRoot: View {
         // 不触 self 属性访问。
         let installCenter = ASRInstallCenter(dataChange: dataChange)
         asrInstallCenter = installCenter
+        llmModelInstallCenter = LLMModelInstallCenter(dataChange: dataChange)
         let assembled: AppContainer
         do {
             assembled = try AppContainer.preview()
@@ -345,6 +348,7 @@ private struct PreviewRoot: View {
                 // originalsDir 用临时目录，调度器用内存桩。
                 .environment(dataChange)
                 .environment(asrInstallCenter)
+                .environment(llmModelInstallCenter)
                 .environment(container.notificationCenterState)
                 .environment(PendingCardCenterState(store: container.pendingCards))
                 .environment(DocumentsState(
