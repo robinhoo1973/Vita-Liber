@@ -4,9 +4,10 @@
 路径缺失各行必抛;sha256 形态。零第三方依赖。
 """
 import copy
+import json
 import unittest
 
-from policy import get, load, policy_path, sha256_of, validate
+from policy import catalog_path, get, load, policy_path, sha256_of, validate
 
 
 class PolicyLoadTests(unittest.TestCase):
@@ -95,6 +96,27 @@ class PolicyLoadTests(unittest.TestCase):
         ok = copy.deepcopy(self.policy)
         ok["licenses"]["sources"]["Wikidata"] = {"class": "cc0", "attribution": None}
         validate(ok)  # 不抛即通过
+
+
+# —— weights.modelId 目标件对齐(E2;2026-10-09)——
+    def test_weights_model_id_in_app_catalog(self):
+        catalog = json.loads(catalog_path().read_text(encoding="utf-8"))
+        entry_ids = [m["id"] for m in catalog["models"]]
+        self.assertTrue(entry_ids, "App LLMCatalog 条目集为空——对齐判据失效")
+        self.assertIn(self.policy["weights"]["modelId"], entry_ids,
+                      "weights.modelId 不在 App LLMCatalog——训练目标件必须=部署件(E2)")
+
+    def test_weights_model_id_off_catalog_rejected(self):
+        bad = copy.deepcopy(self.policy)
+        bad["weights"]["modelId"] = "medical-llm-64m-q4-k-m"   # E2 错位复现
+        with self.assertRaisesRegex(ValueError, "不在 App LLMCatalog"):
+            validate(bad)
+
+    def test_weights_model_id_missing_rejected(self):
+        bad = copy.deepcopy(self.policy)
+        del bad["weights"]["modelId"]
+        with self.assertRaisesRegex(ValueError, "非空字符串"):
+            validate(bad)
 
 
 if __name__ == "__main__":

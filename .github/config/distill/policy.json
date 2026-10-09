@@ -265,7 +265,8 @@
     "changeRequires": "owner"
   },
   "weights": {
-    "modelId": "medical-llm-64m-q4-k-m",
+    "_comment": "训练目标件=部署件:modelId 必须是 Resources/LLMCatalog/catalog.json 的条目 id(policy.py 载入时 fail-closed 断言,E2)。64M 对照轨由 gen/model_minimind.py 自持,不经本字段。",
+    "modelId": "llm-general-qwen3-0.6b-q4-k-m",
     "autoPromote": false,
     "channel": "cnb:robinhoo1973/Resources#llama-models"
   }
