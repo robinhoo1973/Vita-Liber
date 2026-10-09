@@ -1,0 +1,17 @@
+{
+  "formatVersion": 2,
+  "models": [
+    {
+      "id": "llm-general-qwen3-0.6b-q4-k-m",
+      "role": "default",
+      "fileName": "qwen3-0.6b-q4_k_m.gguf",
+      "bytes": 396705472,
+      "sha256": "ac2d97712095a558e31573f62f466a3f9d93990898b0ec79d7c974c1780d524a",
+      "url": "https://cnb.cool/robinhoo1973/Resources/-/releases/download/llama-models/llm-general-qwen3-0.6b-q4-k-m-ac2d97712095a558.gguf",
+      "version": "1",
+      "license": "Apache-2.0",
+      "frame": "qwen3-nothink"
+    }
+  ],
+  "preference": ["llm-general-qwen3-0.6b-q4-k-m"]
+}

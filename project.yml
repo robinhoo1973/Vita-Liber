@@ -25,19 +25,21 @@ targets:
     sources:
       - path: App
       - path: Resources
-        # 2026-09-19 审查修复（业主实测 IPA 膨胀 >1GB）：LLMModels 此前未列入 excludes——
-        # GGUF/catalog.json 被 group 条目逐文件拷贝到 bundle 根，又被下方文件夹引用
-        # 拷进 LLMModels/ 子目录，同一 491MB 模型进包两次（≈982MB）。文件夹引用是
-        # LlamaModelManager 的唯一下载面，group 条目必须排除。
+        # 2026-09-19 审查修复（业主实测 IPA 膨胀 >1GB）：excludes 防 group 条目与文件夹
+        # 引用双拷贝（同一模型进包两次 ≈982MB 实证）。
+        # 2026-10-09 换型+下载化批：**模型不再随包**——Resources/LLMModels 的文件夹引用
+        # 已删除（该引用即「随包与下载并存」的入包通道，2026-09-20 回滚根因）；
+        # 信任锚目录迁至 Resources/LLMCatalog（仅 catalog.json 入包，见下）。
+        # L0 [20] 对两处形态做机械断言。
         excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**",
-                   "LLMModels", "LLMModels/**"]
+                   "LLMModels", "LLMModels/**", "LLMCatalog", "LLMCatalog/**"]
       - path: Resources/ASRModels
         type: folder
         buildPhase: resources
-      # T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）——GGUF 文件夹引用入 bundle；
-      # 模型文件不入库（.gitignore /Resources/LLMModels/*.gguf），由 materialize 脚本按
-      # catalog.json sha256 校验取模（CI 与本地同源）。
-      - path: Resources/LLMModels
+      # T2 本机 LLM 目录信任锚（2026-10-09：模型单独编译+运行时自 CNB 下载——
+      # 目录随签名二进制发布，URL+sha256+bytes 构建期钉死；App 不信任任何网络目录，
+      # 见 LlamaModelManager/LLMModelCatalog 头注）。
+      - path: Resources/LLMCatalog
         type: folder
         buildPhase: resources
     preBuildScripts:

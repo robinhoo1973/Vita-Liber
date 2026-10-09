@@ -33,12 +33,16 @@ let package = Package(
         // **自建三切片 XCFramework**：上游 b11012 源码经官方 build-xcframework.sh
         // 构建（上游发布物缺 ios-simulator 切片、L1 模拟器无法链接，CI 35203708914
         // 实证；上游无根 Package.swift 可源码依赖），发布本仓 release
-        // `llama-xcframework` 稳定 URL；重建 = .github/workflows/build-llama-xcframework.yml。
+        // `llama-xcframework`；资产按内容寻址命名（llama-<ref>-xcframework-<sha16>.zip），
+        // 切换=人工提交本行 URL+checksum（旧资产原地保留可直接回退）。
+        // 重建 = testflight.yml 的 llama-xcframework job：每月自动取上游最新 release
+        // 重建（schedule），或 dispatch 勾 build_xcframework / llama_ref 回钉（2026-10-09 业主指令）。
         // 准入（tech §2.2）：MIT 许可；官方构建脚本产物（Metal/Accelerate、
-        // 无 OpenMP/OpenSSL）；静态库无 dylib 内嵌（ITMS-90208 族风险不适用）；
+        // 无 OpenMP/OpenSSL）；**动态库（MH_DYLIB）内嵌于 App**——ITMS-90208 族风险**适用**，
+        // 由 reconcile-frameworks.py 双闸把关（原文「静态库」为错误陈述，2026-10-09 事实更正）；
         // 零网络零遥测；退出成本低（引擎单文件 + 本声明两处）。
-        // 平台下限 iOS 16.4/macOS 13.3——引擎侧 #available 守卫，
-        // 16.0–16.3 设备优雅降级 T3（功能缺失到兜底边界为止）。
+        // 平台下限 iOS 16.0（自建切片经 sed 改定并加硬断言）/macOS 13.3——引擎无 #available
+        // 守卫，运行时按激活模型就绪降级 T3（2026-10-09 换型批口径，原「16.4 守卫」注记作废）。
         // 校验和 = 发布资产 sha256（SPM binaryTarget 强制）。
     ],
     targets: [
