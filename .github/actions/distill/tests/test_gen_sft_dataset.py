@@ -58,6 +58,29 @@ class SftDatasetTests(unittest.TestCase):
         prompt = self.dataset.render(self.dataset.samples[0])
         self.assertNotIn("<think>", prompt)
 
+    def test_default_family_is_minimind_strip(self):
+        # 默认惰性:不传帧族时行为与参数化前完全一致(100% 剥离;冻结语料不受影响)
+        self.assertEqual(self.dataset.frame_family, "minimind-strip")
+
+    def test_render_qwen3_nothink_keeps_final_empty_think(self):
+        # E3:部署 Qwen3 帧=保留空 think 段;训练流须与部署帧逐字节同文(仅末段)
+        from gen.sft_dataset import ChatSFTDataset
+        ds = ChatSFTDataset(str(_write_corpus(self.tmp)), self.tokenizer, max_length=1024,
+                            frame_family="qwen3-nothink")
+        prompt = ds.render(ds.samples[0])
+        self.assertEqual(prompt.count("<think>"), 1)
+        self.assertEqual(prompt.count("</think>"), 1)
+        head = prompt.rindex("<|im_start|>assistant\n")
+        self.assertTrue(
+            prompt[head:].startswith("<|im_start|>assistant\n<think>\n\n</think>\n\n"),
+            "空 think 段必须紧跟末段 assistant 头(部署帧:提示词含该段,模型只续写答案)")
+
+    def test_unknown_family_fails_closed(self):
+        from gen.sft_dataset import ChatSFTDataset
+        with self.assertRaises(ValueError):
+            ChatSFTDataset(str(_write_corpus(self.tmp)), self.tokenizer, max_length=1024,
+                           frame_family="qwen2-think")
+
     def test_truncation_guard_fails_loud(self):
         from gen.sft_dataset import ChatSFTDataset
         tiny = ChatSFTDataset(str(_write_corpus(self.tmp)), self.tokenizer, max_length=8)

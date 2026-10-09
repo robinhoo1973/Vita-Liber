@@ -35,6 +35,8 @@ import torch  # noqa: E402
 from model_minimind import MiniMindConfig, MiniMindForCausalLM  # noqa: E402
 from sft_dataset import ChatSFTDataset, collate_pad  # noqa: E402
 from smoke_assert import verify_smoke_summary  # noqa: E402
+from frames import DEFAULT_FAMILY as DEFAULT_FRAME_FAMILY  # noqa: E402
+from frames import FAMILIES as FRAME_FAMILIES  # noqa: E402
 
 
 def sha256_file(path: Path) -> str:
@@ -70,6 +72,10 @@ def main() -> int:
     parser.add_argument("--log-every", type=int, default=5)
     parser.add_argument("--resume-from", type=Path, default=None,
                         help="从 checkpoint 续训(冒烟覆盖恢复路径)")
+    parser.add_argument("--frame-family", choices=FRAME_FAMILIES, default=DEFAULT_FRAME_FAMILY,
+                        help="帧族(与训练机 trainlib/frames.py 同名;默认 minimind-strip=旧行为;"
+                             "训 Qwen3 目标件时=qwen3-nothink,与 catalog 条目 frame 对齐;"
+                             "帧族随 summary/checkpoint meta 落产物,供下游一致性断言)")
     parser.add_argument("--hidden-size", type=int, default=768)
     parser.add_argument("--layers", type=int, default=8)
     args = parser.parse_args()
@@ -79,7 +85,8 @@ def main() -> int:
     torch.manual_seed(args.seed)
 
     tokenizer = AutoTokenizer.from_pretrained(str(args.tokenizer_dir))
-    dataset = ChatSFTDataset(str(args.corpus), tokenizer, max_length=args.seq)
+    dataset = ChatSFTDataset(str(args.corpus), tokenizer, max_length=args.seq,
+                             frame_family=args.frame_family)
     loader = torch.utils.data.DataLoader(
         dataset, batch_size=args.batch, shuffle=False,
         collate_fn=lambda batch: collate_pad(batch, pad_token_id=dataset.pad_token_id))
@@ -103,7 +110,8 @@ def main() -> int:
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     meta = {"label": args.label, "corpus": str(args.corpus), "corpus_sha256": sha256_file(args.corpus),
-            "corpus_records": len(dataset), "model": {"hidden_size": args.hidden_size,
+            "corpus_records": len(dataset), "frame_family": args.frame_family,
+            "model": {"hidden_size": args.hidden_size,
                                                       "num_hidden_layers": args.layers, "params_m": round(params, 2)},
             "seed": args.seed, "resume_from": str(args.resume_from) if args.resume_from else None}
     print(json.dumps({"[smoke]": "start", **meta, "max_steps": args.max_steps,
@@ -158,6 +166,7 @@ def main() -> int:
         "checkpoint_sha256": sha256_file(checkpoint),
         "corpus_sha256": meta["corpus_sha256"],
         "corpus_records": len(dataset),
+        "frame_family": args.frame_family,   # E3:帧族随产物落盘,供下游断言 == catalog 条目 frame
         "git_sha": os.environ.get("GITHUB_SHA", ""),
     }
     try:

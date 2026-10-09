@@ -3,8 +3,10 @@
 与训练机正本(refactor/tools/training/{macos,windows}/scripts/dataset/lm_dataset.py)的
 对齐点(逐条):
   1) 会话经 tokenizer.apply_chat_template(..., add_generation_prompt=False) 渲染;
-  2) **100% 剥离**模板对 assistant 段注入的空 think 帧('<think>\\n\\n</think>\\n\\n')
-     ——App 推理侧无 think 契约,训练侧必须逐字同形(手册 §10.8);
+  2) 按**帧族**后处理模板对 assistant 段注入的空 think 帧('<think>\\n\\n</think>\\n\\n'):
+     默认族 `minimind-strip` = **100% 剥离**(参数化前行为;冻结语料不受影响);
+     `qwen3-nothink` = 仅末段保留(部署 Qwen3 帧;E3 修复的 CI 一半,见 gen/frames.py)。
+     训练流必须与训练目标件的部署帧逐字同形(手册 §10.8;catalog 条目 frame 字段);
   3) labels 掩码 = 只训 <|im_start|>assistant\\n … <|im_end|>\\n 之间的 token,
      其余 -100(多轮 assistant 段各自开窗);
   4) 动态填充由 collate 统一(batch 内最长 + multiple_of 对齐;labels 以 -100 填充)。
@@ -18,8 +20,14 @@ import json
 
 import torch
 
+try:  # 包导入面(tests: gen.sft_dataset)
+    from .frames import (DEFAULT_FAMILY, EMPTY_THINK,  # noqa: F401 (EMPTY_THINK 保留再导出)
+                         FAMILIES, apply_frame_family, checked_family)
+except ImportError:  # 平铺执行面(train_sft_smoke:sys.path=gen/)回落(noise_scheduler 同法)
+    from frames import (DEFAULT_FAMILY, EMPTY_THINK,  # type: ignore  # noqa: F401
+                        FAMILIES, apply_frame_family, checked_family)
+
 VALID_ROLES = {"system", "user", "assistant"}
-EMPTY_THINK = "<think>\n\n</think>\n\n"
 
 
 def validate_conversations(conversations) -> tuple[bool, str]:
@@ -40,9 +48,12 @@ def validate_conversations(conversations) -> tuple[bool, str]:
 
 
 class ChatSFTDataset(torch.utils.data.Dataset):
-    def __init__(self, jsonl_path, tokenizer, max_length: int = 1024):
+    def __init__(self, jsonl_path, tokenizer, max_length: int = 1024,
+                 frame_family: str = DEFAULT_FAMILY):
         self.tokenizer = tokenizer
         self.max_length = max_length
+        # 帧族(=训练目标件的部署帧;未知值 fail-closed,绝不静默落回默认族)
+        self.frame_family = checked_family(frame_family)
         self.samples = []
         with open(jsonl_path, encoding="utf-8") as fh:
             for lineno, line in enumerate(fh, 1):
@@ -65,9 +76,8 @@ class ChatSFTDataset(torch.utils.data.Dataset):
 
     def render(self, conversations) -> str:
         prompt = self.tokenizer.apply_chat_template(conversations, tokenize=False, add_generation_prompt=False)
-        if EMPTY_THINK in prompt:
-            prompt = prompt.replace(EMPTY_THINK, "")   # 100% 剥离(训练/推理同分布)
-        return prompt
+        # 帧族后处理:minimind-strip=100% 剥离(旧行为);qwen3-nothink=仅末段保留
+        return apply_frame_family(prompt, self.frame_family)
 
     def generate_labels(self, input_ids):
         labels = [-100] * len(input_ids)
