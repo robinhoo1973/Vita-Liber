@@ -74,9 +74,15 @@ on:
         required: false
         default: ""
 
-# 权限纪律:仅 publish / llama-xcframework 声明 contents: write(gh release);其余 job 默认 read。
+# 权限纪律:仅 publish / train-encoder 声明 contents: write(gh release);其余 job 默认 read。
+# 顶层最小权限(2026-10-09 审计;testflight.yml 同款):声明任一 scope 后未列者= none。
+permissions:
+  contents: read
 concurrency:
-  group: distill-llm
+  # 2026-10-09 审计:按任务分域(跨任务并行解阻——训练 chunk ≤6h 不再阻塞语料链;
+  # 同任务内仍串行,且组内至多 1 running+1 pending,新 pending 顶替旧 pending)。
+  # 用 github.event.inputs.task(dispatch 上下文必可用);与 testflight/asr 天然独立。
+  group: distill-llm-${{ github.event.inputs.task }}
   cancel-in-progress: false
 
 env:
@@ -1015,13 +1021,22 @@ jobs:
         run: |
           pip install --require-hashes -r .github/config/requirements/requirements-distill-train-linux.txt \
             --extra-index-url https://download.pytorch.org/whl/cpu
-      - name: 语料/实体解析(Release 内容寻址最新;实体走 artifact 兜底通道)
+      - name: 语料/实体解析(manifest 先行原子读;实体走 artifact 兜底通道)
         run: |
           PY="python3 .github/actions/distill/gen/release_io.py"
-          $PY pick --release distill-corpus --pattern 'distill-corpus-sha256-.*[.]jsonl$' --out pick-corpus.txt
-          CORPUS=$(cut -f1 pick-corpus.txt)
+          # 原子读(2026-10-09 审计):先取 manifest(发布侧 corpus 先于 manifest 上传,
+          # 故最新 manifest 必指一条已完整存在的 corpus)→ 以 manifest.corpus_sha256
+          # 派生语料资产名精确取件。两次独立 pick 在半上传窗口会谱系错配。
+          M=$($PY pick --release distill-corpus --pattern 'distill-corpus-manifest-sha256-.*[.]json$' --out /tmp/cm-pick.txt)
+          $PY fetch --release distill-corpus --name "$M" --out .
+          CORPUS_DV=$(python3 -c "import json;print(json.load(open('$M'))['catalog_data_version'])")
+          echo "CORPUS_DV=$CORPUS_DV" >> "$GITHUB_ENV"
+          CORPUS_SHA=$(python3 -c "import json;print(json.load(open('$M'))['corpus_sha256'])")
+          CORPUS="distill-corpus-sha256-${CORPUS_SHA}.jsonl"
           $PY fetch --release distill-corpus --name "$CORPUS" --out .
           mv "$CORPUS" corpus.jsonl
+          # 侧车契约:train_encoder 缺省读 <corpus>.manifest.json(2026-10-09 CI 37862189389)
+          mv "$M" corpus.jsonl.manifest.json
           if ! $PY fetch --release llama-models --name enc-entities.jsonl --out . --optional; then
             $PY latest-run-asset --workflow llm.yml --name corpus-entities --out entities-dir || true
             if [ -f entities-dir/entities.jsonl ]; then cp entities-dir/entities.jsonl .; fi
@@ -1029,18 +1044,13 @@ jobs:
           ls -la corpus.jsonl || true
           ls -la entities.jsonl 2>/dev/null || echo "提示:无实体件 → 负例路径将关闭"
       - name: 训练状态与 checkpoint 取回(幂等;状态按 corpus 谱系命名)
+        id: state
         run: |
           PY="python3 .github/actions/distill/gen/release_io.py"
           POL="python3 .github/actions/distill/policy.py"
-          # 谱系键 = corpus 内容 sha 前 8(内容寻址文件名内);dataVersion 从 corpus manifest
-          CORPUS_SHA=$(ls corpus.jsonl >/dev/null 2>&1; python3 -c "import hashlib;print(hashlib.sha256(open('corpus.jsonl','rb').read()).hexdigest())")
+          # 谱系键 = corpus 内容 sha 前 8(内容寻址文件名内);dataVersion 来自 step 5 的 manifest
+          CORPUS_SHA=$(python3 -c "import hashlib;print(hashlib.sha256(open('corpus.jsonl','rb').read()).hexdigest())")
           SHA8="${CORPUS_SHA:0:8}"
-          M=$($PY pick --release distill-corpus --pattern 'distill-corpus-manifest-sha256-.*[.]json$' --out /tmp/cm-pick.txt)
-          $PY fetch --release distill-corpus --name "$M" --out . --optional || true
-          CORPUS_DV=$(python3 -c "import json,glob;print(json.load(open(glob.glob('distill-corpus-manifest-*.json')[0]))['catalog_data_version'])" 2>/dev/null || echo "")
-          # 侧车契约(2026-10-09 CI 37862189389 实证):train_encoder 缺省读
-          # <corpus>.manifest.json;Release 资产名是内容寻址名,须还原为本地规范名。
-          mv "$M" corpus.jsonl.manifest.json
           STATE_NAME="train-state-train-encoder-${SHA8}.json"
           if $PY fetch --release llama-models --name "$STATE_NAME" --out . --optional; then
             mv "$STATE_NAME" state.json
@@ -1057,8 +1067,16 @@ jobs:
           mkdir -p ckpt
           $PY fetch-ckpt --release llama-models --prefix "enc-$SHA8" --out ckpt || echo "本谱系无既往 checkpoint=首跑"
           cat state.json
+          # 预检闸(2026-10-09 审计):非 running(已终态 stopped/done)不得开训——
+          # 此前无条件起训会白烧整个 5h20m chunk,且 decide 直接 stop 丢结果。
+          ST=$(python3 -c "import json;print(json.load(open('state.json'))['status'])")
+          echo "status=$ST" >> "$GITHUB_OUTPUT"
+          if [ "$ST" != "running" ]; then
+            echo "::notice::状态=$ST 非 running——跳过本窗训练(等待人工裁决/新谱系)"
+          fi
       - name: Train chunk(墙钟预算优雅停机;CPU;负例消费)
         id: train
+        if: steps.state.outputs.status == 'running'
         run: |
           POL="python3 .github/actions/distill/policy.py"
           MINS=$($POL --get training.schedule.workMinutes)
@@ -1078,25 +1096,43 @@ jobs:
           set -e
           tail -50 train-log.txt
           STEPS=$(grep -oE '"steps": [0-9]+' train-log.txt | tail -1 | grep -oE '[0-9]+' || echo 0)
+          # summary.total_steps = 训练器绝对步(checkpoint 谱系权威;对账用)
+          GSTEP=$(grep -oE '"total_steps": [0-9]+' train-log.txt | tail -1 | grep -oE '[0-9]+' || true)
           LOSS=$(grep -oE '"loss_last": [-0-9.eE+]+' train-log.txt | tail -1 | awk '{print $2}' || true)
           echo "rc=$RC" >> "$GITHUB_OUTPUT"
           echo "steps=$STEPS" >> "$GITHUB_OUTPUT"
+          echo "global_step=$GSTEP" >> "$GITHUB_OUTPUT"
           echo "loss=$LOSS" >> "$GITHUB_OUTPUT"
           [ "$RC" -eq 0 ] || echo "::warning::训练 chunk 非零退出(rc=$RC;由状态机判停,不吞红)"
       - name: Checkpoint 回传 + 状态决策
         id: chain
+        if: steps.state.outputs.status == 'running'
         run: |
           PY="python3 .github/actions/distill/gen/release_io.py"
           SHA8="${STATE_NAME#train-state-train-encoder-}"; SHA8="${SHA8%.json}"
-          $PY push-ckpt --release llama-models --prefix "enc-$SHA8" --dir train-out/checkpoints || \
-            echo "::warning::checkpoint 回传失败(重跑幂等,不吞红由状态机)"
+          # 2026-10-09 审计:ckpt 回传=谱系权威件,三连同名上传靠 list_assets 的
+          # draft 可见性修复;(旧)失败仅 warning 会带状态前进→双计/丢档。现:有界
+          # 重试 3 次,仍失败→::error:: 且**状态不前进**(不写 state),本 run 判红,
+          # 由下一窗户幂等重跑(done_steps 另由 global_step 对账,见 chunk_chain)。
+          CKPT_RC=1
+          for i in 1 2 3; do
+            if $PY push-ckpt --release llama-models --prefix "enc-$SHA8" --dir train-out/checkpoints; then CKPT_RC=0; break; fi
+            echo "ckpt 回传失败(第 $i 次),$((i*20))s 后重试"
+            sleep $((i*20))
+          done
+          if [ "$CKPT_RC" -ne 0 ]; then
+            echo "::error::checkpoint 回传三连失败——状态不前进(防双计/丢档),本 run 判红,等待下一窗户幂等重跑"
+            exit 1
+          fi
           FAILED=""
           [ "${{ steps.train.outputs.rc }}" = "0" ] || FAILED="--failed"
           LOSSARG=""
           [ -n "${{ steps.train.outputs.loss }}" ] && LOSSARG="--last-loss ${{ steps.train.outputs.loss }}"
+          GSTEPARG=""
+          [ -n "${{ steps.train.outputs.global_step }}" ] && GSTEPARG="--global-step ${{ steps.train.outputs.global_step }}"
           DEC=$(python3 .github/actions/distill/gen/chunk_chain.py decide \
             --state state.json --out state-new.json \
-            --chunk-steps "${{ steps.train.outputs.steps }}" $FAILED $LOSSARG)
+            --chunk-steps "${{ steps.train.outputs.steps }}" $GSTEPARG $FAILED $LOSSARG)
           mv state-new.json "$STATE_NAME"
           $PY push --release llama-models --file "$STATE_NAME" --replace
           echo "decision=$DEC" >> "$GITHUB_OUTPUT"

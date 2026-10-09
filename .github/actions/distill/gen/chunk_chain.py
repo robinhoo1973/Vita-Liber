@@ -56,12 +56,21 @@ def load_state(path: Path) -> dict:
     return state
 
 
-def decide(state: dict, *, chunk_failed: bool, chunk_steps: int, last_loss=None) -> tuple[dict, str]:
-    """并入本 chunk 结果 → (新状态, 决策)。决策 ∈ next/done/stop。"""
+def decide(state: dict, *, chunk_failed: bool, chunk_steps: int, last_loss=None,
+           global_step: int | None = None) -> tuple[dict, str]:
+    """并入本 chunk 结果 → (新状态, 决策)。决策 ∈ next/done/stop。
+
+    global_step(2026-10-09 审计修正):checkpoint 的**绝对步**为谱系权威。
+    训练器 summary 的 total_steps=绝对步;提供时 done_steps 直接以其对账
+    (替换 += 语义)——覆盖「ckpt 回传失败→下窗从旧 ckpt 重训同段」的
+    膨胀双计(a+(d-c) 会把丢失段重复计入,绝对步 d 才是真相)。
+    未提供(None/0)时维持 += 语义(向后兼容)。"""
     if state["status"] != "running":
         return state, "stop"   # 已终态的幂等:重复触发不再续链
     prev_done = state["done_steps"]
     state["done_steps"] = min(state["total_steps"], prev_done + max(0, int(chunk_steps)))
+    if global_step is not None and int(global_step) > 0:
+        state["done_steps"] = min(state["total_steps"], int(global_step))
     state["chunks_done"] += 1
     if last_loss is not None:
         state["last_loss"] = float(last_loss)
@@ -99,6 +108,8 @@ def main() -> int:
     p1.add_argument("--state", type=Path, required=True)
     p1.add_argument("--out", type=Path, required=True)
     p1.add_argument("--chunk-steps", type=int, required=True)
+    p1.add_argument("--global-step", type=int, default=None,
+                    help="checkpoint 绝对步(谱系权威;失败重训段不双计)")
     p1.add_argument("--failed", action="store_true")
     p1.add_argument("--last-loss", type=float, default=None)
 
@@ -111,7 +122,8 @@ def main() -> int:
         print("initialized")
         return 0
     state, decision = decide(load_state(args.state), chunk_failed=args.failed,
-                             chunk_steps=args.chunk_steps, last_loss=args.last_loss)
+                             chunk_steps=args.chunk_steps, last_loss=args.last_loss,
+                             global_step=args.global_step)
     args.out.write_text(json.dumps(state, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(decision)
     return 0

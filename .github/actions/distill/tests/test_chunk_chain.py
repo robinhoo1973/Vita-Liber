@@ -59,6 +59,29 @@ class ChunkChainTests(unittest.TestCase):
         self.assertEqual(d, "stop")
         self.assertEqual(s2["done_steps"], 10)                 # 不再推进
 
+    def test_global_step_reconciles_lost_checkpoint_retrain(self):
+        # 2026-10-09 审计:ckpt 回传失败→下窗从旧 ckpt 重训同段。state 声称 100,
+        # ckpt 实际在 60,本窗训到 95(绝对步)。+= 会膨胀成 100+(95-60)=135;
+        # 绝对步对账=95(真相)。取绝对步,不取大。
+        s = new_state("t", 940, 8)
+        s["done_steps"] = 100
+        s, d = decide(s, chunk_failed=False, chunk_steps=35, global_step=95)
+        self.assertEqual(d, "next")
+        self.assertEqual(s["done_steps"], 95)
+
+    def test_global_step_complete_caps_total(self):
+        s = new_state("t", 940, 8)
+        s["done_steps"] = 930
+        s, d = decide(s, chunk_failed=False, chunk_steps=20, global_step=940)
+        self.assertEqual(d, "done")
+        self.assertEqual(s["done_steps"], 940)
+
+    def test_global_step_absent_keeps_increment(self):
+        s = new_state("t", 940, 8)
+        s, d = decide(s, chunk_failed=False, chunk_steps=40)
+        self.assertEqual(d, "next")
+        self.assertEqual(s["done_steps"], 40)
+
     def test_corrupt_state_fails_loud(self):
         tmp = Path(tempfile.mkdtemp()) / "s.json"
         tmp.write_text(json.dumps({"task": "t", "done_steps": 99, "total_steps": 10,

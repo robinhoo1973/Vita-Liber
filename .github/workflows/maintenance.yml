@@ -400,9 +400,16 @@ jobs:
           set -euo pipefail
           D=.github/actions/distill
           REF="${{ vars.TRAIN_REF || 'worktree-distill-medical-data' }}"
-          # 幂等护栏:已有 llm.yml run 在跑 → 本轮跳过(防窗口重叠)
-          BUSY=$(gh run list --workflow llm.yml --limit 20 --json status --jq '[.[] | select(.status=="in_progress" or .status=="queued")] | length')
-          if [ "$BUSY" -gt 0 ]; then echo "已有运行中 run($BUSY),本轮跳过"; exit 0; fi
+          # 幂等护栏(2026-10-09 审计):只数 **train-encoder** 未完成 run——
+          # 状态全枚举易再漏(并发等待态叫 pending/waiting),直接 != completed;
+          # 语料链 run 不再阻断训练窗口(与 llm.yml 按任务分域并发组同批)。
+          BUSY=0
+          for ID in $(gh run list --workflow llm.yml --limit 10 --json databaseId,status --jq '.[] | select(.status != "completed") | .databaseId'); do
+            if [ "$(gh run view "$ID" --json jobs --jq '[.jobs[].name] | any(. == "train-encoder")')" = "true" ]; then
+              BUSY=$((BUSY+1))
+            fi
+          done
+          if [ "$BUSY" -gt 0 ]; then echo "已有训练 run($BUSY)在跑/排队,本轮跳过"; exit 0; fi
           # ① 远端 sqlite 指针(CNB 匿名,轻读信封)
           SQLITE_DV=$(python3 "$D/fetch_catalog.py" --pointer-only --out-dir /tmp/ptr | python3 -c 'import json,sys;print(json.load(sys.stdin)["dataVersion"])')
           echo "sqlite dataVersion=${SQLITE_DV:0:16}…"
