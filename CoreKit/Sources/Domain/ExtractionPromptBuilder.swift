@@ -76,6 +76,39 @@ public enum ExtractionPromptBuilder {
         lines.enumerated().map { "[\($0.offset)] \($0.element)" }.joined(separator: "\n")
     }
 
+    // MARK: - ChatML 封帧（2026-10-09 换型批：帧构造自 Infrastructure 引擎下沉至此）
+
+    /// 帧风格（与 `LLMModelCatalog` 条目的 `frame` 字段一一对应）。
+    ///
+    /// - `chatML`：Qwen2.5/minimind 家族——assistant 头后直连内容
+    ///   （训练侧 `EMPTY_THINK` 100% 剥离后的形态）。
+    /// - `qwen3NonThinking`：Qwen3 家族非思考渲染——assistant 头后保留
+    ///   **空 think 段**（官方模板 `enable_thinking=false` 的硬行为；
+    ///   `/no_think` 是软开关、多轮可被忽略，故以硬行为为准）。
+    ///   生成文本再出现 `<think>` ⇒ 违约（消费侧 fail-closed，见引擎）。
+    public enum ChatFrameStyle: String, Sendable {
+        case chatML = "chatml"
+        case qwen3NonThinking = "qwen3-nothink"
+    }
+
+    /// 空 think 段——与训练侧 `.github/actions/distill/gen/sft_dataset.py` 的
+    /// `EMPTY_THINK` **逐字节同字面**（两侧同升纪律：此处改必同改训练侧，
+    /// 帧金样测试钉死）。
+    public static let emptyThinkSegment = "<think>\n\n</think>\n\n"
+
+    /// 完整 ChatML 帧（system/user 两段 + assistant 头；训练/推理逐字节同源纪律的执行点）。
+    /// 消费点：`LlamaCppExtractionEngine.buildPrompt`；金样：`Qwen3ChatFrameTests`（Linux）。
+    public static func chatML(system: String, user: String,
+                              frame: ChatFrameStyle = .chatML) -> String {
+        var text = "<|im_start|>system\n\(system)<|im_end|>\n"
+        text += "<|im_start|>user\n\(user)<|im_end|>\n"
+        text += "<|im_start|>assistant\n"
+        if frame == .qwen3NonThinking {
+            text += emptyThinkSegment
+        }
+        return text
+    }
+
     // MARK: - 逐字段目录
 
     /// 一行一字段：`- key (类型, 必填/可选) 标签: 别名 — 提示`

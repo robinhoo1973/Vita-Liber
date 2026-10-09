@@ -30,15 +30,20 @@ public enum ModelMemoryBudget {
     /// llama.cpp（GGUF mmap + Metal 共享内存）加载峰值系数——权重按需分页、不整读入堆，比 sherpa 温和。
     public static let llamaPeakFactor = 1.3
 
-    /// 峰值估算 = 体积 × 系数 + 固定余量（系数按运行时形态给：sherpa 2.0 / llama 1.3）。
-    public static func peakBytes(modelBytes: Int64, peakFactor: Double = loadPeakFactor) -> Int64 {
-        Int64(Double(max(modelBytes, 0)) * peakFactor) + baseHeadroomBytes
+    /// 峰值估算 = 体积 × 系数 + 固定余量 + `extraBytes`（系数按运行时形态给：sherpa 2.0 / llama 1.3）。
+    /// `extraBytes`（2026-10-09 换型批新增，默认 0 → 既有调用零改）：权重之外必须随加载
+    /// 一起驻留的显式内存——T2 的 **KV cache**（`llamaPeakFactor` 只覆盖权重 mmap，不含 KV，
+    /// 故 KV 必须显式加项；见 `LLMContextBudget`）。
+    public static func peakBytes(modelBytes: Int64, peakFactor: Double = loadPeakFactor,
+                                 extraBytes: Int64 = 0) -> Int64 {
+        Int64(Double(max(modelBytes, 0)) * peakFactor) + baseHeadroomBytes + max(extraBytes, 0)
     }
 
     /// 判定。`availableBytes == nil`（探针不可用）→ `.ok`：fail-open 只对「未知」，已知不足一律拒。
-    public static func verdict(modelBytes: Int64, availableBytes: Int64?, peakFactor: Double = loadPeakFactor) -> Verdict {
+    public static func verdict(modelBytes: Int64, availableBytes: Int64?, peakFactor: Double = loadPeakFactor,
+                               extraBytes: Int64 = 0) -> Verdict {
         guard let available = availableBytes else { return .ok }
-        let required = peakBytes(modelBytes: modelBytes, peakFactor: peakFactor)
+        let required = peakBytes(modelBytes: modelBytes, peakFactor: peakFactor, extraBytes: extraBytes)
         if available < required { return .insufficient(requiredBytes: required, availableBytes: available) }
         if available - required < preloadHeadroomBytes { return .tight }
         return .ok

@@ -33,6 +33,18 @@ struct ModelMemoryBudgetTests {
         #expect(ModelMemoryBudget.peakBytes(modelBytes: 1_000) == Int64(Double(1_000) * ModelMemoryBudget.loadPeakFactor) + ModelMemoryBudget.baseHeadroomBytes)
     }
 
+    @Test func extraBytesAddsKVToPeakAndVerdict() {
+        // 2026-10-09 换型批：KV cache 显式加项（llama 系数只覆盖权重 mmap，不含 KV）。
+        let base = ModelMemoryBudget.peakBytes(modelBytes: 1_000)
+        #expect(ModelMemoryBudget.peakBytes(modelBytes: 1_000, extraBytes: 448 * mb) == base + 448 * mb)
+        // 恰好卡在边界：无 KV 时 ok，加 KV 后不足 —— verdict 必须把 KV 计入
+        let available = base + ModelMemoryBudget.preloadHeadroomBytes + 10 * mb
+        #expect(ModelMemoryBudget.verdict(modelBytes: 1_000, availableBytes: available, extraBytes: 0).allowsLoad)
+        #expect(!ModelMemoryBudget.verdict(modelBytes: 1_000, availableBytes: available, extraBytes: 448 * mb).allowsLoad)
+        // 负值按 0 处理（防御性）
+        #expect(ModelMemoryBudget.peakBytes(modelBytes: 1_000, extraBytes: -5) == base)
+    }
+
     @Test func unknownAvailabilityNeverBlocks() {
         // 探针不可用（nil）→ 不拒绝（fail-open 只对「未知」，不对「已知不足」）
         #expect(ModelMemoryBudget.verdict(modelBytes: 5 * gb, availableBytes: nil) == .ok)
