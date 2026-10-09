@@ -2,10 +2,10 @@
 """
 OCR / ASR 噪声模型（抽取训练语料专用，2026-09-24）
 
-2026-10-07 迁入 CI 簇（.github/actions/distill/extract/；来源 refactor/tools/training/
-{macos,windows}/scripts/corpus/extraction_noise.py，训练机正本）。**逐字节一致为
-纪律**：任何修改必须两侧同步（训练/推理同分布的组成部分——噪声分布即输入分布）。
-本副本不参与训练机部署，仅由 CI 语料构建器消费。
+2026-10-07 迁入 CI 簇（.github/actions/distill/extract/；训练机正本 =
+refactor/tools/training/template/scripts/corpus/extraction_noise.py）。**逐字节一致
+为纪律**：任何修改必须两侧同步（训练/推理同分布的组成部分——噪声分布即输入分布）。
+两侧副本按内容 sha 相等断言（tests/test_noise_policy_sync.py 跨侧类）。
 
 设计约束（hard，违一条即为污染语料）：
   1) **逐字契约不破**：噪声按「段」施加——每段文本先加噪，再由加噪后的段拼行、
@@ -92,7 +92,7 @@ def jitter_spaces(seg: str, rng: random.Random, p: float = 0.2) -> str:
 
 def punctuation_loosen(seg: str, rng: random.Random) -> str:
     """标点形态漂移：全角↔半角、偶尔丢失。只動分隔符形态，不动字。"""
-    table = {"：": rng.choice([":", "：", ""]), "：": "：", "。": rng.choice(["。", "", "."]),
+    table = {"：": rng.choice([":", "：", ""]), "。": rng.choice(["。", "", "."]),
              "，": rng.choice(["，", ",", "、"]), "；": rng.choice(["；", ";"]), "、": rng.choice(["、", ","])}
     return "".join(table.get(ch, ch) for ch in seg)
 

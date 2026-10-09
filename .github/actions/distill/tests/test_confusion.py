@@ -28,6 +28,22 @@ class LoadTests(unittest.TestCase):
             self.assertEqual(pinyin["丁"]["same_tone"], {"戊"})
             self.assertEqual(pinyin["丁"]["diff_tone"], {"己", "庚"})
 
+    def test_empty_middle_column_keeps_column_semantics(self):
+        """C5 负测(2026-10-09 W20):空列不得被过滤——丢列=右侧列左移错位。
+
+        真表同型:`口\\t\\t寇扣`(同音同调空、同音异调=寇扣)。旧解析按 `if cell`
+        丢空列 → ["口","寇扣"] → 寇/扣 误入 same_tone(全表 225 行同型:
+        寸/丑/仍/内/水/牛/且/凹/北 …)。
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            _write(base, "same_stroke.txt", "#header\n甲\t乙\n")
+            _write(base, "same_pinyin.txt", "#汉字\t同音同调\t同音异调\n口\t\t寇扣\n水\t\t谁睡\n")
+            pinyin = load_same_pinyin(base / "same_pinyin.txt")
+            self.assertEqual(pinyin["口"]["same_tone"], set())
+            self.assertEqual(pinyin["口"]["diff_tone"], {"寇", "扣"})
+            self.assertEqual(pinyin["水"]["diff_tone"], {"谁", "睡"})
+
     def test_tier_priority_and_hub_cap_determinism(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -58,6 +74,16 @@ class RealTablesTests(unittest.TestCase):
             self.assertTrue(tables.mirrors_for(ch), f"{ch} 无镜像——表覆盖异常")
         self.assertGreater(len(tables._stroke), 1000)
         self.assertGreater(len(tables._pinyin), 1000)
+
+    def test_kou_row_classified_as_diff_tone(self):
+        """C5 钉死(2026-10-09 W20):真表 `口` 行空同音同调列——寇/扣 必须=diff_tone。
+
+        分类错会让同音异调字混入同音族(hub 语义/噪声分布双错;同型 225 行)。
+        """
+        pinyin = load_same_pinyin()
+        self.assertEqual(pinyin["口"]["same_tone"], set())
+        self.assertIn("寇", pinyin["口"]["diff_tone"])
+        self.assertIn("扣", pinyin["口"]["diff_tone"])
 
 
 if __name__ == "__main__":

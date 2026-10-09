@@ -31,12 +31,18 @@ ASR_FUZZY_FAMILIES: dict[str, tuple[tuple[str, ...], ...]] = {
 
 
 def _read_tsv(path: Path) -> list[list[str]]:
+    """TSV → 单元格列表。**保留空列**（2026-10-09 W20 C5 修复）。
+
+    same_pinyin 三列=首字/同音同调/同音异调；曾按 `if cell` 过滤空列，等于让右侧列
+    左移：`口\\t\\t寇扣` 读成 ["口","寇扣"] → 寇/扣 被误判 same_tone（同型 225 行，
+    寸/丑/仍/内/水/牛/且/凹/北 …）。列位语义必须由列序承载，空列位=该族为空。
+    """
     rows = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        rows.append([cell for cell in line.split("\t") if cell])
+        rows.append(line.split("\t"))
     return rows
 
 
