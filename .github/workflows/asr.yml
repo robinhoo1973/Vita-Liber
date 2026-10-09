@@ -375,6 +375,7 @@ jobs:
             --suggested "$RUNNER_TEMP/asr-config-candidates/suggested" \
             --out "$RUNNER_TEMP/asr-distilled" \
             --min-confidence 0.6 2>&1 | tee "$RUNNER_TEMP/distill.log"
+          cp "$RUNNER_TEMP/distill.log" "$RUNNER_TEMP/asr-distilled/distill.log"
           echo "── distill-report.json ──"
           cat "$RUNNER_TEMP/asr-distilled/distill-report.json"
 
@@ -418,10 +419,11 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
         with:
+          # 单路径上传=扁平 artifact（run 37863485198 实证:多路径=嵌套,
+          # 下游按 asr-distilled/models.json 读取时被多叠一层目录）——日志
+          # 已在蒸馏步拷入目录,此处只传目录。
           name: ${{ steps.names.outputs.distilled_artifact }}
-          path: |
-            ${{ runner.temp }}/asr-distilled
-            ${{ runner.temp }}/distill.log
+          path: ${{ runner.temp }}/asr-distilled
           retention-days: 7
           if-no-files-found: error
 
@@ -455,6 +457,10 @@ jobs:
         with:
           name: ${{ needs.distill.outputs.distilled_artifact }}
           path: ${{ runner.temp }}/asr-distilled
+
+      - name: 终稿就位断言（防静默形态漂移）
+        run: test -f "$RUNNER_TEMP/asr-distilled/models.json" || {
+          echo "::error::蒸馏 artifact 未落位 asr-distilled/models.json（上传/下载形态契约破裂）"; exit 1; }
 
       - name: 解析上游最新版（蒸馏终稿驱动，全自动）
         env:
