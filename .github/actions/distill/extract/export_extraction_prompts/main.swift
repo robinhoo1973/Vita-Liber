@@ -1,5 +1,5 @@
 // 2026-10-07 迁入 CI 簇(.github/actions/distill/extract/export_extraction_prompts/;来源
-// refactor/tools/training/shared/export_extraction_prompts/main.swift,训练机共享正本)。
+// refactor/tools/training/tools/export-prompts/main.swift,训练机共享正本;W15 归位 tools/,W16 随目录改名)。
 // 逐字节一致为纪律;编译入口 = .github/actions/distill/extract/export_prompts.sh。
 import Foundation
 #if canImport(Glibc)

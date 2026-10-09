@@ -6,7 +6,7 @@
 # ExtractionSpecRegistry),不经任何复写层——Domain 侧 spec/提示词变更后重跑本脚本
 # 即可让 CI 语料跟进(不需要任何手工同步)。
 #
-# 编译方式与 refactor/tools/training/shared/export-extraction-prompts.sh 同构:
+# 编译方式与 refactor/tools/training/tools/export-prompts/export-extraction-prompts.sh 同构:
 # swiftc 直编「全部 Domain 源文件 + 导出器 main」——不依赖 SPM/Apple SDK,
 # Linux(含 GitHub ubuntu runner 的 Swift 工具链)与 macOS 均可运行。
 #

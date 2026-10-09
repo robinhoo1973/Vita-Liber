@@ -7,7 +7,7 @@ CI SFT 渲染(gen/sft_dataset.py)此前对模板注入的空 think 段(EMPTY_THI
 段(Resources/LLMCatalog/catalog.json 条目 `"frame": "qwen3-nothink"`;Swift 侧
 ExtractionPromptBuilder.ChatFrameStyle.qwen3NonThinking)。训练帧族与部署帧不一致
 = 「训练/推理不同分布」复发(E3)。本模块把「剥离 vs 保留」下沉为纯函数参数
-`family`——取值与训练机正本 refactor/tools/training/shared/trainlib/frames.py
+`family`——取值与训练机正本 refactor/tools/training/template/trainlib/frames.py
 **同名同义**,两侧常量逐字相等由 tests/test_gen_frames_sync.py 合成断言
 (训练机树不在 CI 检出时该断言 skip;Swift 帧金样在 CoreKit Qwen3ChatFrameTests)。
 

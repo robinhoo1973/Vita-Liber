@@ -27,7 +27,7 @@ distill/
 │   ├── datamatrix.py               「类型×地区」矩阵(CELLS 逐字保留;裁掉 TUI)
 │   ├── catalog_source.py           目录 SQLite → data-dir 物化适配层(CI 侧唯一新焊点)
 │   ├── export_prompts.sh           从 CoreKit Domain 编译导出提示词/卡种规格(训练/推理同分布)
-│   └── export_extraction_prompts/  导出器(main.swift,与 training/shared 正本同源)
+│   └── export_extraction_prompts/  导出器(main.swift,与 training/tools/export-prompts 正本同源)
 ├── dialogue/             接地转述对话语料(计划文档 §6 S6 合规形态)
 │   ├── builder.py        四态(restate/clarify/refuse/emergency)合成 + 全量闸
 │   ├── grounding.py      接地校验(逐字片段 + 残余连接词字表;构建与复验共用)

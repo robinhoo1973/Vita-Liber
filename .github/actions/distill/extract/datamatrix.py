@@ -1,6 +1,6 @@
 """「数据类型 × 地区」矩阵 —— 训练/语料构建共用的单一事实源(CI 裁剪版)。
 
-来源:refactor/tools/training/shared/trainlib/datamatrix.py(工作区正本,2026-09-27)。
+来源:refactor/tools/training/template/trainlib/datamatrix.py(工作区正本,2026-09-27;W16 随目录改名)。
 2026-10-07 迁入 CI 簇(.github/actions/distill/extract/):**CELLS 表逐字保留**,仅移除交互菜单/
 TUI 部分(select_matrix/tui/scan 的菜单消费面),保留 --cells 解析与文件解析纯函数——
 CI 侧数据来自 catalog_source.py 物化出的 data-dir(不是本机抓取工作区)。

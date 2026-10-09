@@ -2,7 +2,7 @@
 
 与 test_noise_policy_sync.py 同范式(跨处相等断言左移到测试期,不等产出时才红):
 CI 帧后处理(gen/frames.py)的常量必须与训练机正本
-refactor/tools/training/shared/trainlib/frames.py **逐字相等**——两处漂移 =
+refactor/tools/training/template/trainlib/frames.py **逐字相等**——两处漂移 =
 「训练/推理不同分布」(E3)复发。本地训练工具树不在 CI 检出内(公开仓 checkout
 无 refactor/),锚点上溯找不到即整类断言 skip 不红;语义断言(剥离/保留末段/
 fail-closed)不依赖本地树,CI tests job 实跑。
@@ -20,7 +20,7 @@ def _find_local_frames():
     """相对锚点逐级上溯找工作区内的训练机正本(找不到=CI 检出,返回 None)。"""
     here = Path(__file__).resolve()
     for base in here.parents:
-        candidate = (base / "refactor" / "tools" / "training" / "shared"
+        candidate = (base / "refactor" / "tools" / "training" / "template" / "scripts"
                      / "trainlib" / "frames.py")
         if candidate.is_file():
             return candidate
