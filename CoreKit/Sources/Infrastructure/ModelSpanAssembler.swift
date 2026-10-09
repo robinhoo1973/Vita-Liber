@@ -78,4 +78,11 @@ public enum ModelPromptBuilder {
     public static func numbered(lines: [String]) -> String {
         ExtractionPromptBuilder.numbered(lines: lines)
     }
+
+    /// ChatML 封帧（2026-10-09 换型批：帧构造下沉 Domain 后的转发壳——
+    /// 与既有 systemPrompt/numbered 同纪律：既有调用方零改、单一事实源不变）。
+    public static func chatML(system: String, user: String,
+                              frame: ExtractionPromptBuilder.ChatFrameStyle = .chatML) -> String {
+        ExtractionPromptBuilder.chatML(system: system, user: user, frame: frame)
+    }
 }

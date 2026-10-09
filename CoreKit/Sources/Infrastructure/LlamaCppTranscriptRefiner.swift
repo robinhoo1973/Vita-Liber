@@ -8,8 +8,14 @@ import llama
 /// T2 本机 LLM 润色轨（业主 2026-09-19 第 4 项：语音转写无标点、可读性差）：
 /// 既有润色（`LocalTranscriptRefiner`）门控在 iOS 26 Foundation Models——应用
 /// 基线 iOS 16 的用户永远拿不到标点润色。本实现复用 T2 llama.cpp 运行时
-/// （`LlamaRuntime`，随包 Qwen2.5-0.5B GGUF，零网络零下载）在全部受支持
+/// （`LlamaRuntime`，激活模型经 `LlamaModelManager.activeModel()` 解析，
+/// 2026-10-09 换型批起为运行时下载的 Qwen3-0.6B——**不随包**）在全部受支持
 /// 平台给出句末标点建议。
+///
+/// 已登记缺陷（2026-10-09 评审发现，**本批不修**——标点专项批处理）：
+/// `makePrompt` 目前把裸 JSON 直接喂模型（既无 ChatML 封帧也从未使用
+/// `instructions` 常量）——与训练分布不同源，是「标点质量差」的疑似主因之一；
+/// 标点迁 sherpa-onnx CT-Transformer 的专项批将连同此缺陷一并裁决。
 ///
 /// 安全合同与 FM 轨完全一致（同一 `ProtectedTokenValidator` 逐字节校验、
 /// 同一 `RefinementDeadline` 单飞槽、同一 D 级预览纪律）：
@@ -31,7 +37,7 @@ public struct LlamaCppTranscriptRefiner: TextRefining {
     public var isAvailable: Bool {
         get async {
             #if canImport(llama)
-            LlamaModelManager.isModelReady()
+            LlamaModelManager.activeModel() != nil
             #else
             false
             #endif
@@ -45,13 +51,13 @@ public struct LlamaCppTranscriptRefiner: TextRefining {
             return .unavailable(original)
         }
         #if canImport(llama)
-        guard LlamaModelManager.isModelReady(),
+        guard let model = LlamaModelManager.activeModel(),
               await HeavyModelLease.shared.tryAcquire() else { return .unavailable(original) }
         let result = await deadline.run(original: original, timeout: .nanoseconds(Int64(Self.timeoutNanos))) {
             do {
                 let output = try await LlamaRuntime.shared.complete(
                     prompt: prompt, grammar: Self.freeTextGrammar,
-                    modelURL: LlamaModelManager.modelURL(),
+                    modelURL: model.url, modelBytes: model.bytes,
                     maxTokens: 1_024)
                 try Task.checkCancellation()
                 // 模型加帧（行尾空白/换行）删除；源文本字节一个不动。
