@@ -67,6 +67,8 @@ jobs:
         run: pip install --require-hashes -r .github/config/requirements/requirements-model-tools.txt
       - name: 发布器离线契约测试（含仓库目录一致性断言）
         run: python3 .github/actions/release/test-publish-llm-model.py
+      - name: 本地产物上传器离线契约测试（2026-10-09 训练侧 CNB 上传批）
+        run: python3 .github/actions/release/test-publish-local-artifact.py
 
   publish:
     name: '发布到 CNB（llama-models）'
