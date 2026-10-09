@@ -2,8 +2,9 @@
 # 设计依据:refactor/2026-09-29-medical-llm-training-scenarios-ci-plan.md(§7 训练落点/§10 评测闸)
 #
 # 本图只到「语料冻结发布」(distill-corpus Release = **训练输入件**,artifact_role=
-# training-feedstock,不含模型;全量训练/模型评测/模型发布在私仓训练机与后续
-# task 批次,不在本作业图内——2026-10-08 委员会 round4 设计)。语料可见性由
+# training-feedstock,不含模型;全量训练在**本地训练机**(refactor/tools/training,
+# M4/Arc;2026-10-09 业主裁定:私仓与自托管 GPU 两路废止),模型评测/模型发布在
+# 后续批次,不在本作业图内——2026-10-08 委员会 round4 设计,2026-10-09 落点纠偏)。语料可见性由
 # acceptance 裁决器**统一门控**(必需 job 全绿且双 verdict=pass 才翻转 draft→可见;
 # 业主 2026-10-08 裁决,解除「smoke 入发布语义须单独裁决」登记禁止项)。
 #
@@ -40,7 +41,8 @@
 #   MPS 真可用),但 2026-10-08 对拍(calibrate-probe run 37750843035)实测平台期
 #   350–403 s/step(步 1–9;步 1 冷启 40s 后迅速塌到 ~6min/步),对同 run ubuntu
 #   CPU median 10.68 s/step 慢 33–38×;100 步 ≈10h(超 110min job/6h env 双顶,
-#   结构上不可完成)。训练落点=私仓自托管 GPU。
+#   结构上不可完成)。训练落点=本地训练机(M4 先行;私仓/自托管 GPU 两路
+#   2026-10-09 已废止,见 refactor/tools/training/training-goals.md §5)。
 # - 本文件注释中不得出现双花括号字面量——GitHub 表达式扫描器会把注释里的空表达式
 #   当语法错误,整个 workflow 校验失败(2026-10-03 5WHY 实证)。
 name: distill-llm
