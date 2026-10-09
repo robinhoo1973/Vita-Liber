@@ -89,6 +89,7 @@ class Report:
     def __init__(self):
         self.adopted, self.shadowed, self.rejected = [], [], []
         self.left_open, self.orphans = [], []
+        self.quarantined = []
 
     def adopt(self, where, field, value, confidence, suggested_by):
         self.adopted.append({"where": where, "field": field, "value": value,
@@ -213,6 +214,55 @@ def merge_copy(candidates_doc, suggested_doc, min_confidence, banned, report,
     return merged
 
 
+def copy_complete(copy_doc, family_id, variant):
+    """该档位文案三语齐备口径（家族 4 字段 + 档位 2 字段,全 locale 非空）。
+
+    run 37868483691 实证:新档位骨架空串被投影器 fail-closed 拒,发布链
+    红——入流闸=文案不齐的新档位隔离（留提案,补齐后自然入流）。"""
+    family = next((f for f in copy_doc.get("families", [])
+                   if f.get("id") == family_id), None)
+    if family is None:
+        return False
+    for field in FAMILY_FIELDS:
+        value = family.get(field) or {}
+        if any(not str(value.get(locale) or "").strip() for locale in LOCALES):
+            return False
+    tier = next((t for t in copy_doc.get("tiers", [])
+                 if t.get("id") == family_id and t.get("variant") == variant), None)
+    if tier is None:
+        return False
+    for field in TIER_FIELDS:
+        value = tier.get(field) or {}
+        if any(not str(value.get(locale) or "").strip() for locale in LOCALES):
+            return False
+    return True
+
+
+def quarantine_incomplete(copy_doc, models_doc, report):
+    """文案不齐的新档位隔离出发布集（models 剔除 + 对应 copy 剔除 + 报告留痕）。
+
+    隔离对象=发布集全体（base 与新增同判据）——在册条目文案向来齐备,等价
+    于只隔离骨架新档位;判据不自造白名单,以文案完整性为唯一事实。"""
+    kept, quarantined = [], []
+    for model in models_doc.get("models", []):
+        family_id = model.get("id")
+        variant = model.get("variant")
+        if copy_complete(copy_doc, family_id, variant):
+            kept.append(model)
+        else:
+            quarantined.append({"id": family_id, "variant": variant,
+                                "reason": "文案三语不齐（骨架空串,待 LLM/人工补齐后自动入流）"})
+    models_doc["models"] = kept
+    if quarantined:
+        report.quarantined = quarantined
+        kept_keys = {(m.get("id"), m.get("variant")) for m in kept}
+        copy_doc["tiers"] = [t for t in copy_doc.get("tiers", [])
+                             if (t.get("id"), t.get("variant")) in kept_keys]
+        live_families = {m.get("id") for m in kept}
+        copy_doc["families"] = [f for f in copy_doc.get("families", [])
+                                if f.get("id") in live_families]
+
+
 def load_optional(path):
     if path is not None and path.is_file():
         return json.loads(path.read_bytes())
@@ -247,6 +297,7 @@ def main():
                                      banned, report, suggested_by)
         merged_copy = merge_copy(copy_doc, copy_sugg, args.min_confidence,
                                  banned, report, suggested_by)
+        quarantine_incomplete(merged_copy, merged_models, report)
         out = args.out
         out.mkdir(parents=True, exist_ok=True)
         dump(out / "models.json", merged_models)
@@ -263,10 +314,11 @@ def main():
             "counts": {"adopted": len(report.adopted), "shadowed": len(report.shadowed),
                        "rejected": len(report.rejected),
                        "leftOpen": len(report.left_open),
-                       "orphans": len(report.orphans)},
+                       "orphans": len(report.orphans),
+                       "quarantined": len(report.quarantined)},
             "adopted": report.adopted, "shadowed": report.shadowed,
             "rejected": report.rejected, "leftOpen": report.left_open,
-            "orphans": report.orphans,
+            "orphans": report.orphans, "quarantined": report.quarantined,
         })
         (out / "README.txt").write_bytes((
             "蒸馏合并终稿（候选 × LLM 建议,逐项择优;2026-10-08）。\n\n"
@@ -279,8 +331,13 @@ def main():
             "本目录为 artifact 终稿候选,不写回仓;"
             "金样采纳=人工 review 后誊写,投影器仍为终闸。\n").encode())
         print("蒸馏完成: 采纳 %d / 确定性在场 %d / 驳回 %d / 遗留空缺 %d / 孤儿 %d"
+              " / 隔离 %d"
               % (len(report.adopted), len(report.shadowed), len(report.rejected),
-                 len(report.left_open), len(report.orphans)), flush=True)
+                 len(report.left_open), len(report.orphans),
+                 len(report.quarantined)), flush=True)
+        for row in report.quarantined:
+            print("::warning::隔离（文案不齐,不入本轮发布）: %s/%s"
+                  % (row["id"], row["variant"] or "-"), flush=True)
         return 0
     except (DistillError, OSError, ValueError, KeyError, TypeError) as error:
         print("DISTILL-ERROR: %s" % error, file=sys.stderr)

@@ -35,7 +35,17 @@ def candidates_fixture():
     }
 
 
-def copy_fixture():
+FILLED = {"en": "x", "zh-Hans": "文", "zh-Hant": "文"}
+
+
+def copy_fixture(skeleton_newfam=False):
+    """默认=文案三语齐备（隔离判据在测:齐备不触发）;skeleton_newfam=True
+    时 newfam 家族/档位=空串骨架（隔离路径用例）。"""
+    empty = {"en": "", "zh-Hans": "", "zh-Hant": ""}
+    newfam_fields = {field: (dict(empty) if skeleton_newfam else dict(FILLED))
+                     for field in ("name", "hint", "strengths", "limitations")}
+    tier_fields = {field: (dict(empty) if skeleton_newfam else dict(FILLED))
+                   for field in ("tierName", "tierHint")}
     return {
         "formatVersion": 1,
         "families": [
@@ -43,15 +53,13 @@ def copy_fixture():
              "hint": {"en": "h", "zh-Hans": "h", "zh-Hant": "h"},
              "strengths": {"en": "s", "zh-Hans": "s", "zh-Hant": "s"},
              "limitations": {"en": "l", "zh-Hans": "l", "zh-Hant": "l"}},
-            {"id": "newfam", "name": {"en": "", "zh-Hans": "", "zh-Hant": ""},
-             "hint": {"en": "", "zh-Hans": "", "zh-Hant": ""},
-             "strengths": {"en": "", "zh-Hans": "", "zh-Hant": ""},
-             "limitations": {"en": "", "zh-Hans": "", "zh-Hant": ""}},
+            {"id": "newfam", **newfam_fields},
         ],
         "tiers": [
-            {"id": "newfam", "variant": "small",
-             "tierName": {"en": "", "zh-Hans": "", "zh-Hant": ""},
-             "tierHint": {"en": "", "zh-Hans": "", "zh-Hant": ""}},
+            {"id": "knownfam", "variant": "small",
+             "tierName": {"en": "Ke", "zh-Hans": "已", "zh-Hant": "已"},
+             "tierHint": {"en": "kh", "zh-Hans": "kh", "zh-Hant": "kh"}},
+            {"id": "newfam", "variant": "small", **tier_fields},
         ],
     }
 
@@ -63,13 +71,15 @@ def suggestion(value, confidence=None):
     return row
 
 
-def write_dirs(base, *, models_sugg=b"", copy_sugg=b"", with_sidecar=True):
+def write_dirs(base, *, models_sugg=b"", copy_sugg=b"", with_sidecar=True,
+               skeleton_newfam=False):
     candidates, suggested = base / "candidates", base / "suggested"
     candidates.mkdir()
     (candidates / "models.json").write_bytes(
         json.dumps(candidates_fixture(), ensure_ascii=False, indent=2).encode() + b"\n")
     (candidates / "catalog-copy.json").write_bytes(
-        json.dumps(copy_fixture(), ensure_ascii=False, indent=2).encode() + b"\n")
+        json.dumps(copy_fixture(skeleton_newfam=skeleton_newfam),
+                   ensure_ascii=False, indent=2).encode() + b"\n")
     if with_sidecar:
         suggested.mkdir()
         if models_sugg:
@@ -168,32 +178,56 @@ class DistillTests(unittest.TestCase):
             self.assertTrue(any("置信度不足" in row["reason"]
                                 for row in report["rejected"]))
 
-    def test_banned_copy_rejected_and_valid_adopted(self):
+    def test_banned_copy_rejected_and_incomplete_quarantined(self):
+        # 骨架 newfam:name(banned)/tierHint(三语缺)=逐字段拒 → 文案仍不齐 →
+        # 隔离出发布集（新档位入流闸）;hint/tierName 采纳留痕于报告。
         copy_sugg = json.dumps({
             "formatVersion": 1, "suggestedBy": "llm:mock",
             "families": [{"id": "newfam", "suggestions": {
                 "name": suggestion({**TRILINGUAL, "zh-Hans": "最好 新家族"}),
-                "hint": suggestion(TRILINGUAL)}}],
+                "hint": suggestion(TRILINGUAL),
+                "strengths": suggestion(TRILINGUAL),
+                "limitations": suggestion(TRILINGUAL)}}],
             "tiers": [{"id": "newfam", "variant": "small", "suggestions": {
                 "tierName": suggestion(TRILINGUAL),
                 "tierHint": suggestion({"zh-Hans": "只有中文"})}}],
             "rejected": []}, ensure_ascii=False).encode()
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            candidates, suggested = write_dirs(base, copy_sugg=copy_sugg)
+            candidates, suggested = write_dirs(base, copy_sugg=copy_sugg,
+                                               skeleton_newfam=True)
             out = base / "out"
             self.assertEqual(run_distill(candidates, suggested, out), 0)
-            copy_doc = read_json(out / "catalog-copy.json")
-            newfam = [f for f in copy_doc["families"] if f["id"] == "newfam"][0]
-            self.assertEqual(newfam["name"]["zh-Hans"], "", "负清单命中→不采纳")
-            self.assertEqual(newfam["hint"]["zh-Hans"], TRILINGUAL["zh-Hans"])
-            tier = copy_doc["tiers"][0]
-            self.assertEqual(tier["tierName"]["en"], TRILINGUAL["en"])
-            self.assertEqual(tier["tierHint"]["zh-Hans"], "", "三语缺失→不采纳")
             report = read_json(out / "distill-report.json")
             reasons = {(row["field"], row["reason"]) for row in report["rejected"]}
             self.assertTrue(any("负清单" in reason for _, reason in reasons))
             self.assertTrue(any("缺 zh-Hant" in reason for _, reason in reasons))
+            adopted = {(row["where"], row["field"]) for row in report["adopted"]}
+            self.assertIn(("family:newfam", "hint"), adopted)
+            self.assertIn(("tier:newfam/small", "tierName"), adopted)
+            # 文案不齐 → 隔离:models 剔除 + tier/家族 copy 剔除
+            models = read_json(out / "models.json")
+            self.assertEqual([m["id"] for m in models["models"]], ["knownfam"])
+            copy_doc = read_json(out / "catalog-copy.json")
+            self.assertEqual([f["id"] for f in copy_doc["families"]], ["knownfam"])
+            self.assertEqual([t["id"] for t in copy_doc["tiers"]], ["knownfam"])
+            quarantined = report["quarantined"]
+            self.assertEqual(quarantined[0]["id"], "newfam")
+            self.assertEqual(report["counts"]["quarantined"], 1)
+
+    def test_quarantine_incomplete_skeleton_without_suggestions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            candidates, suggested = write_dirs(base, with_sidecar=False,
+                                               skeleton_newfam=True)
+            out = base / "out"
+            self.assertEqual(run_distill(candidates, suggested, out), 0)
+            models = read_json(out / "models.json")
+            self.assertEqual([m["id"] for m in models["models"]], ["knownfam"],
+                             "空串骨架新档位不入发布集")
+            report = read_json(out / "distill-report.json")
+            self.assertEqual(report["counts"]["quarantined"], 1)
+            self.assertIn("文案三语不齐", report["quarantined"][0]["reason"])
 
     def test_idempotent_double_run_identical_bytes(self):
         models_sugg = json.dumps({

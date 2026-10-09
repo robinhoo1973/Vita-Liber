@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.20（2026-10-09）
+> 版本：V1.21（2026-10-09）
 
 ## 版本与资产来源
 
@@ -175,6 +175,11 @@ CNB 资源仓 `robinhoo1973/Resources` 的 README 由该仓内 `tools/readme-syn
   （REVIEW/空串/空 prefix）;哨兵字符串归一（模型误写的 "null"）;置信度阈值
   `--min-confidence`;与投影器同源负清单复检;provenance 报告
   adopted/shadowed/rejected/leftOpen/orphans）。
+- **入流闸（2026-10-09,run 37868483691 实证）**：**文案不齐的档位隔离出发布集**
+  （models 剔除 + 对应 copy 剔除 + 报告 quarantined 留痕）——新档位骨架空串会
+  被投影器 fail-closed 拒致全链红;隔离后发布集=文案三语齐备者,新档位待
+  LLM/人工补齐后自然入下一轮（判据=文案完整性唯一事实,非白名单）。真产物
+  预验:16 档→13 档（隔离 whisper/large、zipformer/medium、moonshine/base）。
 - **入流（2026-10-09 业主指令）**：asr.yml ③ 草案 → ④ 草拟（非阻塞:
   `if: !cancelled()` 语义 + 显式降级告警）→ ⑤ 蒸馏（结构闸:REVIEW / variant=null /
   seeds 家族覆盖 / 条目缺口（files 与 archive 双面皆空）= 硬红）;⑥ 上游解析起
@@ -259,6 +264,7 @@ ASR 发布页 ⑨→⑪ 接线）;后续新增消费者（含其他 CNB 发布�
 - V1.13（2026-10-08）：bootstrap 批（业主「按名启动」目标）——`bootstrap-asr-model.py`（本地/离线：HF/GitHub 结构化 API 按名发现 → 下载实测探针 + 角色/许可推断 → draft 组装；`--compare-config` 逆测对账三分法）；第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列；配套模板信封已刷新至 v10（提交 run 现场签名目录：时效 +30 天 / 版本对齐 / 文案缓存三合一）。
 - V1.14（2026-10-08）：漂移周检批（业主「方案三 + 零输入 + cron」）——`bootstrap-asr-model.py` 增 `--from-config`（模型名自 config 自动获取；漂移三态 ok/drift/unknown）；`maintenance.yml` 增 `catalog-drift` job（周一 UTC 03:23 cron + dispatch；只读；报告 artifact，不红灯）；角色规则修复（旧前缀 glob 对 whisper 系带档位前缀成员名全失配 → 有序正则；漂移 job 遍历全目录的前置——whisper 五档曾会直接报错）。
 - V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。
+- V1.21（2026-10-09）：蒸馏隔离闸（run 37868483691 实证）——文案三语不齐的档位隔离出发布集（`copy_complete` 判据:家族 4 字段+档位 2 字段全 locale 非空;models/copy 双剔除 + `quarantined` 报告）;三新档（whisper/large、zipformer/medium、moonshine/base）真产物预验 16→13;隔离条目留 proposals 面,补齐后自动入流。背景:新档位骨架空串被投影器 fail-closed 拒致 ⑧ 红——纪律保留（UI 防空白）,缺的入流闸本版补齐。测试 8→9。
 - V1.20（2026-10-09）：发布文案入流（业主指令:readme/release 介绍信 LLM 化;委员会四席）——① 新 ⑨ 发布文案草拟 job（索引→facts→LLM 三语→lint 闸→release-notes.json;非阻塞;独立缓存 asr-release-text-v1;密钥面仅此段）;② 发布页动态段接线（⑪ `--notes` 消费三语,`render_release_body(notes=...)`;缺失=确定性回落 fail-open）;③ drafter 增 `--from-index`/`--repository`/`--tag` + `facts_from_index` + 长度闸（1600/语） + `release-notes.json` 机器面;④ readme-block 维持侧车人工采纳（sections.json 长驻权威面）;⑤ 全链重编号:⑨ release-text / ⑩ sign / ⑪ publish / ⑫ verify / ⑬ archive。测试:test-draft-release-text 6→8、test-asr-release-page +notes 分支、test-asr-release 兼容（getattr --notes）。
 - V1.19（2026-10-09）：LLM 客户端调用标准成文（业主指令）——新增「LLM 客户端调用标准（llm_client）」节:单一出口/接口面/重试与缓存标准/配置标准/治理条款五面;`make_chat` 增 timeout/retries/backoff 透传（批级策略归消费者,传输层标准归模块）;`test-llm-client`/`test-suggest-asr-metadata`/`test-draft-release-text` 三测入 L0 电池（双侧执行列对齐）。
 - V1.18（2026-10-09）：生成链入流（业主指令）——asr.yml 新 12 段图:③ 草案 → ④ LLM 草拟（非阻塞;429 退避/总时限/逐字段容错/恒落盘+errors 台账/actions/cache 跨 run 复用）→ ⑤ 蒸馏（逐项择优+provenance+结构闸;条目完整口径=files 或 archive 双面）;⑥ 上游解析与 ⑧ 文案投影消费**蒸馏终稿**;⑪⑫ 验收挂 ⑤。配套:发现层全局兜底（域内零命中→无作者域搜索,csukuangfj2 域可达）;download-artifact v4 线→v8.0.2（node24 弃用清理）;TEMP 快车道同闸;候选 artifact 层级契约（单路径上传=扁平化,下载侧直指目标目录+就位断言）。git 金样 config 仍为生成基底（深探对账+手写知识载体:qwen3 型 github-release watch 规则/许可覆盖无法从 seeds 重建）,退役迁移另批评估。
