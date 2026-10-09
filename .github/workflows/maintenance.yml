@@ -26,17 +26,15 @@
 #      逐条 API 级检查（镜像仓修订滚动=info / 钉版成员缺失或归档远端缺位
 #      =::warning:: / 网络形状失败=unknown）；报告 artifact，**不红灯**（cron
 #      静默）；哈希级验证由发布链承担（缓存/回源校验）。
-#   5) train-scheduler job（2026-10-09 新增，非合并而来）
-#      训练窗口调度（业主四规则：sqlite 未更新不启动 / 每 8h 自 UTC 00:00
-#      起算 / 未完续跑 / 单轮 ≤6h 留收尾）：决策 train_scheduler.py，派发
-#      llm.yml task=train-encoder（TRAIN_REF 变量,缺省 master——2026-10-09 合并后训练代码随默认分支）。
 #
 # 触发矩阵（job 级 if 用 github.event.schedule 区分是哪个 cron 触发）：
 #   cron '0 16 * * *'  （每日 UTC 16:00 = 北京时间 00:00）→ 仅 cleanup-runs
 #   cron '17 23 * * 0' （每周日 UTC 23:17）              → 仅 signing-expiry
 #   cron '23 3 * * 1'  （每周一 UTC 03:23）              → 仅 catalog-drift
-#   cron '17 0,8,16 * * *'（训练窗口,业主 2026-10-09:每 8h 自 UTC 00:00 起算）→ 仅 train-scheduler
-#   workflow_dispatch                                    → 五个 job 全部执行
+#   workflow_dispatch                                    → 四个 job 全部执行
+#
+# 训练窗口调度 job 已于 2026-10-09 业主指令删除（曾承载四规则的 8h 定时
+# 决策派发）——训练启动=手动 dispatch；已启动链的 chunk 自派发不受影响。
 # ============================================================================
 name: Maintenance
 
@@ -45,9 +43,6 @@ on:
     - cron: '0 16 * * *'   # UTC 16:00 = 北京时间 00:00（记录清理）
     - cron: '17 23 * * 0'  # 每周日 UTC 23:17（签名材料到期周检）
     - cron: '23 3 * * 1'   # 每周一 UTC 03:23（ASR 目录漂移周检）
-    # 训练窗口：整点(0 0,8,16)改 :17 错峰——GitHub 官方明示整点为高负载时段、
-    # schedule 可能延迟乃至丢弃（2026-10-09 CI 流程审计研究席核验）。
-    - cron: '17 0,8,16 * * *'
   workflow_dispatch:
 
 jobs:
@@ -415,83 +410,3 @@ jobs:
                   print('  !! warnings:', json.dumps(st['warnings'], ensure_ascii=False)[:800])
           PYEOF
           rm -rf "$RUNNER_TEMP/keys"
-
-  train-scheduler:
-    name: '训练窗口调度(17 0/8/16 UTC)'
-    # 业主四规则(2026-10-09):①远端 sqlite 未更新不启动 ②每 8h(UTC 00:00 起算)
-    # ③上次未完继续 ④单轮 ≤6h 留收尾(policy.training.schedule.workMinutes=335)。
-    # 本 job=唯一调度入口;实际训练在 llm.yml task=train-encoder,经 TRAIN_REF
-    # 变量(缺省 master)checkout 目标 ref 代码。
-    # 触发=本文件 cron '17 0,8,16'(整点错峰)或手动 dispatch(master scheduled
-    # 先例:schedule 只在默认分支生效,故本 job 必须常驻 master)。
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 0,8,16 * * *'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      actions: write   # 派发 llm.yml
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4 线钉版（2026-10-07）
-        with:
-          ref: ${{ vars.TRAIN_REF || 'master' }}
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065   # v5 线钉版（2026-10-07）
-        with:
-          python-version: "3.13"
-      - name: 决策并派发(四规则)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          D=.github/actions/distill
-          REF="${{ vars.TRAIN_REF || 'master' }}"
-          # 幂等护栏(2026-10-09 审计):只数 **train-encoder** 未完成 run——
-          # 状态全枚举易再漏(并发等待态叫 pending/waiting),直接 != completed;
-          # 语料链 run 不再阻断训练窗口(与 llm.yml 按任务分域并发组同批)。
-          BUSY=0
-          for ID in $(gh run list --workflow llm.yml --limit 10 --json databaseId,status --jq '.[] | select(.status != "completed") | .databaseId'); do
-            if [ "$(gh run view "$ID" --json jobs --jq '[.jobs[].name] | any(. == "train-encoder")')" = "true" ]; then
-              BUSY=$((BUSY+1))
-            fi
-          done
-          if [ "$BUSY" -gt 0 ]; then echo "已有训练 run($BUSY)在跑/排队,本轮跳过"; exit 0; fi
-          # ① 远端 sqlite 指针(CNB 匿名,轻读信封)
-          SQLITE_DV=$(python3 "$D/fetch_catalog.py" --pointer-only --out-dir /tmp/ptr | python3 -c 'import json,sys;print(json.load(sys.stdin)["dataVersion"])')
-          echo "sqlite dataVersion=${SQLITE_DV:0:16}…"
-          # 语料 manifest(最新)
-          mkdir -p /tmp/cm; rm -f /tmp/cm/*
-          M=$(python3 "$D/gen/release_io.py" pick --release distill-corpus --pattern 'distill-corpus-manifest-sha256-.*[.]json$' --out /tmp/cm-pick.txt)
-          gh release download distill-corpus -p "$M" -D /tmp/cm --clobber
-          CORPUS_DV=$(python3 -c 'import json,glob;print(json.load(open(glob.glob("/tmp/cm/*")[0]))["catalog_data_version"])')
-          echo "corpus catalog_data_version=${CORPUS_DV:0:16}…"
-          # ③ 状态(最新谱系;无则视为从未训)
-          rm -f /tmp/state.json
-          if S=$(python3 "$D/gen/release_io.py" pick --release llama-models --pattern 'train-state-train-encoder-.*[.]json$' --out /tmp/st-pick.txt 2>/dev/null); then
-            python3 "$D/gen/release_io.py" fetch --release llama-models --name "$S" --out /tmp --optional || true
-            mv /tmp/"$S" /tmp/state.json 2>/dev/null || true
-          fi
-          # ④ 决策(规则①③在此)
-          DEC=$(python3 "$D/gen/train_scheduler.py" --sqlite-data-version "$SQLITE_DV" --corpus-data-version "$CORPUS_DV" --state /tmp/state.json | tail -1)
-          echo "decision=$DEC"
-          # 停滞告警(2026-10-09 审计席 B):running 且 state 超 2 窗(16h)未更新=
-          # 疑似"红 run 静默循环/ckpt 三连败"烧窗;仅告警不改裁决。
-          STALL=$(python3 -c "
-          import json, datetime, sys
-          try:
-              s = json.load(open('/tmp/state.json'))
-          except Exception:
-              sys.exit(0)
-          if s.get('status') != 'running':
-              sys.exit(0)
-          try:
-              u = datetime.datetime.strptime(s['updated_at'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
-          except Exception:
-              sys.exit(0)
-          age = (datetime.datetime.now(datetime.timezone.utc) - u).total_seconds() / 3600.0
-          print('%.1f' % age if age > 16 else '')
-          " 2>/dev/null || true)
-          if [ -n "$STALL" ]; then echo "::warning::训练链停滞告警:state ${STALL}h 未更新(>2 窗)——检查 ckpt 回传/红 run 证据"; fi
-          case "$DEC" in
-            start|continue) gh workflow run llm.yml --ref "$REF" -f task=train-encoder; echo "已派 train-encoder" ;;
-            rebuild-corpus) gh workflow run llm.yml --ref "$REF" -f task=llm-pipeline; echo "sqlite 已更新但语料落后——先派语料管线" ;;
-            skip) echo "数据未更新且已训完——跳过(规则①)" ;;
-          esac
