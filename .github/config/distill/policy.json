@@ -152,15 +152,8 @@
       "compile": "deferred"
     },
     "schedule": {
-      "_comment": "业主四规则 2026-10-09:②窗口=maintenance cron '0 0,8,16'(训练 run 自身开销实测口径:checkout+pip+fetch+wrap≈10-15min,8h 窗余量充裕——前提=管线 job 不随跑,guard 已改正值);④workMinutes=335+wrap≈20min,timeout=359,GitHub 6h 硬顶内用满",
-      "windowsUtc": [
-        0,
-        8,
-        16
-      ],
-      "workMinutes": 335,
-      "maxJobMinutes": 359,
-      "skipIfDataUnchanged": true
+      "_comment": "④workMinutes=335+wrap≈20min,GitHub 6h 硬顶内用满(训练启动=手动 dispatch+链内自派发;窗口调度 job 2026-10-09 已按业主指令 revert——windowsUtc/maxJobMinutes/skipIfDataUnchanged 三字段零读取点,随之清理)",
+      "workMinutes": 335
     }
   },
   "publish": {
