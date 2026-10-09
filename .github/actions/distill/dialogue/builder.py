@@ -423,8 +423,11 @@ def build(catalog_dir: Path, out_dir: Path, *, count: int, eval_ratio: float, se
         except (OSError, ValueError):
             feed = {"error": "unreadable training_feed_manifest.json"}
 
+    # 墙钟剔除(2026-10-09 W21 C 批):冻结资产名=manifest 内容 sha,同输入两次构建必须逐字节相等;
+    # 构建时间只进日志,不入清单(与 extraction/提示词 manifest 同纪律)。
+    print(f"[dialogue] 构建时间(仅日志,不入清单): {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}",
+          file=sys.stderr)
     manifest = {
-        "generatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "seed": seed,
         "contract": "grounded-transcript-v1(restate/clarify/refuse/emergency;fragments=逐字引用)",
         "safety_lexicon": {"source": lexicon["source"],

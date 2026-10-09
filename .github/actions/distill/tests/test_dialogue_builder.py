@@ -1,4 +1,5 @@
-"""dialogue 语料:接地校验、四态覆盖、负清单 fail-closed、安全词表同源。"""
+"""dialogue 语料:接地校验、四态覆盖、负清单 fail-closed、安全词表同源 + 清单确定性(W21 C 批)。"""
+import hashlib
 import json
 import sys
 import tempfile
@@ -120,6 +121,25 @@ class DialogueBuildTests(unittest.TestCase):
         manifest = json.loads((self.out / "dialogue_manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["safety_lexicon"]["emergency"], 21)  # 词表同源计数快照(漂移即红)
         self.assertTrue(manifest["files"]["dialogue_sft.jsonl"]["sha256"])
+
+    def test_manifest_deterministic_across_builds(self):
+        # W21 C 批负测:同输入两次构建 manifest 逐字节相等(墙钟剔除;冻结资产名=内容 sha)。
+        # 曾带 generatedAt 墙钟 → 同输入不同 sha(与 extraction/提示词 manifest 同族回归)。
+        a, b = self.tmp / "det-a", self.tmp / "det-b"
+        dialogue_builder.build(
+            self.catalog, a, count=60, eval_ratio=0.1, seed=23,
+            wording_source=_fake_wording_source(self.tmp),
+            safety_source=REPO_ROOT / "CoreKit" / "Sources" / "Domain" / "AILocal.swift")
+        dialogue_builder.build(
+            self.catalog, b, count=60, eval_ratio=0.1, seed=23,
+            wording_source=_fake_wording_source(self.tmp),
+            safety_source=REPO_ROOT / "CoreKit" / "Sources" / "Domain" / "AILocal.swift")
+        ma, mb = (a / "dialogue_manifest.json").read_bytes(), (b / "dialogue_manifest.json").read_bytes()
+        self.assertEqual(hashlib.sha256(ma).hexdigest(), hashlib.sha256(mb).hexdigest(),
+                         "manifest 非输入纯函数(墙钟字段回归?)")
+        self.assertNotIn(b"generatedAt", ma, "manifest 仍带墙钟(C 批回归)")
+        for name in ("dialogue_sft.jsonl", "dialogue_eval.jsonl"):
+            self.assertEqual((a / name).read_bytes(), (b / name).read_bytes(), name)
 
     def test_template_violation_fails_closed(self):
         """模板命中负清单(注入) → 构建期即抛,不落半成品。"""
