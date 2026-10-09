@@ -86,6 +86,57 @@ class EvalQuotaTests(unittest.TestCase):
         self.assertEqual(cells["prescription|light"]["eval"], 2)
 
 
+class EvalQuotaKindUnitTests(unittest.TestCase):
+    """kind 单元(C 批 2026-10-09 W20):声称的 eval 数必须=实落数。
+
+    回归对象:曾 `for cell, draw, key in entries: by_kind[cell[0]].extend(by_cell[cell])`
+    ——按条目重放整 cell → N² 放大:total 虚高;提升沿同一键的相邻副本推进把
+    promote 配额耗光 → 声称 937/实落 831(冒烟 声称 60/实落 1)。
+    """
+
+    def _run(self, cells_spec, quota=60, ratio=0.03):
+        es = []
+        for cell, n_below, n_above in cells_spec:
+            es.extend(entries(cell, n_below, n_above))
+        split, cells = assign_eval_splits(es, eval_ratio=ratio, quota=quota, quota_unit="kind")
+        actual = sum(1 for v in split.values() if v == "eval")
+        return split, cells, actual
+
+    def test_kind_claim_equals_actual_no_primary(self):
+        # 全在阈值上(主分配 0):补足受 max_share 限(100×0.15=15),
+        # 关键不变量=声称数=实落数(旧 N² 形态声称 60 而实落 0)
+        split, cells, actual = self._run([(("prescription", "light"), 0, 100)])
+        self.assertEqual(cells["kind:prescription"]["eval"], 15)
+        self.assertEqual(actual, 15)
+        self.assertEqual(cells["kind:prescription"]["promoted"], 15)
+        self.assertEqual(cells["kind:prescription"]["deficit"], 45)
+        self.assertEqual(cells["kind:prescription"]["total"], 100)   # 真总数(非 100×100)
+
+    def test_kind_claim_equals_actual_multi_cell(self):
+        # 350 条主分 5;cap=int(350×0.15)=52 → 补 47,缺口 8 如实登记
+        split, cells, actual = self._run([(("prescription", "light"), 5, 95),
+                                          (("prescription", "heavy"), 0, 200),
+                                          (("prescription", "clean"), 0, 50)])
+        self.assertEqual(cells["kind:prescription"]["eval"], actual)
+        self.assertEqual(actual, 52)
+        self.assertEqual(cells["kind:prescription"]["promoted"], 47)
+        self.assertEqual(cells["kind:prescription"]["deficit"], 8)
+
+    def test_kind_total_is_true_entry_count(self):
+        # N² 回归:5 带各 n 条 → total 必须=n 的和,不是 n² 的和
+        spec = [(("prescription", b), 0, n) for b, n in
+                (("clean", 30), ("light", 25), ("medium", 15), ("heavy", 8), ("extreme", 3))]
+        _, cells, _ = self._run(spec)
+        self.assertEqual(cells["kind:prescription"]["total"], 81)
+        self.assertEqual(cells["prescription|light"]["total"], 25)
+
+    def test_kind_promoted_counter_counts_distinct_keys(self):
+        split, cells, actual = self._run([(("medication", "light"), 0, 100)])
+        self.assertEqual(cells["kind:medication"]["promoted"], actual)
+        self.assertEqual(sum(1 for v in split.values() if v == "eval"),
+                         cells["kind:medication"]["eval"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

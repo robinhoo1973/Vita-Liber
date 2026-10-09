@@ -42,12 +42,18 @@
    2) REGISTRY 追加一项：{mode, weight, builder}；
    3) 如需要新的值来源，在 POOLS 装配处补一个 Source 适配器（照 load_drugs 的写法）。
 
-—— 纪律：
+—— 纪律（2026-10-09 W20 起）：
    * 噪声只在「段」级施加，span value 取加噪后原文 → verbatim 契约由构造保证；
    * 字符集与 tokenizer 词表比对（`--tokenizer`；字节级 BPE 无 OOV 概念，自动跳过）；
    * token 预算守卫（--budget，默认 2000 ≈ SFT max_seq_len 2048 - 帧/EOS 余量）：
      超预算先削可选 span 再削行，仍超则丢弃；
+   * **确定性**：manifest 不含墙钟 → 同输入两次构建逐字节相等（冻结资产名=内容 sha）；
+   * **计数自洽**：manifest 的 eval 计数必须等于实落行数（声称≠实落 = rc 3 拒产出）；
+   * **缺口 fail-closed**：kind 未做满（< --min-kind-fill，默认 1.0）= rc 1 + 具名报错；
+     dry-run 冒烟豁免，--allow-incomplete-kinds 可显式豁免（仍登记 incomplete_kinds）；
    * 全流程只用 stdlib + 本地文件；不使用网络。
+
+—— 退出码：0=成功；1=样本缺口；2=配置/输入错误；3=计数不自洽（内部缺陷）。
 """
 import argparse
 import hashlib
@@ -346,9 +352,13 @@ def assign_eval_splits(entries, *, eval_ratio: float, quota: int,
     if quota_unit == "kind":
         # 验收单元=kind(X2 裁决:band 只是噪声条件切片;细格±tau 会吃穿整语料):
         # 以 kind 汇总为主补足单元;cells 明细按 (kind,band) 照记(诊断用)。
+        # 2026-10-09 W20 C1 修复:曾逐条目 `extend(by_cell[cell])`(=cell 条目数×整 cell
+        # 副本,N² 放大)→ total 虚高 18M/8k,且提升沿副本推进会把 promote 配额耗在同一
+        # 键的相邻副本上(冒烟声称 eval=60/实落 1;主构建声称 937/实落 831)。
+        # 正确形态=每个 cell 只并入一次(以 cell 为单位,条目各自唯一)。
         by_kind = defaultdict(list)
-        for cell, draw, key in entries:
-            by_kind[cell[0]].extend(by_cell[cell])
+        for cell, items in by_cell.items():
+            by_kind[cell[0]].extend(items)
         kind_eval = {}
         for kind, items in sorted(by_kind.items()):
             items.sort()
@@ -603,7 +613,12 @@ def load_derived_pools(data_dir, regions, rng, cap=8000):
 
 
 def load_details(data_dir, tw_names, diseases_out, rng):
-    """medical_details.jsonl 单遍流式：① 抽 TW 用法；② 每 25 行抽 indications 扩充疾病词表。"""
+    """medical_details.jsonl 单遍流式：① 抽 TW 用法；② 每 25 行抽 indications 扩充疾病词表。
+
+    2026-10-09 W20 C4 修复：两路抽取曾以 if/elif 串写——疾病词表未满时 `i % 25 == 0`
+    的行整行进不了 TW 用法路（约 4% 行静默丢 usage 字段）。现两条件独立判定、
+    每行只解析一次 JSON（命中任一路即解析）。
+    """
     path = os.path.join(data_dir, "medical_details.jsonl")
     usage_by_id = {}
     if not os.path.exists(path):
@@ -612,11 +627,20 @@ def load_details(data_dir, tw_names, diseases_out, rng):
     picked = 0
     with open(path, "r", encoding="utf-8") as fh:
         for i, line in enumerate(fh):
-            if i % 25 == 0 and len(diseases) < 20000:
-                try:
-                    d = json.loads(line)
-                except Exception:
-                    continue
+            want_usage = bool(tw_names) and picked < 4000
+            want_disease = i % 25 == 0 and len(diseases) < 20000
+            if not (want_usage or want_disease):
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if want_usage:
+                sid = d.get("source_id")
+                if sid in tw_names and d.get("usage_text"):
+                    usage_by_id[sid] = _clean(d["usage_text"])[:100]
+                    picked += 1
+            if want_disease:
                 ind = d.get("indications") or ""
                 if ind:
                     for seg in re.split(r"[、，,；;。()（）/]", ind):
@@ -624,15 +648,6 @@ def load_details(data_dir, tw_names, diseases_out, rng):
                         seg = re.sub(r"^(用于治療|用于治疗|適用於治療|適用于|適用於|用于|缓解|緩解|改善|治疗|治療|预防|預防)", "", seg).strip()
                         if 2 <= len(seg) <= 12 and seg.endswith(DISEASE_SUFFIXES) and not re.search(r"\d", seg):
                             diseases.add(seg)
-            elif tw_names and picked < 4000:
-                try:
-                    d = json.loads(line)
-                except Exception:
-                    continue
-                sid = d.get("source_id")
-                if sid in tw_names and d.get("usage_text"):
-                    usage_by_id[sid] = _clean(d["usage_text"])[:100]
-                    picked += 1
     diseases_out.update(diseases)
     log(f"[pool] disease-lexicon={len(diseases)}（indications 抽取）; tw-usage-joined={len(usage_by_id)}")
     return usage_by_id
@@ -1643,6 +1658,10 @@ def main():
     ap.add_argument("--types", default="", help="按类型选（与 --regions 交叉）：drugs,hospitals,departments,diagnoses,exams；给了 --cells 时忽略")
     ap.add_argument("--sources", default="", help="旧写法：药品数据源 cn,nhsa,hk,tw → drugs/<地区> 格子（新脚本用 --cells）")
     ap.add_argument("--dry-run", action="store_true", help="快速冒烟：总量 60 条")
+    ap.add_argument("--min-kind-fill", type=float, default=1.0,
+                    help="每卡种最低完成率(0-1;默认 1.0=必须做满;缺口=非零退出)")
+    ap.add_argument("--allow-incomplete-kinds", action="store_true",
+                    help="显式豁免样本缺口(仍登记 manifest.stats.incomplete_kinds;默认 fail-closed)")
     args = ap.parse_args()
 
     if not args.data_dir or not os.path.isdir(args.data_dir):
@@ -1825,6 +1844,7 @@ def main():
                 lines, shared, rows, nz = BUILDERS[kind](pools, rng, vocab_chars)
                 # 行级结构噪声(round5 §2.2;lineIndex 结构映射重算)——
                 # 在构造期自检之前施加,ops 破坏 verbatim 即整条丢弃(兜底闸)
+                # donors=孤立元素行插入(linsert)的页眉/残片文本,随卡种地区繁化(两侧同源)。
                 _donor_cn = ("页眉：门诊系统打印", "分页标识", "扫描件残片", "设备编号 SCAN-2026")
                 lines, shared, rows, line_stats = apply_line_ops(
                     lines, shared, rows, rng, band=nz["band"],
@@ -1880,6 +1900,16 @@ def main():
             stats["counts"][kind] = made
             log(f"[gen] {kind}: {made} 条（尝试 {attempts}）")
 
+        # —— 样本缺口闸(C 批 2026-10-09;review 实证:prescription 0/34 全被预算丢而 rc=0)——
+        # 请求数做不满 = 静默短语料;逐 kind 具名登记,缺口在非 dry-run 下拒产出(rc=1),
+        # 阈值 --min-kind-fill(默认 1.0=必须做满)、例外 --allow-incomplete-kinds(显式豁免)。
+        gaps = {kind: {"requested": counts[kind], "made": stats["counts"].get(kind, 0)}
+                for kind in kinds
+                if counts[kind] and stats["counts"].get(kind, 0) < counts[kind] * args.min_kind_fill}
+        stats["incomplete_kinds"] = gaps
+        for kind, v in sorted(gaps.items()):
+            log(f"[缺口] {kind}: {v['made']}/{v['requested']}（缺 {v['requested'] - v['made']}）")
+
         # —— eval/SFT 分配(定额制;round5 §2.2)——
         quota = 0 if args.dry_run else args.eval_min_per_cell
         split, eval_cells = assign_eval_splits(
@@ -1888,10 +1918,13 @@ def main():
             quota_unit=(pol.get("gates", {}).get("extraction", {}).get("evalQuotaUnit", "cell")
                         if pol else "cell"))
         n_eval = 0
+        eval_rows_by_kind = {}
         for sample in pending:
             if split[sample["id"]] == "eval":
                 feval.write(json.dumps(sample, ensure_ascii=False) + "\n")
                 n_eval += 1
+                k = sample["id"].split("-")[1]   # id 形态 extract-<kind>-<6 位序号>
+                eval_rows_by_kind[k] = eval_rows_by_kind.get(k, 0) + 1
             else:
                 fsft.write(json.dumps(sample, ensure_ascii=False) + "\n")
         stats["eval"] = n_eval
@@ -1901,6 +1934,22 @@ def main():
         deficits = {c: v["deficit"] for c, v in eval_cells.items() if v["deficit"]}
         log(f"[eval] quota={quota}/单元 cells={len(eval_cells)} eval={n_eval}/{len(pending)}"
             + (f" deficit={deficits}" if deficits else ""))
+        # 计数自洽断言(C 批):manifest 声称的 eval 数必须=实落行数。曾 N² 放大让
+        # kind 单元声称 937 而行数只有 831(闸按声称放行)——声称≠实落即拒产出。
+        # kind 单元在场时以 kind 单元求和(细格同数会被重复计),否则按细格求和。
+        kind_cells = {k: v for k, v in eval_cells.items() if k.startswith("kind:")}
+        claimed_total = sum(v["eval"] for v in (kind_cells or eval_cells).values())
+        if claimed_total != n_eval:
+            log(f"[FAIL] eval 计数不自洽:manifest 声称 {claimed_total} 实落 {n_eval}")
+            return 3
+        for cell_key, v in sorted(eval_cells.items()):
+            if not cell_key.startswith("kind:"):
+                continue
+            kind = cell_key[len("kind:"):]
+            actual = eval_rows_by_kind.get(kind, 0)
+            if v["eval"] != actual:
+                log(f"[FAIL] eval 计数不自洽 {kind}: manifest 声称 {v['eval']} 实落 {actual}")
+                return 3
 
     with open(pre_tmp_path, "w", encoding="utf-8", newline="\n") as fpre:
         n_pre = 60 if args.dry_run else args.pretrain_count
@@ -1927,8 +1976,11 @@ def main():
                          "sha256": sha256_file(feed_path)}
         except (OSError, ValueError):
             data_feed = {"error": "unreadable training_feed_manifest.json"}
+    # 墙钟剔除(2026-10-09 W20 C2):冻结资产名=manifest 内容 sha,同输入两次构建必须
+    # 逐字节相等(曾 3408c357 vs 4fee6934)。构建时间只进日志,不入清单。
+    log(f"[manifest] 构建时间(仅日志,不入清单): "
+        f"{__import__('datetime').datetime.now().isoformat(timespec='seconds')}")
     manifest = {
-        "generatedAt": __import__("datetime").datetime.now().isoformat(timespec="seconds"),
         "seed": args.seed, "budget": args.budget,
         # 训练端数据菜单据此判断「现有语料是否可复用」；权重 .meta.json 据此溯源到数据批次。
         "params": {"cells": list(cells), "regions": list(regions), "types": list(types), "sources": list(sources),
@@ -1936,6 +1988,8 @@ def main():
                    "pretrain_count": args.pretrain_count, "eval_ratio": args.eval_ratio,
                    "eval_min_per_cell": args.eval_min_per_cell,
                    "eval_max_share": EVAL_MAX_SHARE,
+                   "min_kind_fill": args.min_kind_fill,
+                   "allow_incomplete_kinds": bool(args.allow_incomplete_kinds),
                    "seed": args.seed, "budget": args.budget},
         "data_feed": data_feed,
         # 逐源许可义务(H5 矩阵;policy 单一事实源)——顶层键(round2 质询席 E:不得埋进 noise 块)
@@ -1993,6 +2047,15 @@ def main():
     log(f"PRE    {pre_path}  {manifest['files'][os.path.basename(pre_path)]['lines']} 行")
     log(f"est tokens: {stats['est']}  trimmed={stats['trimmed']}  dropped={stats['dropped']}")
     log(f"manifest -> {manifest_path}")
+    # 样本缺口终判(见生成段 [缺口] 具名行):dry-run 冒烟豁免;显式豁免时只登记不拒。
+    if gaps and not args.dry_run and not args.allow_incomplete_kinds:
+        log("================ 构建失败(样本缺口) ================")
+        log("[FAIL] 卡种未做满: " + ", ".join(
+            f"{k} {v['made']}/{v['requested']}" for k, v in sorted(gaps.items())))
+        log("[FAIL] 原因见上方 [缺口]/[gen]/dropped 行;确认可接受后加 --allow-incomplete-kinds 显式豁免")
+        return 1
+    if gaps:
+        log(f"[warn] 样本缺口已豁免/冒烟: {', '.join(sorted(gaps))}")
     return 0
 
 
