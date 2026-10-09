@@ -104,6 +104,41 @@ class PackageKeySameSourceTests(unittest.TestCase):
         self.assertEqual(match.group(1), MEDICAL_PACKAGE_KEY_HEX)
 
 
+class ReleaseDirOverrideTests(unittest.TestCase):
+    """W11 可移植覆盖:训练机 staged 树用 --release-dir/VITALIBER_RELEASE_DIR 加载三件套。
+
+    默认路径不变(CI 行为);覆盖目录缺件 fail-closed(不是首次下载时才炸)。
+    """
+
+    def test_default_resolution_still_finds_repo_release_cluster(self):
+        import fetch_catalog
+        self.assertEqual(fetch_catalog.RELEASE_DIR, RELEASE_DIR)
+
+    def test_override_switches_release_dir_and_resets_module_cache(self):
+        import fetch_catalog
+        saved_dir, saved_cache = fetch_catalog.RELEASE_DIR, fetch_catalog._CNB_READ_MODULE
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                for name in fetch_catalog.RELEASE_DIR_REQUIRED:
+                    (Path(tmp) / name).write_text("# staged\n", encoding="utf-8")
+                fetch_catalog._CNB_READ_MODULE = object()   # 假装已缓存旧目录加载结果
+                fetch_catalog.apply_release_dir_override(tmp)
+                self.assertEqual(fetch_catalog.RELEASE_DIR, Path(tmp).resolve())
+                self.assertIsNone(fetch_catalog._CNB_READ_MODULE, "覆盖后必须失效旧加载缓存")
+        finally:
+            fetch_catalog.RELEASE_DIR, fetch_catalog._CNB_READ_MODULE = saved_dir, saved_cache
+
+    def test_override_missing_files_rejected_fail_closed(self):
+        import fetch_catalog
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "cnb_read.py").write_text("# only one\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                fetch_catalog.apply_release_dir_override(tmp)
+            self.assertIn("cnb_release.py", str(ctx.exception))
+            self.assertIn("asr_envelope.py", str(ctx.exception))
+        self.assertEqual(fetch_catalog.RELEASE_DIR, RELEASE_DIR, "拒绝后不得改变生效目录")
+
+
 def _load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)

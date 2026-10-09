@@ -21,6 +21,15 @@
 用法:
   python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets
   python3 .github/actions/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets  # 开发旁路
+  python3 .github/actions/distill/fetch_catalog.py --release-dir /path/scripts/exchange --out-dir catalog  # 训练机 staged 树
+
+可移植覆盖(2026-10-09 W11,训练机 CNB 直取批):训练机没有 CoreKit 树,本脚本对
+release 簇(cnb_read/cnb_release/asr_envelope)的路径加载改由 `--release-dir` 或
+env `VITALIBER_RELEASE_DIR` 指定**同一目录**内三件套(单源纪律:仍是路径加载同名
+正本文件,零复刻实现)。未提供时逐字保持 CI 行为(上溯 CoreKit 锚点 →
+.github/actions/release)。三件套自身无 CoreKit/仓内锚点(2026-10-09 核实:
+asr_envelope 自含、cnb_read 仅同目录 import cnb_release、cnb_release 仅以自身
+`__file__` 定位 cnb-release-notes/),故 staged 目录整包拷走即自洽。
 """
 from __future__ import annotations
 
@@ -29,6 +38,7 @@ import base64
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import sys
@@ -37,10 +47,33 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent
-while REPO_ROOT != REPO_ROOT.parent and not (REPO_ROOT / "CoreKit" / "Sources" / "Domain").is_dir():
-    REPO_ROOT = REPO_ROOT.parent
-RELEASE_DIR = REPO_ROOT / ".github" / "actions" / "release"
+
+def _default_release_dir() -> Path:
+    """CI 仓内默认:.github/actions/release(逐级上溯 CoreKit 锚点;禁 parents[N])。"""
+    root = Path(__file__).resolve().parent
+    while root != root.parent and not (root / "CoreKit" / "Sources" / "Domain").is_dir():
+        root = root.parent
+    return root / ".github" / "actions" / "release"
+
+
+RELEASE_DIR = _default_release_dir()
+
+# 覆盖目录最小契约:三件套必须共处一目录(路径加载按名查找,缺一即硬错)。
+RELEASE_DIR_REQUIRED = ("cnb_read.py", "cnb_release.py", "asr_envelope.py")
+
+
+def apply_release_dir_override(path) -> None:
+    """应用 release 簇目录覆盖(训练机 staged 树;校验三件套齐全后生效)。
+
+    fail-closed:缺件立即抛 ValueError(而不是首次下载时才 AttributeError/FileNotFoundError)。
+    """
+    global RELEASE_DIR, _CNB_READ_MODULE
+    resolved = Path(path).expanduser().resolve()
+    missing = [name for name in RELEASE_DIR_REQUIRED if not (resolved / name).is_file()]
+    if missing:
+        raise ValueError(f"release-dir 覆盖目录缺件 {', '.join(missing)}: {resolved}")
+    RELEASE_DIR = resolved
+    _CNB_READ_MODULE = None
 
 # .github/actions/release 的解析器/信封实现按需加载(与 probe_cnb_resources.py 同一路径加载法):
 # 模块顶层保持 stdlib——零依赖测试闸可直接 import 本模块;信封路径(需 cryptography)
@@ -334,12 +367,25 @@ def main() -> int:
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--local-sqlite", type=Path, default=None,
                         help="开发旁路:跳过网络,直接用本机目录 SQLite(仅本地原型期)")
+    parser.add_argument("--release-dir", type=Path, default=None,
+                        help="release 簇(cnb_read/cnb_release/asr_envelope)所在目录覆盖:"
+                             "训练机 staged 树用;提供时跳过 CoreKit 上溯。env VITALIBER_RELEASE_DIR 等价,"
+                             "命令行优先;两者都不给 = CI 仓内默认解析(行为不变)")
     parser.add_argument("--keep-intermediates", action="store_true",
                         help="保留 .fetch-work/(密文+ZIP,供失败诊断;默认成功后清理)")
     parser.add_argument("--pointer-only", action="store_true",
                         help="只读指针信封(manifest.json):打印 dataVersion/catalogVersion 即退"
                              "(训练调度器数据门禁用;不下载 package)")
     args = parser.parse_args()
+
+    override = args.release_dir or os.environ.get("VITALIBER_RELEASE_DIR", "").strip() or None
+    if override:
+        try:
+            apply_release_dir_override(override)
+        except ValueError as exc:
+            print(f"FAILED: {exc}", file=sys.stderr)
+            return 1
+        print(f"[fetch] release 簇目录覆盖生效: {RELEASE_DIR}")
 
     if args.pointer_only:
         try:
