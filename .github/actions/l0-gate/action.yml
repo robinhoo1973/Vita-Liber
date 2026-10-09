@@ -64,7 +64,8 @@ runs:
                  test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets \
                  test-asr-overview test-asr-config-projection test-resolve-asr-models \
                  test-apply-asr-catalog-copy test-asr-change-set test-bootstrap-asr-model \
-                 test-distill-asr-metadata; do
+                 test-distill-asr-metadata test-llm-client test-suggest-asr-metadata \
+                 test-draft-release-text; do
           echo "── $t"
           python3 "$GITHUB_ACTION_PATH/../release/$t.py"
         done 2>&1 | tee -a /tmp/l0-gate.log

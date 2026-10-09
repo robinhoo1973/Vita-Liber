@@ -134,10 +134,16 @@ def default_cache_dir(slug):
     return Path.home() / ".cache" / ("vitaliber-" + slug)
 
 
-def make_chat(endpoint, model, *, api_key_env=None, temperature=0.2):
-    """构造消费者用的 chat(prompt) 闭包;密钥经环境变量名注入。"""
+def make_chat(endpoint, model, *, api_key_env=None, temperature=0.2,
+              timeout=180, retries=3, backoff=5.0):
+    """构造消费者用的 chat(prompt) 闭包;密钥经环境变量名注入。
+
+    调用标准（全文见 ASR_RELEASE.md「LLM 客户端调用标准」节）:一切 HTTP/LM
+    调用必须经本模块;超时/重试/退避参数透传,消费者只负责批级策略
+    （逐字段容错、总时限、错误台账）。"""
     api_key = os.environ.get(api_key_env) if api_key_env else None
     def chat(prompt):
         return llm_chat(endpoint, model, prompt, api_key=api_key,
-                        temperature=temperature)
+                        temperature=temperature, timeout=timeout,
+                        retries=retries, backoff=backoff)
     return chat
