@@ -105,15 +105,19 @@ enum ExtractionPromptExporter {
             ])
         }
 
+        // 2026-10-09 W20 A 批:墙钟字段剔除 + generator 改路径无关标识——
+        // 同输入两次导出产物必须逐字节相等(产物=语料构建输入,进内容寻址 sha);
+        // 两份副本(本机 tools/export-prompts、CI 簇 extract/export_extraction_prompts)
+        // 产物逐字节同源,manifest 不得携带各自路径。导出时间只打日志。
         let manifest: [String: Any] = [
-            "generatedAt": ISO8601DateFormatter().string(from: Date()),
-            "generator": "refactor/tools/export_extraction_prompts/main.swift",
+            "generator": "extraction-prompts-exporter",
             "kinds": kinds,
         ]
         let manifestData = try JSONSerialization.data(withJSONObject: manifest,
                                                       options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try manifestData.write(to: outDir.appendingPathComponent("manifest.json"))
 
-        print("[ok] exported \(ExtractionSpecRegistry.specs.count) kinds -> \(outDir.path)")
+        print("[ok] exported \(ExtractionSpecRegistry.specs.count) kinds -> \(outDir.path) "
+              + "at \(ISO8601DateFormatter().string(from: Date())) (时间不入 manifest,仅日志)")
     }
 }

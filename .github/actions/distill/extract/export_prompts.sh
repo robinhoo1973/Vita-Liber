@@ -10,6 +10,11 @@
 # swiftc 直编「全部 Domain 源文件 + 导出器 main」——不依赖 SPM/Apple SDK,
 # Linux(含 GitHub ubuntu runner 的 Swift 工具链)与 macOS 均可运行。
 #
+# 逐字节同源(2026-10-09 W20 A 批):同目录 export_extraction_prompts/main.swift 与训练树
+# tools/export-prompts/main.swift 逐字节相同,产物(manifest.json/prompt_*/spec_*)亦逐字节
+# 相等(manifest 无墙钟、generator 为路径无关标识);导出时间只打日志。两侧断言见
+# tests/test_extract_builder.py::PromptExporterTwinTests(本仓) 与训练树 macos/tests 同位断言。
+#
 # 用法:
 #   bash .github/actions/distill/extract/export_prompts.sh [out_dir]
 #   默认 out_dir = .github/actions/distill/extract/prompts
