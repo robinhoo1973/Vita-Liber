@@ -250,16 +250,18 @@ jobs:
           SFT_COUNT: ${{ inputs.sft_count }}
           PRETRAIN_COUNT: ${{ inputs.pretrain_count }}
         run: |
-          # 判据单一事实源:空输入回退 policy.json(散抄默认值=漂移族;seed 亦单源)
+          # 判据单一事实源:空输入回退 policy.json(散抄默认值=漂移族;seed/预算亦单源)
           POLICY=.github/actions/distill/policy.py
           SFT_COUNT="${SFT_COUNT:-$(python3 $POLICY --get corpus.counts.sft)}"
           PRETRAIN_COUNT="${PRETRAIN_COUNT:-$(python3 $POLICY --get corpus.counts.pretrain)}"
           SEED="$(python3 $POLICY --get corpus.seed)"
+          BUDGET="$(python3 $POLICY --get corpus.budget)"   # W21 B:预算单源(≈seq2048-帧余量;勿散抄)
           python3 .github/actions/distill/extract/build_extraction_corpus.py \
             --data-dir extract-data --prompts-dir .github/actions/distill/extract/prompts \
             --out-dir extraction-out \
             --tokenizer .github/actions/distill/gen/tokenizer.json \
             --seed "$SEED" \
+            --budget "$BUDGET" \
             --cells drugs/cn,drugs/hk,drugs/tw,hospitals/cn,hospitals/hk,hospitals/tw,departments/cn,departments/hk,departments/tw,diagnoses/cn,diagnoses/hk,exams/cn,exams/tw \
             --sft-count "$SFT_COUNT" --pretrain-count "$PRETRAIN_COUNT"
       - name: Upload extraction corpus

@@ -330,23 +330,30 @@ class PromptExporterTwinTests(unittest.TestCase):
 
 @unittest.skipUnless(_find_training_builder(), "本地训练树不在工作区(CI 检出无 refactor/)——跨侧断言跳过")
 class BuilderTwinSyncTests(unittest.TestCase):
-    """C 批修复函数两侧同步:build_extraction_corpus 整体尚存历史分叉(见报告),
-    但本批修改的四个语义单元必须两侧逐字同源(先断言这四处,不假绿整体)。"""
+    """W21 A 批:build_extraction_corpus 整体纳入两侧 sha 相等断言(10 处 hunk 历史分叉已按
+    语义超集合并,两布局差异由同一源码自适应解析——无白名单差异)。
+    下挂单函数定位断言:分叉时先指认语义单元(C/D 批),再按 sha 整体修复。"""
 
     LOCAL = _find_training_builder()
 
+    def test_builder_byte_identical(self):
+        self.assertEqual(hashlib.sha256(BUILDER.read_bytes()).hexdigest(),
+                         hashlib.sha256(self.LOCAL.read_bytes()).hexdigest(),
+                         "build_extraction_corpus.py 两侧分叉——先逐字节同步两处(W21 同分布纪律)")
+
     def test_c_fix_functions_identical(self):
-        for name in ("assign_eval_splits", "load_details"):
+        for name in ("assign_eval_splits", "load_details", "prompts_sha256", "corpus_fingerprints"):
             self.assertEqual(_function_source(BUILDER, name),
                              _function_source(self.LOCAL, name),
-                             f"{name} 两侧分叉——先同步两处(C 批修复必须双侧同源)")
+                             f"{name} 两侧分叉——先同步两处(C/D 批必须双侧同源)")
 
     def test_gap_gate_and_determinism_markers_present_both_sides(self):
         for path in (BUILDER, self.LOCAL):
             src = path.read_text(encoding="utf-8")
             for marker in ("--min-kind-fill", "--allow-incomplete-kinds",
-                           "incomplete_kinds", "eval 计数不自洽"):
-                self.assertIn(marker, src, f"{path.name} 缺 C 批标记 {marker}")
+                           "incomplete_kinds", "eval 计数不自洽",
+                           "token_counter", "prompts_sha256", "builder_sha256"):
+                self.assertIn(marker, src, f"{path.name} 缺 C/D/B 批标记 {marker}")
             self.assertNotIn('"generatedAt":', src, f"{path.name} 仍有墙钟字段(C2 回归)")
 
 

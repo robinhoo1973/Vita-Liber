@@ -19,9 +19,11 @@
       "excludeDomains": "department"
     },
     "seed": 20261007,
+    "budget": 2000,
+    "budget_comment": "SFT 语料窗(≈ max_seq_len 2048 - 帧/EOS 余量;builder DEFAULT_BUDGET 与之等值,由测试断言)。2026-10-09 W21 实测:真分词器(MiniMind 1351 tok/prescription prompt)下 11 必备类 @2000 全量做满(rc=0);缺 tokenizers 库的 heuristic 兜底(同 prompt 1855)会饿死大提示词类——构建机必须装 tokenizers(清单 params.token_counter 可审计)",
     "deferredKinds": {
-      "hospitalization": "prompt 2187 tokens > --budget 2000(整类零样本;解冻条件=prompt 瘦身或 SFT seq 提升)",
-      "surgery": "prompt 2137 tokens > --budget 2000(同上)"
+      "hospitalization": "MiniMind prompt 2187 tok > budget 2000(整类零样本;W21 实测:学生 tokenizer 1445 tok、est≤2560 全量可容——解冻重评转 P3 帧与预算契约)",
+      "surgery": "MiniMind prompt 2137 tok > budget 2000(同上;学生 tokenizer 1436 tok、est≤2560 全量可容)"
     },
     "requiredKinds": [
       "prescription",

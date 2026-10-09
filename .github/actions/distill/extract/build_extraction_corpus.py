@@ -2,14 +2,18 @@
 """
 抽取训练语料构建器（真实数据驱动 + 注册表可扩展，2026-09-24）
 
-—— 2026-10-07 迁入 CI 簇（.github/actions/distill/extract/）说明：本文件是
-   refactor/tools/training/{macos,windows}/scripts/corpus/build_extraction_corpus.py
-   的正本迁入（同轮迁入 extraction_noise.py 与 datamatrix.py 裁剪版），改动仅三处：
-   ① 数据源路径说明（CI 的 data-dir 由 catalog_source.py 从 CNB Release 目录物化）；
-   ② datamatrix 改为同目录 import（CI 无 trainlib 包布局）；
-   ③ 默认路径改为仓锚定（prompts 落本目录 prompts/、tokenizer 取 .github/actions/distill/gen/）。
-   生成逻辑（REGISTRY/POOLS/噪声/预算/verbatim 守卫）与训练机逐字一致——
-   两端同步纪律：任何修改必须两侧同步（训练/推理同分布的组成部分）。
+—— 双侧同源（2026-10-09 W21 合并后逐字节相等）：本文件是训练机正本
+   refactor/tools/training/template/scripts/corpus/build_extraction_corpus.py 的
+   逐字节孪生（CI 副本 = .github/actions/distill/extract/，同轮孪生 extraction_noise.py
+   与 datamatrix.py 裁剪版）。同一份源码在两布局下自适应解析（运行语义两侧一致）：
+   ① data-dir：CI 由 catalog_source.py 从 CNB Release 目录物化；训练机为 medical-data/data；
+   ② datamatrix：训练载荷走 <parent>/trainlib 包（W15 同形规则），CI 簇退回同目录裁剪版；
+   ③ 默认路径：prompts 先 <payload>/configs/extraction_prompts 再同目录 prompts/（CI）；
+      tokenizer 先 ../model/tokenizer.json（训练载荷）再 ../gen/tokenizer.json（CI）；
+   ④ 根锚 ROOT 按「CoreKit/Sources/Domain（App 仓）↔ configs/extraction_prompts（训练载荷）」
+      上溯探测（禁用固定层级 parents[N]）。
+   两端同步纪律：任何修改必须两侧同步（训练/推理同分布的组成部分），孪生测试按 sha 强制
+   （CI: tests/test_noise_policy_sync.py 与 test_extract_builder.py；训练树: macos/tests/test_corpus_contract.py）。
 
 —— 目标（业主定案）：让小模型对 OCR/ASR 文本**快速精准定位**并抽出处方信息卡所需
    字段（药名 / 规格 / 用量 / 频次 / 途径 / 天数 …），并可直接服务后续的医院、
@@ -17,28 +21,31 @@
 
 —— 输出契约 = App 端 T2 解码契约（三者同形的机械保证）：
    {"shared":[{"key","value","unit","lineIndex"}],"rows":[[…]]}
-   训练数据由 `prompts/prompt_<kind>.txt`（App `ExtractionPromptBuilder`
-   逐字导出，export_prompts.sh 编译 Domain 源代码生成）作为 system 段、
-   App 同款「[i] 行」编号作为 user 段——训练/推理同分布。
+   训练数据由 `prompt_<kind>.txt`（App `ExtractionPromptBuilder` 逐字导出：训练机
+   tools/export-prompts/export-extraction-prompts.sh；CI extract/export_prompts.sh
+   从 CoreKit Domain 编译生成）作为 system 段、App 同款「[i] 行」编号作为 user 段
+   ——训练/推理同分布。
 
 —— 输入：
-   --data-dir    CI：catalog_source.py 从目录 SQLite 物化的 data-dir
-                 （drugs_cn / drugs_nhsa / tw_records / hk_records /
+   --data-dir    data-dir：CI 为 catalog_source.py 从目录 SQLite 物化的产物；训练机为
+                 medical-data/data（drugs_cn / drugs_nhsa / tw_records / hk_records /
                  medical_details / medical_index / ref/<域>_<地区>.jsonl …）
    --cells       训练数据格子「类型/地区」（datamatrix 唯一事实源：drugs|hospitals|departments|diagnoses|exams ×
                  cn|hk|tw）。药品池按地区加载；医院/科室/诊断/检验名称池优先取 data/ref/<域>_<地区>.jsonl，
                  缺文件退回内置名单并在清单 pools.ref 标 fallback。样本按所选地区分布生成（TW/HK 繁体版式）。
                  --regions/--types 交叉、旧 --sources（药品源）仍可用，取舍规则见 datamatrix.resolve_cells。
-   --prompts-dir prompts/（.github/actions/distill/extract/export_prompts.sh 从 CoreKit Domain 编译导出）
+   --prompts-dir 提示词目录：先探 <payload>/configs/extraction_prompts（训练载荷），再退回同目录
+                 prompts/（CI；export_prompts.sh 从 CoreKit Domain 编译导出）
 
-—— 输出（--out-dir，默认 out/extract-dataset）：
+—— 输出（--out-dir，默认 <根锚>/out/extract-dataset）：
    extraction_sft.jsonl      多任务 SFT（conversations 形状；assistant=span JSON）
    extraction_pretrain.jsonl 领域继续预训练文本（{"text": …}）
    extraction_eval.jsonl     留出集（同 SFT 形状；训练侧自动排除）
    extraction_manifest.json  参数 + 计数 + 抽样统计 + sha256（可复现）
 
 —— 扩展方式（新增实体类型 = 三件事，零改训练代码）：
-   1) 跑一次 export_prompts.sh → 新卡种 prompt_/spec_ 文件自动出现；
+   1) 跑一次导出脚本（训练机 tools/export-prompts/export-extraction-prompts.sh；CI extract/export_prompts.sh）
+      → 新卡种 prompt_/spec_ 文件自动出现；
    2) REGISTRY 追加一项：{mode, weight, builder}；
    3) 如需要新的值来源，在 POOLS 装配处补一个 Source 适配器（照 load_drugs 的写法）。
 
@@ -81,14 +88,36 @@ from extraction_noise import (  # noqa: E402
 )
 from line_ops import apply_line_ops  # noqa: E402
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-while ROOT != os.path.dirname(ROOT) and not os.path.isdir(os.path.join(ROOT, "CoreKit", "Sources", "Domain")):
-    ROOT = os.path.dirname(ROOT)  # 仓锚探测（禁用固定层级 parents[N]——脚本搬迁不改语义）
+def _probe_root(start):
+    """根锚探测（禁用固定层级 parents[N]——脚本搬迁不改语义）：App 仓=含 CoreKit/Sources/Domain；
+    训练载荷=含 configs/extraction_prompts（W15 打底层根，与 scripts 同级）；都不命中退回脚本目录。"""
+    cur = os.path.abspath(start)
+    while True:
+        if os.path.isdir(os.path.join(cur, "CoreKit", "Sources", "Domain")):
+            return cur
+        if os.path.isdir(os.path.join(cur, "configs", "extraction_prompts")):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return os.path.abspath(start)
+        cur = parent
+
+
+ROOT = _probe_root(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _load_datamatrix():
-    """datamatrix = 「类型 × 地区」矩阵的唯一事实源（格子 → 文件 / 派生规则）。
-    CI 布局：与本文件同目录（训练机正本迁入裁剪版，CELLS 表逐字保留）。stdlib only。"""
+    """trainlib.datamatrix = 「类型 × 地区」矩阵的唯一事实源（格子 → 文件 / 派生规则）。
+    W15 归位后部署与仓库两侧同形（同一 `<parent>/trainlib` 规则）：载荷 `scripts/corpus/` → `scripts/trainlib/`；
+    仓库 `template/scripts/corpus/` → `template/scripts/trainlib/`。CI 簇无 trainlib 包布局时退回
+    同目录裁剪版（CELLS 表逐字保留）。stdlib only。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.abspath(os.path.join(here, ".."))
+    if os.path.isfile(os.path.join(candidate, "trainlib", "datamatrix.py")):
+        if candidate not in sys.path:
+            sys.path.insert(0, candidate)
+        from trainlib import datamatrix  # noqa: E402
+        return datamatrix
     from datamatrix import CELLS, CELL_BY_KEY  # noqa: F401,E402  （import 即验证可用）
     import datamatrix  # noqa: E402
     return datamatrix
@@ -298,6 +327,30 @@ def sha256_file(path):
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def prompts_sha256(prompts_dir):
+    """提示词产物指纹(2026-10-09 W21 D 批;算法与 trainlib.data.corpus_fingerprints 逐字同形):
+    优先导出器 manifest.json 整文件 sha;缺 manifest 时按文件名排序对 prompt_*/spec_* 逐件
+    (名+内容)链式 sha。重导提示词 ⇒ 指纹变 ⇒ 训练机 corpus_matches 失配重建。"""
+    manifest_path = os.path.join(prompts_dir, "manifest.json")
+    if os.path.isfile(manifest_path):
+        return sha256_file(manifest_path)
+    if not os.path.isdir(prompts_dir):
+        return None
+    digest = hashlib.sha256()
+    for name in sorted(os.listdir(prompts_dir)):
+        if not (name.startswith("prompt_") or name.startswith("spec_")):
+            continue
+        digest.update(name.encode("utf-8"))
+        digest.update(sha256_file(os.path.join(prompts_dir, name)).encode("ascii"))
+    return digest.hexdigest()
+
+
+def corpus_fingerprints(prompts_dir, builder_path):
+    """写入 manifest.params 的语料指纹:提示词产物 sha + 构建器源码 sha(NULL=目录/文件缺失)。"""
+    return {"prompts_sha256": prompts_sha256(prompts_dir),
+            "builder_sha256": sha256_file(builder_path) if os.path.isfile(builder_path) else None}
 
 
 # eval 分配(round5 §2.2):per-sample 确定性抽样键 + 每单元(kind×band)定额 ≥60,
@@ -1634,14 +1687,33 @@ def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
 
 # ================================================================ 主流程
 
+def _first_existing_dir(*candidates):
+    """部署布局优先、旧布局兜底：取第一个存在的目录（都不存在则返回首个候选，报错点名它）。"""
+    for path in candidates:
+        if os.path.isdir(path):
+            return path
+    return candidates[0]
+
+
+def _first_existing_file(*candidates):
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return candidates[0]
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description="抽取训练语料构建器（真实数据驱动）")
     ap.add_argument("--data-dir", default=os.environ.get("VITALIBER_DATA_DIR", ""),
                     help="data-dir 路径（CI：catalog_source.py 物化产物；或设 VITALIBER_DATA_DIR）")
-    ap.add_argument("--prompts-dir", default=os.path.join(here, "prompts"))
+    # 默认值按两布局探测（训练载荷 template/scripts/corpus → <root>/configs/extraction_prompts +
+    # <root>/scripts/model/tokenizer.json；CI 簇退回同目录 prompts/ 与 ../gen/tokenizer.json）。
+    ap.add_argument("--prompts-dir", default=_first_existing_dir(
+        os.path.join(here, "..", "..", "configs", "extraction_prompts"), os.path.join(here, "prompts")))
     ap.add_argument("--out-dir", default=os.path.join(ROOT, "out", "extract-dataset"))
-    ap.add_argument("--tokenizer", default=os.path.join(here, "..", "gen", "tokenizer.json"))
+    ap.add_argument("--tokenizer", default=_first_existing_file(
+        os.path.join(here, "..", "model", "tokenizer.json"), os.path.join(here, "..", "gen", "tokenizer.json")))
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--sft-count", type=int, default=27000, help="SFT 样本总量（按注册表权重切分）")
     ap.add_argument("--pretrain-count", type=int, default=40000)
@@ -1717,7 +1789,8 @@ def main():
     specs = load_specs(args.prompts_dir, kinds)
     set_specs(specs)   # 通用卡种生成器需要完整字段元数据（labels/type/枚举词形）
     if not specs:
-        log("[FAIL] 无可用规格文件——先跑 .github/actions/distill/extract/export_prompts.sh")
+        log("[FAIL] 无可用规格文件——先跑导出脚本"
+            "（训练机 tools/export-prompts/export-extraction-prompts.sh；CI extract/export_prompts.sh）")
         return 2
     kinds = [k for k in kinds if k in specs]
 
@@ -1874,6 +1947,7 @@ def main():
                 sample["noise"] = noise_ctx_summary(nz)
                 if any(line_stats.values()):
                     sample["line_ops"] = dict(line_stats)
+                # 行算子计数通用累计(v2.2 起 op 集合可扩:不得写死 4 键,否则新算子 KeyError)
                 glo = stats.setdefault("line_ops", {})
                 for k, v in line_stats.items():
                     glo[k] = glo.get(k, 0) + v
@@ -1990,7 +2064,12 @@ def main():
                    "eval_max_share": EVAL_MAX_SHARE,
                    "min_kind_fill": args.min_kind_fill,
                    "allow_incomplete_kinds": bool(args.allow_incomplete_kinds),
-                   "seed": args.seed, "budget": args.budget},
+                   "seed": args.seed, "budget": args.budget,
+                   # 分词口径(W21 B 批):heuristic-fallback = 无 tokenizers 库(计数偏大 ~1.37×,
+                   # 大提示词卡种会被预算饿死——构建机应装 tokenizers;清单据此可审计)
+                   "token_counter": counter_mode,
+                   # 语料复用判据指纹(W21 D 批):重导提示词/换构建器 ⇒ 训练机 corpus_matches 失配重建
+                   **corpus_fingerprints(args.prompts_dir, os.path.abspath(__file__))},
         "data_feed": data_feed,
         # 逐源许可义务(H5 矩阵;policy 单一事实源)——顶层键(round2 质询席 E:不得埋进 noise 块)
         "licenses": license_entries,

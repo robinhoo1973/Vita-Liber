@@ -40,8 +40,22 @@ class WorkflowPolicyDriftTests(unittest.TestCase):
                        "$POLICY --get corpus.entlinkBuild.maxTermsPerEntity",
                        "$POLICY --get corpus.entlinkBuild.excludeDomains",
                        "$POLICY --get corpus.seed",
+                       "$POLICY --get corpus.budget",
+                       '--budget "$BUDGET"',
                        '--seed "$SEED"'):
             self.assertIn(needle, self.text, f"llm.yml 缺 policy 接线: {needle}")
+
+    def test_budget_single_source_matches_builder_default(self):
+        # W21 B 批:预算=policy 单源(llm.yml 经 policy.py 取;训练载荷无 policy.json 时用 builder 默认)
+        out = subprocess.run([sys.executable, str(POLICY), "--get", "corpus.budget"],
+                             capture_output=True, text=True, cwd=str(DISTILL))
+        self.assertEqual(out.returncode, 0, msg=out.stderr)
+        self.assertEqual(out.stdout.strip(), "2000")
+        sys.path.insert(0, str(DISTILL / "extract"))
+        import importlib
+        bec = importlib.import_module("build_extraction_corpus")
+        self.assertEqual(bec.DEFAULT_BUDGET, int(out.stdout.strip()),
+                         "builder DEFAULT_BUDGET 与 policy.corpus.budget 分叉——先同步两处")
 
     def test_get_joined_returns_cli_string(self):
         out = subprocess.run([sys.executable, str(POLICY), "--get-joined",
