@@ -1,6 +1,6 @@
 # ASR 下载文件与 TestFlight 工作流
 
-> 版本：V1.21（2026-10-09）
+> 版本：V1.22（2026-10-09）
 
 ## 版本与资产来源
 
@@ -228,6 +228,14 @@ ASR 发布页 ⑨→⑪ 接线）;后续新增消费者（含其他 CNB 发布�
   同宗,端点一行切换）、模型 `glm-4.7-flash`（免费档;日配额有限——限流
   429（1302/1305）=显式降级,绝不静默坏）、密钥=repo secret `LLM_API_KEY`
   经 `--api-key-env` 注入;密钥永不入仓、入日志、入提示词。
+- **发布文案蒸馏（2026-10-09 业主指令:双源混合;委员会四席）**：
+  `distill-release-text.py`——与 ASR 目录蒸馏同范式:**确定性为真值底**
+  （无 LLM/复检驳回用语种即回落既有确定性动态段,「免费档配额耗尽的正式
+  后备面」）,LLM 只补散文段且经**独立复检**（三语/长度/负清单——不与草拟器
+  共享信任）+ **数字对拍**（散文版本型数字须在事实集,否则记 suspicious;
+  report-only 不拒绝——发布页可 PATCH,误伤代价高于收益）。逐**语言**独立
+  决策（某语种被拒只降级该语种）;readme-block 模式=逐块 lint 门 + 留痕
+  （确定性面=readme-sync 缺省,不自造基线;仍侧车采纳）。
 - **发布文案消费契约（2026-10-09 业主指令:readme/release 介绍信 LLM 化）**：
   ⑨ 发布文案草拟 job（needs ⑧）由构建索引 `--from-index` 构建公开 facts →
   LLM 草拟三语「本次更新」→ lint（三语齐全/≤1600 字符/负清单）全过才产出
@@ -264,6 +272,7 @@ ASR 发布页 ⑨→⑪ 接线）;后续新增消费者（含其他 CNB 发布�
 - V1.13（2026-10-08）：bootstrap 批（业主「按名启动」目标）——`bootstrap-asr-model.py`（本地/离线：HF/GitHub 结构化 API 按名发现 → 下载实测探针 + 角色/许可推断 → draft 组装；`--compare-config` 逆测对账三分法）；第 18 例 `test-bootstrap-asr-model.py`（纯函数面）入双侧执行列；配套模板信封已刷新至 v10（提交 run 现场签名目录：时效 +30 天 / 版本对齐 / 文案缓存三合一）。
 - V1.14（2026-10-08）：漂移周检批（业主「方案三 + 零输入 + cron」）——`bootstrap-asr-model.py` 增 `--from-config`（模型名自 config 自动获取；漂移三态 ok/drift/unknown）；`maintenance.yml` 增 `catalog-drift` job（周一 UTC 03:23 cron + dispatch；只读；报告 artifact，不红灯）；角色规则修复（旧前缀 glob 对 whisper 系带档位前缀成员名全失配 → 有序正则；漂移 job 遍历全目录的前置——whisper 五档曾会直接报错）。
 - V1.15（2026-10-08）：家族种子层 + 热修——`seeds.json` 收窄为 7 家族名（repo/档位由工具自找）；`--from-seeds` 家族档位清单（轻层零下载；13/13 在册实测）+ `--probe` 深探对账；发现层修复三连（双账号域/连字家族词边界/qwen3 按 tag 查询）；`asr_constants.py` 轻依赖拆分（maintenance 漂移 job 免 cryptography；asr_package re-export 零改动）；模板映射测试合成树补件。
+- V1.22（2026-10-09）：发布文案蒸馏（业主指令:两源混合,类似 ASR 目录蒸馏）——`distill-release-text.py`（release-notes:逐语言 prose=llm|deterministic + final.json + 台账;readme-block:逐块 lint 门）;⑨ 增设蒸馏步（恒成稿）;⑪ 消费 `release-notes.final.json`（loader 兼容两代格式,prose=null 语种走确定性面）;数字对拍 report-only;suspicious 台账;测试 7 例入 L0 电池。**免费档配额耗尽的正式后备**=确定性动态段（今日数轮实证降级路径）。
 - V1.21（2026-10-09）：蒸馏隔离闸（run 37868483691 实证）——文案三语不齐的档位隔离出发布集（`copy_complete` 判据:家族 4 字段+档位 2 字段全 locale 非空;models/copy 双剔除 + `quarantined` 报告）;三新档（whisper/large、zipformer/medium、moonshine/base）真产物预验 16→13;隔离条目留 proposals 面,补齐后自动入流。背景:新档位骨架空串被投影器 fail-closed 拒致 ⑧ 红——纪律保留（UI 防空白）,缺的入流闸本版补齐。测试 8→9。
 - V1.20（2026-10-09）：发布文案入流（业主指令:readme/release 介绍信 LLM 化;委员会四席）——① 新 ⑨ 发布文案草拟 job（索引→facts→LLM 三语→lint 闸→release-notes.json;非阻塞;独立缓存 asr-release-text-v1;密钥面仅此段）;② 发布页动态段接线（⑪ `--notes` 消费三语,`render_release_body(notes=...)`;缺失=确定性回落 fail-open）;③ drafter 增 `--from-index`/`--repository`/`--tag` + `facts_from_index` + 长度闸（1600/语） + `release-notes.json` 机器面;④ readme-block 维持侧车人工采纳（sections.json 长驻权威面）;⑤ 全链重编号:⑨ release-text / ⑩ sign / ⑪ publish / ⑫ verify / ⑬ archive。测试:test-draft-release-text 6→8、test-asr-release-page +notes 分支、test-asr-release 兼容（getattr --notes）。
 - V1.19（2026-10-09）：LLM 客户端调用标准成文（业主指令）——新增「LLM 客户端调用标准（llm_client）」节:单一出口/接口面/重试与缓存标准/配置标准/治理条款五面;`make_chat` 增 timeout/retries/backoff 透传（批级策略归消费者,传输层标准归模块）;`test-llm-client`/`test-suggest-asr-metadata`/`test-draft-release-text` 三测入 L0 电池（双侧执行列对齐）。

@@ -669,10 +669,11 @@ jobs:
           restore-keys: |
             asr-release-text-v1-${{ runner.os }}-
 
-      - name: 离线冒烟（草拟器纯函数面）
+      - name: 离线冒烟（草拟器与蒸馏器纯函数面）
         run: |
           python3 .github/actions/release/test-llm-client.py
           python3 .github/actions/release/test-draft-release-text.py
+          python3 .github/actions/release/test-distill-release-text.py
 
       # 发布文案（业主 2026-10-09 指令）：LLM 草拟「本次更新」三语;lint 全过才
       # 产出 release-notes.json（⑪ 发布页消费）;任何失败=缺失,⑪ 确定性回落,
@@ -694,6 +695,19 @@ jobs:
             echo "::warning::发布文案草拟失败/降级（展示面,不阻塞;⑪ 用确定性动态段）"
           fi
           ls -la "$RUNNER_TEMP/asr-release-notes" 2>/dev/null || true
+
+      # 蒸馏（确定性 × LLM → 逐段择优 + provenance;恒成稿,失败仅告警）:
+      # LLM 缺席/复检驳回的语种 prose=null,⑪ 该语种走确定性动态段——免费档
+      # 配额耗尽的正式后备面（业主 2026-10-09 指令）。
+      - name: 蒸馏发布文案（逐段择优 + provenance 报告）
+        run: |
+          python3 .github/actions/release/distill-release-text.py \
+            --mode release-notes \
+            --from-index "$RUNNER_TEMP/asr-index/index.json" \
+            --suggested "$RUNNER_TEMP/asr-release-notes" \
+            --out "$RUNNER_TEMP/asr-release-notes/distilled"
+          echo "── distill-report.json ──"
+          cat "$RUNNER_TEMP/asr-release-notes/distilled/distill-report.json"
 
       - name: 上传文案与台账（artifact:asr-release-notes）
         if: ${{ always() }}
@@ -828,7 +842,7 @@ jobs:
           for attempt in 1 2 3; do
             if python3 .github/actions/release/publish-asr-release.py publish \
                 --index "$RUNNER_TEMP/asr-packages/index.json" \
-                --notes "$RUNNER_TEMP/asr-release-notes/release-notes.json" \
+                --notes "$RUNNER_TEMP/asr-release-notes/distilled/release-notes.final.json" \
                 --directory "$RUNNER_TEMP/asr-packages" \
                 --root Resources/ModelTrustRoot.json \
                 --catalog "$RUNNER_TEMP/asr-packages/manifest.json" \

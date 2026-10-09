@@ -80,12 +80,30 @@ def load_release_notes(path):
         print("::warning::--notes 读取失败,回落确定性动态段: %s" % error,
               file=sys.stderr)
         return None
-    locales = doc.get("locale") or {}
-    if all(isinstance(locales.get(locale), str) and locales[locale].strip()
+    # 兼容两代格式（2026-10-09 蒸馏入流）：
+    # 新 = release-notes.final.json {"locales": {l: {prose, proseSource}}}
+    #   —— prose=null 的语种即确定性面,计入 notes 时跳过该语种;
+    # 旧 = release-notes.json {"locale": {l: str}}（草拟原稿）。
+    locales = doc.get("locales") or {}
+    if locales and all(isinstance(locales.get(locale), dict) for locale in locales):
+        prose = {locale: locales[locale].get("prose")
+                 for locale in ("zh-Hans", "zh-Hant", "en")
+                 if isinstance(locales.get(locale), dict)
+                 and isinstance(locales[locale].get("prose"), str)
+                 and locales[locale]["prose"].strip()}
+        if prose:
+            print("release-notes: 蒸馏终稿（LLM 语种 %s / 确定性 %s）"
+                  % (sorted(prose), sorted(set(("zh-Hans", "zh-Hant", "en")) - set(prose))),
+                  flush=True)
+            return prose
+        print("::warning::--notes 全语种确定性,回落确定性动态段", file=sys.stderr)
+        return None
+    plain = doc.get("locale") or {}
+    if all(isinstance(plain.get(locale), str) and plain[locale].strip()
            for locale in ("zh-Hans", "zh-Hant", "en")):
         print("release-notes: %s（cacheKey=%s）"
               % (doc.get("suggestedBy") or "llm", doc.get("cacheKey")), flush=True)
-        return {locale: locales[locale] for locale in ("zh-Hans", "zh-Hant", "en")}
+        return {locale: plain[locale] for locale in ("zh-Hans", "zh-Hant", "en")}
     print("::warning::--notes 三语不全,回落确定性动态段", file=sys.stderr)
     return None
 
