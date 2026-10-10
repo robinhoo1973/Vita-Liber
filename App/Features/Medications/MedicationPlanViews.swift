@@ -475,7 +475,19 @@ private struct BackfillSheet: View {
     let targetTime: Date
     @Environment(ReminderStore.self) private var reminders
     @Environment(\.dismiss) private var dismiss
-    @State private var actualTime = Date()
+    // 第九轮审查修复：`targetTime` 此前是死参数（声明后从未读取）——实际服药
+    // 时间默认恒为 Date()，补记几天前的漏服格时 actualTime=now，窄窗（±30min）
+    // 与宽窗（±12h）都够不到那剂 missed 行 → 走 INSERT 新行按 taken 全额扣双轨
+    // （计划轨已被 materializeMissed 扣过 = 双扣），原 missed 行保持不消（补记后
+    // 「!」仍在）。默认值改为所点剂量的 scheduledFor（可继续手改）；上界仍
+    // `...Date()`，故取 min。
+    @State private var actualTime: Date
+
+    init(plan: MedicationStore.PlanRow, targetTime: Date) {
+        self.plan = plan
+        self.targetTime = targetTime
+        _actualTime = State(initialValue: min(targetTime, Date()))
+    }
 
     var body: some View {
         WithPerceptionTracking {

@@ -322,15 +322,22 @@ struct OwnerSetupView: View {
     // MARK: - 校验与提交
 
     /// 出生日期串：月日**成对**合法（01-12 / 01-31）才携带，否则仅年份（FR3.1 不虚构不补齐）。
+    /// 第九轮审查修复：手写「4 位年 + 月 1-12 + 日 1-31」放行了 2023-02-30、年份 0000/3000
+    /// 等非法值（唯一自由输入必填生日的入口恰好绕过单一事实源，业主裁决 3「交互上消灭
+    /// 非法值」在此失效）——补上月日成对后再过 Domain 唯一校验
+    /// `MemberProfileCompleteness.isValidBirthDate`（1900…今、逐日历回读）。
     private var birthDate: String? {
         guard birthYear.count == 4, birthYear.allSatisfy(\.isNumber) else { return nil }
         let monthOK = birthMonth.count == 2 && birthMonth.allSatisfy(\.isNumber)
             && (1...12).contains(Int(birthMonth) ?? 0)
         let dayOK = birthDay.count == 2 && birthDay.allSatisfy(\.isNumber)
             && (1...31).contains(Int(birthDay) ?? 0)
-        if birthMonth.isEmpty && birthDay.isEmpty { return birthYear }
+        if birthMonth.isEmpty && birthDay.isEmpty {
+            return MemberProfileCompleteness.isValidBirthDate(birthYear) ? birthYear : nil
+        }
         guard monthOK && dayOK else { return nil }   // 只填其一/非法 → 表单无效，响亮拒绝
-        return "\(birthYear)-\(birthMonth)-\(birthDay)"
+        let composed = "\(birthYear)-\(birthMonth)-\(birthDay)"
+        return MemberProfileCompleteness.isValidBirthDate(composed) ? composed : nil
     }
 
     private var bloodValue: String? {

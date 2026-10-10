@@ -369,7 +369,16 @@ struct QuickCaptureView: View {
         reviewEnabled = true
     }
 
-    private func failSelection() { cancelSelection(); importFailed = true }
+    private func failSelection() {
+        // 第九轮审查修复：失败路径此前不关闭相机 fullScreenCover——
+        // handleCameraImage 守卫失败（会话已被清空/jpegData nil）时 cover 仍在，
+        // importFailed 告警挂在被 cover 的视图上无处呈现，用户困在相机界面
+        // （重拍因 selection 已 nil 再次失败，仅 picker 自带取消可逃）。
+        // 相机未呈现时置 false 无副作用。
+        showCamera = false
+        cancelSelection()
+        importFailed = true
+    }
 
     private var title: String {
         switch kind {

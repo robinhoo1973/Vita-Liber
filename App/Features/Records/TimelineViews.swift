@@ -749,8 +749,14 @@ struct VisitPrepView: View {
                 // 症状观察（最近）——BR-001 门控（第九轮审查 M1c 同族修复）：
                 // 共享观察组仅当属于当前成员时才渲染，切换窗口/加载失败不串成员
                 Section(L10n.prepObservations) {
+                    // 第九轮审查修复（最近 ≠ 最早）：组内 occurrences 按 occurredAt
+                    // **升序**、组按最新事件在前——原 prefix(5) 取到的是「最新组的
+                    // 最旧 5 条」（长期追踪单一症状时就诊准备包给医生看的恰好是最
+                    // 陈旧的一段）。改为全量按时间**降序**再取前 5（真正最近）。
                     let obs = observationState.loadedPatientId == app.currentPatientId
-                        ? observationState.groups.flatMap(\.occurrences).prefix(5) : [].prefix(5)
+                        ? observationState.groups.flatMap(\.occurrences)
+                            .sorted { $0.occurredAt > $1.occurredAt }.prefix(5)
+                        : [].prefix(5)
                     if obs.isEmpty {
                         Text(L10n.prepNoData).font(.caption).foregroundStyle(.secondary)
                     } else {

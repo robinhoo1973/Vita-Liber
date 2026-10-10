@@ -207,7 +207,16 @@ struct DocumentSourcePageView: View {
         operation?.cancel()
         operation = Task {
             await prepareMetadata()
-            if sensitive && unlocked && !failed { await loadMedia() }
+            if sensitive && unlocked && !failed {
+                await loadMedia()
+                // 第九轮审查修复（BR-007 同族）：重试路径此前不武装空闲重锁。
+                // 首次解锁时 loadMedia 失败（unlock() 内 232 行守卫在武装计时器
+                // 之前 return），用户点 [重试] 后重新装载成功——原图在屏、计时器
+                // 却从未武装，不触碰屏幕即无限期解锁（恰是 233 行注释声称已修的
+                // 形态）。装载成功与解锁路径同款补武装。
+                guard !Task.isCancelled, !failed else { return }
+                relockTimer.schedule(onExpiry: { relock() })
+            }
         }
     }
 

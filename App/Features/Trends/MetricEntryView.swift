@@ -61,6 +61,10 @@ struct MetricQuickEntryView: View {
     @State private var saved = false
     @State private var confirmSet: OcrConfirmationSet?
     @State private var entryError: String?
+    /// 第九轮审查修复（重入）：连点保存会并发落两条同值同时间戳样本
+    /// （store 无去重键）——加在途守卫，与 ObservationCreateSheet 的
+    /// saving 守卫同口径。
+    @State private var saving = false
     @State private var routeMonitor = AudioRouteMonitor()
     @FocusState private var focusField: Bool
 
@@ -150,7 +154,7 @@ struct MetricQuickEntryView: View {
                         Button(L10n.allergyNext) { step = 2 }
                     } else {
                         Button(L10n.reminder_save) { save() }
-                            .disabled(primaryText.isEmpty)
+                            .disabled(primaryText.isEmpty || saving)
                             .accessibilityIdentifier("SP-13.metric.save")
                     }
                 }
@@ -228,6 +232,8 @@ struct MetricQuickEntryView: View {
     }
 
     private func save() {
+        // 第九轮审查修复（重入守卫）：按钮禁用 + 函数入口双保险
+        guard !saving else { return }
         // 校验收敛 MetricEntryValidation（纯函数；解析/合理性界限全在 Domain）
         let validated: (value: Double, secondary: Double?)
         switch MetricEntryValidation.validate(primaryText: primaryText,
@@ -239,10 +245,12 @@ struct MetricQuickEntryView: View {
         // 无单位留空即可——此前 "1" 被存进库并在宫格大数字旁显示为单位「1」，
         // 且经单位记忆把「1」预填进下次录入
         let unit = unitText.trimmingCharacters(in: .whitespaces)
+        saving = true
         Task {
             let ok = await state.addSample(patientId: app.currentPatientId, metric: metric,
                                            value: validated.value, secondaryValue: validated.secondary, unit: unit,
                                            measuredAt: measuredAt)
+            saving = false
             if ok {
                 saved = true
             } else {

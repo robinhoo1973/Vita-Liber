@@ -23,7 +23,11 @@ struct MetricOverviewView: View {
     var body: some View {
         WithPerceptionTracking {
             Group {
-                if state.latestMetrics.isEmpty {
+                // 第九轮审查修复（BR-001 展示族）：宫格在途窗口内不再渲染
+                // 上一成员的读数——消费侧以 latestLoadedPatientId 与当前
+                // 成员一致为准（与 HomeView/M2Hub 同款守卫；tile 迷你趋势
+                // 已按新成员 taskId 重载，此前会出现「乙的曲线挂在甲的数字下」）。
+                if state.latestMetrics.isEmpty || state.latestLoadedPatientId != app.currentPatientId {
                     // 空态零动作（2026-10-05 业主裁决）：指标不可能为空——空态仅作
                     // 四态纪律的防御呈现（§3.0 每屏四态），不提供任何录入入口；
                     // 语音录入入口在总览工具栏 [按住说话]（FR17.13）。

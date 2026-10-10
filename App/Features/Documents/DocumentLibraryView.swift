@@ -44,6 +44,9 @@ final class DocumentsState {
     private let problemStore: HealthProblemStore?
     private var loadingPatientId: UUID?
     private var lastIncludeArchived = false
+    /// 第九轮审查修复（BR-001 同族）：loadPending 的在途请求成员集——
+    /// 与 load() 的代次守卫对齐，乱序晚到的旧集合响应不得覆盖新投影。
+    private var pendingRequestPatientIds: [UUID] = []
 
     enum ImportOutcome: Equatable { case saved, deferred, cancelled }
     enum CaptureStep: Equatable { case camera, photos, file, region, occlusion, review }
@@ -415,8 +418,15 @@ final class DocumentsState {
 
     func loadPending(patientIds: [UUID]) async {
         pendingLoadError = nil
-        do { pendingDocuments = try await store.listPending(patientIds: patientIds) }
-        catch { pendingLoadError = L10n.docImportFailed }
+        pendingRequestPatientIds = patientIds
+        do {
+            let rows = try await store.listPending(patientIds: patientIds)
+            guard pendingRequestPatientIds == patientIds else { return }
+            pendingDocuments = rows
+        } catch {
+            guard pendingRequestPatientIds == patientIds else { return }
+            pendingLoadError = L10n.docImportFailed
+        }
     }
 
     func fetch(id: UUID) async -> DocumentStore.DocumentRow? {

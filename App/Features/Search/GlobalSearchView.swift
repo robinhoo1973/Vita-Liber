@@ -94,7 +94,13 @@ struct GlobalSearchView: View {
     @Environment(AppRouter.self) private var router
     @State private var filterText = ""
 
-    private var query: String { filterText }
+    // 第九轮审查修复（空白查询）：in-memory 命中过滤（观察/用药/健康指标）此前
+    // 用未 trim 的输入——单个空格即可命中几乎所有指标/观察名（英文界面对含空格
+    // 的本地化名必然全中），跳过 idle/empty 态冒充一次真实检索；与 FTS 路径
+    // （SearchViewState.search 内部 trim）口径也不一致。统一在唯一出口 trim。
+    private var query: String {
+        filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// FR17.14 审计修正（round3）：检索结果按 kind 分流——voice_note 命中必须单独
     /// 成组（此前统一并入「资料」组且点击跳文档详情，跳过去必然“未找到”）。

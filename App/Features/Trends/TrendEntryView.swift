@@ -16,6 +16,11 @@ import Perception
 final class TrendEntryState {
     /// §5.45 指标总览宫格最新点（V3.72）
     private(set) var latestMetrics: [TrendQueryStore.LatestMetric] = []
+    /// 第九轮审查修复（BR-001 展示族）：宫格数据当前所属成员——总览视图
+    /// 以 `latestLoadedPatientId == app.currentPatientId` 作为消费侧门控
+    /// （与 M2HubStore.loadedPatientId / HomeView 同款）。切成员后在途查询
+    /// 返回前，宫格不再把上一成员的数值与按新成员重载的迷你趋势同屏渲染。
+    private(set) var latestLoadedPatientId: UUID?
     /// internal：MetricEntryView 扩展（录入/单位记忆/排除接线）跨文件访问
     let store: TrendQueryStore
     /// FR7.4 排除/恢复审计（§5.29「动作记审计」；查询层把义务推给调用方，
@@ -423,11 +428,13 @@ extension TrendEntryState {
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
             guard loadingPatientId == patientId, latestRequest == request, !Task.isCancelled else { return }
             latestMetrics = Self.gridRows(rows)
+            latestLoadedPatientId = patientId
         } else {
             // 审查修复：当前请求失败时清空——否则上一成员的宫格数据
             // 在新成员名下持续渲染（BR-001）；过期请求的失败不触碰新数据
             guard loadingPatientId == patientId, latestRequest == request, !Task.isCancelled else { return }
             latestMetrics = []
+            latestLoadedPatientId = nil
         }
     }
 
@@ -439,6 +446,8 @@ extension TrendEntryState {
         if let rows = try? await store.latestPerMetric(patientId: patientId) {   // try?-ok: 读取失败按空态渲染，不阻断总览页
             guard loadingPatientId == patientId else { return }
             latestMetrics = Self.gridRows(rows)
+            // 与 loadLatest 同口径维护消费侧成员标记（见 latestLoadedPatientId 注释）
+            latestLoadedPatientId = patientId
         }
     }
 
