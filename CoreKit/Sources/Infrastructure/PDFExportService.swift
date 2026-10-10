@@ -147,7 +147,7 @@ public actor PDFExportService {
             for row in planRows {
                 records.append((request.kindLabel("plan"), row["generic_name"] as String,
                                 Date(timeIntervalSince1970: row["start_date"] as Double),
-                                "\(row["spec"] as String? ?? "") · \(row["status"] as String)"))
+                                "\(row["spec"] as String? ?? "") · \(request.kindLabel(row["status"] as String))"))   // S-6①：计划状态经注入映射（此前 PDF 直出 active/paused/ended）
             }
             // 就诊
             let encDate = dateFragment("date")
@@ -156,7 +156,7 @@ public actor PDFExportService {
                 WHERE patient_id = ?\(encDate.clause) ORDER BY date ASC
                 """, arguments: StatementArguments([request.patientId.uuidString] + encDate.args))
             for row in encRows {
-                records.append((request.kindLabel("encounter"), "\(row["hospital"] as String? ?? "") · \(row["kind"] as String)",
+                records.append((request.kindLabel("encounter"), "\(row["hospital"] as String? ?? "") · \(request.kindLabel(row["kind"] as String))",   // S-6①：就诊类型经注入映射（此前直出 outpatient 等）
                                 Date(timeIntervalSince1970: row["date"] as Double),
                                 request.includeNotes ? ((row["diagnosis_text"] as String?) ?? "") : ""))
             }

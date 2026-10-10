@@ -422,7 +422,17 @@ extension L10n {
         case "encounter": return t("export.kind.encounter")
         // F8 观察类型名复用既有映射（审查修复：PDF 此前直出英文 raw key
         // ——export.kind.* 与 observation.kind.* 两套映射合流，防漂移）
-        default: return ObservationKind(rawValue: kind).map(observationKindName) ?? kind
+        // S-6①（第九轮审查 sweep#4/#5）：PDF 记录标题内的就诊类型/计划状态
+        // 此前直出 canonical 英文（协和医院 · outpatient / 10mg · active）——
+        // 同一出口按「就诊类型 → 计划状态 → 观察类型」顺序收敛（枚举值域互斥）。
+        default:
+            if let enc = EncounterKind(rawValue: kind) { return encounterKindName(enc) }
+            switch kind {
+            case "active": return planStatusActive
+            case "paused": return planStatusPaused
+            case "ended": return planStatusEnded
+            default: return ObservationKind(rawValue: kind).map(observationKindName) ?? kind
+            }
         }
     }
 

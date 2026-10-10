@@ -6,6 +6,10 @@ import Domain
 
 /// FR6.9 / BR-001 / BR-003: the only atomic OCR card confirmation boundary.
 public actor OCRCardStore {
+    /// S-6①：文档命名展示文案注入（App 装配注入 L10n；未注入回落内置兜底）。
+    /// nonisolated(unsafe)：系统线程/DB 写路径读取，App 只在启动装配期写一次
+    /// （与 HealthKitSyncService.backgroundSyncHandler 同纪律）。
+    nonisolated(unsafe) public static var namingLabels: DocumentNaming.Labels = .builtin
     /// 可确认落库的卡类 = `CardKindRegistry` 全部条目（v26 起含 hospitalization / diagnosis / exam_report；单一事实源，
     /// 新增卡类只需登记注册表 + `save` 分支）。`appointment` 等仅有模板、无注册条目的卡类不在此列。
     public static let supportedKinds: Set<String> = Set(CardKindRegistry.entries.map(\.kind))
@@ -822,7 +826,8 @@ public actor OCRCardStore {
         var titleUpdateSQL = ""
         var arguments: [DatabaseValueConvertible] = [text, pending == 0 ? "C" : "D", now.timeIntervalSince1970]
         if currentTitle == nil || currentTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true,
-           let suggested = DocumentNaming.suggestTitle(fields: confirmedFields, documentType: audits.first?.cardKind) {
+           let suggested = DocumentNaming.suggestTitle(fields: confirmedFields, documentType: audits.first?.cardKind,
+                                                       labels: Self.namingLabels) {   // S-6①：类型名经 App 注入的 L10n 映射
             titleUpdateSQL = ", title = ?"
             arguments.append(suggested)
         }

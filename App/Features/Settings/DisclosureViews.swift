@@ -17,11 +17,11 @@ struct L2DisclosureSheet: View {
                         .font(VLFont.disclosureIcon)
                         .foregroundStyle(Color("brand-primary", bundle: .main))
 
-                    Text(disclosure.title)
+                    Text(disclosure.displayTitle)
                         .font(.headline)
                         .multilineTextAlignment(.center)
 
-                    Text(disclosure.body)
+                    Text(disclosure.displayBody)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -64,7 +64,7 @@ struct L3DisclosureBanner: View {
                     Image(systemName: "info.circle")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(disclosure.body)
+                    Text(disclosure.displayBody)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -122,8 +122,8 @@ struct SceneDisclosureModifier: ViewModifier {
                         return Alert(title: Text(L10n.disclosureTitle))
                     }
                     return Alert(
-                        title: Text(d.title),
-                        message: Text(d.body),
+                        title: Text(d.displayTitle),
+                        message: Text(d.displayBody),
                         primaryButton: .cancel(Text(L10n.commonCancel)),
                         secondaryButton: .default(Text(L10n.commonConfirm)) {
                             Task {

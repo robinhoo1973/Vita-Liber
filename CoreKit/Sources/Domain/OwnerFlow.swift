@@ -73,6 +73,22 @@ public struct ConsentRecord: Sendable, Equatable, Codable {
 }
 
 public enum DisclosureRegistry {
+    /// S-6①（第九轮审查权重重判，kindLabel 注入先例）：知情文案（L1-L4 全部
+    /// 用户可见文本）经闭包注入 L10n——Domain 不再持中文文案（此前 zh-Hant/en
+    /// 用户在首启卡/L2 面板/L3 常驻条/L4 操作前确认里读简体）。未注入回落
+    /// 内置文案（测试/预览行为零变化）。key 即各条目现有 `key` 字段。
+    public struct Labels: Sendable {
+        public var title: @Sendable (String) -> String
+        public var body: @Sendable (String) -> String
+        public init(title: @escaping @Sendable (String) -> String,
+                    body: @escaping @Sendable (String) -> String) {
+            self.title = title
+            self.body = body
+        }
+    }
+    /// nonisolated(unsafe)：渲染线程读取，App 只在启动装配期写一次。
+    nonisolated(unsafe) public static var labels: Labels?
+
     /// M1a 首启三卡（对齐 FR20.3 L1：产品定位与非目标 / 数据本地存储承诺 / 可跳过项说明）
     public static let l1Cards: [DisclosureCard] = [
         .init(kind: .boundary, key: "disclosure.l1.boundary", version: "1.1",
@@ -160,4 +176,16 @@ public enum DisclosureRegistry {
             return $0.key.contains(scene) && (version == nil || $0.version == version)
         }
     }
+}
+
+
+// MARK: - S-6① 展示文案出口（注入优先，未注入回落内置文案）
+
+public extension SceneDisclosure {
+    var displayTitle: String { DisclosureRegistry.labels?.title(key) ?? title }
+    var displayBody: String { DisclosureRegistry.labels?.body(key) ?? body }
+}
+
+public extension DisclosureCard {
+    var displayBody: String { DisclosureRegistry.labels?.body(key) ?? body }
 }

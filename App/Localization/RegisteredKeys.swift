@@ -644,6 +644,8 @@ extension L10n {
         "caregiver.title", "caregiver.empty", "caregiver.emptyHint", "caregiver.pendingFmt",
         "caregiver.alertTitle", "caregiver.alertConfirm", "caregiver.alertBodyFmt",
         "disclosure.title", "disclosure.acknowledge", "onboarding.stepFmt",
+    // S-1/S-5（第九轮审查 F 批）：关怀返回钮与成员切换拦截的静态键
+    "common.back", "common.memberChanged",
         "backup.unlockReason", "backup.exportConfirm.title", "backup.exportConfirm.body",
         "backup.restoreConfirm.title", "backup.restoreConfirm.body", "backup.restoredCountFmt",
         "sos.help.title", "sos.call120", "sos.noContacts", "sos.viewCard", "sos.sendLocationP1",

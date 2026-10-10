@@ -240,6 +240,26 @@ struct VitaLiberApp: App {
                 return BackgroundJobOutcome(success: false, reschedule: false)
             }
         }
+        // S-6①（第九轮审查权重重判）：展示文案注入——Domain 不再持用户可见
+        // 中文（知情 L1-L4 / 文档命名类型名），App 层经 L10n 映射；未注入
+        // 路径（测试/预览）回落内置文案。
+        DisclosureRegistry.labels = DisclosureRegistry.Labels(
+            title: { key in L10n.disclosureTextTitle(key) },
+            body: { key in L10n.disclosureTextBody(key) })
+        OCRCardStore.namingLabels = DocumentNaming.Labels(
+            forKind: { kind in
+                let key: DocumentTypeKey? = switch kind {
+                case "prescription": .prescription
+                case "encounter": .outpatientRecord
+                case "metric_sample": .labReport
+                case "medication": .medicationLabel
+                case "claim_item": .invoice
+                case "immunization": .vaccineRecord
+                default: nil
+                }
+                return key.map { L10n.docTypeName($0) } ?? ""
+            },
+            forDocType: { type in DocumentTypeKey(rawValue: type).map { L10n.docTypeName($0) } })
         // 注册须在装配执行体之后、启动完成之前（BGTaskScheduler 限制）；两作业 + continued 标识符经统一门面一次注册
         // （ASR 下载的 continued 标识符也在此登记——registerAll 之后的登记不会被系统唤起）
         BackgroundWorkScheduler.shared.addContinued(identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier)

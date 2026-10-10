@@ -114,6 +114,18 @@ extension L10n {
     /// 2026-10-06 业主反馈修复批（第 3 项）：模型详情 sheet 的关闭动作（结果性 sheet 的显式出口）。
     static var commonClose: String { t("common.close") }
 
+    /// S-1（第九轮审查 U1#6）：关怀模式 ≥64pt 常驻返回钮的无障碍标签/文案。
+    static var commonBack: String { t("common.back") }
+
+    /// S-5（第九轮审查，权重重判定案）：表单打开时绑定成员，保存时已切换即
+    /// 拦截——已录入内容不得静默落到另一成员名下（MetricEntry/VoiceNote 共用）。
+    static var commonMemberChanged: String { t("common.memberChanged") }
+
+    /// S-6①：知情文案注入出口（Domain `DisclosureRegistry.labels` 消费；
+    /// key 为各条目的稳定 key，标题键 `<key>.title`、正文键 `<key>.body`）。
+    static func disclosureTextTitle(_ key: String) -> String { t("\(key).title") }
+    static func disclosureTextBody(_ key: String) -> String { t("\(key).body") }
+
     static var commonMember: String { t("common.member") }
 
     static var paywallPreviewTitle: String { t("paywall.previewTitle") }

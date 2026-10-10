@@ -103,6 +103,14 @@ struct AppRootView: View {
             .preferredColorScheme(currentTheme.colorScheme)
             // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
             .contrast(highContrastOn ? 1.25 : 1.0)
+            // S-7（第九轮审查 sweep#7）：App 内语言切换此前只影响 L10n 取词，
+            // 全仓 ~66 处 `.formatted(date:)` 仍随**系统语言**渲染（en 设备 +
+            // 简中 App → 日期英文）。根视图注入 locale 使文档化的
+            // `Locale(identifier: bundleLanguage)` 出口对全体 .formatted 生效；
+            // 趋势页/设置页自建 formatter 保留不动（它们本就按 bundleLanguage
+            // 构造）。语言切换由 settingsStore.values[.language] 观察驱动本
+            // body 重求值，环境随刷新。
+            .environment(\.locale, Locale(identifier: L10n.bundleLanguage))
             // FR18.9 感官强化：关怀模式在**用户系统字号基础上**放大（≥accessibility1
             // 且再高一档，上限 accessibility5）。
             // 审查修复：原实现两态都钉死固定档——常规模式强制 .large（AX2 用户被

@@ -26,7 +26,7 @@ struct DisclosureCardsView: View {
                 }
                 .padding(.top, 32)
 
-                Text(card.body)
+                Text(card.displayBody)
                     .font(.body)
                     .multilineTextAlignment(.leading)
                     .lineSpacing(6)
