@@ -53,7 +53,8 @@
    * 噪声只在「段」级施加，span value 取加噪后原文 → verbatim 契约由构造保证；
    * 字符集与 tokenizer 词表比对（`--tokenizer`；字节级 BPE 无 OOV 概念，自动跳过）；
    * token 预算守卫（--budget，默认 2000 ≈ SFT max_seq_len 2048 - 帧/EOS 余量）：
-     超预算先削可选 span 再削行，仍超则丢弃；
+     超预算时**同步裁剪 gold 与其承载的 user 行**（「样本内真值 = 可见文本」不变量；
+     只削 gold 留全文会教模型漏报），仍超则整样本丢弃（stats 分账）；
    * **确定性**：manifest 不含墙钟 → 同输入两次构建逐字节相等（冻结资产名=内容 sha）；
    * **计数自洽**：manifest 的 eval 计数必须等于实落行数（声称≠实落 = rc 3 拒产出）；
    * **缺口 fail-closed**：kind 未做满（< --min-kind-fill，默认 1.0）= rc 1 + 具名报错；
@@ -139,6 +140,9 @@ DOSAGE_UNITS_DEFAULT = ["片", "粒", "袋", "支", "瓶", "贴"]
 FORM_TO_UNIT = [("片", "片"), ("胶囊", "粒"), ("颗粒", "袋"), ("口服液", "支"), ("溶液", "瓶"),
                 ("软膏", "支"), ("乳膏", "支"), ("凝胶", "支"), ("滴眼", "瓶"), ("滴鼻", "瓶"),
                 ("喷雾", "瓶"), ("注射", "支"), ("栓", "粒"), ("贴", "贴"), ("散", "袋"), ("丸", "丸")]
+# unit_kind 的运行时枚举可表达面（App CoreKit/Sources/Domain/OCRExtraction.swift `normalized`：
+# 片=tablet、粒/胶囊=capsule、贴(貼)=patch、支/瓶=vial；袋/丸 无枚举可归一 → 语料侧剔除 + 计数 + 构建末断言）。
+UNIT_KIND_RUNTIME_SURFACE = ("片", "粒", "贴", "貼", "支", "瓶")
 HOSPITAL_CITIES = ["北京", "上海", "广州", "深圳", "杭州", "南京", "成都", "武汉", "西安", "重庆",
                    "苏州", "长沙", "郑州", "青岛", "宁波", "厦门", "合肥", "济南", "福州", "昆明"]
 HOSPITAL_SUFFIX = ["市第一人民医院", "市人民医院", "市中心医院", "大学附属第一医院", "市中医院",
@@ -241,6 +245,8 @@ DISEASE_SUFFIXES = ("病", "炎", "症", "瘤", "癌", "溃疡", "综合征", "�
 
 #: E3：required_row 缺键被整行剔除的计数（kind → 行数）——随 manifest.stats 落盘 + 构建末具名告警。
 REQUIRED_ROW_DROPPED = {}
+#: F3（2026-10-10）：unit_kind 无法归一化到运行时枚举（袋/丸）而被剔除的药物行计数（单位 → 次数）。
+UNIT_KIND_DROPPED = {}
 
 REGISTRY = {
     "prescription": {"mode": "ocr", "weight": 0.20, "builder": "gen_prescription"},
@@ -362,6 +368,45 @@ EVAL_MAX_SHARE = 0.15  # 微构建保护:eval 占比上限,小样本时 SFT 份�
 # 值级 holdout(round2 X2 裁决):实体池按稳定哈希留出 10%——SFT 永不见,强制入 eval,
 # 度量「部署真实条件」(每天新药名/新机构/新术式)下的泛化。
 VALUE_HOLDOUT_RATIO = 0.10
+
+# —— F2(2026-10-10)留出留出的三个消费面(判据同一来源,防两处口径漂移)——
+# ① main() 装配 holdout_by_key 后 set_holdout_values(全域并集);叙事模板(_card_sentence/
+#    _card_drug_text)与预训练行(gen_pretrain_lines)抽样时排除留出值——整句 gold 无法被
+#    等值检查标记,必须源头隔离。None=未注入(直接单测生成器的路径不排除)。
+# ② holdout_embedded:等值检查看不见的**嵌入形态**(留出实体出现在别的键的整句 gold 里/
+#    user 文本里)按 len≥2 子串判定——forced-eval 与构建末 SFT 扫描共用。
+# ③ 构建末断言:SFT 全文件与预训练行不得出现留出实体(发现即拒 rc 3,兜①漏网的路径)。
+_HOLDOUT_VALUES = None
+
+
+def set_holdout_values(values):
+    """注入值级留出集(全域并集);values=None 复位(测试用)。"""
+    global _HOLDOUT_VALUES
+    _HOLDOUT_VALUES = None if values is None else set(values)
+
+
+def _train_visible(value):
+    """训练可见性(精确成员判定):叙事模板/预训练行只允许可见值入场。"""
+    return _HOLDOUT_VALUES is None or value not in _HOLDOUT_VALUES
+
+
+def build_holdout_index(values, min_len: int = 2):
+    """嵌入扫描索引:len≥min_len 的留出值按首字分组——值侧成本 O(值长 × 同首字候选)。
+    单字实体不参与子串扫描(误判面过大;单字实体由 s["value"] in holdout_by_key.get(key) 等值兜)。"""
+    index = {}
+    for value in values:
+        if len(value) >= min_len:
+            index.setdefault(value[0], []).append(value)
+    return index
+
+
+def holdout_embedded(text, index):
+    """text 是否包含任一留出实体做子串(嵌入判定;forced-eval 与构建末扫描同一实现)。"""
+    for ch in set(text):
+        for term in index.get(ch, ()):
+            if term in text:
+                return True
+    return False
 
 
 def sample_draw(seed: int, sample_id: str) -> int:
@@ -818,7 +863,14 @@ def make_line(segments, rng, level=None, nz=None):
 
 
 def make_sample(kind, specs, lines, shared_spans, rows_spans, est_budget):
-    """装配 conversations 样本；返回 (sample_dict|None, reason|None, est)。"""
+    """装配 conversations 样本；返回 (sample_dict|None, reason|None, est, trim_info|None)。
+
+    预算守卫（2026-10-10 F1 修复）：超预算时**同步裁剪 gold 与其承载的 user 行**——
+    保持「样本内真值 = 可见文本」不变量（旧行为只削 gold 留全文 = 样本变成「输入有、
+    真值没有」，且被裁样本流入 eval 教模型漏报）。携带保留 span 的行不删（无法同步的
+    形态直接放弃该 span 裁剪）；仍超预算则整样本按 "budget" 丢弃（stats 分账，不入集）。
+    trim_info = {"lines": 同步删除的 user 行数, "spans": 删除的 gold span 数}。
+    """
     spec = specs[kind]
     shared_spans = order_spans([s for s in shared_spans if s["key"] in spec["shared"] and s["value"]],
                                spec["shared"])
@@ -838,47 +890,79 @@ def make_sample(kind, specs, lines, shared_spans, rows_spans, est_budget):
         if before != len(rows_out):
             REQUIRED_ROW_DROPPED[kind] = REQUIRED_ROW_DROPPED.get(kind, 0) + (before - len(rows_out))
     if spec["required_row"] and not rows_out:
-        return None, "no_rows", 0
+        return None, "no_rows", 0, None
     for req in spec["required_shared"]:
         if not any(s["key"] == req for s in shared_spans):
-            return None, "missing_required_shared", 0
+            return None, "missing_required_shared", 0, None
     if not shared_spans and not rows_out:
-        return None, "no_spans", 0
+        return None, "no_spans", 0, None
 
-    user = "\n".join(f"[{i}] {ln}" for i, ln in enumerate(lines))
-
-    def build(sh, rows):
+    def _render(live_lines, sh, rows):
+        user_text = "\n".join(f"[{i}] {ln}" for i, ln in enumerate(live_lines))
         asst_obj = {"shared": sh, "rows": rows}
         asst = json.dumps(asst_obj, ensure_ascii=False, separators=(",", ":"))
-        est = est_tokens(spec["prompt"]) + est_tokens(user) + est_tokens(asst) + 12
-        return asst, est
+        est = est_tokens(spec["prompt"]) + est_tokens(user_text) + est_tokens(asst) + 12
+        return user_text, asst, est
 
-    # 预算守卫：先削可选的共享 span（按声明序从后往前），再削尾行
+    def _prune(live_lines, sh, rows, drop_spans):
+        """F1 同步裁剪：删除 drop_spans（按身份）并连带其**独占行**；重建行号映射。
+        返回 (live_lines, sh, rows) 或 None（drop_spans 为空或行仍承载保留 span = 无法保不变量）。"""
+        if not drop_spans:
+            return None
+        drop_ids = {id(s) for s in drop_spans}
+        kept_lines_set = {s["lineIndex"] for s in list(sh) + [s for row in rows for s in row]
+                          if id(s) not in drop_ids}
+        drop_lines = {s["lineIndex"] for s in drop_spans}
+        if drop_lines & kept_lines_set:
+            return None
+        kept_indexes = [i for i in range(len(live_lines)) if i not in drop_lines]
+        remap = {old: new for new, old in enumerate(kept_indexes)}
+
+        def _cp(s):
+            return {"key": s["key"], "value": s["value"], "unit": s["unit"],
+                    "lineIndex": remap[s["lineIndex"]]}
+
+        return ([live_lines[i] for i in kept_indexes],
+                [_cp(s) for s in sh if id(s) not in drop_ids],
+                [[_cp(s) for s in row if id(s) not in drop_ids]
+                 for row in rows if any(id(s) not in drop_ids for s in row)])
+
+    # 预算守卫：先削可选的共享键（按声明序从后往前），再削尾行——每步与承载行同步删（F1）
     drop_order = [k for k in reversed(spec["shared"]) if k not in spec["required_shared"]]
-    sh, rows = list(shared_spans), [list(r) for r in rows_out]
-    asst, est = build(sh, rows)
-    trimmed = False
+    sh, rows, live = list(shared_spans), [list(r) for r in rows_out], list(lines)
+    user, asst, est = _render(live, sh, rows)
+    trim_lines = trim_spans = 0
     for key in drop_order:
         if est <= est_budget:
             break
-        keep = [s for s in sh if s["key"] != key]
-        if len(keep) != len(sh):
-            sh = keep
-            asst, est = build(sh, rows)
-            trimmed = True
+        target = [s for s in sh if s["key"] == key]
+        if not target:
+            continue
+        pruned = _prune(live, sh, rows, target)
+        if pruned is None:
+            continue
+        trim_lines += len({s["lineIndex"] for s in target})
+        trim_spans += len(target)
+        live, sh, rows = pruned
+        user, asst, est = _render(live, sh, rows)
     while est > est_budget and len(rows) > 1:
-        rows = rows[:-1]
-        asst, est = build(sh, rows)
-        trimmed = True
+        pruned = _prune(live, sh, rows, rows[-1])
+        if pruned is None:
+            break
+        trim_lines += len({s["lineIndex"] for s in rows[-1]})
+        trim_spans += len(rows[-1])
+        live, sh, rows = pruned
+        user, asst, est = _render(live, sh, rows)
     if est > est_budget:
-        return None, "budget", est
+        return None, "budget", est, None
 
     sample = {"conversations": [
         {"role": "system", "content": spec["prompt"]},
         {"role": "user", "content": user},
         {"role": "assistant", "content": asst},
     ]}
-    return sample, ("trimmed" if trimmed else None), est
+    trim_info = {"lines": trim_lines, "spans": trim_spans} if trim_lines or trim_spans else None
+    return sample, ("trimmed" if trim_info else None), est, trim_info
 
 
 def check_verbatim(lines, shared, rows):
@@ -1098,6 +1182,12 @@ def gen_medication(pools, rng, vocab_chars):
     for drug in chosen:
         name = drug["name"]
         unit = L(region, _dose_unit(drug["form"], rng))
+        if unit not in UNIT_KIND_RUNTIME_SURFACE:
+            # F3(2026-10-10)：袋/丸 无法归一化到运行时枚举 [tablet,capsule,patch,vial]
+            # （OCRExtraction.normalized）——该药物行按设计剔除并计数（不做「最近域内单位」
+            # 伪映射：会伪造单位语义）；构建末另有 unit_kind ⊆ 运行时域断言兜底。
+            UNIT_KIND_DROPPED[unit] = UNIT_KIND_DROPPED.get(unit, 0) + 1
+            continue
         qty_raw = f"{rng.randint(1, 3)}{unit}"
         qty = voiced(qty_raw, rng)
         spec_spoken = ""
@@ -1375,14 +1465,18 @@ def _card_label(fd, rng, region):
 
 
 def _card_drug_text(pools, rng, region):
-    drugs = pools["drugs_by_region"].get(region) or pools["drugs"]
+    drugs = [d for d in (pools["drugs_by_region"].get(region) or pools["drugs"])
+             if _train_visible(d["name"])]   # F2：叙事整句排除留出药品（等值检查看不见嵌入）
+    if not drugs:
+        raise RuntimeError("叙事模板：可选药品池在留出过滤后为空——检查 VALUE_HOLDOUT_RATIO 与池规模")
     d = rng.choice(drugs)
     unit = L(region, _dose_unit(d["form"], rng))
     return f"{d['name']} {rng.choice(['1', '2'])}{unit} {rng.choice(FREQ_TIMES)} {rng.choice(ROUTES)}"
 
 
 def _card_sentence(key, rng, pools, region):
-    d = (rng.choice(pools["diseases"]) if pools["diseases"] else "高血压")
+    visible_diseases = [x for x in pools["diseases"] if _train_visible(x)]   # F2：叙事整句排除留出疾病名
+    d = rng.choice(visible_diseases) if visible_diseases else "高血压"
     tmpl = rng.choice(NARRATIVE_TEMPLATES[key])
     return L(region, tmpl.format(d=d, d2=d, t=rng.choice(["3天", "1周", "2月", "半年"]),
                                  adv=rng.choice(TCM_ADVICES),
@@ -1649,9 +1743,12 @@ for _gk in GENERIC_KINDS:
 # ================================================================ 预训练语料
 
 def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
-    drugs = pools["drugs"]
-    aliases = pools["aliases"]
-    groups = pools["groups"]
+    # F2(2026-10-10)：留出实体不带入预训练（源头排除；预训练侧没有 eval 分流机制可兜）。
+    drugs = [d for d in pools["drugs"] if _train_visible(d["name"])]
+    if not drugs:
+        raise RuntimeError("预训练行：药品池在留出过滤后为空——检查 VALUE_HOLDOUT_RATIO 与池规模")
+    aliases = [a for a in pools["aliases"] if _train_visible(a)]
+    groups = [g for g in pools["groups"] if _train_visible(g[0]) and _train_visible(g[1])]
     diseases = pools["diseases"]
     ref_regions = [r for r in pools["regions"] if any(pools["ref"][t].get(r) for t in ("hospitals", "departments", "exams"))]
     lines = []
@@ -1660,15 +1757,19 @@ def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
         d = rng.choice(drugs)
         name = d["name"]
         if ref_regions and r < 0.12:
-            # 四域参考行（仅机构/科别/项目名称的陈述，不含任何医学结论）
+            # 四域参考行（仅机构/科别/项目名称的陈述，不含任何医学结论）；机构/检验名同样过留出过滤
             region = rng.choice(ref_regions)
             parts = []
-            if pools["ref"]["hospitals"].get(region):
-                parts.append(L(region, "就诊机构：") + _hospital(pools, rng, region))
+            visible_hospitals = [x for x in (pools["ref"]["hospitals"].get(region) or [])
+                                 if _train_visible(x["name"])]
+            if visible_hospitals:
+                parts.append(L(region, "就诊机构：") + rng.choice(visible_hospitals)["name"])
             if pools["ref"]["departments"].get(region):
                 parts.append(L(region, "科室：") + _department(pools, rng, region))
-            if pools["ref"]["exams"].get(region):
-                parts.append(L(region, "检验项目：") + rng.choice(pools["ref"]["exams"][region])["name"])
+            visible_exams = [x for x in (pools["ref"]["exams"].get(region) or [])
+                             if _train_visible(x["name"])]
+            if visible_exams:
+                parts.append(L(region, "检验项目：") + rng.choice(visible_exams)["name"])
             text = "，".join(parts) + "。"
         elif r < 0.35:
             parts = [f"药品名称：{name}"]
@@ -1910,7 +2011,13 @@ def main():
     }
     holdout_by_key = {k: {v for v in names if _is_holdout_value(v)}
                       for k, names in domain_names.items() if names}
-    log(f"[holdout] 值级留出集: " + ", ".join(f"{k}={len(v)}" for k, v in sorted(holdout_by_key.items())))
+    # F2(2026-10-10)：留出集三消费面接线——①叙事/预训练抽样排除（精确集注入）②嵌入
+    # 扫描索引（等值检查漏掉的整句/跨键形态）③构建末 SFT/预训练扫描断言，判据同一实现。
+    holdout_all = {v for names in holdout_by_key.values() for v in names}
+    set_holdout_values(holdout_all)
+    holdout_index = build_holdout_index(holdout_all)
+    log(f"[holdout] 值级留出集: " + ", ".join(f"{k}={len(v)}" for k, v in sorted(holdout_by_key.items()))
+        + f"; 嵌入扫描词表={sum(len(v) for v in holdout_index.values())}(len≥2)")
 
     # ---- 样本生成 ----
     total = 60 if args.dry_run else args.sft_count
@@ -1931,7 +2038,8 @@ def main():
         except FileNotFoundError:
             pass
 
-    stats = {"counts": {}, "dropped": {}, "est": [], "trimmed": 0, "eval": 0, "oov_values": 0}
+    stats = {"counts": {}, "dropped": {}, "est": [], "trimmed": 0,
+             "trimmed_lines": 0, "trimmed_spans": 0, "eval": 0, "oov_values": 0}
     est_vals = []
     pending, eval_entries = [], []
     forced_eval_ids = set()
@@ -1965,12 +2073,15 @@ def main():
                     stats["oov_values"] += 1
                     bump("oov_value")
                     continue
-                sample, reason, est = make_sample(kind, specs, lines, shared, rows, args.budget)
+                sample, reason, est, trim_info = make_sample(kind, specs, lines, shared, rows, args.budget)
                 if sample is None:
                     bump(reason or "unknown")
                     continue
-                if reason == "trimmed":
+                if trim_info:
+                    # F1 分账：样本数 / 同步删的 user 行数 / 删的 gold span 数（禁 conflated 单键）
                     stats["trimmed"] += 1
+                    stats["trimmed_lines"] += trim_info["lines"]
+                    stats["trimmed_spans"] += trim_info["spans"]
                 est_vals.append(est)
                 # 噪声 v2 元数据:样本 id(评测/对账主键,与 split 无关=内容寻址可重放)
                 sample["id"] = f"extract-{kind}-{made:06d}"
@@ -1991,9 +2102,14 @@ def main():
                 agg["cer_sum"] += nz.get("cer_sum", 0.0)
                 forced = False
                 for s in list(shared) + [s for row in rows for s in row]:
-                    if s["value"] in holdout_by_key.get(s["key"], ()):
+                    # 等值（原判据）+ F2 嵌入（整句 gold 里嵌着留出实体、跨键金标等值漏检形态）
+                    if s["value"] in holdout_by_key.get(s["key"], ()) or holdout_embedded(s["value"], holdout_index):
                         forced = True
                         break
+                if not forced:
+                    # F2：user 文本携带留出实体也强制入 eval（留出纪律=SFT 全文件零出现；
+                    # 噪声砸坏必填行后「行被剔除但文本保留」的角落同样不得漏网）。
+                    forced = any(holdout_embedded(ln, holdout_index) for ln in lines)
                 if forced:
                     sample["value_holdout"] = True
                     forced_eval_ids.add(sample["id"])
@@ -2055,11 +2171,40 @@ def main():
                 log(f"[FAIL] eval 计数不自洽 {kind}: manifest 声称 {v['eval']} 实落 {actual}")
                 return 3
 
+        # —— F2 构建末断言（2026-10-10）：SFT 全文件（user+gold 行级口径）不得含留出实体。
+        # 与 forced-eval 同一 holdout_embedded 判据；发现即拒（rc 3 内部缺陷）——
+        # 叙事/预训练源侧排除或 forced-eval 任何一处漏网都在此暴露，不产出泄漏语料。
+        sft_holdout_rows = [sample["id"] for sample in pending
+                            if split[sample["id"]] != "eval"
+                            and holdout_embedded(json.dumps(sample, ensure_ascii=False), holdout_index)]
+        if sft_holdout_rows:
+            log(f"[FAIL] SFT 含留出实体（F2 断言；sample 行 {len(sft_holdout_rows)} 条）: "
+                + ", ".join(sft_holdout_rows[:5]))
+            return 3
+        # —— F3 构建末断言：unit_kind gold 必须 ⊆ 运行时枚举可表达面（袋/丸 等 0 容忍）。
+        bad_units = {}
+        for sample in pending:
+            asst_obj = json.loads(sample["conversations"][2]["content"])
+            for s in list(asst_obj.get("shared") or []) + [x for row in (asst_obj.get("rows") or []) for x in row]:
+                if s["key"] == "unit_kind" and s["value"] not in UNIT_KIND_RUNTIME_SURFACE:
+                    bad_units[s["value"]] = bad_units.get(s["value"], 0) + 1
+        if bad_units:
+            log(f"[FAIL] unit_kind gold 超出运行时枚举（F3 断言，OCRExtraction.normalized 无法归一）: {bad_units}")
+            return 3
+
     with open(pre_tmp_path, "w", encoding="utf-8", newline="\n") as fpre:
         n_pre = 60 if args.dry_run else args.pretrain_count
         counter = {}
+        pretrain_holdout_rows = []
         for text in gen_pretrain_lines(pools, rng, n_pre, vocab_chars, counter):
+            if holdout_embedded(text, holdout_index):
+                pretrain_holdout_rows.append(text[:48])
             fpre.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
+    # F2 构建末断言：预训练行不得含留出实体（源侧已排除；发现即拒 = 排除路径漏网，rc 3）。
+    if pretrain_holdout_rows:
+        log(f"[FAIL] 预训练行含留出实体（F2 断言；{len(pretrain_holdout_rows)} 行）: "
+            + pretrain_holdout_rows[0])
+        return 3
 
     for tmp_path, final_path in ((sft_tmp_path, sft_path), (eval_tmp_path, eval_path), (pre_tmp_path, pre_path)):
         os.replace(tmp_path, final_path)
@@ -2149,6 +2294,10 @@ def main():
         stats["required_row_dropped_rows"] = dict(REQUIRED_ROW_DROPPED)
         log("[warn] required_row 缺键行被整行剔除（噪声破坏必填字段；计数随 manifest.stats 落盘）: "
             + ", ".join(f"{k}×{v}" for k, v in sorted(REQUIRED_ROW_DROPPED.items())))
+    if UNIT_KIND_DROPPED:
+        stats["unit_kind_domain_dropped"] = dict(UNIT_KIND_DROPPED)
+        log("[warn] unit_kind 运行时枚举外单位（袋/丸 等无法归一化）药物行剔除（F3；计数随 manifest.stats 落盘）: "
+            + ", ".join(f"{k}×{v}" for k, v in sorted(UNIT_KIND_DROPPED.items())))
     manifest_path = os.path.join(args.out_dir, "extraction_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
