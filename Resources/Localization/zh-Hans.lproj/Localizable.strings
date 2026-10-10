@@ -578,6 +578,10 @@
 "common.close" = "关闭";
 "common.back" = "返回";
 "common.memberChanged" = "已切换成员，本次保存已拦截；请返回后重新保存";
+"plan.conflict.title" = "用药排程提示";
+"plan.conflict.proceed" = "仍要保存";
+"plan.conflict.mealFmt" = "「%@」与「%@」在相近时段服用，餐前/餐后关系相反，请核对处方。";
+"plan.conflict.spacingFmt" = "「%@」与「%@」相隔约 %d 分钟（少于 %d 分钟），请核对是否需要错开。";
 "disclosure.l1.boundary.body" = "本 App 是个人医疗资料的归档与提醒工具，不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打当地急救电话或前往医院。";
 "disclosure.l1.storage.body" = "你的资料只保存在本机、功能完全离线。所有上传、分析、分享、备份都是独立开关，关掉即停。更换设备前请用导出功能备份（资料不会自动上传云端）。";
 "disclosure.l1.skipInfo.body" = "建档信息可以稍后补充；添加家人、云账户注册都是可选项，全部可以之后在设置里完成，不影响你正常使用归档与提醒功能。";

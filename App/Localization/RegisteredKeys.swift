@@ -646,6 +646,8 @@ extension L10n {
         "disclosure.title", "disclosure.acknowledge", "onboarding.stepFmt",
     // S-1/S-5（第九轮审查 F 批）：关怀返回钮与成员切换拦截的静态键
     "common.back", "common.memberChanged",
+    // E③（收口批）：计划排程冲突提示（FR9.19）
+    "plan.conflict.title", "plan.conflict.proceed", "plan.conflict.mealFmt", "plan.conflict.spacingFmt",
         "backup.unlockReason", "backup.exportConfirm.title", "backup.exportConfirm.body",
         "backup.restoreConfirm.title", "backup.restoreConfirm.body", "backup.restoredCountFmt",
         "sos.help.title", "sos.call120", "sos.noContacts", "sos.viewCard", "sos.sendLocationP1",

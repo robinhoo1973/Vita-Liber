@@ -284,6 +284,8 @@ public enum CardTemplateMatcher {
     /// v27 体检首页：理解层 `blood_pressure`「128/82」（打印的收缩/舒张合体）在匹配前按分隔符拆为 systolic / diastolic 两草稿
     /// （同 reference_range 拆 ref_low/ref_high 的纪律：只拆打印分隔，不猜、不换算；拆不开原样保留由用户处理）。
     private static func expandedFields(for template: CardTemplate, fields: [FieldDraft]) -> [FieldDraft] {
+        // E④（收口批，2026-09-21 指标锚定桥）：词表轨 rdrafts 桥接（见函数注释）
+        let fields = template.kind == "metric_sample" ? bridgedLexiconMetricRows(fields) : fields
         guard template.kind == "health_exam", fields.contains(where: { $0.key == "blood_pressure" }) else { return fields }
         return fields.flatMap { draft -> [FieldDraft] in
             guard draft.key == "blood_pressure" else { return [draft] }
@@ -292,6 +294,35 @@ public enum CardTemplateMatcher {
             return [FieldDraft(key: "systolic", value: systolic, unit: draft.unit, confidence: draft.confidence, rawText: raw, source: draft.source, sourceLineIndex: draft.sourceLineIndex),
                     FieldDraft(key: "diastolic", value: diastolic, unit: draft.unit, confidence: draft.confidence, rawText: raw, source: draft.source, sourceLineIndex: draft.sourceLineIndex)]
         }
+    }
+
+    /// E④（收口批，2026-09-21「指标行锚定」特性零效果修复）：LexiconExtraction
+    /// 的指标锚定产出 `raw_label/value/unit/reference_range` 行级键，而
+    /// metric_sample 模板按 `lab_item` 触发成行、映射表不含这四键（前四键在
+    /// rowLevelKeys 却无映射入口）——词表命中行在 buildRows 无触发、buildShared
+    /// 无映射，**整行静默丢弃**（值只留在文档审计里）。桥接：同 rawText（词表行
+    /// 原文）的 raw_label + value(+unit) 合成一行 `lab_item`（"名称 数值" 载荷 +
+    /// unit 槽位，与规则轨同形——rowFields 拆回 raw_label/value/unit/metric_key）；
+    /// reference_range 由既有「同 rawText 伴随」机制自动归行。仅在**无规则轨
+    /// lab_item 触发**的 rawText 上合成（规则轨产出优先，双轨不重复成行）。
+    private static func bridgedLexiconMetricRows(_ fields: [FieldDraft]) -> [FieldDraft] {
+        let labels = fields.filter { $0.key == "raw_label" && !$0.value.isEmpty }
+        guard !labels.isEmpty else { return fields }
+        var out = fields
+        for label in labels {
+            guard let raw = label.rawText else { continue }
+            if fields.contains(where: { $0.key == "lab_item" && $0.rawText == raw }) { continue }
+            guard let value = fields.first(where: { $0.key == "value" && $0.rawText == raw && !$0.value.isEmpty }) else { continue }
+            let unit = fields.first { $0.key == "unit" && $0.rawText == raw && !$0.value.isEmpty }
+            out.append(FieldDraft(key: "lab_item",
+                                  value: label.value + " " + value.value,
+                                  unit: unit?.value,
+                                  confidence: min(label.confidence, value.confidence),
+                                  rawText: raw,
+                                  source: label.source,
+                                  sourceLineIndex: label.sourceLineIndex))
+        }
+        return out
     }
 
     /// 文档类型键派生的共享键值（D 级默认，Picker 可改）：就诊/住院 `kind`、诊断 `diagnosis_type`、病理文档 `report_type`。
@@ -327,12 +358,40 @@ public enum CardTemplateMatcher {
 
         // 1. 行：每个 rowKey 实例一行；同 rawText 的伴随字段（参考范围）归入该行
         var consumed = Set<Int>()   // 已归行的字段下标（不再进共享）
-        guard let rows = buildRows(for: template, fields: fields,
+        guard var rows = buildRows(for: template, fields: fields,
                                    requiredRules: requiredRules, consumed: &consumed) else { return nil }
 
         // 2. 共享：其余已映射字段（同键取首个，保持原序）+ 文档判定派生的共享键。
-        let shared = buildShared(for: template, fields: fields, consumed: consumed,
+        var shared = buildShared(for: template, fields: fields, consumed: consumed,
                                  documentTypeKey: documentTypeKey, ruleKeys: ruleKeys)
+
+        // 2b. 批F⑦（第九轮审查 D2#2，权重重判定案「附着到首个读数行」）：唯一性
+        // 前提失败而未附着的参考范围此前滞留共享面——metric_sample 共享面
+        // 白名单（CardKindRegistry.sharedOptional=labHeaderOptional）不含
+        // reference_range，invalidFields 对每个读数行恒报 invalid，保存键永久
+        // 灰死（唯一出路=拒绝该字段、丢打印范围）。改为附着到首个读数行——
+        // 且**只以 reference_text 原文形态附着**（A 级打印事实，不拆界、不判
+        // 归属）：能到达本分支的恰是「无法唯一归属」的歧义范围，拆成
+        // ref_low/ref_high 落进某一行等于猜测归属，违反既有钉死契约
+        // （CardTemplateMatcherTests.ambiguousSameTextRangesAreNotAssignedToEveryRow）。
+        // reference_text 在行面白名单内，保存闸门解除且口径仍是「原文照录」。
+        if template.kind == "metric_sample", !rows.isEmpty {
+            let unattached = shared.filter {
+                $0.key == "reference_range"
+                    && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+            let row0HasRange = rows[0].fields.contains {
+                $0.key == "ref_low" || $0.key == "ref_high" || $0.key == "reference_text"
+            }
+            if !unattached.isEmpty, !row0HasRange {
+                rows[0].fields += unattached.map { draft in
+                    var copy = draft
+                    copy.key = "reference_text"
+                    return copy
+                }
+                shared.removeAll { $0.key == "reference_range" }
+            }
+        }
 
         // 3. 覆盖率（去重键；派生键已作为字段写入共享/行，自然计入）
         var covered = Set((shared + rows.flatMap(\.fields)).filter {

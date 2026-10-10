@@ -92,6 +92,10 @@ struct GlobalSearchView: View {
     @Environment(M2HubStore.self) private var hub
     @Environment(SearchViewState.self) private var state
     @Environment(AppRouter.self) private var router
+    /// E①（收口批）：四域参考目录端口（AppContainer 装配，nil=未就绪零渲染）
+    @Environment(\.medicalReferenceCatalog) private var referenceCatalog
+    /// E①：父持有的目录检索状态（空态判据必须感知目录命中）
+    @State private var catalogState: CatalogSearchState?
     @State private var filterText = ""
 
     // 第九轮审查修复（空白查询）：in-memory 命中过滤（观察/用药/健康指标）此前
@@ -190,7 +194,9 @@ struct GlobalSearchView: View {
                 // 只能靠本地化名匹配）静默失效。缺陷由 ce4d6d7 引入，e27f5e4 结构搬运时
                 // 原样携带。
                 } else if state.docHits.isEmpty && obsHits.isEmpty && medHits.isEmpty
-                            && healthHits.isEmpty {
+                            && healthHits.isEmpty
+                            // E①：目录命中同样计入空态判据（同 2026-09-16 健康分组缺陷族）
+                            && catalogState?.hasHits != true {
                     VLUnavailableView {
                         Label(L10n.searchNoResult(query), systemImage: "magnifyingglass")
                     } description: {
@@ -201,6 +207,10 @@ struct GlobalSearchView: View {
                     .accessibilityIdentifier("SP-20.search.empty")
                 } else {
                     if !healthHits.isEmpty { healthDataSection }
+                    // E①（FR12.1）：四域目录命中分组（医院/疾病/检查化验；B 级徽章在行内）
+                    if let catalogState {
+                        CatalogSearchSection(query: query, state: catalogState)
+                    }
                     if !documentHits.isEmpty { documentSection }
                     // FR17.14：语音速记正文命中（跳 SP-59 面板；列表内可选中所属条目）
                     if !voiceNoteHits.isEmpty { voiceNoteSection }
@@ -236,6 +246,12 @@ struct GlobalSearchView: View {
                 _ = state.consumeInjectedQuery()
                 guard injected != filterText else { return }
                 filterText = injected
+            }
+            .onAppear {
+                // E①：目录端口就绪即建检索状态（一次）；nil 端口保持零渲染
+                if catalogState == nil, let referenceCatalog {
+                    catalogState = CatalogSearchState(catalog: referenceCatalog)
+                }
             }
             .task(id: app.currentPatientId) {
                 await hub.load(patientId: app.currentPatientId)

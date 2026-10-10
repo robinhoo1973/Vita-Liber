@@ -174,6 +174,16 @@ extension L10n {
 
     static var planActionPending: String { t("plan.action.pending") }
 
+    // E③（收口批，FR9.19）：计划保存的排程冲突提示（纯排程事实，非阻断）
+    static var planConflictTitle: String { t("plan.conflict.title") }
+    static var planConflictProceed: String { t("plan.conflict.proceed") }
+    static func planConflictMeal(_ a: String, _ b: String) -> String {
+        String(format: t("plan.conflict.mealFmt"), a, b)
+    }
+    static func planConflictSpacing(_ a: String, _ b: String, _ gap: Int, _ threshold: Int) -> String {
+        String(format: t("plan.conflict.spacingFmt"), a, b, gap, threshold)
+    }
+
     static var planStatusActive: String { t("plan.status.active") }
 
     static var planStatusPaused: String { t("plan.status.paused") }

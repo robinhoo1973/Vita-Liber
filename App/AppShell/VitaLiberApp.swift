@@ -207,6 +207,26 @@ struct VitaLiberApp: App {
         // `appState` 触发「escaping closure captures mutating 'self' parameter」
         // （CI 35180851132 实证；`[appState, reminderStore]` 是既有通行形态）。
         f16DeviceState.ownerPatientID = { [appState] in appState.owner?.selfPatientId }
+        // 收口批E②（FR16.2 履约口径）：手录/自测读数分级+派发接线——此前
+        // AlertRuleEngine.escalate 无生产调用方（手录读数永不参与 L1+ 判定）。
+        // 落库后：窗口定级（连续 3 次越限）→ 合格事件 → 与设备轨同源派发
+        // （L1 静默时段门 / L2+ 时间敏感）。分级/派发失败不阻断录入主流程。
+        trendState.gradeManualReading = { [dataChange] patientId, metric in
+            do {
+                let event = try await container.guidelines.evaluateRecentManualReadings(
+                    patientId: patientId, metricKey: metric.rawValue)
+                if event != nil {
+                    let quietStart = try await container.settings.value(for: .quietHoursStart)
+                    let quietEnd = try await container.settings.value(for: .quietHoursEnd)
+                    _ = try await container.healthSync.dispatchPendingElevated(
+                        patientId: patientId, quietStart: quietStart, quietEnd: quietEnd)
+                }
+                await MainActor.run { dataChange.alertsChanged() }
+            } catch {
+                // 分级/派发失败静默容忍：读数已落库；下轮同步的待派发重试链兜底
+                await MainActor.run { dataChange.alertsChanged() }
+            }
+        }
         trendState.writeBack = { [f16 = f16DeviceState] patientId, metric, value, secondaryValue, unit, measuredAt in
             await f16.writeBackSample(patientId: patientId, metric: metric, value: value,
                                       secondaryValue: secondaryValue, unit: unit, measuredAt: measuredAt)
@@ -387,6 +407,8 @@ struct VitaLiberApp: App {
              .environment(f16DeviceState)
              .environment(backupState)
              .environment(medicalCatalogState)
+             // E①（收口批）：四域参考目录端口（nil=未就绪零渲染）
+             .environment(\.medicalReferenceCatalog, container.medicalReferenceCatalog)
              .environment(updateAdviceState)
              .environment(asrCheckState)
              .environment(llmModelInstallCenter)

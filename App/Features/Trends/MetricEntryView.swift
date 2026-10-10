@@ -302,6 +302,12 @@ extension TrendEntryState {
             if let writeBack {
                 await writeBack(patientId, metric, value, secondaryValue, unit, measuredAt)
             }
+            // 收口批E②（FR16.2）：手录读数走分级——连续 3 次越限升 L1+（Domain
+            // escalate 单一出口），合格事件经与设备轨同源的派发出口（含 L1
+            // 静默时段门 / 时间敏感通知）；失败不溯及本库保存结果。
+            if let gradeManualReading {
+                await gradeManualReading(patientId, metric)
+            }
             // 审查修复：此前 reload 走 load()（90 天血糖默认序列）——刚保存的
             // 血压根本不在该序列里，白查一整趟；改刷新指标总览最新点（宫格
             // 消费方），趋势详情页经自己的 .task(id:) 在进入时重载。

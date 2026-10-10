@@ -578,6 +578,10 @@
 "common.close" = "Close";
 "common.back" = "Back";
 "common.memberChanged" = "The member was switched — this save was blocked. Go back and save again.";
+"plan.conflict.title" = "Dosing Schedule Check";
+"plan.conflict.proceed" = "Save Anyway";
+"plan.conflict.mealFmt" = "\"%@\" and \"%@\" are scheduled close together with opposite before/after-meal relations - please check the prescription.";
+"plan.conflict.spacingFmt" = "\"%@\" and \"%@\" are about %d minutes apart (less than %d) - please check whether they need to be spaced apart.";
 "disclosure.l1.boundary.body" = "This app is an archive and reminder tool for personal medical records - it is not a medical device: it does not diagnose, does not suggest treatment plans, and does not replace a doctor. In an emergency, call your local emergency number or go to a hospital.";
 "disclosure.l1.storage.body" = "Your data is stored only on this device and works fully offline. Uploading, analysis, sharing and backup are all independent switches - turning them off stops them immediately. Before switching devices, use the export feature to back up, as data is never uploaded to the cloud automatically.";
 "disclosure.l1.skipInfo.body" = "Profile information can be added later; adding family members and cloud account registration are optional and can be completed in Settings afterwards. They do not affect archiving and reminders.";

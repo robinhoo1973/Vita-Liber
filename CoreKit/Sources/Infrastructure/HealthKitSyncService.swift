@@ -309,27 +309,46 @@ public actor HealthKitSyncService {
 
         // Retry pending qualified events even when there are no new HealthKit samples.
         // The medical review gate also prevents dispatch of old unreviewed engineering examples.
+        // 收口批E②：派发逻辑提取为 dispatchPendingElevated（手录轨复用同一出口）。
         if !GuidelineSource.thresholdsAwaitMedicalReview {
             do {
-                let pending = try await guidelines.history(patientId: binding.patientId,
-                    qualifiedOnly: true, pendingOnly: true, activeOnly: true)
-                for event in pending {
-                    try Task.checkCancellation()
-                    guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
-                    if event.severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd) { continue }
-                    do {
-                        let when = Date().addingTimeInterval(5)
-                        try await scheduler.schedule(dose: "alert-\(event.id.uuidString)", at: when,
-                            route: .alertEvidence(patientId: binding.patientId, eventId: event.id, severity: event.severity))
-                        try await guidelines.markScheduled(id: event.id, patientId: binding.patientId, at: when)
-                        report.elevated += 1
-                    } catch { report.notificationFailures += 1 }
-                }
+                let dispatched = try await dispatchPendingElevated(
+                    patientId: binding.patientId, quietStart: quietStart, quietEnd: quietEnd)
+                report.elevated += dispatched.scheduled
+                report.notificationFailures += dispatched.failures
             } catch is CancellationError { throw CancellationError() }
             catch { report.notificationFailures += 1 }
         }
         report.lastSyncAt = Date()
         return report
+    }
+
+    /// 合格事件派发单一出口（收口批E②，自 performSyncAll 内联循环提取）：
+    /// 待派发（qualified 且 pending）事件 → L1 静默时段门 → 5s 后时间敏感通知
+    /// → markScheduled。设备同步轨与**手录轨**（TrendEntryState.gradeManualReading
+    /// 注入的闭包）共用——此前该逻辑埋在同步循环内，手录读数即使经
+    /// GuidelineStore.evaluateRecentManualReadings 建了合格事件也无派发路径。
+    /// 返回 (已排程, 通知失败)；健康导入被用户关闭时抛 disabled（调用方按
+    /// 各自语义消化——同步轨记 notificationFailures，手录轨静默容忍）。
+    public func dispatchPendingElevated(patientId: UUID, quietStart: Date, quietEnd: Date) async throws
+        -> (scheduled: Int, failures: Int) {
+        var scheduled = 0
+        var failures = 0
+        let pending = try await guidelines.history(patientId: patientId,
+            qualifiedOnly: true, pendingOnly: true, activeOnly: true)
+        for event in pending {
+            try Task.checkCancellation()
+            guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+            if event.severity == .L1 && QuietHoursRules.isActive(start: quietStart, end: quietEnd) { continue }
+            do {
+                let when = Date().addingTimeInterval(5)
+                try await scheduler.schedule(dose: "alert-\(event.id.uuidString)", at: when,
+                    route: .alertEvidence(patientId: patientId, eventId: event.id, severity: event.severity))
+                try await guidelines.markScheduled(id: event.id, patientId: patientId, at: when)
+                scheduled += 1
+            } catch { failures += 1 }
+        }
+        return (scheduled, failures)
     }
 
     /// 单道单页排空（round2 H-N1）：取页 → 暂存 → 受影响窗口重算（每轮 ≤ windowsPerRound）→ 提交。

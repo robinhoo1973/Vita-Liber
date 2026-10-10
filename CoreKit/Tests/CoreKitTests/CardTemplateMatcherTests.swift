@@ -32,6 +32,47 @@ struct CardTemplateMatcherTests {
     }
 
 
+    @Test("歧义参考范围：附着到首个读数行的 reference_text（原文照录，不拆界不猜测）")
+    func ambiguousRangesAttachAsPrintedText() {
+        let raw = "A 1 g/L 0-2 B 3 g/L 2-4"
+        let fields = [FieldDraft(key: "report_date", value: "2026-09-01"),
+                      FieldDraft(key: "lab_item", value: "A 1", unit: "g/L", rawText: raw),
+                      FieldDraft(key: "lab_item", value: "B 3", unit: "g/L", rawText: raw),
+                      FieldDraft(key: "reference_range", value: "0-2", rawText: raw),
+                      FieldDraft(key: "reference_range", value: "2-4", rawText: raw)]
+        let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0,
+                                             documentTypeKey: "lab_report").first
+        // 收口批F⑦：共享面不再滞留 reference_range（invalidFields 永锁解除），
+        // 首行以 reference_text 原文形态承载（行面白名单键；不拆 ref_low/high）
+        #expect(card?.shared.contains { $0.key == "reference_range" } == false)
+        #expect(card?.rows.first?.fields.contains { $0.key == "reference_text" } == true)
+        // 首行可过保存闸门（invalidFields 不再因 reference_range 报错）
+        if let card, let row = card.rows.first {
+            let invalid = EntityCardProjection.invalidFields(in: card, row: row, calendar: Calendar(identifier: .gregorian))
+            #expect(!invalid.contains("reference_range"))
+        }
+    }
+
+    @Test("词表轨桥接：raw_label+value(+unit) 合成 lab_item 行，参考范围经伴随归行（E④）")
+    func lexiconMetricRowsBridgeIntoLabItems() {
+        let raw = "糖化血红蛋白 7.2 % 4-6"
+        let fields = [FieldDraft(key: "report_date", value: "2026-09-01"),
+                      FieldDraft(key: "raw_label", value: "糖化血红蛋白", confidence: 0.6, rawText: raw, source: .gazetteer, sourceLineIndex: 3),
+                      FieldDraft(key: "value", value: "7.2", confidence: 0.6, rawText: raw, source: .gazetteer, sourceLineIndex: 3),
+                      FieldDraft(key: "unit", value: "%", confidence: 0.6, rawText: raw, source: .gazetteer, sourceLineIndex: 3),
+                      FieldDraft(key: "reference_range", value: "4-6", confidence: 0.6, rawText: raw, source: .gazetteer, sourceLineIndex: 3)]
+        let card = CardTemplateMatcher.match(fields: fields, pageIndex: 0,
+                                             documentTypeKey: "lab_report").first
+        #expect(card?.rows.count == 1, "词表行必须成行（此前整行丢弃）")
+        let row = card?.rows.first
+        #expect(row?.fields.contains { $0.key == "raw_label" && $0.value == "糖化血红蛋白" } == true)
+        #expect(row?.fields.contains { $0.key == "value" && $0.value == "7.2" } == true)
+        #expect(row?.fields.contains { $0.key == "unit" && $0.value == "%" } == true)
+        // 参考范围：可拆界 → 伴随归行 ref_low/ref_high
+        #expect(row?.fields.contains { $0.key == "ref_low" && $0.value == "4" } == true)
+        #expect(row?.fields.contains { $0.key == "ref_high" && $0.value == "6" } == true)
+    }
+
     private func labItem(_ name: String, _ value: String, unit: String? = "g/L", raw: String? = nil) -> FieldDraft {
         FieldDraft(key: "lab_item", value: "\(name) \(value)", unit: unit, confidence: 0.6,
                    rawText: raw ?? "\(name) \(value) \(unit ?? "")")

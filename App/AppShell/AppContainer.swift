@@ -90,6 +90,9 @@ struct AppContainer {
     /// AES-256-GCM 信封，无注入材料）；缺省 nil → 更新入口 fail-closed
     /// （packageInvalid），last-good 不受影响。
     let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
+    /// E①（收口批）：四域参考目录只读端口（与 medicalCatalog 同一 sqlite 的
+    /// 独立只读池；schema<4 时四域 API 自降级空）。装配失败 → nil（搜索页零渲染）。
+    let medicalReferenceCatalog: MedicalReferenceCatalogStore?
     /// SP-64 通告面（README VL-INDEX 二维码；委员会 P3，2026-10-07）：固定匿名通道
     /// + floor 落盘（与医疗支持目录同址）；读取纯显式动作、零隐式联网。
     /// 缺省 nil → 全域「不可用」（fail-closed，同 checker 缺省语义）。
@@ -153,6 +156,12 @@ struct AppContainer {
             // 目录功能降级、患者主库与其余功能不受影响。恢复语义见 journal 契约：
             // irrecoverable 从不静默吞掉（本处吞的是「目录功能」，不是状态）。
             logger.error("医疗目录恢复失败，目录功能降级: \(String(describing: error))")
+        }
+        // E①（收口批）：四域目录只读端口——同一 medical-catalog.sqlite；只读池
+        // 与 MedicalCatalogStore 并存无写竞争；文件缺失/损坏/schema<4 → nil 降级。
+        var referenceCatalog: MedicalReferenceCatalogStore? = nil
+        if catalog != nil {
+            referenceCatalog = try? MedicalReferenceCatalogStore(path: catalogPath.path)   // try?-ok: 缺四域表/只读池打开失败=目录分组降级零渲染
         }
         // SP-64 检查/更新链（2026-09-27）：pinned root 随发布配置 provisioning 注入
         // bundle；provisioning 前资源缺省 → checker 为 nil，检查/更新 fail-closed
@@ -351,6 +360,7 @@ struct AppContainer {
                              medicalCatalogUpdater: medicalCatalogUpdater,
                              medicalCatalogChecker: medicalCatalogChecker,
                              medicalCatalogOpener: medicalCatalogOpener,
+                             medicalReferenceCatalog: referenceCatalog,
                              updateAdvice: updateAdvice,
                              pdfExport: pdfExport,
                             healthReader: healthReader,

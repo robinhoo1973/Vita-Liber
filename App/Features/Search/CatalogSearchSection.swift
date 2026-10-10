@@ -9,8 +9,11 @@ import Perception
 // catalog 为 nil（目录未就绪）时整段不渲染——搜索页退化为既有行为。
 // 代际守卫与 SearchViewState 同纪律（旧查询结果不覆盖新输入）。
 //
-// 插入点（接线期，业主 MedicalCatalog 批次落地后）：GlobalSearchView 的
-// healthDataHits 分组之后，挂 `CatalogSearchSection(query: query, catalog: …)`；
+// 接线（收口批E①，2026-10-10）：GlobalSearchView 的 healthDataHits 分组之后挂载
+// `CatalogSearchSection(query:catalog:state:)`——state **由父视图持有**（空态判据
+// 必须感知目录命中，否则「仅医院/疾病命中」的查询会落进「未找到」分支，与
+// 2026-09-16 健康分组同族缺陷）。catalog 经 EnvironmentKey 注入（AppContainer
+// 装配同一 medical-catalog.sqlite 的只读四域端口；nil = 零渲染）。
 // SearchViewState 不在此扩展（新文件扩展纪律）。
 
 @MainActor
@@ -23,6 +26,9 @@ final class CatalogSearchState {
 
     private let catalog: any MedicalReferenceCatalogReading
     private var generation = 0
+
+    /// 目录是否有任一命中（父视图空态判据消费——「未找到」不得覆盖仅目录命中的查询）。
+    var hasHits: Bool { !(hospitalHits.isEmpty && diagnosisHits.isEmpty && examHits.isEmpty) }
 
     init(catalog: any MedicalReferenceCatalogReading) {
         self.catalog = catalog
@@ -91,18 +97,11 @@ private struct CatalogHitRow: View {
     }
 }
 
-/// 目录搜索段主体（catalog 已就绪时挂载）。
+/// 目录搜索段主体（catalog 已就绪时挂载）。state 由父视图持有（空态判据联动，
+/// E① 接线注释见文件头）。
 private struct CatalogSearchContent: View {
     let query: String
-    let catalog: any MedicalReferenceCatalogReading
-
-    @State private var state: CatalogSearchState
-
-    init(query: String, catalog: any MedicalReferenceCatalogReading) {
-        self.query = query
-        self.catalog = catalog
-        _state = State(initialValue: CatalogSearchState(catalog: catalog))
-    }
+    @Perception.Bindable var state: CatalogSearchState
 
     var body: some View {
         WithPerceptionTracking {
@@ -163,11 +162,25 @@ private struct CatalogSearchContent: View {
 /// 目录搜索段入口:catalog 未就绪时零渲染(搜索页保持既有行为)。
 struct CatalogSearchSection: View {
     let query: String
-    let catalog: (any MedicalReferenceCatalogReading)?
+    @Perception.Bindable var state: CatalogSearchState   // 父视图持有（空态判据联动）
 
     var body: some View {
-        if let catalog {
-            CatalogSearchContent(query: query, catalog: catalog)
-        }
+        CatalogSearchContent(query: query, state: state)
+    }
+}
+
+
+// MARK: - 环境注入（E①：AppContainer 装配的只读四域端口）
+
+/// `any MedicalReferenceCatalogReading` 的 Environment 载体（默认 nil =
+/// 目录未就绪 → CatalogSearchSection 零渲染，搜索页保持既有行为）。
+private struct MedicalReferenceCatalogKey: EnvironmentKey {
+    static var defaultValue: (any MedicalReferenceCatalogReading)? { nil }
+}
+
+extension EnvironmentValues {
+    var medicalReferenceCatalog: (any MedicalReferenceCatalogReading)? {
+        get { self[MedicalReferenceCatalogKey.self] }
+        set { self[MedicalReferenceCatalogKey.self] = newValue }
     }
 }

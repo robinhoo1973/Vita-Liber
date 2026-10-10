@@ -316,6 +316,34 @@ struct HealthSyncDomainTests {
         #expect(AlertRuleEngine.sustainedViolations([sample, sample, sample]).isEmpty)
     }
 
+    @Test("mergeGap 契约：≤5min 记录间隙并入入睡总长（无样本覆盖的空洞）")
+    func shortUnobservedGapMergesIntoSleep() {
+        // 收口批F③：03:00-03:30 core + 03:33-04:00 deep（3min **无样本**间隙）
+        // → 并作一段 [03:00, 04:00]，总长 60min（契约兑现；间隙=记录空洞而非清醒）
+        let result = SleepMerge.merge([
+            SleepSample(start: date(9, 3), end: date(9, 3, 30), stage: .core,
+                        sourceName: "Watch", sourceProduct: "watch"),
+            SleepSample(start: date(9, 3, 33), end: date(9, 4), stage: .deep,
+                        sourceName: "Watch", sourceProduct: "watch"),
+        ], anchorDate: date(9, 12), calendar: calendar)
+        #expect(abs(result.totalAsleep - 3600) < 1, "≤5min 空洞并段：total=\(result.totalAsleep)")
+        #expect(result.segmentCount == 1)
+        // 实测覆盖仍按样本计（间隙不归任何阶段）
+        #expect(abs((result.perStage[.core] ?? 0) - 1800) < 1)
+        #expect(abs((result.perStage[.deep] ?? 0) - 1620) < 1)
+    }
+
+    @Test("mergeGap 边界：>5min 无样本间隙不并入（保持两段）")
+    func longUnobservedGapStaysSplit() {
+        let result = SleepMerge.merge([
+            SleepSample(start: date(9, 3), end: date(9, 3, 30), stage: .core,
+                        sourceName: "Watch", sourceProduct: "watch"),
+            SleepSample(start: date(9, 3, 36), end: date(9, 4), stage: .deep,
+                        sourceName: "Watch", sourceProduct: "watch"),
+        ], anchorDate: date(9, 12), calendar: calendar)
+        #expect(abs(result.totalAsleep - (1800 + 1440)) < 1, ">5min 不并：total=\(result.totalAsleep)")
+    }
+
     @Test("A four-minute awake interval is not filled back into sleep")
     func shortAwakeningIsNotSleep() {
         let result = SleepMerge.merge([

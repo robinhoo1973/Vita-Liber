@@ -544,6 +544,9 @@ struct MedicationPlanFormView: View {
     @State private var spec = ""
     @State private var dosePerTake = ""
     @State private var saveFailed = false
+    /// E③（收口批，FR9.19）：保存前的排程冲突提示（非阻断——[仍要保存] 继续）
+    @State private var pendingConflicts: [DoseConflictRules.Conflict] = []
+    @State private var conflictAcknowledged = false
 
     /// 第八轮全仓审查修复：非空但不可解析的剂量文本就地报错并禁用保存
     /// （响亮拒绝）——绝不静默落 NULL 后被安全线按 1.0/次扣账
@@ -643,6 +646,19 @@ struct MedicationPlanFormView: View {
                 .saveFailedAlert(title: L10n.planFormSaveFailed,
                                  hint: L10n.planFormSaveFailedHint,
                                  isPresented: $saveFailed)
+                // E③（FR9.19）：排程冲突提示——非阻断（[仍要保存] 继续；[取消] 返回修改）
+                .alert(L10n.planConflictTitle, isPresented: Binding(
+                    get: { !pendingConflicts.isEmpty },
+                    set: { if !$0 { pendingConflicts = [] } })) {
+                    Button(L10n.planConflictProceed) {
+                        conflictAcknowledged = true
+                        pendingConflicts = []
+                        performSave()
+                    }
+                    Button(L10n.commonCancel, role: .cancel) { pendingConflicts = [] }
+                } message: {
+                    Text(pendingConflicts.map(conflictText).joined(separator: "\n"))
+                }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button(L10n.commonCancel) { dismiss() }
@@ -666,6 +682,55 @@ struct MedicationPlanFormView: View {
             saveFailed = true
             return
         }
+        // E③（收口批，FR9.19）：保存前冲突提示——纯排程事实、非阻断：
+        // 有冲突先弹提示，[仍要保存] 置 ack 后重入；时刻非法已在上面拦截。
+        if !conflictAcknowledged {
+            let conflicts = dosingConflicts(times: times)
+            if !conflicts.isEmpty {
+                pendingConflicts = conflicts
+                return
+            }
+        }
+        performSave()
+    }
+
+    /// E③（FR9.19）同日排程冲突（Domain `DoseConflictRules` 单一出口）。
+    /// 现况注记（审查登记）：间距阈值按业主 Q5=A 在过医学审核前传 nil（间距类
+    /// 整体不出现）；餐时互斥需要既有剂量携带 mealRelation（物化链路当前丢
+    /// mealRelation——见审查报告 D1#3）——本接线就位，随数据面/审校闸放开自动生效。
+    private func dosingConflicts(times: [String]) -> [DoseConflictRules.Conflict] {
+        var refs: [DoseConflictRules.DoseRef] = []
+        for slot in reminders.todaySlots {
+            for record in slot.records {
+                refs.append(.init(id: record.id, label: record.medicationName ?? "",
+                                  dueAt: record.dose.dueAt, mealRelation: record.dose.mealRelation))
+            }
+        }
+        if !isAsNeeded {
+            let day = Calendar.current.startOfDay(for: startDate)
+            for time in times {
+                let parts = time.split(separator: ":").compactMap { Int($0) }
+                guard parts.count == 2,
+                      let due = Calendar.current.date(bySettingHour: parts[0], minute: parts[1],
+                                                      second: 0, of: day) else { continue }
+                refs.append(.init(id: "new-plan", label: genericName, dueAt: due,
+                                  mealRelation: mealRelation.isEmpty ? nil : mealRelation))
+            }
+        }
+        return DoseConflictRules.conflicts(doses: refs, spacingThresholdMinutes: nil)
+    }
+
+    private func conflictText(_ conflict: DoseConflictRules.Conflict) -> String {
+        switch conflict {
+        case .mealWindowMismatch(let first, let second, _):
+            return L10n.planConflictMeal(first, second)
+        case .spacingBelowThreshold(let first, let second, let gap, let threshold):
+            return L10n.planConflictSpacing(first, second, gap, threshold)
+        }
+    }
+
+    private func performSave() {
+        let times = fixedTimes.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
         // FR9.19（V4.04）：空时刻按频率推荐表兜底（onChange 已预选；此处覆盖粘贴/清空场景）
         let recommended = DoseScheduleAdvisor.advise(timesPerDay: Int(timesPerDay), isAsNeeded: isAsNeeded)
         let schedule: MedicationSchedule = isAsNeeded

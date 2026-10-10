@@ -79,6 +79,40 @@ public actor GuidelineStore {
         }
     }
 
+    /// 收口批E②（第九轮审查，FR16.2 履约口径）：「连续 3 次读数越限 → 至少 L1」
+    /// 此前只对设备批量轨生效（recordQualifiedHealthReadings）；手录/自测读数
+    /// 永不参与分级（告警引擎对用户主动录入的读数静默）。本方法在**手录落库后**
+    /// 读取该指标最近 `consecutiveThreshold` 条（含本条）走同一 Domain 出口
+    /// `AlertRuleEngine.escalate`——窗口内全部定级且全部越限才升 L1+；合格即建
+    /// alert_event（qualified=true，24h 去重由 save 的 episode 键承担，与设备轨同源）。
+    /// 返回新建事件（未达标/未越限/阈值待医学审校 → nil）。
+    @discardableResult
+    public func evaluateRecentManualReadings(patientId: UUID, metricKey: String) async throws -> AlertEvent? {
+        try await writer.write { db in
+            guard !GuidelineSource.thresholdsAwaitMedicalReview else { return nil }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT metric_key, value, unit, measured_at, origin FROM metric_sample
+                WHERE patient_id = ? AND metric_key = ? AND excluded = 0 AND value IS NOT NULL
+                ORDER BY measured_at DESC LIMIT ?
+                """, arguments: [patientId.uuidString, metricKey, AlertRuleEngine.consecutiveThreshold])
+            let recent = rows.reversed().compactMap { row -> MetricReading? in
+                guard let value = row["value"] as Double?,
+                      let measuredAt = row["measured_at"] as Double? else { return nil }
+                return MetricReading(metricKey: row["metric_key"] as String,
+                                     value: value,
+                                     unit: row["unit"] as String? ?? "",
+                                     origin: MetricOrigin(rawValue: row["origin"] as String? ?? "manual") ?? .manual,
+                                     measuredAt: Date(timeIntervalSince1970: measuredAt))
+            }
+            guard let guideline = try Self.entry(for: AlertRuleEngine.guidelineKey(for: metricKey), db: db) else { return nil }
+            guard let severity = AlertRuleEngine.escalate(recent: recent, guideline: guideline) else { return nil }
+            // 锚定读数 = 窗口内最近一次**越限**读数（证据卡呈现最差事实读数）
+            guard let anchor = recent.last(where: { AlertRuleEngine.severity(for: $0, guideline: guideline) != nil }) else { return nil }
+            let card = AlertRuleEngine.evidenceCard(for: anchor, severity: severity, guideline: guideline)
+            return try Self.save(card: card, patientId: patientId, ruleId: "f16.manual", qualified: true, db: db)
+        }
+    }
+
     /// Called inside the metric/checkpoint transaction, never after its cursor has advanced.
     static func recordQualifiedHealthReadings(_ readings: [MetricReading], patientId: UUID, db: Database) throws -> Int {
         guard !GuidelineSource.thresholdsAwaitMedicalReview else { return 0 }
