@@ -149,10 +149,12 @@ struct SchemaChainGoldenTests {
                 INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
                 VALUES ('d1', 'l1', 1, 0)
                 """)
-            // ③ 外键归属 = 正名（悬空修复的结构证据）
+            // ③ 外键归属 = 正名（悬空修复的结构证据）；v34 两表同验（患者域 FK 补齐）
             var parents: [[String]] = []
             for (table, column) in [("dose_lot_allocation", "dose_log_id"),
-                                    ("notification_delivery", "dose_log_id")] {
+                                    ("notification_delivery", "dose_log_id"),
+                                    ("alert_event", "patient_id"),
+                                    ("ai_conversation", "patient_id")] {
                 parents.append(try String.fetchAll(db, sql: """
                     SELECT "table" FROM pragma_foreign_key_list(?) WHERE "from" = ?
                     """, arguments: [table, column]))
@@ -167,8 +169,9 @@ struct SchemaChainGoldenTests {
         }
         #expect(probes.audit == 1, "审计写必须落库（v29 遗留 occurred_at 已退役）")
         #expect(!probes.auditColumns.contains("occurred_at"), "老列必须退役")
-        #expect(probes.foreignParents == [["medication_dose_log"], ["medication_dose_log"]],
-                "子表 FK 必须指回正名（v13 悬空已修）：\(probes.foreignParents)")
+        #expect(probes.foreignParents == [["medication_dose_log"], ["medication_dose_log"],
+                                         ["patient_profile"], ["patient_profile"]],
+                "子表 FK 必须指回正名（v13 悬空已修）；v34 两表必须补 REFERENCES patient_profile：\(probes.foreignParents)")
         #expect(probes.indexes.contains("idx_sent_message_patient"))
         #expect(probes.indexes.contains("idx_metric_sample_lab_report"))
         #expect(probes.indexes.contains("idx_metric_sample_health_exam"))
