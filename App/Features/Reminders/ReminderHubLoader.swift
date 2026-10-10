@@ -135,9 +135,10 @@ enum ReminderHubLoader {
 
     /// notifyId（dose-{planId}-{epochSlot}）→ planId；解析失败返回 nil
     /// （该条目不参与周期压缩，仍正常展示——压缩是密度优化不是正确性前提）。
+    /// 批C⑤（notify-id 字符串 ABI 收敛）：解析单源收敛到
+    /// ReminderIDNames.planId(fromDoseNotifyId:)——此前本处自写 split 取
+    /// parts[1]，planId（UUID）被截成 8 位片段（仅因下游只当不透明键才未爆）。
     static func planId(fromNotifyId notifyId: String) -> String? {
-        let parts = notifyId.split(separator: "-")
-        guard parts.count >= 2, parts[0] == "dose" else { return nil }
-        return String(parts[1])
+        ReminderIDNames.planId(fromDoseNotifyId: notifyId)
     }
 }

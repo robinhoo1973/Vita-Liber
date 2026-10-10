@@ -4,8 +4,22 @@ import Foundation
 /// AppointmentStore（预约删除/取消联动）与 MemberDeletionService（成员删除
 /// 全量撤销）的共同约定——两者都必须清除对应 pending 通知，否则已删预约
 /// 继续按时弹出提醒。命名方案集中一处，改前缀只动这里。
-enum ReminderIDNames {
+public enum ReminderIDNames {
     static func appointmentPrefix(_ id: UUID) -> String { "apt-\(id.uuidString)" }
+
+    /// dose-{planId}-{epochSlot} → planId（**完整 UUID 形态**）。
+    /// 第九轮审查批C⑤（notify-id 字符串 ABI 收敛）：本解析只此一处——
+    /// App 侧 ReminderHubLoader.planId(fromNotifyId:) 此前按 "-" split 取
+    /// parts[1]，而 planId 是自带连字符的 UUID → 得到前 8 位片段（当时仅作
+    /// 不透明压缩键才未暴露；任何真实消费该值的调用方都会静默失败）。
+    /// epochSlot 为纯数字无连字符，取**最后一个** "-" 之前即 planId。
+    public static func planId(fromDoseNotifyId notifyId: String) -> String? {
+        guard notifyId.hasPrefix("dose-") else { return nil }
+        let rest = notifyId.dropFirst("dose-".count)
+        guard let lastDash = rest.lastIndex(of: "-") else { return nil }
+        let planId = String(rest[..<lastDash])
+        return planId.isEmpty ? nil : planId
+    }
 
     /// pending 里以任意给定预约 id 开头的全部取回（一次 pending 拉取、一次遍历）。
     /// ids 为 uuidString 形态（MemberDeletionService 的待删清单即 String 形态）。
