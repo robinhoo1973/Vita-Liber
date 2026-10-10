@@ -133,7 +133,8 @@ struct EmergencyCardHubView: View {
                     NavigationStack {
                         EmergencyCardSelectorView(
                             // 批B：选择器 sheet 同过成员门（候选/勾选态同源）
-                            candidates: hub.isLoaded(for: currentPatientId) ? hub.emergencyCandidates : [],
+                            candidates: hub.isLoaded(for: currentPatientId)
+                                ? hub.emergencyCandidates : EmergencyCard(patientId: currentPatientId),
                             selectedIds: hub.isLoaded(for: currentPatientId) ? hub.emergencySelectedIds : []) { item, selected in
                                 Task { await hub.toggleEmergency(item: item, selected: selected,
                                                                  patientId: currentPatientId) }

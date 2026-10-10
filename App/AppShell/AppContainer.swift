@@ -192,6 +192,7 @@ struct AppContainer {
         updateAdviceProvider = nil
         #endif
         return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
+                        medicalReferenceCatalog: referenceCatalog,
                         medicalCatalogUpdater: updater,
                         medicalCatalogChecker: catalogChecker,
                         medicalCatalogOpener: catalogOpener,
@@ -254,6 +255,7 @@ struct AppContainer {
                                  medicalCatalogUpdater: MedicalCatalogUpdateService? = nil,
                                  medicalCatalogChecker: (any MedicalCatalogReleaseResolving)? = nil,
                                  medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil,
+                                 medicalReferenceCatalog: MedicalReferenceCatalogStore? = nil,
                                  updateAdvice: (any UpdateAdviceProviding)? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
@@ -360,7 +362,7 @@ struct AppContainer {
                              medicalCatalogUpdater: medicalCatalogUpdater,
                              medicalCatalogChecker: medicalCatalogChecker,
                              medicalCatalogOpener: medicalCatalogOpener,
-                             medicalReferenceCatalog: referenceCatalog,
+                             medicalReferenceCatalog: medicalReferenceCatalog,
                              updateAdvice: updateAdvice,
                              pdfExport: pdfExport,
                             healthReader: healthReader,

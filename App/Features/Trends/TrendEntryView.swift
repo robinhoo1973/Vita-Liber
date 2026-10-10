@@ -33,6 +33,8 @@ final class TrendEntryState {
     /// 装配点事后注入（VitaLiberApp——F16DeviceState 在 trendState 之后创建，
     /// 同 `BackupState.onRestored` 的 init 顺序纪律）；nil = 不写回（预览/测试）。
     var writeBack: (@MainActor (UUID, MetricType, Double, Double?, String, Date) async -> Void)?
+    /// 收口批E②（FR16.2）：手录读数分级钩子（App 装配注入；与 writeBack 同形态）。
+    var gradeManualReading: (@MainActor (UUID, MetricType) async -> Void)?
     /// 最近一次**宫格**请求的成员（BR-001 成员隔离：只允许最新请求写回状态）。
     /// 详情轨不写本字段：两条轨共用一个成员标记时，趋势详情页为成员甲挂起会把
     /// 宫格为成员乙的在途加载判为过期而静默丢弃（宫格停在上一成员或空态，无错误

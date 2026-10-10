@@ -308,12 +308,13 @@ struct ObservationCreateRouteView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ObservationCreateSheet { kind, description, selfMark, photoData in
+            ObservationCreateSheet { kind, description, selfMark, occurredAt, photoData in
                 // 评审修复：Bool 回传透传——失败由 sheet 保留表单并告警
                 // （SaveFailedAlert），不再无条件 dismiss
+                // S-4（收口批）：发生时间透传（sheet 5 参闭包形态）
                 await state.create(patientId: app.currentPatientId, kind: kind,
                                    description: description, selfMark: selfMark,
-                                   photoData: photoData)
+                                   occurredAt: occurredAt, photoData: photoData)
             }
         }
     }
