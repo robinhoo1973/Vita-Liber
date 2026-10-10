@@ -330,7 +330,7 @@ public actor HealthKitSyncService {
     /// GuidelineStore.evaluateRecentManualReadings 建了合格事件也无派发路径。
     /// 返回 (已排程, 通知失败)；健康导入被用户关闭时抛 disabled（调用方按
     /// 各自语义消化——同步轨记 notificationFailures，手录轨静默容忍）。
-    public func dispatchPendingElevated(patientId: UUID, quietStart: Date, quietEnd: Date) async throws
+    public func dispatchPendingElevated(patientId: UUID, quietStart: String, quietEnd: String) async throws
         -> (scheduled: Int, failures: Int) {
         var scheduled = 0
         var failures = 0
@@ -343,7 +343,8 @@ public actor HealthKitSyncService {
             do {
                 let when = Date().addingTimeInterval(5)
                 try await scheduler.schedule(dose: "alert-\(event.id.uuidString)", at: when,
-                    route: .alertEvidence(patientId: patientId, eventId: event.id, severity: event.severity))
+                    route: .alertEvidence(patientId: patientId, eventId: event.id, severity: event.severity),
+                    patientId: patientId)
                 try await guidelines.markScheduled(id: event.id, patientId: patientId, at: when)
                 scheduled += 1
             } catch { failures += 1 }
