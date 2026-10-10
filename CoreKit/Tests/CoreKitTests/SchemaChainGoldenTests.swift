@@ -119,7 +119,7 @@ struct SchemaChainGoldenTests {
     func upgradeChainWriteProbes() throws {
         let queue = try Self.legacyV2Database()
         _ = try GRDBStore(writer: queue)
-        let probes = try queue.read { db -> (audit: Int, foreignParents: [[String]], indexes: Set<String>, auditColumns: [String]) in
+        let probes = try queue.write { db -> (audit: Int, foreignParents: [[String]], indexes: Set<String>, auditColumns: [String]) in
             let patient = try String.fetchOne(db, sql: "SELECT id FROM patient_profile LIMIT 1") ?? ""
             try db.execute(sql: """
                 INSERT INTO medication (id, patient_id, generic_name, unit_kind, created_at, updated_at)
