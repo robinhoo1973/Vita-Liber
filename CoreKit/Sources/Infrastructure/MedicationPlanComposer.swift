@@ -197,24 +197,6 @@ public actor MedicationPlanComposer {
         }
     }
 
-    /// 编辑剂量/频次：安全线基线重算（FR9.15 边界——编辑后发起盘点邀请由 UI 层承接）
-    public func editPlanSchedule(planId: UUID, schedule: MedicationSchedule,
-                                 now: Date = Date()) async throws {
-        let json = String(data: try JSONEncoder().encode(schedule), encoding: .utf8) ?? "{}"
-        try await writer.write { db in
-            guard try Row.fetchOne(db, sql: "SELECT id FROM medication_plan WHERE id = ? AND status = 'active'",
-                                   arguments: [planId.uuidString]) != nil else {
-                throw ComposerError.planNotActive(planId)
-            }
-            try db.execute(sql: """
-                UPDATE medication_plan SET schedule_json = ?, updated_at = ? WHERE id = ?
-                """, arguments: [json, now.timeIntervalSince1970, planId.uuidString])
-            try db.execute(sql: """
-                INSERT INTO plan_lifecycle_event (id, plan_id, kind, occurred_at, note)
-                VALUES (?, ?, 'edited', ?, NULL)
-                """, arguments: [UUID().uuidString, planId.uuidString, now.timeIntervalSince1970])
-        }
-    }
 
     private func setPlanStatus(planId: UUID, to status: String, note: String?,
                                kind: String, now: Date) async throws {

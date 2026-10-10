@@ -42,6 +42,10 @@ public enum DoseScheduleAdvisor {
     }
 
     /// 每隔 N 日给药（如「隔日一次」N=2）→ cycle 提案；N < 2 → nil。
+    /// 收口批D 登记（2026-10-10）：FR9.4 的「隔日一次」自然语言样式当前**无
+    /// 生产调用方**（表单走 schedule 选择，未接该建议入口）——按裁决保留为
+    /// 预留 API（契约由 DoseScheduleAdvisorTests 承载）；接线或删除需随 FR9.4
+    /// 表单批一并处理，勿在未接线前当死代码误删。
     public static func adviseEveryNDays(_ n: Int, time: String = "08:00") -> Proposal? {
         guard n >= 2 else { return nil }
         return Proposal(schedule: .cycle(everyDays: n, daysOn: 1), basis: "every\(n)Days")

@@ -613,10 +613,6 @@ final class ReminderStore {
         }
     }
 
-    func editPlanSchedule(planId: UUID, schedule: MedicationSchedule) async {
-        do { try await composer.editPlanSchedule(planId: planId, schedule: schedule) }
-        catch { logger.error("编辑计划失败: \(error)") }
-    }
 
     /// FR9.1-9.3 处方→计划五表原子创建（§4.2 参考模板；BR-003 未确认拒绝）
     func createPlanFromPrescription(prescription: Prescription,

@@ -53,41 +53,6 @@ struct L2DisclosureSheet: View {
 }
 
 /// FR20.3 L3 常驻微文案：caption 级别固定位置，可折叠不可关闭。
-struct L3DisclosureBanner: View {
-    let disclosure: SceneDisclosure
-    @State private var isExpanded = true
-
-    var body: some View {
-        WithPerceptionTracking {
-            if isExpanded {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(disclosure.displayBody)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
-                        isExpanded = false
-                    } label: {
-                        // 审查修复：触点 ≥44pt（原 ~16pt 图标，关怀模式要求 64pt）
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel(L10n.commonCancel)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(Color(.systemGray6))
-                .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
-    }
-}
 
 /// 场景须知包装器：根据场景和确认状态自动展示 L2/L4 须知。
 ///

@@ -71,47 +71,8 @@ struct SearchRulesTests {
     }
 }
 
-@Suite("M1c · 首页八卡聚合（§5.33/F2）")
-struct TodayStoreTests {
-    /// 原名：成员隔离与待办合并排序
-    @Test func memberIsolationAndTodoMergeOrdering() {
-        let me = UUID()
-        let other = UUID()
-        let todos = [
-            TodoItem(kind: .doseSlot, at: Date(timeIntervalSince1970: 300), title: "服药", memberId: me),
-            TodoItem(kind: .appointment, at: Date(timeIntervalSince1970: 100), title: "复诊", memberId: me),
-            TodoItem(kind: .doseSlot, at: Date(timeIntervalSince1970: 200), title: "他人", memberId: other),
-        ]
-        let snap = TodayAggregator.snapshot(member: me, todos: todos, pendingOCRCount: 2,
-                                            expiring: [], refills: [], alerts: [], observations: [])
-        #expect(snap.todoItems.map(\.title) == ["复诊", "服药"])
-        #expect(snap.pendingOCRCount == 2)
-    }
-
-    /// 原名：仅L1以上预警入首页
-    @Test func onlyL1AndAboveAlertsEnterHome() {
-        let me = UUID()
-        let alerts = [
-            AlertRef(severity: "L0", title: "正常", memberId: me),
-            AlertRef(severity: "L2", title: "血压偏高", memberId: me),
-        ]
-        let snap = TodayAggregator.snapshot(member: me, todos: [], pendingOCRCount: 0,
-                                            expiring: [], refills: [], alerts: alerts, observations: [])
-        #expect(snap.alertSummary.map(\.title) == ["血压偏高"])
-    }
-
-    /// 原名：近期观察取前三条
-    @Test func recentObservationsTakeTopThree() {
-        let me = UUID()
-        let obs = (0..<5).map { i in
-            ObsRef(id: UUID(), kind: "skin", occurredAt: Date(timeIntervalSince1970: TimeInterval(100 + i)), memberId: me)
-        }
-        let snap = TodayAggregator.snapshot(member: me, todos: [], pendingOCRCount: 0,
-                                            expiring: [], refills: [], alerts: [], observations: obs)
-        #expect(snap.recentObservations.count == 3)
-        #expect(snap.recentObservations.first!.occurredAt == Date(timeIntervalSince1970: 104))
-    }
-}
+// 收口批D（2026-10-10）：TodayStore/TodayAggregator 聚合投影已随文件删除（零生产
+// 调用方；首页聚合由 ReminderAggregationCenter 承接），本套件同步移除。
 
 @Suite("M1c · CSV 导出（FR13.3 RFC4180）")
 struct CSVWriterTests {

@@ -68,11 +68,13 @@ public enum ASRInstallLayout {
     /// 后旧档不在盘上，切回需重新下载。租用中的旧档由 Infrastructure 的
     /// `removeIfUnused` 登记延后删除，不被本函数硬删。
     /// 单档家族的版本更新行为不变（保留新装）。
-    public static func keepingForPrune(
-        candidates: [(name: String, version: String, variant: String?)],
-        newlyInstalled: String,
-        activeName: String?
-    ) -> Set<String> {
+    ///
+    /// 收口批D（第九轮审查 I2/D3，2026-10-10）：`candidates` / `activeName`
+    /// 两个**假参数已删**——单保留语义下二者按裁定本就被忽略（生效档保护由
+    /// `isDeletable` + `removeIfUnused` 租约承担），签名却暗示一份「按变体/
+    /// 按生效档」的 keep-set 策略，与实现相悖（本仓先例：假面签名=误导接口）。
+    /// 调用点（ASRModelDownloadService.pruneOldVersions 与测试）同步。
+    public static func keepingForPrune(newlyInstalled: String) -> Set<String> {
         [newlyInstalled]
     }
 

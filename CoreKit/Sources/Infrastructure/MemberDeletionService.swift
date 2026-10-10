@@ -155,15 +155,6 @@ public actor MemberDeletionService {
         }
     }
 
-    /// Retry OS cancellation after an already committed soft deletion.
-    public func retryPendingNotificationCancellation(patientId: UUID) async throws {
-        guard let scheduler else { throw StoreError.schedulerUnavailable }
-        let ids = try await writer.read { db in
-            try String.fetchAll(db, sql: "SELECT p.id FROM pending_card p JOIN patient_profile m ON m.id = p.patient_id WHERE p.patient_id = ? AND m.deleted_at IS NOT NULL",
-                                arguments: [patientId.uuidString])
-        }
-        if !ids.isEmpty { try await scheduler.cancel(ids.map { "pending-\($0)" }) }
-    }
 
     /// FR3.5 重新归属：把资料移给另一成员（留审计由调用方记）
     public func reattributeDocument(documentId: UUID, from: UUID, to: UUID,

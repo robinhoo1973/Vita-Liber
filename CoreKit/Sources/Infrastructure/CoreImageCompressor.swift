@@ -1,17 +1,18 @@
 #if os(iOS) || os(macOS)
-// linux-blind: CoreImage 图像处理 / LocalAuthentication 门禁解锁 —— Linux 型检编译空单元，改动须经 macOS CI 验证
+// linux-blind: CoreImage 图像处理 —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import Foundation
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
-import LocalAuthentication
 import Domain
 import Protocols
 
-/// M-COMPRESS Apple 生产轨：Core Image 缩略图/模糊 + ImageIO 降采样 + LAContext 敏感保护。
+/// M-COMPRESS Apple 生产轨：Core Image 缩略图/模糊 + ImageIO 降采样。
 ///
 /// - 缩略图：`CIPixelate`/`CIGaussianBlur` + ImageIO 降采样（避免全量解码）。
-/// - 敏感媒体链（BR-007/008）：LAContext 生物识别/密码，敏感缩略图强制模糊。
+/// - 敏感媒体链（BR-007/008）：敏感缩略图强制模糊；解锁门在 App 层
+///   （SensitiveMediaContainer/SensitiveMediaOriginalView + LocalAuthGateUnlocker），
+///   本文件不再持 LAContext 出口（收口批D 死抽象清除）。
 public final class CoreImageCompressor: ImageCompressing, @unchecked Sendable {
     private static let sharedContext = CIContext()
 
@@ -53,19 +54,6 @@ public final class CoreImageCompressor: ImageCompressing, @unchecked Sendable {
         CGImageDestinationAddImage(dest, cgOut, [kCGImageDestinationLossyCompressionQuality: spec.quality] as CFDictionary)
         guard CGImageDestinationFinalize(dest) else { throw CompressError.encodeFailed }
         return data as Data
-    }
-
-    public func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy,
-                                        reason: String) async throws -> Data {
-        guard policy.isSensitive else { return data }
-        guard policy.requireAuthForOriginal else { return data }
-
-        // 审查修复：认证浮层提示此前硬编码简体中文——系统弹窗由 OS 渲染、
-        // 不受应用内语言切换影响，zh-Hant/en 用户看到的是简中（L10n 单一
-        // 出口纪律违反）。提示文案由调用方经 L10n 传入。
-        let success = try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
-        guard success else { throw CompressError.authRequiredForOriginal }
-        return data
     }
 
 }

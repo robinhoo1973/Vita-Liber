@@ -45,12 +45,15 @@ public enum CompressError: Error, Sendable, Equatable {
 public protocol ImageCompressing: Sendable {
     /// 生成缩略图（可选模糊，用于敏感媒体）。
     func generateThumbnail(_ data: Data, spec: ThumbnailSpec) async throws -> Data
-    /// 敏感媒体保护链：查看原图需鉴权（BR-007/008）。
-    /// reason 为系统认证浮层的本地化提示文案，由调用方（App 层 L10n）提供——
-    /// 生产实现不得内置面向用户的文案（L10n 单一出口纪律）。
-    func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy,
-                                 reason: String) async throws -> Data
 }
+
+// 收口批D（第九轮审查 I2 cleanup，2026-10-10 死抽象清除，与上文
+// SensitiveMediaProtection 同纪律）：`authorizeOriginalAccess` 协议成员已删除——
+// 生产轨零调用方（App 的解锁门在 SensitiveMediaOriginalView /
+// SensitiveMediaContainer 承担，原图经 SensitiveAssetStore 读取）；仅
+// CoreKit 测试曾覆盖它。保留一个无人调用的 LAContext 鉴权出口会诱使未来
+// 调用方以为走它即完成了解锁。两侧实现（CoreImageCompressor/StubImageCompressor）
+// 与对应测试同步移除。
 
 // 审查修复（死抽象清除，第八轮同纪律）：SensitiveMediaProtection 协议
 // 全仓零消费——BR-007/008 的锁定默认/解锁读原图由 SensitiveAssetStore 承担

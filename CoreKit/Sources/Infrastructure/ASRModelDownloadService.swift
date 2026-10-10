@@ -625,24 +625,18 @@ public actor ASRModelDownloadService {
         installed = true
         return versionDir
     }
-    /// 版本目录按 `ASRVersion.isNewer` 语义排序（字典序会把 `v2026.03.4` 排在
-    /// `v2026.03.25` 之后、把 `1.9` 排在 `1.10` 之后——回滚窗口会保留最旧版本）。
-    /// 变体接线（审查修复 2026-09-18）：保留粒度按 (家族, 变体)——
-    /// ASRInstallLayout.keepingForPrune（Domain 单一出口）：每变体最新一个 +
-    /// 刚装成的 + 当前生效的；旧「保留新/旧两个」规则在多档下会删掉另一档
-    /// （业主定「可同时下载多档共存」）。
+    /// 清理策略单一出口 = `ASRInstallLayout.keepingForPrune`（Domain，2026-10-05
+    /// 业主裁定：**每家族最多保留一个已装档**——新装即删旧档，切回需重下）。
+    /// 收口批D 修正：本注释此前残留旧文案（「每变体最新一个 + 多档共存」），
+    /// 与裁定和实现相反（假面签名/假面注释同族），已随参数删除一并更正。
+    /// 排序/版本比较语义（`ASRVersion.isNewer`）不受影响——本函数不做版本排序，
+    /// 裁剪只看 keep-set。
     private func pruneOldVersions(modelRoot: URL, newlyInstalled: String, previousRoot: URL?) {
+        _ = previousRoot   // 保留形参：调用点签名稳定；生效档保护在 removeIfUnused 租约侧
         guard let entries = try? fileManager.contentsOfDirectory(at: modelRoot,   // try?-ok: 目录不可读=无可清理版本，清理非关键路径
                                                                  includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
                                                                  options: [.skipsHiddenFiles]) else { return }
-        var candidates: [(name: String, version: String, variant: String?)] = []
-        for entry in entries {
-            guard let parsed = ASRInstallLayout.parseDirectory(entry.lastPathComponent) else { continue }
-            candidates.append((entry.lastPathComponent, parsed.version, parsed.variant))
-        }
-        let kept = ASRInstallLayout.keepingForPrune(candidates: candidates,
-                                                    newlyInstalled: newlyInstalled,
-                                                    activeName: previousRoot?.lastPathComponent)
+        let kept = ASRInstallLayout.keepingForPrune(newlyInstalled: newlyInstalled)
         // 2026-10-05 委员会 R1 修复:被租用的旧档 removeIfUnused 静默跳过且
         // 此前不登记——单保留语义被静默违反(盘上两档、UI 只显一档)且永无
         // 清扫入口。与显式删除路径同源:删除未成即登记 pending-removals,

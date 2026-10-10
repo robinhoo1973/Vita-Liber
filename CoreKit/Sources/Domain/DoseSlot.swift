@@ -145,6 +145,9 @@ public struct DoseSlotGrouping {
     /// ⚠️ 仅对「单剂量时段」正确：合并时段（≤30min 双剂）的 id 以**锚剂量**
     /// （最早一剂）时刻派生，非锚剂量单独分组会得到不同的 id——合并时段内
     /// 的剂量判定/取消必须用 `slotIds(_:)` 全量映射（第七轮修复，见下）。
+    /// 收口批D 登记（2026-10-10）：本 API 是 ReminderStore.slotNotifyId 的
+    /// **单剂兜底**（App 跨 target 调用，不能降 internal）；新调用方一律用
+    /// `slotIds(_:)`——误用即第七轮重复时段通知缺陷复现。
     public static func slotId(for record: DoseRecord, calendar: Calendar = .current) -> String? {
         group([record], calendar: calendar).first?.id
     }
@@ -329,6 +332,9 @@ public enum InventoryRules {
     /// 零确认场景下，从建计划到 `now` 期间应触达的**全部**续药档位（升序）。
     /// 逐日推进安全线并记录首次跨越各档的时刻——用于验证「三级触达全发生」，
     /// 也用于补发（某档触发时 App 未运行则下次启动补发，不静默吞掉）。
+    /// 收口批D 登记（2026-10-10）：当前**无生产调用方**（「零确认补发」路径
+    /// 未接线，AlertEmergencyDomainTests 承载契约）——预留，勿当死代码删除；
+    /// 补发接线随 ADR-009 台账批次处理。
     public static func refillTiersFired(initialUnits: Double,
                                         dailyPlanUnits: Double,
                                         from start: Date, to now: Date,

@@ -57,10 +57,8 @@ struct ASRInstallLayoutTests {
             ("small~v2-111122223333-\(uuid)",  "v2", "small"),    // 另一档 → 切换即删（切回需重下）
             ("v1-444455556666-\(uuid)",        "v1", nil),        // 历史布局 → 该删
         ]
-        let keeping = ASRInstallLayout.keepingForPrune(
-            candidates: candidates,
-            newlyInstalled: "full~v2-a1b2c3d4e5f6-\(uuid)",
-            activeName: "small~v2-111122223333-\(uuid)")
+        // 收口批D：candidates/activeName 假参数已删（裁定=单保留，不看候选项）
+        let keeping = ASRInstallLayout.keepingForPrune(newlyInstalled: "full~v2-a1b2c3d4e5f6-\(uuid)")
 
         #expect(keeping == ["full~v2-a1b2c3d4e5f6-\(uuid)"],
                 "只保留新装档——旧档/其它变体/历史布局全部清出,实得 \(keeping.sorted())")
@@ -73,8 +71,8 @@ struct ASRInstallLayoutTests {
             ("v3-aaaaaaaaaaaa-\(uuid)", "v3", nil),
             ("v2-bbbbbbbbbbbb-\(uuid)", "v2", nil),
         ]
-        let keeping = ASRInstallLayout.keepingForPrune(
-            candidates: candidates, newlyInstalled: "v3-aaaaaaaaaaaa-\(uuid)", activeName: nil)
+        _ = candidates   // 保留构造：断言单保留语义与候选项无关
+        let keeping = ASRInstallLayout.keepingForPrune(newlyInstalled: "v3-aaaaaaaaaaaa-\(uuid)")
         #expect(keeping == ["v3-aaaaaaaaaaaa-\(uuid)"], "单档应只留最新，实得 \(keeping)")
     }
 

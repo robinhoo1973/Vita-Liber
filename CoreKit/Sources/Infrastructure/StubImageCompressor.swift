@@ -17,14 +17,6 @@ public final class StubImageCompressor: ImageCompressing, @unchecked Sendable {
         return png
     }
 
-    public func authorizeOriginalAccess(_ data: Data, policy: SensitiveMediaPolicy,
-                                        reason: String) async throws -> Data {
-        // Linux 无 LAContext，直接返回或抛错
-        if policy.isSensitive && policy.requireAuthForOriginal {
-            throw CompressError.authRequiredForOriginal
-        }
-        return data
-    }
 
     private static func transparentPNG() -> Data {
         Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==") ?? Data()

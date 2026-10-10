@@ -378,21 +378,10 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     /// 首填完成边界：窗口下沿越过 cutoff 再留 48h 余量（跨窗睡眠样本的 start 可早于
     /// cutoff——道谓词 end >= cutoff 会滤掉无跨窗者，余量窗口恒返回空页/跨窗者）。
     private static let fillStraddleMargin: TimeInterval = 172_800
-    /// 增量窄谓词的下界余量：newestStart − 7d——首填期间的迟达样本（Watch 晚同步/
-    /// 回填时间戳）在 7 天窗口内由转锚点查询兜住；更深回填登记为已知边界。
-    private static let incrementalOverlap: TimeInterval = 7 * 86_400
-
-    /// 增量谓词 = **完整道谓词**（2026-09-19 扫尾修正）：窄谓词（start ≥ newestStart−7d）
-    /// 会永久遮蔽首填区间内被用户在健康 App 删除的样本的墓碑——本地行永不删除、
-    /// 继续污染趋势与告警证据（BR-004 事实链）。全道谓词下删除证明完整送达；
-    /// 转锚点 nil 锚点查询会把首填数据重投一遍，但提交按身份幂等 upsert，不产重复行
-    /// （HealthImportStore.commit 契约），一次性成本换取删除保真。
-    /// 注：HealthKit 谓词按 **startDate** 过滤（predicateForSamples(withStart:)），
-    /// Domain 道契约为 end ≥ cutoff——跨 cutoff 的样本（start < cutoff ≤ end）归
-    /// history 道，recent 首填的 48h 余量窗口使边界样本双道幂等覆盖（已知边界）。
-    private static func incrementalPredicate(for scope: HealthFetchScope, newestStart: Date?) -> NSPredicate {
-        changePredicate(for: scope)
-    }
+    // 收口批D（第九轮审查 D3 残留清理，2026-10-10）：`incrementalOverlap` 常量与
+    // 转发壳 `incrementalPredicate` 已删除——二者是 2026-09-19「窄谓词→全道谓词」
+    // 修正后的遗留（零调用；注释还完整保留了被刻意移除的窄谓词设计，误导读者把
+    // 删除证明遮蔽缺陷接回来）。现行增量语义见 `changePredicate(for:)`。
 
     private func recentLaneChanges(kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch {
         var cursor: RecentLaneCursor?

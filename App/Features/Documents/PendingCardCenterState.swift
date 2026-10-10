@@ -26,6 +26,11 @@ final class PendingCardCenterState {
     func load(patientId: UUID) async {
         loadedPatientId = patientId
         loadError = nil
+        // 收口批D 接线（第九轮审查 D3/FR6.9 §21.3）：生命周期推进此前**零调用**
+        // （7 天过期/30 天归档、到期催办深链、PendingCardResumeRouteView 的
+        // status 过滤全为不可达代码）。挂进本门面的装载链——每次待办投影装载
+        // 顺带推进（幂等；失败容忍：推进失败不阻断列表装载，下一轮再试）。
+        try? await store.advanceLifecycle()   // try?-ok: 推进失败不阻断装载（下轮幂等重试）
         do {
             let projected = try await store.aggregationItems(patientId: patientId)
             guard loadedPatientId == patientId else { return }   // BR-001 竞态守卫
@@ -41,22 +46,6 @@ final class PendingCardCenterState {
         Task { await load(patientId: patientId) }
     }
 
-    func loadDetail(id: String) async {
-        // 先清旧详情（fr69-aggregation-round1 二轮复核 B 项）：连开第二张卡
-        // 时旧卡详情短暂闪现——详情 sheet 与列表项不同步的错位观感
-        detail = nil
-        loadError = nil
-        do { detail = try await store.card(id: id) }
-        catch { loadError = String(describing: error) }
-    }
 
     /// 用户补全完结（期一无 LLM 补全；resolved_by=user）后刷新投影。
-    func resolve(patientId: UUID, id: String) {
-        Task {
-            do {
-                try await store.markResolved(id: id, by: "user")
-                await load(patientId: patientId)
-            } catch { loadError = String(describing: error) }
-        }
-    }
 }

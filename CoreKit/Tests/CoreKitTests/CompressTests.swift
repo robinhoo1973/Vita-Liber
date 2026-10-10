@@ -18,27 +18,9 @@ struct CompressTests {
         #expect(thumb.count == Self.transparentPNG().count)
     }
 
-    @Test("authorizeOriginalAccess：非敏感策略直接返回数据")
-    func authorizeNonSensitive() async throws {
-        let compressor = StubImageCompressor()
-
-        let data = Self.testPNG()
-        let policy = SensitiveMediaPolicy(isSensitive: false)
-        let result = try await compressor.authorizeOriginalAccess(data, policy: policy, reason: "test")
-        #expect(result == data)
-    }
-
-    @Test("authorizeOriginalAccess：敏感且需鉴权 → Linux 抛 authRequiredForOriginal")
-    func authorizeSensitiveRequiresAuth() async throws {
-        let compressor = StubImageCompressor()
-
-        let data = Self.testPNG()
-        let policy = SensitiveMediaPolicy(isSensitive: true, requireAuthForOriginal: true)
-        await #expect(throws: CompressError.authRequiredForOriginal) {
-            try await compressor.authorizeOriginalAccess(data, policy: policy, reason: "test")
-        }
-    }
-
+    // 收口批D（2026-10-10）：authorizeOriginalAccess 两条用例随协议成员一并
+    // 移除（生产轨零调用，原图解锁门在 App 层 SensitiveMediaContainer/
+    // SensitiveMediaOriginalView，存储经 SensitiveAssetStore）。
     // 审查修复（2026-09-18 死抽象清除）：SensitiveMediaProtection 协议及两侧
     // 实现已删除（零消费方；BR-007/008 实际执行在 SensitiveAssetStore），
     // 本测试随协议一并移除。
