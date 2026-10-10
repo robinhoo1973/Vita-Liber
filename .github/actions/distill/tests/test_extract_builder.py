@@ -43,7 +43,11 @@ SPECS = {
                 dict(key="unit"), dict(key="reference_range"), dict(key="abnormal_flag")],
         "rowAnchor": "", "maxRowsPerRegion": 4,
     },
-    # 通用卡种覆盖（gen_generic_card 路径；labels/枚举词形/fallback 打印词形随 spec 流入）
+    # 通用卡种覆盖（gen_generic_card 路径；labels/枚举词形/fallback 打印词形随 spec 流入）。
+    # 覆盖纪律（2026-10-10 审查批）：SPECS 必须覆盖默认请求集合 = REGISTRY − policy.deferredKinds
+    # （现 = corpus.requiredKinds 11 类）；缺类会被构建器 E8 fail-closed 具名拒产出（rc=2）——
+    # requiredKinds 扩类时本夹具必须同步扩类。hospitalization 为 deferredKinds 在册类，
+    # 保留用于验证「预算冻结卡种跳过」路径，其余 6 类见下方补齐。
     "hospitalization": {
         "shared": [dict(key="hospital", required=True, labels=["医院", "醫院"]),
                    dict(key="admit_at", labels=["入院日期"]),
@@ -61,6 +65,80 @@ SPECS = {
                 dict(key="item_amount", type="number", integer=False, labels=["金额"]),
                 dict(key="item_quantity", labels=["数量"])],
         "rowAnchor": "item_name", "maxRowsPerRegion": 6,
+    },
+    # —— 2026-10-10 审查批补齐：默认请求集合（requiredKinds 11 类）曾缺以下 6 类 ——
+    "diagnosis": {
+        "shared": [dict(key="diagnosed_at", type="date", labels=["诊断日期"]),
+                   dict(key="hospital", labels=["医院"])],
+        "row": [dict(key="name", required=True, labels=["诊断名称"]),
+                dict(key="code_text", labels=["ICD编码"]),
+                dict(key="code_system", labels=["编码体系"]),
+                dict(key="diagnosis_type", type="enumerated", domain=["western", "tcm"],
+                     fallback_tokens=["西医诊断", "中医诊断"], labels=["诊断类型"])],
+        "rowAnchor": "name", "maxRowsPerRegion": 8,
+    },
+    "exam_report": {
+        "shared": [dict(key="report_type", required=True, type="enumerated",
+                        domain=["imaging", "ultrasound", "endoscopy"],
+                        fallback_tokens=["影像报告", "超声报告", "内镜报告"], labels=["检查类型"]),
+                   dict(key="hospital", labels=["医院"]),
+                   dict(key="department", labels=["科室"]),
+                   dict(key="report_no", labels=["报告编号"]),
+                   dict(key="exam_part", type="narrative", labels=["检查部位"]),
+                   dict(key="exam_at", type="date", labels=["检查日期"]),
+                   dict(key="findings", type="narrative", labels=["检查所见"]),
+                   dict(key="impression", type="narrative", labels=["检查结论"]),
+                   dict(key="report_doctor", labels=["报告医师"])],
+        "row": [], "rowAnchor": "", "maxRowsPerRegion": 0,
+    },
+    "health_exam": {
+        "shared": [dict(key="org_name", required=True, labels=["体检机构"]),
+                   dict(key="exam_date", required=True, type="date", labels=["体检日期"]),
+                   dict(key="exam_no", labels=["体检编号"]),
+                   dict(key="package_name", labels=["体检套餐"]),
+                   dict(key="total_doctor", labels=["总检医师"]),
+                   dict(key="height", type="quantityWithUnit", labels=["身高"]),
+                   dict(key="weight", type="quantityWithUnit", labels=["体重"]),
+                   dict(key="bmi", type="number", integer=False, labels=["BMI"]),
+                   dict(key="pulse", type="quantityWithUnit", labels=["脉搏"]),
+                   dict(key="overall_conclusion", type="narrative", labels=["总检结论"]),
+                   dict(key="health_guidance", type="narrative", labels=["健康指导"])],
+        "row": [], "rowAnchor": "", "maxRowsPerRegion": 0,
+    },
+    "treatment_record": {
+        "shared": [dict(key="treated_at", required=True, type="date", labels=["治疗日期"]),
+                   dict(key="treatment_type", required=True, type="enumerated",
+                        domain=["infusion", "injection", "therapy"],
+                        fallback_tokens=["输液治疗", "注射治疗", "理疗"], labels=["治疗类型"]),
+                   dict(key="hospital", labels=["医院"]),
+                   dict(key="department", labels=["科室"]),
+                   dict(key="doctor", labels=["医生"]),
+                   dict(key="executor", labels=["执行者"]),
+                   dict(key="diagnosis_text", type="narrative", labels=["诊断"]),
+                   dict(key="content", type="narrative", labels=["治疗内容"]),
+                   dict(key="drugs_text", type="narrative", labels=["输液药物"]),
+                   dict(key="session", labels=["治疗次数"]),
+                   dict(key="adverse_reaction", type="narrative", labels=["不良反应"])],
+        "row": [], "rowAnchor": "", "maxRowsPerRegion": 0,
+    },
+    "clinical_conclusion": {
+        "shared": [dict(key="org_name", labels=["体检机构"]),
+                   dict(key="exam_date", type="date", labels=["体检日期"]),
+                   dict(key="exam_no", labels=["体检编号"])],
+        "row": [dict(key="content", required=True, type="narrative", labels=["检验结论"]),
+                dict(key="conclusion_type", type="enumerated",
+                     domain=["normal", "abnormal", "recheck"],
+                     fallback_tokens=["未见异常", "存在异常", "建议复查"], labels=["结论类型"]),
+                dict(key="severity", labels=["严重程度"])],
+        "rowAnchor": "content", "maxRowsPerRegion": 8,
+    },
+    "immunization": {
+        "shared": [dict(key="vaccine_name", required=True, labels=["疫苗名称"]),
+                   dict(key="dose_number", required=True, type="number", integer=True, labels=["接种剂次"]),
+                   dict(key="administered_at", required=True, type="date", labels=["接种日期"]),
+                   dict(key="provider", required=True, labels=["接种单位"]),
+                   dict(key="lot_number", labels=["批号"])],
+        "row": [], "rowAnchor": "", "maxRowsPerRegion": 0,
     },
 }
 

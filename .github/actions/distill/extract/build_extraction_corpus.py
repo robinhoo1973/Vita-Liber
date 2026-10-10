@@ -1857,8 +1857,10 @@ def main():
         log("[FAIL] 缺 --data-dir（CI：先跑 catalog_source.py 物化；或设 VITALIBER_DATA_DIR）")
         return 2
 
-    # 噪声常量 vs policy.json 单一事实源交叉断言(CI 布局有 policy.json;训练机副本
-    # 无此布局 → 记 not-found,由 tests 侧断言兜)。不一致 = 拒绝产出(fail-closed)。
+    # 噪声常量 vs policy.json 单一事实源交叉断言。policy 随载荷交付(2026-10-10 F2)后两布局
+    # 同走相对读法 ROOT/.github/config/distill/policy.json:① App 仓(CI)= <仓根>/.github/…;
+    # ② 训练载荷 = <载荷根>/.github/…(与 configs/ 同级随包交付)。仅副本裸跑于两布局之外时
+    # 退化为 not-found(只登记,不拒绝)。不一致 = 拒绝产出(fail-closed)。
     policy_note = {"status": "not-found"}
     license_entries = {}
     deferred_kinds = {}

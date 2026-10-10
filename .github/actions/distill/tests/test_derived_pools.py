@@ -63,7 +63,9 @@ class DerivedPoolTests(unittest.TestCase):
         self.assertTrue(_card_value("surgery_name", {}, pools, rng, "TW"))
 
     def test_production_dir_missing_derived_fails_closed(self):
-        # training_feed_manifest.json 在场=生产 data-dir;疫苗派生缺失 → builder 拒产出(rc=2)
+        # training_feed_manifest.json 在场=生产 data-dir;疫苗派生缺失 → builder 拒产出(rc=2)。
+        # --kinds prescription 钉住请求集合=本夹具唯一在场的 prompt(2026-10-10 审查批:默认
+        # 请求 11 类而夹具仅 1 类,会先被 E8「请求卡种缺 prompt_/spec_ 文件」拦下,测不到派生检查)
         data = Path(tempfile.mkdtemp())
         (data / "drugs_cn.jsonl").write_text(
             json.dumps({"name_zh": "测试药品片", "specification": "100mg", "dosage_form": "片剂",
@@ -78,7 +80,8 @@ class DerivedPoolTests(unittest.TestCase):
             ensure_ascii=False), encoding="utf-8")
         r = subprocess.run([sys.executable, str(BUILDER), "--data-dir", str(data),
                             "--prompts-dir", str(prompts), "--out-dir", str(data / "out"),
-                            "--cells", "drugs/cn", "--dry-run", "--seed", "7"],
+                            "--cells", "drugs/cn", "--dry-run", "--seed", "7",
+                            "--kinds", "prescription"],
                            capture_output=True, text=True, timeout=120)
         self.assertEqual(r.returncode, 2, msg=r.stdout[-800:])
         self.assertIn("派生域缺失", r.stdout)
