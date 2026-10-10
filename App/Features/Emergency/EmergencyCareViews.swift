@@ -416,6 +416,11 @@ struct SOSHelpView: View {
     @Environment(AppState.self) private var app
     @Environment(M2HubStore.self) private var hub
     @State private var showEmergencyCard = false
+    /// 第九轮审查修复（HIG Modality）：本视图经 fullScreenCover 呈现
+    /// （SOSOrb / EmergencyCardView / 锁屏 SOS），fullScreenCover **无** swipe
+    /// 关闭——此前页内除拨号/查看卡外无任何退出键，关怀模式用户（SOS 目标
+    /// 人群）会被困在该全屏页只能强杀。补显式关闭按钮（一处修复覆盖全部入口）。
+    @Environment(\.dismiss) private var dismiss
     /// BR-012：拨号失败必须可见（不得静默死控件）
     @State private var dialFailed = false
 
@@ -486,6 +491,13 @@ struct SOSHelpView: View {
                 .padding(24)
                 .navigationTitle(L10n.sosHelpTitle)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    // BR-012 路径的退出键：轻点即可返回（≥44pt 系统栏默认达标）
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonClose) { dismiss() }
+                            .accessibilityIdentifier("F18.sos.close")
+                    }
+                }
                 .sheet(isPresented: $showEmergencyCard) {
                     // 全仓审查 2026-09-18（F-A2-02，P0）：SOS 路径可在锁屏未认证时到达——
                     // 急救卡只读呈现（旁人施救所需的血型/过敏/用药/联系人），[管理] 不出现
@@ -565,8 +577,26 @@ private extension EmergencyCardItem {
         switch kind {
         case "allergy":
             var parts: [String] = []
-            if let reaction, !reaction.isEmpty { parts.append(L10n.emergencyReaction(reaction)) }
-            if let severity, !severity.isEmpty { parts.append(L10n.emergencySeverity(severity)) }
+            // 第九轮审查修复（施救人阅读面，评审实据）：
+            // ① reaction_tags 是 **JSON 数组列**（ObservationStore 存
+            //    JSONEncoder 结果、资料建议路径存 "[]"）——此前原样上屏，
+            //    急救卡显示「反应：["皮疹","过敏性休克"]」甚至「反应：[]」。
+            //    按列表页同款纪律解码；"[]"/空 → 不占位；旧纯文本值透传。
+            // ② severity 列是 canonical 英文（mild/moderate/severe）——此前直出
+            //    「严重度：severe」；经 L10n.allergySeverity（列表页同款
+            //    displaySeverity 出口）本地化后再组装。
+            if let reaction, !reaction.isEmpty {
+                let decoded: String? = {
+                    guard let data = reaction.data(using: .utf8),
+                          let tags = try? JSONDecoder().decode([String].self, from: data) else { return reaction }   // try?-ok: 非 JSON 旧值按原文透传
+                    let cleaned = tags.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    return cleaned.isEmpty ? nil : cleaned.joined(separator: "、")
+                }()
+                if let decoded { parts.append(L10n.emergencyReaction(decoded)) }
+            }
+            if let severity, !severity.isEmpty {
+                parts.append(L10n.emergencySeverity(L10n.allergySeverity(severity)))
+            }
             return parts.joined(separator: " · ")
         case "contact":
             if let relation, !relation.isEmpty, let phone, !phone.isEmpty {

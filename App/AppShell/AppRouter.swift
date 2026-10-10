@@ -228,13 +228,6 @@ final class AppRouter {
         persistSelection()
     }
 
-    /// TabView selection / Sidebar 回写的统一绑定
-    var selectionBinding: Binding<MainModuleID> {
-        Binding(
-            get: { [weak self] in self?.selection ?? .home },
-            set: { [weak self] in self?.select($0) })
-    }
-
     /// Tab 内的 path 绑定（NavigationStack(path:) 消费）。
     /// 审查修复注记：曾尝试 lazy 缓存绑定避免每帧新建 Binding 的身份抖动，
     /// 但 @Observable 宏不支持 lazy 存储属性（ObservationTracked 展开后

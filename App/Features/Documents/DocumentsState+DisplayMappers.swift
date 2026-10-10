@@ -60,6 +60,12 @@ enum DocumentsDisplay {
         case .examReport:
             // title = `report_type` canonical raw（pathology/imaging/…）
             return fieldValueDisplay(forKey: "report_type", value: entry.title)
+        case .claim:
+            // 第九轮审查修复（同族残留）：claim 行的 title = `item_type` canonical
+            // raw（TimelineQueryStore :282 叶子 / :327 就诊子源）——此前落 default
+            // 直出「费用 · invoice」。与 .examReport 同款接 fieldValueDisplay
+            // （:item_type → 发票/收费单/收据 映射已存在，只是一直没接线）。
+            return fieldValueDisplay(forKey: "item_type", value: entry.title)
         case .lab, .selfMeasured, .healthData:
             // title = `metric_key`（`lab.*` canonical）→ 本地化指标名
             if let metric = entry.metricKey.flatMap({ MetricType(grammarKey: $0) }) ?? MetricType(grammarKey: entry.title) {

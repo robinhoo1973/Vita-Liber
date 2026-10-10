@@ -74,7 +74,10 @@ struct ProfileSuggestionSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 // 评审修正 U2：徽章唯一出口 GradeBadge；接受写入后才升 C
-                GradeBadge(grade: rowState == .written ? "C" : "D")
+                // 第九轮审查修复：字面量 "C"/"D" → GradeBadge 命名常量（e2e2e3f2
+                // 收敛 19 处时漏网；来源语义不得再靠字符串巧合）。
+                GradeBadge(grade: rowState == .written ? GradeBadge.gradeConfirmed
+                                                       : GradeBadge.gradeMachineUnconfirmed)
                 Text(L10n.profileSuggestionKindName(suggestion.kind.rawValue))
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()

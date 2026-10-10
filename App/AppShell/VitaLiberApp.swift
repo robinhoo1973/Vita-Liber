@@ -363,5 +363,10 @@ struct VitaLiberApp: App {
              // T2 模型自动补齐（2026-10-09 换型+下载化批）：幂等——仅在
              // 「已一次显式同意 ∧ 未安装 ∧ 非低电量」时发起；未同意绝不联网。
              .task { llmModelInstallCenter.autoInstallIfEligible() }
+             // 第九轮审查修复（权益冷启动）：entitlements.owned 此前只在
+             // PaywallView.task 里加载——冷启动后已购 Pro 用户首次「添加家人」
+             // 会被 memberAdditionBlocked 误拦并弹付费墙（门禁读 owned 恒空）。
+             // 启动即加载一次（StoreKit 只读、离线可用；失败静默，付费墙内仍可重试）。
+             .task { await entitlementStore.load() }
     }
 }

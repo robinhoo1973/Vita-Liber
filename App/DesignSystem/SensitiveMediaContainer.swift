@@ -28,7 +28,9 @@ struct MediaRelockTimer {
         // trap。当前调用方恒传 MediaUnlockPolicy 常量（30/300），但任何
         // 未来注入存储/备份恢复值（门禁宽限同族脏数据，AppRootView 已
         // 为此钳制）都会崩——钳制进本机制而非依赖调用方自律。
-        let clamped = ttl.isFinite && ttl > 0 ? ttl : MediaUnlockPolicy.idleTTL
+        // 第九轮审查修复：仅判 finite/正数不够——超大**有限**值（> ~584 年，
+        // 如 1e12）乘以 1e9 仍超 UInt64.max，UInt64 转换照旧硬陷阱。补上界。
+        let clamped = ttl.isFinite && ttl > 0 ? min(ttl, 24 * 3600) : MediaUnlockPolicy.idleTTL
         relockTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: UInt64(clamped * 1_000_000_000))   // try?-ok: 空闲重锁计时被取消即停，sleep 失败无副作用；clamped 已钳制，无溢出
             guard !Task.isCancelled else { return }

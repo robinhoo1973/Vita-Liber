@@ -270,6 +270,11 @@ struct FieldConfirmRow: View {
                                     Label(L10n.entityCardReviewSource, systemImage: "text.magnifyingglass")
                                         .labelStyle(.iconOnly)
                                 }
+                                // 第九轮审查修复（HIG 触点）：图标钮命中区此前仅 ~20×20pt
+                                // （父级 minHeight 不扩子按钮热区，同文件 485-495 已为分页钮
+                                // 修过同根因）——误触相邻 [拒绝]/漏点 [原文] 都会反转确认语义。
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
                                 .accessibilityLabel(L10n.entityCardReviewSource)
                                 .accessibilityIdentifier("OCR.field.source.\(field.key)")
                             }
@@ -280,6 +285,9 @@ struct FieldConfirmRow: View {
                                     Label(L10n.entityCardFieldViewSourceText, systemImage: "text.quote")
                                         .labelStyle(.iconOnly)
                                 }
+                                // 触点修复同 [原文] 钮（44pt + 显式命中形状）
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
                                 .accessibilityLabel(L10n.entityCardFieldViewSourceText)
                                 .accessibilityIdentifier("OCR.field.sourceText.\(field.key)")
                             }
@@ -290,6 +298,9 @@ struct FieldConfirmRow: View {
                                     Label(L10n.entityCardFieldViewScan, systemImage: "doc.viewfinder")
                                         .labelStyle(.iconOnly)
                                 }
+                                // 触点修复同 [原文] 钮（44pt + 显式命中形状）
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
                                 .accessibilityLabel(L10n.entityCardFieldViewScan)
                                 .accessibilityIdentifier("OCR.field.scan.\(field.key)")
                             }
