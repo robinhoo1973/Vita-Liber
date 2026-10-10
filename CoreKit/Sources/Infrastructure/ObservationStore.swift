@@ -223,9 +223,14 @@ public actor AllergyStore {
     }
 
     /// FR23.6 删除（删除前明示影响——紧急卡/医生摘要联动，由 UI 提示）
-    public func delete(id: UUID) async throws {
+    /// 第九轮审查修复（批B，BR-001）：签名补 patientId——原为裸 `WHERE id = ?`
+    /// 无成员域，陈旧的展示行（成员切换窗口/失败态）可误删**他人**过敏记录且
+    /// 不可恢复（AllergyViews.swift:26 门缺失的同源隐患；删除已是硬删行）。
+    /// 调用点同步：ObservationViews.deleteAllergy(显式传行所属成员)。
+    public func delete(id: UUID, patientId: UUID) async throws {
         try await writer.write { db in
-            try db.execute(sql: "DELETE FROM allergy_event WHERE id = ?", arguments: [id.uuidString])
+            try db.execute(sql: "DELETE FROM allergy_event WHERE id = ? AND patient_id = ?",
+                           arguments: [id.uuidString, patientId.uuidString])
         }
     }
 }

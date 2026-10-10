@@ -767,7 +767,10 @@ struct HomeView: View {
     private func load() async {
         // 六个相互独立的仓并发加载（第四轮全仓审查效率修复）
         async let r: Void = reminderStore.refreshTriggered(patientId: app.currentPatientId)
-        async let h: Void = hub.load(patientId: app.currentPatientId)
+        // 批B（重用守卫签名同步）：Home 的 load() 兼作版本观察刷新（alertsVersion/
+        // pendingVersion 变更重入）——必须穿透 M2HubStore 的同成员复用守卫，
+        // 否则首页预警摘要/药箱待办在外部写入后停留旧值（force: true 显式刷新）。
+        async let h: Void = hub.load(patientId: app.currentPatientId, force: true)
         async let o: Void = observationState.load(patientId: app.currentPatientId)
         async let d: Void = docs.load(patientId: app.currentPatientId)
         async let p: Void = pendingCenter.load(patientId: app.currentPatientId)

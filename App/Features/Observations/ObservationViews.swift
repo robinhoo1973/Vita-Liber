@@ -101,7 +101,9 @@ final class ObservationStoreState {
     /// FR23.6 删除（删除前明示影响由视图提示）
     func deleteAllergy(id: UUID, patientId: UUID) async {
         do {
-            try await allergyStore.delete(id: id)
+            // 批B（签名同步）：store 侧删除已补成员域（ObservationStore.swift
+            // AllergyStore.delete），显式传行所属成员——陈旧行不得误删他人记录。
+            try await allergyStore.delete(id: id, patientId: patientId)
             // 评审修复：显式传入被删行所属成员，不再经由 loadingPatientId
             // （该值可能指向他处或与展示成员不一致）；且与 createAllergy 同型，
             // 仅在本成员仍是「最近请求成员」时回写刷新（BR-001）

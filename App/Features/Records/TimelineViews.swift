@@ -788,7 +788,10 @@ struct VisitPrepView: View {
             .navigationTitle(L10n.prepTitle)
             .task(id: app.currentPatientId) {
                 await reminders.refreshTriggered(patientId: app.currentPatientId)
-                await hub.load(patientId: app.currentPatientId)
+                // 批B（重用守卫签名同步）：就诊准备包是给医生看的页面——
+                // 必须穿透 M2HubStore 同成员复用守卫取最新药箱/急救卡投影
+                // （审查 P3#2/C3#4；跨页导航后复用缓存会显示过期的余量数字）。
+                await hub.load(patientId: app.currentPatientId, force: true)
                 await observationState.load(patientId: app.currentPatientId)
                 await questionsState.load(patientId: app.currentPatientId)
             }

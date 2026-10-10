@@ -50,6 +50,11 @@ final class M2HubStore {
     /// 旧成员数据，HomeView/搜索等跨成员投影必须等 loadedPatientId 与当前
     /// 成员一致才允许取用——否则 A 的药箱在切换瞬间以 B 身份渲染）
     private(set) var loadedPatientId: UUID?
+    /// 本次 load 的节失败计数（loadSection catch 累加；load 收尾判定）
+    private var sectionFailureCount = 0
+    /// 上次 load 是否出现任何节失败——复用守卫只在「全节成功」时跳过重载
+    /// （批B 配套：失败载荷可被下一次挂载重试，不被复用锁死在空态）。
+    private var lastLoadHadFailure = false
 
     init(meds: MedicationStore, emergency: EmergencyCardStore,
          immunizations: ImmunizationStore, claims: ClaimStore,
@@ -80,10 +85,48 @@ final class M2HubStore {
             commit(value)
         } catch {
             logger.error("\(label): \(error)")
+            // 批B（复用守卫配套，审查 C3#4 修正）：记录本节失败——一次瞬时
+            // DB 错误不得被复用守卫锁死（见 load 内 lastLoadHadFailure）。
+            sectionFailureCount += 1
         }
     }
 
-    func load(patientId: UUID) async {
+    /// 消费侧成员门判据单一出口（第九轮审查批B：RecordsHubViews.swift:115 六壳
+    /// 此前只读缓存不加门——与 HomeView.swift:97 的 `loadedPatientId ==
+    /// currentPatientId` 手写判据同源，收敛为一处，壳只调本方法）。
+    func isLoaded(for patientId: UUID) -> Bool { loadedPatientId == patientId }
+
+    /// 切人清零：请求成员 != 已加载成员时立即清空全部投影（BR-001 纵深防御——
+    /// 消费侧门之外，sheet 逃逸闭包/dispenseCSV/求助卡联系人等未加门的读取路径
+    /// 在切换窗口同样拿不到上一成员缓存）。
+    private func clearProjections(patientId: UUID) {
+        inventoryItems = []
+        emergencyCandidates = EmergencyCard(patientId: patientId)
+        emergencySelected = EmergencyCard(patientId: patientId)
+        emergencySelectedIds = []
+        bloodType = nil
+        immunizationRecords = []
+        claimRows = []
+        claimTotals = ClaimStore.Totals(totalAmount: 0, itemCount: 0, currency: "CNY")
+        sentMessages = []
+        guidelineEntries = []
+        alertEvents = []
+        qualifiedAlertEvents = []
+    }
+
+    func load(patientId: UUID, force: Bool = false) async {
+        // 第九轮审查修复（P3#2 缓存不清 + C3#4 复用缺失）：
+        // ① 切人清零（同上 clearProjections 注释）；
+        // ② 同成员已完成加载则复用——六个 hub 壳每次导航此前都重跑 10 查询
+        //    扇出（RecordsHubViews 六处 .task(id:) + 搜索/通知中心/急救壳）；
+        //    需要刷新的调用方（HomeView 版本观察、就诊准备包）显式传 force: true。
+        if !force, loadedPatientId == patientId, !lastLoadHadFailure { return }
+        if !force, loadingPatientId == patientId { return }
+        if loadedPatientId != patientId {
+            clearProjections(patientId: patientId)
+            loadedPatientId = nil
+        }
+        sectionFailureCount = 0
         loadingPatientId = patientId
         // 先全部取回本地变量，再一次性提交。逐项直接赋值的话，成员切换会让
         // 甲的药箱和乙的急救卡同时出现在界面上（跨成员脏读，BR-001 成员隔离）。
@@ -141,6 +184,8 @@ final class M2HubStore {
         // 旧成员，消费侧（首页聚合/全局搜索）据此拒取陈旧缓存
         guard loadingPatientId == patientId else { return }
         loadedPatientId = patientId
+        // 批B 配套：记录本次是否有节失败——复用守卫据此放行下一次挂载重试
+        lastLoadHadFailure = sectionFailureCount > 0
     }
 
     // MARK: - 药箱

@@ -23,7 +23,10 @@ struct InventoryHubView: View {
     var body: some View {
         WithPerceptionTracking {
             InventoryListView(
-                items: hub.inventoryItems,
+                // 批B（审查 P3#2，BR-001 消费侧门，HomeView.swift:97 同款）：
+                // 全部节提交完成（loadedPatientId 与当前成员一致）前不得取用
+                // 缓存——加载窗口/失败态下 A 的药箱不得以 B 身份渲染。
+                items: hub.isLoaded(for: currentPatientId) ? hub.inventoryItems : [],
                 onReconcile: { reconcileItem = $0 },
                 onExportDispenseList: { showDispenseExport = true })
             .navigationTitle(L10n.inventory_title)
@@ -46,7 +49,9 @@ struct InventoryHubView: View {
             .sheet(isPresented: $showHelpCard) {
                 // sheet 内容闭包逃逸：同步读 hub.inventoryItems，须自行包裹（子项目 I）
                 WithPerceptionTracking {
-                    MedicationHelpCardSheet(items: hub.inventoryItems) { inputs in
+                    // 批B：sheet 逃逸闭包同样过成员门（未装载完成时给空集，
+                    // 按钮侧 空选择返回 nil 的既有守卫兜底）
+                    MedicationHelpCardSheet(items: hub.isLoaded(for: currentPatientId) ? hub.inventoryItems : []) { inputs in
                         // 第七轮修复：卡文本标签经 L10n 三语词表注入（Domain 不再
                         // 硬编码中文——en 用户分享出的是英文卡）。
                         // 第八轮修复：空选择返回 nil（FR9.13a 前提「选择一个或多个」）
@@ -70,7 +75,7 @@ struct InventoryHubView: View {
                 // sheet 内容闭包逃逸：同步读 hub.emergencySelected，须自行包裹（子项目 I）
                 WithPerceptionTracking {
                     HelpCardSendHost(text: shareText,
-                                     contacts: hub.emergencySelected.contacts.map(\.title)) { recipient in
+                                     contacts: (hub.isLoaded(for: currentPatientId) ? hub.emergencySelected.contacts : []).map(\.title)) { recipient in
                         Task {
                             await hub.recordSent(patientId: currentPatientId,
                                                  kind: "helpCard", recipient: recipient)
@@ -112,8 +117,11 @@ struct EmergencyCardHubView: View {
     var body: some View {
         WithPerceptionTracking {
             EmergencyCardView(
-                card: hub.emergencySelected,
-                bloodType: hub.bloodType,
+                // 批B（审查 P3#2）：急救卡是 PHI 最高风险面——成员门先于
+                // 渲染（未装载完成/失败即空卡，绝不显示上一成员的血型/过敏）。
+                card: hub.isLoaded(for: currentPatientId)
+                    ? hub.emergencySelected : EmergencyCard(patientId: currentPatientId),
+                bloodType: hub.isLoaded(for: currentPatientId) ? hub.bloodType : nil,
                 // 系统健康 App 引导经 SystemLinks 单一出口（此前带 https 死回退，与零网络纪律相悖）
                 onGuideMedicalID: { SystemLinks.openHealthApp() },
                 onOpenSelector: readOnly ? nil : { showSelector = true },
@@ -124,8 +132,9 @@ struct EmergencyCardHubView: View {
                 WithPerceptionTracking {
                     NavigationStack {
                         EmergencyCardSelectorView(
-                            candidates: hub.emergencyCandidates,
-                            selectedIds: hub.emergencySelectedIds) { item, selected in
+                            // 批B：选择器 sheet 同过成员门（候选/勾选态同源）
+                            candidates: hub.isLoaded(for: currentPatientId) ? hub.emergencyCandidates : [],
+                            selectedIds: hub.isLoaded(for: currentPatientId) ? hub.emergencySelectedIds : []) { item, selected in
                                 Task { await hub.toggleEmergency(item: item, selected: selected,
                                                                  patientId: currentPatientId) }
                             }
@@ -146,7 +155,8 @@ struct ImmunizationHubView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ImmunizationListView(records: hub.immunizationRecords,
+            // 批B（审查 P3#2，BR-001 消费侧门）：装载完成前不外显缓存
+            ImmunizationListView(records: hub.isLoaded(for: currentPatientId) ? hub.immunizationRecords : [],
                                  patientId: currentPatientId) { name, dose, date, provider, lot in
                 Task { await hub.createImmunization(patientId: currentPatientId, name: name,
                                                     dose: dose, date: date,
@@ -167,7 +177,11 @@ struct ClaimHubView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ClaimListView(rows: hub.claimRows, totals: hub.claimTotals) { type, amount, date, merchant, summary in
+            // 批B（审查 P3#2，BR-001 消费侧门）：装载完成前不显缓存
+            ClaimListView(rows: hub.isLoaded(for: currentPatientId) ? hub.claimRows : [],
+                          totals: hub.isLoaded(for: currentPatientId)
+                              ? hub.claimTotals
+                              : ClaimStore.Totals(totalAmount: 0, itemCount: 0, currency: "CNY")) { type, amount, date, merchant, summary in
                 Task { await hub.createClaim(patientId: currentPatientId, type: type,
                                              amount: amount, date: date,
                                              merchant: merchant, summary: summary) }
@@ -187,7 +201,8 @@ struct SentStatusHubView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            SentStatusListView(messages: hub.sentMessages,
+            // 批B（审查 P3#2，BR-001 消费侧门）：装载完成前不显缓存
+            SentStatusListView(messages: hub.isLoaded(for: currentPatientId) ? hub.sentMessages : [],
                                onMarkDelivered: { messageId, patientId in
                                    await hub.markDelivered(messageId: messageId, patientId: patientId)
                                })
@@ -306,6 +321,10 @@ struct GuidelineHubView: View {
 
     var body: some View {
         WithPerceptionTracking {
+            // 批B 核验记录（审查 P3#2 澄清）：本页数据 guidelineEntries =
+            // GuidelineStore.all() 为**成员无关**信源库（无 patientId 参数，
+            // 验证报告已确认），故与其余五壳不同，不设成员门；.task 保留以
+            // 触发共享 load 的其余节（首页预警摘要等复用同一仓）。
             GuidelineSourceListView(entries: hub.guidelineEntries)
                 .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
         }

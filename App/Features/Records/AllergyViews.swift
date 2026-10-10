@@ -17,7 +17,12 @@ struct AllergyListView: View {
     var body: some View {
         WithPerceptionTracking {
             Group {
-                if state.allergies.isEmpty {
+                // 批B（审查 P3#1，BR-001 消费侧门，ObservationViews.swift:308
+                // 兄弟面同款）：只在 allergies 确属当前成员（loadedPatientId 与
+                // currentPatientId 一致）时渲染列表——成员切换窗口/新成员加载
+                // 失败（load 只清 loadedPatientId 不清数组）时，此前会持续显示
+                // 上一成员的过敏行。
+                if state.loadedPatientId != app.currentPatientId || state.allergies.isEmpty {
                     VLUnavailableView(L10n.allergyEmpty, systemImage: "allergens",
                                            description: Text(L10n.allergyEmptyHint))
                         .accessibilityIdentifier("SP-50.allergy.empty")
@@ -67,8 +72,13 @@ struct AllergyListView: View {
                                 titleVisibility: .visible, presenting: pendingDelete) { target in
                 Button(L10n.allergyDelete, role: .destructive) {
                     // 评审修复：显式传入被删行所属成员（当前展示成员）——此前
-                    // state 内部经 loadingPatientId 推断，可能与展示成员不一致
-                    Task { await state.deleteAllergy(id: target.id, patientId: app.currentPatientId) }
+                    // state 内部经 loadingPatientId 推断，可能与展示成员不一致。
+                    // 批B 加强：确认期间成员被切换时，删除必须落在**渲染该行时的
+                    // 所属成员**（loadedPatientId 快照）而非实时 currentPatientId；
+                    // 成员域已在 store 侧强校验（AllergyStore.delete 带 patient_id），
+                    // 不匹配即无操作，绝不跨成员误删。
+                    let owner = state.loadedPatientId ?? app.currentPatientId
+                    Task { await state.deleteAllergy(id: target.id, patientId: owner) }
                 }
                 Button(L10n.commonCancel, role: .cancel) { }
             } message: { _ in
