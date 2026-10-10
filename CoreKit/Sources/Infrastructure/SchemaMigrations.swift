@@ -894,6 +894,11 @@ public enum SchemaMigrations {
                PRIMARY KEY(term, locale, category));
              CREATE INDEX IF NOT EXISTS idx_lexicon_term_category ON lexicon_term(category);
              """),
+        // v33 升级链修复（2026-10-10 审查轮,17 复核席 v1→v32 重放实证三缺陷:
+        // v13 悬空 FK / v29 occurred_at 未退役 / sent_message+metric_sample 回指
+        // 索引缺）——实现为代码迁移（表重建需终态探测与列集无关搬运,
+        // 见 GRDBStore.repairUpgradeChain 头注）。
+        Step(version: 33, name: "upgrade-chain-repair", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

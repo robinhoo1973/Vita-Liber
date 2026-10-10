@@ -111,5 +111,67 @@ struct SchemaChainGoldenTests {
         _ = try GRDBStore(writer: queue)
         _ = try GRDBStore(writer: queue)   // 第二次装配不得抛错
     }
+
+    /// v33 升级链修复的**写入型**探针（2026-10-10 审查轮教训:此前金样只断言
+    /// 列/表存在、从不写这些表,三条链级缺陷——v13 悬空 FK、v29 遗留
+    /// occurred_at NOT NULL、缺索引——才会在真实升级库上潜伏至今）。
+    @Test("升级链写入探针：审计写 / 剂量批分配写 / 外键归属 / 缺索引补齐")
+    func upgradeChainWriteProbes() throws {
+        let queue = try Self.legacyV2Database()
+        _ = try GRDBStore(writer: queue)
+        let probes = try queue.read { db -> (audit: Int, foreignParents: [[String]], indexes: Set<String>, auditColumns: [String]) in
+            let patient = try String.fetchOne(db, sql: "SELECT id FROM patient_profile LIMIT 1") ?? ""
+            try db.execute(sql: """
+                INSERT INTO medication (id, patient_id, generic_name, unit_kind, created_at, updated_at)
+                VALUES ('m1', ?, '阿司匹林', 'tablet', 0, 0)
+                """, arguments: [patient])
+            try db.execute(sql: """
+                INSERT INTO medication_plan (id, patient_id, medication_id, schedule_json, start_date, created_at, updated_at)
+                VALUES ('p1', ?, 'm1', '{}', 0, 0, 0)
+                """, arguments: [patient])
+            // ① 审计写（AuditLogWriter 同形态列集）——v29 遗留 occurred_at 的直接受害者
+            try db.execute(sql: """
+                INSERT INTO audit_event (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
+                VALUES ('a1', 'owner', 'confirm', 'dose', NULL, 1.0, '{}')
+                """)
+            // ② 剂量行 + 批分配真实写入——v13 悬空 FK 的直接受害者（BR-004 台账）
+            try db.execute(sql: """
+                INSERT INTO medication_dose_log (id, plan_id, scheduled_for, dose_units, delivery_state)
+                VALUES ('d1', 'p1', 0, 1, 'delivered')
+                """)
+            try db.execute(sql: """
+                INSERT INTO stock_lot (id, patient_id, medication_id, total_units, unit_kind,
+                                       remaining_plan_units, remaining_confirmed_units,
+                                       status, last_reconciled_at)
+                VALUES ('l1', ?, 'm1', 10, 'tablet', 10, 0, 'active', 0)
+                """, arguments: [patient])
+            try db.execute(sql: """
+                INSERT INTO dose_lot_allocation (dose_log_id, stock_lot_id, planned_units, confirmed_units)
+                VALUES ('d1', 'l1', 1, 0)
+                """)
+            // ③ 外键归属 = 正名（悬空修复的结构证据）
+            var parents: [[String]] = []
+            for (table, column) in [("dose_lot_allocation", "dose_log_id"),
+                                    ("notification_delivery", "dose_log_id")] {
+                parents.append(try String.fetchAll(db, sql: """
+                    SELECT "table" FROM pragma_foreign_key_list(?) WHERE "from" = ?
+                    """, arguments: [table, column]))
+            }
+            let indexes = Set(try String.fetchAll(
+                db, sql: "SELECT name FROM sqlite_master WHERE type='index'"))
+            let auditColumns = try String.fetchAll(
+                db, sql: "SELECT name FROM pragma_table_info('audit_event')")
+            let auditCount = try Int.fetchOne(
+                db, sql: "SELECT COUNT(*) FROM audit_event") ?? -1
+            return (auditCount, parents, indexes, auditColumns)
+        }
+        #expect(probes.audit == 1, "审计写必须落库（v29 遗留 occurred_at 已退役）")
+        #expect(!probes.auditColumns.contains("occurred_at"), "老列必须退役")
+        #expect(probes.foreignParents == [["medication_dose_log"], ["medication_dose_log"]],
+                "子表 FK 必须指回正名（v13 悬空已修）：\(probes.foreignParents)")
+        #expect(probes.indexes.contains("idx_sent_message_patient"))
+        #expect(probes.indexes.contains("idx_metric_sample_lab_report"))
+        #expect(probes.indexes.contains("idx_metric_sample_health_exam"))
+    }
 }
 #endif

@@ -40,3 +40,6 @@ __pycache__/
 
 # OCR 真实单据夹具（业主脱敏样本，CI 侧投放，不入库）——识别基线双轨（round3 C4 裁定）
 /CoreKit/Tests/CoreKitTests/Fixtures/ocr/real/
+
+# graphify 知识图谱产物（本机检索工件,不入库;2026-10-10 业主指令）
+graphify-out/

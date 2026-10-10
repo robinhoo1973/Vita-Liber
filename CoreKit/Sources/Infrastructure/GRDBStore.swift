@@ -113,6 +113,10 @@ public struct GRDBStore {
                     try Self.rebuildDoseLogWithFK(db)
                 case 15:
                     try Self.recomputeLogicalDoseIds(db)
+                case 33:
+                    // v33 upgrade-chain-repair（2026-10-10 审查轮,17 复核席实证）：
+                    // 三处只影响**升级库**的链级缺陷,全新库基线本就正确。
+                    try Self.repairUpgradeChain(db)
                 case 25:
                     // v25 recognition-fact-lines：DDL/ocr_card_commit 重建 + FK 校验 +
                     // 回执确定性回填（GRDBStore+V25Backfill）+ 版本推进同一事务——
@@ -229,6 +233,100 @@ public struct GRDBStore {
             FROM medication_dose_log_old;
             """)
         try db.execute(sql: "DROP TABLE medication_dose_log_old")
+    }
+
+    /// v33 升级链修复（2026-10-10 审查轮,17 复核席 v1→v32 重放实证）：
+    /// ① **v13 悬空外键**——v13 表重建走 `ALTER TABLE … RENAME TO …_old`,
+    ///    SQLite 会把子表 FK 文本一并改指 `_old`;随后 DROP 留悬——任何跨 v13
+    ///    的升级库,首次写 dose_lot_allocation / notification_delivery 即
+    ///    `no such table: main.medication_dose_log_old`（BR-004 确认写不落,
+    ///    双轨台账冻结）。修复:sqlite_master 扫描引用 `_old` 的表,取现 SQL
+    ///    文本改指正名后通用重建（不写死列集 = 对任何后续增列无感;该两表
+    ///    无自有索引/触发器——未来若给它们加索引,须同步此函数）。
+    /// ② **v29 只加列不退役**——v1 老库 `audit_event.occurred_at REAL NOT NULL`
+    ///    仍在,而审计写（AuditLogWriter）只传 `at` 语义列 → 升级库每条审计
+    ///    INSERT 撞 NOT NULL 并回滚所在业务事务（确认→就诊、库存对账等）。
+    ///    重建为现行基线形态;历史 `occurred_at` 折算进 `at`（仅 at=0 占位时
+    ///    回落）;旧明文 `entity_id` 按 §6 日志最小化不予携带。
+    /// ③ **索引补齐**（基线有、升级库缺）:sent_message.patient_id（v5 建表
+    ///    无索引）与 metric_sample 回指索引（v26/v27 列在但无索引,记录枢纽
+    ///    子查询按 lab_report_id/health_exam_id 全表扫）。
+    /// 崩溃安全:两处重建均为「先建暂存名 → 拷贝 → 删旧 → 换名」,重放时以
+    /// 终态探测续跑（暂存表在而正式表缺 = 上次停在换名前,直接完成换名）。
+    private static func repairUpgradeChain(_ db: Database) throws {
+        try Self.repairDanglingDoseLogReferences(db)
+        try Self.repairAuditEventLegacyShape(db)
+        try db.execute(sql: """
+            CREATE INDEX IF NOT EXISTS idx_sent_message_patient
+              ON sent_message(patient_id, sent_at);
+            CREATE INDEX IF NOT EXISTS idx_metric_sample_lab_report
+              ON metric_sample(lab_report_id);
+            CREATE INDEX IF NOT EXISTS idx_metric_sample_health_exam
+              ON metric_sample(health_exam_id);
+            """)
+    }
+
+    private static func repairDanglingDoseLogReferences(_ db: Database) throws {
+        let dangling = try String.fetchAll(db, sql: """
+            SELECT name FROM sqlite_master
+            WHERE type = 'table' AND sql LIKE '%medication_dose_log_old%'
+            """)
+        for name in dangling {
+            let quoted = "\"" + name + "\""
+            let temporary = name + "_v33"
+            let quotedTemporary = "\"" + temporary + "\""
+            if try tableExists(db, temporary) {
+                // 上次停在「删旧之后、换名之前」:续完换名
+                try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO \(quoted)")
+                continue
+            }
+            guard let original = try String.fetchOne(
+                db, sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                arguments: [name]) else { continue }
+            let repaired = original
+                .replacingOccurrences(of: "medication_dose_log_old", with: "medication_dose_log")
+                .replacingOccurrences(of: "CREATE TABLE \(name)", with: "CREATE TABLE \(temporary)")
+            try db.execute(sql: repaired)
+            try db.execute(sql: "INSERT INTO \(quotedTemporary) SELECT * FROM \(quoted)")
+            try db.execute(sql: "DROP TABLE \(quoted)")
+            try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO \(quoted)")
+        }
+    }
+
+    private static func repairAuditEventLegacyShape(_ db: Database) throws {
+        let quotedTemporary = "\"audit_event_v33\""
+        let hasTemporary = try tableExists(db, "audit_event_v33")
+        let hasCurrent = try tableExists(db, "audit_event")
+        if hasTemporary && !hasCurrent {
+            // 上次停在「删旧之后、换名之前」:续完换名
+            try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO audit_event")
+        }
+        let hasLegacyColumn = try Bool.fetchOne(db, sql: """
+            SELECT COUNT(*) > 0 FROM pragma_table_info('audit_event') WHERE name = 'occurred_at'
+            """) ?? false
+        guard hasLegacyColumn else { return }
+        try db.execute(sql: "DROP TABLE IF EXISTS \(quotedTemporary)")
+        try db.execute(sql: """
+            CREATE TABLE audit_event_v33 (
+              id TEXT PRIMARY KEY,
+              actor_local TEXT NOT NULL,
+              action TEXT NOT NULL,
+              entity_type TEXT NOT NULL,
+              entity_id_hash TEXT,
+              at REAL NOT NULL,
+              meta_json TEXT);
+            """)
+        try db.execute(sql: """
+            INSERT INTO audit_event_v33
+              (id, actor_local, action, entity_type, entity_id_hash, at, meta_json)
+            SELECT id, actor_local, action, entity_type, entity_id_hash,
+                   CASE WHEN at IS NULL OR at = 0 THEN occurred_at ELSE at END,
+                   meta_json
+            FROM audit_event;
+            """)
+        try db.execute(sql: "DROP TABLE audit_event")
+        try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO audit_event")
+        try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_event(at DESC)")
     }
 
     /// v15 代码迁移：剂量行 id 由绝对 epoch 迁移为逻辑身份（day+ordinal，D5）。
