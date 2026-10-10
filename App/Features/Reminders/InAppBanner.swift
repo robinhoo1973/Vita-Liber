@@ -10,6 +10,10 @@ struct InAppBannerHost: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminders
     @Environment(AppSettingsStore.self) private var settings
+    /// 第九轮审查修复（可达性）：横幅滑入/滑出是唯一的非状态装饰动画分支
+    /// 却未读 Reduce Motion——开启「减弱动态效果」的前庭敏感用户仍在每次
+    /// 前台到点看到整幅横幅滑落。与 HomeView/HomeActionToastBanner 同款门控。
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var dismissedUntil: Date = .distantPast
     @State private var autoDismiss: Task<Void, Never>?
@@ -70,11 +74,11 @@ struct InAppBannerHost: View {
                     .shadow(radius: 6)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     .accessibilityIdentifier("SP-04.inAppBanner")
                 }
             }
-            .animation(.easeInOut(duration: 0.25), value: currentBanner?.id)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: currentBanner?.id)
             .task(id: currentBanner?.id) {
                 // 5 秒自动收起（§4.22）；新横幅（id 变化）出现时重置计时。
                 // 取消必须先于 guard（审查修复）：currentBanner 变 nil（开关关闭/

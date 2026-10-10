@@ -104,6 +104,12 @@ actor UNReminderScheduler: ReminderScheduling {
             let suffix = candidate.dropFirst((base + "-wd").count)
             return (1...7).contains(Int(suffix) ?? 0)
         }
+        // 第九轮审查修复：稍后提醒针形如 "snooze-<基础id>-<unix>"（
+        // ReminderReconciler 排程），此前不在家族内——用户在锁屏收到稍后
+        // 通知后于 App 内点「已服」→ removeDeliveredReminders 按
+        // [dose/pot id] 家族判定清锁屏残留时漏掉 snooze- 针，已确认剂量的
+        // 稍后通知永久留在通知中心（BR-004 反向事实链）。
+        if candidate.hasPrefix("snooze-" + base + "-") { return true }
         return false
     }
 
