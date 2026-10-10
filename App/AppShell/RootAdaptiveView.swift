@@ -181,6 +181,27 @@ struct RootAdaptiveView: View {
             // FR18.6 右下角常驻 SOS 悬浮球（仅关怀模式；可半透明；设置可关闭——
             // 悬浮球被关闭后关怀首页「呼救」大卡仍保留，求助能力不因单一开关消失）
             .overlay(alignment: .top) { InAppBannerHost() }   // §4.22 前台到期横幅（V3.72）
+            // S-1（第九轮审查 U1#6，ui-ux §7.1「手势降级：每页必有等效大号返回钮
+            // ≥64pt 常驻左上」）：关怀模式此前只有系统 ~44pt 返回箭头 + 边缘右滑
+            // （纯手势路线对震颤用户不可达）。栈深 > 0 时渲染 64×64 常驻返回钮；
+            // 栈空（模块根）无返回语义不渲染。onCompletion 后由 router.pop 出栈。
+            .overlay(alignment: .topLeading) {
+                if appState.careMode, let topRoute = careTopRoute {
+                    Button {
+                        router.pop(topRoute)
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(.title3.bold())
+                            .frame(width: 64, height: 64)
+                            .background(Circle().fill(.ultraThinMaterial))
+                            .contentShape(Circle())
+                    }
+                    .accessibilityLabel(L10n.commonBack)
+                    .accessibilityIdentifier("care.back")
+                    .padding(.leading, 8)
+                    .padding(.top, 8)
+                }
+            }
             .overlay(alignment: .bottomTrailing) {
                 if appState.careMode && careSettingsSOSOrbVisible {
                     SOSOrb()
@@ -196,6 +217,11 @@ struct RootAdaptiveView: View {
 
     @Environment(AppState.self) private var appState
     @AppStorage("vl.care.sosOrbVisible") private var careSettingsSOSOrbVisible = true
+
+    /// S-1：当前 Tab 栈顶路由（关怀返回钮的存在性判据；栈空 nil）。
+    private var careTopRoute: AppRoute? {
+        router.binding(for: router.selection).wrappedValue.last
+    }
 }
 
 extension MainModuleID {

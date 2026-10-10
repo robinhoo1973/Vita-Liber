@@ -336,6 +336,11 @@ struct DoseSlotCard: View {
         slot.records.filter { $0.action == .taken || $0.action == .discomfort }.count
     }
 
+    /// S-1（第九轮审查 U1#2/U2#3，FR18.2/§5.57）：careMode 参数此前声明后**从未
+    /// 读取**——关怀模式在该首要服药确认卡上仍为 44pt/8pt 间距。触点与行间距
+    /// 统一取 Domain CareModeMetrics（常规 44/8、关怀 64/16）。
+    private var metrics: CareModeMetrics { careMode ? .care : .standard }
+
     var body: some View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 10) {
@@ -350,25 +355,44 @@ struct DoseSlotCard: View {
                     Spacer()
                     // 时段级 [全部已服用]：只在有未决剂量时出现（FR9.17）
                     if !slot.allTaken && slot.records.count > 1 {
-                        if allTakenHoldConfirmed {
+                        if careMode {
+                            // S-1：关怀模式改按住确认（≥600ms 环形进度 + 完成触觉，
+                            // HoldToConfirmRing 与 SOSOrb 同源）——震颤下两连点
+                            // （轻点→再点确认）极易误触把未服剂量整体记成已服。
+                            HoldToConfirmRing(requiredSeconds: HoldToConfirm.requiredSeconds(mode: .care),
+                                              maxTravel: CareModeMetrics.care.sosOrbMaxTravelPoints,
+                                              cornerRadius: VLCornerRadius.compact,
+                                              ringColor: Color("brand-primary", bundle: .main)) {
+                                Text(L10n.reminder_allTaken)
+                                    .font(.footnote)
+                                    .frame(minHeight: metrics.touchTarget)
+                                    .padding(.horizontal, 10)
+                            } onComplete: {
+                                onSlotAllTaken()
+                            }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel(L10n.reminder_allTaken)
+                            .accessibilityAction { onSlotAllTaken() }
+                            .accessibilityIdentifier("SP-09.doseSlot.allTaken")
+                        } else if allTakenHoldConfirmed {
                             Text(L10n.reminder_allTakenConfirm)
                                 .font(.caption).foregroundStyle(Color("semantic-warning", bundle: .main))
                             Button(L10n.reminder_allTakenYes) { onSlotAllTaken() }
                                 .buttonStyle(.borderedProminent)
                                 .controlSize(.small)
-                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                                    .frame(minHeight: metrics.touchTarget)   // 触点（S-1：关怀 64pt）
                                 .accessibilityIdentifier("SP-09.doseSlot.allTaken.confirm")
                             Button(L10n.commonCancel) { allTakenHoldConfirmed = false }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
-                                    .frame(minHeight: 44)   // 触点≥44pt（审查修复）
+                                    .frame(minHeight: metrics.touchTarget)   // 触点（S-1：关怀 64pt）
                         } else {
                             Button {
                                 allTakenHoldConfirmed = true
                             } label: {
                                 Text(L10n.reminder_allTaken)
                                     .font(.footnote)
-                                    .frame(minHeight: 44)
+                                    .frame(minHeight: metrics.touchTarget)
                             }
                             .buttonStyle(.bordered)
                             .accessibilityIdentifier("SP-09.doseSlot.allTaken")
@@ -376,7 +400,7 @@ struct DoseSlotCard: View {
                     }
                 }
                 ForEach(slot.records, id: \DoseRecord.dose.notifyId) { record in
-                    HStack(spacing: 8) {
+                    HStack(spacing: metrics.spacing) {   // S-1：关怀 16pt
                         Text(record.displayLabel)          // 「药名 规格 · 剂量 单位」（评审阻断项修正）
                             .font(.subheadline)
                             .monospacedDigit()
@@ -385,12 +409,12 @@ struct DoseSlotCard: View {
                         if record.action == .taken {
                             Image(systemName: "checkmark.circle.fill")
                                 .foregroundStyle(Color("semantic-success", bundle: .main))
-                                .frame(width: 44, height: 44)
+                                .frame(width: metrics.touchTarget, height: metrics.touchTarget)   // S-1
                         } else if let action = record.action, action == .skipped || action == .discomfort {
                             // 跳过/不适 = 展示型决议（不动按钮）
                             Text(actionShortLabel(action))
                                 .font(.caption2).foregroundStyle(.secondary)
-                                .frame(minWidth: 44, minHeight: 44)
+                                .frame(minWidth: metrics.touchTarget, minHeight: metrics.touchTarget)   // S-1
                         } else if record.action == .missed {
                             // 业主裁决 D5：missed 行只给「已服」确认（转场扣减只补确认轨）——
                             // 稍后/跳过/忘记/不适仍是 Store 层已决议守卫的禁用转换，
@@ -398,7 +422,7 @@ struct DoseSlotCard: View {
                             Button {
                                 onTaken(record.dose)
                             } label: {
-                                Text(L10n.reminder_taken).frame(minWidth: 64, minHeight: 44)
+                                Text(L10n.reminder_taken).frame(minWidth: max(64, metrics.touchTarget), minHeight: metrics.touchTarget)   // S-1
                             }
                             .buttonStyle(.borderedProminent)
                             .accessibilityLabel(L10n.reminder_a11yTaken(name: record.medicationName ?? L10n.reminder_medicationFallback))
@@ -408,7 +432,7 @@ struct DoseSlotCard: View {
                             Button {
                                 onTaken(record.dose)
                             } label: {
-                                Text(L10n.reminder_taken).frame(minWidth: 64, minHeight: 44)
+                                Text(L10n.reminder_taken).frame(minWidth: max(64, metrics.touchTarget), minHeight: metrics.touchTarget)   // S-1
                             }
                             .buttonStyle(.borderedProminent)
                             .accessibilityLabel(L10n.reminder_a11yTaken(name: record.medicationName ?? L10n.reminder_medicationFallback))
@@ -418,7 +442,7 @@ struct DoseSlotCard: View {
                                 Button(L10n.reminder_snooze30) { onSnooze(record.dose, 30) }
                                 Button(L10n.reminder_snooze60) { onSnooze(record.dose, 60) }
                             } label: {
-                                Text(L10n.reminder_later).frame(minWidth: 52, minHeight: 44)
+                                Text(L10n.reminder_later).frame(minWidth: max(52, metrics.touchTarget), minHeight: metrics.touchTarget)   // S-1
                             }
                             .accessibilityIdentifier("SP-09.dose.snooze")
                             Menu {
@@ -426,7 +450,7 @@ struct DoseSlotCard: View {
                                 Button(L10n.reminder_forgot) { onForget(record.dose) }
                                 Button(L10n.reminder_discomfort) { discomfortCandidate = record.dose }
                             } label: {
-                                Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44)
+                                Image(systemName: "ellipsis").frame(minWidth: metrics.touchTarget, minHeight: metrics.touchTarget)   // S-1
                             }
                             .accessibilityLabel(L10n.reminder_moreActions)
                             .accessibilityIdentifier("SP-09.dose.more")

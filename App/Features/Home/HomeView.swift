@@ -689,15 +689,21 @@ struct HomeView: View {
                 BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: Color("semantic-success", bundle: .main)) {
                     router.navigate(to: .scanCapture(nil))
                 }
-                // 评审修正 U7：§7.1 防误触——SOS 大卡按住 600ms 才进入
-                BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: Color("semantic-danger", bundle: .main)) {
-                    // 常规点击被下面手势接管后 Button action 不再触发；
-                    // 保留 action 仅为 accessibilityAction 兜底
+                // 评审修正 U7：§7.1 防误触——SOS 大卡按住 600ms 才进入。
+                // S-1（第九轮审查 U2#5）：裸 LongPressGesture 无进度反馈、无完成
+                // 触觉（震颤用户无法判断按够与否）——改经 HoldToConfirmRing 共享
+                // 原语（SOSOrb 同源：环形进度 + 位移取消 + 完成触觉）。
+                HoldToConfirmRing(requiredSeconds: HoldToConfirm.requiredSeconds(mode: .care),
+                                  maxTravel: CareModeMetrics.care.sosOrbMaxTravelPoints,
+                                  cornerRadius: VLCornerRadius.card,
+                                  ringColor: Color("semantic-danger", bundle: .main)) {
+                    BigCareCard(icon: "sos", title: L10n.homeCareSOS, tint: Color("semantic-danger", bundle: .main)) {
+                        // 常规点击被按住手势接管后 Button action 不再触发；
+                        // 保留 action 仅为 accessibilityAction 兜底
+                    }
+                } onComplete: {
+                    showSOS = true
                 }
-                .simultaneousGesture(
-                    LongPressGesture(minimumDuration: HoldToConfirm.requiredSeconds(mode: .care))
-                        .onEnded { _ in showSOS = true }
-                )
                 .accessibilityAction { showSOS = true }
                 // 2026-10-03 评审 R2-2：进行中长任务瞬态卡（FR18.5 V4.11 增补）——
                 // 仅活动任务存在时渲染，零任务零痕迹；进度可见可取消（§6）。

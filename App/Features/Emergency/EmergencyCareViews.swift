@@ -312,10 +312,7 @@ struct SOSButton: View {
 /// SOS 悬浮球：长按越过防误触门槛（环形进度反馈 FR18.3），松手进入求助页。
 /// 半透明；任意页面可达（挂在根视图 overlay）；求助页零门禁（FR1.8）。
 struct SOSOrb: View {
-    @State private var holdStart: Date?
     @State private var showHelp = false
-    /// 本次按压是否已因位移超限取消（直到松手复位前不再计时）
-    @State private var gestureCancelled = false
 
     // FR18.3 按住确认 ≥600ms——阈值来自 Domain 单一事实源（CareModeMetrics
     // 关怀档，SOSButton 同源），此前 0.6 硬编码：关怀门槛调参时两处漂移
@@ -323,68 +320,37 @@ struct SOSOrb: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ZStack {
-                // V4.06 重设计（业主 2026-09-24）：圆 + 圆内文字 = 文字溢出 64pt 圆；
-                // 改**胶囊形**（图标 + 单行文字在内部，不再溢出），高度 64 保持
-                // 关怀触点 ≥64pt（FR18.2），宽度随内容。
-                Capsule()
-                    // 第八轮修复：语义危险色令牌替代硬编码 Color.red（§3.1
-                    // 语义色表：semantic/danger = 紧急/SOS 专用，深色模式自动映射）
-                    .fill(Color("semantic-danger", bundle: .main).opacity(0.9))
-                    .frame(height: 64)
-                    .shadow(radius: 6)
-                // 环形进度反馈（FR18.3 按住确认的环形进度）——第六轮全仓审查
-                // 修复：progress(start) 只在 body 重渲染时求值，按住期间无任何
-                // 状态驱动重渲染，圆环恒为 0。改由 TimelineView 以动画帧率
-                // 驱动（仅按住期间挂载，松开即卸载）
-                if holdStart != nil {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
-                        Capsule()
-                            .trim(from: 0, to: progress(timeline.date))
-                            .stroke(Color.white, lineWidth: 3)
-                            .frame(height: 64)
+            // S-1（第九轮审查）：按住计时/进度环/位移取消/Haptics 完成触觉
+            // 下沉共享原语 HoldToConfirmRing（本视图是其行为基线出处；
+            // 关怀 SOS 大卡与时段卡 [全部已服用] 同源复用）。
+            HoldToConfirmRing(requiredSeconds: requiredHold,
+                              maxTravel: CareModeMetrics.care.sosOrbMaxTravelPoints,
+                              cornerRadius: nil,
+                              ringColor: .white) {
+                ZStack {
+                    // V4.06 重设计（业主 2026-09-24）：圆 + 圆内文字 = 文字溢出 64pt 圆；
+                    // 改**胶囊形**（图标 + 单行文字在内部，不再溢出），高度 64 保持
+                    // 关怀触点 ≥64pt（FR18.2），宽度随内容。
+                    Capsule()
+                        // 第八轮修复：语义危险色令牌替代硬编码 Color.red（§3.1
+                        // 语义色表：semantic/danger = 紧急/SOS 专用，深色模式自动映射）
+                        .fill(Color("semantic-danger", bundle: .main).opacity(0.9))
+                        .frame(height: 64)
+                        .shadow(radius: 6)
+                    HStack(spacing: 6) {
+                        Image(systemName: "sos")
+                            .font(.title3.bold())
+                        Text(L10n.emergency_sos_hold)
+                            .font(.caption.bold())
+                            .lineLimit(1)
                     }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
                 }
-                HStack(spacing: 6) {
-                    Image(systemName: "sos")
-                        .font(.title3.bold())
-                    Text(L10n.emergency_sos_hold)
-                        .font(.caption.bold())
-                        .lineLimit(1)
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 20)
+                .opacity(0.9)   // 可半透明（FR18.6）
+            } onComplete: {
+                showHelp = true
             }
-            .opacity(0.9)   // 可半透明（FR18.6）
-            // 审查修复：LongPressGesture 两处硬伤——onChanged 在 minimumDuration
-            // 达成后才触发（holdStart 即阈值时刻，进度环恒满程，按住反馈
-            // 名存实亡）；提前松手（未达阈值）手势失败、onEnded 不触发，
-            // holdStart 永不复位、进度环 100% 永久挂载。改零位移拖拽手势：
-            // 落下即记起点（环真实推进），松手恒复位，按足阈值才触发求助。
-            // 审查修复（位移取消）：零位移拖拽对手指移动不设限——起于悬浮球的
-            // 滚动/误划只要按住 ≥0.6s 松手即打开求助页（LongPress 原以位移
-            // 自取消）。位移超 Domain 单一事实源阈值（sosOrbMaxTravelPoints）
-            // 即取消本次按住：滚动起手不再误触急救路径。
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        guard !gestureCancelled else { return }
-                        let travel = max(abs(value.translation.width), abs(value.translation.height))
-                        if travel > CareModeMetrics.care.sosOrbMaxTravelPoints {
-                            gestureCancelled = true
-                            holdStart = nil
-                            return
-                        }
-                        if holdStart == nil { holdStart = Date() }
-                    }
-                    .onEnded { _ in
-                        let held = !gestureCancelled
-                            && holdStart.map { Date().timeIntervalSince($0) >= requiredHold } ?? false
-                        holdStart = nil
-                        gestureCancelled = false
-                        if held { showHelp = true }
-                    }
-            )
             // 审查修复（BR-012 辅助功能通路）：VoiceOver 双击等效激活求助页
             .accessibilityAddTraits(.isButton)
             .accessibilityLabel(L10n.emergency_sos_holdA11y(requiredHold))
@@ -396,13 +362,6 @@ struct SOSOrb: View {
             // 连续两次 label，后者覆盖前者：VoiceOver 用户失去「按住 N 秒」
             // 时长指导（BR-012 辅助功能通路的刻意产物被吞）。
         }
-    }
-
-    private func progress(_ now: Date) -> CGFloat {
-        // 第六轮全仓审查修复：以 TimelineView 的当前帧时间求值（holdStart
-        // 为按住起点），按住期间圆环连续推进
-        guard let start = holdStart else { return 0 }
-        return min(1, now.timeIntervalSince(start) / requiredHold)
     }
 }
 
