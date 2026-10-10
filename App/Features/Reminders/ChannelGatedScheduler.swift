@@ -23,9 +23,12 @@ import Protocols
 /// 无横幅承接的类别一律照常系统投递（宁响铃、绝不静默丢弃），待横幅
 /// 通道扩展（W4 接线批次）后逐类别收紧。
 ///
-/// 偏好变更只作用于**新排程**的通知；已 pending 的旧通知在下次对账/语言
-/// 重写时自然收敛（切换偏好后立即取消旧 pending 的通道对账登记技术债，
-/// 随 W4 接线批次一并实施）。
+/// 偏好变更此前只作用于**新排程**的通知（第九轮审查 P4#8：用户切到
+/// 「静音仅横幅」后，已预排 7 天的 dose-/slot- 针照常在锁屏响铃——设置
+/// 看似无效）。批C④落地收敛取消：在最近的既有写入面（新排程 / 语言重写）
+/// 顺带清扫已 pending 且现应被抑制的针（sweepSuppressedPending）——零新增
+/// 跨文件接线；枚举 ≤64 条 pending 开销可忽略。收敛失败不翻盘，下个事件点
+/// 自动重试。
 actor ChannelGatedScheduler: ReminderScheduling {
     private let inner: any ReminderScheduling
 
@@ -61,12 +64,23 @@ actor ChannelGatedScheduler: ReminderScheduling {
     }
 
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws {
+        await sweepSuppressedPending()
         guard !Self.shouldSuppressSystem(notifyId) else { return }
         try await inner.schedule(dose: notifyId, at: fireAt, route: route)
     }
 
+    /// 批C①（评审 P1 零通道）：带成员域的同门 + 透传——不覆写本签名则协议
+    /// 扩展默认实现会回落旧签名，userInfo 的 patientId 在内层适配器丢失
+    /// （前台 willPresent 的成员判定随之失效）。抑制判定与旧签名同源不变。
+    func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?,
+                  patientId: UUID?) async throws {
+        guard !Self.shouldSuppressSystem(notifyId) else { return }
+        try await inner.schedule(dose: notifyId, at: fireAt, route: route, patientId: patientId)
+    }
+
     func scheduleRepeating(dose notifyId: String, at fireAt: Date, route: AppRoute?,
                            repeatRule: String?) async throws {
+        await sweepSuppressedPending()
         guard !Self.shouldSuppressSystem(notifyId) else { return }
         try await inner.scheduleRepeating(dose: notifyId, at: fireAt, route: route,
                                           repeatRule: repeatRule)
@@ -82,6 +96,20 @@ actor ChannelGatedScheduler: ReminderScheduling {
 
     func reloadLocalizedContent() async throws {
         try await inner.reloadLocalizedContent()
+        // 批C④：语言重写是既有收敛事件点——顺带清扫现应被抑制的 pending 针
+        await sweepSuppressedPending()
+    }
+
+    /// 批C④（第九轮审查 P4#8）：偏好切到「静音仅横幅/关闭横幅」后，已 pending
+    /// 的旧针收敛取消（门此前只拦新排程）。判定与 shouldSuppressSystem 单一
+    /// 事实源；cancel 经内层同族展开（-occ-/-wd 针一并清）。枚举失败/取消失败
+    /// 不翻盘主路径（非静默纪律：收敛是尽力而为，下个事件点重试）。
+    private func sweepSuppressedPending() async {
+        guard let pending = try? await inner.pending() else { return }   // try?-ok: 枚举失败视为无可收敛，不阻断排程主路径
+        let doomed = pending.keys.filter { Self.shouldSuppressSystem($0) }
+        guard !doomed.isEmpty else { return }
+        do { try await inner.cancel(doomed) }
+        catch { /* 收敛失败静默重试：下次排程/语言重写再扫 */ }
     }
 
     func pending() async throws -> [String: Date] {

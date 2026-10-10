@@ -400,7 +400,31 @@ final class AppNotificationDelegate: NSObject, UNUserNotificationCenterDelegate 
             for: id,
             bannerEnabled: defaults.string(forKey: AppSettingKey.inAppBannerEnabled.rawValue) != "false",
             medsPreference: defaults.string(forKey: AppSettingKey.remindChannelMeds.rawValue))
-        completionHandler(Self.presentation(for: delivery))
+        // 批C①（第九轮审查 P1 零通道，ADR-009 宁响铃方向）：dose-/slot- 的
+        // 「静音让位」前提是**应用内横幅承接**——但横幅只渲染当前展示成员的
+        // 时段（InAppBannerHost ← ReminderStore.todaySlots 成员过滤），而
+        // ReminderReconciler 为**全部成员**排程。归属非展示成员的通知此前被
+        // 一并抑制成零通道：无系统横幅、无声、应用内也不出现（家人的服药
+        // 提醒静默丢失）。最小改法（选择注记）：回落**系统静默横幅**——
+        // presentation [.banner]，保底可见且不违反「仅横幅」的用户偏好；
+        // 展示成员的通知维持原抑制（应用内横幅承接，避免双弹）。缺成员域
+        // 的旧形针按未覆盖处理（宁响铃；下次对账重排即写入成员域）。
+        var options = Self.presentation(for: delivery)
+        if delivery == .silent,
+           !Self.notificationCoversDisplayedMember(notification, defaults: defaults) {
+            options = [.banner]
+        }
+        completionHandler(options)
+    }
+
+    /// 批C①：通知归属成员（userInfo["patientId"]，调度时写入）与当前展示
+    /// 成员（UserDefaults "currentPatientId" 镜像，AppState.currentPatientId
+    /// 的持久化键）比对。系统线程执行——只读 UserDefaults，不触 @MainActor。
+    private nonisolated static func notificationCoversDisplayedMember(_ notification: UNNotification,
+                                                                      defaults: UserDefaults) -> Bool {
+        guard let owner = notification.request.content.userInfo["patientId"] as? String else { return false }
+        guard let displayed = defaults.string(forKey: "currentPatientId") else { return false }
+        return owner == displayed
     }
 
     /// nonisolated：willPresent 在系统线程执行（见调用侧注），不得沾 @MainActor。

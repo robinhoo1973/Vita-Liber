@@ -107,6 +107,14 @@ public actor ReminderReconciler {
             // 记录的时段（已全决时段不再触发通知）。
             let allRecords = facts.map { DoseRecord(dose: $0.dose) }
             let slotIdByDose = DoseSlotGrouping.slotIds(allRecords)
+            // 批C①：时段 → 成员映射（通知 userInfo 携带，前台抑制按展示成员
+            // 回落）。跨成员同窗剂量若被并组取任一成员（既有跨成员并组问题
+            // 见审查报告——本映射不改变分组，只补成员域）。
+            var patientBySlotId: [String: UUID] = [:]
+            for f in facts {
+                guard let pid = f.patientId, let sid = slotIdByDose[f.dose.notifyId] else { continue }
+                patientBySlotId[sid] = pid
+            }
             let merged = facts.map { f -> DoseDeliveryFact in
                 var m = f
                 // 送达事实以系统 delivered 集为准（评审修正：DB 的 delivery_state
@@ -135,7 +143,8 @@ public actor ReminderReconciler {
                         try await scheduler.cancel([slotId])
                     }
                     let snoozeId = Self.snoozeIdentifier(doseNotifyId: fact.dose.notifyId, until: until)
-                    try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday)
+                    try await scheduler.schedule(dose: snoozeId, at: until, route: .reminderToday,
+                                                 patientId: fact.patientId)
                     pending[snoozeId] = until
                 case .none:
                     break
@@ -149,7 +158,8 @@ public actor ReminderReconciler {
                 // 构造、records 恒非空，谓词恒真，纯误导。）
                 let slotNotifyId = "slot-\(slot.id)"
                 if pending[slotNotifyId] == nil {
-                    try await scheduler.schedule(dose: slotNotifyId, at: slot.anchorTime, route: .reminderToday)
+                    try await scheduler.schedule(dose: slotNotifyId, at: slot.anchorTime, route: .reminderToday,
+                                                 patientId: patientBySlotId[slot.id])
                     pending[slotNotifyId] = slot.anchorTime
                 }
             }

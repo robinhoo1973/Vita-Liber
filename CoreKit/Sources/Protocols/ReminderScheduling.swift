@@ -9,6 +9,13 @@ public protocol ReminderScheduling: Sendable {
     /// route（§5.45）：通知点击后的深链目标，生产实现写入 userInfo 经 Codable 传递；
     /// nil = 点击仅打开 App（默认落点，不视为错误）。缺路由必须降级不 crash。
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws
+    /// 带成员域的调度（第九轮审查批C①）：patientId 写入 userInfo——前台
+    /// willPresent 抑制（dose-/slot- 让位应用内横幅）必须能判定该通知是否
+    /// 属于**当前展示成员**；否则非展示成员（家人）的剂量通知被误抑制成
+    /// 零通道（无系统横幅、无声、应用内横幅又只渲染当前成员 → 静默丢提醒）。
+    /// 默认实现回落不带成员域的旧签名（InMemory/测试桩零改动）。
+    func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?,
+                  patientId: UUID?) async throws
     /// FR17.10 重复提醒：repeatRule 为语音文法产出的重复短语（每天/每周一…周日/
     /// 每周/工作日/周末）。默认实现回落一次性（未知规则不猜语义）。
     func scheduleRepeating(dose notifyId: String, at fireAt: Date, route: AppRoute?,
@@ -29,6 +36,12 @@ public protocol ReminderScheduling: Sendable {
 public extension ReminderScheduling {
     func scheduleRepeating(dose notifyId: String, at fireAt: Date, route: AppRoute?,
                            repeatRule: String?) async throws {
+        try await schedule(dose: notifyId, at: fireAt, route: route)
+    }
+    /// 带成员域调度的默认实现：回落旧签名（不吃成员域的实现/测试桩零改动）。
+    /// 生产适配器与包装器各自覆写以贯通 userInfo（批C①）。
+    func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?,
+                  patientId: UUID?) async throws {
         try await schedule(dose: notifyId, at: fireAt, route: route)
     }
     func removeDelivered(_ notifyIds: [String]) async throws {}

@@ -14,17 +14,30 @@ actor UNReminderScheduler: ReminderScheduling {
     init(center: UNUserNotificationCenter = .current()) { self.center = center }
 
     func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?) async throws {
-        let content = Self.content(route: route)
+        try await schedule(dose: notifyId, at: fireAt, route: route, patientId: nil)
+    }
+
+    /// 批C①（评审 P1 零通道）：成员域写入 userInfo——前台 willPresent 抑制
+    /// 需据此判定通知是否属于当前展示成员（非展示成员的剂量通知必须回落
+    /// 系统横幅，否则静默丢弃）。对账引擎按事实携带 patientId。
+    func schedule(dose notifyId: String, at fireAt: Date, route: AppRoute?,
+                  patientId: UUID?) async throws {
+        let content = Self.content(route: route, patientId: patientId)
         let comps = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: fireAt)
         let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
         try await center.add(UNNotificationRequest(identifier: notifyId, content: content, trigger: trigger))
     }
 
     /// 通知内容组装（锁屏隐私：固定通用文案；route 经 Codable 入 userInfo）
-    private static func content(route: AppRoute?) -> UNMutableNotificationContent {
+    /// 批C①：userInfo["patientId"] = 归属成员（String），前台 willPresent
+    /// 据此判定「是否当前展示成员」决定抑制还是系统回落。
+    private static func content(route: AppRoute?, patientId: UUID? = nil) -> UNMutableNotificationContent {
         let content = UNMutableNotificationContent()
         content.title = L10n.reminderNotificationTitle
         content.body = L10n.reminderNotificationBody
+        if let patientId {
+            content.userInfo["patientId"] = patientId.uuidString
+        }
         if case .alertEvidence(_, _, let severity) = route {
             content.sound = .default
             if severity == .L2 || severity == .L3 { content.interruptionLevel = .timeSensitive }
@@ -85,6 +98,17 @@ actor UNReminderScheduler: ReminderScheduling {
         // 旧版遗留 repeating 触发器：与 occ 针同源触达（重复通知），先清
         let legacyWDs = (1...7).map { "\(notifyId)-wd\($0)" }
         center.removePendingNotificationRequests(withIdentifiers: legacyWDs)
+        // 批C②（第九轮审查 P4#5 同族）：旧 -occ- 针此前只增不清——重武装
+        // （时区/触发时刻重算）后同一墙钟提醒产出**不同 epoch** 的新针，旧针
+        // 仍留 pending：UNCalendarNotificationTrigger 按当前时区解释组件，
+        // 新旧针在同一本地时刻双重触发（14 天窗内每次都双弹）。语义按
+        // 「窗内针集 = 本次计算集」：同族 -occ- 先清后排（同 id 重加即替换，
+        // 无新增成本）。
+        let armedOcc = await center.pendingNotificationRequests().map(\.identifier)
+            .filter { $0.hasPrefix("\(notifyId)-occ-") }
+        if !armedOcc.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: armedOcc)
+        }
         for occurrence in occurrences {
             let comps = cal.dateComponents([.year, .month, .day, .hour, .minute, .second], from: occurrence)
             let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: false)
@@ -149,7 +173,11 @@ actor UNReminderScheduler: ReminderScheduling {
             // 历史 userInfo 的 route 数据若损坏，等价「无路由」降级语义（§5.45）
             let route = (request.content.userInfo["route"] as? Data)
                 .flatMap { try? JSONDecoder().decode(AppRoute.self, from: $0) }   // try?-ok: 解码失败等价无路由降级（§5.45），不得 crash
-            let content = Self.content(route: route)
+            // 批C①：语言重写必须原样保留成员域——重建 content 丢掉
+            // userInfo["patientId"] 会让前台抑制回落失效（等于回到零通道）。
+            let patientId = (request.content.userInfo["patientId"] as? String)
+                .flatMap(UUID.init(uuidString:))
+            let content = Self.content(route: route, patientId: patientId)
             // 原组件与 repeats 原样保留（含重复语音提醒的 weekday 形态），只换文案
             let newTrigger = UNCalendarNotificationTrigger(
                 dateMatching: trigger.dateComponents, repeats: trigger.repeats)
