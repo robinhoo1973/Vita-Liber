@@ -38,7 +38,9 @@ struct HomeAggregationRow: View {
                             Text(status)
                                 .font(.caption2.bold()).foregroundStyle(.white)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Capsule().fill(Color("semantic-danger", bundle: .main)))
+                                // D-4：级别色单源（旧实现对 L1/L2/L3 一律满红，
+                                // 级别表达被抹平且与历史页色不一致）
+                                .background(Capsule().fill(AlertLevelPalette.color(forRawLevel: status)))
                         }
                     }
                     HStack(spacing: 6) {

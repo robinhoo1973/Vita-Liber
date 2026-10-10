@@ -42,11 +42,14 @@ struct TrendChartView: View {
     }
 
     /// 来源图例行：医院实心 / 自测·设备空心（ui-ux 4.7 同款符号语义）
+    /// D-2：图例随点色同步（医院=brand、自测=grade-self），图例与图面单一事实源。
     private func originLegendRow(solid: Bool, label: String) -> some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(solid ? Color("brand-primary", bundle: .main) : Color.clear)
-                .overlay(Circle().strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5))
+                .overlay(Circle().strokeBorder(solid ? Color("brand-primary", bundle: .main)
+                                                     : Color("grade-self", bundle: .main),
+                                               lineWidth: 1.5))
                 .frame(width: 12, height: 12)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
@@ -143,14 +146,19 @@ struct TrendChartView: View {
     }
 
     /// 实心=医院；空心=自测/设备——描边圆环（ui-ux 4.7「描边可见，非透明填充」；
-    /// 旧实现用背景色实心圆冒充空心，无描边、浅色背景上不可辨）
+    /// 旧实现用背景色实心圆冒充空心，无描边、浅色背景上不可辨）。
+    /// D-2（权重裁决定案）：自测空心点恢复**独立色通道** `grade-self`
+    /// （#6A1B9A / 暗 #C79BE8，与医院蓝异色）——与 hollow/solid 形状差异叠加为
+    /// WCAG 1.4.1 冗余编码；色对实测（自测 vs 医院 / vs 画布）：8.82 与 1.65（亮）、
+    /// 7.52 与 1.28（暗）——两色相向对比不足 3:1 属该色对物理上限（近等亮度
+    /// 异相色），来源可辨性由「异色 + 形状」双通道共同承担，画布对比均 ≥3:1。
     @ChartContentBuilder
     private func pointMark(_ point: TrendPoint, axisTime: String, axisValue: String, tint: Color) -> some ChartContent {
         if point.isHollow {
             PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
                 .symbolSize(120)
                 .symbol(.circle.strokeBorder(lineWidth: 1.5))
-                .foregroundStyle(tint)
+                .foregroundStyle(Color("grade-self", bundle: .main))
         } else {
             PointMark(x: .value(axisTime, point.measuredAt), y: .value(axisValue, point.value))
                 .symbolSize(120)
@@ -398,7 +406,9 @@ private struct TrendPointRow: View {
         HStack {
             Circle()
                 .fill(point.isHollow ? Color.clear : Color("brand-primary", bundle: .main))
-                .overlay(Circle().strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5))
+                .overlay(Circle().strokeBorder(point.isHollow ? Color("grade-self", bundle: .main)
+                                                              : Color("brand-primary", bundle: .main),
+                                               lineWidth: 1.5))
                 .frame(width: 12, height: 12)
                 .opacity(isExcluded ? 0.4 : 1)
             VStack(alignment: .leading, spacing: 2) {

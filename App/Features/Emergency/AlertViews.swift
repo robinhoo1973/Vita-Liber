@@ -215,6 +215,14 @@ private struct EvidenceCardRow: View {
                     .font(.caption2).foregroundStyle(.tertiary)
             }
             .padding(.vertical, 4)
+            // D-4：§4.12 左缘级别色条（alert/L1-L3 Token 单源 AlertLevelPalette）——
+            // 此前未渲染，级别跨页可比性缺失。
+            .padding(.leading, 10)
+            .overlay(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(AlertLevelPalette.color(for: event.severity))
+                    .frame(width: 4)
+            }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("F16.evidence.card")
         }
@@ -247,14 +255,8 @@ struct SeverityTag: View {
         }
     }
 
-    private var color: Color {
-        switch severity {
-        case .L0: return Color("text-tertiary", bundle: .main)
-        case .L1: return Color("brand-primary", bundle: .main)
-        case .L2: return Color("grade-d", bundle: .main)
-        case .L3: return Color("semantic-danger", bundle: .main)
-        }
-    }
+    // D-4：级别色单源收敛（旧实现 L1 用交互蓝、L2 跨语义复用 grade-d）
+    private var color: Color { AlertLevelPalette.color(for: severity) }
 }
 
 // MARK: - 信源详情（FR16.4 准入展示）

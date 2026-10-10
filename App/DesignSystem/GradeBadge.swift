@@ -4,6 +4,17 @@ import SwiftUI
 /// A 医院原文 / B 知识库 / C 用户确认 / D 识别未确认 / E AI 解释。
 /// D/E 态叠加虚线边框 + 「待确认」角标（§1 原则 3 视觉承诺）；
 /// 全仓唯一渲染出口——禁止视图手写 Capsule 徽章变体（V3.72 五态统一）。
+///
+/// 第九轮审查 D-1（对比度实测，白字 caption2 小字按 WCAG AA 需 ≥4.5:1，
+/// 计算式 (1.05)/(L+0.05)，L 为 sRGB 相对亮度）——五态底色全部达标，
+/// 数值以 colorset 现行值为准（改色必须同步复算）：
+/// - A `grade-a` #0A66C2：5.69（universal）
+/// - B `grade-b` #5F6368（亮）/ #6E747A（暗）：6.05 / 4.73
+///   （原 B 复染 `brand-primary`——暗色变体 #4A9DE8 白字仅 2.88:1，
+///   本次解耦为独立 grade-b token，brand 留给链接/主行动不进徽章）
+/// - C `grade-c` #188038：5.02（原 #34A853 仅 3.06）
+/// - D/E/未知 `grade-d` #9A6400：5.00（原 #E8A13A 仅 2.19；
+///   「待确认」角标 = 白底 85% 上以 fill 着色小字，随底色加深同步达标）
 struct GradeBadge: View {
     let grade: String
 
@@ -29,7 +40,8 @@ struct GradeBadge: View {
     private var fill: Color {
         switch parsed {
         case .a: return Color("grade-a", bundle: .main)
-        case .b: return Color("brand-primary", bundle: .main)
+        // D-1：独立 token（见顶部对比度表；原用 brand-primary 暗色变体不达标）
+        case .b: return Color("grade-b", bundle: .main)
         case .c: return Color("grade-c", bundle: .main)
         case .d, .e: return Color("grade-d", bundle: .main)
         // 审查修复（BR-003 来源语义）：未知/空来源此前按 C（用户确认）着色——

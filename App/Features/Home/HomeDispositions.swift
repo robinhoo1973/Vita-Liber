@@ -32,14 +32,18 @@ extension ReminderDisposition {
         }
     }
 
+    /// D-3（权重重判）：旧表把 `.viewEvidence` 染 semantic-danger、`.view` 染
+    /// semantic-warning，并散用 `.indigo/.gray/.orange` 字面量——破坏性语义被
+    /// 复用到纯查看动作，且系统色绕过 token。新纪律（HIG：破坏性动作才用红）：
+    /// 主行动（医疗确认/开药箱/续确认）走 brand-primary；其余（稍后/跳过/归档/
+    /// 查看）一律中性 token `text-secondary`；**破坏性动作走 semantic-danger**——
+    /// 当前动作表无删除医疗事实的 case（Domain ReminderDisposition 文档明示），
+    /// 如未来新增删除类动作必须用 semantic-danger，不得再引入第三类彩色。
     var tint: Color {
         switch self {
-        case .markTaken, .resumePendingCard, .openCabinet: return Color("brand-primary", bundle: .main)
-        case .snoozeDose, .snoozeUntilTomorrow: return .indigo
-        case .skipDose: return .gray
-        case .archive: return .orange
-        case .viewEvidence: return Color("semantic-danger", bundle: .main)
-        case .view: return Color("semantic-warning", bundle: .main)
+        case .markTaken, .openCabinet, .resumePendingCard: return Color("brand-primary", bundle: .main)
+        case .snoozeDose, .snoozeUntilTomorrow, .skipDose,
+             .archive, .viewEvidence, .view: return Color("text-secondary", bundle: .main)
         }
     }
 }

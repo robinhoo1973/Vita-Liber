@@ -131,8 +131,13 @@ struct MetricTile: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     // 来源点：医院实心 / 自测·设备空心（FR7.6）
+                    // D-2：自测空心点独立色通道 `grade-self`（与医院蓝异色 + 保留
+                    // 空心/实心形状差异，WCAG 1.4.1 冗余编码；对比度实测见
+                    // TrendViews.pointMark 注释）。
                     Circle()
-                        .strokeBorder(Color("brand-primary", bundle: .main), lineWidth: 1.5)
+                        .strokeBorder(item.origin == "hospital" ? Color("brand-primary", bundle: .main)
+                                                                : Color("grade-self", bundle: .main),
+                                      lineWidth: 1.5)
                         .background(Circle().fill(item.origin == "hospital"
                                                   ? Color("brand-primary", bundle: .main)
                                                   : .clear))
