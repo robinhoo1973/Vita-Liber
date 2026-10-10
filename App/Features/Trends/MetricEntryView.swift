@@ -65,6 +65,10 @@ struct MetricQuickEntryView: View {
     /// （store 无去重键）——加在途守卫，与 ObservationCreateSheet 的
     /// saving 守卫同口径。
     @State private var saving = false
+    /// S-5（第九轮审查 P6#3，权重重判定案）：表单打开时绑定成员——保存时
+    /// 若已切换即拦截（不新增 UI，复用 entryError 告警面）。此前保存取
+    /// app.currentPatientId 实时值，切成员后整份录入静默落到另一成员名下。
+    @State private var formPatientId: UUID?
     @State private var routeMonitor = AudioRouteMonitor()
     @FocusState private var focusField: Bool
 
@@ -175,6 +179,7 @@ struct MetricQuickEntryView: View {
                              isPresented: Binding(get: { entryError != nil },
                                                   set: { if !$0 { entryError = nil } }))
             .onAppear {
+                formPatientId = app.currentPatientId   // S-5：绑定打开时成员
                 // §5.13 记忆上次选择（V3.72）：此前恒为血糖，六类指标每次都要重选。
                 // 键构造收敛 Domain SettingsRules（与单位记忆键同族单一事实源）
                 if let last = UserDefaults.standard.string(forKey: SettingsRules.lastSelectedMetricKey),
@@ -231,9 +236,15 @@ struct MetricQuickEntryView: View {
         }
     }
 
+    @MainActor
     private func save() {
         // 第九轮审查修复（重入守卫）：按钮禁用 + 函数入口双保险
         guard !saving else { return }
+        // S-5：成员切换拦截——表单打开后切走成员，本次录入不得静默改归属
+        guard formPatientId == app.currentPatientId else {
+            entryError = L10n.commonMemberChanged
+            return
+        }
         // 校验收敛 MetricEntryValidation（纯函数；解析/合理性界限全在 Domain）
         let validated: (value: Double, secondary: Double?)
         switch MetricEntryValidation.validate(primaryText: primaryText,
@@ -253,6 +264,7 @@ struct MetricQuickEntryView: View {
             saving = false
             if ok {
                 saved = true
+                Haptics.notice(.success)   // S-2：保存成功触觉（单出口）
             } else {
                 // 写失败：保留输入，可见错误（FR7.5 绝不假装保存成功）
                 entryError = L10n.metricSaveFailed

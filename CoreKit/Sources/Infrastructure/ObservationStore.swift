@@ -12,19 +12,26 @@ public actor ObservationStore {
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
+    /// S-4（第九轮审查 P6#5 / FR8.2/8.11）：`occurredAt` 与 `capturedAt` 独立入参——
+    /// 此前 occurred_at 恒 = 保存时刻（早上发生的症状晚上录入即时间事实错误，
+    /// 时间轴排序随之错位）、captured_at 从不写入（详情页「拍摄时间」行永远 NULL）。
+    /// `occurredAt` 默认 = now 兼容既有调用；`capturedAt` 默认 = now（App 内创建
+    /// 即拍摄/录入时刻；导入轨可显式传原始拍摄时间）。
     public func create(id: UUID = UUID(), patientId: UUID, kind: ObservationKind, description: String,
                        selfMark: String?, groupId: UUID? = nil, mediaAssetIds: [String] = [],
+                       occurredAt: Date? = nil, capturedAt: Date? = nil,
                        now: Date = Date()) async throws {
         try await writer.write { db in
             let mediaJSON = mediaAssetIds.isEmpty ? nil
                 : String(data: try JSONEncoder().encode(mediaAssetIds), encoding: .utf8)
             try db.execute(sql: """
                 INSERT INTO observation
-                  (id, patient_id, kind, occurred_at, description, group_id, self_mark,
+                  (id, patient_id, kind, occurred_at, captured_at, description, group_id, self_mark,
                    media_asset_ids, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, kind.rawValue,
-                                 now.timeIntervalSince1970, description,
+                                 (occurredAt ?? now).timeIntervalSince1970,
+                                 (capturedAt ?? now).timeIntervalSince1970, description,
                                  groupId?.uuidString, selfMark,
                                  mediaJSON,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])

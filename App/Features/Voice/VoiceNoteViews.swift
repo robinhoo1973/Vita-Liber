@@ -90,6 +90,9 @@ struct VoiceNotePanelView: View {
     /// 写失败可见反馈（审查修复：此前 store 错误被吞、无任何 UI 反馈——
     /// 用户以为速记已保存/已更新/已删除，刷新后发现记录依旧）
     @State private var writeFailed = false
+    /// S-5（第九轮审查，权重重判定案）：面板打开时绑定的成员——保存/确认时
+    /// 若已切换即拦截（复用 writeFailed 告警面，不新增 UI 组件）。
+    @State private var formPatientId: UUID?
     /// 听写进行中（与录音生命周期同源；录音期间禁用行点击，见列表处说明）
     @State private var dictationBusy = false
 
@@ -176,6 +179,13 @@ struct VoiceNotePanelView: View {
                 confirmSet = nil
                 guard !body.isEmpty else { return }
                 Task {
+                    // S-5（第九轮审查 A4/P5）：面板打开后切走成员，本次保存拦截
+                    // ——口述/输入的速记不得静默落到另一成员名下（复用既有
+                    // writeFailed 告警面，不新增 UI 组件）。
+                    guard formPatientId == currentPatientId else {
+                        writeFailed = true
+                        return
+                    }
                     // 草稿在**写成功之后**才清（2026-09-16 评审）：此前先清后写，
                     // 写失败只弹「保存失败」而用户刚口述/输入的内容已经消失，
                     // 无法重试——失败必须可重试，绝不静默丢数据（FR8.9 同族）。
@@ -210,7 +220,10 @@ struct VoiceNotePanelView: View {
                 }
                 .presentationDetents([.medium])
             }
-            .onAppear { routeMonitor.start() }
+            .onAppear {
+                routeMonitor.start()
+                formPatientId = currentPatientId   // S-5：面板打开即绑定成员
+            }
             .onDisappear { routeMonitor.stop() }
         }
     }

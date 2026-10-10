@@ -157,6 +157,12 @@ final class LLMModelInstallCenter {
 
     func remove() {
         guard let entry else { return }
+        // S-3（第九轮审查 P7#1，权重重判定案）：删除 = **吊销同意**——类文档
+        // 自述「拉黑语义 = 删键」，但此前 remove() 从不删键：用户为腾空间删除
+        // 后，下一次冷启动 autoInstallIfEligible()（同意仍为 true、模型已缺）
+        // 会静默重新下载 ~396MB。现在删除即清 consent key：自动补齐不再触发，
+        // 重装必须再经用户显式同意（grantConsentAndInstall）。
+        UserDefaults.standard.removeObject(forKey: Self.consentKey)
         Task { [weak self] in
             try? await LLMModelDownloadService.shared.remove(id: entry.id)   // try?-ok: 删除失败按幂等处理，refresh 会校正呈现
             await MainActor.run { [weak self] in

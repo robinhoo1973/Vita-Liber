@@ -242,7 +242,7 @@ final class ObservationStoreState {
     /// createAllergy 同族：保存失败绝不静默呈现为「已保存」）。
     @discardableResult
     func create(patientId: UUID, kind: String, description: String, selfMark: String?,
-                photoData: [Data]) async -> Bool {
+                occurredAt: Date = Date(), photoData: [Data]) async -> Bool {
         var saved: [UUID] = []
         do {
             // 局部 Sendable 快照：TaskGroup 闭包非隔离，直接引用 self.mediaAssets
@@ -279,7 +279,8 @@ final class ObservationStoreState {
             try await store.create(patientId: patientId,
                                    kind: ObservationKind(rawValue: kind) ?? .custom,
                                    description: description, selfMark: selfMark,
-                                   mediaAssetIds: assetIds.map(\.uuidString))
+                                   mediaAssetIds: assetIds.map(\.uuidString),
+                                   occurredAt: occurredAt)   // S-4：发生时间如实落库；captured_at 默认=now（拍摄时刻）
             // 评审修复：成员切换后迟到的保存不重写共享状态——创建页含成员
             // 切换入口，保存期间切换成员后此 load 会以旧 patientId 击穿
             // BR-001 守卫；切换回该成员时 .task(id:) 自会重载
@@ -332,9 +333,10 @@ struct ObservationListView: View {
             .navigationTitle(L10n.observationTitle)
             .task(id: currentPatientId) { await state.load(patientId: currentPatientId) }
             .sheet(isPresented: $showCreate) {
-                ObservationCreateSheet { kind, desc, mark, photos in
+                ObservationCreateSheet { kind, desc, mark, occurredAt, photos in
                     await state.create(patientId: currentPatientId, kind: kind,
                                        description: desc, selfMark: mark,
+                                       occurredAt: occurredAt,
                                        photoData: photos)
                 }
             }
@@ -572,13 +574,16 @@ struct ObservationCreateSheet: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
-    /// 返回是否保存成功——false 时保留表单并告警，绝不静默呈现为「已保存」
-    let onCreate: (String, String, String?, [Data]) async -> Bool
+    /// 返回是否保存成功——false 时保留表单并告警，绝不静默呈现为「已保存」。
+    /// S-4：载荷增 occurredAt（发生时间），顺序 (kind, 描述, 自述标记, 发生时间, 照片)。
+    let onCreate: (String, String, String?, Date, [Data]) async -> Bool
 
     /// SP-14 步骤1：默认值在 onAppear 从 AppState 记忆项回填（FR8.1 默认高亮）
     @State private var kind = ObservationKind.skin.rawValue
     @State private var description = ""
     @State private var selfMark = "unchanged"
+    /// S-4（FR8.2/8.11）：发生时间（默认现在，可回填——早上发生晚上录入的场景）
+    @State private var occurredAt = Date()
     @State private var confirmSet: OcrConfirmationSet?
     @State private var routeMonitor = AudioRouteMonitor()
     @State private var saveFailed = false
@@ -630,7 +635,7 @@ struct ObservationCreateSheet: View {
                             // 照片已补偿删除、记录丢失（与 AllergyViews 同族）
                             saving = true
                             Task {
-                                if await onCreate(kind, description, selfMark, photoData) {
+                                if await onCreate(kind, description, selfMark, occurredAt, photoData) {
                                     dismiss()
                                 } else {
                                     saveFailed = true
@@ -780,6 +785,9 @@ struct ObservationCreateSheet: View {
 
     private var detailSection: some View {
         Section {
+            // S-4（FR8.2/8.11）：发生时间输入（默认现在；上界=现在——不虚构未来）
+            DatePicker(L10n.allergyOccurredAt, selection: $occurredAt, in: ...Date())
+                .accessibilityIdentifier("SP-14.observation.occurredAt")
             TextField(L10n.observationDescription, text: $description, axis: .vertical)
                 .lineLimit(2...5)
             // FR8.9 观察语音速记（纯转写层）：端上听写 → FR17.13 统一模板确认 →

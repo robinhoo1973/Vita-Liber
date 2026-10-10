@@ -339,9 +339,13 @@ final class ReminderStore {
             // （BR-004 反向事实链：已服≠未送达）
             await removeDeliveredReminders(for: dose)
             await refresh(patientId: patientId)
+            // S-2（第九轮审查 Haptics 单出口缺口）：剂量确认成功/失败触觉——
+            // 关怀模式低视力用户不看屏也能确认操作已被受理。
+            Haptics.notice(.success)
             return true
         } catch {
             logger.error("确认服药失败: \(error)")
+            Haptics.notice(.error)
             return false
         }
     }
@@ -364,7 +368,11 @@ final class ReminderStore {
                 logger.error("批量确认服药失败: \(error)")
             }
         }
-        if confirmed > 0 { await refresh(patientId: patientId) }
+        if confirmed > 0 {
+            await refresh(patientId: patientId)
+            // S-2：一次按住 = 一个用户动作 → 一次成功触觉（逐条不重复弹）
+            Haptics.notice(.success)
+        }
         return confirmed
     }
 
@@ -409,8 +417,10 @@ final class ReminderStore {
             // 时段卡继续显示「待确认」直到下次对账触发（与 confirmTaken 对齐）
             await removeDeliveredReminders(for: dose)
             if let patientId { await refresh(patientId: patientId) }
+            Haptics.impact(.light)   // S-2：跳过已记录
         } catch {
             logger.error("跳过记录失败: \(error)")
+            Haptics.notice(.warning)
         }
     }
 
@@ -455,8 +465,10 @@ final class ReminderStore {
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .missed)
             if let patientId { await refresh(patientId: patientId) }
+            Haptics.impact(.light)   // S-2：忘记已记录
         } catch {
             logger.error("忘记记录失败: \(error)")
+            Haptics.notice(.warning)
         }
     }
 
@@ -467,8 +479,10 @@ final class ReminderStore {
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .discomfort, reason: note)
             if let patientId { await refresh(patientId: patientId) }
+            Haptics.impact(.light)   // S-2：不适已记录
         } catch {
             logger.error("不适记录失败: \(error)")
+            Haptics.notice(.warning)
         }
     }
 
@@ -480,8 +494,10 @@ final class ReminderStore {
                                          medicationId: medicationId,
                                          actualTime: actualTime, doseUnits: doseUnits)
             await refresh(patientId: patientId)
+            Haptics.notice(.success)   // S-2：补录成功
         } catch {
             logger.error("补录失败: \(error)")
+            Haptics.notice(.error)
         }
     }
 
@@ -501,6 +517,7 @@ final class ReminderStore {
         do {
             try await meds.recordAction(notifyId: dose.notifyId, action: .snoozed)
             if let patientId { await refresh(patientId: patientId) }
+            Haptics.impact(.light)   // S-2：稍后已排
         } catch {
             logger.error("稍后提醒动作记录失败: \(error)")
         }

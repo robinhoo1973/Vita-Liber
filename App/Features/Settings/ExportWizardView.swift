@@ -50,6 +50,8 @@ final class ExportWizardState {
                 guard generation == self.runGeneration else { return }
                 phase = .finished(pkg)
                 exportURL = url
+                // S-2（第九轮审查）：导出成功触觉（Haptics 单出口）
+                Haptics.notice(.success)
             } catch is CancellationError {
                 guard generation == self.runGeneration else { return }
                 phase = .degraded(L10n.exportCancelled)
