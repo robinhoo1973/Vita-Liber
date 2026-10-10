@@ -239,6 +239,9 @@ DISEASE_SUFFIXES = ("病", "炎", "症", "瘤", "癌", "溃疡", "综合征", "�
 
 # ================================================================ 注册表（扩展点）
 
+#: E3：required_row 缺键被整行剔除的计数（kind → 行数）——随 manifest.stats 落盘 + 构建末具名告警。
+REQUIRED_ROW_DROPPED = {}
+
 REGISTRY = {
     "prescription": {"mode": "ocr", "weight": 0.20, "builder": "gen_prescription"},
     "medication":   {"mode": "asr", "weight": 0.09, "builder": "gen_medication"},
@@ -824,6 +827,16 @@ def make_sample(kind, specs, lines, shared_spans, rows_spans, est_budget):
         row = order_spans([s for s in row if s["key"] in spec["row"] and s["value"]], spec["row"])
         if row:
             rows_out.append(row)
+    if spec["required_row"]:
+        # E3 修复：required_row 逐键必须真正强制（原先只有「有任意一行」布尔检查）——
+        # 噪声（如 ASR 同音把「2片」变「2骗」）破坏必填字段后的行整行剔除（缺口计数并
+        # 响告警随 manifest.stats 落盘），不再让缺字段行静默出厂教模型漏字段。
+        required = tuple(spec["required_row"])
+        before = len(rows_out)
+        rows_out = [row for row in rows_out
+                    if all(any(s["key"] == key for s in row) for key in required)]
+        if before != len(rows_out):
+            REQUIRED_ROW_DROPPED[kind] = REQUIRED_ROW_DROPPED.get(kind, 0) + (before - len(rows_out))
     if spec["required_row"] and not rows_out:
         return None, "no_rows", 0
     for req in spec["required_shared"]:
@@ -1670,7 +1683,10 @@ def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
             a, b = rng.choice(groups)
             text = f"{a}、{b} 为同一药品的不同写法。"
         elif r < 0.72 and diseases:
-            text = f"{name}用于{diseases and rng.choice(diseases) or ''}等症状，具体用药请遵医嘱。"
+            # 红线对齐（goals「红线永不训：症状→用药建议」/BR-006 全程适用）：原模板把随机药品与
+            # 随机疾病拼成「X 用于 Y 等症状」的疗效断言（两者无数据关联=RNG 虚构适应症）；
+            # 改为零断言的中性表述，避免预训练阶段写入编造的药物-适应症关联。
+            text = f"关于{name}的适应症、用法用量与注意事项，请以药品说明书或医嘱为准。"
         elif r < 0.86 and aliases:
             text = f"处方上出现「{rng.choice(aliases)}」时，请核对药品名称是否与包装一致。"
         else:
@@ -1792,7 +1808,21 @@ def main():
         log("[FAIL] 无可用规格文件——先跑导出脚本"
             "（训练机 tools/export-prompts/export-extraction-prompts.sh；CI extract/export_prompts.sh）")
         return 2
+    missing_files = [k for k in kinds if k not in specs]
+    if missing_files:
+        # E8 对称面：请求的卡种缺 prompt_/spec_ 文件时，原先被静默剔除——缺口闸只遍历裁剪后的
+        # kinds，构建以 rc=0 出厂短语料（manifest.params.kinds 亦只剩裁剪集）。按 rc=2 具名拒绝，
+        # 与「未登记 REGISTRY」同口径 fail-closed；先跑导出脚本再构建。
+        log("[FAIL] 请求卡种缺 prompt_/spec_ 文件（先跑导出脚本）: " + ", ".join(missing_files))
+        return 2
     kinds = [k for k in kinds if k in specs]
+    unregistered = [k for k in kinds if k not in REGISTRY]
+    if unregistered:
+        # E8 修复：有 prompt_/spec_ 文件但未登记 REGISTRY 的卡种——按 rc=2（配置/输入错误）具名拒绝，
+        # 不再在权重装配处以裸 KeyError 崩溃（违反退出码契约，堆栈也无诊断力）。
+        log("[FAIL] 卡种未登记 REGISTRY（先补 build_extraction_corpus.REGISTRY 再构建）: "
+            + ", ".join(unregistered))
+        return 2
 
     # ---- 池装配（按「类型 × 地区」格子）----
     try:
@@ -2115,6 +2145,10 @@ def main():
             "lines": sum(1 for _ in open(path, encoding="utf-8")),
             "sha256": sha256_file(path),
         }
+    if REQUIRED_ROW_DROPPED:
+        stats["required_row_dropped_rows"] = dict(REQUIRED_ROW_DROPPED)
+        log("[warn] required_row 缺键行被整行剔除（噪声破坏必填字段；计数随 manifest.stats 落盘）: "
+            + ", ".join(f"{k}×{v}" for k, v in sorted(REQUIRED_ROW_DROPPED.items())))
     manifest_path = os.path.join(args.out_dir, "extraction_manifest.json")
     with open(manifest_path, "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
