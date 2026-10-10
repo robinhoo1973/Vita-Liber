@@ -82,9 +82,16 @@ public enum SleepMerge {
         let windowStart = calendar.date(byAdding: .day, value: -1, to: windowEnd) ?? anchorDate
 
         let clipped = clip(samples, to: windowStart, end: windowEnd)
-        let (perStage, asleepIntervals) = stageTotals(clipped)
-        let inBedUnion = union(clipped.filter { $0.stage == .inBed }.map { ($0.start, $0.end) })
-        let asleepSpans = union(asleepIntervals)
+        let (perStage, asleepIntervals, awakeIntervals) = stageTotals(clipped)
+        // 批F③（第九轮审查 D1#5，权重重判定案「兑现」）：mergeGap 契约此前只声明
+        // 不生效（union 仅并相接段，≤5min **记录间隙**被静默丢弃——63min 的一夜
+        // 按 57min 计）。入睡段与在床段并集按契约合并 ≤5min 间隙；但**实测清醒
+        // 段必须扣回**（J1 既有契约「4 分钟 awake 不被填回睡眠」——间隙=无样本
+        // 记录空洞，清醒段=测量到的醒着，二者不可混同）。perStage 保持实测覆盖。
+        let inBedUnion = union(clipped.filter { $0.stage == .inBed }.map { ($0.start, $0.end) },
+                               mergingGapsUpTo: mergeGap)
+        let asleepMerged = union(asleepIntervals, mergingGapsUpTo: mergeGap)
+        let asleepSpans = subtract(union(awakeIntervals), from: asleepMerged)
         return SleepNightSummary(
             totalAsleep: asleepSpans.reduce(0) { $0 + $1.1.timeIntervalSince($1.0) },
             perStage: perStage,
@@ -122,9 +129,10 @@ public enum SleepMerge {
 
     /// ④⑤ 边界分段：每段按阶段优先级归一个阶段；入睡段（非 awake）入 `asleepIntervals` 供并集。
     /// Each interval is assigned once; episode grouping must never fill unobserved time.
-    private static func stageTotals(_ clipped: [SleepSample]) -> (perStage: [SleepStage: TimeInterval], asleepIntervals: [(Date, Date)]) {
+    private static func stageTotals(_ clipped: [SleepSample]) -> (perStage: [SleepStage: TimeInterval], asleepIntervals: [(Date, Date)], awakeIntervals: [(Date, Date)]) {
         var perStage: [SleepStage: TimeInterval] = [:]
         var asleepIntervals: [(Date, Date)] = []
+        var awakeIntervals: [(Date, Date)] = []
         let boundaries = Set(clipped.flatMap { [$0.start, $0.end] }).sorted()
         for (start, end) in zip(boundaries, boundaries.dropFirst()) {
             let active = clipped.filter { $0.start < end && $0.end > start && $0.stage != .inBed }
@@ -144,9 +152,13 @@ public enum SleepMerge {
                 stage = Set(sameSource.map(\.stage)).count > 1 ? .unspecified : preferred.stage
             }
             perStage[stage, default: 0] += end.timeIntervalSince(start)
-            if stage != .awake { asleepIntervals.append((start, end)) }
+            if stage == .awake {
+                awakeIntervals.append((start, end))
+            } else {
+                asleepIntervals.append((start, end))
+            }
         }
-        return (perStage, asleepIntervals)
+        return (perStage, asleepIntervals, awakeIntervals)
     }
 
     /// ⑥ 分段计数：相邻入睡段 gap>30min 各成段——gap 按「前段结束→后段
@@ -167,18 +179,39 @@ public enum SleepMerge {
         return segmentCount
     }
 
-    /// Actual coverage union: gaps never contribute measured duration.
-    static func union(_ intervals: [(Date, Date)]) -> [(Date, Date)] {
+    /// 区间并集。`mergingGapsUpTo`：间隙 ≤ 阈值的两段并作一段
+    /// （mergeGap 契约的落点，批F③；0 = 仅并相接/重叠段，既有调用零变化）。
+    /// perStage 侧仍按实测覆盖计——空白不归任何阶段。
+    static func union(_ intervals: [(Date, Date)],
+                      mergingGapsUpTo tolerance: TimeInterval = 0) -> [(Date, Date)] {
         let sorted = intervals.sorted { $0.0 < $1.0 }
         var out: [(Date, Date)] = []
         for interval in sorted {
-            if let last = out.last, interval.0 <= last.1 {
+            if let last = out.last, interval.0.timeIntervalSince(last.1) <= tolerance {
                 out[out.count - 1] = (last.0, max(last.1, interval.1))
             } else {
                 out.append(interval)
             }
         }
         return out
+    }
+
+    /// 从 spans 中扣除 cut 覆盖的区间（实测清醒段不得并入入睡总长）。
+    static func subtract(_ cut: [(Date, Date)], from spans: [(Date, Date)]) -> [(Date, Date)] {
+        var remaining = spans.sorted { $0.0 < $1.0 }
+        for (cutStart, cutEnd) in cut {
+            var next: [(Date, Date)] = []
+            for (start, end) in remaining {
+                if cutEnd <= start || cutStart >= end {
+                    next.append((start, end))
+                    continue
+                }
+                if cutStart > start { next.append((start, min(cutStart, end))) }
+                if cutEnd < end { next.append((max(cutEnd, start), end)) }
+            }
+            remaining = next
+        }
+        return remaining.filter { $0.1 > $0.0 }
     }
 
     /// 来源优先：product（watch>phone>other）→ version（高者优先）

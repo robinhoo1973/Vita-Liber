@@ -13,7 +13,21 @@ public actor TrendQueryStore {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     /// round2 H2 / BR-001：显式设备过滤而成员非本人绑定 → 拒绝（不静默空态，视图据此不提供设备筛选项）
-    public enum QueryError: Error { case deviceRequiresSelfBinding }
+    public enum QueryError: Error {
+        case deviceRequiresSelfBinding
+        /// 批F②（第九轮审查 I1 cleanup）：写入归属守卫——成员已软删/不存在。
+        case patientNotFound
+    }
+
+    /// 批F②（第九轮审查 I1 cleanup）：归属守卫单一出口——写 metric_sample 前
+    /// 校验成员未软删（其余写仓统一纪律，本仓此前是唯一例外：陈旧 UI 状态可给
+    /// 已删成员落读数）。
+    static func requireActivePatient(_ db: Database, patientId: UUID) throws {
+        let ok = try Int.fetchOne(db, sql: """
+            SELECT COUNT(*) FROM patient_profile WHERE id = ? AND deleted_at IS NULL
+            """, arguments: [patientId.uuidString]) ?? 0
+        guard ok > 0 else { throw QueryError.patientNotFound }
+    }
 
     /// 趋势点统一 SELECT 列清单（series / sleepSeries / latestPoints 共用同一投影——
     /// 单一出口防字段口径分叉，与本仓「同一事实两处实现」的既有教训同纪律）。
@@ -56,7 +70,7 @@ public actor TrendQueryStore {
                 SELECT \(Self.sampleColumns(valueColumn: valueColumn, refProjection: refProjection))
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key = ? AND \(valueColumn) IS NOT NULL
-                  AND measured_at >= ? AND measured_at <= ?\(originClause)
+                  AND measured_at >= ? AND measured_at < ?\(originClause)
                 ORDER BY measured_at ASC
                 """, arguments: StatementArguments(arguments))
             if metric == .bloodPressureDia {
@@ -71,7 +85,7 @@ public actor TrendQueryStore {
                     SELECT \(Self.sampleColumns(valueColumn: "value", refProjection: Self.noReferenceColumns))
                     FROM metric_sample
                     WHERE patient_id = ? AND metric_key = 'bloodPressureDia' AND value IS NOT NULL
-                      AND measured_at >= ? AND measured_at <= ?\(originClause)
+                      AND measured_at >= ? AND measured_at < ?\(originClause)
                     ORDER BY measured_at ASC
                     """, arguments: StatementArguments(directArguments))
                 rows.append(contentsOf: direct)
@@ -150,7 +164,7 @@ public actor TrendQueryStore {
                 SELECT \(Self.sampleColumns(valueColumn: "value", refProjection: Self.referenceColumns))
                 FROM metric_sample
                 WHERE patient_id = ? AND metric_key IN (\(placeholders)) AND value IS NOT NULL
-                  AND measured_at >= ? AND measured_at <= ?\(originClause)
+                  AND measured_at >= ? AND measured_at < ?\(originClause)
                 ORDER BY measured_at ASC
                 """, arguments: StatementArguments(keyArguments))
             let all = rows.compactMap { row -> SleepTrendRow? in
@@ -198,6 +212,7 @@ public actor TrendQueryStore {
                           measuredAt: Date, sourceRef: String? = nil) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
+            try Self.requireActivePatient(db, patientId: patientId)   // 批F②：归属守卫（全仓唯一例外补平）
             try db.execute(sql: """
                 INSERT INTO metric_sample
                   (id, patient_id, metric_key, value, secondary_value, unit, origin,
@@ -299,6 +314,7 @@ public actor TrendQueryStore {
 
     /// Shared by manual refresh and the atomic HealthKit checkpoint transaction.
     static func upsertDeviceRows(_ rows: [DeviceMetricRow], patientId: UUID, db: Database) throws -> Int {
+        try requireActivePatient(db, patientId: patientId)   // 批F②：归属守卫
         var changed = 0
         for row in rows {
             guard row.value.isFinite else { throw HealthImportStore.ImportError.invalidValue }

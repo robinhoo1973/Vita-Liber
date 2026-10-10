@@ -550,8 +550,8 @@ public actor ExportService {
     public func exportJSON() async throws -> Envelope {
         try await writer.read { db in
             let ownerRow = try Row.fetchOne(db, sql: "SELECT * FROM local_owner LIMIT 1")
-            let owner = ownerRow.map { row in
-                LocalOwner(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+            let owner = try ownerRow.map { row in
+                LocalOwner(id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                            displayName: row["display_name"] as String,
                            selfPatientId: (row["self_patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                            createdAt: row["created_at"] as Double)
@@ -575,7 +575,7 @@ public actor ExportService {
                 ORDER BY created_at
                 """).map(GRDBStore.profileRow)
             let consents = try Row.fetchAll(db, sql: "SELECT * FROM consent_record ORDER BY accepted_at").map { row in
-                ConsentRecord(id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                ConsentRecord(id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                               key: row["key"] as String,
                               level: row["level"] as Int,
                               version: row["version"] as String,
@@ -596,7 +596,7 @@ public actor ExportService {
             }
             let documents = try Row.fetchAll(db, sql: "SELECT * FROM document_file ORDER BY created_at").map { row in
                 Envelope.DocumentExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
                     docType: row["doc_type"] as String,
@@ -626,7 +626,7 @@ public actor ExportService {
                 do { schedule = try JSONDecoder().decode(MedicationSchedule.self, from: json) }
                 catch { return nil }   // §7 禁 try?：损坏 schedule_json 跳过该计划
                 return Envelope.PlanExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     medicationName: row["generic_name"] as String,
                     spec: row["spec"] as String?,
@@ -641,7 +641,7 @@ public actor ExportService {
             }
             let appointments = try Row.fetchAll(db, sql: "SELECT * FROM appointment").map { row in
                 Envelope.AppointmentExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     hospital: (row["hospital"] as String?) ?? "",
                     department: (row["department"] as String?) ?? "",
@@ -654,7 +654,7 @@ public actor ExportService {
             }
             let observations = try Row.fetchAll(db, sql: "SELECT * FROM observation").map { row in
                 Envelope.ObservationExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     kind: row["kind"] as String,
                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
@@ -677,7 +677,7 @@ public actor ExportService {
             }
             let allergies = try Row.fetchAll(db, sql: "SELECT * FROM allergy_event").map { row in
                 Envelope.AllergyExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     substance: row["substance"] as String,
                     severity: row["severity"] as String,
@@ -694,7 +694,7 @@ public actor ExportService {
             // v25（D1-4）：就诊全列导出（含五叙事列 + 时间戳）——手工就诊不再只剩 diagnosis_text。
             let encounters = try Row.fetchAll(db, sql: "SELECT * FROM encounter").map { row in
                 Envelope.EncounterExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     date: Date(timeIntervalSince1970: row["date"] as Double),
                     kind: row["kind"] as String,
@@ -718,7 +718,7 @@ public actor ExportService {
             }
             let metrics = try Row.fetchAll(db, sql: "SELECT * FROM metric_sample").map { row in
                 Envelope.MetricExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     key: row["metric_key"] as String,
                     value: row["value"] as Double,
@@ -750,7 +750,7 @@ public actor ExportService {
             }
             let alertEvents = try Row.fetchAll(db, sql: "SELECT * FROM alert_event ORDER BY created_at, id").map { row in
                 Envelope.AlertEventExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     ruleId: row["rule_id"] as String,
                     severity: row["severity"] as String,
@@ -762,7 +762,7 @@ public actor ExportService {
             }
             let immunizations = try Row.fetchAll(db, sql: "SELECT * FROM immunization").map { row in
                 Envelope.ImmunizationExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     vaccineName: row["vaccine_name"] as String,
                     administeredAt: Date(timeIntervalSince1970: (row["administered_at"] as Double?) ?? 0),
@@ -781,7 +781,7 @@ public actor ExportService {
                     catch { return [] }
                 } ?? []
                 return Envelope.VoiceNoteExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     body: row["body"] as String,
                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
@@ -790,7 +790,7 @@ public actor ExportService {
             }
             let healthProblems = try Row.fetchAll(db, sql: "SELECT * FROM health_problem").map { row in
                 Envelope.HealthProblemExport(
-                    id: UUID(uuidString: row["id"] as String) ?? UUID(),
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
                     name: row["name"] as String,
                     kind: row["kind"] as String?,
@@ -973,7 +973,8 @@ public actor ExportService {
             func add(_ table: String, ids: [String],
                      backupTitle: (String) -> String?, existingTitle: (String) -> String?) throws {
                 for id in try conflictIds(table: table, ids: ids) {
-                    let uid = UUID(uuidString: id) ?? UUID()
+                    // 批F⑥：损坏身份响亮失败（此处已在 throwing 上下文）
+                    let uid = try Self.requiredUUID(id, column: "id")
                     items.append(ConflictItem(id: uid, table: table,
                                               backupTitle: backupTitle(id),
                                               existingTitle: existingTitle(id)))
@@ -1132,6 +1133,21 @@ public actor ExportService {
     public enum ExportError: Error, Sendable, Equatable {
         case conflict(table: String, id: String)
         case invalidOCRBackup
+        /// 批F⑥（第九轮审查）：身份列损坏/缺失——导出物身份不得静默铸随机
+        /// UUID（旧 `UUID(uuidString:) ?? UUID()` 政策：恢复后 FK 指空/整表
+        /// 身份漂移，且无任何信号）。
+        case corruptIdentity(column: String)
+    }
+
+    /// 批F⑥（第九轮审查 S 简评#5，权重重判定案）：身份列解码单一政策——
+    /// 损坏/缺失即响亮失败（旧 `UUID(uuidString:) ?? UUID()` 静默铸随机身份：
+    /// 导出物身份漂移、恢复后 FK 指空/重复行且无信号）。可选外键面仍走
+    /// flatMap→nil（本就可空，不属本政策）。
+    static func requiredUUID(_ raw: String?, column: String) throws -> UUID {
+        guard let raw, let id = UUID(uuidString: raw) else {
+            throw ExportError.corruptIdentity(column: column)
+        }
+        return id
     }
 
     static func reviewCardIDs(_ metadata: String?) throws -> [UUID] {

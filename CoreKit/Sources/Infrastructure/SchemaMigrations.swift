@@ -899,6 +899,12 @@ public enum SchemaMigrations {
         // 索引缺）——实现为代码迁移（表重建需终态探测与列集无关搬运,
         // 见 GRDBStore.repairUpgradeChain 头注）。
         Step(version: 33, name: "upgrade-chain-repair", sql: ""),
+        // v34 患者域 FK 补齐（2026-10-10 收口批 F⑤②）：alert_event /
+        // ai_conversation 是患者域唯二未声明 REFERENCES patient_profile(id)
+        // 的表（v1 起形态；L0「DDL 引用完整性」只断已声明项可达,缺声明不在
+        // 覆盖面）——表重建补 FK；实现为代码迁移（列集交集搬运 + 终态探测,
+        // 见 GRDBStore.repairPatientReferences 头注）。
+        Step(version: 34, name: "patient-fk-repair", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

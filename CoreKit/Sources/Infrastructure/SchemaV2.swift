@@ -586,7 +586,9 @@ public enum SchemaV2 {
 
     -- 预警事件（F16）
     CREATE TABLE alert_event (
-      id TEXT PRIMARY KEY, patient_id TEXT NOT NULL,
+      -- v34（2026-10-10 收口批 F⑤②）：patient_id 补患者域 FK——其余患者域表
+      -- 共建此约束，唯二遗漏（本表与 ai_conversation）由 v34 迁移对升级库补齐。
+      id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       rule_id TEXT NOT NULL, severity TEXT NOT NULL CHECK(severity IN ('L0','L1','L2','L3')),
       evidence_json TEXT NOT NULL,
       qualified INTEGER NOT NULL DEFAULT 0, scheduled_at REAL,
@@ -649,7 +651,8 @@ public enum SchemaV2 {
 
     -- AI 会话与消息（F12.10）
     CREATE TABLE ai_conversation (
-      id TEXT PRIMARY KEY, patient_id TEXT NOT NULL,
+      -- v34（2026-10-10 收口批 F⑤②）：同 alert_event，补 REFERENCES。
+      id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE TABLE ai_message (
       id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES ai_conversation(id),

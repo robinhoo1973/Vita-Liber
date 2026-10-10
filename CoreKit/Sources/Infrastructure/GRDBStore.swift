@@ -117,6 +117,10 @@ public struct GRDBStore {
                     // v33 upgrade-chain-repair（2026-10-10 审查轮,17 复核席实证）：
                     // 三处只影响**升级库**的链级缺陷,全新库基线本就正确。
                     try Self.repairUpgradeChain(db)
+                case 34:
+                    // v34 patient-fk-repair（2026-10-10 收口批 F⑤②）：患者域 FK 补齐，
+                    // 只影响升级库；全新库基线已带 REFERENCES。
+                    try Self.repairPatientReferences(db)
                 case 25:
                     // v25 recognition-fact-lines：DDL/ocr_card_commit 重建 + FK 校验 +
                     // 回执确定性回填（GRDBStore+V25Backfill）+ 版本推进同一事务——
@@ -253,6 +257,83 @@ public struct GRDBStore {
     ///    子查询按 lab_report_id/health_exam_id 全表扫）。
     /// 崩溃安全:两处重建均为「先建暂存名 → 拷贝 → 删旧 → 换名」,重放时以
     /// 终态探测续跑（暂存表在而正式表缺 = 上次停在换名前,直接完成换名）。
+    /// v34 患者域 FK 补齐（2026-10-10 收口批 F⑤②）：alert_event 与
+    /// ai_conversation 的 patient_id 补 `REFERENCES patient_profile(id)`
+    /// （患者域其余表皆已声明；成员软删/恢复导入残留无主行时缺数据库级兜底）。
+    /// 崩溃安全照 v33 范式：先建 `<表>_v34` 暂存 → 列集**交集**搬运（对后续
+    /// 增列无感）→ 删旧 → 换名；重放以终态探测续跑（暂存表在而正式表缺 =
+    /// 上次停在换名前，直接续完换名并补索引）。必填无默认列若不在旧表列集内，
+    /// 响亮失败交由降级链（绝不半搬运）。两表索引随重建按基线名单重建。
+    private static func repairPatientReferences(_ db: Database) throws {
+        try rebuildPatientScopedTable(
+            db, table: "alert_event",
+            createSQL: """
+                CREATE TABLE alert_event_v34 (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  rule_id TEXT NOT NULL, severity TEXT NOT NULL CHECK(severity IN ('L0','L1','L2','L3')),
+                  evidence_json TEXT NOT NULL,
+                  qualified INTEGER NOT NULL DEFAULT 0, scheduled_at REAL,
+                  delivered_state TEXT NOT NULL, created_at REAL NOT NULL)
+                """,
+            indexes: [
+                "CREATE INDEX IF NOT EXISTS idx_alert_qualified ON alert_event(patient_id, qualified, created_at)",
+                "CREATE INDEX IF NOT EXISTS idx_alert_event_patient_rule ON alert_event(patient_id, rule_id)",
+            ])
+        try rebuildPatientScopedTable(
+            db, table: "ai_conversation",
+            createSQL: """
+                CREATE TABLE ai_conversation_v34 (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL)
+                """,
+            indexes: [])
+    }
+
+    private static func rebuildPatientScopedTable(_ db: Database, table: String,
+                                                  createSQL: String, indexes: [String]) throws {
+        let temporary = table + "_v34"
+        let quoted = "\"\(table)\""
+        let quotedTemporary = "\"\(temporary)\""
+        if try tableExists(db, temporary) {
+            // 上次停在「删旧之后、换名之前」：续完换名
+            try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO \(quoted)")
+        } else if try tableExists(db, table) {
+            let current = try String.fetchOne(
+                db, sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
+                arguments: [table]) ?? ""
+            if current.contains("REFERENCES patient_profile") {
+                return   // 已是终态（重放/新库）
+            }
+            try db.execute(sql: createSQL)
+            let oldCols = try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info(?)",
+                                              arguments: [table])
+            let newCols = Set(try String.fetchAll(db, sql: "SELECT name FROM pragma_table_info(?)",
+                                                  arguments: [temporary]))
+            let common = oldCols.filter { newCols.contains($0) }
+            // 必填无默认列必须能在旧表找到值来源，否则响亮失败（绝不半搬运）
+            let required = try Row.fetchAll(db, sql: """
+                SELECT name FROM pragma_table_info(?) WHERE "notnull" = 1 AND dflt_value IS NULL
+                """, arguments: [temporary])
+            for row in required {
+                let name = row["name"] as String
+                guard common.contains(name) else {
+                    throw MigrationError.patientReferenceRepairIncomplete(table: table, column: name)
+                }
+            }
+            let columnList = common.map { "\"\($0)\"" }.joined(separator: ", ")
+            try db.execute(sql: """
+                INSERT INTO \(quotedTemporary) (\(columnList)) SELECT \(columnList) FROM \(quoted)
+                """)
+            try db.execute(sql: "DROP TABLE \(quoted)")
+            try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO \(quoted)")
+        } else {
+            return   // 基线库不重放本步（防御性放行，同 v13 范式）
+        }
+        for sql in indexes {
+            try db.execute(sql: sql)
+        }
+    }
+
     private static func repairUpgradeChain(_ db: Database) throws {
         try Self.repairDanglingDoseLogReferences(db)
         try Self.repairAuditEventLegacyShape(db)
@@ -513,12 +594,17 @@ public struct GRDBStore {
     public enum MigrationError: Error, Equatable, CustomStringConvertible {
         case schemaTooNew(found: Int, supported: Int)
         case foreignKeysNotReenabled
+        /// v34：患者域 FK 重建的前置校验失败（必填列在旧表缺值来源）——
+        /// 响亮失败交降级链，绝不半搬运。
+        case patientReferenceRepairIncomplete(table: String, column: String)
         public var description: String {
             switch self {
             case .schemaTooNew(let found, let supported):
                 return "数据库 schema 版本 \(found) 高于当前二进制支持的 \(supported)——须更新 App（SL-15 降级链）"
             case .foreignKeysNotReenabled:
                 return "迁移后 PRAGMA foreign_keys 复位失败"
+            case .patientReferenceRepairIncomplete(let table, let column):
+                return "v34 患者域 FK 重建：\(table).\(column) 在旧表无值来源"
             }
         }
     }

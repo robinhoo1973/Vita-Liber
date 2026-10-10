@@ -133,11 +133,14 @@ public final class MedicalCatalogStore: MedicalCatalogReading, @unchecked Sendab
             guard !name.isEmpty else {
                 return MedicalCatalogMatch(status: .unmatched, exact: nil, candidates: [])
             }
-            let like = "%" + name + "%"
+            // 批F①（第九轮审查 I1 cleanup）：LIKE 通配符转义——printed_name
+            // 含 % / _ 时旧写法把候选集放大到近全表（本仓其余 LIKE 查询统走
+            // MedicalReferenceCatalogStore.likeEscaped + ESCAPE；此处是唯一例外）。
+            let like = "%" + MedicalReferenceCatalogStore.likeEscaped(name) + "%"
             var candidates = try Self.rows(db, sql: """
                 SELECT * FROM drug
                 WHERE name_zh = ? OR name_en = ? OR brand_name = ?
-                   OR name_zh LIKE ? OR name_en LIKE ? OR brand_name LIKE ?
+                   OR name_zh LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR brand_name LIKE ? ESCAPE '\\'
                 ORDER BY id LIMIT 50
                 """, arguments: [name, name, name, like, like, like])
             if let spec = line.spec?.trimmingCharacters(in: .whitespacesAndNewlines), !spec.isEmpty {

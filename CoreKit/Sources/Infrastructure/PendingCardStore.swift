@@ -262,8 +262,11 @@ public actor PendingCardStore {
     /// 幂等：只推进未完结卡；返回 (过期数, 归档数) 供提醒链消费。
     public func advanceLifecycle(now: Date = Date()) async throws -> (expired: Int, archived: Int) {
         let nowEpoch = now.timeIntervalSince1970
-        let expiredCutoff = nowEpoch - 7 * 86400
-        let archivedCutoff = nowEpoch - 30 * 86400
+        // 批F④（第九轮审查 I1/D2 同族）：7/30 天窗口改**日历日**口径（DST 日
+        // 固定 86400 与 PendingOcrRules 的日历日窗口相互矛盾：换日时两条
+        // 规则对同一张卡给出不同判定）。DayArithmetic 单一出口。
+        let expiredCutoff = DayArithmetic.since(days: 7, now: now)
+        let archivedCutoff = DayArithmetic.since(days: 30, now: now)
         return try await writer.write { db -> (Int, Int) in
             try db.execute(sql: """
                 UPDATE pending_card SET status = 'expired', updated_at = ?
