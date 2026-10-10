@@ -192,10 +192,10 @@ struct AppContainer {
         updateAdviceProvider = nil
         #endif
         return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
-                        medicalReferenceCatalog: referenceCatalog,
                         medicalCatalogUpdater: updater,
                         medicalCatalogChecker: catalogChecker,
                         medicalCatalogOpener: catalogOpener,
+                        medicalReferenceCatalog: referenceCatalog,
                         updateAdvice: updateAdviceProvider)
     }
 
