@@ -243,7 +243,7 @@ final class LlamaRuntime: @unchecked Sendable {
         // —— 批量 prefill（2026-10-09：旧逐 token llama_decode 在 1–3K 提示上 CPU 模拟器
         //    可撞 15s regionTimeout；chunked 批式把 prefill 调用数从 N 降到 ⌈N/nBatch⌉）——
         let nBatch = min(512, Int(nCtx))
-        let batch = llama_batch_init(Int32(nBatch), 0, 1)
+        var batch = llama_batch_init(Int32(nBatch), 0, 1)   // var：下方直接写 n_tokens 等 C 结构字段（macOS CI 38050686250 实证）
         defer { llama_batch_free(batch) }
         var position: Int32 = 0
         var index = 0
