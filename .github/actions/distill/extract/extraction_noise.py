@@ -202,7 +202,9 @@ def voiced(qty_unit: str, rng: random.Random) -> str:
 #
 # 与 legacy 的关系:legacy 函数原样保留(训练机兼容);v2 由构建器主路径消费。
 # 常量镜像 policy.json(.github/config/distill/policy.json 为单一事实源):
-# - extract 侧运行期不依赖 policy 文件(训练机副本无此布局)→ 常量在此 + 双侧断言:
+# - extract 侧运行期不读 policy 文件(2026-10-10 F2 起 policy 已随载荷交付,两布局同址:
+#   <根>/.github/config/distill/policy.json;常量在此仍为操作约束,不引入运行期读依赖)
+#   → 常量在此 + 双侧断言:
 #   ①tests/test_noise_policy_sync.py(CI 零依赖断言两处相等)
 #   ②builder main 启动时若找到 policy.json 则再断一次(fail-closed)。
 

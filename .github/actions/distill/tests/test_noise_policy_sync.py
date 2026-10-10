@@ -1,8 +1,9 @@
 """噪声常量 ↔ policy.json 单一事实源同步负测(2026-10-08 D1 批)
 + 跨侧孪生副本同步负测(2026-10-09 W20 B 批)。
 
-背景:extract/extraction_noise.py 的运行期常量(训练机副本无 policy.json 布局,
-不能运行期依赖文件)必须与 .github/config/distill/policy.json 逐值相等,否则
+背景:extract/extraction_noise.py 的运行期常量(不读 policy 文件为操作约束;
+2026-10-10 F2 起 policy 已随载荷交付、两布局同址 <根>/.github/config/distill/
+policy.json)必须与 .github/config/distill/policy.json 逐值相等,否则
 语料按一套分布产出、门禁按另一套判。builder main 已有 fail-closed 交叉断言;
 本测试把同一断言左移到测试期(不等到产出时才红)。
 
