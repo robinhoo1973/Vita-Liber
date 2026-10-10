@@ -133,14 +133,24 @@ public actor MemberDeletionService {
         // 写事务成功后才取消系统侧通知：删除/取消的预约不再按时弹出提醒
         if let scheduler {
             // Cancel OCR requests first, even when there were no appointments.
+            // 第九轮审查修复（FR3.4 隐私）：两族取消必须彼此独立——原实现
+            // pending- 取消一旦抛错就 throw，后面的 apt-/followup- 取消永不
+            // 执行；而重试函数只重试 pending-，deleteMember 又因成员已软删
+            // （memberNotFound 守卫）无法重放——已删成员的预约提醒永久留在
+            // 系统里并深链到已删资料。改为：记录 pending- 失败但继续取消
+            // 预约族，最后照旧响亮上抛该失败。
+            var pendingCancellationError: Error?
             if !notificationIds.1.isEmpty {
                 do { try await scheduler.cancel(notificationIds.1.map { "pending-\($0)" }) }
-                catch { throw StoreError.pendingNotificationCancellationFailed }
+                catch { pendingCancellationError = error }
             }
             let pending = try await scheduler.pending()
             let stale = ReminderIDNames.staleAppointments(in: pending, ids: notificationIds.0)
             if !stale.isEmpty {
                 try await scheduler.cancel(Array(stale))
+            }
+            if let pendingCancellationError {
+                throw StoreError.pendingNotificationCancellationFailed
             }
         }
     }

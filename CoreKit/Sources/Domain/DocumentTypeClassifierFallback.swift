@@ -230,6 +230,11 @@ public enum DocumentTypeClassifierFallback {
                   let vRange = Range(match.range(at: 1), in: text) else { continue }
             var payload = String(text[vRange]).trimmingCharacters(in: .whitespaces)
             guard !payload.isEmpty else { continue }
+            // 第九轮审查修复（冒号回吞）：可选的 `[:：]?` 在「诊断：」这类
+            // 值缺失行会回溯，把冒号本身交给 `(.+)`——diagnosis="："（纯标点
+            // 伪值，conf 0.6）原样进确认卡，甚至随 absorbNarrativeLines 扩散成
+            // "：\n合计：" 式污染。纯标点负载（无任何字母/数字）一律视为无值。
+            guard payload.contains(where: { $0.isLetter || $0.isNumber }) else { continue }
             // 自由文本角色（`(.+)` 贪婪捕获）：截到**下一个标签**之前。
             // 2026-09-16 实测污染修复——`科室[:：]?\s*(.+)` 曾把
             // 「呼吸内科 医生：张三」整段收作科室值、`医生` 亦然。
@@ -372,7 +377,19 @@ public extension DocumentTypeClassifierFallback {
             // 多标签同行仍会吞值——`出院诊断：支气管炎 出院医嘱：继续服药` 的
             // diagnosis_item 会得到整段。修它需区分**叙事键**（治疗经过合法含「诊断」二字，
             // 不得截断）与**标识键**（应截断），是一次策略决策而非机械替换，故不在本批擅动。
-            let suffix = text.split(maxSplits: 1, whereSeparator: { $0 == ":" || $0 == "：" }).last.map(String.init) ?? text
+            // 第九轮审查修复（标签后为空值行）：原 `split(omittingEmptySubsequences: true)`
+            // 对「出院诊断：」这类**值在下一视觉行**的标签行丢弃尾空段，`.last`
+            // 于是取回**标签本体**——discharge_diagnosis / drug_name 等直接落成
+            // 「出院诊断」「药品名称」（与业主实测「药品二字成药名」同族，
+            // 只有 `components(separatedBy:)` 形态会保留空尾而跳过）。改为显式
+            // 「首个冒号之后」取值并保留空串；空值消费端在 appendDrugAndLabelFields
+            // 内一律跳过（见该函数内新增的非空守卫），不再产出标签伪值。
+            let suffix: String
+            if let colon = text.firstIndex(where: { $0 == ":" || $0 == "：" }) {
+                suffix = String(text[text.index(after: colon)...])
+            } else {
+                suffix = text
+            }
             // 值域锚定（2026-09-16 实测污染修复）：取**该标签自己**的值段，右界为下一个标签。
             // 原实现取「首个冒号之后的全部文本」当值——对
             // `日期：2026-09-12 科室：呼吸内科 医生：张三` 得到 doctor = 整段（含日期与科室）、
@@ -481,9 +498,12 @@ public extension DocumentTypeClassifierFallback {
         // 冒号缺失时 suffix = 整行，且无 colon 守卫。剥标签后校验余值：
         // 含其他表头词/超长 = 表头行，跳过；余值非空且短 = 药名本体。
         if explicitDrug {
-            if text.contains(":") || text.contains("：") {
+            // 第九轮审查修复（空值守卫）：冒号后为空（值在下一视觉行）时不得把
+            // 标签本体（旧行为）或空串（suffix 修复后的新形态）当药名落库。
+            if (text.contains(":") || text.contains("：")),
+               !suffix.trimmingCharacters(in: .whitespaces).isEmpty {
                 appendIfAbsent("drug_name", suffix, rawLine: line, index: index, confidence: confidence, to: &fields)
-            } else {
+            } else if !text.contains(":") && !text.contains("：") {
                 let stripped = drugLabelPrefixes.reduce(text) { partial, prefix in
                     partial.hasPrefix(prefix)
                         ? String(partial.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
@@ -503,10 +523,16 @@ public extension DocumentTypeClassifierFallback {
             appendIfAbsent("drug_name", text, rawLine: line, index: index, confidence: confidence, to: &fields)
         }
         if directions {
-            appendIfAbsent("advice_text", suffix, rawLine: line, index: index, confidence: confidence, to: &fields)
+            // 第九轮审查修复（空值守卫）：同 explicitDrug——「用法：」空值行不得
+            // 把标签「用法」写成 advice_text。
+            if !suffix.trimmingCharacters(in: .whitespaces).isEmpty {
+                appendIfAbsent("advice_text", suffix, rawLine: line, index: index, confidence: confidence, to: &fields)
+            }
         }
         if text.contains(":") || text.contains("：") {
-            for (key, prefixes) in directLabelAliases where prefixes.contains(where: text.hasPrefix) {
+            for (key, prefixes) in directLabelAliases
+            where !suffix.trimmingCharacters(in: .whitespaces).isEmpty
+                && prefixes.contains(where: text.hasPrefix) {
                 appendIfAbsent(key, OCRGrounding.normalized(suffix.trimmingCharacters(in: .whitespaces), key: key),
                                rawLine: line, index: index, confidence: confidence, to: &fields)
             }

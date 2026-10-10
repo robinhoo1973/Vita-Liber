@@ -65,7 +65,13 @@ public struct DoseSlot: Sendable, Equatable, Identifiable {
     public init(id: String, anchorTime: Date, mealRelation: String?, records: [DoseRecord]) {
         self.id = id; self.anchorTime = anchorTime; self.mealRelation = mealRelation; self.records = records
     }
-    public var allTaken: Bool { !records.isEmpty && records.allSatisfy { $0.action == .taken } }
+    // 第九轮审查修复：与 FR9.8.2 / 时段卡进度谓词（takenCount = taken||discomfort）
+    // 同口径——「记录不适」同样是服用事实成立（双轨全额扣减）。此前只认 .taken，
+    // 全不适时段：进度不置成功色、[全部已服用] 按钮残留（批处理为空写）、
+    // ReminderHubLoader 状态映射为 resolved 而非 taken，两个谓词对同一事实分叉。
+    public var allTaken: Bool {
+        !records.isEmpty && records.allSatisfy { $0.action == .taken || $0.action == .discomfort }
+    }
     /// 与 `isUnresolved` 同口径（nil 或 snoozed 均待处理）——D5「snoozed 非终态」
     /// 语义在时段级状态投影的落点；此前只认 nil，全稍后时段在中心/首页被标「已决议」。
     public var anyPending: Bool { records.contains { $0.isUnresolved } }

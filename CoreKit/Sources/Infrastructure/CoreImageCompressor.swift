@@ -18,8 +18,15 @@ public final class CoreImageCompressor: ImageCompressing, @unchecked Sendable {
     public init() {}
 
     public func generateThumbnail(_ data: Data, spec: ThumbnailSpec) async throws -> Data {
+        // 第九轮审查修复（P1，API 语义错配）：原用 CGImageSourceCreateImageAtIndex
+        // 却传入 thumbnailing 选项——`kCGImageSourceThumbnailMaxPixelSize` /
+        // `...CreateThumbnailWithTransform` / `...CreateThumbnailFromImageAlways`
+        // **仅**被 CGImageSourceCreateThumbnailAtIndex 识别，前者会静默忽略它们：
+        // 320px 降采样与 EXIF 方向校正都不生效，对 12MP 原图做全尺寸解码，
+        // BR-007 锁定态的模糊半径相对整图退化为 0.3%（近可读），模糊 JPEG
+        // 体积/内存峰值也放大 ~12 倍。改用缩略图 API（三个选项全在此生效）。
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0,
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0,
                 [kCGImageSourceThumbnailMaxPixelSize: spec.maxDimension,
                  kCGImageSourceCreateThumbnailFromImageAlways: true,
                  kCGImageSourceCreateThumbnailWithTransform: true,

@@ -101,7 +101,11 @@ public enum VoiceCommandGrammar {
         Pattern(command: .goHome, regex: #"回(?:到)?首页"#),
         Pattern(command: .repeatLast, regex: #"^(?:再说一遍|重复|没听清)"#),
         Pattern(command: .louder, regex: #"大声一点"#),
-        Pattern(command: .yes, regex: #"^(?:是|对|好的|确认|嗯)"#),
+        // 第九轮审查修复（BR-004 误确认）：裸前缀 `^(?:是|对|好的|确认|嗯)` 使
+        // 确认相位里**以「是/对」起头的疑问与否定句**（「是不是该吃阿司匹林了」
+        // 「对吗？」「没…」）被解析为 yes 并直接执行待决写（标记已服/拨号）。
+        // 负向前瞻挡掉这些句首延续形；合法答语「是/是的/对/好的/确认/嗯」不受影响。
+        Pattern(command: .yes, regex: #"^(?:是|对|好的|确认|嗯)(?!不|没|吗|吧)"#),
         Pattern(command: .no, regex: #"^(?:否|不是|不对|取消)"#),
         Pattern(command: .selectNumber, regex: #"^(?:第)?([一二三123])个?"#),
         Pattern(command: .cancel, regex: #"取消"#),

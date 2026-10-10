@@ -740,13 +740,22 @@ public actor MedicationStore: DoseSource {
     /// 才命中该行并抛 alreadyResolved（与窄路径同款响亮拒绝）。
     nonisolated private func backfillTransition(planId: UUID, actualTime: Date, doseUnits: Double,
                                     tolerance: TimeInterval, db: Database) throws -> BackfillTransition? {
+        // 第九轮审查修复（与宽窗口同族，P0）：窄窗（±30min）补录默认
+        // actualTime=now（BackfillSheet 实际时间默认当前），而实际时间可落在
+        // 下一剂 scheduled_for 前 30 分钟内——原查询只按 ABS 距离取最近行，
+        // 会把**尚未到点**的未来剂量改成 taken 并全额扣减双轨，随后对账把
+        // 该时段剔除、通知静默消失，用户再也无法确认这一剂（从未发生的服药
+        // 被记为事实）。修法：与宽窗口一致，把「不许命中未来行」作为首排序键
+        // （补录语义是**已发生**的服药；仅当窗口内全是未来行时才命中未来行）。
         let existing = try Row.fetchOne(db, sql: """
             SELECT id, user_action, dose_units FROM medication_dose_log
             WHERE plan_id = ? AND scheduled_for BETWEEN ? AND ?
-            ORDER BY ABS(scheduled_for - ?) LIMIT 1
+            ORDER BY CASE WHEN scheduled_for > ? THEN 1 ELSE 0 END,
+                     ABS(scheduled_for - ?) LIMIT 1
             """, arguments: [planId.uuidString,
                              actualTime.timeIntervalSince1970 - tolerance,
                              actualTime.timeIntervalSince1970 + tolerance,
+                             actualTime.timeIntervalSince1970,
                              actualTime.timeIntervalSince1970])
         if let existing {
             let action = (existing["user_action"] as String?).flatMap(DoseUserAction.init(rawValue:))

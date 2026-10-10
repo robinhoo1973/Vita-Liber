@@ -36,7 +36,19 @@ public enum ModelMemoryBudget {
     /// 故 KV 必须显式加项；见 `LLMContextBudget`）。
     public static func peakBytes(modelBytes: Int64, peakFactor: Double = loadPeakFactor,
                                  extraBytes: Int64 = 0) -> Int64 {
-        Int64(Double(max(modelBytes, 0)) * peakFactor) + baseHeadroomBytes + max(extraBytes, 0)
+        // 第九轮审查修复（P0，硬陷阱）：`Int64.max` 是调用方约定的「体积未知」
+        // 哨兵（ASRModelRelease.swift 与 ASREngineSettingsSection.swift 的防御
+        // 路径 `expandedBytes ?? Int64.max`）。原式 `Int64(Double(bytes)*factor)`
+        // 对哨兵/超大值发生 Double→Int64 越界**硬陷阱**（Fatal error: 不可捕获），
+        // ASR 设置/下载页可被直接打崩。修法：未知大小一律按「装不下」处理
+        // （返回 Int64.max → verdict 走 insufficient，fail-closed），换算全程
+        // 先用 Double 并显式判定，杜绝转换与 Int64 加法两处溢出。
+        if modelBytes == Int64.max || extraBytes == Int64.max { return Int64.max }
+        let peak = Double(max(modelBytes, 0)) * peakFactor
+        let overhead = Double(baseHeadroomBytes) + Double(max(extraBytes, 0))
+        let required = peak + overhead
+        guard required.isFinite, required < Double(Int64.max) else { return Int64.max }
+        return Int64(required)
     }
 
     /// 判定。`availableBytes == nil`（探针不可用）→ `.ok`：fail-open 只对「未知」，已知不足一律拒。

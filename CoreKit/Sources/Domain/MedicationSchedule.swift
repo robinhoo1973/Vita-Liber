@@ -193,7 +193,10 @@ public enum DoseScheduleEngine {
             var text = raw.trimmingCharacters(in: .whitespaces)
             guard !text.isEmpty else { return nil }
             // 词尾单位词剥离（中英文常见形态；只剥一层）
-            let unitSuffixes = ["片/次", "片", "粒", "颗", "丸", "袋",
+            // 第九轮审查修复：补 FR9.8.3 明列、DDL unit_kind 已含的「贴/支」
+            // （贴剂/针剂自然形态「1贴」「半贴」此前被拒为不可解析，表单
+            // 无法保存该规格）。
+            let unitSuffixes = ["片/次", "片", "粒", "颗", "丸", "袋", "贴", "支",
                                 "毫升", "ml", "mg", "克", "g", "次"]
             for suffix in unitSuffixes where text.hasSuffix(suffix) {
                 text = String(text.dropLast(suffix.count))
@@ -203,17 +206,24 @@ public enum DoseScheduleEngine {
             guard !text.isEmpty else { return nil }
             if text == "半" { return 0.5 }
             // a/b 分数（分子/分母均为数字形态）
+            // 第九轮审查修复（P0）：原实现直接 `Double(num)`——"nan"/"1e400"
+            // 给出 NaN/+inf、负值放行，随后 dose_plan_units=NaN 使
+            // estimatedDailyUnits 为 NaN → refillTier 的 `> 0` 守卫恒假 →
+            // 该药续药（安全线）告警链**永久静默**（ADR-009 漏警方向），
+            // inf 则令首剂把整批库存清零（假 t0）。剂量必须为正有限数。
             if let slash = text.firstIndex(of: "/") {
                 let num = String(text[..<slash]).trimmingCharacters(in: .whitespaces)
                 let den = String(text[text.index(after: slash)...])
                     .trimmingCharacters(in: .whitespaces)
-                guard let n = Double(num), let d = Double(den), d > 0 else { return nil }
+                guard let n = Double(num), n.isFinite, n > 0,
+                      let d = Double(den), d.isFinite, d > 0 else { return nil }
                 return n / d
             }
             let normalized = NumberNormalizer.normalize(text)
             // 混合口语形态（「零点五」）不做归一猜测——拒绝由用户改数字
             if normalized == text && text.contains("点") { return nil }
-            return Double(normalized)
+            guard let value = Double(normalized), value.isFinite, value > 0 else { return nil }
+            return value
         }
     }
 

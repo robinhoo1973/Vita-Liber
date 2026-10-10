@@ -25,7 +25,13 @@ public enum RefillProjection {
     /// 负数/0 → 用尽日 = now（已耗尽/未知不虚构未来）。跨天用日历加法（时区/DST 安全）。
     public static func project(relativeDays: Double, leadTimeDays: Int = defaultLeadTimeDays,
                                now: Date, calendar: Calendar = .current) -> Result {
-        let days = Int(max(0, relativeDays).rounded(.up))
+        // 第九轮审查修复（硬陷阱）：`relativeDays` 为 +inf（「剩余 ÷ 日当量」在
+        // 日当量=0 时除零得出）或 NaN 时，原式 `Int(x.rounded(.up))` 触发
+        // 「Double value cannot be converted to Int」Fatal error。按本函数
+        // 既有的「负数/0 → now（已耗尽/未知不虚构未来）」口径：非有限值一律
+        // 视作 0（偏向更早，ADR-009），有限值再加 100 年上限防溢出。
+        let rawDays = relativeDays.isFinite ? relativeDays : 0
+        let days = Int(max(0, min(rawDays, 36_500)).rounded(.up))
         let depletion = calendar.date(byAdding: .day, value: days, to: now) ?? now
         let refill = calendar.date(byAdding: .day, value: -max(0, leadTimeDays), to: depletion) ?? depletion
         return Result(depletionDate: depletion,

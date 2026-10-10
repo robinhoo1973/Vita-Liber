@@ -22,8 +22,12 @@ public final class PDFKitDecoder: ImageDecoding, @unchecked Sendable {
     public init() {}
 
     public func decodeImage(_ data: Data, maxDimension: Int) async throws -> DecodedImage {
+        // 第九轮审查修复（P1，与 CoreImageCompressor 同族 API 语义错配）：
+        // 原用 CGImageSourceCreateImageAtIndex 传 thumbnailing 选项——降采样
+        // 上限（§5.2 C1）与 EXIF 方向校正被静默忽略，超大图/恶意大图按全尺寸
+        // 解码再 PNG 重编码（内存尖峰/解压炸弹面）。改用缩略图 API 使三选项生效。
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
-              let cg = CGImageSourceCreateImageAtIndex(src, 0,
+              let cg = CGImageSourceCreateThumbnailAtIndex(src, 0,
                 [kCGImageSourceThumbnailMaxPixelSize: maxDimension,
                  kCGImageSourceCreateThumbnailFromImageAlways: true,
                  kCGImageSourceCreateThumbnailWithTransform: true,
