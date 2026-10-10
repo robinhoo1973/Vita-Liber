@@ -407,6 +407,16 @@ final class TrendAcceptanceTests: XCTestCase {
                 INSERT INTO medication_dose_log (id, plan_id, scheduled_for, delivery_state,
                                                 user_action, delivered_at, acted_at)
                   VALUES ('legacy-dose-1', 'orphan-plan', 1, 'delivered', 'taken', 1, 1);
+                -- v33 索引补齐会对 sent_message 建索引——合成老库必须含该表，
+                -- 否则整链抛 `no such table: sent_message`（CI 38056939719）。
+                -- 形态取 v5 建表原形（无后续增列；索引列 patient_id/sent_at 齐备）。
+                CREATE TABLE sent_message (
+                  id TEXT PRIMARY KEY,
+                  patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  kind TEXT NOT NULL,
+                  recipient TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
+                  sent_at REAL NOT NULL, updated_at REAL NOT NULL);
                 PRAGMA user_version = 12;
                 """)
         }
@@ -591,6 +601,15 @@ final class TrendAcceptanceTests: XCTestCase {
                   entity_id TEXT,
                   occurred_at REAL NOT NULL,
                   meta_json TEXT);
+                -- 同 v33 索引补齐依赖：sent_message 必须存在（CI 38056939719；
+                -- 形态取 v5 建表原形）。
+                CREATE TABLE sent_message (
+                  id TEXT PRIMARY KEY,
+                  patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+                  kind TEXT NOT NULL,
+                  recipient TEXT NOT NULL,
+                  status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
+                  sent_at REAL NOT NULL, updated_at REAL NOT NULL);
                 """)
             try db.execute(sql: "PRAGMA user_version = 12;")
         }
