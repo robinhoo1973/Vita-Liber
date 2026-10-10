@@ -243,7 +243,18 @@ struct VitaLiberApp: App {
         // 注册须在装配执行体之后、启动完成之前（BGTaskScheduler 限制）；两作业 + continued 标识符经统一门面一次注册
         // （ASR 下载的 continued 标识符也在此登记——registerAll 之后的登记不会被系统唤起）
         BackgroundWorkScheduler.shared.addContinued(identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier)
+        // 批C③（第九轮审查 P4#2 救援第四层）：提醒对账后台作业——必须在本行
+        // 之后、`registerBackgroundTask()` 的统一 registerAll 之前 add，否则
+        // 不会被系统唤起。执行体与前台同入口（refreshTriggered → reconcile
+        // 覆盖全部成员；成员参数只作状态投影隔离判据）。
+        BackgroundWorkScheduler.shared.add(ReminderReconcileJob { [appState, reminderStore] in
+            let member = await MainActor.run { appState.currentPatientId }
+            await reminderStore.refreshTriggered(patientId: member, force: true)
+        })
         HealthKitSyncService.registerBackgroundTask()
+        // 首次排期（后续由作业自身 reschedule 滚动续排；重复提交在门面内先
+        // cancel 再 submit，幂等）。
+        _ = BackgroundWorkScheduler.shared.submit(ReminderReconcileJob.identifier)
         HealthKitSyncService.backgroundSyncHandler = { [dataChange] in
             do {
                 guard try await bgSync.canAutomaticallySync() else { return false }
@@ -368,5 +379,25 @@ struct VitaLiberApp: App {
              // 会被 memberAdditionBlocked 误拦并弹付费墙（门禁读 owned 恒空）。
              // 启动即加载一次（StoreKit 只读、离线可用；失败静默，付费墙内仍可重试）。
              .task { await entitlementStore.load() }
+    }
+}
+
+/// 批C③（第九轮审查 P4#2）：提醒对账的后台兜底作业（ReminderReconciler 文档
+/// 宣称的四层触发之**第四层**——此前 plist 无标识符、全仓无 BG 调用，只做提醒
+/// 用途的设备 8 天不开 App 即停提醒）。执行体由装配处注入（与前台同入口
+/// refreshTriggered → reconcile，幂等）；运行后恒重排（reschedule: true），
+/// BackgroundWorkScheduler 自动续排形成滚动兜底。预算取系统给的 refresh 预算，
+/// 对账本身为轻量 DB 读 + 系统 IPC。
+private struct ReminderReconcileJob: BackgroundJob {
+    static let identifier = "com.vitaliber.reminders-reconcile"
+    let handler: @Sendable () async -> Void
+    let descriptor = BackgroundJobDescriptor(identifier: ReminderReconcileJob.identifier,
+                                             kind: .refresh,
+                                             minimumInterval: 30 * 60)
+    func run(budget: Duration) async -> BackgroundJobOutcome {
+        await handler()
+        // refreshTriggered 按纪律内部吞错记日志（任一层成功即满足正确性）；
+        // 对账幂等 → 作业恒报 success + 重排
+        return BackgroundJobOutcome(success: true, reschedule: true)
     }
 }

@@ -47,6 +47,7 @@
         <string>com.vitaliber.healthkit-backfill</string>
         <string>com.vitaliber.continued.healthkit-sync</string>
         <string>com.vitaliber.continued.asr-install</string>
+        <string>com.vitaliber.reminders-reconcile</string>
     </array>
     <key>UIBackgroundModes</key>
     <array>
