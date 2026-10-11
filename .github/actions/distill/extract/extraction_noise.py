@@ -120,7 +120,9 @@ def ocr_noise_segment(seg: str, rng: random.Random, level: str = None) -> str:
     out = fullwidth_noise(original, rng)
     out = confuse_chars(out, rng, p=0.03 if level == "light" else 0.06)
     out = jitter_spaces(out, rng, p=0.2 if level == "light" else 0.35)
-    out = punctuation_loosen(out, rng) if level == "light" else punctuation_loosen(out, rng)
+    # H6：原三目两支完全相同（light/heavy 同式）——直接收敛为无条件调用（零行为变化；重带差异由
+    # confuse/jitter/heavy_artifacts 承担，改动式会打乱 BAND_CER 标定）。
+    out = punctuation_loosen(out, rng)
     if level == "heavy":
         out = heavy_artifacts(out, rng)
     out = sanitize_hard(out)

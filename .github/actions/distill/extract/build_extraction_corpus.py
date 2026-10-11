@@ -1478,7 +1478,17 @@ def _card_sentence(key, rng, pools, region):
     visible_diseases = [x for x in pools["diseases"] if _train_visible(x)]   # F2：叙事整句排除留出疾病名
     d = rng.choice(visible_diseases) if visible_diseases else "高血压"
     tmpl = rng.choice(NARRATIVE_TEMPLATES[key])
-    return L(region, tmpl.format(d=d, d2=d, t=rng.choice(["3天", "1周", "2月", "半年"]),
+    # 缺口清扫修复：{d2} 模板需要**第二**诊断——原实现 d2=d，gold 会渲染出『高血压（高血压）』
+    # 『高血压；高血压』式重复子句（SFT 目标学重复措辞）。池>1 时取不同疾病；池≤1 时回退到
+    # 不含 {d2} 的模板（夹具不炸）；替换文本仍走 L(region) 本地化。
+    d2 = d
+    if "{d2}" in tmpl:
+        others = [x for x in visible_diseases if x != d]
+        if others:
+            d2 = rng.choice(others)
+        else:
+            tmpl = next(t for t in NARRATIVE_TEMPLATES[key] if "{d2}" not in t)
+    return L(region, tmpl.format(d=d, d2=d2, t=rng.choice(["3天", "1周", "2月", "半年"]),
                                  adv=rng.choice(TCM_ADVICES),
                                  drug=_card_drug_text(pools, rng, region),
                                  op=rng.choice(SURGERY_NAMES),
@@ -1576,6 +1586,12 @@ def _card_value(key, fd, pools, rng, region):
         return f"{rng.randint(60, 100)}次/分"
     if key == "waist":
         return f"{rng.randint(60, 105)}cm"
+    if key in ("systolic", "diastolic"):
+        # C2 修复：spec_health_exam 声明 number/integer=false，原实现落进通用数字兜底生成
+        # 1.0–99.9 的小数血压（实测 gold '53.5'/'44.4'），与真实体检印刷域（整数 ~90–180 / 55–110，
+        # App 侧从 '128/82' 拆分）系统性错域——按生理量程生成**整数**。
+        lo, hi = (90, 180) if key == "systolic" else (55, 110)
+        return str(rng.randint(lo, hi))
     if key in ("vision_left", "vision_right"):
         return rng.choice(["4.8", "4.9", "5.0", "1.0", "0.8"])
     if key in ("total_cost", "amount", "reimbursed_amount", "out_of_pocket"):
@@ -1752,7 +1768,17 @@ def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
     diseases = pools["diseases"]
     ref_regions = [r for r in pools["regions"] if any(pools["ref"][t].get(r) for t in ("hospitals", "departments", "exams"))]
     lines = []
+    # C3 修复：尝试上限（与 SFT 侧 attempts < counts[kind]*8 同款）——vocab_chars 过严/误判时
+    # 文本被逐行过滤为空，原实现 while len(lines) < n 永不终止（实测 8 s+ 挂死，CI 烧到超时），
+    # 现在具名失败（fail-closed）而不是无限空转。
+    attempts = 0
+    max_attempts = max(200, int(n) * 8)
     while len(lines) < n:
+        attempts += 1
+        if attempts > max_attempts:
+            raise ValueError(
+                f"预训练行生成失败：{attempts} 次尝试仅得 {len(lines)}/{n} 行——检查 tokenizer/字符集"
+                f"（vocab_chars 过严会把全部行过滤为 <8 字符）；拒绝无限空转（C3 fail-closed）")
         r = rng.random()
         d = rng.choice(drugs)
         name = d["name"]
@@ -1995,8 +2021,16 @@ def main():
     pools = {"drugs": drugs, "drugs_by_region": drugs_by_region, "regions": [r.upper() for r in regions], "drug_regions": drug_regions,
              "ref": ref, "derived": derived, "diseases": sorted(diseases), "aliases": aliases, "groups": groups}
     # —— 值级 holdout 集(round2 X2:实体池 10% 稳定哈希留出;仅目录来源域) ——
+    # C1 修复(本轮评审;真实前缀族实测复现)：留出资格须**子串无关**。旧实现=纯哈希抽样，而
+    # 生成侧只做等值排除、末断言做子串扫描——池内存在包含关系时（阿莫西林 ⊂ 阿莫西林克拉维酸钾、
+    # 医院/疫苗名前缀族）「留出值被可见长名嵌入」是结构性必然：预训练末断言直接 rc=3 中止整个
+    # 重建（一个字节产物都不出），SFT 侧还把长名样本无谓整批推入 eval（forced 绕过配额上限）。
+    # 修法=抽样时把「被其它池内名包含」的值排除出候选：零假红、真实嵌入漏训仍被断言拦截；
+    # 嵌套判定用 '\x00' 连接全池一次成串 + C 级 count（仅对哈希命中的 ~10% 候选做，成本有界）。
     def _is_holdout_value(v):
-        return sample_draw(args.seed, f"holdout:{v}") < int(VALUE_HOLDOUT_RATIO * (1 << 64))
+        if sample_draw(args.seed, f"holdout:{v}") >= int(VALUE_HOLDOUT_RATIO * (1 << 64)):
+            return False
+        return not _is_nested_value(v)
 
     domain_names = {
         "drug_name": [d["name"] for d in drugs] + list(aliases),
@@ -2011,6 +2045,15 @@ def main():
         "surgery_name": [p["name"] for p in derived["procedures"]],
         "item_name": [f["name"] for f in derived["fees"]],
     }
+    # C1 修复（续）：嵌套判定数据结构——全池计数 + 一次成串（C 级 count；仅对哈希命中的
+    # ~10% 候选调用 _is_nested_value，成本有界）。必须在 domain_names 之后、holdout_by_key 之前。
+    unique_values = sorted({v for names in domain_names.values() for v in names})
+    pool_blob = "\x00" + "\x00".join(unique_values) + "\x00"
+
+    def _is_nested_value(v):
+        # blob 每唯一值恰出现一次；count>1 ⇒ v 还作为子串出现在别的（更长）值里 ⇒ 该值不做留出。
+        return pool_blob.count(v) > 1
+
     holdout_by_key = {k: {v for v in names if _is_holdout_value(v)}
                       for k, names in domain_names.items() if names}
     # F2(2026-10-10)：留出集三消费面接线——①叙事/预训练抽样排除（精确集注入）②嵌入

@@ -19,6 +19,7 @@ URL 文法单源：public_download_url 自 cnb_release 导入（同簇 import �
 禁止第二份 URL 规则）。
 """
 import hashlib
+import http.client
 import json
 import re
 import time
@@ -29,6 +30,12 @@ from pathlib import Path
 from cnb_release import public_download_url
 
 MAX_PAGE_BYTES = 8 << 20
+
+
+class TruncatedTransferError(ValueError):
+    """传输截断/尺寸不符（瞬态，可重试）——与「内容不符」（digest 不符，长期性）分型（E7 修复）。
+
+    消费面：匿名回读核对（publish-local-artifact）据此重试；内容不符仍为硬错 + 人工处置。"""
 
 
 def parse_cnb_tag_page(html, repository, tag):
@@ -100,20 +107,35 @@ def download_cnb_asset(repository, tag, asset, destination, expected_sha256, exp
         with urllib.request.urlopen(request, timeout=600) as response:
             with temporary.open("wb") as target:
                 while True:
-                    chunk = response.read(1024 * 1024)
+                    try:
+                        chunk = response.read(1024 * 1024)
+                    except http.client.IncompleteRead as exc:
+                        # 带 Content-Length 的响应中途断开 → IncompleteRead（HTTPException 族，
+                        # 不属 OSError）——按截断瞬态归类，进 publish-local-artifact 的 E7 重试，
+                        # 否则一次 CDN 断流会冒泡成与「内容被篡改」同形的硬红。
+                        raise TruncatedTransferError(
+                            "CNB cached package transfer incomplete: " + asset["name"]) from exc
                     if not chunk:
                         break
                     received += len(chunk)
                     if received > expected_size:
-                        raise ValueError("CNB cached package exceeds the declared size: " + asset["name"])
+                        raise TruncatedTransferError(
+                            "CNB cached package exceeds the declared size: " + asset["name"])
                     digest.update(chunk)
                     target.write(chunk)
     except Exception:
         temporary.unlink(missing_ok=True)
         raise
-    if received != expected_size or digest.hexdigest() != expected_sha256:
+    if received != expected_size:
+        # E7 修复：size 不符 = 传输截断/截短（瞬态，可重试）——与「内容不符」（digest 不符，
+        # 长期性）分型，避免匿名回读把一次 CDN 截断误报成「已发布内容被篡改，需人工处置」。
         temporary.unlink(missing_ok=True)
-        raise ValueError("CNB cached package digest/size mismatch: " + asset["name"])
+        raise TruncatedTransferError(
+            f"CNB cached package size mismatch (received {received} != expected {expected_size}): "
+            + asset["name"])
+    if digest.hexdigest() != expected_sha256:
+        temporary.unlink(missing_ok=True)
+        raise ValueError("CNB cached package digest mismatch: " + asset["name"])
     temporary.replace(destination)
     return destination
 
@@ -133,6 +155,13 @@ def download_assets(models, assets, cache, repository, *, tag, parallel, downloa
     cache.mkdir(parents=True, exist_ok=True)
 
     def _one(model):
+        # E2 修复（路径逃逸 fail-closed）：索引 url 未经单段校验就直接拼落盘路径（cache / url），
+        # `../../x` 会在任何内容校验之前写到 cache 之外（父目录还会被 mkdir -p 自动创建）。
+        # 写侧（publish ASSET_NAME_RE / validate_index(complete=True)→asr_package.safe_path）都拒绝
+        # 这种名字，读侧此前在 complete=False 的鸡生蛋路径上漏掉了同一不变式——此处复述。
+        name = str(model["url"])
+        if name != Path(name).name or name in ("", ".", "..") or "/" in name or "\\" in name:
+            raise ValueError(f"索引 url 非单段文件名（拒绝路径逃逸）：{name!r}")
         asset = assets[model["url"]]
         started = time.monotonic()
         download(repository, asset, cache / model["url"], model["sha256"], model["bytes"])

@@ -1017,16 +1017,19 @@ jobs:
           $PY fetch-ckpt --release llama-models --prefix "enc-$SHA8" --out ckpt || echo "本谱系无既往 checkpoint=首跑"
           cat state.json
           # 执行点复判(2026-10-09 审计席 B,防 dispatch→执行间数据变化):复用调度器
-          # 同款决策;skip/rebuild-corpus → 本窗不训。CNB 不可达=fail-open 仅提示
-          # (调度器已做过一次决策,此处是第二眼,不为它新增失败面)。
+          # 同款决策;skip/rebuild-corpus → 本窗不训。读取失败=fail-open 仅提示
+          # (调度器已做过一次决策,此处是第二眼,不为它新增失败面)——但失败必须
+          # **可区分**(2026-10-11 二轮审查:旧 `2>/dev/null`+`|| echo ""` 把验签
+          # 拒绝与不可达同吞为静默;现保留 rc+末行原样呈现,验签拒绝字样可见)。
           GATED=""
-          SQLITE_DV=$(python3 .github/actions/distill/fetch_catalog.py --pointer-only --out-dir /tmp/ptr 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["dataVersion"])' 2>/dev/null || echo "")
+          PTR_OUT=$(python3 .github/actions/distill/fetch_catalog.py --pointer-only --out-dir /tmp/ptr 2>&1); PTR_RC=$?
+          SQLITE_DV=$(printf '%s' "$PTR_OUT" | python3 -c 'import json,sys;print(json.load(sys.stdin)["dataVersion"])' 2>/dev/null || echo "")
           if [ -n "$SQLITE_DV" ]; then
             DEC2=$(python3 .github/actions/distill/gen/train_scheduler.py --sqlite-data-version "$SQLITE_DV" --corpus-data-version "$CORPUS_DV" --state state.json | tail -1)
             echo "执行点复判: $DEC2(sqlite=${SQLITE_DV:0:16}…)"
             case "$DEC2" in skip|rebuild-corpus) GATED="$DEC2" ;; esac
           else
-            echo "::notice::执行点复判跳过(CNB 指针不可达;调度器决策仍有效)"
+            echo "::warning::执行点复判跳过(指针读取失败 rc=$PTR_RC:$(printf '%s' "$PTR_OUT" | tail -1))——调度器决策仍有效;若为『验签失败』需人工核对"
           fi
           # 预检闸(2026-10-09 审计):非 running(已终态 stopped/done)不得开训——
           # 此前无条件起训会白烧整个 5h20m chunk,且 decide 直接 stop 丢结果。

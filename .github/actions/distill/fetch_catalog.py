@@ -212,6 +212,9 @@ def download_asset(repository: str, tag: str, asset: dict, dest: Path) -> None:
                 raise TransferIncomplete(f"大小不符: {asset['name']}(声明 {expected_size},实收 {received})")
             actual = digest.hexdigest()
             if actual != expected_sha:
+                # E4 修复:同函数其余三个失败分支都清 .downloading 临时件,唯独本分支直穿 —
+                # 篡改/发布缺陷场景会留下未核验字节(消费者按存在性取件=吃半成品)。
+                temporary.unlink(missing_ok=True)
                 raise ValueError(f"哈希不符: {asset['name']}(声明 {expected_sha},实测 {actual})"
                                  "——内容不符属长期性错误,不重试(先查发布端)")
             temporary.replace(dest)
