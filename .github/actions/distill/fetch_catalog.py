@@ -160,7 +160,9 @@ def fetch_tag_page(repository: str, tag: str) -> bytes:
                 if resp.status != 200:
                     raise OSError(f"HTTP {resp.status}")
                 return resp.read(MAX_PAGE_BYTES + 1)
-        except (OSError, urllib.error.URLError) as exc:
+        except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
+            # C3 修复（三轮核验，同族）：BadStatusLine/ResponseNotReady 等 http.client.HTTPException
+            # 不是 OSError 子类——CDN 边缘畸形状态行原先一次即穿（零重试、整轮 fetch 中止）。
             last = exc
             if attempt < DOWNLOAD_ATTEMPTS:
                 time.sleep(attempt * 3)
@@ -226,13 +228,20 @@ def download_asset(repository: str, tag: str, asset: dict, dest: Path) -> None:
                 print(f"下载截断(第 {attempt}/{DOWNLOAD_ATTEMPTS} 次,按瞬态重试): {asset['name']}: {exc}——"
                       f"退避 {attempt * 5}s 后重试", file=sys.stderr)
                 time.sleep(attempt * 5)
-        except (OSError, urllib.error.URLError) as exc:
+        except (OSError, urllib.error.URLError, http.client.HTTPException) as exc:
+            # C3 修复（三轮核验，同族）：http.client.HTTPException（BadStatusLine 等）非 OSError
+            # 子类——畸形状态行原先一次即穿、整轮 fetch 中止（零重试）。
             temporary.unlink(missing_ok=True)
             last = exc
             if attempt < DOWNLOAD_ATTEMPTS:
                 print(f"下载失败(第 {attempt}/{DOWNLOAD_ATTEMPTS} 次): {asset['name']}: {exc}——"
                       f"退避 {attempt * 5}s 后重试", file=sys.stderr)
                 time.sleep(attempt * 5)
+        finally:
+            # C6 修复（三轮核验）：清理从「各 except 分支内」升为 finally——KeyboardInterrupt/
+            # SystemExit 穿出时（CI 取消、Ctrl+C）原先绕过 unlink 留下 .downloading 孤儿件。
+            # 成功路径 replace 后此处为 no-op（missing_ok）。
+            temporary.unlink(missing_ok=True)
     raise OSError(f"资产下载失败: {asset['name']}: {last}")
 
 

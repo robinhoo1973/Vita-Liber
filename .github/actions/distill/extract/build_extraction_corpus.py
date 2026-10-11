@@ -299,7 +299,12 @@ def make_token_counter(tokenizer_path):
         tok = Tokenizer.from_file(tokenizer_path)
     except Exception:
         return _est_fallback, "heuristic-fallback（tokenizer 载入失败）"
-    return (lambda text: len(tok.encode(text).ids)), "tokenizers（真实分词）"
+    # Ef6 修复（三轮核验）：按字符串记忆化——_render/预算裁剪会对同一 constant system prompt
+    # （每卡种 ~1351 token）与整段 user+assistant 反复重编码（重试环 × 每轮 prune 全量重算）；
+    # 有界缓存零正确性影响（纯函数）。上限 2048 条防无界内存。
+    import functools as _functools
+    return (_functools.lru_cache(maxsize=2048)(lambda text: len(tok.encode(text).ids)),
+            "tokenizers（真实分词）")
 
 
 def load_vocab_chars(tokenizer_path):
@@ -1706,12 +1711,21 @@ def gen_generic_card(kind, pools, rng, vocab_chars):
     for pos, text in decoy_lines(rng, region):
         if pos == "head":
             lines.append(text)
+    # C2 修复续（三轮核验）：收缩压/舒张压**成对**生成并保序（S>D）——原实现两键各自独立均匀
+    # 抽样（90–180 / 55–110），~4.1% 的卡出现 S<D（如 94/104）的生理不可能值且无任何校验，
+    # 被当金样教/eval。此处与行级三元同款「先定耦合值、再逐字段落行」；缺一键（40% 缺行）时
+    # 另一键仍按本表域生成；单字段直调 _card_value 的旧行为保留（无上下文兜底）。
+    bp_pair = {}
+    if {"systolic", "diastolic"} <= {fd.get("key") for fd in spec.get("shared_fields") or []}:
+        _systolic = rng.randint(90, 180)
+        bp_pair = {"systolic": str(_systolic),
+                   "diastolic": str(rng.randint(55, min(110, _systolic - 1)))}
     for fd in spec.get("shared_fields") or []:
         # 真实文档字段残缺常态:非必填按 40% 概率出现(全量输出会超 token 预算;
         # 也避免模型学到「字段必成对出现」的版式先验)
         if not fd.get("required") and rng.random() > 0.4:
             continue
-        value = _card_value(fd.get("key", ""), fd, pools, rng, region)
+        value = bp_pair.get(fd.get("key", "")) or _card_value(fd.get("key", ""), fd, pools, rng, region)
         if not value:
             continue
         push(*make_line([(_card_label(fd, rng, region) + "：", "label", None),
@@ -1773,6 +1787,10 @@ def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
     # 现在具名失败（fail-closed）而不是无限空转。
     attempts = 0
     max_attempts = max(200, int(n) * 8)
+    # C4 修复（三轮核验）：用法段是自由目录文本——可能内嵌**别的**药品的留出名（非池内嵌套，
+    # C1 的池内闸管不到）；预训练末断言是硬 rc=3 且无 eval 分流（与 SFT 不同），一旦嵌入整个
+    # 重建中止（零字节产物）。此处源头剔除该段（不写假值），留痕计数供观测。
+    holdout_index = build_holdout_index(_HOLDOUT_VALUES) if _HOLDOUT_VALUES else {}
     while len(lines) < n:
         attempts += 1
         if attempts > max_attempts:
@@ -1804,7 +1822,11 @@ def gen_pretrain_lines(pools, rng, n, vocab_chars, out_counter):
             if d["form"]:
                 parts.append(f"剂型：{d['form']}")
             if d["usage"]:
-                parts.append(f"用法：{d['usage'][:60]}")
+                usage_excerpt = d["usage"][:60]
+                if holdout_index and holdout_embedded(usage_excerpt, holdout_index):
+                    out_counter["pretrain_usage_dropped"] = out_counter.get("pretrain_usage_dropped", 0) + 1
+                else:
+                    parts.append(f"用法：{usage_excerpt}")
             text = "，".join(parts) + "。"
         elif r < 0.5 and groups:
             a, b = rng.choice(groups)
