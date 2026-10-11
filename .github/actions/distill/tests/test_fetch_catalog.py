@@ -1,4 +1,10 @@
-"""fetch_catalog:v3 指针解析/固定名选择/包钥同源断言/信封解密往返(可跳)。"""
+"""fetch_catalog:v3 指针解析/固定名选择/包钥同源断言/信封解密往返(可跳)。
+
+本文件只锁**形状层**(v3 指针字段/文法/内嵌清单/资产发现)。信任链语义(Ed25519 2-of-2
+验签/默认拒/逃生门)由 tests/test_fetch_catalog_trust.py 以 TEST-ONLY 金样覆盖(2026-10-11
+根投放批后,验签默认拒)——此处显式走 --allow-unsigned 逃生门且不接触生产根,避免与生产根
+的有效期/轮换耦合。
+"""
 import base64
 import importlib.util
 import json
@@ -20,6 +26,14 @@ SQLITE_SHA = "ff6d955e4394b70d6c3f29601463df787bc7f3484e0c5b6dc091211daf225258"
 CIPHER_SHA = "bf82d8890d80fcd3aba5f0832fb9e9c4be71bf4573a98346dae3d115a76f148f"
 DATA_VERSION = "d9cbe8cc" + "0" * 56
 
+# 形状层单测的确定性路径:显式未配置根 + 逃生门(「验签能力缺失」豁免——见模块 docstring;
+# 验签失败本身不走此处,由 trust 套件断言恒拒)。
+_UNCONFIGURED_ROOT = Path("/nonexistent/pinned-root.json")
+
+
+def _shape_parse(raw: bytes) -> dict:
+    return parse_catalog_pointer(raw, trust_root=_UNCONFIGURED_ROOT, allow_unsigned=True)
+
 
 def _pointer_payload(**overrides):
     payload = {
@@ -39,7 +53,7 @@ def _pointer_payload(**overrides):
 
 class PointerTests(unittest.TestCase):
     def test_valid_pointer_roundtrip(self):
-        payload = parse_catalog_pointer(json.dumps(_pointer_payload()).encode())
+        payload = _shape_parse(json.dumps(_pointer_payload()).encode())
         self.assertEqual(payload["catalogVersion"], 1791325086)
         self.assertEqual(payload["sqliteSha256"], SQLITE_SHA)
 
@@ -49,35 +63,35 @@ class PointerTests(unittest.TestCase):
         del inner["packageAssetName"]
         bad["payload"] = base64.b64encode(json.dumps(inner).encode()).decode()
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(json.dumps(bad).encode())
+            _shape_parse(json.dumps(bad).encode())
 
     def test_bad_package_name_rejected(self):
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(json.dumps(_pointer_payload(packageAssetName="medical-data-package-x.bin")).encode())
+            _shape_parse(json.dumps(_pointer_payload(packageAssetName="medical-data-package-x.bin")).encode())
 
     def test_package_version_newer_than_catalog_rejected(self):
         # 包版本 = 首次产出该包的 catalogVersion,不可能大于当前 catalogVersion
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(json.dumps(_pointer_payload(catalogVersion=100)).encode())
+            _shape_parse(json.dumps(_pointer_payload(catalogVersion=100)).encode())
 
     def test_older_package_version_accepted(self):
         # 续期/晋升复用旧包:packageAssetName 可小于当前 catalogVersion
-        payload = parse_catalog_pointer(json.dumps(_pointer_payload(
+        payload = _shape_parse(json.dumps(_pointer_payload(
             catalogVersion=200, packageAssetName="package-100.bin")).encode())
         self.assertEqual(payload["packageAssetName"], "package-100.bin")
 
     def test_inner_manifest_mismatch_rejected(self):
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(json.dumps(_pointer_payload(
+            _shape_parse(json.dumps(_pointer_payload(
                 manifest={"sqlite_sha256": "0" * 64, "data_version": DATA_VERSION})).encode())
 
     def test_missing_inline_manifest_rejected(self):
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(json.dumps(_pointer_payload(manifest=None)).encode())
+            _shape_parse(json.dumps(_pointer_payload(manifest=None)).encode())
 
     def test_non_json_rejected(self):
         with self.assertRaises(ValueError):
-            parse_catalog_pointer(b"not json")
+            _shape_parse(b"not json")
 
 
 class AssetSelectionTests(unittest.TestCase):
@@ -145,6 +159,9 @@ class PointerOnlyTests(unittest.TestCase):
     历史缺陷:此前把资产名**字符串**传给 download_asset（期望资产字典），运行时
     TypeError 被 llm.yml 的 `2>/dev/null || echo ""` 吞成「指针不可达」,执行点复判
     从未生效。本测试锁定实参形状与成功语义。
+
+    夹具为无签名信封,故经 --trust-root <不存在> + --allow-unsigned 走形状层
+    (与 PointerTests 同款确定性路径;验签语义不在此覆盖)。
     """
 
     def test_pointer_only_downloads_via_tag_page_asset_metadata(self):
@@ -166,7 +183,9 @@ class PointerOnlyTests(unittest.TestCase):
                          {"name": "manifest.json", "path": "/x/-/releases/download/medical-data/manifest.json",
                           "hashAlgo": "sha256", "hashValue": "a" * 64, "sizeInByte": 1}]))), \
                  mock.patch.object(fetch_catalog, "download_asset", side_effect=fake_download), \
-                 mock.patch.object(sys, "argv", ["fetch_catalog.py", "--pointer-only", "--out-dir", tmp]), \
+                 mock.patch.object(sys, "argv", ["fetch_catalog.py", "--pointer-only", "--out-dir", tmp,
+                                                 "--trust-root", "/nonexistent/pinned-root.json",
+                                                 "--allow-unsigned"]), \
                  contextlib.redirect_stdout(io.StringIO()) as stdout:
                 code = fetch_catalog.main()
                 self.assertEqual(code, 0)

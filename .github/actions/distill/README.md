@@ -44,7 +44,9 @@ distill/
 │   ├── model.py          字符级双塔编码器(P3 可换 BGE-small-zh,循环不变)
 │   ├── corpus_loader.py  语料装载/字符 vocab/定长 tokenize
 │   ├── checkpoint.py     原子写+sha256 sidecar+恢复自检三闸(L1 loss/L2 状态/L3 权重)
-├── fetch_catalog.py      CNB 医疗数据获取(v3):manifest.json 指针 → package-<版本>.bin → 信封解密 → SQLite
+├── fetch_catalog.py      CNB 医疗数据获取(v3):manifest.json 指针(Ed25519 2-of-2 验签) → package-<版本>.bin → 信封解密 → SQLite
+├── pinned-root.json      医疗信任根(公开信封:仅公钥+2-of-2 自签;**非秘密**)——2026-10-11 根投放批
+│                         三处逐字节同源(CI 本目录/训练载荷 scripts/exchange//发布方 provision 源)
 ├── build_corpus.py       实体链接语料 CLI(抽样/规范名/域名排除/实体导出)
 ├── eval_entlink.py       实体链接评测闸 CLI(baseline/verdict 落盘)
 ├── eval_corpora.py       抽取/对话冻结产物独立复验 CLI(verdict=fail 阻断 publish)
@@ -52,7 +54,7 @@ distill/
 ├── calibrate.py          100 步标定(真实训练步口径;ubuntu CPU 吞吐基准;逐步落盘+SIGTERM 部分落盘)
 ├── train_encoder.py      编码器训练循环(墙钟预算优雅停机/断点续训/smoke)
 ├── run_tests.sh          本地测试入口(stdlib 测试 + 全簇语法验证)
-└── tests/                unittest(含解密往返/物化契约/对话接地/目录 v7 等)
+└── tests/                unittest(含解密往返/物化契约/对话接地/目录 v7/指针验签契约等)
 ```
 
 ## 本地验证
@@ -60,7 +62,7 @@ distill/
 ```bash
 bash .github/actions/distill/run_tests.sh                     # 单元测试 + py_compile(零第三方依赖即可跑)
 # 数据面端到端(需 cryptography/pypinyin/tokenizers,见 requirements-distill-prepare-linux):
-python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets            # CNB 匿名 + 信封解密(约 288MB 下载)
+python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets            # CNB 匿名 + 指针验签 + 信封解密(约 288MB 下载)
 python3 .github/actions/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets   # 开发旁路
 python3 .github/actions/distill/extract/catalog_source.py --catalog-sqlite corpus-assets/catalog.sqlite --out-dir extract-data
 bash .github/actions/distill/extract/export_prompts.sh                              # 需 swiftc(CI runner 预装)
@@ -89,7 +91,10 @@ materialize-catalog(SQLite→data-dir) → build-extraction/build-entlink/build-
   (S-M6 哈希钉版;train-macos = M4 本地执行面备用件,CI 零调用(2026-10-08 MPS 腿退役);
   生成脚本 `.github/actions/distill/make-requirements.sh`)。
 - **零 secrets**:医疗数据匿名读取;信封主钥 = App 内嵌公开常量(与
-  `ASRPackageCrypto.swift` 同值断言见 tests/test_fetch_catalog.py)。
+  `ASRPackageCrypto.swift` 同值断言见 tests/test_fetch_catalog.py);指针 Ed25519 验签的
+  信任根 `pinned-root.json` = 公开信封(仅公钥+自签;缺省解析=脚本同目录;缺根/无签名默认拒)
+  ——其 TEST-ONLY 测试夹具在 `CoreKit/Tests/CoreKitTests/Fixtures/medical/`,严禁入生产位
+  (契约见 tests/test_fetch_catalog_trust.py)。
 - 语料产物:`corpus.jsonl`(实体链接)/`extraction_*.jsonl`(抽取)/`dialogue_*.jsonl`(对话)
   三面齐全(2026-10-08 起:对话面**发布暂缓**——构建/复验照常进 artifact,publish 清单在
   D-1(FR25.10/D3)裁决前不含 dialogue_*);`--dump-entities` 导出的实体模型随语料走
