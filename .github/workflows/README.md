@@ -27,7 +27,8 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 `config/gates/gate-suites.tsv`、`config/gates/l10n-legacy-allowlist.txt` 等
 纯配置/清单（集群数据与判定器留 actions/ 簇内，纯配置与钉版清单入 config/<域>/）。各簇的具体职责
 见下表「工作流一览」。（旧 `scripts/` 布局于 2026-10-07 整体迁入本结构；
-`scripts/medical-data/` 早已迁至 workspace 级 `refactor/tools/medical-data/`。）
+`scripts/medical-data/` 早已迁出 workspace 级 `refactor/tools/medical-data/`，并于 2026-10-14 迁入独立私仓
+`repos/medical-data/`（GitHub `robinhoo1973/medical-data`）。）
 
 ## 簇内耦合规则(移动文件前必读)
 

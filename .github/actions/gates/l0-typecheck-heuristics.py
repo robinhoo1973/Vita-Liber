@@ -1133,12 +1133,19 @@ def main():
         # ERR#27 纪律都绕过了。结果是:Linux 上唯一的 Go↔Swift 列契约通道
         # 一直处于关闭状态。现改为多候选路径查找,并把「不可达」显式声明为
         # UNVERIFIED(见下方输出),绝不冒充通过。
+        #
+        # 2026-10-14 迁移:该树已从 workspace-local `refactor/tools/medical-data/`
+        # 移入独立私有仓 `repos/medical-data/`(GitHub robinhoo1973/medical-data),
+        # 故新增 workspace 级 `repos/medical-data/...` 候选;旧 `refactor/` 候选
+        # 降级为历史兜底(路径已不存在,只防旧 checkout)。
         prod_candidates = []
         override = os.environ.get("VL_MEDICAL_DDL", "").strip()
         if override:
             prod_candidates.append(pathlib.Path(override))
         prod_candidates += [
             pathlib.Path("scripts/medical-data/go/fetchstore/catalog_v4.sql"),  # 历史路径(公仓已无)
+            root.parent / "repos/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
+            root.parent.parent / "repos/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
             root.parent / "refactor/tools/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
             root.parent.parent / "refactor/tools/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
         ]
@@ -1178,7 +1185,7 @@ def main():
             print("UNVERIFIED: 家族 O 的「夹具 ↔ 生产 DDL」列契约腿未执行——未找到 catalog_v4.sql"
                   "(搜索: " + ", ".join(str(c) for c in prod_candidates) + ")。"
                   "该腿在本次运行中【未被核对】,不得据此认为列契约一致;"
-                  "本地请设 VL_MEDICAL_DDL 指向 refactor/tools/medical-data 内的生产 DDL。")
+                  "本地请设 VL_MEDICAL_DDL 指向 repos/medical-data 内的生产 DDL。")
 
     # ---- 家族 P：测试内改 NSTimeZone.default 全局状态 —— CI 36249512459 实证：
     # TimeZone.current 在 Darwin 是进程启动缓存、不随 NSTimeZone.default 变化

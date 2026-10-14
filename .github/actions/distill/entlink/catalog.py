@@ -102,7 +102,7 @@ def _alias_list(aliases_json: str | None) -> tuple[str, ...]:
 def load_jsonl(path: Path, domain: str, data_version: str = "legacy-jsonl") -> Catalog:
     """从 JSONL(每行一个实体)装载单域目录。
 
-    字段契约(兼容 refactor/tools/medical-data 与 .lab 实测件):
+    字段契约(兼容 repos/medical-data 与 .lab 实测件):
       drug:       name_zh/name_en/aliases(数组或串)/region/source_id
       hospital:   name_zh/short_name/aliases/region/source_id
       department: name_zh/aliases/region/source_id
