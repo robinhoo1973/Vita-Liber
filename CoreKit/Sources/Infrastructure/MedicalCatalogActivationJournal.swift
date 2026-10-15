@@ -52,14 +52,17 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
     /// Apple-only schema/meta 复核门：`(path, candidateSchemaVersion, candidateDataVersion)`。
     /// Linux 测试宿主可传 nil——header+size+SHA 仍会跑，只是跳过 GRDB 复开。
     private let verifyInstalled: (@Sendable (_ path: URL, _ schemaVersion: Int, _ dataVersion: String) throws -> Void)?
+    private let verifyStorage: (@Sendable (URL, MedicalCatalogInstalledVersion?) throws -> Void)?
 
     public init(journalURL: URL, supportDirectory: URL,
                 sha256: @escaping @Sendable (URL) throws -> String,
-                verifyInstalled: (@Sendable (_ path: URL, _ schemaVersion: Int, _ dataVersion: String) throws -> Void)? = nil) {
+                verifyInstalled: (@Sendable (_ path: URL, _ schemaVersion: Int, _ dataVersion: String) throws -> Void)? = nil,
+                verifyStorage: (@Sendable (URL, MedicalCatalogInstalledVersion?) throws -> Void)? = nil) {
         self.journalURL = journalURL
         self.supportDirectory = supportDirectory.standardizedFileURL
         self.sha256 = sha256
         self.verifyInstalled = verifyInstalled
+        self.verifyStorage = verifyStorage
     }
 
     // MARK: - MedicalCatalogActivationJournaling
@@ -82,6 +85,7 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
             priorActiveSHA256: priorActiveSHA256,
             candidateCatalogVersion: pending.candidate.catalogVersion,
             candidateDataVersion: pending.candidate.dataVersion,
+            candidateContentSHA256: pending.candidate.contentSHA256,
             candidateSQLiteSchemaVersion: pending.candidate.schemaVersion,
             candidateSQLiteSHA256: pending.candidate.sqliteSHA256,
             candidateSignedPointerDigest: pending.candidate.signedPointerDigest)
@@ -110,7 +114,16 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
         } catch {
             throw Failure.invalidState
         }
-        guard record.journalSchemaVersion == Self.journalSchemaVersion else { throw Failure.invalidState }
+        guard record.journalSchemaVersion == Self.journalSchemaVersion,
+              MedicalCatalogReleaseProtocol.supportedSQLiteSchemaVersions.contains(record.candidateSQLiteSchemaVersion),
+              record.candidateCatalogVersion > 0,
+              MedicalCatalogReleaseProtocol.isLowercaseSHA256(record.candidateSQLiteSHA256),
+              MedicalCatalogReleaseProtocol.isLowercaseSHA256(record.candidateSignedPointerDigest),
+              record.candidateSQLiteSchemaVersion != 9 || (
+                record.candidateContentSHA256 == record.candidateDataVersion
+                && MedicalCatalogReleaseProtocol.isLowercaseSHA256(record.candidateDataVersion)) else {
+            throw Failure.invalidState
+        }
 
         let active = URL(fileURLWithPath: record.activePath)
         let staging = URL(fileURLWithPath: record.stagingPath)
@@ -122,7 +135,8 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
 
         // 分支一：active 仍是（或又变回了）旧库——替换从未发生，或原进程内
         // activeCheck 失败已把 backup 换回 active。journal 只剩清理价值。
-        if try matches(active, expectedSHA256: record.priorActiveSHA256) {
+        if try matches(active, expectedSHA256: record.priorActiveSHA256),
+           record.priorActiveSHA256 == nil || passesPriorGate(active) {
             removeIfPresent(staging)
             if let backup { removeIfPresent(backup) }
             removeIfPresent(journalURL)
@@ -139,7 +153,7 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
         }
 
         // 分支三：active 既非旧也非已验证的新——用 last-good 兜底。
-        if let backup, try matches(backup, expectedSHA256: record.priorActiveSHA256) {
+        if let backup, try matches(backup, expectedSHA256: record.priorActiveSHA256), passesPriorGate(backup) {
             guard Self.atomicRename(backup, to: active) else { throw Failure.irrecoverable }
             removeIfPresent(staging)
             removeIfPresent(journalURL)
@@ -181,13 +195,26 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
     private func matches(_ url: URL, expectedSHA256: String?) throws -> Bool {
         guard let expectedSHA256 else { return !FileManager.default.fileExists(atPath: url.path) }
         guard FileManager.default.fileExists(atPath: url.path), Self.hasSQLiteHeader(url) else { return false }
+        let size = try MedicalCatalogUpdateService.fileSize(of: url)
+        guard size > 0, size <= MedicalCatalogUpdateLimits.standard.maxSQLiteBytes else { return false }
         return try sha256(url) == expectedSHA256
     }
 
     private func passesInstalledGate(_ url: URL, record: Record) throws -> Bool {
-        guard let verifyInstalled else { return true }
         do {
-            try verifyInstalled(url, record.candidateSQLiteSchemaVersion, record.candidateDataVersion)
+            try verifyStorage?(url, MedicalCatalogInstalledVersion(
+                schemaVersion: record.candidateSQLiteSchemaVersion, dataVersion: record.candidateDataVersion,
+                contentSHA256: record.candidateContentSHA256, sqliteSHA256: record.candidateSQLiteSHA256))
+            try verifyInstalled?(url, record.candidateSQLiteSchemaVersion, record.candidateDataVersion)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func passesPriorGate(_ url: URL) -> Bool {
+        do {
+            try verifyStorage?(url, nil)
             return true
         } catch {
             return false
@@ -236,6 +263,7 @@ public struct MedicalCatalogActivationJournal: MedicalCatalogActivationJournalin
         let priorActiveSHA256: String?
         let candidateCatalogVersion: Int64
         let candidateDataVersion: String
+        let candidateContentSHA256: String?
         let candidateSQLiteSchemaVersion: Int
         let candidateSQLiteSHA256: String
         let candidateSignedPointerDigest: String

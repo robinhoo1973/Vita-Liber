@@ -267,6 +267,7 @@ def build_corpus(catalog: Catalog, out_path: Path, config: BuildConfig | None = 
         corpus_path=out_path,
         catalog_data_version=catalog.data_version,
         catalog_source=catalog.source,
+        catalog_storage_identity=catalog.storage_identity,
         noise_model=noise_model,
         pinyin_available=pinyin.available(),
         pinyin_reason=pinyin.unavailable_reason(),

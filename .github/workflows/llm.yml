@@ -342,6 +342,7 @@ jobs:
           EXCLUDE="$(python3 $POLICY --get corpus.entlinkBuild.excludeDomains)"
           python3 .github/actions/distill/build_corpus.py \
             --catalog-sqlite corpus-assets/catalog.sqlite \
+            --source-json corpus-assets/source.json \
             --out entlink-out/corpus.jsonl \
             --group-by-name --include-canonical-names --exclude-domains "$EXCLUDE" \
             --max-terms-per-entity "$MAX_TERMS" \

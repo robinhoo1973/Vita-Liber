@@ -55,10 +55,17 @@ public typealias MedicalCatalogUpdateError = MedicalCatalogDownloadError  // P3c
 public struct MedicalCatalogInstalledVersion: Sendable, Equatable {
     public let schemaVersion: Int
     public let dataVersion: String
+    public let contentSHA256: String?
+    public let sqliteSHA256: String?
+    public let activationID: String?
 
-    public init(schemaVersion: Int, dataVersion: String) {
+    public init(schemaVersion: Int, dataVersion: String, contentSHA256: String? = nil,
+                sqliteSHA256: String? = nil, activationID: String? = nil) {
         self.schemaVersion = schemaVersion
         self.dataVersion = dataVersion
+        self.contentSHA256 = contentSHA256
+        self.sqliteSHA256 = sqliteSHA256
+        self.activationID = activationID
     }
 }
 
@@ -73,6 +80,7 @@ public actor MedicalCatalogUpdateService {
     let journal: (any MedicalCatalogActivationJournaling)?
     let limits: MedicalCatalogUpdateLimits
     let activeCheck: @Sendable (URL) throws -> Void
+    let readAccess: MedicalCatalogReadAccess?
     /// 反回退 floor（tech-spec §5.53）：`update` 入口对已验签候选推进 floor——
     /// 更低 catalogVersion / 同版本异 digest 就地拒绝，不进入下载（2026-09-26
     /// 审查接线：此前 TrustStore 生产零构造、防回退判据悬空）。
@@ -86,20 +94,24 @@ public actor MedicalCatalogUpdateService {
          journal: (any MedicalCatalogActivationJournaling)?, limits: MedicalCatalogUpdateLimits,
          activeCheck: @escaping @Sendable (URL) throws -> Void,
          trust: MedicalCatalogTrustStore? = nil,
-         now: @escaping @Sendable () -> Date = { Date() }) {
+         now: @escaping @Sendable () -> Date = { Date() },
+         readAccess: MedicalCatalogReadAccess? = nil) {
         self.destination = destination
         self.fetcher = fetcher
         self.journal = journal
         self.limits = limits
         self.activeCheck = activeCheck
+        self.readAccess = readAccess
         self.trust = trust
         self.now = now
     }
 
-    /// 数据未变（schema 与 dataVersion 同时相等）即无需下载包；metadata trust floor 仍可推进。
+    /// Legacy 按 schema/dataVersion；unified 还须同已签 content 与实际 SQLite SHA。
     public static func sameDataVersion(local: MedicalCatalogInstalledVersion,
                                        candidate: VerifiedMedicalCatalogCandidate) -> Bool {
         local.schemaVersion == candidate.schemaVersion && local.dataVersion == candidate.dataVersion
+            && (candidate.schemaVersion != 9 || (local.contentSHA256 == candidate.contentSHA256
+                && local.sqliteSHA256 == candidate.sqliteSHA256))
     }
 
     public static func fileSize(of url: URL) throws -> Int64 {

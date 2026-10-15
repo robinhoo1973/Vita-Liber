@@ -9,9 +9,10 @@ extension MedicalCatalogUpdateService {
                 journal: (any MedicalCatalogActivationJournaling)? = nil,
                 limits: MedicalCatalogUpdateLimits = .standard,
                 trust: MedicalCatalogTrustStore? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() },
+                readAccess: MedicalCatalogReadAccess? = nil) {
         self.init(destination: destination, fetcher: fetcher, journal: journal, limits: limits,
-                  activeCheck: { try MedicalCatalogStore.smokeCheck(path: $0) }, trust: trust, now: now)
+                  activeCheck: { _ in }, trust: trust, now: now, readAccess: readAccess)
     }
 
     /// 下载 → 包 size/SHA → 解密解包 → SQLite size/SHA → 发布门 + 代表性查询 → 同卷 staging
@@ -99,7 +100,8 @@ extension MedicalCatalogUpdateService {
                 // 不再 validateRelease + smokeCheck 双开双扫。
                 try MedicalCatalogStore.validateReleaseAndSmoke(path: sqlite,
                                                                 schemaVersion: candidate.schemaVersion,
-                                                                dataVersion: candidate.dataVersion)
+                                                                dataVersion: candidate.dataVersion,
+                                                                contentSHA256: candidate.contentSHA256)
             }.value
         } catch {
             throw MedicalCatalogUpdateError.catalogIntegrityFailed
@@ -148,14 +150,14 @@ extension MedicalCatalogUpdateService {
         }
         guard Self.atomicRename(staging, to: destination) else { throw MedicalCatalogUpdateError.activationFailed }
         do {
+            // Verify the final inode, not merely the staging path. Both pools
+            // must reopen before journal completion or any reader is replaced.
+            let prepared = try MedicalCatalogReadAccess.prepare(path: destination, candidate: candidate)
             try activeCheck(destination)
+            try journal?.complete(pending)
+            readAccess?.commit(prepared)
         } catch {
             restoreLastGood(backup)
-            throw MedicalCatalogUpdateError.activationFailed
-        }
-        do {
-            try journal?.complete(pending)
-        } catch {
             throw MedicalCatalogUpdateError.activationFailed
         }
     }

@@ -17,6 +17,7 @@ final class MedicalCatalogState {
     /// 私有化避免双路径 API 漂移。
     private let updates: MedicalCatalogUpdateCoordinator
     var matchByLineID: [UUID: MedicalCatalogMatch] = [:]
+    private(set) var generation: UInt64
 
     /// 2026-09-27 委员会 P3a：接 Domain 端口而非具体 Infrastructure 类型（四规则第 1 条）。
     init(store: (any MedicalCatalogReading)?, updater: MedicalCatalogUpdateService? = nil, path: URL? = nil,
@@ -24,16 +25,23 @@ final class MedicalCatalogState {
          opener: (any MedicalCatalogPackageOpening)? = nil) {
         self.store = store
         self.path = path
+        self.generation = store?.catalogGeneration ?? 0
         // 两段式装配（CI 36347424569）：闭包捕获 self 先于 updates 赋值会被
         // definite-initialization 拒绝——先构造再回填回调。
         self.updates = MedicalCatalogUpdateCoordinator(updater: updater, path: path,
-                                                      checker: checker, opener: opener)
+                                                      checker: checker, opener: opener,
+                                                      installedVersion: (store as? MedicalCatalogReadAccess).map { access in
+                                                          { access.installedVersion }
+                                                      })
         self.updates.onInstalled = { [weak self] in
             self?.reloadStore() ?? false
         }
     }
 
-    var isAvailable: Bool { store != nil }
+    var isAvailable: Bool {
+        if let access = store as? MedicalCatalogReadAccess { return access.isAvailable }
+        return store != nil
+    }
 
     // MARK: - 协调器转发面（视图/测试零变更）
 
@@ -58,35 +66,59 @@ final class MedicalCatalogState {
     /// 1-vote 验证修复：此前 try? 赋值会把复开失败置成 store=nil，读面全空态），
     /// 返回 false 让协调器走 activationFailed 语义（与拆分前行为逐路径等价）。
     private func reloadStore() -> Bool {
-        guard let path, let reopened = try? MedicalCatalogStore(path: path) else { return false } // try?-ok: 复开失败=读面保持旧连接，协调器按失败语义呈现
-        store = reopened
+        if let access = store as? MedicalCatalogReadAccess {
+            guard access.isAvailable else { return false }
+            generation = access.catalogGeneration
+        } else {
+            guard let path, let reopened = try? MedicalCatalogReadAccess(path: path) else { return false } // try?-ok: 双读面准备失败时不改变现态
+            store = reopened
+            generation = reopened.catalogGeneration
+        }
         matchByLineID.removeAll()
         return true
     }
 
     func match(_ line: PrescriptionLine) async -> MedicalCatalogMatch? {
         guard let store else { return nil }
+        let started = readGeneration(of: store)
         do {
             let result = try await store.match(line: line)
+            guard readGeneration(of: store) == started else { return nil }
             matchByLineID[line.id] = result
             return result
         } catch {
+            _ = readGeneration(of: store)
             return nil
         }
     }
 
     func drug(id: Int) async -> MedicalCatalogDrug? {
         guard let store else { return nil }
-        return try? await store.drug(id: id) // try?-ok: 目录查询失败=详情空态（ProgressView 降级，不崩）
+        let started = readGeneration(of: store)
+        let result = try? await store.drug(id: id) // try?-ok: 目录查询失败=详情空态
+        return readGeneration(of: store) == started ? result : nil
     }
 
     func references(for drug: MedicalCatalogDrug) async -> [MedicalCatalogReference] {
         guard let store else { return [] }
-        return (try? await store.reference(for: drug)) ?? [] // try?-ok: 目录查询失败=无参考链接（降级不崩）
+        let started = readGeneration(of: store)
+        let result = (try? await store.reference(for: drug)) ?? [] // try?-ok: 目录查询失败=无参考链接
+        return readGeneration(of: store) == started ? result : []
     }
 
     func detail(for drug: MedicalCatalogDrug) async -> MedicalCatalogDrugDetail? {
         guard let store else { return nil }
-        return try? await store.detail(for: drug) // try?-ok: 目录详情缺失=只展示主记录
+        let started = readGeneration(of: store)
+        let result = try? await store.detail(for: drug) // try?-ok: 目录详情缺失=只展示主记录
+        return readGeneration(of: store) == started ? result : nil
+    }
+
+    private func readGeneration(of store: any MedicalCatalogReading) -> UInt64 {
+        let current = store.catalogGeneration
+        if generation != current {
+            matchByLineID.removeAll()
+            generation = current
+        }
+        return current
     }
 }

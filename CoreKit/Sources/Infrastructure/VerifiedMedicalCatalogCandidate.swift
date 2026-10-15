@@ -8,11 +8,9 @@ public enum MedicalCatalogReleaseProtocol {
     public static let releaseTag = "medical-data"
     public static let assetKind = "medical-data"
     public static let app = "vitaliber"
-    /// Latest physical schema emitted by the current Go producer(CNB 契约,2026-10-03 接入)。
-    public static let sqliteSchemaVersion = 7
-    /// CNB 单写者契约:只接受 v7;旧 GitHub 时代检查点从未发布,零旧设备悬崖
-    /// (医疗根从未随发布构建注入)。
-    public static let supportedSQLiteSchemaVersions: Set<Int> = [7]
+    public static let sqliteSchemaVersion = 9
+    /// v8 is a migration work copy, never a release. Legacy signed catalogs remain readable.
+    public static let supportedSQLiteSchemaVersions: Set<Int> = [4, 5, 6, 7, 9]
     public static let sqliteEntryName = "medical-catalog.sqlite"
     /// CNB 资源下载基址(与 Go cnbReleaseBaseURL 逐字节一致)。
     public static let releaseBaseURL = "https://cnb.cool/" + repository + "/-/releases/download/" + releaseTag
@@ -48,7 +46,8 @@ public enum MedicalCatalogReleaseProtocol {
     public static func packageAssetVersion(_ name: String) -> Int64? {
         guard name.hasPrefix(packagePrefix), name.hasSuffix(packageSuffix) else { return nil }
         let body = name.dropFirst(packagePrefix.count).dropLast(packageSuffix.count)
-        guard (1...19).contains(body.count), body.first != "0", body.allSatisfy(\.isNumber),
+        guard (1...19).contains(body.utf8.count), body.first != "0",
+              body.utf8.allSatisfy({ (48...57).contains($0) }),
               let version = Int64(body), version > 0 else { return nil }
         return version
     }
@@ -108,6 +107,7 @@ public enum MedicalCatalogTrustError: Error, Equatable {
 public struct MedicalCatalogSignedExpectation: Sendable, Equatable {
     public let catalogVersion: Int64
     public let dataVersion: String
+    public let contentSHA256: String
     public let schemaVersion: Int
     public let packageAssetName: String
     public let packageSize: Int64
@@ -124,6 +124,7 @@ public struct MedicalCatalogSignedExpectation: Sendable, Equatable {
     init(_ pointer: MedicalCatalogSignedPointer, signedPointerDigest: String) {
         catalogVersion = pointer.catalogVersion
         dataVersion = pointer.dataVersion
+        contentSHA256 = pointer.contentSHA256
         schemaVersion = pointer.sqliteSchemaVersion
         packageAssetName = pointer.packageAssetName
         packageSize = pointer.packageSize
@@ -143,6 +144,7 @@ public struct MedicalCatalogSignedExpectation: Sendable, Equatable {
 public struct VerifiedMedicalCatalogCandidate: Sendable, Equatable {
     public let catalogVersion: Int64
     public let dataVersion: String
+    public let contentSHA256: String
     public let schemaVersion: Int
     public let packageAssetName: String
     public let packageSize: Int64
@@ -158,6 +160,7 @@ public struct VerifiedMedicalCatalogCandidate: Sendable, Equatable {
     init(verified expectation: MedicalCatalogSignedExpectation) {
         catalogVersion = expectation.catalogVersion
         dataVersion = expectation.dataVersion
+        contentSHA256 = expectation.contentSHA256
         schemaVersion = expectation.schemaVersion
         packageAssetName = expectation.packageAssetName
         packageSize = expectation.packageSize
@@ -310,7 +313,7 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         let runStatus: String
         let installable: Bool
         let startedAt: String
-        let endedAt: String
+        let endedAt: String?
         let contentSHA256: String
         let sqliteSHA256: String
         let sqliteSchemaVersion: Int
@@ -362,6 +365,8 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
     static func decode(_ payload: Data) throws -> Self {
         var pointer = try MedicalCatalogJSON.strict(Self.self, from: payload,
                                                    keys: Set(CodingKeys.allCases.map(\.rawValue)),
+                                                   integerKeys: ["schemaVersion", "rootVersion", "catalogVersion",
+                                                                 "packageSize", "sqliteSchemaVersion"],
                                                    onFailure: .invalidField)
         // v3 冻结（2026-10-07）：单头固定名指针，payload schemaVersion=3——
         // 破坏性升级，App 消费面未发版前切换零成本（口径见 v3 协调记录）。
@@ -381,9 +386,12 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
               pointer.releaseTag == MedicalCatalogReleaseProtocol.releaseTag else {
             throw MedicalCatalogTrustError.invalidScope
         }
-        guard pointer.packageAssetName == MedicalCatalogReleaseProtocol.packageAssetName(
-            catalogVersion: pointer.catalogVersion) else {
+        guard let packageVersion = MedicalCatalogReleaseProtocol.packageAssetVersion(pointer.packageAssetName),
+              packageVersion <= pointer.catalogVersion else {
             throw MedicalCatalogTrustError.assetNameMismatch
+        }
+        guard pointer.sqliteSchemaVersion != 9 || pointer.contentSHA256 == pointer.dataVersion else {
+            throw MedicalCatalogTrustError.invalidField
         }
         // v3 内嵌清单：两层各自的 DisallowUnknownFields——顶层在 strict 已查，
         // 清单层在此逐键校验（恰 16 键：15 标量 + sources，多/少均拒）。
@@ -391,8 +399,12 @@ struct MedicalCatalogSignedPointer: Decodable, Equatable {
         guard let manifestRaw = rootObject["manifest"] as? [String: Any] else {
             throw MedicalCatalogTrustError.invalidField
         }
+        try MedicalCatalogJSON.requireIntegers(manifestRaw, keys: ["schema_version", "sqlite_schema_version"],
+                                              onFailure: .invalidField)
         let manifestKeys = Set(Manifest.CodingKeys.allCases.map(\.rawValue)).union(["sources"])
-        guard Set(manifestRaw.keys) == manifestKeys,
+        guard Set(manifestRaw.keys).isSubset(of: manifestKeys),
+              manifestKeys.subtracting(["ended_at"]).isSubset(of: Set(manifestRaw.keys)),
+              pointer.manifest.schemaVersion == 2,
               let sources = manifestRaw["sources"] as? [Any], !sources.isEmpty,
               sources.allSatisfy({ $0 is [String: Any] }) else {
             throw MedicalCatalogTrustError.invalidField
@@ -465,6 +477,7 @@ struct MedicalCatalogTrustRoot {
         let malformed = MedicalCatalogTrustError.malformedEnvelope
         let document = try MedicalCatalogJSON.strict(Document.self, from: payload,
                                                     keys: Set(Document.CodingKeys.allCases.map(\.rawValue)),
+                                                    integerKeys: ["schemaVersion", "version", "rootThreshold", "catalogThreshold"],
                                                     onFailure: malformed)
         let rawKeys = try MedicalCatalogJSON.object(payload, onFailure: malformed)["keys"] as? [Any] ?? []
         guard rawKeys.allSatisfy({ ($0 as? [String: Any]).map { Set($0.keys).isSubset(of: ["id", "publicKey"]) } == true }) else {
@@ -558,8 +571,21 @@ enum MedicalCatalogJSON {
 
     /// 等价 Go `DisallowUnknownFields`：顶层出现未声明字段即拒绝。
     static func strict<T: Decodable>(_ type: T.Type, from data: Data, keys: Set<String>,
+                                     integerKeys: Set<String> = [],
                                      onFailure failure: MedicalCatalogTrustError) throws -> T {
-        guard Set(try object(data, onFailure: failure).keys).isSubset(of: keys) else { throw failure }
+        let raw = try object(data, onFailure: failure)
+        guard Set(raw.keys).isSubset(of: keys) else { throw failure }
+        try requireIntegers(raw, keys: integerKeys, onFailure: failure)
         do { return try JSONDecoder().decode(type, from: data) } catch { throw failure }
+    }
+
+    /// JSONDecoder can coerce integral floats; Go's int64 wire fields cannot.
+    static func requireIntegers(_ object: [String: Any], keys: Set<String>,
+                                onFailure failure: MedicalCatalogTrustError) throws {
+        for key in keys {
+            guard let number = object[key] as? NSNumber,
+                  ["s", "i", "l", "q", "S", "I", "L", "Q"].contains(String(cString: number.objCType)),
+                  Int64(number.stringValue) != nil else { throw failure }
+        }
     }
 }

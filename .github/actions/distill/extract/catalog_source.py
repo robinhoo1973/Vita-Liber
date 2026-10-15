@@ -17,8 +17,8 @@
   drugs_nhsa.jsonl      CN NHSA 行:{name_zh, region_specific:{spec, dosage_form}}
   tw_records.jsonl      TW 行:{name_zh, specification, dosage_form, usage_text, source_id}
   hk_records.jsonl      HK 行:{name_zh, name_en, specification, dosage_form, usage_text}
-  medical_details.jsonl 全行:{source_id, indications, usage_text}(单遍流式消费者)
-  medical_index.json    {index: {alias: [source_id]}}(别名↔同 id 组;抽样封顶)
+  medical_details.jsonl 全行:{region, source_id, indications, usage_text}
+  medical_index.json    {identity:"region+source_id/v1", index:{alias:[规范 JSON 复合键]}}
   ref/hospital_<r>.jsonl {name_zh, depts:[{name_zh}]}(TW 科别派生用)
   ref/department_<r>.jsonl / ref/diagnosis_<r>.jsonl / ref/exam_<r>.jsonl {name_zh[, unit]}
   facts/<域>.jsonl       对话语料事实面:{region, name, ...可复述字段}(dialog builder 消费)
@@ -38,6 +38,10 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from catalog_contract import (inspect_connection, readonly_connection,
+                              validate_source_descriptor, validate_sqlite)
 
 # medical_index:全量物化(2026-10-07 实测:别名文本大量与主名同形,去重后键数远小于行数;
 # 采样会引入 source_id 序偏置,取消上限)。消费侧 load_aliases 自带上限(24000/8000)。
@@ -92,16 +96,22 @@ def _write_jsonl(path: Path, rows):
     return count
 
 
-def materialize(sqlite_path: Path, out_dir: Path) -> dict:
-    conn = sqlite3.connect(f"file:{sqlite_path}?mode=ro", uri=True)
+def materialize(sqlite_path: Path, out_dir: Path, source_descriptor: dict | None = None) -> dict:
+    identity = validate_sqlite(sqlite_path)
+    if source_descriptor is not None:
+        validate_source_descriptor(identity, source_descriptor, sha256_file(sqlite_path))
+    conn = readonly_connection(sqlite_path)
     conn.row_factory = sqlite3.Row
     try:
+        conn.execute("BEGIN")
+        if inspect_connection(conn) != identity:
+            raise ValueError("catalog changed while preparing materialization")
         meta = dict(conn.execute("SELECT key, value FROM catalog_meta").fetchall())
-        details = {row["source_id"]: row for row in
-                   conn.execute("SELECT source_id, usage_text, indications FROM drug_detail")}
+        details = {(row["region"], row["source_id"]): row for row in
+                   conn.execute("SELECT region, source_id, usage_text, indications FROM drug_detail")}
 
-        def usage_of(sid: str) -> str:
-            row = details.get(sid)
+        def usage_of(region: str, sid: str) -> str:
+            row = details.get((region, sid))
             return (row["usage_text"] or "")[:USAGE_CAP] if row else ""
 
         counts: dict[str, int] = {}
@@ -117,13 +127,14 @@ def materialize(sqlite_path: Path, out_dir: Path) -> dict:
                     nhsa_rows.append({"name_zh": name, "region_specific": {"spec": spec, "dosage_form": form}})
                 else:
                     cn_rows.append({"name_zh": name, "specification": spec, "dosage_form": form,
-                                    "usage_text": usage_of(sid)})
+                                    "usage_text": usage_of(row["region"], sid)})
             elif row["region"] == "TW":
                 tw_rows.append({"name_zh": name, "specification": spec, "dosage_form": form,
-                                "usage_text": usage_of(sid), "source_id": sid})
+                                "usage_text": usage_of(row["region"], sid), "source_id": sid, "region": "TW"})
             elif row["region"] == "HK":
                 hk_rows.append({"name_zh": name, "name_en": (row["name_en"] or "").strip(),
-                                "specification": spec, "dosage_form": form, "usage_text": usage_of(sid)})
+                                "specification": spec, "dosage_form": form,
+                                "usage_text": usage_of(row["region"], sid)})
 
         counts["drugs_cn.jsonl"] = _write_jsonl(out_dir / "drugs_cn.jsonl", cn_rows)
         counts["drugs_nhsa.jsonl"] = _write_jsonl(out_dir / "drugs_nhsa.jsonl", nhsa_rows)
@@ -131,20 +142,20 @@ def materialize(sqlite_path: Path, out_dir: Path) -> dict:
         counts["hk_records.jsonl"] = _write_jsonl(out_dir / "hk_records.jsonl", hk_rows)
 
         def detail_rows():
-            for row in conn.execute("SELECT source_id, usage_text, indications FROM drug_detail"):
-                yield {"source_id": row["source_id"],
+            for row in conn.execute("SELECT region, source_id, usage_text, indications FROM drug_detail"):
+                yield {"region": row["region"], "source_id": row["source_id"],
                        "usage_text": (row["usage_text"] or "")[:USAGE_CAP],
                        "indications": (row["indications"] or "")[:INDICATIONS_CAP]}
         counts["medical_details.jsonl"] = _write_jsonl(out_dir / "medical_details.jsonl", detail_rows())
 
-        # medical_index:别名 → [source_id](抽样封顶;定序保证可复现)
+        # Composite IDs remain opaque to the co-reference consumer.
         index: dict[str, list[str]] = {}
         sampled = 0
         for row in conn.execute(
-                "SELECT source_id, name_zh, aliases_json FROM drug WHERE aliases_json IS NOT NULL "
-                "AND aliases_json NOT IN ('', '[]') ORDER BY source_id"):
+                "SELECT region, source_id, name_zh, aliases_json FROM drug WHERE aliases_json IS NOT NULL "
+                "AND aliases_json NOT IN ('', '[]') ORDER BY region COLLATE BINARY, source_id COLLATE BINARY"):
             sampled += 1
-            sid = row["source_id"]
+            sid = json.dumps([row["region"], row["source_id"]], ensure_ascii=False, separators=(",", ":"))
             texts = [t for t in _alias_texts(row["aliases_json"]) if 3 <= len(t) <= 26]
             name = (row["name_zh"] or "").strip()
             if 3 <= len(name) <= 26 and name not in texts:
@@ -154,7 +165,8 @@ def materialize(sqlite_path: Path, out_dir: Path) -> dict:
                 if sid not in ids:
                     ids.append(sid)
         index_path = out_dir / "medical_index.json"
-        index_path.write_text(json.dumps({"index": index}, ensure_ascii=False) + "\n", encoding="utf-8")
+        index_path.write_text(json.dumps({"identity": "region+source_id/v1", "index": index},
+                                        ensure_ascii=False) + "\n", encoding="utf-8")
         counts["medical_index.json"] = len(index)
 
         # 对话语料事实面(facts/):转述层的「资料」来源,逐字段逐字取自目录列。
@@ -162,7 +174,7 @@ def materialize(sqlite_path: Path, out_dir: Path) -> dict:
         fact_specs = (
             ("drug",
              "SELECT d.region, d.name_zh, d.spec, d.dosage_form, t.usage_text "
-             "FROM drug d LEFT JOIN drug_detail t ON t.source_id = d.source_id",
+             "FROM drug d LEFT JOIN drug_detail t ON t.region = d.region AND t.source_id = d.source_id",
              (("name", "name_zh"), ("spec", "spec"), ("form", "dosage_form"), ("usage", "usage_text")), 160),
             ("hospital",
              "SELECT region, name_zh, type_zh, level_zh, admin_area FROM hospital",
@@ -253,6 +265,7 @@ def materialize(sqlite_path: Path, out_dir: Path) -> dict:
         counts["ref/fee_tw.jsonl"] = _write_jsonl(out_dir / "ref" / "fee_tw.jsonl", fee_rows)
 
         descriptor = {
+            **identity.descriptor(),
             "catalog_data_version": meta.get("data_version", ""),
             "catalog_schema_version": meta.get("schema_version", ""),
             "index_sampled_rows": sampled,
@@ -282,19 +295,20 @@ def main() -> int:
     if not args.catalog_sqlite.exists():
         print(f"FAILED: 目录 SQLite 不存在: {args.catalog_sqlite}", file=sys.stderr)
         return 1
+    source = {}
+    if args.source_json is not None:
+        try:
+            source = json.loads(args.source_json.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            print(f"FAILED: source descriptor: {exc}", file=sys.stderr)
+            return 1
     args.out_dir.mkdir(parents=True, exist_ok=True)
     try:
-        descriptor = materialize(args.catalog_sqlite, args.out_dir)
+        descriptor = materialize(args.catalog_sqlite, args.out_dir,
+                                 source_descriptor=source if args.source_json is not None else None)
     except (sqlite3.Error, OSError, ValueError) as exc:
         print(f"FAILED: 物化失败: {exc}", file=sys.stderr)
         return 1
-
-    source = {}
-    if args.source_json is not None and args.source_json.exists():
-        try:
-            source = json.loads(args.source_json.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            source = {"error": f"unreadable {args.source_json}"}
 
     files = {}
     for rel in sorted(descriptor["counts"]):

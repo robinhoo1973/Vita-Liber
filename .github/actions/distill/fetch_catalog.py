@@ -57,12 +57,16 @@ import json
 import os
 import re
 import shutil
+import stat
 import sys
 import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from catalog_contract import (MAX_SQLITE_BYTES, SQLITE_ENTRY_NAME, SUPPORTED_SCHEMAS,
+                              sha256_file, validate_sqlite)
 
 
 def _default_release_dir() -> Path:
@@ -136,14 +140,7 @@ MEDICAL_PACKAGE_KEY_HEX = "2303fac4e6aaacc328f6ac612f77fa91c32594f9c627aab2178b1
 MANIFEST_ASSET_NAME = "manifest.json"
 OVERVIEW_ASSET_NAME = "overview.json"
 _PACKAGE_NAME = re.compile(r"^package-([1-9][0-9]{0,18})\.bin$")
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+_INT64_MAX = (1 << 63) - 1
 
 
 def _urlopen(url: str, timeout: int):
@@ -278,7 +275,7 @@ TRUST_MAX_PAYLOAD_BYTES = 1 << 20
 TRUST_MAX_ENVELOPE_BYTES = 2 << 20
 TRUST_POINTER_VALIDITY = timedelta(days=31)
 TRUST_ISSUED_SKEW = timedelta(minutes=5)
-TRUST_SQLITE_SCHEMA_VERSION = 7
+TRUST_SQLITE_SCHEMA_VERSION = 9
 TRUST_ROOT_FILE_NAME = "pinned-root.json"           # 与 Go provision 产物同名(publicRootFileName)
 TRUST_ROOT_ENV = "VITALIBER_MEDICAL_TRUST_ROOT"
 
@@ -417,7 +414,7 @@ def validate_root_document(document, now: datetime) -> tuple[dict, dict[str, byt
             or document["role"] != "root"
             or document["app"] != TRUST_APP or document["assetKind"] != TRUST_ASSET_KIND):
         raise _trust_refusal("信任根范围不符(schema/role/app/assetKind)")
-    if type(document["version"]) is not int or document["version"] <= 0:
+    if type(document["version"]) is not int or not 0 < document["version"] <= _INT64_MAX:
         raise _trust_refusal("信任根 version 非法")
     expires = _parse_trust_timestamp(document["expiresAt"], "信任根")
     if expires <= now:
@@ -472,11 +469,12 @@ def validate_pointer_payload(payload, root_version: int, now: datetime, expected
     """Go validatePointerFields(+ VerifyPointer 的 rootVersion/时间窗/资产名)的镜像。"""
     if not isinstance(payload, dict) or set(payload) != _POINTER_TOP_KEYS:
         raise _trust_refusal("指针载荷字段集非法(多/少键均拒)")
-    if (payload["schemaVersion"] != 3 or payload["role"] != "catalog"
+    if (type(payload["schemaVersion"]) is not int or payload["schemaVersion"] != 3 or payload["role"] != "catalog"
             or payload["app"] != TRUST_APP or payload["assetKind"] != TRUST_ASSET_KIND):
         raise _trust_refusal("指针范围不符(schemaVersion/role/app/assetKind)")
     if type(payload["rootVersion"]) is not int or type(payload["catalogVersion"]) is not int \
-            or payload["rootVersion"] <= 0 or payload["catalogVersion"] <= 0:
+            or not 0 < payload["rootVersion"] <= _INT64_MAX \
+            or not 0 < payload["catalogVersion"] <= _INT64_MAX:
         raise _trust_refusal("指针 root/catalog 版本必须为正整数")
     if payload["rootVersion"] != root_version:
         raise _trust_refusal(f"指针 rootVersion 与信任根不符: {payload['rootVersion']} != {root_version}")
@@ -485,8 +483,10 @@ def validate_pointer_payload(payload, root_version: int, now: datetime, expected
             raise _trust_refusal(f"指针 {name} 须为小写 SHA-256 hex")
     if type(payload["packageSize"]) is not int or payload["packageSize"] <= 0:
         raise _trust_refusal("指针 packageSize 必须为正整数")
-    if type(payload["sqliteSchemaVersion"]) is not int or payload["sqliteSchemaVersion"] != TRUST_SQLITE_SCHEMA_VERSION:
-        raise _trust_refusal(f"指针要求物理 SQLite v{TRUST_SQLITE_SCHEMA_VERSION}(实为 {payload['sqliteSchemaVersion']!r})")
+    if type(payload["sqliteSchemaVersion"]) is not int or payload["sqliteSchemaVersion"] not in SUPPORTED_SCHEMAS:
+        raise _trust_refusal(f"指针不支持物理 SQLite schema {payload['sqliteSchemaVersion']!r}")
+    if payload["sqliteSchemaVersion"] == 9 and payload["dataVersion"] != payload["contentSha256"]:
+        raise _trust_refusal("unified R/dataVersion/contentSha256 不符")
     if type(payload["installable"]) is not bool:
         raise _trust_refusal("指针 installable 必须为布尔")
     if payload["repository"] != DEFAULT_REPOSITORY or payload["releaseTag"] != DEFAULT_TAG:
@@ -494,7 +494,7 @@ def validate_pointer_payload(payload, root_version: int, now: datetime, expected
     name = payload["packageAssetName"]
     if not isinstance(name, str):
         raise _trust_refusal("指针 packageAssetName 非字符串")
-    match = _PACKAGE_NAME.match(name)
+    match = _PACKAGE_NAME.fullmatch(name)
     if match is None or int(match.group(1)) > payload["catalogVersion"]:
         raise _trust_refusal(f"包资产名不符文法或版本晚于 catalogVersion: {name!r}")
     # v3 内嵌清单:键集/互核(snake_case 清单层;Go validatePointerFields 逐项)。
@@ -617,10 +617,12 @@ def parse_catalog_pointer(raw: bytes, *, trust_root=None, now: datetime | None =
             raise ValueError(f"指针文件形状非法: {exc}") from exc
         if not isinstance(payload, dict):
             raise ValueError("指针载荷不是 JSON 对象")
+        validate_pointer_payload(payload, payload.get("rootVersion"), now or datetime.now(timezone.utc),
+                                 expected_asset_name)
     for key in ("packageAssetName", "packageSha256", "sqliteSha256", "dataVersion", "contentSha256"):
         if not isinstance(payload.get(key), str) or not payload[key]:
             raise ValueError(f"指针载荷缺字段: {key}")
-    match = _PACKAGE_NAME.match(payload["packageAssetName"])
+    match = _PACKAGE_NAME.fullmatch(payload["packageAssetName"])
     if match is None:
         raise ValueError(f"包资产名不符文法(package-<版本>.bin): {payload['packageAssetName']}")
     catalog_version = payload.get("catalogVersion")
@@ -651,6 +653,40 @@ def select_manifest_asset(assets: list[dict]) -> dict:
 
 # ---------------------------------------------------------------- 解密 + 解包
 
+def extract_sqlite_zip(zip_path: Path, sqlite_out: Path, identity: str) -> None:
+    """Accept exactly the fixed, ordinary SQLite member; publish only after its gate."""
+    import zipfile
+    import uuid
+    tmp_sqlite = sqlite_out.with_name(sqlite_out.name + "." + uuid.uuid4().hex + ".tmp")
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            members = archive.infolist()
+            if len(members) != 1:
+                raise ValueError("包内必须只有 medical-catalog.sqlite 普通文件")
+            member = members[0]
+            mode = member.external_attr >> 16
+            if (member.filename != SQLITE_ENTRY_NAME or member.orig_filename != SQLITE_ENTRY_NAME
+                    or member.is_dir() or stat.S_IFMT(mode) not in (0, stat.S_IFREG)
+                    or member.flag_bits & 1
+                    or member.compress_type not in (zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED)
+                    or not 0 < member.file_size <= MAX_SQLITE_BYTES):
+                raise ValueError("包内固定 SQLite 条目不是受支持的普通文件")
+            digest, written = hashlib.sha256(), 0
+            with archive.open(member) as src, open(tmp_sqlite, "xb") as dst:
+                for chunk in iter(lambda: src.read(1 << 20), b""):
+                    written += len(chunk)
+                    if written > member.file_size or written > MAX_SQLITE_BYTES:
+                        raise ValueError("包内 SQLite 超过声明大小/预算")
+                    digest.update(chunk)
+                    dst.write(chunk)
+            if written != member.file_size or digest.hexdigest() != identity:
+                raise ValueError("内层 SQLite SHA-256/大小与指针不符")
+        validate_sqlite(tmp_sqlite, sqlite_sha256=identity)
+        tmp_sqlite.replace(sqlite_out)
+    finally:
+        tmp_sqlite.unlink(missing_ok=True)
+
+
 def decrypt_and_extract(cipher: Path, zip_path: Path, sqlite_out: Path, identity: str) -> None:
     """信封 → ZIP → 内层 SQLite。identity = 指针 sqliteSha256(信封 key/nonce 派生锚)。"""
     if str(RELEASE_DIR) not in sys.path:
@@ -660,31 +696,8 @@ def decrypt_and_extract(cipher: Path, zip_path: Path, sqlite_out: Path, identity
         raise ValueError(f"密文前缀不是 VLASR 信封: {cipher}")
     master = bytes.fromhex(MEDICAL_PACKAGE_KEY_HEX)
     decrypt_package(master, identity, cipher, zip_path)
-    import zipfile
-    # E5 修复：流式写到**同目录 .tmp**，摘要校验通过才原子换名到终名——原实现直接写终名，
-    # 中途失败（ENOSPC/SIGTERM/zip 读错）会留下被截断的 catalog.sqlite，而摘要检查永不执行；
-    # 任何消费者按存在性取件即拿到损坏目录库。
-    tmp_sqlite = sqlite_out.with_name(sqlite_out.name + ".tmp")
-    try:
-        with zipfile.ZipFile(zip_path) as archive:
-            names = [n for n in archive.namelist() if n.endswith(".sqlite")]
-            if len(names) != 1:
-                raise ValueError(f"包内 SQLite 条目不唯一: {archive.namelist()}")
-            digest = hashlib.sha256()
-            with archive.open(names[0]) as src, open(tmp_sqlite, "wb") as dst:
-                while True:
-                    chunk = src.read(1 << 20)
-                    if not chunk:
-                        break
-                    digest.update(chunk)
-                    dst.write(chunk)
-        actual = digest.hexdigest()
-        if actual != identity:
-            raise ValueError(f"内层 SQLite SHA-256 与指针不符:{actual} != {identity}(信封解密或包内容被篡改)")
-        tmp_sqlite.replace(sqlite_out)
-    finally:
-        tmp_sqlite.unlink(missing_ok=True)
-    print(f"[ok] 内层 SQLite 校验通过: {names[0]} sha256={actual[:16]}…")
+    extract_sqlite_zip(zip_path, sqlite_out, identity)
+    print(f"[ok] 内层 SQLite 校验通过: {SQLITE_ENTRY_NAME} sha256={identity[:16]}…")
 
 
 # ---------------------------------------------------------------- 主流程
@@ -703,6 +716,8 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
     download_asset(repository, tag, manifest_asset, pointer_path)
     pointer = parse_catalog_pointer(pointer_path.read_bytes(), trust_root=trust_root,
                                     allow_unsigned=allow_unsigned)
+    if pointer["installable"] is not True:
+        raise ValueError("指针 installable=false，研发/partial 包不可交付")
     print(f"[fetch] 指针(v3 manifest.json):catalogVersion={pointer.get('catalogVersion')} "
           f"dataVersion={pointer['dataVersion'][:16]}… installable={pointer.get('installable')}")
 
@@ -711,8 +726,9 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
     package_asset = by_name.get(pointer["packageAssetName"])
     if package_asset is None:
         raise ValueError(f"tag 页缺少指针所指包资产: {pointer['packageAssetName']}")
-    if package_asset["hashValue"] != pointer["packageSha256"]:
-        raise ValueError("包资产页内哈希与指针不符")
+    if (package_asset["hashValue"] != pointer["packageSha256"]
+            or package_asset["sizeInByte"] != pointer["packageSize"]):
+        raise ValueError("包资产页内哈希/大小与已签指针不符")
 
     # overview.json 固定名、替换发布,可短暂缺席(展示件非权威)——缺席不判失败。
     overview_asset = by_name.get(OVERVIEW_ASSET_NAME)
@@ -720,28 +736,41 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
     cipher = work / package_asset["name"]
     print(f"[fetch] 下载包 {package_asset['sizeInByte'] / 1048576:.0f} MiB …")
     download_asset(repository, tag, package_asset, cipher)
+    if cipher.stat().st_size != pointer["packageSize"] or sha256_file(cipher) != pointer["packageSha256"]:
+        raise ValueError("密文包 SHA-256/大小与已签指针不符")
 
     zip_path = work / "package.zip"
     sqlite_out = out_dir / "catalog.sqlite"
-    decrypt_and_extract(cipher, zip_path, sqlite_out, pointer["sqliteSha256"])
+    staged_sqlite = work / SQLITE_ENTRY_NAME
+    decrypt_and_extract(cipher, zip_path, staged_sqlite, pointer["sqliteSha256"])
+    identity = validate_sqlite(staged_sqlite, schema=pointer["sqliteSchemaVersion"],
+        data_version=pointer["dataVersion"], content_sha256=pointer["contentSha256"],
+        sqlite_sha256=pointer["sqliteSha256"])
+    signed_payload = _strict_base64(json.loads(pointer_path.read_bytes())["payload"], "指针 payload")
+    signed_digest = hashlib.sha256(signed_payload).hexdigest()
 
     # E5 修复：指针落盘排在核心件（catalog.sqlite）**校验通过之后**——原先在校验前复制，
     # 失败时 out_dir 会留下「新数据版本的 pointer.json + 截断/旧 sqlite」的混合半成品，
     # 与「任一层不符即拒绝产出(绝不落半成品)」契约相反。原始签名信封逐字节留档(provenance)。
     # 半成品窗口再收紧：复制同样走临时名+原子换名（copy2 中途被杀不再留截断 pointer）。
+    if overview_asset is not None:
+        download_asset(repository, tag, overview_asset, work / "overview.json")
+
     pointer_dst = out_dir / "pointer.json"
     pointer_tmp = out_dir / ".pointer.json.tmp"
     shutil.copy2(pointer_path, pointer_tmp)
+    os.replace(staged_sqlite, sqlite_out)
     os.replace(pointer_tmp, pointer_dst)
-
     if overview_asset is not None:
-        download_asset(repository, tag, overview_asset, out_dir / "overview.json")
+        os.replace(work / "overview.json", out_dir / "overview.json")
 
     if not keep_intermediates:
         shutil.rmtree(work, ignore_errors=True)
 
     return {
         "mode": "cnb-release-v3",
+        **identity.descriptor(),
+        "signedPointerDigest": signed_digest,
         "repository": repository,
         "tag": tag,
         "catalogVersion": pointer.get("catalogVersion"),
@@ -765,14 +794,21 @@ def run_remote(repository: str, tag: str, out_dir: Path, keep_intermediates: boo
 
 def run_local(sqlite: Path, out_dir: Path) -> dict:
     target = out_dir / "catalog.sqlite"
+    identity = validate_sqlite(sqlite)
     if sqlite.resolve() != target.resolve():
         # E5 同款：--local-sqlite 旁路同样临时名+原子换名（原先 copy2 直写终名，中途失败
         # 会留下“存在即消费”的截断 catalog.sqlite）。
         local_tmp = target.with_name(target.name + ".tmp")
-        shutil.copy2(sqlite, local_tmp)
-        os.replace(local_tmp, target)
+        try:
+            shutil.copy2(sqlite, local_tmp)
+            validate_sqlite(local_tmp, schema=identity.schema, data_version=identity.data_version,
+                            content_sha256=identity.content_sha256, sqlite_sha256=sha256_file(sqlite))
+            os.replace(local_tmp, target)
+        finally:
+            local_tmp.unlink(missing_ok=True)
     return {
         "mode": "local-sqlite",
+        **identity.descriptor(),
         "note": "开发旁路:直接使用本机已解密目录(生产语料一律走 CNB Release,fetch_catalog.py 远端模式)",
         "sqlitePath": str(target),
         "sqliteSha256": sha256_file(target),

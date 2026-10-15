@@ -37,20 +37,19 @@ final class CatalogSearchState {
     func search(_ query: String) async {
         generation += 1
         let current = generation
+        let snapshot = catalog.catalogGeneration
+        hospitalHits = []
+        diagnosisHits = []
+        examHits = []
+        loadFailed = false
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else {
-            hospitalHits = []
-            diagnosisHits = []
-            examHits = []
-            loadFailed = false
-            return
-        }
+        guard !trimmed.isEmpty else { return }
         do {
             async let hospitals = catalog.hospitalSuggest(query: trimmed, region: nil, limit: 5)
             async let diagnoses = catalog.diagnosisSuggest(query: trimmed, system: nil, region: nil, limit: 5)
             async let exams = catalog.examSuggest(query: trimmed, category: nil, region: nil, limit: 5)
             let (h, d, e) = try await (hospitals, diagnoses, exams)
-            guard current == generation else { return }
+            guard current == generation, snapshot == catalog.catalogGeneration, !Task.isCancelled else { return }
             hospitalHits = h
             diagnosisHits = d
             examHits = e
@@ -61,7 +60,7 @@ final class CatalogSearchState {
             hospitalHits = []
             diagnosisHits = []
             examHits = []
-            loadFailed = true
+            loadFailed = snapshot == catalog.catalogGeneration && !Task.isCancelled
         }
     }
 }
@@ -178,7 +177,16 @@ private struct MedicalReferenceCatalogKey: EnvironmentKey {
     static var defaultValue: (any MedicalReferenceCatalogReading)? { nil }
 }
 
+private struct MedicalCatalogGenerationKey: EnvironmentKey {
+    static let defaultValue: UInt64 = 0
+}
+
 extension EnvironmentValues {
+    var medicalCatalogGeneration: UInt64 {
+        get { self[MedicalCatalogGenerationKey.self] }
+        set { self[MedicalCatalogGenerationKey.self] = newValue }
+    }
+
     var medicalReferenceCatalog: (any MedicalReferenceCatalogReading)? {
         get { self[MedicalReferenceCatalogKey.self] }
         set { self[MedicalReferenceCatalogKey.self] = newValue }

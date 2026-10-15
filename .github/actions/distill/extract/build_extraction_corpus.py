@@ -742,9 +742,9 @@ def load_details(data_dir, tw_names, diseases_out, rng):
             except Exception:
                 continue
             if want_usage:
-                sid = d.get("source_id")
-                if sid in tw_names and d.get("usage_text"):
-                    usage_by_id[sid] = _clean(d["usage_text"])[:100]
+                key = (d.get("region"), d.get("source_id"))
+                if key in tw_names and d.get("usage_text"):
+                    usage_by_id[key] = _clean(d["usage_text"])[:100]
                     picked += 1
             if want_disease:
                 ind = d.get("indications") or ""
@@ -2000,13 +2000,14 @@ def main():
     if not drug_regions:
         log(f"[FAIL] 所选地区 {','.join(regions)} 没有装到任何药品——对应 drugs_*/tw_records/hk_records 文件缺失或为空")
         return 2
-    tw_ids = {d.get("sid") for d in drugs if d["region"] == "TW" and d.get("sid")}
+    tw_ids = {(d["region"], d["sid"]) for d in drugs if d["region"] == "TW" and d.get("sid")}
     diseases = set(DISEASE_FALLBACK)
     log("[build] 流式读取 medical_details（TW 用法 join + 疾病词表抽取）…")
     usage_by_id = load_details(args.data_dir, tw_ids, diseases, rng)
     for d in drugs:
-        if d["region"] == "TW" and d.get("sid") in usage_by_id:
-            d["usage"] = usage_by_id[d["sid"]][:80]
+        key = (d["region"], d.get("sid"))
+        if d["region"] == "TW" and key in usage_by_id:
+            d["usage"] = usage_by_id[key][:80]
     log("[build] 装载别名池（medical_index）…")
     aliases, groups = load_aliases(args.data_dir, vocab_chars)
     # 四域名称池：只装所选格子；缺文件 → 内置名单兜底（清单 pools.ref 标 fallback，训练端菜单据此提示）

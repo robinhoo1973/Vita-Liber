@@ -78,7 +78,7 @@ struct AppContainer {
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
     let backup: BackupService
     /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
-    let medicalCatalog: MedicalCatalogStore?
+    let medicalCatalog: MedicalCatalogReadAccess?
     /// 药品目录更新器；Release 元数据/identity 由上层发布配置提供。
     /// 反回退 floor（TrustStore）由 updater 内部持有并在 update() 入口消费——
     /// 不再在容器上开第二条引用（扫尾修复：双引用在降级路径上可分歧）。
@@ -90,9 +90,11 @@ struct AppContainer {
     /// AES-256-GCM 信封，无注入材料）；缺省 nil → 更新入口 fail-closed
     /// （packageInvalid），last-good 不受影响。
     let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
-    /// E①（收口批）：四域参考目录只读端口（与 medicalCatalog 同一 sqlite 的
-    /// 独立只读池；schema<4 时四域 API 自降级空）。装配失败 → nil（搜索页零渲染）。
-    let medicalReferenceCatalog: MedicalReferenceCatalogStore?
+    /// Both ports retain the same facade across installations.
+    var medicalReferenceCatalog: (any MedicalReferenceCatalogReading)? {
+        guard let medicalCatalog, medicalCatalog.isAvailable else { return nil }
+        return medicalCatalog
+    }
     /// SP-64 通告面（README VL-INDEX 二维码；委员会 P3，2026-10-07）：固定匿名通道
     /// + floor 落盘（与医疗支持目录同址）；读取纯显式动作、零隐式联网。
     /// 缺省 nil → 全域「不可用」（fail-closed，同 checker 缺省语义）。
@@ -138,7 +140,7 @@ struct AppContainer {
         // tech-spec §5.53 ④：反回退 floor 与 journal 同要求——Store 打开前恢复（构造即读盘，
         // 2026-09-26 审查接线：此前 TrustStore 生产零构造，防回退判据悬空）。
         let catalogTrust = MedicalCatalogTrustStore.production(supportDirectory: catalogSupport)
-        var catalog: MedicalCatalogStore?
+        var catalog: MedicalCatalogReadAccess?
         var updater: MedicalCatalogUpdateService?
         do {
             // 代价注记（2026-09-26 审查）：无 journal 时只多一次 stat（可忽略）；journal
@@ -146,10 +148,11 @@ struct AppContainer {
             // 在启动主线程上多花若干秒——恢复必须前置于 Store 打开（§5.53 ④），此代价
             // 是崩溃安全的定价，仅在上次更新被中断后一次性发生。
             try catalogJournal.recoverBeforeOpen(catalogURL: catalogPath)
-            catalog = try? MedicalCatalogStore(path: catalogPath) // try?-ok: 目录文件缺失/损坏=目录功能降级（无参考/联想），应用其余功能不受影响
+            catalog = (try? MedicalCatalogReadAccess(path: catalogPath)) ?? MedicalCatalogReadAccess() // try?-ok: 未安装/损坏时保留空门面，后续有效安装可原位启用两个读面
             // 审查修复（2026-09-26）：updater 必须拿到同一 journal 实例——此前便捷 init
             // 默认 journal=nil，begin/complete 全为 no-op，启动恢复永远读到 .clean。
-            updater = MedicalCatalogUpdateService(destination: catalogPath, journal: catalogJournal, trust: catalogTrust)
+            updater = MedicalCatalogUpdateService(destination: catalogPath, journal: catalogJournal,
+                trust: catalogTrust, readAccess: catalog)
         } catch {
             // 恢复失败（journal 损坏/路径逃逸/不可收敛 irrecoverable）：fail-closed 不打开
             // 目录库——绝不把未收敛的 active 当可信参考数据服务（B 级参考数据红线），
@@ -157,12 +160,7 @@ struct AppContainer {
             // irrecoverable 从不静默吞掉（本处吞的是「目录功能」，不是状态）。
             logger.error("医疗目录恢复失败，目录功能降级: \(String(describing: error))")
         }
-        // E①（收口批）：四域目录只读端口——同一 medical-catalog.sqlite；只读池
-        // 与 MedicalCatalogStore 并存无写竞争；文件缺失/损坏/schema<4 → nil 降级。
-        var referenceCatalog: MedicalReferenceCatalogStore? = nil
-        if catalog != nil {
-            referenceCatalog = try? MedicalReferenceCatalogStore(path: catalogPath.path)   // try?-ok: 缺四域表/只读池打开失败=目录分组降级零渲染
-        }
+        let catalogAccess = catalog
         // SP-64 检查/更新链（2026-09-27）：pinned root 随发布配置 provisioning 注入
         // bundle；provisioning 前资源缺省 → checker 为 nil，检查/更新 fail-closed
         // （「暂不可用」/ packageInvalid），本机 last-good 不受影响。
@@ -179,7 +177,7 @@ struct AppContainer {
                                           makeVerifier: { CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: $0) },
                                           hasher: CryptoKitContentHasher(),
                                           trust: catalogTrust,
-                                          localVersion: { try? MedicalCatalogStore.installedVersion(path: catalogPath) }) // try?-ok: 读版本失败=按「无本地版本」处理，检查仍可用
+                                          localVersion: { catalogAccess?.installedVersion })
         }
         catalogOpener = EnvelopeMedicalCatalogPackageOpening()
         // P3（2026-10-07）：通告面通道已上线（固定 /git/raw 二维码），装配即 live；
@@ -195,7 +193,6 @@ struct AppContainer {
                         medicalCatalogUpdater: updater,
                         medicalCatalogChecker: catalogChecker,
                         medicalCatalogOpener: catalogOpener,
-                        medicalReferenceCatalog: referenceCatalog,
                         updateAdvice: updateAdviceProvider)
     }
 
@@ -251,11 +248,10 @@ struct AppContainer {
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
                                  mediaBaseDir: URL? = nil,
                                  degradedReason: String? = nil,
-                                 medicalCatalog: MedicalCatalogStore? = nil,
+                                 medicalCatalog: MedicalCatalogReadAccess? = nil,
                                  medicalCatalogUpdater: MedicalCatalogUpdateService? = nil,
                                  medicalCatalogChecker: (any MedicalCatalogReleaseResolving)? = nil,
                                  medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil,
-                                 medicalReferenceCatalog: MedicalReferenceCatalogStore? = nil,
                                  updateAdvice: (any UpdateAdviceProviding)? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
@@ -362,7 +358,6 @@ struct AppContainer {
                              medicalCatalogUpdater: medicalCatalogUpdater,
                              medicalCatalogChecker: medicalCatalogChecker,
                              medicalCatalogOpener: medicalCatalogOpener,
-                             medicalReferenceCatalog: medicalReferenceCatalog,
                              updateAdvice: updateAdvice,
                              pdfExport: pdfExport,
                             healthReader: healthReader,

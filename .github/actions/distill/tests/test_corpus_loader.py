@@ -58,6 +58,24 @@ class NegativeTermsTests(unittest.TestCase):
         self.assertEqual(stats["neg_resolve_missing"], 1)
         self.assertAlmostEqual(stats["conflict_share"], 1 / 3, places=4)
 
+    def test_negative_terms_object_aliases_do_not_stringify_unknown_fields(self):
+        entities = self.corpus.with_name("entities.jsonl")
+        rows = [
+            {"_meta": {"data_version": "open-aliases"}},
+            {"entity_id": "new-entity", "names": {},
+             "aliases": [{"unknown": "not an alias"}, {"text": False},
+                         {"text": " 真正別名 ", "type": "future-type",
+                          "extension": {"original": [None, 9007199254740993]}}]},
+            {"entity_id": "no-text", "names": {}, "aliases": [{"type": "unknown"}]},
+        ]
+        entities.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+                            encoding="utf-8")
+        before = entities.read_bytes()
+        terms = load_negative_terms(self.corpus, entities)
+        self.assertEqual(terms["new-entity"], "真正別名")
+        self.assertNotIn("no-text", terms)
+        self.assertEqual(entities.read_bytes(), before)
+
     def test_missing_entity_id_is_skipped(self):
         per_sample, stats = negative_terms_for_samples(
             [{"gold": {"entity_id": "x"}, "negatives": [{"entity_id": None, "hard": False}]}],

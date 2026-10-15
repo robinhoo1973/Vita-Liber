@@ -16,6 +16,33 @@ final class MedicalCatalogStateTests: XCTestCase {
 
     private struct StubError: Error, Sendable {}
 
+    private actor GatedMatch {
+        private var continuation: CheckedContinuation<Void, Never>?
+        private var released = false
+        var isGated: Bool { continuation != nil }
+        func wait() async {
+            guard !released else { return }
+            await withCheckedContinuation { continuation = $0 }
+        }
+        func resume() { released = true; continuation?.resume(); continuation = nil }
+    }
+
+    private final class GenerationalCatalog: MedicalCatalogReading, @unchecked Sendable {
+        private let lock = NSLock()
+        private var generation: UInt64 = 0
+        let gate: GatedMatch?
+        init(gate: GatedMatch? = nil) { self.gate = gate }
+        var catalogGeneration: UInt64 { lock.withLock { generation } }
+        func advance() { lock.withLock { generation += 1 } }
+        func match(line: PrescriptionLine) async throws -> MedicalCatalogMatch {
+            await gate?.wait()
+            return .init(status: .unmatched, exact: nil, candidates: [])
+        }
+        func drug(id: Int) async throws -> MedicalCatalogDrug? { nil }
+        func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference] { [] }
+        func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail? { nil }
+    }
+
     /// 协议桩 checker：可配置结果/错误。
     private actor StubChecker: MedicalCatalogReleaseResolving {
         private var outcome: MedicalCatalogCheckOutcome = MedicalCatalogCheckOutcome(state: .upToDate)
@@ -114,7 +141,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         return try VerifiedMedicalCatalogCandidate.testing(
             catalogVersion: 42,
             dataVersion: String(repeating: "c", count: 64),
-            schemaVersion: 7,   // CNB v7-only 契约（5/6 在 decode 门即拒）
+            schemaVersion: 7,   // Legacy signed-pointer fixture; unified9 has separate storage tests.
             packageAssetName: MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 42),
             packageSize: 1024,
             packageSHA256: packageSHA,
@@ -171,6 +198,36 @@ final class MedicalCatalogStateTests: XCTestCase {
     }
 
     // MARK: - 检查态
+
+    func testReaderGenerationChange_invalidatesTheWholeMatchCache() async {
+        let catalog = GenerationalCatalog()
+        let state = MedicalCatalogState(store: catalog)
+        let old = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 1, printedName: "old")
+        let fresh = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 2, printedName: "new")
+        _ = await state.match(old)
+        XCTAssertNotNil(state.matchByLineID[old.id])
+        catalog.advance()
+        _ = await state.match(fresh)
+        XCTAssertNil(state.matchByLineID[old.id])
+        XCTAssertNotNil(state.matchByLineID[fresh.id])
+        XCTAssertEqual(state.generation, catalog.catalogGeneration)
+    }
+
+    func testLateMatchFromRetiredGeneration_cannotRefillCache() async {
+        let gate = GatedMatch()
+        let catalog = GenerationalCatalog(gate: gate)
+        let state = MedicalCatalogState(store: catalog)
+        let line = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 1, printedName: "old")
+        state.matchByLineID[line.id] = .init(status: .unmatched, exact: nil, candidates: [])
+        let task = Task { await state.match(line) }
+        await waitUntilGated("match must be suspended") { await gate.isGated }
+        catalog.advance()
+        await gate.resume()
+        let result = await task.value
+        XCTAssertNil(result)
+        XCTAssertTrue(state.matchByLineID.isEmpty)
+        XCTAssertEqual(state.generation, catalog.catalogGeneration)
+    }
 
     func testCheck_noChecker_setsUnavailable() async {
         let state = MedicalCatalogState(store: nil)

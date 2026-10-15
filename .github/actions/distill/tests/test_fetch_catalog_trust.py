@@ -45,11 +45,11 @@ REJECTION_SUFFIX = "——拒绝"
 # pinned-root/installable 两件,此处全六件皆钉)
 FIXTURE_SHA256 = {
     "pinned-root.json": "2de1bb41d73f405ca86eadcea7123424051ce8e8df4ca7dea0cb1c0fea53683b",
-    "installable-manifest.json": "7b71a4a40581d06abb444b78ef556aeb7b64ddec6c277d53d47857792f65f5fe",
-    "expired-manifest.json": "9abfddd32a388de975acb1bc4de445ad9d0b198a3f426f280b46ad1b3bafa204",
-    "pointer-single-signature.json": "75a36063a6f5f546d93ad83115ae164797e4d27e71ae661ea8c704b3fd4939ec",
-    "progress-manifest.json": "ddd0b69534175addba65368c93cf85279d39b802cffb6a69cad0f2831f4104c1",
-    "expected.json": "b54c979c549e1e0f5c19333fd08bcd5c13fa411f88b435638d6e6bcd92c30695",
+    "installable-manifest.json": "1bfe22e3f4bfa76c5534c7cdb1d9cb821734f969e665d41c6520fa7e4956718b",
+    "expired-manifest.json": "b497553ca114f47cebdbfcf69f80079f4d91d6f4a4c476f1688065ab3aa9a1a2",
+    "pointer-single-signature.json": "7436d77b26f2fb7008f731e5c98a52b6ddd89963baa11e14efaa17abb4d2debb",
+    "progress-manifest.json": "760c8d41574839c2b2bb5253fbd73f721138b8dbaa725f932d92d70e5dfda025",
+    "expected.json": "43f0a318cde3d8046fda5608ceaf999939f3d7c14a1b90147aba401aabbb165c",
 }
 
 _TEMP_DIR = tempfile.TemporaryDirectory(prefix="medical-trust-contract-")
@@ -321,9 +321,19 @@ class PointerSemanticsTests(unittest.TestCase):
         expect_pointer_refusal(lambda p: p.__setitem__("packageAssetName", "package-020.bin"), "包资产名")
 
     def test_pointer_schema_and_release_identity_are_pinned(self):
-        expect_pointer_refusal(lambda p: p.__setitem__("sqliteSchemaVersion", 6), "SQLite v7")
+        expect_pointer_refusal(lambda p: p.__setitem__("sqliteSchemaVersion", 8), "SQLite schema")
         expect_pointer_refusal(lambda p: p.__setitem__("repository", "other/repo"), "repository")
         expect_pointer_refusal(lambda p: p.__setitem__("releaseTag", "other-tag"), "repository")
+
+    def test_legacy_and_unified_schema_dispatch_keep_wire_v3_manifest_v2(self):
+        for schema in (4, 5, 6, 7, 9):
+            payload = pointer_payload(fixture_bytes("installable-manifest.json"))
+            payload["sqliteSchemaVersion"] = schema
+            payload["manifest"]["sqlite_schema_version"] = schema
+            self.assertEqual(validate_pointer(payload)["sqliteSchemaVersion"], schema)
+        payload["contentSha256"] = "f" * 64
+        payload["manifest"]["content_sha256"] = "f" * 64
+        expect_refusal(lambda: validate_pointer(payload), "unified R")
 
     def test_pointer_manifest_crosscheck_rejects_drift(self):
         expect_pointer_refusal(lambda p: p["manifest"].__setitem__("content_sha256", "0" * 64), "contentSha256")

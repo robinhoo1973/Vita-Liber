@@ -12,8 +12,8 @@ public extension MedicalCatalogActivationJournal {
             journalURL: supportDirectory.appendingPathComponent(journalFileName),
             supportDirectory: supportDirectory,
             sha256: { try StreamingFileHasher.sha256(of: $0) },
-            verifyInstalled: { path, schemaVersion, dataVersion in
-                try MedicalCatalogStore.validateRelease(path: path, schemaVersion: schemaVersion, dataVersion: dataVersion)
+            verifyStorage: { path, expected in
+                _ = try MedicalCatalogReadAccess.prepare(path: path, expected: expected)
             })
     }
 }

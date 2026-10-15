@@ -39,6 +39,7 @@ def make_v4_sqlite(schema_version="4", data_version="2026.09.29", with_diagnosis
         """)
     conn.execute("INSERT INTO catalog_meta VALUES ('schema_version', ?), ('data_version', ?)",
                  (schema_version, data_version))
+    conn.execute(f"PRAGMA user_version={int(schema_version)}")
     conn.execute("INSERT INTO drug (region, source_id, name_zh, usage_ref_json, region_specific_json, aliases_json) "
                  "VALUES ('CN','d1','阿莫西林胶囊','{}','{}','[\"阿莫西林\",\"Amoxicillin\"]')")
     conn.execute("INSERT INTO hospital (region, source_id, name_zh, short_name, depts_json, aliases_json, match_status) "
@@ -74,6 +75,7 @@ def make_v7_duplicate_sqlite():
         aliases_json TEXT NOT NULL, match_status TEXT);
     """)
     conn.execute("INSERT INTO catalog_meta VALUES ('schema_version','7'),('data_version','v7-test')")
+    conn.execute("PRAGMA user_version=7")
     conn.executemany(
         "INSERT INTO drug (region, source_id, name_zh, usage_ref_json, region_specific_json, aliases_json) "
         "VALUES ('CN', ?, '阿司匹林肠溶片','{}','{}', ?)",

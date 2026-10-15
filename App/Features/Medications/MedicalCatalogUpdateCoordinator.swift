@@ -15,6 +15,7 @@ final class MedicalCatalogUpdateCoordinator {
     private let path: URL?
     private let checker: (any MedicalCatalogReleaseResolving)?
     private let opener: (any MedicalCatalogPackageOpening)?
+    private let installedVersion: @Sendable () -> MedicalCatalogInstalledVersion?
     /// 安装成功后宿主重开读面（弱捕获——coordinator 与 state 同生命周期）。
     /// var（2026-09-28 CI 36347424569 修复）：宿主 init 期闭包捕获 self 会撞
     /// Swift definite-initialization（闭包先于 `updates` 赋值捕获未初始化 self）——
@@ -47,14 +48,19 @@ final class MedicalCatalogUpdateCoordinator {
     init(updater: MedicalCatalogUpdateService? = nil, path: URL? = nil,
          checker: (any MedicalCatalogReleaseResolving)? = nil,
          opener: (any MedicalCatalogPackageOpening)? = nil,
+         installedVersion: (@Sendable () -> MedicalCatalogInstalledVersion?)? = nil,
          onInstalled: (@MainActor () -> Bool)? = nil) {
         self.updater = updater
         self.path = path
         self.checker = checker
         self.opener = opener
+        self.installedVersion = installedVersion ?? {
+            guard let path else { return nil }
+            return try? MedicalCatalogStore.installedVersion(path: path) // try?-ok: 缺失或不可信目录不作为本机版本
+        }
         self.onInstalled = onInstalled
         if let path {
-            localVersion = try? MedicalCatalogStore.installedVersion(path: path) // try?-ok: 目录缺失/损坏=无本地版本，检查仍可用（目录功能降级纪律）
+            localVersion = self.installedVersion()
             localUpdatedAt = Self.fileModificationDate(path)
         }
     }
@@ -153,7 +159,7 @@ final class MedicalCatalogUpdateCoordinator {
                 // 的缓解正是为复开失败写的）——抛非词汇哨兵错误，避免被第一 catch
                 // （MedicalCatalogDownloadError）拦截而绕过刷新（1-vote 验证修复）。
                 guard onInstalled?() == true else { throw CatalogReopenFailure() }
-                self.localVersion = try? MedicalCatalogStore.installedVersion(path: path) // try?-ok: 复开成功即已确认，读版本失败不影响使用
+                self.localVersion = self.installedVersion()
                 self.localUpdatedAt = Self.fileModificationDate(path)
                 self.verifiedCandidate = nil
                 self.updateProgress = nil
@@ -167,7 +173,7 @@ final class MedicalCatalogUpdateCoordinator {
                 // 本地版本/时间呈现，避免 UI 与磁盘事实长期分歧（下次启动收敛）。
                 self.updateError = .activationFailed
                 self.updateProgress = nil
-                self.localVersion = try? MedicalCatalogStore.installedVersion(path: path) // try?-ok: 尽力刷新，读不到保持旧值
+                self.localVersion = self.installedVersion()
                 self.localUpdatedAt = Self.fileModificationDate(path)
             }
             self.updateTask = nil

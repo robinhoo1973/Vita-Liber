@@ -14,7 +14,7 @@ distill/
 │   ├── fold.py           查询/词条共同折叠(全半角/大小写/标点;繁简不在此层)
 │   ├── fuzzy.py          CharSymSpell(delete 索引+验证距离,暴力对拍测试)
 │   ├── pinyin.py         拼音层(lazy pypinyin;缺失显式降级并写入报告)
-│   ├── catalog.py        目录装载(JSONL/实体导出/v4–v7 SQLite 适配器;group_by_name 合并;fail-closed)
+│   ├── catalog.py        目录装载(JSONL/实体导出/legacy4–7 与 unified9 SQLite;v9 使用 catalog_entry 身份)
 │   ├── noise.py          三层合成噪声(形近/同音/繁简+结构;定种子)
 │   ├── confusion_miner.py 混淆对动态挖掘(变体对/同音池从目录数据派生,非手写 hardcode)
 │   └── recall.py         分层召回引擎 L0-L4(唯一对外入口)
@@ -45,6 +45,8 @@ distill/
 │   ├── corpus_loader.py  语料装载/字符 vocab/定长 tokenize
 │   ├── checkpoint.py     原子写+sha256 sidecar+恢复自检三闸(L1 loss/L2 状态/L3 权重)
 ├── fetch_catalog.py      CNB 医疗数据获取(v3):manifest.json 指针(Ed25519 2-of-2 验签) → package-<版本>.bin → 信封解密 → SQLite
+├── catalog_contract.py   fetch/entlink/extract 共用的只读 storage gate、R/文件 SHA/descriptor 绑定
+├── unified-contract-v1.json  与 CoreKit/producer/bridge 版本化同源的公共契约(不另造 schema mapper)
 ├── pinned-root.json      医疗信任根(公开信封:仅公钥+2-of-2 自签;**非秘密**)——2026-10-11 根投放批
 │                         三处逐字节同源(CI 本目录/训练载荷 scripts/exchange//发布方 provision 源)
 ├── build_corpus.py       实体链接语料 CLI(抽样/规范名/域名排除/实体导出)
@@ -63,13 +65,15 @@ distill/
 bash .github/actions/distill/run_tests.sh                     # 单元测试 + py_compile(零第三方依赖即可跑)
 # 数据面端到端(需 cryptography/pypinyin/tokenizers,见 requirements-distill-prepare-linux):
 python3 .github/actions/distill/fetch_catalog.py --out-dir corpus-assets            # CNB 匿名 + 指针验签 + 信封解密(约 288MB 下载)
-python3 .github/actions/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets   # 开发旁路
-python3 .github/actions/distill/extract/catalog_source.py --catalog-sqlite corpus-assets/catalog.sqlite --out-dir extract-data
+python3 .github/actions/distill/fetch_catalog.py --local-sqlite /path/catalog.sqlite --out-dir corpus-assets   # 离线输入,不绕过 storage gate
+python3 .github/actions/distill/extract/catalog_source.py --catalog-sqlite corpus-assets/catalog.sqlite \
+    --source-json corpus-assets/source.json --out-dir extract-data
 bash .github/actions/distill/extract/export_prompts.sh                              # 需 swiftc(CI runner 预装)
 python3 .github/actions/distill/extract/build_extraction_corpus.py --data-dir extract-data \
     --prompts-dir .github/actions/distill/extract/prompts --out-dir extraction-out --dry-run
 python3 .github/actions/distill/dialogue/builder.py --catalog-dir extract-data --out-dir dialogue-out --dry-run
 python3 .github/actions/distill/build_corpus.py --catalog-sqlite corpus-assets/catalog.sqlite \
+    --source-json corpus-assets/source.json \
     --out entlink-out/corpus.jsonl --group-by-name --include-canonical-names --exclude-domains department \
     --max-terms-per-entity 3 --max-samples-per-domain "drug=200000,hospital=80000,diagnosis=60000,exam=30000" \
     --dump-entities corpus-assets/entities.jsonl
@@ -77,6 +81,72 @@ python3 .github/actions/distill/build_corpus.py --catalog-sqlite corpus-assets/c
 
 注意:**小/退化目录(2 字别名)会如实触发 tripwire 判红**——这是闸门在履行
 "缺证据当有证据"纪律(ERR#27 族),生产目录(药 4 万唯一名/院 5.6 万)不受影响。
+
+## unified9 消费契约与本地验收
+
+- wire 保持 **pointer3 / embedded manifest2**，不升级也不改已签 legacy7 摘要算法。
+  包名版本必须是正整数且 `<= catalogVersion`；续签可复用旧包，`catalogVersion`
+  只用于防回滚序号，不能当内容身份。
+- SQLite 接受显式无 marker 的 legacy physical4–7，以及 **physical9 / graph2 / App4**；
+  physical8、9 缺失/损坏 `unified-medical-kg/v1` marker 均拒绝，不降级猜 legacy。
+  9 必须同时满足 `catalog_meta.catalog_ready=true`、`content_scope=full`、
+  `graph_release.scope=full`、`metadata.lifecycle=versioned`。
+  partial/empty/development 研发库不能冒充可安装、可 serving 的正式快照。
+- 逻辑内容身份 `R` 必须是小写 SHA64，且
+  `signed dataVersion == signed contentSha256 == catalog_meta.data_version ==
+  metadata.release_id == graph_release.release_id/content_sha256`。
+  `metadata.activation_id` 绑定 `graph_activation.activation_id` 主键及当前 R；
+  A→B→A 复用内容但生成新的 activation。KG-only 审核改变 R；历史/重封装可令
+  **同 R 的文件 SHA 不同**，两者不可互代或只凭 R 跳过安装。
+- 发布方负责公共 JSON 定义的完整逻辑摘要；首个 `serving_state` query 将 ready/scope/
+  App/graph schema 纳入 R，另含 active aliases、identity、campus、当前审核等内容。
+  当前 producer input/version 必须命中 `producer_import`，但这些输入指针不是逻辑 R。
+  `producer_state_history` 是必需的输入生命周期审计表，绑定 `producer_import`；
+  合法重试/状态变化的审计不进入逻辑摘要，可能只改变 SQLite 文件 SHA，不改变 R。
+  `catalog_relation` 八列（含 `active`）仅表达目录关系，不扩展临床 `effective_facts`
+  的七 relation 闭集合；active approved assertion 必须有绑定的非空 actor/rationale
+  当前审核，不能自动批准旧事实。本批不新增临床 UI/API。
+- App 共用 `MedicalCatalogStorageContract`：安装、最终路径、journal 恢复、两 Store
+  复用 shape/current binding/release gate。安装/打开时做文件 SHA、integrity/FK、固定
+  App 列与 region-scoped unique key 检查；不在每次查询重 hash 多 GB 文件或全扫历史 revision。
+  `current_revision_uid` 可以指旧 revision，但必须属于同一个 entry，行数及当前绑定必验。
+  `MedicalCatalogReadAccess` 稳定 DI 对象只在 journal 收尾成功后一次切换药品/四域读面；
+  失败保留两旧读面；generation 栅栏拒绝迟到结果，同步清匹配缓存和刷新搜索状态。
+  两池共用持锁的私有只读文件 pin（优先硬链接），避免 lazy reader 在 active 路径 rename
+  后提前打开新代；最后一个读任务释放后清理，崩溃孤儿仅在可获得 lease 锁时回收。
+  journal schema1 保持兼容，9 的已签 content/SQLite SHA 不得缺失。
+- CI fetch 只接受 ZIP 内**唯一普通文件** `medical-catalog.sqlite`，拒目录/链接/额外成员，
+  通过包/SQLite SHA、完整性、签名版本与 storage gate 后才替换输出。
+  `source.json` 贯穿 physical/graph/App/marker/R/content/activation/ready/full/lifecycle/
+  SQLite SHA 和原始已签 payload digest；离线模式显式标为 `local-sqlite`，不伪称签名验证。
+  extraction 和 entlink 在一致只读 snapshot 内复核 descriptor；reference/detail 用
+  `(region,source_id)`，索引 opaque ID 为 JSON `[region,source_id]`。
+  `aliases_json` 的 `{text,type}` 对象数组与 legacy 字串数组均只投影文本，`type` 不设闭枚举；
+  未知字段保留在原始只读 JSON，不将对象转为词面。App 四域解码/别名查询、CI 的 SQLite/
+  JSONL/实体 dump 与训练负例回退均遵守此纪律，未知元数据不能作为别名查询命中。
+  v9 entlink JOIN `catalog_entry` 读取真实 `entity_uid`，忽略 `--group-by-name`，绝不从
+  source ID 反猜；legacy 合并也必须区分 region。
+- `--dump-entities` 的 `_meta.storage_identity` 与 corpus manifest 可选
+  `catalog_storage_identity` 保留上述身份并纳入 manifest 自哈希，评测拒绝同 R 但文件
+  SHA/来源 trace 漂移或丢失。旧无此字段的 manifest1.0 仍兼容，不强制升级旧资产。
+  评测用实体 dump 即可保留 trace；若改用 `--catalog-sqlite`，须与构建侧同传
+  `--source-json`（构建侧有该输入时），不能默默丢弃签名来源。
+
+共享夹具在 `CoreKit/Tests/CoreKitTests/Fixtures/unified/`：
+`schema.sql`/`catalog.sql` 是公共 DDL 原字节副本；`app-consumer.sql` 仅用于消费者
+负例/跨地区数据测试，不是发布方摘要证明。`bridge-full-v9.sqlite` 与
+`bridge-reviewed-v9.sqlite` 通过授权的公开 `producer_fixture → build_unified → review`
+API 生成，公共 JSON/DDL、R、activation、物理 SHA 锁在 `expected.json`。
+两者 App 七张 typed 表逐值相同、KG-only 审核产生不同 R/文件 SHA；这些 **TEST-ONLY
+合成 golden 不是实际 producer 发布/三仓生产验收已完成的声明**，不含患者数据。
+
+Windows 可在项目内设置 `TEMP/TMP/TMPDIR` 后运行相关 unittest：
+`tests.test_catalog_contract` / `tests.test_catalog_unified_pipeline` 覆盖真实
+Ed25519 2-of-2、AES-GCM、固定 ZIP、descriptor、entlink/dump/eval/extract；
+仅 mock 网络和时钟，不 mock 验签/解密/storage gate。加密测试需要既有钉版 cryptography，
+缺失时明确 skip。现有 Swift heuristic 仅静态检查，不等于 Swift 编译。
+**macOS 的 CoreKit/GRDB/CryptoKit 真编译与 iOS `MedicalCatalogStateTests` 必须另行验收**；
+不通过 dispatch 发布工作流来冒充本地测试。
 
 ## CI(workflow: llm.yml,name: distill-llm;task=llm-pipeline)
 

@@ -409,6 +409,7 @@ struct VitaLiberApp: App {
              .environment(medicalCatalogState)
              // E①（收口批）：四域参考目录端口（nil=未就绪零渲染）
              .environment(\.medicalReferenceCatalog, container.medicalReferenceCatalog)
+             .environment(\.medicalCatalogGeneration, medicalCatalogState.generation)
              .environment(updateAdviceState)
              .environment(asrCheckState)
              .environment(llmModelInstallCenter)

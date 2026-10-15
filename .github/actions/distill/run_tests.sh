@@ -21,7 +21,7 @@ fi
 
 echo "== [2/2] 全簇语法验证(py_compile,含 torch/transformers 依赖模块)"
 if ! python3 -m py_compile \
-    build_corpus.py eval_entlink.py fetch_catalog.py probe_mps.py calibrate.py train_encoder.py \
+    build_corpus.py eval_entlink.py fetch_catalog.py catalog_contract.py probe_mps.py calibrate.py train_encoder.py \
     entlink/*.py corpus/*.py gate/*.py train/*.py extract/*.py dialogue/*.py gen/*.py tests/*.py 2>&1; then
   echo "SYNTAX FAILED" >&2
   exit 2

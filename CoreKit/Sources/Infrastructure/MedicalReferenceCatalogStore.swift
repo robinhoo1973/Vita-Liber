@@ -6,11 +6,8 @@ import GRDB
 
 /// schema v4 四域参考数据（医院/科室/疾病/检查化验）的只读存取。
 ///
-/// 独立于在途 `MedicalCatalogStore`（药品域）——各自持有 readonly DatabasePool
-/// 打开同一 catalog 文件，本类型只做四域查询（新文件扩展，业主 2026-09-24 裁定）。
-///
-/// 版本门控：打开时读 `catalog_meta.schema_version`；< 4（纯药品 v3 包）时四域
-/// API 全部降级返回空，不拒绝包、不抛错（旧包仍可被药品域使用）。
+/// 与药品 Store 共用 storage contract；生产装配由 MedicalCatalogReadAccess
+/// 同时准备并切换两个池。仅 legacy physical 4--7 和完整 unified 9 可打开。
 ///
 /// 检索纪律：目录数据为 B 级「目录参考」，联想绝不写入业务表（BR-003/004）；
 /// LIKE 查询对 `%`/`_`/`\` 转义，前缀命中排在包含命中之前。
@@ -20,31 +17,30 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
     public static let schemaGateVersion = 4
 
     private let pool: DatabasePool
-    private let gated: Bool
+    nonisolated let version: MedicalCatalogInstalledVersion
+    private let hasDiagnosis: Bool
 
     public init(path: String) throws {
         var config = Configuration()
         config.readonly = true
+        config.foreignKeysEnabled = true
         let pool = try DatabasePool(path: path, configuration: config)
         self.pool = pool
-        let version = try pool.read { db in
-            try Int(String.fetchOne(db, sql: "SELECT value FROM catalog_meta WHERE key = 'schema_version'") ?? "0") ?? 0
+        self.version = try pool.read { try MedicalCatalogStorageContract.inspect($0) }
+        self.hasDiagnosis = try pool.read {
+            try String.fetchOne($0, sql: "SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'diagnosis'") != nil
         }
-        self.gated = version < Self.schemaGateVersion
     }
 
     public var catalogSchemaVersion: Int {
         get async throws {
-            try await pool.read { db in
-                try Int(String.fetchOne(db, sql: "SELECT value FROM catalog_meta WHERE key = 'schema_version'") ?? "0") ?? 0
-            }
+            version.schemaVersion
         }
     }
 
     // MARK: - 查询
 
     public func hospitalSuggest(query: String, region: String?, limit: Int) async throws -> [MedicalCatalogHospital] {
-        guard !gated else { return [] }
         let q = Self.likeEscaped(query)
         guard !q.isEmpty else { return [] }
         let prefix = q + "%"
@@ -56,7 +52,8 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
                 FROM hospital
                 WHERE (?1 IS NULL OR region = ?1)
                   AND (name_zh LIKE ?2 ESCAPE '\\' OR short_name LIKE ?2 ESCAPE '\\'
-                       OR name_zh LIKE ?3 ESCAPE '\\' OR short_name LIKE ?3 ESCAPE '\\' OR aliases_json LIKE ?3 ESCAPE '\\')
+                       OR name_zh LIKE ?3 ESCAPE '\\' OR short_name LIKE ?3 ESCAPE '\\'
+                       OR \(Self.aliasContainsSQL(parameter: 3)))
                 ORDER BY (name_zh LIKE ?2 ESCAPE '\\' OR short_name LIKE ?2 ESCAPE '\\') DESC, region, name_zh
                 LIMIT ?4
                 """, arguments: [region, prefix, contains, Self.clamped(limit)])
@@ -65,7 +62,6 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
     }
 
     public func departmentList(region: String?) async throws -> [MedicalCatalogDepartment] {
-        guard !gated else { return [] }
         let rows = try await pool.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT rowid, region, source_id, code, name_zh, category_zh, aliases_json
@@ -79,7 +75,7 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
     }
 
     public func diagnosisSuggest(query: String, system: String?, region: String?, limit: Int) async throws -> [MedicalCatalogDiagnosis] {
-        guard !gated else { return [] }
+        guard hasDiagnosis else { return [] }
         let q = Self.likeEscaped(query)
         guard !q.isEmpty else { return [] }
         let prefix = q + "%"
@@ -90,7 +86,8 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
                 FROM diagnosis
                 WHERE (?1 IS NULL OR code_system = ?1)
                   AND (?2 IS NULL OR region = ?2)
-                  AND (code LIKE ?3 ESCAPE '\\' OR name_zh LIKE ?4 ESCAPE '\\' OR aliases_json LIKE ?4 ESCAPE '\\')
+                  AND (code LIKE ?3 ESCAPE '\\' OR name_zh LIKE ?4 ESCAPE '\\'
+                       OR \(Self.aliasContainsSQL(parameter: 4)))
                 ORDER BY (code LIKE ?3 ESCAPE '\\') DESC, region, code
                 LIMIT ?5
                 """, arguments: [system, region, prefix, contains, Self.clamped(limit)])
@@ -99,7 +96,6 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
     }
 
     public func examSuggest(query: String, category: String?, region: String?, limit: Int) async throws -> [MedicalCatalogExamItem] {
-        guard !gated else { return [] }
         let q = Self.likeEscaped(query)
         guard !q.isEmpty else { return [] }
         let prefix = q + "%"
@@ -112,7 +108,7 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
                 WHERE (?1 IS NULL OR category = ?1)
                   AND (?2 IS NULL OR region = ?2)
                   AND (code LIKE ?3 ESCAPE '\\' OR name_zh LIKE ?4 ESCAPE '\\' OR name_en LIKE ?4 ESCAPE '\\'
-                       OR aliases_json LIKE ?4 ESCAPE '\\')
+                       OR \(Self.aliasContainsSQL(parameter: 4)))
                 ORDER BY (code LIKE ?3 ESCAPE '\\') DESC, region, code
                 LIMIT ?5
                 """, arguments: [category, region, prefix, contains, Self.clamped(limit)])
@@ -121,6 +117,23 @@ public actor MedicalReferenceCatalogStore: MedicalReferenceCatalogReading {
     }
 
     // MARK: - 内助
+
+    private static func aliasContainsSQL(parameter: Int) -> String {
+        """
+        EXISTS (
+            SELECT 1 FROM json_each(
+                CASE WHEN json_valid(aliases_json) THEN
+                    CASE WHEN json_type(aliases_json)='array' THEN aliases_json ELSE '[]' END
+                ELSE '[]' END
+            ) AS catalog_alias
+            WHERE CASE catalog_alias.type
+                WHEN 'text' THEN catalog_alias.atom
+                WHEN 'object' THEN CASE WHEN json_type(catalog_alias.value,'$.text')='text'
+                    THEN json_extract(catalog_alias.value,'$.text') END
+            END LIKE ?\(parameter) ESCAPE '\\'
+        )
+        """
+    }
 
     /// LIKE 模式转义：`\` `%` `_` 按 ESCAPE '\' 语义先行转义（DDL 查询统一 ESCAPE）。
     static func likeEscaped(_ s: String) -> String {

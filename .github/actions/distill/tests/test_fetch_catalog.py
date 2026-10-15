@@ -12,6 +12,7 @@ import re
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fetch_catalog import (MEDICAL_PACKAGE_KEY_HEX, parse_catalog_pointer, select_manifest_asset)
@@ -36,17 +37,16 @@ def _shape_parse(raw: bytes) -> dict:
 
 
 def _pointer_payload(**overrides):
-    payload = {
-        "schemaVersion": 3,
-        "catalogVersion": 1791325086,
-        "packageAssetName": "package-1791325086.bin",
-        "packageSha256": CIPHER_SHA,
-        "sqliteSha256": SQLITE_SHA,
-        "dataVersion": DATA_VERSION,
-        "contentSha256": DATA_VERSION,
-        "installable": False,
-        "manifest": {"sqlite_sha256": SQLITE_SHA, "data_version": DATA_VERSION},
-    }
+    template = REPO_ROOT / "CoreKit" / "Tests" / "CoreKitTests" / "Fixtures" / "medical" / "installable-manifest.json"
+    payload = json.loads(base64.b64decode(json.loads(template.read_bytes())["payload"]))
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    payload.update(catalogVersion=1791325086, packageAssetName="package-1791325086.bin",
+                   packageSha256=CIPHER_SHA, sqliteSha256=SQLITE_SHA,
+                   dataVersion=DATA_VERSION, contentSha256=DATA_VERSION, installable=False,
+                   issuedAt=(now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                   expiresAt=(now + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"))
+    payload["manifest"].update(sqlite_sha256=SQLITE_SHA, data_version=DATA_VERSION,
+                               content_sha256=DATA_VERSION, installable=False)
     payload.update(overrides)
     return {"payload": base64.b64encode(json.dumps(payload).encode()).decode(), "signatures": []}
 
@@ -219,7 +219,8 @@ class DecryptRoundtripTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
-            sqlite_bytes = b"SQLite format 3\x00" + b"synthetic-catalog" * 100
+            from tests.util import make_v4_sqlite
+            sqlite_bytes = make_v4_sqlite().read_bytes()
             zip_path = tmp / "pkg.zip"
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr("medical-catalog.sqlite", sqlite_bytes)

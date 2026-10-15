@@ -131,8 +131,8 @@ public struct MedicalCatalogExamItem: Codable, Sendable, Equatable, Identifiable
 // MARK: - 读取端口
 
 /// 四域参考目录的读取端口。实现位于 Infrastructure（`MedicalReferenceCatalogStore`），
-/// 视图只依赖协议；catalog 文件缺四域表（schema < 4）时各方法降级返回空，不抛错。
-public protocol MedicalReferenceCatalogReading: Sendable {
+/// 视图只依赖协议；生产入口只服务已通过共用 storage contract 的目录快照。
+public protocol MedicalReferenceCatalogReading: MedicalCatalogGenerationReading {
     func hospitalSuggest(query: String, region: String?, limit: Int) async throws -> [MedicalCatalogHospital]
     func departmentList(region: String?) async throws -> [MedicalCatalogDepartment]
     func diagnosisSuggest(query: String, system: String?, region: String?, limit: Int) async throws -> [MedicalCatalogDiagnosis]
@@ -169,11 +169,24 @@ public actor MedicalTerminologyOverlay {
 
 // MARK: - 内助
 
-/// JSON 数组字符串（aliases_json/depts_json 形态）的解码内助，纯 Foundation。
+/// Alias text is a projection; the original JSON retains open types and unknown fields.
 enum CatalogJSON {
     static func stringArray(_ json: String) -> [String] {
         guard !json.isEmpty, let data = json.data(using: .utf8),
-              let list = try? JSONDecoder().decode([String].self, from: data) else { return [] } // try?-ok: 目录行内别名 JSON 解码失败=空别名（降级不崩）
-        return list
+              let value = try? JSONSerialization.jsonObject(with: data),
+              let list = value as? [Any] else { return [] } // try?-ok: malformed alias JSON has no usable text
+        return list.compactMap { item in
+            let text: String?
+            if let value = item as? String {
+                text = value
+            } else if let object = item as? [String: Any] {
+                text = object["text"] as? String
+            } else {
+                text = nil
+            }
+            guard let text else { return nil }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
     }
 }

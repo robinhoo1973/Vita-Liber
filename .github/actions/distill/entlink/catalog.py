@@ -1,11 +1,7 @@
-"""四域目录装载:JSONL 适配器(legacy/dev)与 v4 SQLite 适配器(Phase B 后 Release 资产)。
+"""目录链接装载:明确 legacy physical4--7 和 unified physical9。
 
-Release 资产的物理 schema 由私仓 Go producer 管理:当前发布 v5/v6
-(physical user_version/schema_version;App 侧安装器契约「只接受物理 v5/v6,
-v7+ 拒绝」见私仓 MEDICAL_DATA_RELEASE.md)。本装载器只消费 App 可见投影列
-(name/alias/match_status 三族),物理 v4/v5/v6 该投影同形(promote 对投影列做
-逐列校验),故 schema 闸接受 4/5/6、拒 7+。**用法/价格/展示字段一律不读**
-(usage_ref_json 等在物理库中仍物化存在,读取纪律在列选择层而非投影层)。
+v9 从 catalog_entry 读取实际 entity_uid，不从 source_id 反猜图身份；
+两种格式均只消费 name/alias/match_status，不读取用法/价格/展示字段。
 装载结果统一为 Catalog/Entity 纯数据形态,recall 与语料构建器只依赖本形态。
 
 许可纪律:调用方(语料构建器)必须把 manifest 的 license 字段随来源登记
@@ -19,11 +15,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-# 投影兼容的物理 schema 版本。不匹配即拒载(fail-closed,防格式漂移静默错配)。
-# 历史教训:只收 "4" 时,生产 Release 资产已是 v6——闸门会拒绝唯一的真实资产。
-# v7(2026-10-06 生产发布)在四域之上新增 diagnosis 域(ICD-10 诊断/症状,含 R 章),
-# 投影列(name/alias/region/source_id/match_status)与旧版同形,故并集接受 4–7。
-SUPPORTED_SCHEMA_VERSIONS = {"4", "5", "6", "7"}
+from catalog_contract import (SUPPORTED_SCHEMAS, inspect_connection, readonly_connection,
+                              sha256_file, validate_source_descriptor, validate_sqlite)
+
+SUPPORTED_SCHEMA_VERSIONS = {str(v) for v in SUPPORTED_SCHEMAS}
 
 DOMAINS = ("drug", "hospital", "department", "exam", "diagnosis")
 
@@ -65,6 +60,7 @@ class Catalog:
     source: str = ""
     license_hint: str = ""
     pinyin_available: bool = False
+    storage_identity: dict | None = None
 
     def by_domain(self, domain: str) -> list[Entity]:
         return [e for e in self.entities if e.domain == domain]
@@ -76,18 +72,16 @@ class Catalog:
         return out
 
 
-def _alias_list(aliases_json: str | None) -> tuple[str, ...]:
-    """别名列双形态:v4 投影 = ["str"](department/diagnosis 等),
-    v7 生产 drug 表 = [{"text": ..., "type": ...}](物理层扩展)。均取文本。"""
-    if not aliases_json:
-        return ()
-    try:
-        data = json.loads(aliases_json)
-    except (ValueError, TypeError):
-        return ()
-    if isinstance(data, list):
+def alias_texts(value: object) -> tuple[str, ...]:
+    """Project alias text without restricting type or rewriting the source JSON."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return ()
+    if isinstance(value, (list, tuple)):
         out = []
-        for item in data:
+        for item in value:
             if isinstance(item, str) and item.strip():
                 out.append(item.strip())
             elif isinstance(item, dict):
@@ -96,6 +90,10 @@ def _alias_list(aliases_json: str | None) -> tuple[str, ...]:
                     out.append(text.strip())
         return tuple(out)
     return ()
+
+
+def _alias_list(aliases_json: str | None) -> tuple[str, ...]:
+    return alias_texts(aliases_json)
 
 
 # ---------------------------------------------------------------- JSONL 适配器
@@ -125,7 +123,7 @@ def load_jsonl(path: Path, domain: str, data_version: str = "legacy-jsonl") -> C
                 value = row.get(key)
                 if isinstance(value, str) and value.strip():
                     names[key] = value.strip()
-            aliases = tuple(row.get("aliases", ()) or ()) if isinstance(row.get("aliases"), (list, tuple)) else _alias_list(str(row.get("aliases", "") or ""))
+            aliases = alias_texts(row.get("aliases"))
             entity_id = str(row.get("source_id") or row.get("id") or f"{domain}-{lineno}")
             region = str(row.get("region") or "")
             if not names:
@@ -170,12 +168,18 @@ def load_entities_dump(path: Path) -> Catalog:
                 continue
             entities.append(Entity(domain=str(record["domain"]), entity_id=str(record["entity_id"]),
                                    region=str(record.get("region") or ""), names=dict(record.get("names") or {}),
-                                   aliases=tuple(record.get("aliases") or ())))
+                                   aliases=alias_texts(record.get("aliases"))))
     if header is None:
         raise ValueError(f"entities dump 为空: {path}")
     if not entities:
         raise ValueError(f"entities dump 无实体: {path}")
-    return Catalog(entities, data_version=str(header.get("data_version") or ""), source=str(path))
+    storage = header.get("storage_identity")
+    if storage is not None and not isinstance(storage, dict):
+        raise ValueError("entities dump storage_identity must be an object")
+    if storage is not None and storage.get("dataVersion") != header.get("data_version"):
+        raise ValueError("entities dump storage_identity dataVersion mismatch")
+    return Catalog(entities, data_version=str(header.get("data_version") or ""), source=str(path),
+                   storage_identity=storage)
 
 
 # ---------------------------------------------------------------- v4 SQLite 适配器
@@ -188,7 +192,8 @@ _TABLE_BY_DOMAIN = {
 }
 
 
-def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = False) -> Catalog:
+def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = False,
+                   source_descriptor: Path | None = None) -> Catalog:
     """从 App 目录投影 SQLite(加密包解密后)装载目录实体。
 
     读取 catalog_meta 校验 schema 版本与 data_version;只消费
@@ -203,13 +208,18 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
     """
     if not path.exists():
         raise FileNotFoundError(f"v4 SQLite 不存在: {path}")
-    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    identity = validate_sqlite(path, data_version=data_version or None)
+    file_sha256 = sha256_file(path)
+    conn = readonly_connection(path)
     try:
-        meta = dict(conn.execute("SELECT key, value FROM catalog_meta").fetchall())
-        schema_version = meta.get("schema_version", "4")
-        if schema_version not in SUPPORTED_SCHEMA_VERSIONS:
-            raise ValueError(f"不支持的 schema_version={schema_version}(支持: {sorted(SUPPORTED_SCHEMA_VERSIONS)})")
-        data_version = data_version or meta.get("data_version", "")
+        conn.execute("BEGIN")
+        if inspect_connection(conn, data_version=data_version or None) != identity:
+            raise ValueError("catalog identity changed while opening the entity snapshot")
+        data_version = identity.data_version
+        descriptor = None
+        if source_descriptor is not None:
+            descriptor = json.loads(source_descriptor.read_text(encoding="utf-8"))
+            validate_source_descriptor(identity, descriptor, file_sha256)
         rows_all: list[tuple[str, dict]] = []
         # 投影逐表列差异(与 catalog_v4.sql 逐字对齐;v5–v7 该投影同形):
         #   drug: name_en;hospital: short_name;exam: name_en;department/diagnosis: 仅 name_zh
@@ -221,11 +231,18 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
             if domain != "drug":
                 cols.add("match_status")
             try:
-                cur = conn.execute(f"SELECT {', '.join(sorted(cols))} FROM {table}")
+                projection = ", ".join(f"d.{c}" for c in sorted(cols))
+                if identity.schema == 9:
+                    cur = conn.execute(
+                        f"SELECT {projection}, c.entity_uid AS entity_id FROM {table} d "
+                        "JOIN catalog_entry c ON c.table_name=? AND c.active=1 AND c.app_row_id=d.rowid "
+                        "AND c.region=d.region AND c.source_id=d.source_id", (table,))
+                else:
+                    cur = conn.execute(f"SELECT {projection}, d.source_id AS entity_id FROM {table} d")
             except sqlite3.OperationalError as exc:
                 # diagnosis 域自 v7 起物化:v4–v6 投影无此表 = 该域零实体(不拒载,
                 # 历史资产仍可重放);v7 缺表 = 投影漂移,fail-closed(与其余表同)。
-                if domain == "diagnosis" and schema_version != "7":
+                if domain == "diagnosis" and identity.schema in (4, 5, 6):
                     continue
                 raise ValueError(f"v4 投影缺表 {table}: {exc}") from exc
             colnames = [d[0] for d in cur.description]
@@ -242,7 +259,7 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
                 return None
             return Entity(
                 domain=domain,
-                entity_id=str(record["source_id"]),
+                entity_id=str(record["entity_id"]),
                 region=str(record.get("region") or ""),
                 names=names,
                 aliases=_alias_list(record.get("aliases_json")),
@@ -250,7 +267,9 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
             )
 
         entities: list[Entity] = []
-        if not group_by_name:
+        # Same spelling is not an identity merge in a graph. Explicit entry
+        # bindings always win over this legacy/dev name-grouping switch.
+        if not group_by_name or identity.schema == 9:
             for domain, record in rows_all:
                 entity = _entity_from(domain, record)
                 if entity is not None:
@@ -259,12 +278,12 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
             # (domain, name_zh) → 合并记录。别名并集保序去重;name_en/short_name 取
             # 排序后首个非空(与 id 选择同序,可复现)。折叠合并(全半角等)不做——
             # 折叠差异交给召回层噪声模型,目录层保持逐字可解释。
-            groups: dict[tuple[str, str], dict] = {}
+            groups: dict[tuple[str, str, str], dict] = {}
             for domain, record in rows_all:
                 name = (record.get("name_zh") or "").strip()
                 if not name:
                     continue
-                key = (domain, name)
+                key = (domain, str(record.get("region") or ""), name)
                 sid = str(record["source_id"])
                 group = groups.get(key)
                 if group is None:
@@ -279,10 +298,11 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
                 for alias in _alias_list(record.get("aliases_json")):
                     if alias not in group["aliases"]:
                         group["aliases"].append(alias)
-            for (domain, name), group in sorted(groups.items()):
+            for (domain, _, name), group in sorted(groups.items()):
                 record = dict(group["record"])
                 record["name_zh"] = name
                 record["source_id"] = group["sid"]
+                record["entity_id"] = group["sid"]
                 entity = _entity_from(domain, record)
                 if entity is None:
                     continue
@@ -290,6 +310,10 @@ def load_sqlite_v4(path: Path, data_version: str = "", group_by_name: bool = Fal
                     domain=entity.domain, entity_id=entity.entity_id, region=entity.region,
                     names=entity.names, aliases=tuple(group["aliases"]), match_status=entity.match_status,
                 ))
-        return Catalog(entities, data_version=data_version, source=str(path), license_hint="见 manifest license 字段")
+        storage = {**identity.descriptor(), "sqliteSha256": file_sha256}
+        if descriptor is not None and "signedPointerDigest" in descriptor:
+            storage["signedPointerDigest"] = descriptor["signedPointerDigest"]
+        return Catalog(entities, data_version=data_version, source=str(path),
+                       license_hint="见 manifest license 字段", storage_identity=storage)
     finally:
         conn.close()

@@ -7,6 +7,7 @@ from pathlib import Path
 
 # 单一实现:corpus.manifest 为 sha256_file 唯一出处(manifest/语料/资产校验同源)
 from corpus.manifest import sha256_file  # noqa: E402
+from entlink.catalog import alias_texts
 
 PAD_IDX = 0
 UNK_IDX = 1
@@ -101,8 +102,8 @@ def load_negative_terms(corpus_path: Path, entities_path: Path | None = None) ->
                     if isinstance(names.get(k), str) and names[k].strip():
                         term = names[k].strip()
                         break
-                if term is None and isinstance(rec.get("aliases"), list) and rec["aliases"]:
-                    term = str(rec["aliases"][0]).strip()
+                if term is None:
+                    term = next(iter(alias_texts(rec.get("aliases"))), None)
                 if term:
                     terms[eid] = term
     return terms

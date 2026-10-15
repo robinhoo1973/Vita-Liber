@@ -1112,6 +1112,19 @@ def main():
     ref_store = root / "CoreKit/Sources/Infrastructure/MedicalReferenceCatalogStore.swift"
     scanned["O"] = 0
     if ref_fix.exists() and ref_store.exists():
+        def ddl_column_names(body):
+            columns = set()
+            for definition in body.split(","):
+                parts = definition.strip().split()
+                if len(parts) < 2:
+                    continue
+                name = parts[0]
+                # v9 的 UNIQUE(region, source_id) 是表约束，不是名为 UNIQUE(region 的列。
+                if (re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+                        and name.upper() not in {"UNIQUE", "PRIMARY", "FOREIGN", "CHECK", "CONSTRAINT"}):
+                    columns.add(name)
+            return columns
+
         tf = ref_fix.read_text(encoding="utf-8")
         st = ref_store.read_text(encoding="utf-8")
         tables = (
@@ -1156,14 +1169,14 @@ def main():
             for name in ("hospital", "department", "diagnosis", "exam_item"):
                 m = re.search(r"CREATE TABLE " + name + r" \(([^)]*)\)", prod_text)
                 if m:
-                    prod_cols[name] = {c.strip().split()[0] for c in m.group(1).split(",")}
+                    prod_cols[name] = ddl_column_names(m.group(1))
         for name, ddl_re, sel_re in tables:
             ddl = re.search(ddl_re, tf)
             sel = re.search(sel_re, st, re.S)
             if not ddl or not sel:
                 fails.append(f"{ref_fix.relative_to(root)}: 家族 O 无法解析 {name} 的 fixture DDL 或 store SELECT")
                 continue
-            ddl_cols = {c.strip().split()[0] for c in ddl.group(1).split(",")}
+            ddl_cols = ddl_column_names(ddl.group(1))
             sel_cols = {c.strip() for c in sel.group(1).replace("\n", " ").split(",")
                         if c.strip() and not c.strip().startswith(("FROM", "--"))}
             missing = sel_cols - ddl_cols - {"rowid"}

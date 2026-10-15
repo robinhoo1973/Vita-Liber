@@ -3,6 +3,7 @@
 字段契约(评测席四轮评审定稿):
 - corpus_sha256      语料 JSONL 的 sha256(冻结凭证)
 - catalog_data_version  目录 dataVersion(与 App 侧同字段口径)
+- catalog_storage_identity  SQLite/实体 dump 的已校验身份（可选；含物理 SHA，纳入自哈希）
 - noise_model        有效噪声模型整体(version + 三表 + sha256)——评测逐字节复现
 - pinyin_available   拼音层可用性(基线报告必须携带)
 - split_rule         切分规则版本 + 主种子(按 canonical 实体切分)
@@ -55,7 +56,7 @@ def sha256_json(obj) -> str:
 
 # 字段写入顺序(确定性,self-hash 之外按此序)
 _FIELD_ORDER = (
-    "manifest_version", "corpus_sha256", "catalog_data_version", "catalog_source",
+    "manifest_version", "corpus_sha256", "catalog_data_version", "catalog_source", "catalog_storage_identity",
     "noise_model", "pinyin_available", "pinyin_reason", "split_rule",
     "licenses", "counts", "generated_at",
 )
@@ -63,7 +64,8 @@ _FIELD_ORDER = (
 
 def build_manifest(*, corpus_path: Path, catalog_data_version: str, catalog_source: str,
                    noise_model: dict, pinyin_available: bool, pinyin_reason: str | None,
-                   split_rule: dict, licenses: dict, counts: dict) -> dict:
+                   split_rule: dict, licenses: dict, counts: dict,
+                   catalog_storage_identity: dict | None = None) -> dict:
     manifest = {
         "manifest_version": MANIFEST_VERSION,
         "corpus_sha256": sha256_file(corpus_path),
@@ -76,6 +78,8 @@ def build_manifest(*, corpus_path: Path, catalog_data_version: str, catalog_sour
         "licenses": licenses,
         "counts": counts,
     }
+    if catalog_storage_identity is not None:
+        manifest["catalog_storage_identity"] = catalog_storage_identity
     # 自哈希必须基于固定字段序且不含自身
     payload = {k: manifest[k] for k in _FIELD_ORDER if k in manifest}
     manifest["manifest_sha256"] = sha256_json(payload)
@@ -93,10 +97,12 @@ def verify_manifest(manifest_path: Path, corpus_path: Path) -> dict:
     """校验冻结语料:sha256 一致 + 自哈希一致 + 字段齐全。不符即抛(fail-closed)。"""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for required in _FIELD_ORDER:
-        if required not in manifest and required not in ("generated_at",):
+        if required not in manifest and required not in ("generated_at", "catalog_storage_identity"):
             raise ValueError(f"manifest 缺字段: {required}")
     if manifest.get("manifest_version") != MANIFEST_VERSION:
         raise ValueError(f"manifest_version 不匹配: {manifest.get('manifest_version')}")
+    if "catalog_storage_identity" in manifest and not isinstance(manifest["catalog_storage_identity"], dict):
+        raise ValueError("catalog_storage_identity 必须为对象")
     actual = sha256_file(corpus_path)
     if actual != manifest["corpus_sha256"]:
         raise ValueError(f"语料 sha256 不符: manifest={manifest['corpus_sha256']} actual={actual}")

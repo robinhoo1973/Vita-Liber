@@ -215,7 +215,7 @@ struct MedicalCatalogUpdateTests {
             (.invalidScope, { $0["assetKind"] = "asr-model" }),
             // v3 冻结（2026-10-07）：wire schemaVersion=3；此负例拿 **2**（v2 已退役）去撞门。
             (.invalidScope, { $0["schemaVersion"] = 2 }),
-            (.invalidField, { $0["sqliteSchemaVersion"] = 6 }),
+            (.invalidField, { $0["sqliteSchemaVersion"] = 8 }),
             (.invalidField, { $0["packageSize"] = 0 }),
             (.invalidField, { $0["sqliteSha256"] = upper }),
             (.invalidField, { $0["packageSha256"] = "abc" }),
@@ -300,6 +300,49 @@ struct MedicalCatalogUpdateTests {
 
     // MARK: names, transport policy, installer helpers
 
+    @Test("wire3/manifest2 dispatches legacy4--7 and unified9; unified content is R")
+    func unifiedAndLegacyWireDispatch() throws {
+        let expected = try GoMedicalFixture.expected()
+        let pointer = try GoMedicalFixture.data(expected.installableManifest)
+        for schema in [4, 5, 6, 7, 9] {
+            let json = try GoMedicalFixture.rewrap(pointer, mutate: GoMedicalFixture.mirroringManifest { fields, manifest in
+                fields["sqliteSchemaVersion"] = schema
+                manifest["sqlite_schema_version"] = schema
+            })
+            let value = try GoMedicalFixture.expectation(json, servedAs: expected.manifestAssetName)
+            #expect(value.schemaVersion == schema)
+            #expect(value.contentSHA256 == expected.dataVersion)
+        }
+        let wrongR = try GoMedicalFixture.rewrap(pointer, mutate: GoMedicalFixture.mirroringManifest { fields, manifest in
+            fields["sqliteSchemaVersion"] = 9
+            manifest["sqlite_schema_version"] = 9
+            fields["contentSha256"] = String(repeating: "f", count: 64)
+            manifest["content_sha256"] = String(repeating: "f", count: 64)
+        })
+        #expect(throws: MedicalCatalogTrustError.invalidField) {
+            try GoMedicalFixture.expectation(wrongR, servedAs: expected.manifestAssetName)
+        }
+        let renewed = try GoMedicalFixture.rewrap(pointer) { $0["catalogVersion"] = expected.catalogVersion + 1 }
+        #expect(try GoMedicalFixture.expectation(renewed, servedAs: expected.manifestAssetName).packageAssetName
+                == expected.packageAssetName)
+    }
+
+    @Test("wire3/manifest2 integer versions cannot be floats, exponent equivalents or overflow")
+    func wireIntegerTypesStayStrict() throws {
+        let expected = try GoMedicalFixture.expected()
+        let envelope = try GoMedicalFixture.data(expected.installableManifest)
+        let payload = String(decoding: try GoMedicalFixture.payload(of: envelope), as: UTF8.self)
+        for (key, value) in [("schemaVersion", "3.0"), ("schema_version", "2.0"),
+                             ("sqliteSchemaVersion", "7e0"), ("catalogVersion", "9223372036854775808")] {
+            let mutated = payload.replacingOccurrences(of: "\"\(key)\":\\s*[0-9]+",
+                with: "\"\(key)\":\(value)", options: .regularExpression)
+            #expect(mutated != payload)
+            #expect(throws: MedicalCatalogTrustError.invalidField) {
+                try MedicalCatalogSignedPointer.decode(Data(mutated.utf8))
+            }
+        }
+    }
+
     @Test("v3 asset-name grammar matches the Go names (fixed names + package-<version>.bin)")
     func assetNamesMatchGo() throws {
         let expected = try GoMedicalFixture.expected()
@@ -309,10 +352,10 @@ struct MedicalCatalogUpdateTests {
         #expect(MedicalCatalogReleaseProtocol.packageAssetVersion(expected.packageAssetName) == expected.catalogVersion)
         #expect(MedicalCatalogReleaseProtocol.packageAssetVersion("package-9223372036854775807.bin") == Int64.max)
         #expect(MedicalCatalogReleaseProtocol.isPackageAssetName(expected.packageAssetName))
-        let rejected = ["medical-data-package-sqlite-../x.bin",
+        let rejected = ["package-41.bin\n", "medical-data-package-sqlite-../x.bin",
                         "medical-data-package-sqlite-\(expected.packageSha256).bin",   // v2 长名退役
                         "package-0.bin", "package-020.bin", "package-.bin",
-                        "package-20.BIN", "PACKAGE-20.bin",
+                        "package-20.BIN", "PACKAGE-20.bin", "package-２０.bin", "package-٢١.bin",
                         "package-99999999999999999999.bin"]   // 20 位版本
         for name in rejected {
             #expect(!MedicalCatalogReleaseProtocol.isPackageAssetName(name), "不得接受 \(name)")

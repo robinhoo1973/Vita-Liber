@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from corpus.manifest import verify_manifest  # noqa: E402
+from corpus.manifest import sha256_json, verify_manifest  # noqa: E402
 from entlink.catalog import load_entities_dump, load_jsonl_set, load_sqlite_v4, parse_catalog_jsonl  # noqa: E402
 from entlink.recall import RecallEngine  # noqa: E402
 from gate.entlink_gate import GateConfig, run_gate, write_baseline, write_verdict  # noqa: E402
@@ -36,11 +36,13 @@ def main() -> int:
     parser.add_argument("--manifest", type=Path, default=None, help="缺省=corpus 路径 + .manifest.json")
     parser.add_argument("--catalog-jsonl", type=parse_catalog_jsonl, default=None)
     parser.add_argument("--catalog-sqlite", type=Path, default=None)
+    parser.add_argument("--source-json", type=Path, default=None,
+                        help="与 build 同用的 fetch source descriptor(仅 SQLite 输入)")
     parser.add_argument("--catalog-entities", type=Path, default=None,
                         help="build 侧 --dump-entities 的产物(首行 _meta 携带 dataVersion);"
                              "实体模型与语料同形,免二次下载目录资产")
     parser.add_argument("--group-by-name", action="store_true",
-                        help="与 build 侧同开:同域同名行合并为单实体(实体模型同形是第二一致性断言)")
+                        help="与 build 侧同开:legacy 同域同地区同名行合并;v9 始终使用 catalog_entry 身份")
     parser.add_argument("--exclude-domains", default="",
                         help="与 build 侧同开:从评测索引中排除的域(如 department)")
     parser.add_argument("--wording-source", type=Path, default=None)
@@ -63,12 +65,19 @@ def main() -> int:
     sources = [args.catalog_jsonl, args.catalog_sqlite, args.catalog_entities]
     if sum(1 for s in sources if s is not None) != 1:
         parser.error("须且仅须提供 --catalog-jsonl / --catalog-sqlite / --catalog-entities 之一")
-    if args.catalog_entities is not None:
-        catalog = load_entities_dump(args.catalog_entities)
-    elif args.catalog_sqlite is not None:
-        catalog = load_sqlite_v4(args.catalog_sqlite, group_by_name=args.group_by_name)
-    else:
-        catalog = load_jsonl_set(args.catalog_jsonl)
+    if args.source_json is not None and args.catalog_sqlite is None:
+        parser.error("--source-json 须与 --catalog-sqlite 同用")
+    try:
+        if args.catalog_entities is not None:
+            catalog = load_entities_dump(args.catalog_entities)
+        elif args.catalog_sqlite is not None:
+            catalog = load_sqlite_v4(args.catalog_sqlite, group_by_name=args.group_by_name,
+                                     source_descriptor=args.source_json)
+        else:
+            catalog = load_jsonl_set(args.catalog_jsonl)
+    except (ValueError, OSError) as exc:
+        print(f"FAILED catalog 校验: {exc}", file=sys.stderr)
+        return 1
     excluded = {d.strip() for d in args.exclude_domains.split(",") if d.strip()}
     if excluded:
         catalog.entities = [e for e in catalog.entities if e.domain not in excluded]
@@ -83,6 +92,11 @@ def main() -> int:
     if manifest["catalog_data_version"] != catalog.data_version:
         print(f"FAILED dataVersion 漂移: manifest={manifest['catalog_data_version']} "
               f"catalog={catalog.data_version}——拒评", file=sys.stderr)
+        return 1
+    if "catalog_storage_identity" in manifest and (
+            catalog.storage_identity is None
+            or sha256_json(manifest["catalog_storage_identity"]) != sha256_json(catalog.storage_identity)):
+        print("FAILED catalog storage identity 漂移: R/SQLite SHA/来源描述须与构建侧一致——拒评", file=sys.stderr)
         return 1
 
     wording_guard = None

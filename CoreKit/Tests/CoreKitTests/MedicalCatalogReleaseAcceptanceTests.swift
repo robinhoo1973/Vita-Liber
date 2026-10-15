@@ -133,9 +133,8 @@ struct MedicalCatalogReleaseAcceptanceTests {
         }
     }
 
-    @Test("physical v7 candidates are accepted; v5/v6 and mismatched SQLite stamps are rejected")
+    @Test("legacy physical4--7 remain accepted; unsupported or mismatched stamps fail closed")
     func physicalSchemaVersionCompatibility() throws {
-        // CNB 单写者契约:仅 v7(旧 GitHub 时代 v5/v6 检查点从未发布,零旧设备悬崖)。
         let v7Fixture = try MedicalCatalogFixture.make(schemaVersion: 7)
         defer { v7Fixture.cleanUp() }
         let candidate = try v7Fixture.candidate()
@@ -144,14 +143,20 @@ struct MedicalCatalogReleaseAcceptanceTests {
         try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: 7,
                                                 dataVersion: v7Fixture.signedExpectation.dataVersion)
 
-        // v5/v6 在 pointer 解码门即被拒——`make` 构造 `signedExpectation` 时已调用
-        // `MedicalCatalogSignedPointerDecoder.expectation`（App 解析网络 pointer 的同一函数）。
-        for legacy in [5, 6] {
+        for legacy in [4, 5, 6] {
+            let fixture = try MedicalCatalogFixture.make(schemaVersion: legacy)
+            defer { fixture.cleanUp() }
+            #expect(try fixture.candidate().schemaVersion == legacy)
+            try MedicalCatalogStore.validateReleaseAndSmoke(
+                path: fixture.directory.appendingPathComponent("source.sqlite"), schemaVersion: legacy,
+                dataVersion: fixture.signedExpectation.dataVersion)
+        }
+        for unsupported in [3, 8, 10] {
             #expect(throws: MedicalCatalogTrustError.invalidField) {
-                _ = try MedicalCatalogFixture.make(schemaVersion: legacy)
+                _ = try MedicalCatalogFixture.make(schemaVersion: unsupported)
             }
         }
-        // 不支持的物理版本即使 SQLite 本体有效,`validateRelease` 也在版本门即拒。
+        // A supported version still cannot disagree with the actual file.
         #expect(throws: MedicalCatalogUpdateError.catalogIntegrityFailed) {
             try MedicalCatalogStore.validateRelease(
                 path: sqlite, schemaVersion: 6,
@@ -722,14 +727,21 @@ struct MedicalCatalogFixture {
         try queue.write { db in
             let userVersion = shape == .wrongUserVersion ? (schemaVersion == 5 ? 4 : schemaVersion + 1) : schemaVersion
             try db.execute(sql: "PRAGMA user_version = \(userVersion)")
-            try db.execute(sql: "CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+            if shape == .missingDrugTable {
+                try db.execute(sql: "CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL)")
+            } else {
+                let ddlURL = try #require(Bundle.module.url(forResource: "catalog", withExtension: "sql",
+                                                            subdirectory: "Fixtures/unified"))
+                let ddl = try String(contentsOf: ddlURL, encoding: .utf8)
+                let appDDL = try #require(ddl.components(separatedBy: "CREATE TABLE graph_release").first)
+                try db.execute(sql: appDDL)
+            }
             let metaVersion = shape == .wrongDataVersion ? String(repeating: "f", count: 64) : dataVersion
             let metaSchemaVersion = shape == .wrongSchemaVersion ? (schemaVersion == 5 ? 6 : 5) : schemaVersion
             try db.execute(sql: "INSERT INTO catalog_meta(key, value) VALUES ('schema_version', ?), ('data_version', ?)",
                            arguments: [String(metaSchemaVersion), metaVersion])
             guard shape != .missingDrugTable else { return }
             try db.execute(sql: """
-                CREATE TABLE drug (id INTEGER PRIMARY KEY, region TEXT NOT NULL, source_id TEXT NOT NULL UNIQUE, license_no TEXT, name_zh TEXT, name_en TEXT, brand_name TEXT, dosage_form TEXT, spec TEXT, drug_category TEXT, license_holder TEXT, manufacturer TEXT, insurance_code TEXT, drug_code TEXT, active_ingredients TEXT, usage_ref_json TEXT NOT NULL, region_specific_json TEXT NOT NULL, aliases_json TEXT NOT NULL);
                 CREATE TABLE drug_alias (drug_id INTEGER NOT NULL REFERENCES drug(id), alias TEXT NOT NULL);
                 INSERT INTO drug (id, region, source_id, name_zh, usage_ref_json, region_specific_json, aliases_json)
                     VALUES (1, 'CN', 'CN:H0001', '阿莫西林胶囊', '{}', '{}', '[]');

@@ -31,4 +31,32 @@ struct MedicalReferenceCatalogDecodeTests {
                                               deptsJSON: "not-json", aliasesJSON: "[]")
         #expect(hospital.departments.isEmpty)
     }
+
+    @Test func openObjectAliasesKeepUnknownJSONAcrossAllReferenceDomains() throws {
+        let raw = #"[{"text":" 開放別名😀 ","type":"future/open-type","unknown":{"raw":[null,9007199254740993]}},"舊字串別名",{"text":7},{"unknown":"not a name"},null,true]"#
+        let hospital = MedicalCatalogHospital(
+            id: 1, region: "TW", sourceID: "h", code: nil, nameZh: "醫院", shortName: nil,
+            typeZh: nil, levelZh: nil, address: nil, phone: nil, adminArea: nil,
+            deptsJSON: "[]", aliasesJSON: raw)
+        let department = MedicalCatalogDepartment(
+            id: 2, region: "TW", sourceID: "d", code: "d", nameZh: "科室",
+            categoryZh: nil, aliasesJSON: raw)
+        let diagnosis = MedicalCatalogDiagnosis(
+            id: 3, region: "TW", sourceID: "dx", code: "dx", nameZh: "疾病",
+            codeSystem: "source", chapterZh: nil, aliasesJSON: raw)
+        let exam = MedicalCatalogExamItem(
+            id: 4, region: "TW", sourceID: "e", code: "e", nameZh: "檢查", nameEn: nil,
+            category: nil, method: nil, specimen: nil, unit: nil, priceRef: nil,
+            loincConceptID: nil, aliasesJSON: raw)
+        for aliases in [hospital.aliases, department.aliases, diagnosis.aliases, exam.aliases] {
+            #expect(aliases == ["開放別名😀", "舊字串別名"])
+        }
+        for original in [hospital.aliasesJSON, department.aliasesJSON, diagnosis.aliasesJSON, exam.aliasesJSON] {
+            #expect(original == raw)
+        }
+        let encoded = try JSONEncoder().encode(hospital)
+        let decoded = try JSONDecoder().decode(MedicalCatalogHospital.self, from: encoded)
+        #expect(decoded.aliasesJSON == raw)
+        #expect(CatalogJSON.stringArray(#"{"text":"not an array"}"#).isEmpty)
+    }
 }

@@ -116,7 +116,15 @@ public struct MedicalCatalogDrugDetail: Sendable, Equatable {
 }
 
 /// 独立 catalog 的读取端口。更新/解密服务通过基础设施实现，不让 App 视图接触文件与 SQL。
-public protocol MedicalCatalogReading: Sendable {
+public protocol MedicalCatalogGenerationReading: Sendable {
+    var catalogGeneration: UInt64 { get }
+}
+
+public extension MedicalCatalogGenerationReading {
+    var catalogGeneration: UInt64 { 0 }
+}
+
+public protocol MedicalCatalogReading: MedicalCatalogGenerationReading {
     func match(line: PrescriptionLine) async throws -> MedicalCatalogMatch
     func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference]
     func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail?

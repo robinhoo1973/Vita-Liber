@@ -29,7 +29,7 @@ struct MedicalReferenceCatalogStoreTests {
         let queue = try DatabaseQueue(path: path, configuration: config)
         try queue.write { db in
             try db.execute(sql: v4Schema)
-            try db.execute(sql: "INSERT INTO catalog_meta(key,value) VALUES ('schema_version','4'),('hospital_records','3')")
+            try db.execute(sql: "PRAGMA user_version=4; INSERT INTO catalog_meta(key,value) VALUES ('schema_version','4'),('data_version','reference-fixture'),('hospital_records','3')")
             try db.execute(sql: """
                 INSERT INTO hospital (region, source_id, code, name_zh, short_name, type_zh, level_zh, address, admin_area, depts_json, aliases_json) VALUES
                 ('CN','CN:H11010201','H11010201','北京協和醫院(東院)','協和醫院','綜合醫院','三級甲等','北京市東城區帥府園一號','北京市東城區','[{"code":"03.02","name_zh":"心血管內科"}]','["協和醫院","协和医院"]'),
@@ -101,7 +101,36 @@ struct MedicalReferenceCatalogStoreTests {
         #expect(wildcard.isEmpty) // 未转义时 % 会命中全部 3 行
     }
 
-    @Test func v3CatalogDegradesToEmpty() async throws {
+    @Test func objectAliasesUseOnlyTextAndRetainRawJSON() async throws {
+        let path = try Self.makeFixture()
+        let raw = #"[{"text":"開放%_別名","type":"future-only-type","unknown":{"note":"not-a-name"}},"legacy-別名"]"#
+        let queue = try DatabaseQueue(path: path)
+        try await queue.write { db in
+            for table in ["hospital", "department", "diagnosis", "exam_item"] {
+                try db.execute(sql: "UPDATE \(table) SET aliases_json=?", arguments: [raw])
+            }
+        }
+        let store = try MedicalReferenceCatalogStore(path: path)
+        let hospitals = try await store.hospitalSuggest(query: "開放%_", region: nil, limit: 20)
+        let diagnoses = try await store.diagnosisSuggest(query: "開放%_", system: nil, region: nil, limit: 20)
+        let exams = try await store.examSuggest(query: "開放%_", category: nil, region: nil, limit: 20)
+        let departments = try await store.departmentList(region: nil)
+        #expect(hospitals.count == 3)
+        #expect(diagnoses.count == 2)
+        #expect(exams.count == 2)
+        #expect(departments.first?.aliases == ["開放%_別名", "legacy-別名"])
+        #expect(hospitals.first?.aliasesJSON == raw)
+        for query in ["future-only-type", "not-a-name"] {
+            let metadataHospitals = try await store.hospitalSuggest(query: query, region: nil, limit: 20)
+            let metadataDiagnoses = try await store.diagnosisSuggest(query: query, system: nil, region: nil, limit: 20)
+            let metadataExams = try await store.examSuggest(query: query, category: nil, region: nil, limit: 20)
+            #expect(metadataHospitals.isEmpty)
+            #expect(metadataDiagnoses.isEmpty)
+            #expect(metadataExams.isEmpty)
+        }
+    }
+
+    @Test func unsupportedV3CatalogIsRejected() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let path = dir.appendingPathComponent("v3.sqlite").path
@@ -112,17 +141,9 @@ struct MedicalReferenceCatalogStoreTests {
             try db.execute(sql: "CREATE TABLE catalog_meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);")
             try db.execute(sql: "INSERT INTO catalog_meta(key,value) VALUES ('schema_version','3');")
         }
-        let store = try MedicalReferenceCatalogStore(path: path)
-        let version = try await store.catalogSchemaVersion
-        #expect(version == 3)
-        let hospitalsEmpty = try await store.hospitalSuggest(query: "協和", region: nil, limit: 20).isEmpty
-        let departmentsEmpty = try await store.departmentList(region: nil).isEmpty
-        let diagnosesEmpty = try await store.diagnosisSuggest(query: "I21", system: nil, region: nil, limit: 20).isEmpty
-        let examsEmpty = try await store.examSuggest(query: "血", category: nil, region: nil, limit: 20).isEmpty
-        #expect(hospitalsEmpty)
-        #expect(departmentsEmpty)
-        #expect(diagnosesEmpty)
-        #expect(examsEmpty)
+        #expect(throws: MedicalCatalogUpdateError.self) {
+            try MedicalReferenceCatalogStore(path: path)
+        }
     }
 }
 #endif

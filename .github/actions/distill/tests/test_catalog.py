@@ -1,9 +1,11 @@
 """catalog 装载:JSONL 契约与 SQLite v4 适配器(含 schema 闸 fail-closed)。"""
+import json
 import unittest
 import tempfile
 from pathlib import Path
 
-from entlink.catalog import Entity, load_jsonl, load_sqlite_v4
+from entlink.catalog import Entity, load_entities_dump, load_jsonl, load_sqlite_v4
+from entlink.recall import RecallEngine
 
 from tests.util import make_v4_sqlite, make_v7_duplicate_sqlite, write_jsonl as _write_jsonl
 
@@ -27,6 +29,36 @@ class JsonlTests(unittest.TestCase):
         ])
         catalog = load_jsonl(path, "hospital")
         self.assertIn("short_name", catalog.entities[0].names)
+
+    def test_open_object_aliases_are_text_only_and_do_not_rewrite_jsonl(self):
+        aliases = [
+            {"text": " 藥品別名😀 ", "type": "future/open-type",
+             "future": {"raw": [None, 9007199254740993]}},
+            "舊字串別名",
+            {"text": 7, "type": "base_zh"}, {"text": {"unexpected": "not a name"}},
+            {"type": "unrecognized", "unknown": "not a name"}, None, True,
+        ]
+        for value in (aliases, json.dumps(aliases, ensure_ascii=False)):
+            with self.subTest(encoded=isinstance(value, str)):
+                path = _write_jsonl([{"source_id": "D1", "name_zh": "主名稱", "aliases": value}])
+                before = path.read_bytes()
+                catalog = load_jsonl(path, "drug")
+                self.assertEqual(catalog.entities[0].aliases, ("藥品別名😀", "舊字串別名"))
+                candidate = RecallEngine().build(catalog).search("藥品別名😀", domain="drug")[0]
+                self.assertEqual((candidate.entity_id, candidate.layer), ("D1", "alias"))
+                self.assertEqual(path.read_bytes(), before)
+
+    def test_entity_dump_object_aliases_never_escape_as_dicts(self):
+        path = _write_jsonl([
+            {"_meta": {"data_version": "open-aliases"}},
+            {"entity_id": "D1", "domain": "drug", "region": "TW", "names": {"name_zh": "主名稱"},
+             "aliases": [{"text": "新版別名", "type": {"future": "open"}},
+                         {"unknown": "not a name"}, {"text": None}, "舊別名"]},
+        ])
+        before = path.read_bytes()
+        catalog = load_entities_dump(path)
+        self.assertEqual(catalog.entities[0].aliases, ("新版別名", "舊別名"))
+        self.assertEqual(path.read_bytes(), before)
 
     def test_bad_json_fails_loud(self):
         path = _write_jsonl([])

@@ -66,6 +66,16 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 | `llm-model.yml` | dispatch（id / source / mode=dry-run\|publish） | **T2 本机 LLM 模型发布（2026-10-09 换型+下载化批）**：把仓库内已钉版目录条目（`Resources/LLMCatalog/catalog.json`：URL+sha256+bytes）对应的上游字节发布到 **CNB** `robinhoo1973/Resources` release `llama-models`——内容寻址资产名 `<id>-<sha16>.gguf`、匿名回读核对；**与 GitHub release `llama-models`（训练 checkpoint draft 通道）是两平台独立命名空间，不混存**。preflight（publish 模式缺 CNB_RESOURCE_TOKEN 即红）+ battery（发布器离线契约测试）+ publish 三段。 | release / requirements |
 | `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ 周一 03:23 UTC（目录漂移）/ dispatch（四 job 全跑） | 维护四件套：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`；`seed-cnb-assets.yml` 已删——业主 2026-10-07：本地离线执行完成）+ ASR 目录漂移周检（2026-10-08）。训练窗口调度 job 已按业主指令删除（2026-10-09）。 | release / requirements |
 
-**Release/sqlite 契约（2026-10-08 修订）**:医疗数据唯一发布位置已迁 **CNB `robinhoo1973/Resources` release `medical-data`**（v3 文法:固定名 `manifest.json` 签名指针 + `package-<catalogVersion>.bin` 信封包 + `overview.json`;本地 producer 为唯一写者,源站 WAF 拒云上出口 IP,CI 不直连源站——见 `refactor/discussions/2026-10-07-distill-ci-medical-data-v2.md` §3.5 与私有仓 MEDICAL_DATA_RELEASE.md）。`llm.yml` 的 `distill-corpus` Release 为**合成语料**冻结资产（内容寻址、append-only;对话面暂缓至 D-1 裁决）,与医疗数据 Release 无耦合;旧 age 加密 `medical-data.bin` 契约随 v2 数据面退役。
+**Release/sqlite 契约**:医疗数据唯一发布位置已迁 **CNB `robinhoo1973/Resources` release `medical-data`**（wire 保持 pointer3 / manifest2：固定名 `manifest.json` 签名指针 + `package-<版本>.bin` 信封包 + `overview.json`；包名版本 `<= catalogVersion` 以允许续签；本地 producer 为唯一写者,源站 WAF 拒云上出口 IP,CI 不直连源站——见 `refactor/discussions/2026-10-07-distill-ci-medical-data-v2.md` §3.5 与私有仓 MEDICAL_DATA_RELEASE.md）。`llm.yml` 的 `distill-corpus` Release 为**合成语料**冻结资产（内容寻址、append-only;对话面暂缓至 D-1 裁决）,与医疗数据 Release 无耦合;旧 age 加密 `medical-data.bin` 契约随 v2 数据面退役。
+
+SQLite 消费门支持显式 legacy4–7 与 `unified-medical-kg/v1` physical9 / graph2 / App4，
+拒 physical8、坏/缺 marker 或非 full/ready/versioned 的 9，不影响既有已签7摘要算法。
+ZIP 固定且唯一普通 `medical-catalog.sqlite`；已签 R/content、实际文件 SHA、完整性/FK、
+current binding、release/activation 全部互核后才替换。`source.json` 随 artifact 传至
+materialize/entlink（显式 `--source-json`），身份继续进入实体 dump/语料自哈希与评测漂移闸。
+App 安装/恢复复用同一 storage gate，双读面原子换代并以 generation 失效缓存；
+同 R 不同文件 SHA 不误判为可复用。公共契约/合成 bridge golden 与离线验证边界详见
+`.github/actions/distill/README.md`；Windows Python/静态 Swift 不替代 macOS 编译/iOS 验收，
+此项实现未 dispatch 任何发布 workflow。
 
 发布操作文档:`.github/ASR_RELEASE.md`；医疗数据 Release 契约已迁入私有仓 `tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md`（[仅授权成员可访问](https://github.com/robinhoo1973/robinhoo-pipelines/blob/main/tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md)）。

@@ -337,16 +337,16 @@ class BuilderCorrectnessTests(unittest.TestCase):
         data.mkdir(exist_ok=True)
         rows = []
         for i in range(60):
-            rows.append({"source_id": f"TW-{i}",
+            rows.append({"region": "TW", "source_id": f"TW-{i}",
                          "usage_text": f"口服。一次{i + 1}錠,一日3次" if i in (0, 25, 50) else "",
                          "indications": "用于治疗高血压" if i in (0, 25, 50) else ""})
         (data / "medical_details.jsonl").write_text(
             "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + "\n", encoding="utf-8")
-        tw_ids = {"TW-0", "TW-25", "TW-50"}
+        tw_ids = {("TW", "TW-0"), ("TW", "TW-25"), ("TW", "TW-50")}
         diseases = set()
         usage = builder.load_details(str(data), tw_ids, diseases, random.Random(1))
         self.assertEqual(set(usage), tw_ids, "命中疾病抽样行(i%25==0)的 TW 用法被短路吞掉")
-        self.assertIn("TW-0", usage)
+        self.assertIn(("TW", "TW-0"), usage)
         self.assertIn("高血压", diseases, "同行的疾病词表抽取不得因独立化而丢失")
 
     def test_gap_gate_disabled_for_dry_run(self):

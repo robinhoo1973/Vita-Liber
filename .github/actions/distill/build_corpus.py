@@ -27,6 +27,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog-jsonl", type=parse_catalog_jsonl, default=None)
     parser.add_argument("--catalog-sqlite", type=Path, default=None)
+    parser.add_argument("--source-json", type=Path, default=None,
+                        help="fetch_catalog.py source descriptor; SHA/release binding is checked before reading")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--master-seed", type=int, default=20260929)
     parser.add_argument("--split-ratio", type=float, default=0.85)
@@ -35,7 +37,7 @@ def main() -> int:
     parser.add_argument("--min-eval-entities", type=int, default=200)
     parser.add_argument("--no-mine", action="store_true", help="关闭目录混淆挖掘(仅种子表)")
     parser.add_argument("--group-by-name", action="store_true",
-                        help="同域同名行合并为单实体(生产目录行级重复去污;评测侧须同开)")
+                        help="legacy 同域同地区同名行合并(评测侧须同开);v9 始终使用 catalog_entry 实体身份")
     parser.add_argument("--max-terms-per-entity", type=int, default=0,
                         help="每实体最多取 N 个查询词条(0=不限)")
     parser.add_argument("--max-samples-per-domain", default="",
@@ -51,6 +53,8 @@ def main() -> int:
 
     if (args.catalog_jsonl is None) == (args.catalog_sqlite is None):
         parser.error("须且仅须提供 --catalog-jsonl 或 --catalog-sqlite 之一")
+    if args.source_json is not None and args.catalog_sqlite is None:
+        parser.error("--source-json 须与 --catalog-sqlite 同用")
     if not 0 < args.split_ratio < 1:
         parser.error(f"--split-ratio 须在 (0, 1): {args.split_ratio}")
     bands = tuple(args.bands.split(","))
@@ -71,7 +75,8 @@ def main() -> int:
 
     try:
         if args.catalog_sqlite is not None:
-            catalog = load_sqlite_v4(args.catalog_sqlite, group_by_name=args.group_by_name)
+            catalog = load_sqlite_v4(args.catalog_sqlite, group_by_name=args.group_by_name,
+                                     source_descriptor=args.source_json)
             # dataVersion 缺失即拒建(fail-closed):无版本语料冻结后漂移闸/基线
             # 命名全部失真(基线曾落成 unknown.json 互相覆盖)。
             if not catalog.data_version:
@@ -98,8 +103,10 @@ def main() -> int:
         if args.dump_entities is not None:
             args.dump_entities.parent.mkdir(parents=True, exist_ok=True)
             with open(args.dump_entities, "w", encoding="utf-8", newline="\n") as fh:
-                fh.write(json.dumps({"_meta": {"data_version": catalog.data_version,
-                                               "source": catalog.source}}, ensure_ascii=False) + "\n")
+                meta = {"data_version": catalog.data_version, "source": catalog.source}
+                if catalog.storage_identity is not None:
+                    meta["storage_identity"] = catalog.storage_identity
+                fh.write(json.dumps({"_meta": meta}, ensure_ascii=False) + "\n")
                 for entity in catalog.entities:
                     fh.write(json.dumps({"domain": entity.domain, "entity_id": entity.entity_id,
                                          "region": entity.region, "names": entity.names,

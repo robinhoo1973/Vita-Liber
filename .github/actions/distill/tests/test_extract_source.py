@@ -26,6 +26,7 @@ def _make_fixture() -> Path:
         name_en TEXT, category TEXT, specimen TEXT, unit TEXT, price_ref TEXT);
     """)
     conn.execute("INSERT INTO catalog_meta VALUES ('schema_version','7'),('data_version','v7-fixture')")
+    conn.execute("PRAGMA user_version=7")
     conn.executemany(
         "INSERT INTO drug (region, source_id, name_zh, name_en, dosage_form, spec, region_specific_json, aliases_json) "
         "VALUES (?,?,?,?,?,?,?,?)",
@@ -83,7 +84,7 @@ class MaterializeTests(unittest.TestCase):
         index = json.loads((self.out / "medical_index.json").read_text(encoding="utf-8"))["index"]
         self.assertIn("阿司匹林", index)          # 对象形态别名解析
         self.assertIn("阿司匹林肠溶片", index)     # 主名并入
-        self.assertEqual(index["阿司匹林"], ["CN-NHSA-XA01"])
+        self.assertEqual(index["阿司匹林"], ['["CN","CN-NHSA-XA01"]'])
 
     def test_ref_files_with_region_lowercase(self):
         hospitals = self._lines("ref/hospital_tw.jsonl")

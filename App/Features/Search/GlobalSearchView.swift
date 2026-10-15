@@ -94,6 +94,7 @@ struct GlobalSearchView: View {
     @Environment(AppRouter.self) private var router
     /// E①（收口批）：四域参考目录端口（AppContainer 装配，nil=未就绪零渲染）
     @Environment(\.medicalReferenceCatalog) private var referenceCatalog
+    @Environment(\.medicalCatalogGeneration) private var catalogGeneration
     /// E①：父持有的目录检索状态（空态判据必须感知目录命中）
     @State private var catalogState: CatalogSearchState?
     @State private var filterText = ""
@@ -247,10 +248,11 @@ struct GlobalSearchView: View {
                 guard injected != filterText else { return }
                 filterText = injected
             }
-            .onAppear {
-                // E①：目录端口就绪即建检索状态（一次）；nil 端口保持零渲染
+            .task(id: catalogGeneration) {
                 if catalogState == nil, let referenceCatalog {
                     catalogState = CatalogSearchState(catalog: referenceCatalog)
+                } else {
+                    await catalogState?.search(filterText)
                 }
             }
             .task(id: app.currentPatientId) {
