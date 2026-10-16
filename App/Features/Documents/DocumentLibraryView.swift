@@ -450,7 +450,7 @@ final class DocumentsState {
 
     /// 媒体读取唯一入口（local-storage-layout-council §7.1 双形态读）：
     /// 候选序 = 相对路径（新写）→ original_sha256 推导 CAS → legacy 绝对路径。
-    func mediaURL(for document: DocumentRow, processed: Bool = false) -> URL? {
+    func mediaURL(for document: DocumentStore.DocumentRow, processed: Bool = false) -> URL? {
         let meta = document.metaJSON.flatMap { json -> [String: Any]? in
             try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=按「无元数据」处理，候选集为空→返回 nil（原件缺失态），不阻断读取
         } ?? [:]
