@@ -14,10 +14,18 @@ public actor BackupService {
     /// 设备密钥环（可选注入）：加密备份（iCloud 落点默认加密，comercial/tech V3.170）
     /// 与加密信封恢复依赖；nil = 明文模式（本地落点过渡/旧测试路径）
     private let keyRing: (any DeviceKeyRing)?
+    /// 媒体根（local-storage-layout-council §7.1 单点定义）：原件/敏感目录的落盘根。
+    /// nil = 媒体随包禁用（旧测试路径/预览）——信封仍带 originalSha256 元数据。
+    private let mediaBase: URL?
+    /// 载具暂存目录（Caches——不进 Documents 明文）。
+    private let stagingRoot: URL?
 
-    public init(writer: any DatabaseWriter, keyRing: (any DeviceKeyRing)? = nil) {
+    public init(writer: any DatabaseWriter, keyRing: (any DeviceKeyRing)? = nil,
+                mediaBase: URL? = nil, stagingRoot: URL? = nil) {
         self.exporter = ExportService(writer: writer)
         self.keyRing = keyRing
+        self.mediaBase = mediaBase
+        self.stagingRoot = stagingRoot
     }
 
     /// 备份包（含文件名建议与校验和——完整性由 sha256 承担）
@@ -29,10 +37,16 @@ public actor BackupService {
         /// 首次启用加密时新生成的恢复码（一次性展示；非 nil 即 UI 必须展示——
         /// 码原文零存储，展示即最后机会；后续备份此字段恒 nil）
         public var recoveryCode: String?
+        /// 媒体载具（.vlbm）：与信封成对导出/恢复；nil = 本库无媒体或明文模式
+        public var mediaCarrier: URL?
+        public var mediaManifest: MediaManifest?
         public init(fileName: String, data: Data, sha256: String, exportedAt: TimeInterval,
-                    recoveryCode: String? = nil) {
+                    recoveryCode: String? = nil, mediaCarrier: URL? = nil,
+                    mediaManifest: MediaManifest? = nil) {
             self.fileName = fileName; self.data = data; self.sha256 = sha256; self.exportedAt = exportedAt
             self.recoveryCode = recoveryCode
+            self.mediaCarrier = mediaCarrier
+            self.mediaManifest = mediaManifest
         }
     }
 
@@ -56,8 +70,54 @@ public actor BackupService {
         case encryptionUnavailable // 请求加密/解密但密钥环未注入
     }
 
+    /// 装配点媒体枚举（local-storage-layout-council §8 切片 11）：每条 (entry, 源文件)。
+    /// 列 original_sha256 在 → 直接用（单点转换纪律：不重复哈希）；
+    /// NULL 行 → 现场哈希一次（legacy 旧库过渡；懒回填属切片 13 对账职责）。
+    /// 文件不可达 → 跳过该文档（恢复报告 missing 如实呈现，绝不伪造）。
+    private func buildMediaEntries(documents: [ExportService.DocumentExport]) throws -> [(entry: MediaManifestEntry, sourceURL: URL)] {
+        guard let mediaBase else { return [] }
+        let fm = FileManager.default
+        var result: [(entry: MediaManifestEntry, sourceURL: URL)] = []
+        for doc in documents {
+            let meta = doc.metaJson.flatMap { json -> [String: Any]? in
+                try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=无路径候选，该文档跳过（missing 报告如实呈现）
+            } ?? [:]
+            let candidates = MediaPathResolver.candidates(storedPath: meta["original_path"] as? String,
+                                                          originalSha256: doc.originalSha256)
+            var source: URL?
+            for candidate in candidates {
+                let url = candidate.hasPrefix("/") ? URL(fileURLWithPath: candidate) : mediaBase.appendingPathComponent(candidate)
+                if fm.fileExists(atPath: url.path) { source = url; break }
+            }
+            guard let source, let patientId = doc.patientId else { continue }
+            let size = ((try? fm.attributesOfItem(atPath: source.path)[.size] as? NSNumber)?.int64Value) ?? 0 // try?-ok: 属性读取失败按 0 计，不阻断备份
+            let sha: String
+            if let original = doc.originalSha256, MediaDestinationRules.isLowercaseHex64(original) {
+                sha = original
+            } else {
+                sha = CryptoKitContentHasher().sha256Hex(try Data(contentsOf: source))
+            }
+            let relative = doc.isSensitive
+                ? MediaDestinationRules.sensitiveOriginalRelativePath(memberId: patientId, sha256: sha)
+                : MediaDestinationRules.originalRelativePath(sha256: sha)
+            let entry = MediaManifestEntry(sha256: sha, size: size,
+                                           mime: doc.mimeType ?? "application/octet-stream",
+                                           relativePath: relative, isSensitive: doc.isSensitive,
+                                           memberId: doc.isSensitive ? patientId : nil, kind: .original)
+            result.append((entry, source))
+        }
+        return result
+    }
+
     public func createBackup(encrypted: Bool = false) async throws -> BackupPackage {
-        let envelope = try await exporter.exportJSON()
+        var envelope = try await exporter.exportJSON()
+        // 媒体随包（local-storage-layout-council §8 切片 11）：仅加密路径携带载具
+        // （明文模式 = 旧过渡行为，media 留 nil 不承诺字节）；entries 在装配点
+        // 单点计算（列在则直接用，NULL 行现场哈希一次——绝不把「处理后哈希」当原件身份）。
+        let mediaItems = (encrypted && mediaBase != nil && stagingRoot != nil)
+            ? try buildMediaEntries(documents: envelope.documents ?? [])
+            : []
+        envelope.media = mediaItems.isEmpty ? nil : mediaItems.map(\.entry)
         let payload = try await exporter.encode(envelope)
         let data: Data
         let digest: String
@@ -92,9 +152,29 @@ public actor BackupService {
                                               realmId: realmId,
                                               recoveryWrapped: recoveryWrapped)
             digest = BackupCrypto.sha256Hex(payload)   // 明文 payload 哈希——清单哈希语义延续（加密不改清单哈希纪律）
+            // 媒体载具：blob 先加密后入包（媒体密钥 HKDF 派生自主密钥），
+            // 清单明文哈希；暂存目录每次重建（stale staged 不残留、stage 按 sha 幂等）
+            let mediaCarrier: URL?
+            let mediaManifest: MediaManifest?
+            if !mediaItems.isEmpty, let stagingRoot {
+                try? FileManager.default.removeItem(at: stagingRoot)   // try?-ok: 首备无暂存目录，删除失败=按「重建」处理
+                let sealing = try CryptoKitMediaBlobSealing(masterKey: masterData)
+                let packager = MediaCarrierPackager(mediaBase: mediaBase!, stagingRoot: stagingRoot, sealing: sealing)
+                for item in mediaItems {
+                    _ = try await packager.stage(sourceURL: item.sourceURL, entry: item.entry)
+                }
+                let carrierURL = stagingRoot.appendingPathComponent(
+                    "vitaliber-media-\(Int(Date().timeIntervalSince1970)).vlbm")
+                mediaManifest = try await packager.commit(to: carrierURL, entries: mediaItems.map(\.entry))
+                mediaCarrier = carrierURL
+            } else {
+                mediaCarrier = nil
+                mediaManifest = nil
+            }
             return BackupPackage(fileName: "vitaliber-backup-\(Int(Date().timeIntervalSince1970)).vlbu",
                                  data: data, sha256: digest, exportedAt: envelope.exportedAt,
-                                 recoveryCode: recoveryCode)
+                                 recoveryCode: recoveryCode,
+                                 mediaCarrier: mediaCarrier, mediaManifest: mediaManifest)
         } else {
             digest = Self.sha256(payload)
             var frame = Data()

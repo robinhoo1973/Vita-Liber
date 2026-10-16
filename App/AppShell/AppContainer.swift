@@ -285,7 +285,12 @@ struct AppContainer {
         let prescriptions = PrescriptionStore(writer: store.writer)
         // 密钥环注入（tech V3.170 / design V1.7 切片 10a）：加密备份主路径——
         // 主密钥 synchronizable（跨设备可达）、子密钥 ThisDeviceOnly；恢复码 UI 见 BackupViews
-        let backup = BackupService(writer: store.writer, keyRing: KeychainDeviceKeyRing())
+        // 媒体随包（local-storage-layout-council 切片 11）：媒体根单点定义
+        // （生产 Documents/MedicalNotes、预览临时目录）；载具暂存 Caches（不进 Documents 明文）
+        let backup = BackupService(writer: store.writer, keyRing: KeychainDeviceKeyRing(),
+                                   mediaBase: mediaBaseDir ?? defaultOriginalsDir(),
+                                   stagingRoot: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+                                       .appendingPathComponent("vlbm-staging"))
         let pdfExport = PDFExportService(writer: store.writer)
         // FR16.1 V3.86：HKHealthStore 单实例共享（Apple 文档纪律：一进程一实例，
         // reader 与 sync service 同源注入）

@@ -142,11 +142,15 @@ public actor ExportService {
             /// v25（§C.10）：文档稳定类型键与标题来源；旧包 nil（App 层首启回填，不在此猜键）。
             public var docTypeKey: String?
             public var titleSource: String?
+            /// v35（local-storage-layout-council）：明文原件全文件 SHA-256——媒体载具键
+            /// 与恢复重连身份；旧包 nil（零恢复不猜）。
+            public var originalSha256: String?
             public init(id: UUID, patientId: UUID?, encounterId: UUID?, docType: String,
                         status: String, sha256: String?, mimeType: String?, isSensitive: Bool,
                         origin: String, metaJson: String?, title: String?, ocrText: String?,
                         notes: String?, grade: String, createdAt: Date, updatedAt: Date,
-                        pages: [PageExport]? = nil, docTypeKey: String? = nil, titleSource: String? = nil) {
+                        pages: [PageExport]? = nil, docTypeKey: String? = nil, titleSource: String? = nil,
+                        originalSha256: String? = nil) {
                 self.id = id; self.patientId = patientId; self.encounterId = encounterId
                 self.docType = docType; self.status = status; self.sha256 = sha256
                 self.mimeType = mimeType; self.isSensitive = isSensitive; self.origin = origin
@@ -154,6 +158,7 @@ public actor ExportService {
                 self.notes = notes; self.grade = grade; self.createdAt = createdAt
                 self.updatedAt = updatedAt; self.pages = pages
                 self.docTypeKey = docTypeKey; self.titleSource = titleSource
+                self.originalSha256 = originalSha256
             }
         }
 
@@ -642,7 +647,8 @@ public actor ExportService {
                     updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double),
                     pages: pagesByDocument[row["id"] as String],
                     docTypeKey: row["doc_type_key"] as String?,
-                    titleSource: row["title_source"] as String?)
+                    titleSource: row["title_source"] as String?,
+                    originalSha256: row["original_sha256"] as String?)
             }
             let plans = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.patient_id, p.status, p.start_date, p.end_date, p.schedule_json,

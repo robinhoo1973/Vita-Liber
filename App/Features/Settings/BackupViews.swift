@@ -44,6 +44,9 @@ final class BackupState {
 
     private(set) var phase: Phase = .idle
     private(set) var pendingDocument: BackupDocument?
+    /// 媒体载具（.vlbm）：信封导出成功后接力导出（local-storage-layout-council 切片 11）；
+    /// nil = 本库无媒体/明文模式/读取失败（信封仍有效，恢复侧按 missing 如实报告）
+    private(set) var pendingCarrierDocument: BackupDocument?
     /// 恢复码输入逃生舱的暂存（包数据 + 来源 URL，供带码重试）
     private var pendingRestoreData: Data?
     private var pendingRestoreURL: URL?
@@ -84,6 +87,15 @@ final class BackupState {
             let pkg = try await service.createBackup(encrypted: true)
             pendingDocument = BackupDocument(data: pkg.data)
             pendingPackage = pkg
+            // 媒体载具接力：读取移出主线程（数百 MB 级载具，看门狗纪律同恢复分析）
+            if let carrier = pkg.mediaCarrier {
+                let carrierData = try? await Task.detached(priority: .userInitiated) {   // try?-ok: 读取失败=载具不随包（信封仍有效，恢复报告 missing 如实呈现）
+                    try Data(contentsOf: carrier)
+                }.value
+                if let carrierData {
+                    pendingCarrierDocument = BackupDocument(data: carrierData)
+                }
+            }
             if let code = pkg.recoveryCode {
                 // 恢复码零知识：原文不入任何存储——展示即最后机会，确认后继续导出
                 phase = .recoveryCodeCreated(code)
@@ -233,6 +245,7 @@ final class BackupState {
     func clearDocument() {
         pendingDocument = nil
         pendingPackage = nil
+        pendingCarrierDocument = nil
     }
 }
 
@@ -257,6 +270,7 @@ struct BackupView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppEntitlementStore.self) private var entitlements
     @State private var showExporter = false
+    @State private var showCarrierExporter = false
     @State private var showImporter = false
     @State private var showExportConfirm = false
     @State private var recoveryCodeInput = ""
@@ -509,11 +523,24 @@ struct BackupView: View {
                     // FR13.10/F22.4：备份**实际落盘成功**才记时（审查修复：
                     // 取消导出不得留下假时间戳）
                     app.recordBackup()
+                    // 媒体载具接力导出（local-storage-layout-council 切片 11）：
+                    // 信封落盘成功后接续导出 .vlbm——取消只缺媒体不丢信封
+                    if state.pendingCarrierDocument != nil {
+                        showCarrierExporter = true
+                        return
+                    }
                 case .failure(let error):
                     // 系统 picker 失败最常见的可归因原因就是空间不足
                     Logger(subsystem: "com.vitaliber", category: "backup")
                         .error("导出落点失败: \(error)")
                 }
+                state.clearDocument()
+            }
+            .fileExporter(isPresented: $showCarrierExporter,
+                          document: state.pendingCarrierDocument,
+                          contentType: .data,
+                          defaultFilename: "vitaliber-media") { _ in
+                // 载具导出成败均收尾（信封已落盘；载具缺失由恢复报告如实呈现）
                 state.clearDocument()
             }
             .fileImporter(isPresented: $showImporter,
