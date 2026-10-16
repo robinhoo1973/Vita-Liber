@@ -59,7 +59,7 @@ public struct BackupCrypto: Sendable {
             let nonceData = block.prefix(12)
             let sealedBytes = block.dropFirst(12)
             let sealedBox = try AES.GCM.SealedBox(combined: sealedBytes)
-            guard let nonce = try? AES.GCM.Nonce(data: nonceData) else { throw CryptoError.malformed }
+            guard let nonce = try? AES.GCM.Nonce(data: nonceData) else { throw CryptoError.malformed }   // try?-ok: 帧字节攻击者可控，nonce 非法即按 malformed 拒绝
             do {
                 let plain = try AES.GCM.open(sealedBox, using: key, nonce: nonce)
                 out.append(plain)
@@ -84,7 +84,7 @@ public struct BackupCrypto: Sendable {
     }
 
     public static func unwrapKey(_ wrapped: Data, using wrappingKey: SymmetricKey) throws -> SymmetricKey {
-        guard wrapped.count > 12 + 16, let nonce = try? AES.GCM.Nonce(data: wrapped.prefix(12)) else {
+        guard wrapped.count > 12 + 16, let nonce = try? AES.GCM.Nonce(data: wrapped.prefix(12)) else {   // try?-ok: 包裹段字节攻击者可控，nonce 非法即按 malformed 拒绝
             throw CryptoError.malformed
         }
         let sealedBox = try AES.GCM.SealedBox(combined: wrapped.dropFirst(12))

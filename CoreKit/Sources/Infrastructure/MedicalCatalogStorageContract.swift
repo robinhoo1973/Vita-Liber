@@ -1,4 +1,5 @@
 #if os(iOS) || os(macOS)
+// linux-blind: GRDB 存储契约仅 Apple 平台链接（Package.swift ERR#8 纪律），Linux 编译空单元，改动须经 macOS CI 验证
 import Foundation
 import GRDB
 

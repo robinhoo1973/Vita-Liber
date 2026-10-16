@@ -492,7 +492,7 @@ struct BackupView: View {
             }
             // 导出器呈现改由阶段观察驱动：恢复码一次性展示确认后 phase 才进 exported
             // （审查修复：原实现在 prepareBackup 内联判断 exported 即弹——恢复码展示态会漏弹导出器）
-            .onChange(of: state.phase) { _, newPhase in
+            .onChangeCompat(of: state.phase) { _, newPhase in
                 if case .exported = newPhase {
                     showExporter = true
                     // 审查修复：recordBackup 移入 fileExporter 成功分支——

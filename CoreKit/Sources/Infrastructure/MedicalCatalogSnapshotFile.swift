@@ -1,5 +1,6 @@
 import Foundation
 #if os(iOS) || os(macOS)
+// linux-blind: Darwin 信号/资源 API 仅 Apple 平台，Linux 编译空单元，改动须经 macOS CI 验证
 import Darwin
 #endif
 
@@ -61,8 +62,8 @@ final class MedicalCatalogSnapshotFile: @unchecked Sendable {
     }
 
     private static func removeOrphans(in root: URL) {
-        guard let paths = try? FileManager.default.contentsOfDirectory(at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return } // try?-ok: cache cleanup must not block opening
+        guard let paths = try? FileManager.default.contentsOfDirectory(at: root,   // try?-ok: cache cleanup must not block opening
+            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else { return }
         for path in paths where path.pathExtension == "sqlite"
             && UUID(uuidString: path.deletingPathExtension().lastPathComponent) != nil {
             guard let values = try? path.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey]), // try?-ok: ignore unowned/unreadable cache entries

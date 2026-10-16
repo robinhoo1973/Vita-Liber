@@ -3,6 +3,7 @@ import Foundation
 import GRDB
 import Domain
 import Infrastructure
+import Protocols
 
 // binds: 备份批次 1 验收（discussions/2026-10-16-backup-sync-share-design.md V1.7 切片 8，macOS CI）
 // - 整包核心表往返金样（10 表）
