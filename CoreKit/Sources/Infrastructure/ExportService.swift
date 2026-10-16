@@ -407,6 +407,11 @@ public actor ExportService {
             public var encounterId: UUID?
             public var healthProblemId: UUID?
             public var groupId: UUID?
+            /// v3（备份/同步批）：created/updated 随包往返——旧实现恢复硬编码
+            /// created_at=updated_at=occurred_at，往返后时间戳漂移（审计/排序失真）。
+            /// 可选默认 nil 兼容旧包（缺键解 nil，恢复回落 occurred_at 旧行为）。
+            public var createdAt: Date? = nil
+            public var updatedAt: Date? = nil
         }
         public struct AllergyExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -426,6 +431,9 @@ public actor ExportService {
             public var medicationId: UUID?
             /// v30（全仓审查 2026-09-18 F-A4-01）：过敏原类型随包往返；旧包缺键解为 nil
             public var allergenKind: String? = nil
+            /// v3（备份/同步批）：created/updated 随包往返（同 ObservationExport 注）。
+            public var createdAt: Date? = nil
+            public var updatedAt: Date? = nil
         }
         public struct EncounterExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -516,6 +524,9 @@ public actor ExportService {
             public var confirmed: Bool?
             public var encounterId: UUID?
             public var adverseReactionId: UUID?
+            /// v3（备份/同步批）：created/updated 随包往返（恢复曾硬编码 administered_at）。
+            public var createdAt: Date? = nil
+            public var updatedAt: Date? = nil
         }
         public struct VoiceNoteExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -524,6 +535,11 @@ public actor ExportService {
             public var occurredAt: Date
             public var tags: [String]
             public var inTimeline: Bool
+            /// v3（备份/同步批）：tags 原始 JSON 原样往返（NULL 保 NULL——恢复曾硬编码
+            /// "[]" 把 NULL 变空数组）；created/updated 随包（恢复曾硬编码 occurred_at）。
+            public var tagsJSON: String? = nil
+            public var createdAt: Date? = nil
+            public var updatedAt: Date? = nil
         }
         public struct HealthProblemExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -539,17 +555,20 @@ public actor ExportService {
             public var kind: String?
             public var archived: Bool = false
             public var createdAt: Date
+            /// v3（备份/同步批）：updatedAt 随包往返（恢复曾硬编码 updated_at=created_at）。
+            public var updatedAt: Date? = nil
             public init(id: UUID, patientId: UUID?, name: String, kind: String? = nil,
-                        archived: Bool = false, createdAt: Date) {
+                        archived: Bool = false, createdAt: Date, updatedAt: Date? = nil) {
                 self.id = id
                 self.patientId = patientId
                 self.name = name
                 self.kind = kind
                 self.archived = archived
                 self.createdAt = createdAt
+                self.updatedAt = updatedAt
             }
             private enum CodingKeys: String, CodingKey {
-                case id, patientId, name, kind, archived, createdAt
+                case id, patientId, name, kind, archived, createdAt, updatedAt
             }
             public init(from decoder: Decoder) throws {
                 let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -559,6 +578,7 @@ public actor ExportService {
                 kind = try c.decodeIfPresent(String.self, forKey: .kind)
                 archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
                 createdAt = try c.decode(Date.self, forKey: .createdAt)
+                updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt)
             }
         }
         public init(schemaVersion: Int = 1, exportedAt: TimeInterval = 0,
@@ -704,8 +724,10 @@ public actor ExportService {
                 Envelope.AppointmentExport(
                     id: (try Self.requiredUUID(row["id"] as String?, column: "id")),
                     patientId: (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    hospital: (row["hospital"] as String?) ?? "",
-                    department: (row["department"] as String?) ?? "",
+                    // v3（备份/同步批）：hospital/department 原样 NULL 保 NULL（曾 ?? "" 把
+                    // NULL 变空串,往返漂移）
+                    hospital: row["hospital"] as String?,
+                    department: row["department"] as String?,
                     startsAt: Date(timeIntervalSince1970: row["starts_at"] as Double),
                     status: row["status"] as String,
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
@@ -734,7 +756,9 @@ public actor ExportService {
                     consultedDoctor: (row["consulted_doctor"] as Int? ?? 0) != 0,
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
                     healthProblemId: (row["health_problem_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)))
+                    groupId: (row["group_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             let allergies = try Row.fetchAll(db, sql: "SELECT * FROM allergy_event").map { row in
                 Envelope.AllergyExport(
@@ -750,7 +774,9 @@ public actor ExportService {
                     note: row["note"] as String?,
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
                     medicationId: (row["medication_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    allergenKind: row["allergen_kind"] as String?)
+                    allergenKind: row["allergen_kind"] as String?,
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             // v25（D1-4）：就诊全列导出（含五叙事列 + 时间戳）——手工就诊不再只剩 diagnosis_text。
             let encounters = try Row.fetchAll(db, sql: "SELECT * FROM encounter").map { row in
@@ -833,7 +859,9 @@ public actor ExportService {
                     source: row["source"] as String?,
                     confirmed: (row["confirmed"] as Int?) == 1,
                     encounterId: (row["encounter_id"] as String?).flatMap(UUID.init(uuidString:)),
-                    adverseReactionId: (row["adverse_reaction_id"] as String?).flatMap(UUID.init(uuidString:)))
+                    adverseReactionId: (row["adverse_reaction_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             let voiceNotes = try Row.fetchAll(db, sql: "SELECT * FROM voice_note").map { row in
                 let tags: [String] = (row["tags"] as String?).flatMap { json in
@@ -847,7 +875,10 @@ public actor ExportService {
                     body: row["body"] as String,
                     occurredAt: Date(timeIntervalSince1970: row["occurred_at"] as Double),
                     tags: tags,
-                    inTimeline: (row["in_timeline"] as Int?) == 1)
+                    inTimeline: (row["in_timeline"] as Int?) == 1,
+                    tagsJSON: row["tags"] as String?,
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             let healthProblems = try Row.fetchAll(db, sql: "SELECT * FROM health_problem").map { row in
                 Envelope.HealthProblemExport(
@@ -856,7 +887,8 @@ public actor ExportService {
                     name: row["name"] as String,
                     kind: row["kind"] as String?,
                     archived: (row["archived"] as Int?) == 1,
-                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
+                    updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
             let sensitiveIds = try String.fetchAll(db, sql: "SELECT id FROM document_file WHERE is_sensitive = 1")
                 .compactMap { UUID(uuidString: $0) }
@@ -2323,7 +2355,8 @@ private struct ImportSession {
                                  o.painScore, o.medsDiet, o.consultedDoctor ? 1 : 0,
                                  o.encounterId?.uuidString, o.healthProblemId?.uuidString,
                                  o.groupId?.uuidString,
-                                 o.occurredAt.timeIntervalSince1970, o.occurredAt.timeIntervalSince1970])
+                                 (o.createdAt ?? o.occurredAt).timeIntervalSince1970,
+                                 (o.updatedAt ?? o.occurredAt).timeIntervalSince1970])
         }
     }
 
@@ -2338,7 +2371,7 @@ private struct ImportSession {
                       treatment_note = ?, note = ?, encounter_id = ?, medication_id = ?
                     WHERE id = ?
                     """, arguments: [(remap(a.patientId) ?? a.patientId)?.uuidString ?? "", a.substance,
-                                     a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
+                                     a.reactionTags, a.severity, a.occurredAt.timeIntervalSince1970,
                                      (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
                                      a.note, a.encounterId?.uuidString, a.medicationId?.uuidString,
                                      a.id.uuidString])
@@ -2349,10 +2382,11 @@ private struct ImportSession {
                                           encounter_id, medication_id, allergen_kind, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [(remap(a.id) ?? a.id).uuidString, patientID(a.patientId), a.substance,
-                                 a.reactionTags ?? "[]", a.severity, a.occurredAt.timeIntervalSince1970,
+                                 a.reactionTags, a.severity, a.occurredAt.timeIntervalSince1970,
                                  (a.consultedDoctor ?? false) ? 1 : 0, a.durationMin, a.treatmentNote,
                                  a.note, a.encounterId?.uuidString, a.medicationId?.uuidString, a.allergenKind,
-                                 a.occurredAt.timeIntervalSince1970, a.occurredAt.timeIntervalSince1970])
+                                 (a.createdAt ?? a.occurredAt).timeIntervalSince1970,
+                                 (a.updatedAt ?? a.occurredAt).timeIntervalSince1970])
         }
     }
 
@@ -3030,7 +3064,8 @@ private struct ImportSession {
                                   i.provider, i.lotNumber, remap(i.encounterId)?.uuidString,
                                  i.source ?? "manual", (i.confirmed ?? false) ? 1 : 0,
                                   remap(i.adverseReactionId)?.uuidString,
-                                 i.administeredAt.timeIntervalSince1970, i.administeredAt.timeIntervalSince1970])
+                                 (i.createdAt ?? i.administeredAt).timeIntervalSince1970,
+                                 (i.updatedAt ?? i.administeredAt).timeIntervalSince1970])
         }
     }
 
@@ -3039,20 +3074,21 @@ private struct ImportSession {
     func restoreVoiceNotes() throws {
         for v in envelope.voiceNotes {
             if try adoptOrSkip(noteConflicts, v.id, adopt: {
-                let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
+                let tagsJSON = v.tagsJSON ?? (String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]")
                 try db.execute(sql: """
                     UPDATE voice_note SET patient_id = ?, body = ?, occurred_at = ?, tags = ?, in_timeline = ?
                     WHERE id = ?
                     """, arguments: [(remap(v.patientId) ?? v.patientId)?.uuidString ?? "", v.body,
                                      v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0, v.id.uuidString])
             }) { continue }
-            let tagsJSON = String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]"
+            let tagsJSON = v.tagsJSON ?? (String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]")
             try db.execute(sql: """
                 INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [(remap(v.id) ?? v.id).uuidString, patientID(v.patientId), v.body,
                                  v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0,
-                                 v.occurredAt.timeIntervalSince1970, v.occurredAt.timeIntervalSince1970])
+                                 (v.createdAt ?? v.occurredAt).timeIntervalSince1970,
+                                 (v.updatedAt ?? v.occurredAt).timeIntervalSince1970])
         }
     }
 
@@ -3088,7 +3124,8 @@ private struct ImportSession {
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
                                   h.kind, h.archived ? 1 : 0,
-                                  h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
+                                  h.createdAt.timeIntervalSince1970,
+                                  (h.updatedAt ?? h.createdAt).timeIntervalSince1970])
         }
     }
 
