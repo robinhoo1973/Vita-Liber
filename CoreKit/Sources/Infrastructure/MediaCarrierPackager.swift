@@ -97,7 +97,13 @@ public actor MediaCarrierPackager: MediaPackaging {
         }
         let manifestData: Data
         do {
-            manifestData = try archive.extract(manifestZipEntry)
+            // ZIPFoundation 0.9.x 无单参 Data 版 extract（extract(_:) 实为 extract(_:to:) 返回 CRC32——
+            // macOS CI 编译实证）；经暂存文件落地再读
+            let tempURL = stagingRoot.appendingPathComponent("manifest-\(UUID().uuidString).json")
+            try fileManager.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
+            _ = try archive.extract(manifestZipEntry, to: tempURL)
+            manifestData = try Data(contentsOf: tempURL)
+            try? fileManager.removeItem(at: tempURL)   // try?-ok: 暂存清理失败由系统回收
         } catch {
             throw MediaPackagingError.carrierCorrupt
         }
@@ -121,7 +127,10 @@ public actor MediaCarrierPackager: MediaPackaging {
                 continue
             }
             do {
-                let sealed = try archive.extract(blobEntry)
+                let tempURL = stagingRoot.appendingPathComponent("blob-\(UUID().uuidString).bin")
+                _ = try archive.extract(blobEntry, to: tempURL)
+                let sealed = try Data(contentsOf: tempURL)
+                try? fileManager.removeItem(at: tempURL)   // try?-ok: 暂存清理失败由系统回收
                 let plain = try sealing.open(sealed)
                 guard hasher.sha256Hex(plain) == entry.sha256 else {
                     report.missing.append(entry.sha256)
