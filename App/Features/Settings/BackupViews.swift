@@ -70,7 +70,9 @@ final class BackupState {
     func prepareBackup() async {
         phase = .working
         do {
-            let pkg = try await service.createBackup()
+            // 全落点默认加密（tech V3.170 分落点口径的收敛实现）：iCloud 落点强制加密，
+            // 本地落点同包加密——加密只增安全不减能力，旧明文包恢复侧照读（verifiedEnvelope 自动分流）
+            let pkg = try await service.createBackup(encrypted: true)
             pendingDocument = BackupDocument(data: pkg.data)
             phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
         } catch {

@@ -283,7 +283,9 @@ struct AppContainer {
         let memberDeletion = MemberDeletionService(writer: store.writer, scheduler: scheduler)
         let documents = DocumentStore(writer: store.writer)
         let prescriptions = PrescriptionStore(writer: store.writer)
-        let backup = BackupService(writer: store.writer)
+        // 密钥环注入（tech V3.170 / design V1.7 切片 10a）：加密备份主路径——
+        // 主密钥 synchronizable（跨设备可达）、子密钥 ThisDeviceOnly；恢复码 UI 见 BackupViews
+        let backup = BackupService(writer: store.writer, keyRing: KeychainDeviceKeyRing())
         let pdfExport = PDFExportService(writer: store.writer)
         // FR16.1 V3.86：HKHealthStore 单实例共享（Apple 文档纪律：一进程一实例，
         // reader 与 sync service 同源注入）
