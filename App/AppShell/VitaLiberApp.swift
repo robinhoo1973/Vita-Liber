@@ -202,9 +202,14 @@ struct VitaLiberApp: App {
         // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
         // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
         _backupState = State(initialValue: BackupState(service: container.backup))
+        // 局部快照（DI 纪律，L1 #38916265298 实证）：捕获列表在闭包创建时求值，
+        // [appState] 直捕属性 = 隐式捕获 self——此时 self.syncState（正被初始化的
+        // 存储属性）尚未就绪 → 「variable 'self.syncState' used before being
+        // initialized」。AppState 是引用类型，快照仍读实时 owner（语义不变）。
+        let appStateSnapshot = appState
         _syncState = State(initialValue: SyncState(service: container.sync,
                                                    settings: appSettings,
-                                                   realmProvider: { [appState] in appState.owner?.id },
+                                                   realmProvider: { [appStateSnapshot] in appStateSnapshot.owner?.id },
                                                    entitlementProvider: { [entitlements] in
                                                        // 评审修复（单点口径）：经 AppEntitlementStore
                                                        // 唯一判定读点——不再逐点展开 owned.contains(.proBase)
