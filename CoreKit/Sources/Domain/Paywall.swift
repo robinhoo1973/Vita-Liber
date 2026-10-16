@@ -18,6 +18,10 @@ public enum PaywallTrigger: String, Sendable, Equatable, Codable {
     case memberQuotaReached      // 第 5 个成员
     case proOutputFirstTap       // Pro 产出包首次点击
     case aiQuotaExhausted        // 高级 AI 额度用尽
+    // V1.12 业主改判（2026-10-16）：备份/同步/分享订阅化——三处价值触发点
+    case backupFirstTap          // iCloud 备份创建/恢复首次点击
+    case syncFirstToggle         // iCloud 设备同步开关首次开启
+    case shareFirstTap           // 分享包生成首次点击
 }
 
 /// 免费红线能力清单（comercial §2.1：收费=产品缺陷）
@@ -95,6 +99,9 @@ public struct EntitlementState: Sendable, Equatable, Codable {
     public var aiMonthlyUsed: Int
     public var memberCount: Int
     public var cloudBackupUsedGB: Double
+    /// V1.12 业主改判（2026-10-16）：备份/同步/分享随 Pro 订阅（comercial V1.12）；
+    /// 订阅过期/取消 → false（同步停止写入、已落信封保留——FR14.1「关授权不毁数据」同语义）。
+    public var hasBackupSyncShare: Bool { ownedProducts.contains(.proBase) }
     public init(ownedProducts: Set<ProductID> = [], aiMonthlyUsed: Int = 0,
                 memberCount: Int = 1, cloudBackupUsedGB: Double = 0) {
         self.ownedProducts = ownedProducts

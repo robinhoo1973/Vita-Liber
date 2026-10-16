@@ -68,6 +68,13 @@ public actor EntitlementStore {
         try await storefront.restore()
     }
 
+    /// 备份/同步/分享门槛判定（comercial V1.12 / tech V3.170 订阅门槛）：
+    /// 调用点 = BackupService.createBackup/restore、同步开关开启、SharePackageBuilder.build 入口；
+    /// 豁免 = 导出（FR13.2/13.3）、BR-012 SOS/急救卡、FR13.10 备份提醒（未订阅落点=订阅卡+导出替代路径）。
+    public func hasBackupSyncShare() async throws -> Bool {
+        (try await storefront.currentEntitlements()).contains(.proBase)
+    }
+
     public func recordAIUse() async throws {
         try await writer.write { db in
             let month = Self.monthKey()
