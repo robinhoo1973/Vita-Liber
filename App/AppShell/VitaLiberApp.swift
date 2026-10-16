@@ -100,6 +100,7 @@ struct VitaLiberApp: App {
             gateUnlocker: gateUnlocker,
             audit: container.audit,
             memberDeletion: container.memberDeletion,
+            mediaReconciler: container.mediaReconciler,
             codeIndex: container.codeIndex,
             lexiconSource: container.codeIndex))
         // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）；

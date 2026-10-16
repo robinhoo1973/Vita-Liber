@@ -186,6 +186,10 @@ struct DataLifecycleView: View {
                             // 可据，此前敏感原图与模糊副本永久滞留沙盒
                             //（function-spec §6 删除矩阵：清空全部 → 本地文件 删）。
                             await observationState.wipeMediaFiles()
+                            // 文档原件域（local-storage-layout-council 切片 13）：
+                            // originals/ + sensitive/ 全删——此前清空全部不清 F5 原件（R3 实锤），
+                            // 「删除即真删」承诺对文档原件不成立；文件先删、行后删（宁孤儿勿悬空）
+                            await app.wipeAllMediaFiles()
                             try await app.persistorReset()
                             // 审查修复（内存投影失效）：全量失效让各页（首页/
                             // 提醒/观察/文档…）重载——此前各仓内存投影仍渲染

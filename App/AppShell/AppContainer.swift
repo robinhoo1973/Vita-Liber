@@ -77,6 +77,8 @@ struct AppContainer {
     let prescriptions: PrescriptionStore
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
     let backup: BackupService
+    /// 媒体生命周期对账（local-storage-layout-council 切片 13）：孤儿 GC / 懒回填 / 清空 / 成员删除
+    let mediaReconciler: MediaReconciler
     /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
     let medicalCatalog: MedicalCatalogReadAccess?
     /// 药品目录更新器；Release 元数据/identity 由上层发布配置提供。
@@ -122,8 +124,18 @@ struct AppContainer {
     static func databaseWasLost(databasePath: String, originalsDir: URL,
                                 fileManager: FileManager = .default) -> Bool {
         guard !fileManager.fileExists(atPath: databasePath) else { return false }
-        let contents = (try? fileManager.contentsOfDirectory(atPath: originalsDir.path)) ?? []   // try?-ok: 目录不可读=无原件证据，按「未丢失」处理，绝不阻断正常启动
-        return !contents.filter { !$0.hasPrefix(".") }.isEmpty
+        // 双布局判据（local-storage-layout-council 切片 13）：证据 = originals/ 或 sensitive/
+        // **子目录内**存在非隐藏条目（新布局 CAS/敏感文件或旧布局 {patientId}/ 文件都算）；
+        // 空目录不是证据（根目录常驻创建不表示曾写过数据——「误重建库」防线只认文件事实）。
+        for sub in ["originals", "sensitive"] {
+            let dir = originalsDir.appendingPathComponent(sub)
+            let entries = (try? fileManager.contentsOfDirectory(atPath: dir.path)) ?? []   // try?-ok: 目录不可读=无该域证据，继续查其他域
+            if !entries.filter({ !$0.hasPrefix(".") }).isEmpty { return true }
+        }
+        // 根级其他条目（legacy 直挂形态）：同样只认文件事实
+        let root = ((try? fileManager.contentsOfDirectory(atPath: originalsDir.path)) ?? [])   // try?-ok: 目录不可读=按「未丢失」处理，绝不阻断正常启动
+            .filter { !$0.hasPrefix(".") && !["originals", "sensitive"].contains($0) }
+        return !root.isEmpty
     }
 
     @MainActor
@@ -291,6 +303,8 @@ struct AppContainer {
                                    mediaBase: mediaBaseDir ?? defaultOriginalsDir(),
                                    stagingRoot: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
                                        .appendingPathComponent("vlbm-staging"))
+        let mediaReconciler = MediaReconciler(mediaBase: mediaBaseDir ?? defaultOriginalsDir(),
+                                              writer: store.writer)
         let pdfExport = PDFExportService(writer: store.writer)
         // FR16.1 V3.86：HKHealthStore 单实例共享（Apple 文档纪律：一进程一实例，
         // reader 与 sync service 同源注入）
@@ -361,6 +375,7 @@ struct AppContainer {
                             documents: documents,
                              prescriptions: prescriptions,
                              backup: backup,
+                             mediaReconciler: mediaReconciler,
                              medicalCatalog: medicalCatalog,
                              medicalCatalogUpdater: medicalCatalogUpdater,
                              medicalCatalogChecker: medicalCatalogChecker,

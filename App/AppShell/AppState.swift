@@ -44,6 +44,8 @@ final class AppState {
     private let persistor: any PatientPersisting
     /// FR3.4/FR3.5 成员删除与重新归属（影响清单 + 单事务；可选注入，测试可空）
     private let memberDeletion: MemberDeletionService?
+    /// 媒体生命周期对账（local-storage-layout-council 切片 13；nil = 预览/测试未注入，零行为）
+    private let mediaReconciler: MediaReconciler?
     private let defaults: UserDefaults
     private let launchArgs: [String]
     private let logger = Logger(subsystem: "com.vitaliber", category: "appstate")
@@ -86,6 +88,7 @@ final class AppState {
          gateUnlocker: (any GateUnlocking)? = nil,
          audit: AuditLogWriter? = nil,
          memberDeletion: MemberDeletionService? = nil,
+         mediaReconciler: MediaReconciler? = nil,
          codeIndex: (any CodeIndex & UnitIndex)? = nil,
          lexiconSource: (any LexiconSource)? = nil,
          defaults: UserDefaults = .standard,
@@ -105,6 +108,7 @@ final class AppState {
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
         self.audit = audit
         self.memberDeletion = memberDeletion
+        self.mediaReconciler = mediaReconciler
         self.codeIndex = codeIndex
         self.lexiconSource = lexiconSource
         // 评审修正：删除此处的 AVSpeechAdapter()/VisionImageRecognizer() 二次赋值——
@@ -409,6 +413,19 @@ final class AppState {
 
     /// FR3.4 删除成员：影响清单先行 + 姓名二次确认（UI）→ 单事务执行。
     /// 资料不删（软删成员行），计划/预约按选择「删除」或「停用归档」。
+    /// 媒体生命周期启动链（local-storage-layout-council 切片 13）：
+    /// 懒回填先行（补引用集）→ 孤儿对账（600s 宽限 + keep-on-doubt，宁留勿删 BR-002）。
+    func reconcileMedia() async {
+        try? await mediaReconciler?.backfillOriginalSHA()   // try?-ok: 回填失败下次启动重试（幂等），不阻断启动
+        try? await mediaReconciler?.reconcile()             // try?-ok: 对账失败=宁留勿删（保守向），不阻断启动
+    }
+
+    /// 清空全部的文件面（FR14.3 删除即真删）：originals/ 与 sensitive/ 两根全删——
+    /// 与 persistorReset（行删除）配合使用，文件先删、行后删（宁孤儿勿悬空）。
+    func wipeAllMediaFiles() async {
+        await mediaReconciler?.wipeAllMedia()
+    }
+
     func deleteMember(patientId: UUID, choice: MemberDeletionService.DeleteChoice) async -> Bool {
         guard let memberDeletion else { return false }
         do {
@@ -430,6 +447,10 @@ final class AppState {
                     logger.error("删除审计写入失败（不影响删除结果）: \(error)")
                 }
             }
+            // 媒体生命周期（local-storage-layout-council 切片 13）：该成员敏感目录整删
+            // （敏感字节不可共享，删除即不可恢复 BR-007）；非敏感 CAS 共享字节不动，
+            // 由对账成员判定回收
+            await mediaReconciler?.wipeMember(patientId)
             if currentPatientId == patientId {
                 // 审查修正（BR-001）：owner 缺失时此前回落 `patientId` = 刚软删的
                 // 成员——锚点指向已删除行，后续全部 BR-001 投影对幽灵成员过滤、
