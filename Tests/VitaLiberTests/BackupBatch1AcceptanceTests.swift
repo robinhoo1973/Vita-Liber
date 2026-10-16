@@ -151,7 +151,10 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         let (source, _, _, _) = try await makeSeededStore()
         let envelope = try await ExportService(writer: source.writer).exportJSON()
         let payload = try await ExportService(writer: source.writer).encode(envelope)
-        let outer = BackupService.BackupEnvelope(formatVersion: 1,
+        // 遗留 JSON 信封以测试局部同构 Codable 构造：生产类型 BackupService.BackupEnvelope
+        // 为 internal,包产品不可 @testable 导入——线格式（键名/类型）一致即可驱动
+        // restore 的 v0 兼容路径,不触碰生产 API 面
+        let outer = LegacyEnvelopeFixture(formatVersion: 1,
                                    sha256: CryptoKitContentHasher().sha256Hex(payload),
                                    exportedAt: envelope.exportedAt,
                                    payload: payload)
@@ -163,6 +166,15 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         let profiles = try await rows(destination, "patient_profile")
         XCTAssertEqual(profiles.count, 1)
     }
+}
+
+/// 遗留 JSON 备份信封同构夹具（BackupService.BackupEnvelope 线格式副本,见
+/// test_legacyJSONEnvelopeRestores 注）。
+private struct LegacyEnvelopeFixture: Codable {
+    var formatVersion: Int
+    var sha256: String
+    var exportedAt: TimeInterval
+    var payload: Data
 }
 
 /// 测试用内存密钥环（DeviceKeyRing 端口实现；主密钥按 realm 隔离，子密钥固定注入）
