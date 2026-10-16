@@ -143,10 +143,15 @@ class SchemaIntegrityTests(unittest.TestCase):
             # runner（GRDBStore.migrateIncremental）在事务外关闭外键、表重建步单事务执行
             legacy.execute("PRAGMA foreign_keys = OFF")
             legacy.executescript("BEGIN;" + migration + "PRAGMA user_version = 25; COMMIT;")
+            # 尾链补齐（v35 document-original-sha256 等 v26+ 列演进）：比较表已被后续
+            # 迁移追加列——只回放 v25 则老库恒缺新列、与全新基线不同构（CI #38890483375 实证）。
+            # apply_pending 镜像 GRDBStore.migrateIncremental 全链；代码步 sql="" 无 DDL 不改列集。
+            legacy.isolation_level = None   # apply_pending 自管 BEGIN/COMMIT（python 隐式事务会撞「transaction within transaction」）
+            self.apply_pending(legacy, after=25)
             legacy.execute("PRAGMA foreign_keys = ON")
             for table in self.TABLES_V25:
                 self.assertEqual(self.columns(legacy, table), self.columns(fresh, table), f"{table}: 老库逐步升级 ≠ 全新库基线")
-            self.assertEqual(legacy.execute("PRAGMA user_version").fetchone()[0], 25)
+            self.assertEqual(legacy.execute("PRAGMA user_version").fetchone()[0], self.latest_version())
             self.assertEqual(list(legacy.execute("PRAGMA foreign_key_check")), [])
             self.assertEqual(legacy.execute("SELECT card_id,row_id,card_kind,entity_table,entity_id,encounter_id FROM ocr_card_commit").fetchall(),
                              [("c", "r", "prescription", "prescription", "rx", None)], "搬运无损且 entity_table = card_kind")
