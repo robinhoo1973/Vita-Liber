@@ -95,7 +95,7 @@ struct VitaLiberApp: App {
         let gateUnlocker: (any GateUnlocking)? = nil
         let transcriptionStub: (any TranscriptionEngine)? = nil
         #endif
-        _appState = State(initialValue: AppState(
+        let appState = AppState(
             persistor: container.persistor,
             transcription: transcriptionStub,
             gateUnlocker: gateUnlocker,
@@ -103,7 +103,8 @@ struct VitaLiberApp: App {
             memberDeletion: container.memberDeletion,
             mediaReconciler: container.mediaReconciler,
             codeIndex: container.codeIndex,
-            lexiconSource: container.codeIndex))
+            lexiconSource: container.codeIndex)
+        _appState = State(initialValue: appState)
         // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）；
         // ReminderStore 亦依赖（FR13.10 间隔可配置），故先于其构造
         let appSettings = AppSettingsStore(store: container.settings)
@@ -202,14 +203,13 @@ struct VitaLiberApp: App {
         // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
         // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
         _backupState = State(initialValue: BackupState(service: container.backup))
-        // 局部快照（DI 纪律，L1 #38916265298 实证）：捕获列表在闭包创建时求值，
-        // [appState] 直捕属性 = 隐式捕获 self——此时 self.syncState（正被初始化的
-        // 存储属性）尚未就绪 → 「variable 'self.syncState' used before being
-        // initialized」。AppState 是引用类型，快照仍读实时 owner（语义不变）。
-        let appStateSnapshot = appState
+        // DI 纪律（L1 34192387824 / 38916265298 双证）：init 内触 State 包装值
+        // 即触 self——全部存储属性就绪前禁止（编译器指名未就绪属性）。appState
+        // 已按本文件「局部常量中转」纪律在装配点本地化，此处捕获列表 [appState]
+        // 捕的是局部引用（AppState 为引用类型，读实时 owner，语义不变）。
         _syncState = State(initialValue: SyncState(service: container.sync,
                                                    settings: appSettings,
-                                                   realmProvider: { [appStateSnapshot] in appStateSnapshot.owner?.id },
+                                                   realmProvider: { [appState] in appState.owner?.id },
                                                    entitlementProvider: { [entitlements] in
                                                        // 评审修复（单点口径）：经 AppEntitlementStore
                                                        // 唯一判定读点——不再逐点展开 owned.contains(.proBase)
