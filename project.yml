@@ -110,7 +110,10 @@ targets:
     # "protocol witness table for Swift.Int : GRDB.StatementColumnConvertible ...
     # symbol(s) not found for architecture arm64"（ERR#31）。
     # swift-perception 直连：HomeProfileProgressTests 用 withPerceptionTracking。
-    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: swift-perception, product: Perception }, { package: xctest-dynamic-overlay, product: IssueReporting }]
+    # ZIPFoundation 直连：BackupMediaExportAcceptanceTests 直检 .vlbm 载具 zip 条目
+    # （Archive/Entry/extract）——仅靠 CoreKit 传递链接 ld 报 undefined symbols
+    # （CI #38955990931,ERR#31 同族）。
+    dependencies: [{ target: VitaLiber }, { package: CoreKit }, { package: GRDB.swift, product: GRDB }, { package: ZIPFoundation, product: ZIPFoundation }, { package: swift-perception, product: Perception }, { package: xctest-dynamic-overlay, product: IssueReporting }]
   VitaLiberUITests:
     type: bundle.ui-testing
     platform: iOS
