@@ -34,13 +34,25 @@ public struct ICloudDocumentSyncChannel: SyncChannel, Sendable {
             return []   // 目录不存在 = 无同步历史（首启）
         }
         for name in names {
-            guard let identity = SyncFileNaming.decode(name) else { continue }   // 杂散文件不入合并
-            let url = dir.appendingPathComponent(name)
-            // .icloud 占位 → 显式落地；离线未落地（抛错）→ 跳过该候选，绝不读半文件
+            // 未落地占位文件 = ".{真实名}.icloud"（评审修复）：原实现在还原名前解码——
+            // 占位名带前后缀恒解码失败被静默丢弃，远端信封永远拉不进来（fetch 恒空）。
+            let isPlaceholder = name.hasPrefix(".") && name.hasSuffix(".icloud")
+            let logicalName = isPlaceholder
+                ? String(name.dropFirst().dropLast(".icloud".count)) : name
+            guard let identity = SyncFileNaming.decode(logicalName) else { continue }   // 杂散文件不入合并
+            let url = dir.appendingPathComponent(logicalName)
             do {
-                if fileManager.isUbiquitousItem(at: url) {
-                    try FileManager.default.startDownloadingUbiquitousItem(at: url)
+                // 下载态判定（评审修复）：isUbiquitousItem 对容器内**一切**条目恒 true
+                //（含已完整落地）——原实现把所有候选都当「未落地」跳过，fetch 恒空。
+                // 未落地以 downloadingStatus == .notDownloaded 为准；已落地直接读取。
+                if isPlaceholder {
+                    try fileManager.startDownloadingUbiquitousItem(at: url)
                     continue   // 下载异步——本轮跳过，下次 fetch 再取（保守：宁可本轮少一版，不赌半读）
+                }
+                if let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                    .ubiquitousItemDownloadingStatus, status == .notDownloaded {
+                    try fileManager.startDownloadingUbiquitousItem(at: url)
+                    continue
                 }
                 let data = try Data(contentsOf: url)
                 candidates.append(SyncEnvelopeCandidate(realmId: identity.realmId,

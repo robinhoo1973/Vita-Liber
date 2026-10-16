@@ -2,6 +2,7 @@
 // linux-blind: （平台守卫：CryptoKit 仅 Apple 平台链接（ERR#8 纪律），Linux 编译空单元，改动须经 macOS CI 验证）
 import Foundation
 import CryptoKit
+import Domain
 
 /// 备份信封 v2 加密段（discussions/2026-10-16-backup-sync-share-design.md §8.5）：
 /// payload 分块 AES-256-GCM（AEAD：机密 + 完整 + 防篡改；单算法单版本，禁降级）。
@@ -57,11 +58,16 @@ public struct BackupCrypto: Sendable {
             guard data.count - cursor >= Int(len), len > 12 + 16 else { throw CryptoError.malformed }
             let block = data[cursor..<cursor + Int(len)]
             let nonceData = block.prefix(12)
-            let sealedBytes = block.dropFirst(12)
-            let sealedBox = try AES.GCM.SealedBox(combined: sealedBytes)
+            // 评审修复（编译错误 + 语义错双修）：块布局 = nonce(12) + ciphertext + tag(16)。
+            // 原实现 dropFirst(12) 后交给 SealedBox(combined:)——该初始化器期望 nonce 打头，
+            // 误把密文前 12B 当 nonce；且 AES.GCM.open(_:using:nonce:) 重载不存在
+            // （Apple 平台编译失败）。按显式 (nonce, ciphertext, tag) 三段构造。
             guard let nonce = try? AES.GCM.Nonce(data: nonceData) else { throw CryptoError.malformed }   // try?-ok: 帧字节攻击者可控，nonce 非法即按 malformed 拒绝
             do {
-                let plain = try AES.GCM.open(sealedBox, using: key, nonce: nonce)
+                let sealedBox = try AES.GCM.SealedBox(nonce: nonce,
+                                                      ciphertext: block.dropFirst(12).dropLast(16),
+                                                      tag: block.suffix(16))
+                let plain = try AES.GCM.open(sealedBox, using: key)
                 out.append(plain)
             } catch {
                 throw CryptoError.tamperOrKeyMismatch
@@ -87,9 +93,13 @@ public struct BackupCrypto: Sendable {
         guard wrapped.count > 12 + 16, let nonce = try? AES.GCM.Nonce(data: wrapped.prefix(12)) else {   // try?-ok: 包裹段字节攻击者可控，nonce 非法即按 malformed 拒绝
             throw CryptoError.malformed
         }
-        let sealedBox = try AES.GCM.SealedBox(combined: wrapped.dropFirst(12))
         do {
-            let keyData = try AES.GCM.open(sealedBox, using: wrappingKey, nonce: nonce)
+            // 同 open(块) 修复：包裹布局为 nonce(12) + ciphertext + tag(16)——显式三段构造，
+            // combined 期望 nonce 打头（dropFirst(12) 后的字节交给 combined 会误析 nonce）。
+            let sealedBox = try AES.GCM.SealedBox(nonce: nonce,
+                                                  ciphertext: wrapped.dropFirst(12).dropLast(16),
+                                                  tag: wrapped.suffix(16))
+            let keyData = try AES.GCM.open(sealedBox, using: wrappingKey)
             return SymmetricKey(data: keyData)
         } catch {
             throw CryptoError.tamperOrKeyMismatch
@@ -138,9 +148,23 @@ public struct BackupCrypto: Sendable {
         public var masterKey: Data
     }
 
-    public static func openFrame(_ data: Data, unwrapWith wrappingKey: SymmetricKey) throws -> OpenedFrame {
+    /// v2 帧头解析产物（不含明文；openFrame/openWithRecoveryCode/peekRealmId 共用）。
+    struct V2Frame {
+        var realmId: UUID
+        var keyRef: UUID
+        var wrappedKey: Data
+        var recoveryWrapped: Data?
+        var aadHash: String
+        var ciphertext: Data
+    }
+
+    /// v2 帧结构解析（评审修复：openFrame/openWithRecoveryCode 曾各自内联一份近同解析——
+    /// 提取单点，结构违规一律 malformed）。ciphertextLen 以 UInt64 显式钳位到 Int——
+    /// 原实现裸 `Int(loadUnaligned(UInt64))`（EnvelopeFrame.parseBinary 有同款守卫，
+    /// 此处曾缺）：畸形帧高位非零时 Int(_:) 陷阱（不可恢复崩溃，而非拒绝导入）。
+    static func parseV2Frame(_ data: Data) throws -> V2Frame {
         let magicLen = EnvelopeFrame.binaryMagic.count
-        guard data.count > magicLen + 1, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
+        guard data.count >= magicLen + 2, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
             throw CryptoError.malformed
         }
         let algEnd = magicLen + 2
@@ -148,8 +172,6 @@ public struct BackupCrypto: Sendable {
         let keyRefEnd = realmEnd + 16
         let lenEnd = keyRefEnd + 2
         guard data.count > lenEnd else { throw CryptoError.malformed }
-        let realmBytes = data[algEnd..<realmEnd]
-        let keyRefBytes = data[realmEnd..<keyRefEnd]
         let wrappedLen = Int(data[keyRefEnd..<lenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
         let wrappedEnd = lenEnd + wrappedLen
         let recLenEnd = wrappedEnd + 2
@@ -159,76 +181,70 @@ public struct BackupCrypto: Sendable {
         let aadEnd = recEnd + 64
         let ctLenEnd = aadEnd + 8
         guard data.count > ctLenEnd else { throw CryptoError.malformed }
-        let wrappedKey = data[lenEnd..<wrappedEnd]
-        let recoveryWrapped: Data? = recLen > 0 ? Data(data[recLenEnd..<recEnd]) : nil
-        let aadHash = String(data: data[recEnd..<aadEnd], encoding: .ascii) ?? ""
-        let ciphertextLen = Int(data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
-        guard ciphertextLen <= data.count - ctLenEnd, data.count - ctLenEnd == ciphertextLen else {
+        let rawCiphertextLen = data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian
+        guard rawCiphertextLen <= UInt64(Int.max), rawCiphertextLen == UInt64(data.count - ctLenEnd) else {
             throw CryptoError.malformed
         }
-        let ciphertext = data[ctLenEnd...]
-        let master = try unwrapKey(Data(wrappedKey), using: wrappingKey)
-        let payload = try open(Data(ciphertext), key: master)
-        guard sha256Hex(payload) == aadHash else { throw CryptoError.tamperOrKeyMismatch }
-        return OpenedFrame(payload: payload,
-                           realmId: UUID(uuid: realmBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
-                           keyRef: UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
-                           aadHash: aadHash, recoveryWrapped: recoveryWrapped,
+        return V2Frame(
+            realmId: UUID(uuid: data[algEnd..<realmEnd].withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
+            keyRef: UUID(uuid: data[realmEnd..<keyRefEnd].withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
+            wrappedKey: Data(data[lenEnd..<wrappedEnd]),
+            recoveryWrapped: recLen > 0 ? Data(data[recLenEnd..<recEnd]) : nil,
+            aadHash: String(data: data[recEnd..<aadEnd], encoding: .ascii) ?? "",
+            ciphertext: Data(data[ctLenEnd...]))
+    }
+
+    public static func openFrame(_ data: Data, unwrapWith wrappingKey: SymmetricKey) throws -> OpenedFrame {
+        let frame = try parseV2Frame(data)
+        let master = try unwrapKey(frame.wrappedKey, using: wrappingKey)
+        return try openFrame(frame, master: master)
+    }
+
+    /// 主密钥直供解封（跨设备主路径，design §5.2：主密钥为可同步钥匙串项——
+    /// 设备子密钥不可达但同域主密钥可取回时，直接解帧，无需恢复码）。
+    public static func openFrame(_ data: Data, masterKey: SymmetricKey) throws -> OpenedFrame {
+        try openFrame(try parseV2Frame(data), master: masterKey)
+    }
+
+    /// 帧头轻读：只取 realmId（零解密）——调用方据此选择「可同步主密钥」重试路径。
+    /// 结构不符返回 nil（探测失败=走既有回退链，不抛错）。
+    public static func peekRealmId(_ data: Data) -> UUID? {
+        (try? parseV2Frame(data))?.realmId   // try?-ok: 探测语义——解析失败=nil，调用方回退恢复码链
+    }
+
+    /// 已解析帧 + 主密钥 → 打开（openFrame 两条公开入口的单点实现）
+    static func openFrame(_ frame: V2Frame, master: SymmetricKey) throws -> OpenedFrame {
+        let payload = try open(frame.ciphertext, key: master)
+        guard sha256Hex(payload) == frame.aadHash else { throw CryptoError.tamperOrKeyMismatch }
+        return OpenedFrame(payload: payload, realmId: frame.realmId, keyRef: frame.keyRef,
+                           aadHash: frame.aadHash, recoveryWrapped: frame.recoveryWrapped,
                            masterKey: master.withUnsafeBytes { Data($0) })
     }
 
     /// 恢复码 → KEK（HKDF-SHA256；salt = realmId 字节，域隔离——同一恢复码不跨同步域通用）。
     /// 恢复码不落任何存储（零知识）：包裹段 + 恢复码现场派生才可得主密钥。
+    /// 评审修复：派生前归一化输入（大小写/分隔符）——签发链路同一函数派生（generate 产物
+    /// 归一化=恒等），手抄路径的大小写/空格不再静默产出不同 KEK（码正确却报码错）。
     public static func recoveryKEK(code: String, realmId: UUID) -> SymmetricKey {
         var salt = Data()
         withUnsafeBytes(of: realmId.uuid) { salt.append(contentsOf: $0) }
         let info = Data("vitaliber-recovery-v1".utf8)
-        return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(code.utf8)),
+        return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(RecoveryCode.normalize(code).utf8)),
                                       salt: salt, info: info, outputByteCount: 32)
     }
 
     /// 恢复码解封主密钥（设备子密钥不可达的逃生舱路径；码错 → tamperOrKeyMismatch）。
     public static func openWithRecoveryCode(_ data: Data, code: String) throws -> OpenedFrame {
-        // 先解析帧拿 realmId 与恢复包裹段（本步无需任何密钥）
-        let magicLen = EnvelopeFrame.binaryMagic.count
-        guard data.count > magicLen + 1, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
-            throw CryptoError.malformed
-        }
-        let algEnd = magicLen + 2
-        let realmEnd = algEnd + 16
-        let keyRefEnd = realmEnd + 16
-        let lenEnd = keyRefEnd + 2
-        guard data.count > lenEnd else { throw CryptoError.malformed }
-        let realmBytes = data[algEnd..<realmEnd]
-        let keyRefBytes = data[realmEnd..<keyRefEnd]
-        let wrappedLen = Int(data[keyRefEnd..<lenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
-        let wrappedEnd = lenEnd + wrappedLen
-        let recLenEnd = wrappedEnd + 2
-        guard data.count > recLenEnd else { throw CryptoError.malformed }
-        let recLen = Int(data[wrappedEnd..<recLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
-        guard recLen > 0, data.count > recLenEnd + recLen else { throw CryptoError.malformed }
-        let recEnd = recLenEnd + recLen
-        let aadEnd = recEnd + 64
-        let ctLenEnd = aadEnd + 8
-        guard data.count > ctLenEnd else { throw CryptoError.malformed }
-        let realmId = UUID(uuid: realmBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) })
-        let keyRef = UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) })
-        let aadHash = String(data: data[recEnd..<aadEnd], encoding: .ascii) ?? ""
-        let ciphertextLen = Int(data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
-        guard ciphertextLen <= data.count - ctLenEnd, data.count - ctLenEnd == ciphertextLen else {
-            throw CryptoError.malformed
-        }
-        let kek = recoveryKEK(code: code, realmId: realmId)
-        let master = try unwrapKey(Data(data[recLenEnd..<recEnd]), using: kek)
-        let payload = try open(Data(data[ctLenEnd...]), key: master)
-        guard sha256Hex(payload) == aadHash else { throw CryptoError.tamperOrKeyMismatch }
-        return OpenedFrame(payload: payload, realmId: realmId, keyRef: keyRef,
-                           aadHash: aadHash, recoveryWrapped: Data(data[recLenEnd..<recEnd]),
-                           masterKey: master.withUnsafeBytes { Data($0) })
+        let frame = try parseV2Frame(data)
+        guard let recoveryWrapped = frame.recoveryWrapped else { throw CryptoError.malformed }
+        let kek = recoveryKEK(code: code, realmId: frame.realmId)
+        let master = try unwrapKey(recoveryWrapped, using: kek)
+        return try openFrame(frame, master: master)
     }
 
     static func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        // 收敛到 ContentHashing 单实现（与 BackupService.sha256 同款纪律：全仓哈希不再各自内联）
+        CryptoKitContentHasher().sha256Hex(data)
     }
 }
 #endif

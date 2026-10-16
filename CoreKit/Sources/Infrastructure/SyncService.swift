@@ -21,10 +21,16 @@ public actor SyncService {
 
     /// 推送本机快照：seq 由调用方维护（每次 push +1，同设备单调）；
     /// 同设备多版本保留最近 3 份再回收由 App 层调度（保守回收，绝不删最新）。
-    public func push(realmId: UUID, deviceId: UUID, seq: UInt64) async throws {
+    /// 返回 BackupPackage（评审修复）：首次 push 若触发主密钥注册，recoveryCode 必须
+    /// 一次性展示——原实现 void 丢弃，恢复码「展示即最后机会」从未面世（零知识链断头）。
+    /// 同步通道只承载信封字节——includeMedia=false（原实现每轮 push 全量读+加密媒体载具，
+    /// 随后 package 只取 data、载具即弃：每轮 O(媒体总量) 纯浪费）。
+    @discardableResult
+    public func push(realmId: UUID, deviceId: UUID, seq: UInt64) async throws -> BackupService.BackupPackage {
         let identity = SyncFileNaming.Identity(realmId: realmId, deviceId: deviceId, seq: seq)
-        let package = try await backup.createBackup(encrypted: true, syncIdentity: identity)
+        let package = try await backup.createBackup(encrypted: true, syncIdentity: identity, includeMedia: false)
         try await channel.commit(package.data, identity: identity)
+        return package
     }
 
     /// 拉取并预选：返回本同步域内待合并候选（同 deviceId 已取 max seq；

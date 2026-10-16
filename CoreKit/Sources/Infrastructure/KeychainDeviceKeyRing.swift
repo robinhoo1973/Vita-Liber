@@ -7,7 +7,9 @@ import Protocols
 
 /// Keychain 设备密钥环实现（discussions/2026-10-16-backup-sync-share-design.md §5.2）：
 /// 主密钥 kSecAttrSynchronizable=true（跨设备主路径；E2EE 可信设备圈——Apple 平台安全指南口径）、
-/// 子密钥 ThisDeviceOnly（默认不同步）；服务名单一常量、账号含 realmId（多同步域隔离）。
+/// 子密钥 ThisDeviceOnly（默认不同步）、恢复码包裹段 synchronizable（信封自足语义：
+/// 任一设备封装的帧都须带可恢复段，否则跨设备帧恢复码失效——评审修复见 storeRecoveryWrapped）；
+/// 服务名单一常量、账号含 realmId（多同步域隔离）。
 public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
 
     private static let service = "com.vitaliber.backup.keys"
@@ -100,13 +102,18 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
     }
 
     public func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws {
+        // 评审修复（信封自足闭环）：此前本项 ThisDeviceOnly——同 iCloud 账户的第二台设备
+        // 主密钥经同步在位、包裹段缺失，其封装出的帧 recoveryWrapped=0 段，钥匙串重置后
+        // 用户持正确恢复码也打不开本设备产出的备份（BackupCrypto.openWithRecoveryCode
+        // 拒收无段帧）。包裹段随 iCloud Keychain 同步：包裹体非 PHI，解包须用户码原文
+        // （150bit 熵），且主密钥本身已 synchronizable——同信任边界，零边际暴露。
         let account = "recovery.\(realmId.uuidString)"
-        var query = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
+        var query = baseQuery(account, synchronizable: true, accessible: Self.masterAccessible)
         query[kSecValueData as String] = wrapped
         let addStatus = SecItemAdd(query as CFDictionary, nil)
         if addStatus == errSecDuplicateItem {
             let update: [String: Any] = [kSecValueData as String: wrapped]
-            let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible) as CFDictionary,
+            let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: true, accessible: Self.masterAccessible) as CFDictionary,
                                              update as CFDictionary)
             guard updateStatus == errSecSuccess else { throw KeyRingError.keychain(updateStatus) }
         } else if addStatus != errSecSuccess {
@@ -115,7 +122,7 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
     }
 
     public func recoveryWrapped(realmId: UUID) async throws -> Data? {
-        var query = baseQuery("recovery.\(realmId.uuidString)", synchronizable: false, accessible: Self.deviceAccessible)
+        var query = baseQuery("recovery.\(realmId.uuidString)", synchronizable: true, accessible: Self.masterAccessible)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?

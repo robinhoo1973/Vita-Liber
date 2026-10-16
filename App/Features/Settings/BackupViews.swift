@@ -48,11 +48,19 @@ final class BackupState {
     /// 媒体载具（.vlbm）：信封导出成功后接力导出（local-storage-layout-council 切片 11）；
     /// nil = 本库无媒体/明文模式/读取失败（信封仍有效，恢复侧按 missing 如实报告）
     private(set) var pendingCarrierDocument: BackupDocument?
-    /// 恢复码输入逃生舱的暂存（包数据 + 来源 URL，供带码重试）
-    private var pendingRestoreData: Data?
+    /// 恢复码输入逃生舱的暂存（来源 URL，供带码重试）
     private var pendingRestoreURL: URL?
     /// 媒体载具来源（.vlbm，与信封同次选择；nil = 无载具——恢复照常，媒体全 missing 如实报告）
     private var pendingCarrierURL: URL?
+    /// 载具 security-scope 句柄（评审修复）：fileImporter 返回的 URL 仅在 scope 存续期可读——
+    /// 此前载具只在分类循环里开关一拍，performRestore 读取时 scope 已释放（读取失败被
+    /// try? 吞成媒体全 missing——恢复「成功」但媒体静默丢失）。scope 从分析持有到恢复完成/取消。
+    private var carrierScopedURL: URL?
+    private var carrierScopeActive = false
+    /// 分析世代号（评审修复）：分析与恢复执行均在 Task 中挂起——取消/新一轮开始后旧任务
+    /// 完成时不得再写 phase（此前 cancelAnalysis 只清状态，挂起任务回来照样跳进
+    /// confirmRestore——「可取消」名存实亡；双重提交窗口同源）。
+    private var analysisGeneration = 0
     /// 冲突裁决（默认保留本机——绝不静默覆盖）
     private(set) var resolutions: [UUID: ExportService.ConflictResolution] = [:]
     /// 已校验的冲突分析（含 envelope）——裁决后恢复直接复用，不再二次哈希+解码整包
@@ -123,6 +131,7 @@ final class BackupState {
     /// 恢复码输入重试（设备子密钥不可达的逃生舱）
     func retryAnalysisWithRecoveryCode(_ code: String) async {
         guard case .recoveryCodePrompt = phase, let url = pendingRestoreURL else { return }
+        let round = beginAnalysisRound()
         phase = .analyzing
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -130,16 +139,19 @@ final class BackupState {
             let data = try await Task.detached(priority: .userInitiated) {
                 try Data(contentsOf: url)
             }.value
+            guard round == analysisGeneration else { return }   // 已取消——旧轮结果作废
             let analysis = try await service.analyzeConflicts(from: data, recoveryCode: code)
+            guard round == analysisGeneration else { return }
             pendingAnalysis = analysis
-            pendingRestoreData = nil
             pendingRestoreURL = nil
             phase = .confirmRestore(records: analysis.envelope.totalRecords,
                                     conflictCount: analysis.conflicts.count)
         } catch BackupService.BackupError.checksumMismatch {
+            guard round == analysisGeneration else { return }
             // 码错/包坏——保持输入态让用户重试或取消（零部分导入）
             phase = .recoveryCodePrompt
         } catch {
+            guard round == analysisGeneration else { return }
             logger.error("恢复码重试分析失败: \(error)")
             phase = .degraded(L10n.backupRestoreFailed)
         }
@@ -148,6 +160,10 @@ final class BackupState {
     /// 选文件后的后台分析（V1.7 恢复流程重构）：读包 + 校验 + 冲突分析，
     /// 产出真实影响清单进确认态——分析完成前用户看不到静态「覆盖」承诺
     func analyzeRestore(from url: URL, carrierURL: URL? = nil) async {
+        let round = beginAnalysisRound()
+        // 载具 security-scope 自分析起持有（评审修复）：读取窗口必须覆盖 performRestore
+        // 的 importMediaCarrier 调用；此前分类循环一拍即释，恢复侧读取静默失败。
+        beginCarrierScope(carrierURL)
         pendingCarrierURL = carrierURL
         phase = .analyzing
         // security-scoped：picker 返回的 URL 需显式取用权限，否则读取静默失败
@@ -161,27 +177,40 @@ final class BackupState {
             let data = try await Task.detached(priority: .userInitiated) {
                 try Data(contentsOf: url)
             }.value
+            guard round == analysisGeneration else { return }
             // ADR-019：先分析冲突——校验后的 envelope 随分析返回，
             // 确认/恢复路径复用（整包只哈希+解码一次）
             let analysis = try await service.analyzeConflicts(from: data)
+            guard round == analysisGeneration else { return }
             pendingAnalysis = analysis
             phase = .confirmRestore(records: analysis.envelope.totalRecords,
                                     conflictCount: analysis.conflicts.count)
         } catch BackupService.BackupError.checksumMismatch {
+            guard round == analysisGeneration else { return }
             // v2 加密包 + 设备子密钥不可达（换机/钥匙串重置）→ 恢复码逃生舱；
-            // 明文包校验失败 = 真损坏，如实报错
-            let data = try? Data(contentsOf: url)   // try?-ok: 判定失败走损坏文案不阻塞
-            if let data, EnvelopeFrame.binaryFormatVersion(data) == 2 {
+            // 明文包校验失败 = 真损坏，如实报错。
+            // 版本判定只读帧头（评审修复）：此前 try? Data(contentsOf:) 把整包
+            //（可达数百 MB）在 MainActor 上同步重读一遍——校验失败路径再冻 UI 一次。
+            let headVersion: UInt8? = {
+                guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }   // try?-ok: 头读失败=走损坏文案
+                defer { try? handle.close() }                                                // try?-ok: 关闭失败无补救面
+                guard let head = try? handle.read(upToCount: EnvelopeFrame.binaryMagic.count + 1),
+                      head.count == EnvelopeFrame.binaryMagic.count + 1,
+                      head.starts(with: EnvelopeFrame.binaryMagic) else { return nil }       // try?-ok: 读取失败=走损坏文案
+                return head[head.startIndex.advanced(by: EnvelopeFrame.binaryMagic.count)]
+            }()
+            if headVersion == 2 {
                 pendingRestoreURL = url
-                pendingRestoreData = data
                 phase = .recoveryCodePrompt
             } else {
                 phase = .degraded(L10n.backupChecksumFailed)
             }
         } catch BackupService.BackupError.unsupportedFormat {
+            guard round == analysisGeneration else { return }
             // 校验失败绝不部分导入——本机数据保持原样
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
+            guard round == analysisGeneration else { return }
             logger.error("备份分析失败: \(error)")
             // 第八轮修复同族：非校验类失败不归罪文件损坏
             phase = .degraded(L10n.backupRestoreFailed)
@@ -203,6 +232,7 @@ final class BackupState {
     /// 恢复执行 + 报告（成功/冲突裁决三分项 + 媒体三分项——V1.7 报告卡）
     private func performRestore(_ analysis: BackupService.ConflictAnalysis,
                                 resolutions: [UUID: ExportService.ConflictResolution]) async {
+        defer { endCarrierScope() }   // 载具读取窗口收尾（成功/冲突/失败全路径）
         do {
             // 媒体先行（local-storage-layout-council §8 切片 12）：文件先落（幂等可重入）→
             // DB 单事务；两路独立成败——载具缺失/密钥不可解=媒体全 missing，DB 恢复照常
@@ -233,28 +263,43 @@ final class BackupState {
     }
 
     /// 同步候选导入（批次 2 切片 D）：与文件恢复同一条管线——
-    /// 分析 → 真实影响清单 → (冲突三选一) → 恢复报告；整包只哈希+解码一次
+    /// 分析 → 真实影响清单 → (冲突三选一) → 恢复报告；整包只哈希+解码一次。
+    /// 评审修复：同步候选无载具——先清残留载具态（此前若上一轮文件恢复被放弃，
+    /// pendingCarrierURL/scope 会跨到同步恢复，载具错配）。
     func analyzeSyncCandidate(_ data: Data) async {
+        let round = beginAnalysisRound()
+        pendingCarrierURL = nil
+        endCarrierScope()
         phase = .analyzing
         do {
             let analysis = try await service.analyzeConflicts(from: data)
+            guard round == analysisGeneration else { return }
             pendingAnalysis = analysis
             phase = .confirmRestore(records: analysis.envelope.totalRecords,
                                     conflictCount: analysis.conflicts.count)
         } catch BackupService.BackupError.checksumMismatch {
+            guard round == analysisGeneration else { return }
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
+            guard round == analysisGeneration else { return }
             logger.error("同步候选分析失败: \(error)")
             phase = .degraded(L10n.backupRestoreFailed)
         }
     }
 
+    /// 多选里没有可识别信封 → 降级文案（评审修复：此前 guard 静默 return，
+    /// 用户点「恢复」后毫无反馈）
+    func reportMissingEnvelope() {
+        phase = .degraded(L10n.backupRestoreFailed)
+    }
+
     /// 分析阶段取消（只丢分析结果，本机零改动）
     func cancelAnalysis() {
+        analysisGeneration += 1   // 作废在飞分析：挂起任务完成时按世代丢弃，不再写 phase
         pendingAnalysis = nil
-        pendingRestoreData = nil
         pendingRestoreURL = nil
         pendingCarrierURL = nil
+        endCarrierScope()
         phase = .idle
     }
 
@@ -279,6 +324,30 @@ final class BackupState {
         pendingDocument = nil
         pendingPackage = nil
         pendingCarrierDocument = nil
+    }
+
+    // MARK: - 分析世代 / 载具 scope（评审修复：取消语义 + 读取窗口）
+
+    /// 开启新一轮分析（世代号自增；旧轮完成时按世代不匹配丢弃）
+    private func beginAnalysisRound() -> Int {
+        analysisGeneration += 1
+        return analysisGeneration
+    }
+
+    /// 取用媒体载具的 security-scoped 访问（读取窗口 = 分析 → 恢复完成/取消）
+    private func beginCarrierScope(_ url: URL?) {
+        endCarrierScope()
+        guard let url else { return }
+        carrierScopedURL = url
+        carrierScopeActive = url.startAccessingSecurityScopedResource()
+    }
+
+    private func endCarrierScope() {
+        if carrierScopeActive, let url = carrierScopedURL {
+            url.stopAccessingSecurityScopedResource()
+        }
+        carrierScopedURL = nil
+        carrierScopeActive = false
     }
 }
 
@@ -329,12 +398,10 @@ struct BackupView: View {
                     }
                     Button {
                         Task {
-                            // 订阅门槛（comercial V1.12）：备份本体订阅——未解锁先弹墙（24h 频控在 evaluateTrigger），
-                            // 已解锁走既有导出前身份验证；导出（FR13.2/13.3）恒免费不受此门槛
-                            guard entitlements.owned.contains(.proBase) else {
-                                _ = entitlements.evaluateTrigger(.backupFirstTap)
-                                return
-                            }
+                            // 订阅门槛（comercial V1.12）：备份本体订阅——未解锁先弹墙（24h 频控在
+                            // gateProBase→evaluateTrigger），已解锁走既有导出前身份验证；
+                            // 导出（FR13.2/13.3）恒免费不受此门槛
+                            guard entitlements.gateProBase(.backupFirstTap) else { return }
                             // FR13.4：导出前身份验证（门禁复用）——验证通过才进入隐私确认
                             guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
                             showExportConfirm = true
@@ -346,10 +413,7 @@ struct BackupView: View {
 
                     Button {
                         // 订阅门槛（comercial V1.12）：恢复同属订阅本体
-                        guard entitlements.owned.contains(.proBase) else {
-                            _ = entitlements.evaluateTrigger(.backupFirstTap)
-                            return
-                        }
+                        guard entitlements.gateProBase(.backupFirstTap) else { return }
                         showImporter = true
                     } label: {
                         Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
@@ -593,15 +657,24 @@ struct BackupView: View {
                 var carrierURL: URL?
                 for url in urls {
                     let scoped = url.startAccessingSecurityScopedResource()
-                    let head = (try? FileHandle(forReadingFrom: url).read(upToCount: 8)) ?? Data() // try?-ok: 头部读取失败=无法分类，该文件跳过
-                    if scoped { url.stopAccessingSecurityScopedResource() }
-                    if head.starts(with: Data("VLBU1".utf8)) || head.first == 0x7B {   // "{" = 遗留 JSON 信封
+                    defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                    // 评审修复：FileHandle 此前不关闭（句柄泄漏）；分类魔数复用单点常量
+                    let head: Data = {
+                        guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }   // try?-ok: 头部读取失败=无法分类，该文件跳过
+                        defer { try? handle.close() }                                                    // try?-ok: 关闭失败无补救面
+                        return (try? handle.read(upToCount: 8)) ?? Data()                                // try?-ok: 同上
+                    }()
+                    if head.starts(with: EnvelopeFrame.binaryMagic) || head.first == 0x7B {   // "{" = 遗留 JSON 信封
                         envelopeURL = url
                     } else if carrierURL == nil {
                         carrierURL = url
                     }
                 }
-                guard let envelopeURL else { return }
+                guard let envelopeURL else {
+                    // 评审修复：此前静默 return——多选里没有信封时点「恢复」毫无反馈
+                    state.reportMissingEnvelope()
+                    return
+                }
                 // FR13.5/V1.7 恢复流程：选文件 → 门禁 → 后台分析 →
                 // 真实影响清单确认 → (冲突裁决) → 恢复报告
                 Task {

@@ -7,7 +7,7 @@ import Protocols
 import Perception
 
 /// FR13.12 多设备同步状态仓（批次 2 切片 C）：
-/// 开关（订阅门槛 hasBackupSyncShare，BR-010 即时生效）→ 立即同步（手动 push）
+/// 开关（订阅门槛 gateProBase(.syncFirstToggle)，BR-010 即时生效）→ 立即同步（手动 push）
 /// → 候选计数（fetchAccepted 预选结果）。**合并本身归 ADR-019 流程**
 /// ——逐候选走既有备份恢复管线（影响清单+冲突三列），本仓不自行导入。
 @MainActor
@@ -15,9 +15,11 @@ import Perception
 final class SyncState {
     enum Phase: Equatable { case idle, pushing, refreshing }
     private(set) var phase: Phase = .idle
-    private(set) var candidateCount = 0
     private(set) var candidates: [SyncEnvelopeCandidate] = []
     private(set) var degradedMessage: String?
+    /// 首次同步 push 触发主密钥注册时的一次性恢复码（码原文零存储——展示即最后机会；
+    /// 评审修复：push 返回值此前被丢弃，恢复码从未面世，与备份链路同款展示卡片）
+    private(set) var pendingRecoveryCode: String?
 
     private let service: SyncService
     private let settings: AppSettingsStore
@@ -37,16 +39,20 @@ final class SyncState {
         return Date(timeIntervalSince1970: ts)
     }
 
-    func setEnabled(_ on: Bool) {
-        Task { await settings.set(on ? "true" : "false", for: .syncEnabled) }
+    /// 评审修复（写读竞态）：此前 fire-and-forget Task 写设置后立即返回——调用方随即
+    /// refreshCandidates，其 `guard enabled` 读到尚未落盘的旧值 false，候选区不刷新。
+    /// 改为 async：写入完成后调用方再刷新。
+    func setEnabled(_ on: Bool) async {
+        await settings.set(on ? "true" : "false", for: .syncEnabled)
         // H6 裁决（design V1.7 §10.1 C3）：关闭 = 立即停止读写 + 保留云端信封
         // （数据仍在用户的 iCloud，可经文件 App 删除——两动作均写审计的接线归 App 层）
     }
 
     private func deviceIdentity() async -> (deviceId: UUID, seq: UInt64) {
         let existing = settings.values[.syncDeviceId] ?? ""
-        let deviceId = UUID(uuidString: existing) ?? UUID()
-        if UUID(uuidString: existing) == nil {
+        let parsed = UUID(uuidString: existing)
+        let deviceId = parsed ?? UUID()
+        if parsed == nil {
             await settings.set(deviceId.uuidString, for: .syncDeviceId)
         }
         let seq = UInt64(settings.values[.syncSeq] ?? "0") ?? 0
@@ -63,9 +69,13 @@ final class SyncState {
         degradedMessage = nil
         do {
             let (deviceId, seq) = await deviceIdentity()
-            try await service.push(realmId: realmId, deviceId: deviceId, seq: seq + 1)
+            let package = try await service.push(realmId: realmId, deviceId: deviceId, seq: seq + 1)
             await settings.set("\(seq + 1)", for: .syncSeq)
             await settings.set("\(Date().timeIntervalSince1970)", for: .syncLastSyncAt)
+            if let code = package.recoveryCode {
+                // 一次性恢复码（码原文零存储）：展示即最后机会，确认后清除
+                pendingRecoveryCode = code
+            }
         } catch {
             logger.error("同步推送失败: \(error)")
             degradedMessage = L10n.syncPushFailed
@@ -73,12 +83,23 @@ final class SyncState {
         phase = .idle
     }
 
+    /// 恢复码已保存确认（展示卡片收起）
+    func confirmRecoveryCodeSaved() {
+        pendingRecoveryCode = nil
+    }
+
     func refreshCandidates() async {
         guard enabled, let realmId = realmProvider() else { return }
         phase = .refreshing
         do {
+            // 评审修复（自合并）：fetchAccepted 的「同 deviceId 取 max seq」会把本机
+            // 最近一次 push 的信封也列为候选——UI 逐候选走 ADR-019 等于把自身快照
+            // 合并进自身（数据未动时是空冲突流程；本地有未推改动时逼用户与自己的
+            // 历史三选一；误选 coexist 则全库数据以新 id 重复一份）。候选语义 =
+            // 「他人快照」，本机信封排除。
+            let (myDeviceId, _) = await deviceIdentity()
             candidates = try await service.fetchAccepted(realm: realmId)
-            candidateCount = candidates.count
+                .filter { $0.deviceId != myDeviceId }
             degradedMessage = nil
         } catch {
             logger.error("候选拉取失败: \(error)")
@@ -103,12 +124,14 @@ struct SyncSettingsView: View {
                         get: { state.enabled },
                         set: { on in
                             // 订阅门槛（comercial V1.12）：同步本体订阅——未解锁弹墙并保持关闭
-                            guard entitlements.owned.contains(.proBase) else {
-                                _ = entitlements.evaluateTrigger(.syncFirstToggle)
-                                return
+                            guard entitlements.gateProBase(.syncFirstToggle) else { return }
+                            Task {
+                                // 评审修复（写读竞态）：等设置落盘再刷新候选——此前
+                                // fire-and-forget 写 + 立即刷新，refreshCandidates 的
+                                // guard enabled 读到旧值 false，候选区静默不刷新
+                                await state.setEnabled(on)
+                                if on { await state.refreshCandidates() }
                             }
-                            state.setEnabled(on)
-                            if on { Task { await state.refreshCandidates() } }
                         }
                     ))
                     .accessibilityIdentifier("SP-sync.enable")
@@ -134,7 +157,7 @@ struct SyncSettingsView: View {
                             Text(L10n.syncLastSync(last.formatted(date: .abbreviated, time: .shortened)))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        Text(L10n.syncCandidates(state.candidateCount))
+                        Text(L10n.syncCandidates(state.candidates.count))
                             .font(.caption).foregroundStyle(.secondary)
                             .accessibilityIdentifier("SP-sync.candidates")
                         Button(L10n.syncRefreshCandidates) {
@@ -156,15 +179,28 @@ struct SyncSettingsView: View {
                             .frame(minHeight: 44)
                             .accessibilityIdentifier("SP-sync.candidate.\(index)")
                         }
-                        NavigationLink(isActive: $openMerge) {
-                            BackupView()
-                        } label: {
-                            EmptyView()
-                        }
-                        .hidden()
                     } footer: {
                         Text(L10n.syncScopeNote)
                             .font(.caption2)
+                    }
+                }
+                if let code = state.pendingRecoveryCode {
+                    // 首次同步 push 注册主密钥 → 恢复码一次性展示（与备份链路同款卡片；
+                    // 零知识：码原文零存储，展示即最后机会）
+                    Section {
+                        Label(L10n.backupRecoveryCodeTitle, systemImage: "key.fill")
+                        Text(code)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("SP-sync.recoveryCode")
+                        Text(L10n.backupRecoveryCodeBody)
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button(L10n.backupRecoveryCodeSaved) {
+                            state.confirmRecoveryCodeSaved()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("SP-sync.recoveryCode.saved")
                     }
                 }
                 if let message = state.degradedMessage {
@@ -176,6 +212,11 @@ struct SyncSettingsView: View {
             .scrollContentBackground(.hidden)
             .tintedCanvas()
             .navigationTitle(L10n.syncTitle)
+            // 候选合并入口（切片 D）：navigationDestination(isPresented:) 替代已废弃的
+            // hidden NavigationLink(isActive:)（iOS 16 弃用）——同语义，无空标签占位
+            .navigationDestination(isPresented: $openMerge) {
+                BackupView()
+            }
         }
     }
 }
