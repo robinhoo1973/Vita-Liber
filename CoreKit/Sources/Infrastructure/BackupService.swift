@@ -132,8 +132,17 @@ public actor BackupService {
         return (result, updates)
     }
 
-    public func createBackup(encrypted: Bool = false) async throws -> BackupPackage {
+    /// syncIdentity 非 nil = 同步信封（批次 2）：envelope 写 syncRealmId/deviceId/seq，
+    /// 加密 realm 锚改用显式 syncRealmId（跨设备同一同步域解封密钥一致）；
+    /// 其余管线（媒体载具/加密段/恢复码链）与普通备份完全同构，零重复实现。
+    public func createBackup(encrypted: Bool = false,
+                             syncIdentity: SyncFileNaming.Identity? = nil) async throws -> BackupPackage {
         var envelope = try await exporter.exportJSON()
+        if let syncIdentity {
+            envelope.syncRealmId = syncIdentity.realmId
+            envelope.deviceId = syncIdentity.deviceId
+            envelope.seq = syncIdentity.seq
+        }
         // 媒体随包（local-storage-layout-council §8 切片 11）：仅加密路径携带载具
         // （明文模式 = 旧过渡行为，media 留 nil 不承诺字节）；entries 在装配点
         // 单点计算（列在则直接用，NULL 行现场哈希一次——绝不把「处理后哈希」当原件身份）；
@@ -158,7 +167,9 @@ public actor BackupService {
             // iCloud 落点默认加密（tech V3.170）：主密钥经每设备子密钥包裹进帧头（信封自足）；
             // 主密钥缺失 → 生成并持久化（首启注册语义，realm 锚 = owner/本人档案 id，syncRealmId 前身）
             guard let keyRing else { throw BackupError.encryptionUnavailable }
-            let realmId = envelope.owner?.id ?? envelope.selfProfile?.id ?? UUID()
+            // 同步信封的加密 realm 锚 = 显式 syncRealmId（跨设备同域解封一致）；
+            // 普通备份锚 = owner/本人档案 id（syncRealmId 前身）
+            let realmId = envelope.syncRealmId ?? envelope.owner?.id ?? envelope.selfProfile?.id ?? UUID()
             let masterData: Data
             let recoveryCode: String?
             let recoveryWrapped: Data?
