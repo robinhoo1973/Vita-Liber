@@ -136,7 +136,7 @@ final class ContainerRecoveryTests: XCTestCase {
                 INSERT INTO document_file (id, patient_id, doc_type, status, sha256, mime_type,
                                            is_sensitive, origin, meta_json, created_at, updated_at, original_sha256)
                 VALUES (?, ?, '检验报告', 'active', 'sha:x', 'image/png', 0, 'camera', '{}', 10, 20, ?)
-                """, arguments: [UUID().uuidString, patient.uuidString, sha])
+                """, arguments: [UUID().uuidString, patient.uuidString, self.sha])
         }
         let reconciler = MediaReconciler(mediaBase: mediaBase, writer: store.writer)
         // 把参与判定的文件 mtime 拨到远古（超宽限），靠引用集分胜负；partial 保持新建（宽限内）
@@ -157,7 +157,7 @@ final class ContainerRecoveryTests: XCTestCase {
         // 无引用 → 删
         XCTAssertFalse(FileManager.default.fileExists(atPath: mediaBase.appendingPathComponent("originals/cd/\(String(repeating: "c", count: 32) + String(repeating: "d", count: 32)).bin").path))
         // 旧布局 keep
-        XCTAssertTrue(FileManager.default.contentsOfDirectory(atPath: mediaBase.appendingPathComponent("originals").path).contains { $0.count == 36 })
+        XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: mediaBase.appendingPathComponent("originals").path).contains { $0.count == 36 })
         // 宽限内 partial keep（新建文件）
         XCTAssertTrue(FileManager.default.fileExists(atPath: partialURL.path))
         XCTAssertEqual(report.deletedOriginals, 1)

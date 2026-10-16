@@ -134,12 +134,13 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         let destination = try GRDBStore.inMemory()
         let records = try await BackupService(writer: destination.writer, keyRing: ring).restore(from: package.data)
         XCTAssertGreaterThan(records, 0)
-        XCTAssertEqual(try await rows(destination, "patient_profile").count, 1)
+        let profileCount = try await rows(destination, "patient_profile").count
+        XCTAssertEqual(profileCount, 1)
 
         // 错钥 → AEAD 认证失败 → checksumMismatch，零部分导入
         let wrongRing = InMemoryKeyRing(subKey: Data(repeating: 9, count: 32))
         do {
-            _ = try await BackupService(writer: GRDBStore.inMemory(), keyRing: wrongRing).restore(from: package.data)
+            _ = try await BackupService(writer: try GRDBStore.inMemory().writer, keyRing: wrongRing).restore(from: package.data)
             XCTFail("错钥必须拒绝")
         } catch BackupService.BackupError.checksumMismatch {
             // 期望路径
@@ -150,7 +151,7 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         let (source, _, _, _) = try await makeSeededStore()
         let envelope = try await ExportService(writer: source.writer).exportJSON()
         let payload = try await ExportService(writer: source.writer).encode(envelope)
-        let outer = BackupEnvelope(formatVersion: 1,
+        let outer = BackupService.BackupEnvelope(formatVersion: 1,
                                    sha256: CryptoKitContentHasher().sha256Hex(payload),
                                    exportedAt: envelope.exportedAt,
                                    payload: payload)

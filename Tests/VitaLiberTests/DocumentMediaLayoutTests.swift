@@ -9,6 +9,7 @@ import Protocols
 
 /// 文档媒体布局（local-storage-layout-council §7.1 切片 10，macOS CI）：
 /// 内容寻址落盘 / 相对路径入 meta / original_sha256 落列 / 双形态读。
+@MainActor
 final class DocumentMediaLayoutTests: XCTestCase {
 
     private struct Fixture {
@@ -58,7 +59,8 @@ final class DocumentMediaLayoutTests: XCTestCase {
     func test_nonSensitiveOriginalLandsContentAddressed() async throws {
         let f = try await fixture()
         let draft = try await imageDraft(f, isSensitive: false)
-        XCTAssertTrue(await f.docs.commitDraft(draft))
+        let committed = await f.docs.commitDraft(draft)
+        XCTAssertTrue(committed)
         let documents = try await f.documents.list(patientId: f.patient)
         let document = try XCTUnwrap(documents.first)
         let sha = sha256Hex(image)
@@ -74,7 +76,8 @@ final class DocumentMediaLayoutTests: XCTestCase {
     func test_sensitiveOriginalLandsInMemberDir() async throws {
         let f = try await fixture()
         let draft = try await imageDraft(f, isSensitive: true)
-        XCTAssertTrue(await f.docs.commitDraft(draft))
+        let committed = await f.docs.commitDraft(draft)
+        XCTAssertTrue(committed)
         let documents = try await f.documents.list(patientId: f.patient)
         let document = try XCTUnwrap(documents.first)
         let sha = sha256Hex(image)
@@ -90,9 +93,11 @@ final class DocumentMediaLayoutTests: XCTestCase {
     func test_sameBytesTwoDocumentsShareOneFile() async throws {
         let f = try await fixture()
         let first = try await imageDraft(f, isSensitive: false)
-        XCTAssertTrue(await f.docs.commitDraft(first))
+        let committedFirst = await f.docs.commitDraft(first)
+        XCTAssertTrue(committedFirst)
         let second = try await imageDraft(f, isSensitive: false)
-        XCTAssertTrue(await f.docs.commitDraft(second))
+        let committedSecond = await f.docs.commitDraft(second)
+        XCTAssertTrue(committedSecond)
         let documents = try await f.documents.list(patientId: f.patient)
         XCTAssertEqual(documents.count, 2)
         let sha = sha256Hex(image)
@@ -108,7 +113,8 @@ final class DocumentMediaLayoutTests: XCTestCase {
     func test_mediaURLResolvesRelativePathAfterCommit() async throws {
         let f = try await fixture()
         let draft = try await imageDraft(f, isSensitive: false)
-        XCTAssertTrue(await f.docs.commitDraft(draft))
+        let committed = await f.docs.commitDraft(draft)
+        XCTAssertTrue(committed)
         let documents = try await f.documents.list(patientId: f.patient)
         let document = try XCTUnwrap(documents.first)
         let resolved = try XCTUnwrap(f.docs.mediaURL(for: document))
@@ -130,7 +136,8 @@ final class DocumentMediaLayoutTests: XCTestCase {
                                             sha256: "file:" + sha256Hex(image), mimeType: "image/png",
                                             origin: "import", isSensitive: false,
                                             metaJSON: String(decoding: meta, as: UTF8.self), title: nil)
-        let document = try XCTUnwrap(try await f.documents.fetch(id: id))
+        let fetched = try await f.documents.fetch(id: id)
+        let document = try XCTUnwrap(fetched)
         XCTAssertNil(document.originalSha256)
         let resolved = try XCTUnwrap(f.docs.mediaURL(for: document))
         XCTAssertEqual(resolved.path, legacyURL.path)   // legacy 绝对路径兜底可读
@@ -151,7 +158,8 @@ final class DocumentMediaLayoutTests: XCTestCase {
                                             origin: "import", isSensitive: false,
                                             metaJSON: String(decoding: meta, as: UTF8.self), title: nil,
                                             originalSha256: sha)
-        let document = try XCTUnwrap(try await f.documents.fetch(id: id))
+        let fetched = try await f.documents.fetch(id: id)
+        let document = try XCTUnwrap(fetched)
         let resolved = try XCTUnwrap(f.docs.mediaURL(for: document))
         XCTAssertEqual(resolved.path, casURL.path)   // sha 推导优先，悬空绝对路径不阻断
     }

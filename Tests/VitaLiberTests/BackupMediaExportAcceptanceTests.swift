@@ -36,6 +36,11 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         let store = try GRDBStore.inMemory()
         let patient = UUID()
         let owner = UUID()
+        // 闭包内属性引用纪律:shaA/shaB/bytesB 为类属性,write 逃逸闭包内需 self——
+        // 局部快照既免 self 又保持只读语义
+        let shaA = self.shaA
+        let shaB = self.shaB
+        let bytesB = self.bytesB
         try await store.writer.write { db in
             try db.execute(sql: """
                 INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
@@ -169,7 +174,10 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         // 载具 zip：manifest.json + media/{sha2}/{sha}.bin；blob 密文 ≠ 明文
         let archive = try XCTUnwrap(Archive(url: carrier, accessMode: .read))
         XCTAssertNotNil(archive[MediaCarrierPackager.manifestFileName])
-        let blob = try archive.extract(archive[MediaDestinationRules.carrierRelativePath(sha256: shaA)]!)
+        let blobURL = carrier.deletingLastPathComponent().appendingPathComponent("blob-\(UUID().uuidString).bin")
+        _ = try archive.extract(archive[MediaDestinationRules.carrierRelativePath(sha256: shaA)]!, to: blobURL)
+        let blob = try Data(contentsOf: blobURL)
+        try? FileManager.default.removeItem(at: blobURL)   // try?-ok: 暂存清理失败由系统回收
         XCTAssertNotEqual(blob, Data(bytesA))   // 载具内只存密文
     }
 
