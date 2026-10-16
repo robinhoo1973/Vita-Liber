@@ -12,10 +12,12 @@ import Protocols
 @MainActor
 final class BackupMediaExportAcceptanceTests: XCTestCase {
 
-    private let shaA = String(repeating: "a", count: 64)
-    private let shaB = String(repeating: "b", count: 64)
+    // 夹具派生纪律（CI #38895401510 同族复发）：内容寻址 sha 是内容的函数,不得
+    // 手写占位——stage 明文哈希校验会抛 shaMismatch（本轮 coexist 用例实证）。
     private let bytesA: [UInt8] = [1, 2, 3, 4]
     private let bytesB: [UInt8] = [9, 8, 7, 6]
+    private let shaA = CryptoKitContentHasher().sha256Hex(Data([1, 2, 3, 4]))
+    private let shaB = CryptoKitContentHasher().sha256Hex(Data([5, 5, 5]))
 
     /// 内存密钥环桩（DeviceKeyRing 契约：密钥材料 Data，无平台依赖）。
     private final class StubKeyRing: DeviceKeyRing, @unchecked Sendable {

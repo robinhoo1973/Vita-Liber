@@ -19,15 +19,21 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         let encounterID = UUID()
         let reminderID = UUID()
         try await store.writer.write { db in
-            // 生产不变量：本人 profile 必带 owner_local_id（ADR-015 互环三段式,
-            // 恢复侧会回填——夹具按自然形态播种,往返才可比）
+            // 生产不变量：本人 profile 必带 owner_local_id——但 owner_local_id 外键
+            // 指 local_owner 且 local_owner.self_patient_id 回指 profile,互环 FK 须
+            // 三段式（ADR-015/恢复侧同款）：profile 先落 owner_local_id=NULL →
+            // owner 落 → 回填 owner_local_id。直插带值必 FOREIGN KEY constraint
+            // failed（CI #38980917489 实证）。
             try db.execute(sql: """
-                INSERT INTO patient_profile (id, owner_local_id, display_name, relation, created_at, updated_at)
-                VALUES (?, ?, 'Owner', 'self', 10, 20)
-                """, arguments: [patient.uuidString, ownerId.uuidString])
+                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
+                VALUES (?, 'Owner', 'self', 10, 20)
+                """, arguments: [patient.uuidString])
             try db.execute(sql: """
                 INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
                 VALUES (?, 'Owner', ?, 10)
+                """, arguments: [ownerId.uuidString, patient.uuidString])
+            try db.execute(sql: """
+                UPDATE patient_profile SET owner_local_id = ? WHERE id = ?
                 """, arguments: [ownerId.uuidString, patient.uuidString])
             try db.execute(sql: """
                 INSERT INTO encounter (id, patient_id, date, kind, hospital, department, doctor, created_at, updated_at)

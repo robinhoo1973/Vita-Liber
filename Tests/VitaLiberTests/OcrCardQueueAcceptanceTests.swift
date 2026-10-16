@@ -472,7 +472,7 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
     func test_failedOriginalWriteKeepsDraftAndCreatesNoDocument() async throws {
         let f = try await fixture(pages: [lab])
         let draft = try await imageDraft(f)
-        try Data([1]).write(to: f.directory.appendingPathComponent("originals"))
+        try Data([1]).write(to: f.directory.appendingPathComponent("sensitive"))   // 敏感稿写敏感根——与 persistOriginal 路由一致
         let saved = await f.docs.commitDraft(draft)
         XCTAssertFalse(saved)
         XCTAssertEqual(f.docs.activeImport?.draft?.id, draft.id)
