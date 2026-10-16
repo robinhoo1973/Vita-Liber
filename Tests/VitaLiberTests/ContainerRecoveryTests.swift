@@ -171,7 +171,9 @@ final class ContainerRecoveryTests: XCTestCase {
         let store = try GRDBStore.inMemory()
         let reconciler = MediaReconciler(mediaBase: mediaBase, writer: store.writer)
         await reconciler.wipeMember(member)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: mediaBase.appendingPathComponent("sensitive").path))
+        // wipeMember 只整删本成员子树（sensitive/{memberId}）——sensitive 根可残留
+        // （其余成员目录仍在;wipeAllMedia 才整删两根）
+        XCTAssertFalse(FileManager.default.fileExists(atPath: mediaBase.appendingPathComponent("sensitive/\(member.uuidString)").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: mediaBase.appendingPathComponent("originals/ab/\(sha).bin").path))
         await reconciler.wipeAllMedia()
         XCTAssertFalse(FileManager.default.fileExists(atPath: mediaBase.appendingPathComponent("originals").path))

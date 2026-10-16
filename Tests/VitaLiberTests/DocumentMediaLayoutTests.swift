@@ -21,9 +21,9 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let directory: URL
     }
 
-    private func fixture() async throws -> Fixture {
+    private func fixture(directory: URL? = nil) async throws -> Fixture {
         let (database, patient) = try await GRDBStore.inMemoryWithOwner()
-        let directory = FileManager.default.temporaryDirectory
+        let directory = directory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("media-layout-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let documents = DocumentStore(writer: database.writer)
@@ -62,9 +62,10 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let committed = await f.docs.commitDraft(draft)
         XCTAssertTrue(committed)
         let documents = try await f.documents.list(patientId: f.patient)
-        let document = try XCTUnwrap(documents.first)
+        let listed = try XCTUnwrap(documents.first)
         let sha = sha256Hex(image)
-        XCTAssertEqual(document.originalSha256, sha)   // 列 = 明文原件哈希（小写 hex64 无前缀）
+        XCTAssertEqual(listed.originalSha256, sha)   // 列 = 明文原件哈希（小写 hex64 无前缀）
+        let document = try XCTUnwrap(try await f.documents.fetch(id: listed.id))   // list 投影不携带 meta_json（DocumentStore.swift:117 契约）
         let relative = "originals/\(sha.prefix(2))/\(sha).bin"
         XCTAssertTrue(document.metaJSON?.contains(relative) == true)   // meta 相对路径（无绝对路径）
         XCTAssertFalse(document.metaJSON?.contains("/originals") == true)  // 绝不含容器绝对路径
@@ -79,9 +80,10 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let committed = await f.docs.commitDraft(draft)
         XCTAssertTrue(committed)
         let documents = try await f.documents.list(patientId: f.patient)
-        let document = try XCTUnwrap(documents.first)
+        let listed = try XCTUnwrap(documents.first)
         let sha = sha256Hex(image)
-        XCTAssertEqual(document.originalSha256, sha)
+        XCTAssertEqual(listed.originalSha256, sha)
+        let document = try XCTUnwrap(try await f.documents.fetch(id: listed.id))   // 同上：meta_json 经 fetch
         let relative = "sensitive/\(f.patient.uuidString)/\(sha).bin"
         XCTAssertTrue(document.metaJSON?.contains(relative) == true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent(relative).path))

@@ -15,17 +15,20 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
     private func makeSeededStore() async throws -> (store: GRDBStore, patient: UUID, encounterID: UUID, reminderID: UUID) {
         let store = try GRDBStore.inMemory()
         let patient = UUID()
+        let ownerId = UUID()
         let encounterID = UUID()
         let reminderID = UUID()
         try await store.writer.write { db in
+            // 生产不变量：本人 profile 必带 owner_local_id（ADR-015 互环三段式,
+            // 恢复侧会回填——夹具按自然形态播种,往返才可比）
             try db.execute(sql: """
-                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
-                VALUES (?, 'Owner', 'self', 10, 20)
-                """, arguments: [patient.uuidString])
+                INSERT INTO patient_profile (id, owner_local_id, display_name, relation, created_at, updated_at)
+                VALUES (?, ?, 'Owner', 'self', 10, 20)
+                """, arguments: [patient.uuidString, ownerId.uuidString])
             try db.execute(sql: """
                 INSERT INTO local_owner (id, display_name, self_patient_id, created_at)
                 VALUES (?, 'Owner', ?, 10)
-                """, arguments: [UUID().uuidString, patient.uuidString])
+                """, arguments: [ownerId.uuidString, patient.uuidString])
             try db.execute(sql: """
                 INSERT INTO encounter (id, patient_id, date, kind, hospital, department, doctor, created_at, updated_at)
                 VALUES (?, ?, 1700006400, 'outpatient', 'Fixture Hospital', 'Cardio', 'Dr. Fixture', 10, 20)
