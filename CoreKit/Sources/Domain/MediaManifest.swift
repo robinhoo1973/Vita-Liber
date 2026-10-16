@@ -30,10 +30,17 @@ public struct MediaManifest: Sendable, Codable, Equatable {
 public struct MediaImportReport: Sendable, Equatable {
     public var imported: Int
     public var alreadyPresent: Int
-    public var missing: [String]     // 清单声称但载具缺字节的 sha256（按缺失计数，不入恢复库）
+    public var missing: [String]     // 清单声称但载具缺字节/哈希不符的 sha256（不入恢复库，绝不伪造恢复）
     public init(imported: Int = 0, alreadyPresent: Int = 0, missing: [String] = []) {
         self.imported = imported
         self.alreadyPresent = alreadyPresent
         self.missing = missing
     }
+}
+
+/// 载具错误（端口层语义，Linux 可编译）。
+public enum MediaPackagingError: Error, Sendable, Equatable {
+    case sourceMissing(String)       // 原件库无此 sha——stage 拒绝（绝不打包不存在字节）
+    case carrierCorrupt              // 载具打不开/清单解析失败/manifest 缺失
+    case entryTraversal(String)      // 条目路径非法（绝对路径/`..`）——zip-slip 防御
 }
