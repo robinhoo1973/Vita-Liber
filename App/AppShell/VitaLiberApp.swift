@@ -102,6 +102,10 @@ struct VitaLiberApp: App {
             memberDeletion: container.memberDeletion,
             codeIndex: container.codeIndex,
             lexiconSource: container.codeIndex))
+        // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）；
+        // ReminderStore 亦依赖（FR13.10 间隔可配置），故先于其构造
+        let appSettings = AppSettingsStore(store: container.settings)
+        _settingsStore = State(initialValue: appSettings)
         _reminderStore = State(initialValue: ReminderStore(
             meds: container.meds, apts: container.apts, reconciler: container.reconciler,
             // 第八轮全仓审查修复：第七轮通道门只接到 AppointmentStore 与
@@ -109,10 +113,8 @@ struct VitaLiberApp: App {
             // 改经组装根的投递门统一实例。门的作用域：dose-/slot- 的「静音
             // 仅横幅」真实生效（有应用内横幅承接）；预约/随访/临期/备份等
             // 无承接族照常系统投递（§5.58 降级链，W4 逐类别收紧）。
-            scheduler: container.reminderScheduler, composer: container.composer))
-        // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）
-        let appSettings = AppSettingsStore(store: container.settings)
-        _settingsStore = State(initialValue: appSettings)
+            scheduler: container.reminderScheduler, composer: container.composer,
+            settings: appSettings))
         _observationState = State(initialValue: ObservationStoreState(
             store: container.observations, allergyStore: container.allergies,
             mediaAssets: container.mediaAssets))

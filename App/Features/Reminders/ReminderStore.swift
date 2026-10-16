@@ -31,6 +31,9 @@ final class ReminderStore {
     private let scheduler: any ReminderScheduling
     /// FR9.15/§4.2 计划生命周期与五表原子创建（处方→计划参考模板）
     private let composer: MedicationPlanComposer
+    /// FR13.10 备份提醒间隔可配置（V4.20）：7/30/90/关——读取故障回落默认 30，
+    /// 提醒兜底绝不因设置故障消失
+    private let settings: any SettingsStoring
     private let logger = Logger(subsystem: "com.vitaliber", category: "reminders")
     /// 关怀模式震颤防抖（F18）：同一动作按钮的最近一次触发时刻；
     /// 连续重复点击在防抖窗口内只计一次（TremorGuard 是 Domain 纯函数）
@@ -56,12 +59,14 @@ final class ReminderStore {
     private var refreshInFlight = false
 
     init(meds: MedicationStore, apts: AppointmentStore, reconciler: ReminderReconciler,
-         scheduler: any ReminderScheduling, composer: MedicationPlanComposer) {
+         scheduler: any ReminderScheduling, composer: MedicationPlanComposer,
+         settings: any SettingsStoring) {
         self.meds = meds
         self.apts = apts
         self.reconciler = reconciler
         self.scheduler = scheduler
         self.composer = composer
+        self.settings = settings
     }
 
     /// 触发型刷新入口（启动/回前台/时区变化/Tab 出现）：500ms 内合并为一次，
@@ -215,8 +220,18 @@ final class ReminderStore {
     /// 距上次备份超过间隔 → 调度一次备份提醒（"backup-" 前缀，幂等；
     /// 路由 = 备份恢复页）。提醒只引导，绝不自动创建备份文件（FR13.10）。
     func scheduleBackupReminderIfNeeded(lastBackupAt: TimeInterval?, now: Date = Date()) async {
+        // FR13.10 可配置（V4.20）：0=关闭；读取/解析故障回落默认 30（提醒兜底不因设置故障消失）
+        let intervalDays: Int
+        if let raw = try? await settings.value(for: .backupReminderIntervalDays),   // try?-ok: 设置读取失败按默认值兜底
+           let parsed = Int(raw), (0...365).contains(parsed) {
+            intervalDays = parsed
+        } else {
+            intervalDays = BackupReminderRules.defaultIntervalDays
+        }
+        guard intervalDays > 0 else { return }
         guard BackupReminderRules.needsReminder(
-            lastBackupAt: lastBackupAt.map { Date(timeIntervalSince1970: $0) }, now: now) else { return }
+            lastBackupAt: lastBackupAt.map { Date(timeIntervalSince1970: $0) }, now: now,
+            intervalDays: intervalDays) else { return }
         do {
             let pending = try await scheduler.pending()
             guard pending.keys.contains("backup-reminder") == false else { return }

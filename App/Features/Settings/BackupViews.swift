@@ -215,6 +215,26 @@ struct BackupView: View {
                         .font(.caption2)
                 }
 
+                // FR13.10 定期备份提醒间隔可配置（V4.20）：7/30/90/关；
+                // 提醒只引导到备份入口，绝不自动创建备份文件
+                Section(L10n.backupReminderIntervalTitle) {
+                    Picker(L10n.backupReminderIntervalTitle, selection: Binding(
+                        get: { Int(settings.values[.backupReminderIntervalDays] ?? "") ?? BackupReminderRules.defaultIntervalDays },
+                        set: { newValue in
+                            Task { await settings.set("\(newValue)", for: .backupReminderIntervalDays) }
+                        }
+                    )) {
+                        Text(L10n.backupReminderIntervalOff).tag(0)
+                        Text(L10n.backupReminderInterval7).tag(7)
+                        Text(L10n.backupReminderInterval30).tag(30)
+                        Text(L10n.backupReminderInterval90).tag(90)
+                    }
+                    .accessibilityIdentifier("SP-24.backup.interval")
+                } footer: {
+                    Text(L10n.backupReminderIntervalNote)
+                        .font(.caption2)
+                }
+
                 switch state.phase {
                 case .conflicts(let items):
                     // ADR-019 冲突预览：逐项裁决（保留本机/采用备份/并存），

@@ -1454,6 +1454,12 @@
 
 "backup.reminder.title" = "You have a health reminder";
 "backup.reminder.body" = "Time to back up: tap to check the last backup and run one";
+"backup.reminder.interval.title" = "Backup reminder interval";
+"backup.reminder.interval.off" = "Off";
+"backup.reminder.interval.7" = "Every 7 days";
+"backup.reminder.interval.30" = "Every 30 days";
+"backup.reminder.interval.90" = "Every 90 days";
+"backup.reminder.interval.note" = "The reminder only guides you to the backup page; it never creates backup files automatically.";
 
 "auth.ocr" = "OCR & image processing";
 "auth.ai" = "AI analysis";

@@ -51,6 +51,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case remindChannelExpiry
     case remindChannelAlert
     case remindChannelBackup
+    case backupReminderIntervalDays // FR13.10 定期备份提醒间隔（天：7/30/90；0=关闭；V4.20 可配置落地）
     case inAppBannerEnabled        // 应用内横幅总开关（默认开）
     case voiceMixedInput           // FR17.15 混说开关（默认开）
     case voiceEngine               // FR17.15 V3.66 识别引擎档位（VoiceEngineChoice：auto/advanced/dictation/classic）
@@ -91,6 +92,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .remindChannelMeds, .remindChannelApts, .remindChannelExam,
              .remindChannelExpiry, .remindChannelAlert, .remindChannelBackup:
             return "local"
+        case .backupReminderIntervalDays: return "30"
         case .inAppBannerEnabled: return "true"
         case .voiceMixedInput: return "true"
         case .voiceEngine: return VoiceEngineChoice.auto.rawValue

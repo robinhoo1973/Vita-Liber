@@ -1454,6 +1454,12 @@
 
 "backup.reminder.title" = "您有一條健康提醒";
 "backup.reminder.body" = "該備份了：點擊查看上次備份時間並執行備份";
+"backup.reminder.interval.title" = "備份提醒間隔";
+"backup.reminder.interval.off" = "關閉";
+"backup.reminder.interval.7" = "每 7 天";
+"backup.reminder.interval.30" = "每 30 天";
+"backup.reminder.interval.90" = "每 90 天";
+"backup.reminder.interval.note" = "提醒只引導到備份入口,絕不自動建立備份檔案";
 
 "auth.ocr" = "OCR 與影像處理";
 "auth.ai" = "AI 分析";
