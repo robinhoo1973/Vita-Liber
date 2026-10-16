@@ -905,6 +905,13 @@ public enum SchemaMigrations {
         // 覆盖面）——表重建补 FK；实现为代码迁移（列集交集搬运 + 终态探测,
         // 见 GRDBStore.repairPatientReferences 头注）。
         Step(version: 34, name: "patient-fk-repair", sql: ""),
+        // v35（local-storage-layout-council 切片 10）：文档原件内容身份列。可空列，
+        // 历史行 NULL 由首启懒回填（DocumentMediaReconciler，切片 13）；回填前读取经
+        // MediaPathResolver 回落 meta 路径。executeIdempotent 判 ADD COLUMN。
+        Step(version: 35, name: "document-original-sha256",
+             sql: """
+             ALTER TABLE document_file ADD COLUMN original_sha256 TEXT;
+             """),
     ]
 
     /// 全新库建库后应落到的版本号

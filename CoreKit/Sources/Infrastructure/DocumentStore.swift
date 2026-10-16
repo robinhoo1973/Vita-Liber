@@ -65,6 +65,10 @@ public actor DocumentStore {
         /// 投影元数据（标题/确认计数/修订历史/原件路径等 JSON 侧载，V3.41）。
         public var metaJSON: String?
         public var createdAt: Date
+        /// v35（local-storage-layout-council）：明文原件全文件 SHA-256（小写 hex64 无前缀）——
+        /// 跨设备内容身份。旧行 NULL 直至首启懒回填（DocumentMediaReconciler），
+        /// 读取经 MediaPathResolver 回落 meta 路径。
+        public var originalSha256: String?
         /// v27（FR5.5 / 子项目 J）：文档类型稳定键 `DocumentTypeKey.rawValue`（`document_file.doc_type_key`）；
         /// 旧行在首启回填（`DocumentTypeKeyBackfill`）补齐前为 nil，`docType` 标签列仍是过渡显示列。
         public var docTypeKey: String?
@@ -75,11 +79,13 @@ public actor DocumentStore {
         public init(id: UUID, patientId: UUID, encounterId: UUID?, docType: String,
                     sha256: String?, mimeType: String?, origin: String, status: String,
                     isSensitive: Bool, title: String?, grade: String = "C",
-                    metaJSON: String? = nil, createdAt: Date, docTypeKey: String? = nil) {
+                    metaJSON: String? = nil, createdAt: Date, docTypeKey: String? = nil,
+                    originalSha256: String? = nil) {
             self.id = id; self.patientId = patientId; self.encounterId = encounterId
             self.docType = docType; self.sha256 = sha256; self.mimeType = mimeType
             self.origin = origin; self.status = status; self.isSensitive = isSensitive
             self.title = title; self.grade = grade; self.metaJSON = metaJSON; self.createdAt = createdAt
+            self.originalSha256 = originalSha256
             self.docTypeKey = docTypeKey
         }
     }
@@ -209,7 +215,8 @@ public actor DocumentStore {
                       ocrText: String? = nil, grade: String = "C",
                       pages: [Page] = [],
                       cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],
-                      now: Date = Date(), docTypeKey: String? = nil) async throws -> UUID {
+                      now: Date = Date(), docTypeKey: String? = nil,
+                      originalSha256: String? = nil) async throws -> UUID {
         let id = UUID()
         try Self.validateDocTypeKey(docTypeKey)
         try await writer.write { db in
@@ -219,13 +226,13 @@ public actor DocumentStore {
             try db.execute(sql: """
                 INSERT INTO document_file
                   (id, patient_id, doc_type, sha256, mime_type, origin, status,
-                   is_sensitive, meta_json, title, ocr_text, grade, created_at, updated_at, doc_type_key)
-                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)
+                   is_sensitive, meta_json, title, ocr_text, grade, created_at, updated_at, doc_type_key, original_sha256)
+                VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString, docType, sha256,
                                  mimeType, origin, isSensitive ? 1 : 0,
                                  metaJSON, title, ocrText, grade,
                                  now.timeIntervalSince1970,
-                                 now.timeIntervalSince1970, docTypeKey])
+                                 now.timeIntervalSince1970, docTypeKey, originalSha256])
             // 页文本同事务落库（FR6.1 页语义）：单图 = 第 0 页；PDF 每页一行
             for page in pages {
                 try db.execute(sql: """
@@ -292,7 +299,7 @@ public actor DocumentStore {
     public func updateReview(id: UUID, patientId: UUID, docType: String, isSensitive: Bool,
                              metaJSON: String?, ocrText: String?, grade: String, pages: [Page],
                              cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],
-                             docTypeKey: String? = nil) async throws {
+                             docTypeKey: String? = nil, originalSha256: String? = nil) async throws {
         try Self.validateDocTypeKey(docTypeKey)
         try await writer.write { db in
             guard !docType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -346,10 +353,12 @@ public actor DocumentStore {
             // v27：键列只在调用方给出时改写（COALESCE 让 nil 保持原键，旧调用形态零影响）
             try db.execute(sql: """
                 UPDATE document_file SET doc_type = ?, is_sensitive = ?, meta_json = ?, ocr_text = ?, grade = ?, updated_at = ?,
-                    doc_type_key = COALESCE(?, doc_type_key)
+                    doc_type_key = COALESCE(?, doc_type_key),
+                    original_sha256 = COALESCE(?, original_sha256)
                 WHERE id = ? AND patient_id = ?
                 """, arguments: [docType, isSensitive ? 1 : 0, storedMeta, ocrText, grade,
-                                 Date().timeIntervalSince1970, docTypeKey, id.uuidString, patientId.uuidString])
+                                 Date().timeIntervalSince1970, docTypeKey, originalSha256,
+                                 id.uuidString, patientId.uuidString])
             if previousPages != orderedPages {
                 if receiptCount == 0 {
                     // Existing page identities survive; omitted/changed historical pages are not silently erased.
@@ -478,7 +487,8 @@ public actor DocumentStore {
             grade: (row["grade"] as String?) ?? "C",
             metaJSON: row["meta_json"] as String?,
             createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
-            docTypeKey: row["doc_type_key"] as String?)
+            docTypeKey: row["doc_type_key"] as String?,
+            originalSha256: row["original_sha256"] as String?)
     }
 }
 #endif

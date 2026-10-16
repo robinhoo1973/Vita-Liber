@@ -190,12 +190,14 @@ struct DocumentSourcePageView: View {
                 sensitive = draft.isSensitive; mimeType = draft.mimeType
                 pageCount = max(1, draft.pages.count)
             case .document(let id, let patient):
-                guard let doc = await docs.fetch(id: id), doc.patientId == patient,
-                      let json = doc.metaJSON,
-                      let meta = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-                      let path = meta["original_path"] as? String else { throw DocumentSourceRenderer.Failure.unreadable }
+                guard let doc = await docs.fetch(id: id), doc.patientId == patient else {
+                    throw DocumentSourceRenderer.Failure.unreadable
+                }
+                // 双形态读（local-storage-layout-council §7.1）：经 DocumentsState 唯一解析入口
+                // （相对路径 → sha 推导 → legacy 绝对路径），不在此视图内拼路径。
+                guard let resolved = docs.mediaURL(for: doc) else { throw DocumentSourceRenderer.Failure.unreadable }
                 guard !Task.isCancelled else { return }
-                sensitive = doc.isSensitive; originalPath = path; mimeType = doc.mimeType ?? "image/jpeg"
+                sensitive = doc.isSensitive; originalPath = resolved.path; mimeType = doc.mimeType ?? "image/jpeg"
                 loadedDocument = doc
             }
             loading = false

@@ -448,14 +448,47 @@ final class DocumentsState {
         } catch { lastImportError = L10n.docImportFailed }
     }
 
-    private func persistOriginal(patientId: UUID, data: Data, ext: String) throws -> String {
+    /// 媒体读取唯一入口（local-storage-layout-council §7.1 双形态读）：
+    /// 候选序 = 相对路径（新写）→ original_sha256 推导 CAS → legacy 绝对路径。
+    func mediaURL(for document: DocumentRow, processed: Bool = false) -> URL? {
+        let meta = document.metaJSON.flatMap { json -> [String: Any]? in
+            try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=按「无元数据」处理，候选集为空→返回 nil（原件缺失态），不阻断读取
+        } ?? [:]
+        let key = processed ? "processed_path" : "original_path"
+        for candidate in MediaPathResolver.candidates(storedPath: meta[key] as? String,
+                                                      originalSha256: processed ? nil : document.originalSha256) {
+            let url = candidate.hasPrefix("/") ? URL(fileURLWithPath: candidate) : originalsDir.appendingPathComponent(candidate)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
+    }
+
+    /// mediaURL(for:) 的数据面包装（读原件/加工件字节；processed 无 sha 推导候选）。
+    private func mediaData(storedPath: String?, originalSha256: String?) -> Data? {
+        for candidate in MediaPathResolver.candidates(storedPath: storedPath, originalSha256: originalSha256) {
+            let url = candidate.hasPrefix("/") ? URL(fileURLWithPath: candidate) : originalsDir.appendingPathComponent(candidate)
+            if let data = try? Data(contentsOf: url) { return data } // try?-ok: 单候选不可读=跳过试下一候选（legacy 绝对路径常悬空），全部失败→原件缺失态
+        }
+        return nil
+    }
+
+    /// 原件/派生件落盘（local-storage-layout-council §7.1）：内容寻址，路径可由
+    /// (sha, 敏感级, memberId) 唯一重算——非敏感 originals/{sha2}/{sha}.bin，
+    /// 敏感 sensitive/{memberId}/{sha}.bin（+ .completeFileProtection）。
+    /// 目标已存在 → 零重写（CAS 幂等，BR-002）；返回相对媒体根的路径与明文原件哈希。
+    private func persistOriginal(patientId: UUID, data: Data, isSensitive: Bool) throws -> (path: String, sha256: String) {
         guard !data.isEmpty else { throw ImportError.unreadableMedia }
-        let directory = originalsDir.appendingPathComponent("originals", isDirectory: true)
-            .appendingPathComponent(patientId.uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("\(UUID().uuidString).\(ext)")
-        try data.write(to: url, options: .atomic)
-        return url.path
+        let sha = Self.hash(data)
+        let relative = isSensitive
+            ? MediaDestinationRules.sensitiveOriginalRelativePath(memberId: patientId, sha256: sha)
+            : MediaDestinationRules.originalRelativePath(sha256: sha)
+        let url = originalsDir.appendingPathComponent(relative)
+        guard !FileManager.default.fileExists(atPath: url.path) else { return (relative, sha) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var options: Data.WritingOptions = [.atomic]
+        if isSensitive { options.insert(.completeFileProtection) }
+        try data.write(to: url, options: options)
+        return (relative, sha)
     }
 
     func prepareImageDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
@@ -700,10 +733,10 @@ final class DocumentsState {
         defer { session.isSaving = false }
         do {
             if session.source == nil {
-                let meta = try persistMediaPaths(draft, session: session)
+                let media = try persistMediaPaths(draft, session: session)
                 let review = try await cardsForCommit(draft)
                 session.preparedCards = review.queue
-                let payload = try encodeCommitPayload(draft, meta: meta, cards: review.all)
+                let payload = try encodeCommitPayload(draft, meta: media.meta, cards: review.all)
                 // v27：稳定键随标签同事务落 doc_type_key（新行不进首启回填清单；复核改类型时键随标签走，不漂移）
                 let persistedKey = Self.persistedDocTypeKey(label: draft.docType, classifierKey: draft.documentTypeKey).rawValue
                 let documentID: UUID
@@ -711,14 +744,15 @@ final class DocumentsState {
                     try await store.updateReview(id: existing, patientId: draft.patientId, docType: draft.docType,
                         isSensitive: draft.isSensitive, metaJSON: payload.metaJSON, ocrText: payload.ocrText,
                         grade: draft.allReviewed ? "C" : "D", pages: payload.pages, cards: review.all, reviewedFields: payload.reviewedFields,
-                        docTypeKey: persistedKey)
+                        docTypeKey: persistedKey, originalSha256: media.originalSha256)
                     documentID = existing
                 } else {
                     documentID = try await store.save(patientId: draft.patientId, docType: draft.docType,
                         sha256: draft.sha256, mimeType: draft.mimeType, origin: draft.origin,
                         isSensitive: draft.isSensitive, metaJSON: payload.metaJSON, title: draft.title,
                         ocrText: payload.ocrText, grade: draft.allReviewed ? "C" : "D", pages: payload.pages,
-                        cards: review.all, reviewedFields: payload.reviewedFields, docTypeKey: persistedKey)
+                        cards: review.all, reviewedFields: payload.reviewedFields, docTypeKey: persistedKey,
+                        originalSha256: media.originalSha256)
                 }
                 session.source = ImportSource(documentId: documentID, patientId: draft.patientId, pages: draft.pages)
             }
@@ -752,22 +786,29 @@ final class DocumentsState {
     }
 
     /// 原件/加工件路径持久化（跨重试保留成功写入的媒体路径——落库失败不丢文件）；
+    /// 路径值为**相对媒体根**的路径（local-storage-layout-council：绝对路径是换机失效根源）；
     /// 元数据随写入同步回写 session.draft.retainedMeta（commitDraft 的内联段搬移，语义不变）。
-    private func persistMediaPaths(_ draft: ImportDraft, session: ImportSession) throws -> [String: Any] {
+    /// 返回 (meta, 明文原件哈希) ——original_sha256 随 document_file 行同事务落列。
+    private func persistMediaPaths(_ draft: ImportDraft, session: ImportSession) throws -> (meta: [String: Any], originalSha256: String) {
         var meta = draft.retainedMeta
+        var originalSha = meta["original_sha256"] as? String
         if meta["original_path"] == nil {
-            let ext = draft.mimeType == "application/pdf" ? "pdf"
-                : ["doc", "docx"].contains(draft.mimeType) ? draft.mimeType : ImageInputRules.fileExtension(for: draft.mimeType)
-            meta["original_path"] = try persistOriginal(patientId: draft.patientId, data: draft.originalData, ext: ext)
+            let written = try persistOriginal(patientId: draft.patientId, data: draft.originalData,
+                                              isSensitive: draft.isSensitive)
+            meta["original_path"] = written.path
+            meta["original_sha256"] = written.sha256
+            originalSha = written.sha256
             session.draft?.retainedMeta = meta
         }
         if meta["processed_path"] == nil {
             meta["processed_path"] = draft.originalData == draft.processedData ? meta["original_path"]
-                : try persistOriginal(patientId: draft.patientId, data: draft.processedData, ext: "jpg")
+                : try persistOriginal(patientId: draft.patientId, data: draft.processedData,
+                                      isSensitive: draft.isSensitive).path
         }
         // Retain successful media writes across retries, including a later DB failure.
         session.draft?.retainedMeta = meta
-        return meta
+        guard let originalSha else { throw ImportError.unreadableMedia }
+        return (meta, originalSha)
     }
 
     /// 落库载荷编码：复核快照 / OCR 全文 / 页状态 / 已确认字段投影（BR-003：只收已确认字段）。
@@ -856,12 +897,17 @@ final class DocumentsState {
         defer { session.isPreparing = false }
         do {
             guard let document = try await store.fetch(id: id), document.patientId == patientId,
-                  ["active", "favorite"].contains(document.status), let json = document.metaJSON,
-                  let meta = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
-                  let original = meta["original_path"] as? String else { throw ImportError.unreadableMedia }
-            let originalData = try Data(contentsOf: URL(fileURLWithPath: original))
-            let processed = meta["processed_path"] as? String ?? original
-            let processedData = try Data(contentsOf: URL(fileURLWithPath: processed))
+                  ["active", "favorite"].contains(document.status) else { throw ImportError.unreadableMedia }
+            let meta = document.metaJSON.flatMap { json -> [String: Any]? in
+                try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=按「无元数据」处理，媒体候选为空→unreadableMedia（失败态不崩溃）
+            } ?? [:]
+            // 双形态读（local-storage-layout-council）：相对路径（新写）→ sha 推导 → legacy 绝对路径
+            guard let originalData = mediaData(storedPath: meta["original_path"] as? String,
+                                               originalSha256: document.originalSha256) else {
+                throw ImportError.unreadableMedia
+            }
+            let processedData = mediaData(storedPath: meta["processed_path"] as? String, originalSha256: nil)
+                ?? originalData
             let input = PendingDocument(patientId: patientId, originalData: originalData, processedData: processedData,
                 mimeType: document.mimeType ?? ImageInputRules.sniffMimeType(of: originalData), docType: document.docType,
                 title: document.title, sha256: document.sha256 ?? "sha:" + Self.hash(processedData),

@@ -400,9 +400,10 @@ struct AppContainer {
         return dir.appendingPathComponent("medical-catalog.sqlite").path
     }
 
-    /// 原件专用目录（BR-002）：`<Documents>/MedicalNotes/originals/`——
-    /// 与敏感目录 `<Documents>/MedicalNotes/sensitive/` 同根（§6 文件保护分区）。
-    /// 拍摄/导入原图只写一次、永不修改；预览/测试注入临时目录。
+    /// 媒体根（BR-002 / local-storage-layout-council §7.1）：`<Documents>/MedicalNotes`——
+    /// 非敏感原件 `originals/{sha2}/{sha}.bin`（CAS）、敏感件 `sensitive/{memberId}/…`(.complete)、
+    /// 旧布局 `originals/{patientId}/…` 只读容忍（resolver 兜底）。单点定义：
+    /// 写链/载具导入/对账/清空全部以本目录为根；预览/测试注入临时目录。
     static func defaultOriginalsDir() -> URL {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory

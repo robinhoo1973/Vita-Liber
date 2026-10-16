@@ -71,7 +71,11 @@ public enum SchemaV2 {
       -- v25（子项目 D §C.10）：稳定类型键（分类学 D3 定稿；旧行 NULL 直至 App 层回填）
       -- 与标题来源；doc_type 标签列保留为过渡显示列。表尾追加 = 迁移 ADD COLUMN 同序。
       doc_type_key TEXT,
-      title_source TEXT CHECK(title_source IN ('user','suggested','filename','none') OR title_source IS NULL));
+      title_source TEXT CHECK(title_source IN ('user','suggested','filename','none') OR title_source IS NULL),
+      -- v35（local-storage-layout-council）：明文原件全文件 SHA-256（小写 hex64 无前缀）——
+      -- 跨设备内容身份（载具键/去重/GC/换机重写/分享锚）。与 sha256（异构业务 token，
+      -- 带前缀且图像行为处理版哈希）语义分离：原列零变更，本列只承载原件字节哈希。
+      original_sha256 TEXT);
     -- 审查修复（P0）：UNIQUE → 普通索引。唯一索引与 FR5.6「重复只提示」
     -- 及 ADR-019 keep/adopt/coexist 语义直接冲突：同一文件二次入库必抛约束
     -- 错误（且跨成员全表唯一，家人扫同一份报告也炸）；去重由流程层
