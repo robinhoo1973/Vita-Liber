@@ -363,7 +363,11 @@ public actor ExportService {
         /// asset 表行（kind/relative_path/file_protection/size/width/height/parent_id）——
         /// F8 照片簿记随包（切片 14）；恢复按创建序 INSERT OR IGNORE（同 id 已在库=不动）。
         public struct AssetExport: Sendable, Codable, Equatable {
-            public var id: UUID
+            /// asset.id 是 TEXT 主键：照片行=UUID 串，blur 派生行=「{uuid}.blur」（非 UUID）。
+            /// 评审修复（切片 14 回归）：id 原为 UUID 类型，requiredUUID 对 blur 行必抛
+            /// corruptIdentity → 存过照片的库永远无法导出/同步（照片一票否决备份）。
+            /// JSON 线上形态不变（UUID 本编码为字符串），字符串保真往返。
+            public var id: String
             public var kind: String
             public var relativePath: String
             public var fileProtection: String
@@ -372,7 +376,7 @@ public actor ExportService {
             public var sizeBytes: Int
             public var parentId: UUID?
             public var createdAt: Date
-            public init(id: UUID, kind: String, relativePath: String, fileProtection: String,
+            public init(id: String, kind: String, relativePath: String, fileProtection: String,
                         width: Int?, height: Int?, sizeBytes: Int, parentId: UUID?,
                         createdAt: Date) {
                 self.id = id; self.kind = kind; self.relativePath = relativePath
@@ -862,9 +866,12 @@ public actor ExportService {
                                     timeline: timeline, plans: plans, appointments: appointments)
             envelope.documents = documents
             // F8 照片簿记随包（切片 14）：blur 行也导出（parent_id 回指，恢复按创建序保父先子后）
+            // 评审修复：asset.id 按字符串保真导出——blur 行「{uuid}.blur」非 UUID，
+            // requiredUUID 对整表必抛（照片用户备份/同步全断）。
             envelope.assets = try Row.fetchAll(db, sql: "SELECT * FROM asset ORDER BY created_at").map { row in
-                Envelope.AssetExport(
-                    id: (try Self.requiredUUID(row["id"] as String?, column: "asset.id")),
+                guard let id = row["id"] as String? else { throw ExportError.corruptIdentity(column: "asset.id") }
+                return Envelope.AssetExport(
+                    id: id,
                     kind: row["kind"] as String,
                     relativePath: row["relative_path"] as String,
                     fileProtection: row["file_protection"] as String,
@@ -1199,12 +1206,17 @@ public actor ExportService {
     /// 行随表头裁决：表头 keep 跳过其行与行回执 / adopt 整组替换 / coexist 行 id 随表头重写。
     /// ADR-019：冲突项必须有逐项裁决（keep/adopt/coexist）；未裁决的冲突
     /// 抛 .conflict（绝不静默覆盖、绝不静默丢弃）。
+    /// 返回值 = coexist 的 id 重写映射（评审修复 idx38/50/58：媒体载具先于 DB 事务导入，
+    /// 只知源成员路径；恢复侧把成员重映射后，调用方须按本映射把敏感字节重归位到目标
+    /// 成员目录，否则读路径不可达 + GC 按行成员判定整删源目录文件＝原件永久丢失）。
+    @discardableResult
     public func importJSON(_ envelope: Envelope,
-                           resolutions: [UUID: ConflictResolution] = [:]) async throws {
+                           resolutions: [UUID: ConflictResolution] = [:]) async throws -> [UUID: UUID] {
         try Self.validateOCRBackup(envelope)
-        try await writer.write { db in
+        return try await writer.write { db in
             var session = ImportSession(db: db, envelope: envelope, resolutions: resolutions)
             try session.run()
+            return session.idMap
         }
     }
 
@@ -1829,7 +1841,7 @@ private struct ImportSession {
     /// （缺裁决抛 .conflict——UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
     func detectConflicts() throws -> [String: Set<String>] {
         func conflictingIds(table: String, ids: [String], column: String = "id") throws -> Set<String> {
-            Set(try Self.chunkedIDLookup(db, table: table, ids: ids, column: column))
+            Set(try ExportService.chunkedIDLookup(db, table: table, ids: ids, column: column))   // 评审修复：ImportSession 是文件级 struct，Self≠ExportService 编译不过
         }
         let allProfileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
                              + memberProfiles.map(\.id)).map(\.uuidString)
@@ -2082,7 +2094,7 @@ private struct ImportSession {
                 INSERT OR IGNORE INTO asset
                   (id, kind, relative_path, file_protection, width, height, size_bytes, parent_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [asset.id.uuidString, asset.kind, asset.relativePath,
+                """, arguments: [asset.id, asset.kind, asset.relativePath,
                                  asset.fileProtection, asset.width, asset.height,
                                  asset.sizeBytes, asset.parentId?.uuidString,
                                  asset.createdAt.timeIntervalSince1970])

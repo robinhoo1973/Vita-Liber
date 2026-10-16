@@ -75,7 +75,7 @@ struct AppContainer {
     let documents: DocumentStore
     /// F9 拍处方 OCR 确认后落库（SP-11 处方入口，见 DocumentsState.commitDraft）
     let prescriptions: PrescriptionStore
-    /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
+    /// FR13.11 备份与恢复（SP-23）——BackupState 的服务端
     let backup: BackupService
     /// FR13.12 多设备同步（批次 2）——SyncState 的服务端（推送/预选；合并归 App 层 ADR-019 流程）
     let sync: SyncService
@@ -129,15 +129,30 @@ struct AppContainer {
         // 双布局判据（local-storage-layout-council 切片 13）：证据 = originals/ 或 sensitive/
         // **子目录内**存在非隐藏条目（新布局 CAS/敏感文件或旧布局 {patientId}/ 文件都算）；
         // 空目录不是证据（根目录常驻创建不表示曾写过数据——「误重建库」防线只认文件事实）。
-        for sub in ["originals", "sensitive"] {
-            let dir = originalsDir.appendingPathComponent(sub)
-            let entries = (try? fileManager.contentsOfDirectory(atPath: dir.path)) ?? []   // try?-ok: 目录不可读=无该域证据，继续查其他域
-            if !entries.filter({ !$0.hasPrefix(".") }).isEmpty { return true }
+        // 评审修复（ContainerRecoveryTests 空目录案）：判据是「存在非隐藏**文件**」而非
+        // 条目名——启动 mkdir 常驻创建的空壳子目录（originals/ab、sensitive/{uuid}）不是
+        // 「曾写数据」的证据；旧布局 {patientId}/ 或 CAS {sha2}/ 内有文件才算。
+        func containsVisibleFile(_ dir: URL) -> Bool {
+            let enumerator = fileManager.enumerator(at: dir,
+                                                    includingPropertiesForKeys: [.isRegularFileKey],
+                                                    options: [.skipsHiddenFiles])
+            while let item = enumerator?.nextObject() as? URL {
+                if (try? item.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true { return true }   // try?-ok: 属性读取失败=该条目不计证据
+            }
+            return false
         }
-        // 根级其他条目（legacy 直挂形态）：同样只认文件事实
+        for sub in ["originals", "sensitive"] where containsVisibleFile(originalsDir.appendingPathComponent(sub)) {
+            return true
+        }
+        // 根级其他条目（legacy 直挂形态）：同样只认文件事实（空目录不算）
         let root = ((try? fileManager.contentsOfDirectory(atPath: originalsDir.path)) ?? [])   // try?-ok: 目录不可读=按「未丢失」处理，绝不阻断正常启动
             .filter { !$0.hasPrefix(".") && !["originals", "sensitive"].contains($0) }
-        return !root.isEmpty
+        return root.contains { entry in
+            let child = originalsDir.appendingPathComponent(entry)
+            var isDir: ObjCBool = false
+            guard fileManager.fileExists(atPath: child.path, isDirectory: &isDir) else { return false }
+            return !isDir.boolValue || containsVisibleFile(child)
+        }
     }
 
     @MainActor

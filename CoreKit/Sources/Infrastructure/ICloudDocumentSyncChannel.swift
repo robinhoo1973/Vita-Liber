@@ -91,6 +91,6 @@ public struct ICloudDocumentSyncChannel: SyncChannel, Sendable {
 public enum SyncChannelError: Error, Sendable, Equatable {
     case icloudUnavailable
     case writeFailed
-    case coordinatorFailed(Int32)
+    case coordinatorFailed(Int)   // 评审修复：NSError.code 是 Int——Int32 参数编译不过（macOS 型检盲区）
 }
 #endif

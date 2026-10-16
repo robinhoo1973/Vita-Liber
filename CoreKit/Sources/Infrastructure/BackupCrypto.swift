@@ -36,7 +36,7 @@ public struct BackupCrypto: Sendable {
             let sealed = try AES.GCM.seal(chunk, using: key, nonce: nonce)
             var len = UInt32(nonce.withUnsafeBytes { $0.count } + sealed.ciphertext.count + sealed.tag.count).bigEndian
             withUnsafeBytes(of: &len) { out.append(contentsOf: $0) }
-            withUnsafeBytes(of: nonce) { out.append(contentsOf: $0) }          // 12B
+            nonce.withUnsafeBytes { out.append(contentsOf: $0) }                // 12B（评审修复：of: 写结构体内存=8B 指针非 nonce 字节——开帧必失败）
             out.append(sealed.ciphertext)
             out.append(sealed.tag)
             offset = end
@@ -83,7 +83,7 @@ public struct BackupCrypto: Sendable {
         let nonce = try AES.GCM.Nonce()
         let sealed = try AES.GCM.seal(key.withUnsafeBytes { Data($0) }, using: wrappingKey, nonce: nonce)
         var out = Data()
-        withUnsafeBytes(of: nonce) { out.append(contentsOf: $0) }
+        nonce.withUnsafeBytes { out.append(contentsOf: $0) }   // 评审修复：同 seal——必须序列化 nonce 本体 12B
         out.append(sealed.ciphertext)
         out.append(sealed.tag)
         return out

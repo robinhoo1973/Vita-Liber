@@ -26,10 +26,30 @@ public actor BackupService {
     /// 取走即清（展示即最后机会）；仅内存，不落任何存储。
     private var unseenRecoveryCode: String?
 
+    /// 已铸码但尚未确认展示的包裹段（评审修复，恢复码静默死亡窗）：此前铸码即写
+    /// 钥匙串——用户在卡片确认前进程被杀（大库首备的媒体打包为分钟级窗口，后台
+    /// jetsam 常态），下次运行 resolveMasterKey 见 master+包裹段俱在即返回 nil 码：
+    /// 码原文零存储，逃生舱此后永久恒死（换机时无码可解）。铸码只暂存内存；
+    /// 用户确认卡片（码已誊写）后经 persistPendingRecoveryWrapped 落钥。未确认
+    /// 而重启 → 钥匙串无包裹段 → 下次运行重铸新码再展示（循环直到确认，绝不静默）。
+    private var pendingRecoveryWrapped: (wrapped: Data, realmId: UUID)?
+
     /// 取走未面世的恢复码（nil = 无——正常路径码随 BackupPackage.recoveryCode 返回）
     public func takeUnseenRecoveryCode() -> String? {
         defer { unseenRecoveryCode = nil }
         return unseenRecoveryCode
+    }
+
+    /// 恢复码卡片确认（用户已誊写）→ 包裹段落钥，码进入稳定态。失败不回滚：
+    /// 下次运行重铸重展示（安全方向），绝不静默宣告已保存。
+    public func persistPendingRecoveryWrapped() async {
+        guard let pending = pendingRecoveryWrapped, let keyRing else { return }
+        do {
+            try await keyRing.storeRecoveryWrapped(pending.wrapped, realmId: pending.realmId)
+            pendingRecoveryWrapped = nil
+        } catch {
+            // 落钥失败=下次运行钥匙串仍无包裹段 → resolveMasterKey 重铸新码重展示
+        }
     }
 
     /// 主密钥解析临界段（评审修复，actor 重入）：master 读取 → 注册/补发 → 包裹段
@@ -58,14 +78,14 @@ public actor BackupService {
     }
 
     /// 一次性恢复码铸造（评审复用：补发/首注册两分支同链，消除双份实现）：
-    /// 码 → HKDF KEK → 包裹主密钥 → 包裹段持久化 → 记入未面世暂存。
-    /// 码原文不入任何存储（零知识纪律）；持久化失败按整体失败上抛，绝不返回未落段的码。
-    private func mintRecoveryCode(masterData: Data, realmId: UUID,
-                                  keyRing: any DeviceKeyRing) async throws -> (code: String, wrapped: Data) {
+    /// 码 → HKDF KEK → 包裹主密钥 → 记入未面世暂存 + 包裹段暂存（评审修复：
+    /// 不在此落钥——确认展示前进程死亡会静默吞码，见 pendingRecoveryWrapped 注）。
+    /// 码原文不入任何存储（零知识纪律）。
+    private func mintRecoveryCode(masterData: Data, realmId: UUID) async throws -> (code: String, wrapped: Data) {
         let code = RecoveryCode.generate()
         let kek = BackupCrypto.recoveryKEK(code: code, realmId: realmId)
         let wrapped = try BackupCrypto.wrapKey(SymmetricKey(data: masterData), using: kek)
-        try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
+        pendingRecoveryWrapped = (wrapped, realmId)
         unseenRecoveryCode = code
         return (code, wrapped)
     }
@@ -83,7 +103,9 @@ public actor BackupService {
             // 对新同步查询不可见。此前静默封出 recLen=0 帧：钥匙串重置后用户
             // 持任何码也无段可依（逃生舱恒 checksumMismatch）。补发：新码 →
             // KEK → 包裹段持久化 + 随帧走（旧快照的 embedded 段不受影响）。
-            let minted = try await mintRecoveryCode(masterData: existing, realmId: realmId, keyRing: keyRing)
+            // 评审修复（恢复码静默死亡窗）：钥匙串无包裹段不再只是「第二台设备/
+            // 旧版项」——上次运行铸码后确认前被杀同样落此分支，统一重铸重展示。
+            let minted = try await mintRecoveryCode(masterData: existing, realmId: realmId)
             return (existing, minted.code, minted.wrapped)
         }
         let fresh = try keyRing.generateMasterKey()
@@ -99,7 +121,7 @@ public actor BackupService {
         if let stagingRoot { try Self.purgeStagedMedia(in: stagingRoot) }
         try await keyRing.storeMasterKey(fresh, realmId: realmId)
         // 恢复码零知识链路：码 → HKDF KEK → 包裹主密钥；码原文不入任何存储
-        let minted = try await mintRecoveryCode(masterData: fresh, realmId: realmId, keyRing: keyRing)
+        let minted = try await mintRecoveryCode(masterData: fresh, realmId: realmId)
         return (fresh, minted.code, minted.wrapped)
     }
 
@@ -203,7 +225,7 @@ public actor BackupService {
             }.map { ($0.1, $0.0) },
             uniquingKeysWith: { first, _ in first })
         for asset in envelope.assets ?? [] where asset.kind == "photo" {
-            guard let memberId = memberByAsset[asset.id.uuidString] else { continue }
+            guard let memberId = memberByAsset[asset.id] else { continue }
             let stripped = asset.relativePath.hasPrefix("MedicalNotes/")
                 ? String(asset.relativePath.dropFirst("MedicalNotes/".count)) : asset.relativePath
             let source = mediaBase.appendingPathComponent(stripped)
@@ -370,12 +392,54 @@ public actor BackupService {
     @discardableResult
     public func restore(envelope: ExportService.Envelope,
                         resolutions: [UUID: ExportService.ConflictResolution] = [:]) async throws -> Int {
+        let idMap: [UUID: UUID]
         do {
-            try await exporter.importJSON(envelope, resolutions: resolutions)
+            idMap = try await exporter.importJSON(envelope, resolutions: resolutions)
         } catch ExportService.ExportError.conflict {
             throw BackupError.conflictDetected
         }
+        refileSensitiveMedia(envelope: envelope, idMap: idMap)
         return envelope.totalRecords
+    }
+
+    /// 评审修复（coexist 成员重映射族）：ADR-019 coexist 下成员行重映射新 id——文档 meta 由
+    /// 恢复侧改写为 sensitive/{targetMember}/、照片读取按行 patient_id 拼目录；但媒体载具导入
+    /// 先于 DB 事务，只知**源**成员路径，敏感字节留在 sensitive/{sourceMember}/：读路径不可达
+    /// （敏感件 resolver 禁 sha 回落），且 GC 引用集按行成员判定 → 源目录文件无引用、600s 宽限
+    /// 后整删（BR-002 原件永久丢失）。此处按 idMap 把敏感字节重归位到目标成员目录。
+    /// 失败语义：移动失败退拷贝（目标字节先落地，源副本由下轮对账按无引用清理，宁留勿删）。
+    private func refileSensitiveMedia(envelope: ExportService.Envelope, idMap: [UUID: UUID]) {
+        guard let mediaBase, !idMap.isEmpty else { return }
+        let fm = FileManager.default
+        func refile(fileName: String, source: UUID?) {
+            guard let source, let target = idMap[source], target != source else { return }
+            let sourceURL = mediaBase.appendingPathComponent("sensitive/\(source.uuidString)/\(fileName)")
+            guard fm.fileExists(atPath: sourceURL.path) else { return }
+            let targetDir = mediaBase.appendingPathComponent("sensitive/\(target.uuidString)", isDirectory: true)
+            let targetURL = targetDir.appendingPathComponent(fileName)
+            do {
+                try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+                if fm.fileExists(atPath: targetURL.path) {
+                    // 目标已在（同 sha 去重/重复恢复）= 源副本按孤儿清理
+                    try fm.removeItem(at: sourceURL)
+                } else {
+                    try fm.moveItem(at: sourceURL, to: targetURL)
+                }
+            } catch {
+                // 移动失败退拷贝：目标字节先落地（读路径恢复），源副本下轮对账清理
+                try? fm.copyItem(at: sourceURL, to: targetURL)   // try?-ok: 拷贝同样失败=本轮无补偿，文件留在源目录（对账宽限窗内可重试恢复）
+            }
+        }
+        for doc in envelope.documents ?? [] {
+            guard doc.isSensitive, let sha = doc.originalSha256,
+                  MediaDestinationRules.isLowercaseHex64(sha) else { continue }
+            refile(fileName: "\(sha).bin", source: doc.patientId)
+        }
+        for obs in envelope.observations {
+            for assetId in obs.mediaAssetIds {
+                refile(fileName: "\(assetId).jpg", source: obs.patientId)
+            }
+        }
     }
 
     /// 恢复（原始 Data 入口）：解外层（二进制 v1 / 遗留 JSON 兼容）→
@@ -430,6 +494,11 @@ public actor BackupService {
                         payload = opened.payload
                         claimedSHA = opened.aadHash
                         masterKey = opened.masterKey
+                        // 评审修复（恢复码链断点）：恢复码救回的主密钥必须落回钥匙串——
+                        // 此前仅用于本次解包，设备后续再铸新钥（同 realm 信封族分裂、
+                        // 本机再解不开自己此前的信封）。落钥失败能力不减（下次仍可输码），
+                        // 尽力而为不阻断本次恢复。
+                        try? await keyRing.storeMasterKey(opened.masterKey, realmId: opened.realmId)   // try?-ok: 落钥失败=下次仍需恢复码，本次恢复不受影响
                     } catch {
                         throw BackupError.checksumMismatch
                     }

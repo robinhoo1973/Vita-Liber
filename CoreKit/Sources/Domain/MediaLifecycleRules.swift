@@ -9,7 +9,10 @@ public enum MediaLifecycleRules {
 
     public struct FileVerdict: Sendable, Equatable {
         public var delete: Bool
-        /// 保留理由（delete=false 时非空）：keep-unknown-shape / referenced / grace / empty-refs
+        /// 保留理由（delete=false 时非空）：keep-unknown-shape / referenced / grace。
+        /// 评审修复（文档-代码漂移）：此前注释列入 empty-refs——该值在任何分支都
+        /// 永不产生，且「空引用集」语义是**删除**（成员已删/已清空，见
+        /// verdictSensitive 尾注），不是保留理由。
         public var reason: String?
         public init(delete: Bool, reason: String? = nil) {
             self.delete = delete

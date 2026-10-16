@@ -54,7 +54,11 @@ public actor SettingsStore: SettingsStoring {
             // 及 GRDBCodeIndex（code_set_bundle_version 词表锚）共享——整表
             // DELETE 把 AI 配额清零、词表版本锚抹掉（「恢复默认设置」越界
             // 破坏非设置状态）。恢复默认只删除设置键域。
-            let keys = AppSettingKey.allCases.map(\.rawValue)
+            // 评审修复（同步身份非偏好）：sync* 四键是同步设备身份/序号**状态**不是偏好——
+            // 清除会让设备换新 UUID（本机信封被当他人快照）且 seq 归零重写同名信封。
+            let keys = AppSettingKey.allCases
+                .filter { !$0.rawValue.hasPrefix("sync") }
+                .map(\.rawValue)
             try db.execute(sql: """
                 DELETE FROM app_settings WHERE key IN (\(keys.map { _ in "?" }.joined(separator: ",")))
                 """, arguments: StatementArguments(keys))
