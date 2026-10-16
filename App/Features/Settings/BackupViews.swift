@@ -745,7 +745,10 @@ private struct BackupIntervalSection: View {
     @Binding var interval: Int
 
     var body: some View {
-        Section(L10n.backupReminderIntervalTitle) {
+        // 注：Section(String){…} footer: 形态在本 SDK 无匹配 init（L10n 键是 String——
+        // 原巨表达式内的同形调用即有此潜伏错误,被型检超时掩盖）;带标题+footer 一律
+        // header:/footer: 形态（本文件 480/585/605 与 PreferencesViews 同款先例）。
+        Section {
             Picker(L10n.backupReminderIntervalTitle, selection: $interval) {
                 Text(L10n.backupReminderIntervalOff).tag(0)
                 Text(L10n.backupReminderInterval7).tag(7)
@@ -753,6 +756,8 @@ private struct BackupIntervalSection: View {
                 Text(L10n.backupReminderInterval90).tag(90)
             }
             .accessibilityIdentifier("SP-23.backup.interval")
+        } header: {
+            Text(L10n.backupReminderIntervalTitle)
         } footer: {
             Text(L10n.backupReminderIntervalNote)
                 .font(.caption2)
