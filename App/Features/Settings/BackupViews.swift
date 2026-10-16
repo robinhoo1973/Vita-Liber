@@ -27,6 +27,10 @@ final class BackupState {
         case working
         /// 分析中（读包+校验+冲突分析，detached；可取消——取消只丢分析结果，本机零改动）
         case analyzing
+        /// 恢复码一次性展示（V1.7 切片 11：码原文零存储，展示即最后机会）
+        case recoveryCodeCreated(String)
+        /// 设备子密钥不可达 → 恢复码输入逃生舱（换机/钥匙串重置）
+        case recoveryCodePrompt
         case exported(fileName: String, sha256: String)
         /// 真实影响清单确认（V1.7 恢复流程重构：分析前移到确认之前，
         /// 清单来自真实分析结果而非静态文案）
@@ -40,10 +44,15 @@ final class BackupState {
 
     private(set) var phase: Phase = .idle
     private(set) var pendingDocument: BackupDocument?
+    /// 恢复码输入逃生舱的暂存（包数据 + 来源 URL，供带码重试）
+    private var pendingRestoreData: Data?
+    private var pendingRestoreURL: URL?
     /// 冲突裁决（默认保留本机——绝不静默覆盖）
     private(set) var resolutions: [UUID: ExportService.ConflictResolution] = [:]
     /// 已校验的冲突分析（含 envelope）——裁决后恢复直接复用，不再二次哈希+解码整包
     private var pendingAnalysis: BackupService.ConflictAnalysis?
+    /// 待导出的加密备份包（恢复码展示确认后继续导出）
+    private var pendingPackage: BackupService.BackupPackage?
 
     private let service: BackupService
     private let logger = Logger(subsystem: "com.vitaliber", category: "backup")
@@ -74,13 +83,50 @@ final class BackupState {
             // 本地落点同包加密——加密只增安全不减能力，旧明文包恢复侧照读（verifiedEnvelope 自动分流）
             let pkg = try await service.createBackup(encrypted: true)
             pendingDocument = BackupDocument(data: pkg.data)
-            phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
+            pendingPackage = pkg
+            if let code = pkg.recoveryCode {
+                // 恢复码零知识：原文不入任何存储——展示即最后机会，确认后继续导出
+                phase = .recoveryCodeCreated(code)
+            } else {
+                phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
+            }
         } catch {
             logger.error("备份创建失败: \(error)")
             // 审查修复：创建失败未必是空间不足（信封序列化/DB 读取失败同样
             // 落入此分支）——此前恒报「iCloud 空间不足」，用户清理空间后
             // 重试依旧失败。通用失败文案，不把错误原因归罪为空间。
             phase = .degraded(L10n.backupCreateFailed)
+        }
+    }
+
+    /// 恢复码已保存确认 → 继续导出
+    func confirmRecoveryCodeSaved() {
+        guard case .recoveryCodeCreated = phase, let pkg = pendingPackage else { return }
+        phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
+    }
+
+    /// 恢复码输入重试（设备子密钥不可达的逃生舱）
+    func retryAnalysisWithRecoveryCode(_ code: String) async {
+        guard case .recoveryCodePrompt = phase, let url = pendingRestoreURL else { return }
+        phase = .analyzing
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let data = try await Task.detached(priority: .userInitiated) {
+                try Data(contentsOf: url)
+            }.value
+            let analysis = try await service.analyzeConflicts(from: data, recoveryCode: code)
+            pendingAnalysis = analysis
+            pendingRestoreData = nil
+            pendingRestoreURL = nil
+            phase = .confirmRestore(records: analysis.envelope.totalRecords,
+                                    conflictCount: analysis.conflicts.count)
+        } catch BackupService.BackupError.checksumMismatch {
+            // 码错/包坏——保持输入态让用户重试或取消（零部分导入）
+            phase = .recoveryCodePrompt
+        } catch {
+            logger.error("恢复码重试分析失败: \(error)")
+            phase = .degraded(L10n.backupRestoreFailed)
         }
     }
 
@@ -105,8 +151,18 @@ final class BackupState {
             pendingAnalysis = analysis
             phase = .confirmRestore(records: analysis.envelope.totalRecords,
                                     conflictCount: analysis.conflicts.count)
-        } catch BackupService.BackupError.checksumMismatch,
-                BackupService.BackupError.unsupportedFormat {
+        } catch BackupService.BackupError.checksumMismatch {
+            // v2 加密包 + 设备子密钥不可达（换机/钥匙串重置）→ 恢复码逃生舱；
+            // 明文包校验失败 = 真损坏，如实报错
+            let data = try? Data(contentsOf: url)   // try?-ok: 判定失败走损坏文案不阻塞
+            if let data, EnvelopeFrame.binaryFormatVersion(data) == 2 {
+                pendingRestoreURL = url
+                pendingRestoreData = data
+                phase = .recoveryCodePrompt
+            } else {
+                phase = .degraded(L10n.backupChecksumFailed)
+            }
+        } catch BackupService.BackupError.unsupportedFormat {
             // 校验失败绝不部分导入——本机数据保持原样
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
@@ -152,6 +208,8 @@ final class BackupState {
     /// 分析阶段取消（只丢分析结果，本机零改动）
     func cancelAnalysis() {
         pendingAnalysis = nil
+        pendingRestoreData = nil
+        pendingRestoreURL = nil
         phase = .idle
     }
 
@@ -172,7 +230,10 @@ final class BackupState {
         phase = .idle
     }
 
-    func clearDocument() { pendingDocument = nil }
+    func clearDocument() {
+        pendingDocument = nil
+        pendingPackage = nil
+    }
 }
 
 /// `fileExporter` 需要的 FileDocument 包装（纯字节搬运，无业务逻辑）。
@@ -198,6 +259,7 @@ struct BackupView: View {
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showExportConfirm = false
+    @State private var recoveryCodeInput = ""
 
     var body: some View {
         WithPerceptionTracking {
@@ -338,6 +400,46 @@ struct BackupView: View {
                         }
                         .frame(minHeight: 44)
                     }
+                case .recoveryCodeCreated(let code):
+                    // 恢复码一次性展示（零知识：原文不入存储——展示即最后机会）
+                    Section {
+                        Label(L10n.backupRecoveryCodeTitle, systemImage: "key.fill")
+                        Text(code)
+                            .font(.system(.body, design: .monospaced))
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("SP-24.backup.recoveryCode")
+                        Text(L10n.backupRecoveryCodeBody)
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button(L10n.backupRecoveryCodeSaved) {
+                            state.confirmRecoveryCodeSaved()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("SP-24.backup.recoveryCode.saved")
+                    }
+                case .recoveryCodePrompt:
+                    // 设备子密钥不可达 → 恢复码输入逃生舱（码错保持输入态，零部分导入）
+                    Section {
+                        Label(L10n.backupRecoveryCodePromptTitle, systemImage: "key")
+                        TextField(L10n.backupRecoveryCodePromptTitle, text: $recoveryCodeInput)
+                            .textInputAutocapitalization(.characters)
+                            .autocorrectionDisabled()
+                            .accessibilityIdentifier("SP-24.backup.recoveryCode.input")
+                        Button(L10n.onboard_confirm) {
+                            let code = recoveryCodeInput
+                            recoveryCodeInput = ""
+                            Task { await state.retryAnalysisWithRecoveryCode(code) }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        Button(L10n.commonCancel, role: .cancel) {
+                            state.cancelAnalysis()
+                        }
+                        .frame(minHeight: 44)
+                    } footer: {
+                        Text(L10n.backupRecoveryCodePromptBody)
+                            .font(.caption2)
+                    }
                 case .confirmRestore(let records, let conflicts):
                     // V1.7 真实影响清单：清单来自分析结果而非静态文案
                     Section {
@@ -383,18 +485,20 @@ struct BackupView: View {
             .alert(L10n.backupExportConfirmTitle, isPresented: $showExportConfirm) {
                 Button(L10n.commonCancel, role: .cancel) { }
                 Button(L10n.onboard_confirm) {
-                    Task {
-                        await state.prepareBackup()
-                        if case .exported = state.phase {
-                            showExporter = true
-                            // 审查修复：recordBackup 移入 fileExporter 成功分支——
-                            // 原实现用户取消系统导出器也留下「最近备份」时间戳
-                            // （FR13.10/F22.4 展示假事实）
-                        }
-                    }
+                    Task { await state.prepareBackup() }
                 }
             } message: {
                 Text(L10n.backupExportConfirmBody)
+            }
+            // 导出器呈现改由阶段观察驱动：恢复码一次性展示确认后 phase 才进 exported
+            // （审查修复：原实现在 prepareBackup 内联判断 exported 即弹——恢复码展示态会漏弹导出器）
+            .onChange(of: state.phase) { _, newPhase in
+                if case .exported = newPhase {
+                    showExporter = true
+                    // 审查修复：recordBackup 移入 fileExporter 成功分支——
+                    // 原实现用户取消系统导出器也留下「最近备份」时间戳
+                    // （FR13.10/F22.4 展示假事实）
+                }
             }
             .fileExporter(isPresented: $showExporter,
                           document: state.pendingDocument,

@@ -17,6 +17,12 @@ public protocol DeviceKeyRing: Sendable {
 
     /// 生成 32B 随机主密钥（SecRandomCopyBytes；仅生成，不落 Keychain）。
     func generateMasterKey() throws -> Data
+
+    /// 恢复码包裹的主密钥副本（ThisDeviceOnly；信封头另带一份——自足恢复，钥匙串重置可自愈）。
+    /// 恢复码原文零存储（零知识）：只有包裹段 + 现场派生 KEK 才可解封。
+    func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws
+
+    func recoveryWrapped(realmId: UUID) async throws -> Data?
 }
 
 /// 密钥环错误（Keychain 状态码透传供诊断；语义由调用方映射）。

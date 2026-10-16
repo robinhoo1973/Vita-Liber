@@ -1464,6 +1464,11 @@
 "backup.confirmImpact.title" = "确认恢复";
 "backup.confirmImpactFmt" = "将导入 %d 条记录,与本机冲突 %d 项,确认后逐项核对。";
 "backup.restoreReportFmt" = "冲突裁决:保留本机 %d · 采用 %d · 并存 %d";
+"backup.recoveryCode.title" = "恢复码已生成";
+"backup.recoveryCode.body" = "这是找回加密备份的唯一凭证,请抄写保存。本应用不存储恢复码原文,关闭后无法再查看。";
+"backup.recoveryCode.saved" = "我已保存";
+"backup.recoveryCode.prompt.title" = "输入恢复码";
+"backup.recoveryCode.prompt.body" = "此设备无法用设备密钥打开该加密备份,请输入生成备份时保存的恢复码。";
 "backup.conflict.existing" = "本机";
 "backup.conflict.backup" = "备份中";
 

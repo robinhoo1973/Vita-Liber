@@ -1464,6 +1464,11 @@
 "backup.confirmImpact.title" = "Confirm Restore";
 "backup.confirmImpactFmt" = "Will import %d records; %d conflict(s) with data on this device, reviewed item by item after confirmation.";
 "backup.restoreReportFmt" = "Conflicts: kept local %d · adopted %d · coexisted %d";
+"backup.recoveryCode.title" = "Recovery code created";
+"backup.recoveryCode.body" = "This is the only way to recover your encrypted backups. Write it down and keep it safe. The code is never stored by this app and cannot be shown again.";
+"backup.recoveryCode.saved" = "I've saved it";
+"backup.recoveryCode.prompt.title" = "Enter recovery code";
+"backup.recoveryCode.prompt.body" = "This device cannot open the encrypted backup with its device key. Enter the recovery code saved when the backup was created.";
 "backup.conflict.existing" = "On this device";
 "backup.conflict.backup" = "In backup";
 

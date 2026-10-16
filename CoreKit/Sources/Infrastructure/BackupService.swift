@@ -26,8 +26,13 @@ public actor BackupService {
         public var data: Data
         public var sha256: String
         public var exportedAt: TimeInterval
-        public init(fileName: String, data: Data, sha256: String, exportedAt: TimeInterval) {
+        /// 首次启用加密时新生成的恢复码（一次性展示；非 nil 即 UI 必须展示——
+        /// 码原文零存储，展示即最后机会；后续备份此字段恒 nil）
+        public var recoveryCode: String?
+        public init(fileName: String, data: Data, sha256: String, exportedAt: TimeInterval,
+                    recoveryCode: String? = nil) {
             self.fileName = fileName; self.data = data; self.sha256 = sha256; self.exportedAt = exportedAt
+            self.recoveryCode = recoveryCode
         }
     }
 
@@ -62,18 +67,34 @@ public actor BackupService {
             guard let keyRing else { throw BackupError.encryptionUnavailable }
             let realmId = envelope.owner?.id ?? envelope.selfProfile?.id ?? UUID()
             let masterData: Data
+            let recoveryCode: String?
+            let recoveryWrapped: Data?
             if let existing = try await keyRing.masterKey(realmId: realmId) {
                 masterData = existing
+                recoveryWrapped = try await keyRing.recoveryWrapped(realmId: realmId)   // 既有包裹段随帧走（信封自足）
+                recoveryCode = nil
             } else {
                 masterData = try keyRing.generateMasterKey()
                 try await keyRing.storeMasterKey(masterData, realmId: realmId)
+                // 恢复码零知识链路：码 → HKDF KEK → 包裹主密钥；码原文不入任何存储
+                let code = RecoveryCode.generate()
+                let kek = BackupCrypto.recoveryKEK(code: code, realmId: realmId)
+                let wrapped = try BackupCrypto.wrapKey(SymmetricKey(data: masterData), using: kek)
+                try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
+                recoveryWrapped = wrapped
+                recoveryCode = code
             }
             let deviceKey = try await keyRing.deviceSubKey()
             data = try BackupCrypto.sealFrame(payload: payload,
                                               masterKey: SymmetricKey(data: masterData),
                                               wrappingKey: SymmetricKey(data: deviceKey),
-                                              keyRef: UUID())
+                                              keyRef: UUID(),
+                                              realmId: realmId,
+                                              recoveryWrapped: recoveryWrapped)
             digest = BackupCrypto.sha256Hex(payload)   // 明文 payload 哈希——清单哈希语义延续（加密不改清单哈希纪律）
+            return BackupPackage(fileName: "vitaliber-backup-\(Int(Date().timeIntervalSince1970)).vlbu",
+                                 data: data, sha256: digest, exportedAt: envelope.exportedAt,
+                                 recoveryCode: recoveryCode)
         } else {
             digest = Self.sha256(payload)
             var frame = Data()
@@ -99,8 +120,8 @@ public actor BackupService {
         public var conflicts: [ExportService.ConflictItem]
         public var envelope: ExportService.Envelope
     }
-    public func analyzeConflicts(from data: Data) async throws -> ConflictAnalysis {
-        let envelope = try await verifiedEnvelope(from: data)
+    public func analyzeConflicts(from data: Data, recoveryCode: String? = nil) async throws -> ConflictAnalysis {
+        let envelope = try await verifiedEnvelope(from: data, recoveryCode: recoveryCode)
         return ConflictAnalysis(conflicts: try await exporter.conflictReport(envelope),
                                 envelope: envelope)
     }
@@ -125,26 +146,34 @@ public actor BackupService {
     /// 避免整包被哈希+解码两遍）。
     @discardableResult
     public func restore(from data: Data,
-                        resolutions: [UUID: ExportService.ConflictResolution] = [:]) async throws -> Int {
-        let envelope = try await verifiedEnvelope(from: data)
+                        resolutions: [UUID: ExportService.ConflictResolution] = [:],
+                        recoveryCode: String? = nil) async throws -> Int {
+        let envelope = try await verifiedEnvelope(from: data, recoveryCode: recoveryCode)
         return try await restore(envelope: envelope, resolutions: resolutions)
     }
 
-    /// 解码 + 校验（双格式兼容），返回已校验的 envelope
-    private func verifiedEnvelope(from data: Data) async throws -> ExportService.Envelope {
+    /// 解码 + 校验（三格式兼容：v1 明文帧 / v2 加密段帧 / 遗留 JSON），返回已校验的 envelope
+    private func verifiedEnvelope(from data: Data, recoveryCode: String? = nil) async throws -> ExportService.Envelope {
         let (payload, claimedSHA): (Data, String)
         switch EnvelopeFrame.binaryFormatVersion(data) {
         case 2:
             // v2 加密段帧（tech V3.170）：AEAD 认证 + aadHash 双保险；
-            // 结构/错钥/篡改 → 统一 unsupportedFormat/checksumMismatch 语义由调用方映射
+            // 设备子密钥不可达（换机/钥匙串重置）→ 恢复码逃生舱（码错=checksumMismatch 零部分导入）
             guard let keyRing else { throw BackupError.encryptionUnavailable }
             do {
                 let deviceKey = try await keyRing.deviceSubKey()
                 let opened = try BackupCrypto.openFrame(data, unwrapWith: SymmetricKey(data: deviceKey))
                 payload = opened.payload
                 claimedSHA = opened.aadHash
-            } catch BackupCrypto.CryptoError.tamperOrKeyMismatch {
-                throw BackupError.checksumMismatch
+            } catch BackupCrypto.CryptoError.tamperOrKeyMismatch, BackupCrypto.CryptoError.malformed {
+                guard let code = recoveryCode else { throw BackupError.checksumMismatch }
+                do {
+                    let opened = try BackupCrypto.openWithRecoveryCode(data, code: code)
+                    payload = opened.payload
+                    claimedSHA = opened.aadHash
+                } catch {
+                    throw BackupError.checksumMismatch
+                }
             } catch {
                 throw BackupError.unsupportedFormat
             }

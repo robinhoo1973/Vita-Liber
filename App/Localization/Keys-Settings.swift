@@ -639,6 +639,11 @@ extension L10n {
     static var backupAnalyzing: String { t("backup.analyzing") }
     static var backupConflictExisting: String { t("backup.conflict.existing") }
     static var backupConflictBackup: String { t("backup.conflict.backup") }
+    static var backupRecoveryCodeTitle: String { t("backup.recoveryCode.title") }
+    static var backupRecoveryCodeBody: String { t("backup.recoveryCode.body") }
+    static var backupRecoveryCodeSaved: String { t("backup.recoveryCode.saved") }
+    static var backupRecoveryCodePromptTitle: String { t("backup.recoveryCode.prompt.title") }
+    static var backupRecoveryCodePromptBody: String { t("backup.recoveryCode.prompt.body") }
     static var backupConfirmImpactTitle: String { t("backup.confirmImpact.title") }
 
     static var backupReminderIntervalTitle: String { t("backup.reminder.interval.title") }

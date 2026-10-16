@@ -97,22 +97,28 @@ public struct BackupCrypto: Sendable {
     }
 
     // MARK: - v2 加密信封帧（外层格式版本 2，discussions/2026-10-16-backup-sync-share-design.md §8.5）
-    // 帧布局：[magic VLBU1][2][alg(1B)][keyRef(16B)][wrappedKeyLen(BE u16)][wrappedKey]
-    //         [aadHashHex(64B)][ciphertextLen(BE u64)][ciphertext]
+    // 帧布局：[magic VLBU1][2][alg(1B)][realmId(16B)][keyRef(16B)][wrappedKeyLen(BE u16)][wrappedKey]
+    //         [recWrappedLen(BE u16, 0=无)][recoveryWrapped?][aadHashHex(64B)][ciphertextLen(BE u64)][ciphertext]
     // aadHash = sha256(明文 payload) hex——备份报告/清单哈希语义延续（加密不改清单哈希纪律）；
     // AEAD 提供机密+完整+防篡改，aadHash 供报告口径与双保险核对。
+    // recoveryWrapped = 主密钥经恢复码派生 KEK 包裹（信封自足——设备子密钥不可达时经恢复码解封，钥匙串重置可自愈）。
 
     public static func sealFrame(payload: Data, masterKey: SymmetricKey,
-                                 wrappingKey: SymmetricKey, keyRef: UUID) throws -> Data {
+                                 wrappingKey: SymmetricKey, keyRef: UUID,
+                                 realmId: UUID, recoveryWrapped: Data? = nil) throws -> Data {
         let wrappedKey = try wrapKey(masterKey, using: wrappingKey)
         let aadHash = sha256Hex(payload)
         let ciphertext = try seal(payload: payload, key: masterKey)
         var out = Data(EnvelopeFrame.binaryMagic)
         out.append(contentsOf: [2, algorithmID])
+        withUnsafeBytes(of: realmId.uuid) { out.append(contentsOf: $0) }
         withUnsafeBytes(of: keyRef.uuid) { out.append(contentsOf: $0) }
         var wrappedLen = UInt16(wrappedKey.count).bigEndian
         withUnsafeBytes(of: &wrappedLen) { out.append(contentsOf: $0) }
         out.append(wrappedKey)
+        var recLen = UInt16(recoveryWrapped?.count ?? 0).bigEndian
+        withUnsafeBytes(of: &recLen) { out.append(contentsOf: $0) }
+        if let recoveryWrapped { out.append(recoveryWrapped) }
         out.append(contentsOf: aadHash.utf8)
         var ctLen = UInt64(ciphertext.count).bigEndian
         withUnsafeBytes(of: &ctLen) { out.append(contentsOf: $0) }
@@ -120,23 +126,38 @@ public struct BackupCrypto: Sendable {
         return out
     }
 
-    public static func openFrame(_ data: Data, unwrapWith wrappingKey: SymmetricKey) throws -> (payload: Data, keyRef: UUID, aadHash: String) {
+    public struct OpenedFrame: Sendable, Equatable {
+        public var payload: Data
+        public var realmId: UUID
+        public var keyRef: UUID
+        public var aadHash: String
+        public var recoveryWrapped: Data?
+    }
+
+    public static func openFrame(_ data: Data, unwrapWith wrappingKey: SymmetricKey) throws -> OpenedFrame {
         let magicLen = EnvelopeFrame.binaryMagic.count
         guard data.count > magicLen + 1, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
             throw CryptoError.malformed
         }
         let algEnd = magicLen + 2
-        let keyRefEnd = algEnd + 16
+        let realmEnd = algEnd + 16
+        let keyRefEnd = realmEnd + 16
         let lenEnd = keyRefEnd + 2
         guard data.count > lenEnd else { throw CryptoError.malformed }
-        let keyRefBytes = data[algEnd..<keyRefEnd]
+        let realmBytes = data[algEnd..<realmEnd]
+        let keyRefBytes = data[realmEnd..<keyRefEnd]
         let wrappedLen = Int(data[keyRefEnd..<lenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
         let wrappedEnd = lenEnd + wrappedLen
-        let aadEnd = wrappedEnd + 64
+        let recLenEnd = wrappedEnd + 2
+        guard data.count > recLenEnd else { throw CryptoError.malformed }
+        let recLen = Int(data[wrappedEnd..<recLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
+        let recEnd = recLenEnd + recLen
+        let aadEnd = recEnd + 64
         let ctLenEnd = aadEnd + 8
         guard data.count > ctLenEnd else { throw CryptoError.malformed }
         let wrappedKey = data[lenEnd..<wrappedEnd]
-        let aadHash = String(data: data[wrappedEnd..<aadEnd], encoding: .ascii) ?? ""
+        let recoveryWrapped: Data? = recLen > 0 ? Data(data[recLenEnd..<recEnd]) : nil
+        let aadHash = String(data: data[recEnd..<aadEnd], encoding: .ascii) ?? ""
         let ciphertextLen = Int(data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
         guard ciphertextLen <= data.count - ctLenEnd, data.count - ctLenEnd == ciphertextLen else {
             throw CryptoError.malformed
@@ -145,7 +166,59 @@ public struct BackupCrypto: Sendable {
         let master = try unwrapKey(Data(wrappedKey), using: wrappingKey)
         let payload = try open(Data(ciphertext), key: master)
         guard sha256Hex(payload) == aadHash else { throw CryptoError.tamperOrKeyMismatch }
-        return (payload, UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }), aadHash)
+        return OpenedFrame(payload: payload,
+                           realmId: UUID(uuid: realmBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
+                           keyRef: UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
+                           aadHash: aadHash, recoveryWrapped: recoveryWrapped)
+    }
+
+    /// 恢复码 → KEK（HKDF-SHA256；salt = realmId 字节，域隔离——同一恢复码不跨同步域通用）。
+    /// 恢复码不落任何存储（零知识）：包裹段 + 恢复码现场派生才可得主密钥。
+    public static func recoveryKEK(code: String, realmId: UUID) -> SymmetricKey {
+        var salt = Data()
+        withUnsafeBytes(of: realmId.uuid) { salt.append(contentsOf: $0) }
+        let info = Data("vitaliber-recovery-v1".utf8)
+        return HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(code.utf8)),
+                                      salt: salt, info: info, outputByteCount: 32)
+    }
+
+    /// 恢复码解封主密钥（设备子密钥不可达的逃生舱路径；码错 → tamperOrKeyMismatch）。
+    public static func openWithRecoveryCode(_ data: Data, code: String) throws -> OpenedFrame {
+        // 先解析帧拿 realmId 与恢复包裹段（本步无需任何密钥）
+        let magicLen = EnvelopeFrame.binaryMagic.count
+        guard data.count > magicLen + 1, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
+            throw CryptoError.malformed
+        }
+        let algEnd = magicLen + 2
+        let realmEnd = algEnd + 16
+        let keyRefEnd = realmEnd + 16
+        let lenEnd = keyRefEnd + 2
+        guard data.count > lenEnd else { throw CryptoError.malformed }
+        let realmBytes = data[algEnd..<realmEnd]
+        let keyRefBytes = data[realmEnd..<keyRefEnd]
+        let wrappedLen = Int(data[keyRefEnd..<lenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
+        let wrappedEnd = lenEnd + wrappedLen
+        let recLenEnd = wrappedEnd + 2
+        guard data.count > recLenEnd else { throw CryptoError.malformed }
+        let recLen = Int(data[wrappedEnd..<recLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
+        guard recLen > 0, data.count > recLenEnd + recLen else { throw CryptoError.malformed }
+        let recEnd = recLenEnd + recLen
+        let aadEnd = recEnd + 64
+        let ctLenEnd = aadEnd + 8
+        guard data.count > ctLenEnd else { throw CryptoError.malformed }
+        let realmId = UUID(uuid: realmBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) })
+        let keyRef = UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) })
+        let aadHash = String(data: data[recEnd..<aadEnd], encoding: .ascii) ?? ""
+        let ciphertextLen = Int(data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
+        guard ciphertextLen <= data.count - ctLenEnd, data.count - ctLenEnd == ciphertextLen else {
+            throw CryptoError.malformed
+        }
+        let kek = recoveryKEK(code: code, realmId: realmId)
+        let master = try unwrapKey(Data(data[recLenEnd..<recEnd]), using: kek)
+        let payload = try open(Data(data[ctLenEnd...]), key: master)
+        guard sha256Hex(payload) == aadHash else { throw CryptoError.tamperOrKeyMismatch }
+        return OpenedFrame(payload: payload, realmId: realmId, keyRef: keyRef,
+                           aadHash: aadHash, recoveryWrapped: Data(data[recLenEnd..<recEnd]))
     }
 
     static func sha256Hex(_ data: Data) -> String {

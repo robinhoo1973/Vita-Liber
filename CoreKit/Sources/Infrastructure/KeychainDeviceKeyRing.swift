@@ -92,5 +92,33 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
         guard status == errSecSuccess else { throw KeyRingError.keychain(status) }
         return Data(bytes)
     }
+
+    public func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws {
+        let account = "recovery.\(realmId.uuidString)"
+        var query = baseQuery(account, synchronizable: false)
+        query[kSecValueData as String] = wrapped
+        let addStatus = SecItemAdd(query as CFDictionary, nil)
+        if addStatus == errSecDuplicateItem {
+            let update: [String: Any] = [kSecValueData as String: wrapped]
+            let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: false) as CFDictionary,
+                                             update as CFDictionary)
+            guard updateStatus == errSecSuccess else { throw KeyRingError.keychain(updateStatus) }
+        } else if addStatus != errSecSuccess {
+            throw KeyRingError.keychain(addStatus)
+        }
+    }
+
+    public func recoveryWrapped(realmId: UUID) async throws -> Data? {
+        var query = baseQuery("recovery.\(realmId.uuidString)", synchronizable: false)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess, let data = result as? Data else {
+            throw KeyRingError.keychain(status)
+        }
+        return data
+    }
 }
 #endif

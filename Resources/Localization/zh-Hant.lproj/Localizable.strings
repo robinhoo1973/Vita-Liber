@@ -1464,6 +1464,11 @@
 "backup.confirmImpact.title" = "確認恢復";
 "backup.confirmImpactFmt" = "將匯入 %d 條記錄,與本機衝突 %d 項,確認後逐項核對。";
 "backup.restoreReportFmt" = "衝突裁決:保留本機 %d · 採用 %d · 並存 %d";
+"backup.recoveryCode.title" = "恢復碼已生成";
+"backup.recoveryCode.body" = "這是找回加密備份的唯一憑證,請抄寫保存。本應用不存儲恢復碼原文,關閉後無法再查看。";
+"backup.recoveryCode.saved" = "我已保存";
+"backup.recoveryCode.prompt.title" = "輸入恢復碼";
+"backup.recoveryCode.prompt.body" = "此設備無法用設備密鑰打開該加密備份,請輸入生成備份時保存的恢復碼。";
 "backup.conflict.existing" = "本機";
 "backup.conflict.backup" = "備份中";
 

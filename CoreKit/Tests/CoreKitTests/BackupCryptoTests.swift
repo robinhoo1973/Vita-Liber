@@ -91,12 +91,24 @@ struct BackupCryptoTests {
 
     // MARK: - v2 加密信封帧
 
+    private func sealTestFrame(payload: Data, master: SymmetricKey, device: SymmetricKey,
+                               realmId: UUID = UUID(), recoveryCode: String? = nil) throws -> Data {
+        var recoveryWrapped: Data?
+        if let recoveryCode {
+            let kek = BackupCrypto.recoveryKEK(code: recoveryCode, realmId: realmId)
+            recoveryWrapped = try BackupCrypto.wrapKey(master, using: kek)
+        }
+        return try BackupCrypto.sealFrame(payload: payload, masterKey: master, wrappingKey: device,
+                                          keyRef: UUID(), realmId: realmId, recoveryWrapped: recoveryWrapped)
+    }
+
     @Test func sealFrameOpenFrameRoundTrip() throws {
         let master = SymmetricKey(size: .bits256)
         let device = SymmetricKey(size: .bits256)
         let ref = UUID()
         let payload = Data("frame payload".utf8)
-        let frame = try BackupCrypto.sealFrame(payload: payload, masterKey: master, wrappingKey: device, keyRef: ref)
+        let frame = try BackupCrypto.sealFrame(payload: payload, masterKey: master, wrappingKey: device,
+                                               keyRef: ref, realmId: UUID())
         let opened = try BackupCrypto.openFrame(frame, unwrapWith: device)
         #expect(opened.payload == payload)
         #expect(opened.keyRef == ref)
@@ -105,7 +117,7 @@ struct BackupCryptoTests {
 
     @Test func sealFrameWrongDeviceKeyRejected() throws {
         let frame = try BackupCrypto.sealFrame(payload: Data("x".utf8), masterKey: SymmetricKey(size: .bits256),
-                                               wrappingKey: SymmetricKey(size: .bits256), keyRef: UUID())
+                                               wrappingKey: SymmetricKey(size: .bits256), keyRef: UUID(), realmId: UUID())
         #expect(throws: BackupCrypto.CryptoError.tamperOrKeyMismatch) {
             _ = try BackupCrypto.openFrame(frame, unwrapWith: SymmetricKey(size: .bits256))
         }
@@ -113,11 +125,51 @@ struct BackupCryptoTests {
 
     @Test func sealFrameTamperRejected() throws {
         let frame = try BackupCrypto.sealFrame(payload: Data("secret frame".utf8), masterKey: SymmetricKey(size: .bits256),
-                                               wrappingKey: SymmetricKey(size: .bits256), keyRef: UUID())
+                                               wrappingKey: SymmetricKey(size: .bits256), keyRef: UUID(), realmId: UUID())
         var corrupted = frame
         corrupted[corrupted.count - 1] ^= 0x01
         #expect(throws: BackupCrypto.CryptoError.self) {
             _ = try BackupCrypto.openFrame(corrupted, unwrapWith: SymmetricKey(size: .bits256))
+        }
+    }
+
+    @Test func recoveryCodeOpensFrame() throws {
+        let master = SymmetricKey(size: .bits256)
+        let device = SymmetricKey(size: .bits256)
+        let realm = UUID()
+        let code = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"   // 30 位（字母表同 RecoveryCode）
+        let payload = Data("recover me".utf8)
+        let frame = try sealTestFrame(payload: payload, master: master, device: device, realmId: realm, recoveryCode: code)
+        // 设备子密钥路径照常
+        #expect(try BackupCrypto.openFrame(frame, unwrapWith: device).payload == payload)
+        // 恢复码逃生舱路径
+        let opened = try BackupCrypto.openWithRecoveryCode(frame, code: code)
+        #expect(opened.payload == payload)
+        #expect(opened.realmId == realm)
+        #expect(opened.aadHash == BackupCrypto.sha256Hex(payload))
+    }
+
+    @Test func recoveryCodeWrongCodeRejected() throws {
+        let frame = try sealTestFrame(payload: Data("recover me".utf8),
+                                      master: SymmetricKey(size: .bits256),
+                                      device: SymmetricKey(size: .bits256),
+                                      recoveryCode: "ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+        #expect(throws: BackupCrypto.CryptoError.tamperOrKeyMismatch) {
+            _ = try BackupCrypto.openWithRecoveryCode(frame, code: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+        }
+    }
+
+    @Test func recoveryCodeRealmIsolation() throws {
+        // 同一恢复码不跨同步域通用（KEK salt = realmId）
+        let master = SymmetricKey(size: .bits256)
+        let device = SymmetricKey(size: .bits256)
+        let realmA = UUID()
+        let code = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+        let kekA = BackupCrypto.recoveryKEK(code: code, realmId: realmA)
+        let kekB = BackupCrypto.recoveryKEK(code: code, realmId: UUID())
+        let wrappedA = try BackupCrypto.wrapKey(master, using: kekA)
+        #expect(throws: BackupCrypto.CryptoError.tamperOrKeyMismatch) {
+            _ = try BackupCrypto.unwrapKey(wrappedA, using: kekB)
         }
     }
 }
