@@ -267,6 +267,7 @@ struct MedicalCatalogStorageContractTests {
         // 内容断言必须与 checked-in 夹具逐字节一致（expected.json 钉哈希），不得虚构 id=92 之类。
         let beforeDrug = try await access.drug(id: 1)
         let beforeHospitals = try await access.hospitalSuggest(query: "Hospital", region: nil, limit: 10)
+        let beforeDetail = try await access.detail(for: #require(beforeDrug))
         #expect(access.installedVersion?.dataVersion == expected.base.releaseID)
         #expect(access.installedVersion?.sqliteSHA256 == expected.base.sqliteSHA256)
         let reviewed = try UnifiedAppFixture.resource("bridge-reviewed-v9", fileExtension: "sqlite")
@@ -285,8 +286,9 @@ struct MedicalCatalogStorageContractTests {
         #expect(access.catalogGeneration == 2)
         #expect(try await access.drug(id: 1) == beforeDrug)
         #expect(try await access.hospitalSuggest(query: "Hospital", region: nil, limit: 10) == beforeHospitals)
-        let detail = try await access.detail(for: #require(beforeDrug))
-        #expect(detail?.indications?.count == 511)   // 夹具钉版：base 与 reviewed 均为 511 行（KG-only 评审不动 App 列）
+        #expect(try await access.detail(for: #require(beforeDrug)) == beforeDetail)
+        // 「App 列不变」断言一律取更新前后相等——不钉魔数：indications.count 的语义
+        // 由解析规则决定（macOS 实测 8160,非夹具 511 行）,魔数随解析规则漂移即假红。
     }
 
     @Test("physical9 recovery uses persisted signed content/SHA and restores last-good on a development lifecycle")
