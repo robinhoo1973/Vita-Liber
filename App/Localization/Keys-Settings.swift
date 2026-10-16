@@ -657,6 +657,11 @@ extension L10n {
     static func syncLastSync(_ date: String) -> String {
         t("sync.lastSync").replacingOccurrences(of: "%@", with: date)
     }
+    static func syncCandidateDevice(_ device: String, _ seq: UInt64) -> String {
+        t("sync.candidateDevice")
+            .replacingOccurrences(of: "%@", with: String(device.prefix(8)))
+            .replacingOccurrences(of: "%d", with: "\(seq)")
+    }
     static var backupConfirmImpactTitle: String { t("backup.confirmImpact.title") }
 
     static var backupReminderIntervalTitle: String { t("backup.reminder.interval.title") }

@@ -1476,6 +1476,7 @@
 "sync.pullFailed" = "Checking for updates failed, try again later";
 "sync.lastSync" = "Last sync: %@";
 "sync.candidatesFmt" = "Updates from other devices to merge: %d";
+"sync.candidateDevice" = "Device %@ · v%d → review and import";
 "backup.mediaReportFmt" = "Attachments: %d restored · %d missing";
 "backup.recoveryCode.title" = "Recovery code created";
 "backup.recoveryCode.body" = "This is the only way to recover your encrypted backups. Write it down and keep it safe. The code is never stored by this app and cannot be shown again.";

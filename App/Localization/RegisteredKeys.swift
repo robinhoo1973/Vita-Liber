@@ -50,6 +50,7 @@ extension L10n {
     "sync.pullFailed",
     "sync.lastSync",
     "sync.candidatesFmt",
+    "sync.candidateDevice",
     // V3.49：动态键（voiceIntentName(_:) 拼装）——九意图目录标签（D2 退役 F12 后由十减一），静态扫描不可见
     "voiceIntent.recordMetric",
     "voiceIntent.recordObservation",

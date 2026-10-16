@@ -1476,6 +1476,7 @@
 "sync.pullFailed" = "檢查更新失敗,請稍後重試";
 "sync.lastSync" = "上次同步:%@";
 "sync.candidatesFmt" = "待合併的其他裝置更新:%d 份";
+"sync.candidateDevice" = "裝置 %@ · 版本 %d → 核對並匯入";
 "backup.mediaReportFmt" = "附件：%d 件到位 · %d 件缺失";
 "backup.recoveryCode.title" = "恢復碼已生成";
 "backup.recoveryCode.body" = "這是找回加密備份的唯一憑證,請抄寫保存。本應用不存儲恢復碼原文,關閉後無法再查看。";

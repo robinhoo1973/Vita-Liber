@@ -232,6 +232,23 @@ final class BackupState {
         }
     }
 
+    /// 同步候选导入（批次 2 切片 D）：与文件恢复同一条管线——
+    /// 分析 → 真实影响清单 → (冲突三选一) → 恢复报告；整包只哈希+解码一次
+    func analyzeSyncCandidate(_ data: Data) async {
+        phase = .analyzing
+        do {
+            let analysis = try await service.analyzeConflicts(from: data)
+            pendingAnalysis = analysis
+            phase = .confirmRestore(records: analysis.envelope.totalRecords,
+                                    conflictCount: analysis.conflicts.count)
+        } catch BackupService.BackupError.checksumMismatch {
+            phase = .degraded(L10n.backupChecksumFailed)
+        } catch {
+            logger.error("同步候选分析失败: \(error)")
+            phase = .degraded(L10n.backupRestoreFailed)
+        }
+    }
+
     /// 分析阶段取消（只丢分析结果，本机零改动）
     func cancelAnalysis() {
         pendingAnalysis = nil

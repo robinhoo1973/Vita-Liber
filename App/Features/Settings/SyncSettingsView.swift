@@ -16,6 +16,7 @@ final class SyncState {
     enum Phase: Equatable { case idle, pushing, refreshing }
     private(set) var phase: Phase = .idle
     private(set) var candidateCount = 0
+    private(set) var candidates: [SyncEnvelopeCandidate] = []
     private(set) var degradedMessage: String?
 
     private let service: SyncService
@@ -76,7 +77,8 @@ final class SyncState {
         guard enabled, let realmId = realmProvider() else { return }
         phase = .refreshing
         do {
-            candidateCount = try await service.fetchAccepted(realm: realmId).count
+            candidates = try await service.fetchAccepted(realm: realmId)
+            candidateCount = candidates.count
             degradedMessage = nil
         } catch {
             logger.error("候选拉取失败: \(error)")
@@ -90,6 +92,8 @@ final class SyncState {
 struct SyncSettingsView: View {
     @Environment(SyncState.self) private var state
     @Environment(AppEntitlementStore.self) private var entitlements
+    @Environment(BackupState.self) private var backupState
+    @State private var openMerge = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -138,6 +142,26 @@ struct SyncSettingsView: View {
                         }
                         .disabled(state.phase != .idle)
                         .frame(minHeight: 44)
+                        // 候选合并（切片 D）：逐信封走既有恢复管线（影响清单+冲突三选一），绝不静默覆盖
+                        ForEach(Array(state.candidates.enumerated()), id: \.offset) { index, candidate in
+                            Button {
+                                Task {
+                                    await backupState.analyzeSyncCandidate(candidate.data)
+                                    openMerge = true
+                                }
+                            } label: {
+                                Label(L10n.syncCandidateDevice(candidate.deviceId.uuidString, candidate.seq),
+                                      systemImage: "arrow.down.circle")
+                            }
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("SP-sync.candidate.\(index)")
+                        }
+                        NavigationLink(isActive: $openMerge) {
+                            BackupView()
+                        } label: {
+                            EmptyView()
+                        }
+                        .hidden()
                     } footer: {
                         Text(L10n.syncScopeNote)
                             .font(.caption2)
