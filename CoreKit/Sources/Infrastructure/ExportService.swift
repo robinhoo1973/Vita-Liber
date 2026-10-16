@@ -3074,14 +3074,20 @@ private struct ImportSession {
     func restoreVoiceNotes() throws {
         for v in envelope.voiceNotes {
             if try adoptOrSkip(noteConflicts, v.id, adopt: {
-                let tagsJSON = v.tagsJSON ?? (String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]")
+                let tagsJSON = v.tagsJSON ?? {
+                guard let data = try? JSONEncoder().encode(v.tags) else { return "[]" }   // try?-ok: 编码失败回落空数组（旧行为）
+                return String(data: data, encoding: .utf8) ?? "[]"
+            }()
                 try db.execute(sql: """
                     UPDATE voice_note SET patient_id = ?, body = ?, occurred_at = ?, tags = ?, in_timeline = ?
                     WHERE id = ?
                     """, arguments: [(remap(v.patientId) ?? v.patientId)?.uuidString ?? "", v.body,
                                      v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0, v.id.uuidString])
             }) { continue }
-            let tagsJSON = v.tagsJSON ?? (String(data: (try JSONEncoder().encode(v.tags)), encoding: .utf8) ?? "[]")
+            let tagsJSON = v.tagsJSON ?? {
+                guard let data = try? JSONEncoder().encode(v.tags) else { return "[]" }   // try?-ok: 编码失败回落空数组（旧行为）
+                return String(data: data, encoding: .utf8) ?? "[]"
+            }()
             try db.execute(sql: """
                 INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
