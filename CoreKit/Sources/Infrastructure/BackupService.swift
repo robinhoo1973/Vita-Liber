@@ -105,29 +105,14 @@ public actor BackupService {
     /// 解码 + 校验（双格式兼容），返回已校验的 envelope
     private func verifiedEnvelope(from data: Data) async throws -> ExportService.Envelope {
         let (payload, claimedSHA): (Data, String)
-        if data.starts(with: Self.binaryMagic) {
-            guard data.count > Self.binaryMagic.count + 1 + 64 + 8 else {
+        if EnvelopeFrame.isBinary(data) {
+            // 外层帧解析收敛到 EnvelopeFrame 纯函数（V1.7 切片 1；长度限界/trap 纪律原样保留，
+            // 结构违规一律映射 unsupportedFormat——二进制魔数文件绝不落入 JSON 分支误读）。
+            guard let frame = EnvelopeFrame.parseBinary(data) else {
                 throw BackupError.unsupportedFormat
             }
-            let versionStart = Self.binaryMagic.count
-            guard data[versionStart] == 1 else { throw BackupError.unsupportedFormat }
-            let shaStart = versionStart + 1
-            let shaEnd = shaStart + 64
-            let lenStart = shaEnd
-            let lenEnd = lenStart + 8
-            let length = data[lenStart..<lenEnd].withUnsafeBytes {
-                $0.loadUnaligned(as: UInt64.self)
-            }.bigEndian
-            // 审查修复：length 来自用户挑选的文件——UInt64→Int 转换在 ≥2^63 时
-            // 直接 trap（"Not enough bits"，do/catch 捕获不到），且 lenEnd + length
-            // 可加性溢出同样 trap。先限界再减法比较，损坏文件一律走 unsupportedFormat。
-            guard length <= UInt64(Int.max),
-                  data.count >= lenEnd,
-                  data.count - lenEnd == Int(length) else {
-                throw BackupError.unsupportedFormat
-            }
-            claimedSHA = String(data: data[shaStart..<shaEnd], encoding: .ascii) ?? ""
-            payload = data[lenEnd...]
+            claimedSHA = frame.claimedSHA
+            payload = frame.payload
         } else {
             // 遗留 JSON 信封（旧版本导出文件，继续可读）
             let outer: BackupEnvelope

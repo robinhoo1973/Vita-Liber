@@ -13,6 +13,29 @@ public actor ExportService {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     /// 导出 envelope（VersionedData 语义：版本 + 生成时间 + 数据）
+    /// 媒体清单条目（v3 备份补全批，discussions/2026-10-16-backup-sync-share-design.md §8.5）：
+    /// 清单哈希 = 明文原件哈希语义——document_file.sha256/去重/restoreOCRPages 守卫全部依赖它，
+    /// 加密不得改清单哈希。字节本体在独立媒体载具 `.vlbm` 内，不进 JSON payload。
+    public struct MediaEntry: Sendable, Codable, Equatable {
+        public var sha256: String
+        public var size: Int64
+        public var mime: String
+        public init(sha256: String, size: Int64, mime: String) {
+            self.sha256 = sha256; self.size = size; self.mime = mime
+        }
+    }
+
+    /// 硬删实体墓碑（v3）：observation 等硬删实体无 deleted_at 软删列，删除不可传播——
+    /// 快照同步经墓碑清单传播删除（软删实体走既有 deleted_at 随包，无需墓碑）。
+    public struct Tombstone: Sendable, Codable, Equatable {
+        public var kind: String
+        public var id: UUID
+        public var deletedAt: Date
+        public init(kind: String, id: UUID, deletedAt: Date) {
+            self.kind = kind; self.id = id; self.deletedAt = deletedAt
+        }
+    }
+
     public struct Envelope: Sendable, Codable, Equatable {
         /// 当前导出的 envelope 版本。v1 = 历史包；v2（v25 / 子项目 D D1-4）= `EncounterExport` 全列、
         /// `prescriptionLines`/`claimLines` 行数组、处方/票据表头新列、`DocumentExport.docTypeKey/titleSource`、
@@ -79,6 +102,14 @@ public actor ExportService {
         public var voiceNotes: [VoiceNoteExport]
         public var healthProblems: [HealthProblemExport]
         public var sensitiveDocIds: Set<UUID>   // 评审 S1：敏感标记随包往返（BR-007/008 链）
+        /// v3 备份补全批（discussions/2026-10-16-backup-sync-share-design.md V1.7）：媒体清单（明文原件哈希语义）、
+        /// 硬删实体墓碑、同步身份键（syncRealmId=便携身份首次建档生成；deviceId/seq=per-device 单调版本）。
+        /// 全部 Optional：旧包缺键 → nil（零恢复，不猜）；schemaVersion 仍为 2（只增可选键，不破坏 v2 读侧）。
+        public var media: [MediaEntry]?
+        public var tombstones: [Tombstone]?
+        public var syncRealmId: UUID?
+        public var deviceId: UUID?
+        public var seq: UInt64?
 
         /// FR13.5 恢复后数据校验报告：导入记录计数（供恢复报告展示，不算附件）
         public var totalRecords: Int {
@@ -543,6 +574,11 @@ public actor ExportService {
             self.voiceNotes = []
             self.healthProblems = []
             self.sensitiveDocIds = []
+            self.media = nil
+            self.tombstones = nil
+            self.syncRealmId = nil
+            self.deviceId = nil
+            self.seq = nil
         }
     }
 
