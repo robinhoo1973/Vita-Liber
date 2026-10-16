@@ -147,7 +147,7 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         let photoEntry = try XCTUnwrap(manifest.entries.first { $0.kind == .photo })
         XCTAssertTrue(photoEntry.isSensitive)
         XCTAssertNotNil(photoEntry.memberId)
-        XCTAssertTrue(photoEntry.relativePath.hasSuffix("\"\(photoId.uuidString).jpg\""))
+        XCTAssertTrue(photoEntry.relativePath.hasSuffix("\(photoId.uuidString).jpg"))
         // 敏感条目路由到 sensitive/{memberId}/（跨患者去重边界）
         let sensitiveEntry = try XCTUnwrap(manifest.entries.first { $0.sha256 == shaB })
         XCTAssertTrue(sensitiveEntry.isSensitive)

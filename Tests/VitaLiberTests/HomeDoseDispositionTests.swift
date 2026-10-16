@@ -13,7 +13,8 @@ final class HomeDoseDispositionTests: XCTestCase {
         let scheduler = InMemoryReminderScheduler()
         let store = ReminderStore(meds: meds, apts: AppointmentStore(writer: db.writer, scheduler: scheduler),
                                   reconciler: ReminderReconciler(scheduler: scheduler, source: meds), scheduler: scheduler,
-                                  composer: MedicationPlanComposer(writer: db.writer))
+                                  composer: MedicationPlanComposer(writer: db.writer),
+                                  settings: AppSettingsStore(store: SettingsStore(writer: db.writer)))
         return (store, meds, patient, med)
     }
 

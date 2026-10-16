@@ -89,7 +89,8 @@ final class ReminderStoreTests: XCTestCase {
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
         let composer = MedicationPlanComposer(writer: db.writer)
         let store = ReminderStore(meds: meds, apts: apts, reconciler: reconciler,
-                                  scheduler: scheduler, composer: composer)
+                                  scheduler: scheduler, composer: composer,
+                                  settings: AppSettingsStore(store: SettingsStore(writer: db.writer)))
         return (store, scheduler, db, patient)
     }
 }

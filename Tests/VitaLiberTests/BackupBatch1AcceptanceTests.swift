@@ -167,10 +167,13 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
 /// 测试用内存密钥环（DeviceKeyRing 端口实现；主密钥按 realm 隔离，子密钥固定注入）
 private actor InMemoryKeyRing: DeviceKeyRing {
     private var masters: [UUID: Data] = [:]
+    private var recoveryWrappeds: [UUID: Data] = [:]
     private let subKey: Data
     init(subKey: Data) { self.subKey = subKey }
     func masterKey(realmId: UUID) async throws -> Data? { masters[realmId] }
     func storeMasterKey(_ key: Data, realmId: UUID) async throws { masters[realmId] = key }
     func deviceSubKey() async throws -> Data { subKey }
     func generateMasterKey() throws -> Data { Data((0..<32).map { _ in UInt8.random(in: 0...255) }) }
+    func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws { recoveryWrappeds[realmId] = wrapped }
+    func recoveryWrapped(realmId: UUID) async throws -> Data? { recoveryWrappeds[realmId] }
 }

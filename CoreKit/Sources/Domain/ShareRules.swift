@@ -58,16 +58,19 @@ public enum ShareExpiryRules {
         }
     }
 
-    public static func maxExpiry(tier: ShareTier) -> Date {
+    /// 档位上限 = **当下 + 上限天数**（design §5.5 裁决 C2：上限是「自发起起的天数」，
+    /// 不是绝对日期）。评审修复：原实现以 1970 纪元起算（1971-01-01/1970-04-01），
+    /// clamped 后一切分享有效期塌到 1970/1971 年——isExpired 恒真，分享包发出即过期。
+    public static func maxExpiry(tier: ShareTier, now: Date = Date()) -> Date {
         switch tier {
-        case .notification, .summary: return Date(timeIntervalSince1970: 0).addingTimeInterval(365 * 24 * 3600)
-        case .card, .original: return Date(timeIntervalSince1970: 0).addingTimeInterval(90 * 24 * 3600)
+        case .notification, .summary: return now.addingTimeInterval(365 * 24 * 3600)
+        case .card, .original: return now.addingTimeInterval(90 * 24 * 3600)
         }
     }
 
     /// 越界钳制到档位上限（发起方 UI 的 DatePicker 域）
-    public static func clamped(_ expiry: Date, tier: ShareTier) -> Date {
-        min(max(expiry, Date()), maxExpiry(tier: tier))
+    public static func clamped(_ expiry: Date, tier: ShareTier, now: Date = Date()) -> Date {
+        min(max(expiry, now), maxExpiry(tier: tier, now: now))
     }
 
     public static func isExpired(_ expiry: Date, now: Date = Date()) -> Bool {

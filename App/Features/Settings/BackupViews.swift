@@ -194,9 +194,9 @@ final class BackupState {
             let headVersion: UInt8? = {
                 guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }   // try?-ok: 头读失败=走损坏文案
                 defer { try? handle.close() }                                                // try?-ok: 关闭失败无补救面
-                guard let head = try? handle.read(upToCount: EnvelopeFrame.binaryMagic.count + 1),
+                guard let head = try? handle.read(upToCount: EnvelopeFrame.binaryMagic.count + 1),   // try?-ok: 读取失败=走损坏文案
                       head.count == EnvelopeFrame.binaryMagic.count + 1,
-                      head.starts(with: EnvelopeFrame.binaryMagic) else { return nil }       // try?-ok: 读取失败=走损坏文案
+                      head.starts(with: EnvelopeFrame.binaryMagic) else { return nil }
                 return head[head.startIndex.advanced(by: EnvelopeFrame.binaryMagic.count)]
             }()
             if headVersion == 2 {

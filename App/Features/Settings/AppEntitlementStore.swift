@@ -121,6 +121,18 @@ final class AppEntitlementStore {
         return true
     }
 
+    /// 订阅本体门槛（comercial V1.12）：未解锁 → 弹墙并返回 false；已解锁 → true。
+    /// 收敛备份/恢复/同步开关三处逐点展开的 `owned.contains(.proBase)` + `evaluateTrigger`
+    /// 配对（评审修复：逐点展开曾一处漏配频控/口径不齐；App 层唯一门槛入口）。
+    @MainActor
+    func gateProBase(_ trigger: PaywallTrigger) -> Bool {
+        guard owned.contains(.proBase) else {
+            _ = evaluateTrigger(trigger)
+            return false
+        }
+        return true
+    }
+
     /// 当前待展示的弹墙触发器（PaywallHost 观察）
     private(set) var pendingPaywallTrigger: PaywallTrigger?
     func clearPendingPaywall() { pendingPaywallTrigger = nil }

@@ -49,7 +49,7 @@ public struct ICloudDocumentSyncChannel: SyncChannel, Sendable {
                     try fileManager.startDownloadingUbiquitousItem(at: url)
                     continue   // 下载异步——本轮跳过，下次 fetch 再取（保守：宁可本轮少一版，不赌半读）
                 }
-                if let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
+                if let status = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])   // try?-ok: 资源属性不可读=按需下载兜底，不阻塞
                     .ubiquitousItemDownloadingStatus, status == .notDownloaded {
                     try fileManager.startDownloadingUbiquitousItem(at: url)
                     continue

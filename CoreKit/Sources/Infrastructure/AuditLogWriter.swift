@@ -20,7 +20,9 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         "inventory.reconcile",
         // V1.7 切片 3（discussions/2026-10-16-backup-sync-share-design.md §8.5）：
         // 恢复/导入/分享/同步四动作——备份/同步/分享订阅化后的最大数据变更面，
-        // 此前白名单缺位致「谁在何时导入了什么」不可追溯（G9 清偿）；meta 最小化纪律不变。
+        // 此前白名单缺位致动作无出口（G9 = 白名单交付）；meta 最小化纪律不变。
+        // 注意：本切片只交付白名单——写入调用点接线 sync/share 随批次 2/3，
+        // restore/import 尚未接线（登记项，接线前审计页对三链仍不可见）。
         "restore", "import", "share", "sync",
     ]
 

@@ -67,9 +67,10 @@ public enum MediaDestinationRules {
                 && entry.relativePath == originalRelativePath(sha256: entry.sha256)
         case .photo, .blur:
             guard entry.isSensitive, let memberId = entry.memberId else { return false }
-            return entry.relativePath == photoRelativePath(memberId: memberId, assetId: memberId)
-                || entry.relativePath == blurRelativePath(memberId: memberId, assetId: memberId)
-                || isPhotoShape(entry.relativePath, memberId: memberId, kind: entry.kind)
+            // 评审修复：原式先比对 photoRelativePath(memberId:assetId: memberId)——把成员 id
+            // 塞进 assetId 槽（恒真下被子句 isPhotoShape 吸收的死子句）。形状校验单点：
+            // assetId 无法由条目字段重算，只验三段形 + assetId 为 UUID。
+            return isPhotoShape(entry.relativePath, memberId: memberId, kind: entry.kind)
         }
     }
 

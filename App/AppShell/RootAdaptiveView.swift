@@ -340,7 +340,8 @@ private struct PreviewRoot: View {
                                            // assemble 注入的实例 A，本 store 经实例 B，
                                            // 对账/取消互不可见，预览无法充当接线回归探针）
                                            scheduler: container.reminderScheduler,
-                                            composer: container.composer))
+                                            composer: container.composer,
+                                           settings: settingsStore))
                 .environment(settingsStore)
                 .environment(medicalCatalogState)
                 .environment(updateAdviceState)

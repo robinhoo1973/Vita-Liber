@@ -25,14 +25,18 @@ struct ShareRulesTests {
     }
 
     @Test func expiryClampedToTierCap() {
-        // 卡片/原件级上限 90 天：申请 200 天 → 钳到 90 天
+        // 卡片/原件级上限 90 天：申请 200 天 → 钳到「当下 + 90 天」（上限自发起起算，裁决 C2）。
+        // 此断言此前以纪元偏移量核对（clamped 塌到 1970 纪元附近也通过）——改为相对 now 核验。
         let tier = ShareTier.card
-        let over = Date(timeIntervalSince1970: 1_700_000_000).addingTimeInterval(200 * 24 * 3600)
-        let clamped = ShareExpiryRules.clamped(over, tier: tier)
-        let capDays = clamped.timeIntervalSince1970 / (24 * 3600)
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let over = now.addingTimeInterval(200 * 24 * 3600)
+        let clamped = ShareExpiryRules.clamped(over, tier: tier, now: now)
+        let capDays = clamped.timeIntervalSince(now) / (24 * 3600)
         #expect(abs(capDays - 90) < 0.01)
         // 过去时间 → 钳到当下
-        #expect(ShareExpiryRules.clamped(Date(timeIntervalSince1970: 100), tier: tier) >= Date(timeIntervalSince1970: 100))
+        #expect(ShareExpiryRules.clamped(Date(timeIntervalSince1970: 100), tier: tier, now: now) >= now)
+        // 钳制结果必须仍在未来（原实现恒返回 1970 纪元：发出即过期）
+        #expect(!ShareExpiryRules.isExpired(clamped, now: now))
     }
 
     @Test func expiredDetection() {
