@@ -1464,6 +1464,8 @@
 "backup.confirmImpact.title" = "确认恢复";
 "backup.confirmImpactFmt" = "将导入 %d 条记录,与本机冲突 %d 项,确认后逐项核对。";
 "backup.restoreReportFmt" = "冲突裁决:保留本机 %d · 采用 %d · 并存 %d";
+"backup.conflict.existing" = "本机";
+"backup.conflict.backup" = "备份中";
 
 "auth.ocr" = "OCR 与图像处理";
 "auth.ai" = "AI 分析";

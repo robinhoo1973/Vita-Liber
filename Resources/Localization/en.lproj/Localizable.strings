@@ -1464,6 +1464,8 @@
 "backup.confirmImpact.title" = "Confirm Restore";
 "backup.confirmImpactFmt" = "Will import %d records; %d conflict(s) with data on this device, reviewed item by item after confirmation.";
 "backup.restoreReportFmt" = "Conflicts: kept local %d · adopted %d · coexisted %d";
+"backup.conflict.existing" = "On this device";
+"backup.conflict.backup" = "In backup";
 
 "auth.ocr" = "OCR & image processing";
 "auth.ai" = "AI analysis";

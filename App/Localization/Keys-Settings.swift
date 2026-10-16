@@ -637,6 +637,8 @@ extension L10n {
     static var backupReminderBody: String { t("backup.reminder.body") }
 
     static var backupAnalyzing: String { t("backup.analyzing") }
+    static var backupConflictExisting: String { t("backup.conflict.existing") }
+    static var backupConflictBackup: String { t("backup.conflict.backup") }
     static var backupConfirmImpactTitle: String { t("backup.confirmImpact.title") }
 
     static var backupReminderIntervalTitle: String { t("backup.reminder.interval.title") }

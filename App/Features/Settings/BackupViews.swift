@@ -278,8 +278,18 @@ struct BackupView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text(conflictKindLabel(item.table))
                                     .font(.caption).foregroundStyle(.secondary)
-                                Text(L10n.docTitle(item.backupTitle))
+                                Text(L10n.docTitle(item.backupTitle ?? item.existingTitle))
                                     .font(.subheadline)
+                                // V1.7 双值对比：本机摘要 vs 备份摘要（字段级三列对比登记债：
+                                // 跨库实体身份与逐字段 diff 属批次 2/D1 议题，design V1.7 §5.4）
+                                if let existing = item.existingTitle {
+                                    Text("\(L10n.backupConflictExisting) \(L10n.docTitle(existing))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                if let backup = item.backupTitle {
+                                    Text("\(L10n.backupConflictBackup) \(L10n.docTitle(backup))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                                 Picker(L10n.backupConflictChoice, selection: conflictChoice(item.id)) {
                                     Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
                                     Text(L10n.backupConflictAdopt).tag(ExportService.ConflictResolution.adopt)
