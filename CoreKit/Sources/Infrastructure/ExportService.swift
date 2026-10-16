@@ -2114,7 +2114,7 @@ private struct ImportSession {
     /// 照片规范相对路径重算（无重映射成员 → 原样）：与 refileSensitiveMedia 字节归位
     /// 共用同一路径知识；blur 行为派生簿记（打包只带 photo 原件、读取按规则拼路径），
     /// 其 relative_path 无消费者 → 一律原样落库。
-    static func remappedAssetRelativePath(_ asset: AssetExport, member: UUID?) -> String {
+    static func remappedAssetRelativePath(_ asset: ExportService.Envelope.AssetExport, member: UUID?) -> String {
         guard asset.kind == "photo", let member,
               let assetUUID = UUID(uuidString: asset.id) else { return asset.relativePath }
         return MediaDestinationRules.photoRelativePath(memberId: member, assetId: assetUUID)
