@@ -17,15 +17,19 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
 
     public init() {}
 
-    private func baseQuery(_ account: String, synchronizable: Bool, accessible: CFString) -> [String: Any] {
+    private func baseQuery(_ account: String, synchronizable: Bool, accessible: CFString?) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: account,
-            // 显式保护类（安全席 T2b：默认 WhenUnlocked 依赖隐式行为，显式声明防止静默漂移）：
-            // 同步主钥仅兼容 WhenUnlocked；本机密钥收窄为 WhenUnlockedThisDeviceOnly。
-            kSecAttrAccessible as String: accessible,
         ]
+        // 显式保护类（安全席 T2b：默认 WhenUnlocked 依赖隐式行为，显式声明防止静默漂移）：
+        // 同步主钥仅兼容 WhenUnlocked；本机密钥收窄为 WhenUnlockedThisDeviceOnly。
+        // nil = 旧形态回落查询（评审修复）：kSecAttrAccessible 参与查询匹配，带属性会漏掉
+        // 无该属性的历史写入（dc87cfb8 期默认 WhenUnlocked）——只有省略才一次覆盖全部旧形态。
+        if let accessible {
+            query[kSecAttrAccessible as String] = accessible
+        }
         if synchronizable {
             query[kSecAttrSynchronizable as String] = kCFBooleanTrue!
         }
@@ -74,13 +78,28 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
         if readStatus == errSecSuccess, let data = result as? Data, data.count == Self.keySize {
             return data
         }
+        // 旧形态回落（评审修复，举一反三）：dc87cfb8 期写入无保护类属性（默认
+        // WhenUnlocked），带 ThisDeviceOnly 的查询对其恒 notFound——不回落则按
+        // 「无钥」生成新钥，Add 撞 duplicate、dupQuery 同样不可见 → 恒抛
+        // KeyRingError（备份/同步不可自愈）。只读回落不搬迁：旧项继续可读，
+        // 无后续写路径需要覆盖它（与 recoveryWrapped 回落同纪律）。
+        var legacyQuery = baseQuery(account, synchronizable: false, accessible: nil)
+        legacyQuery[kSecReturnData as String] = true
+        legacyQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        var legacyResult: CFTypeRef?
+        let legacyStatus = SecItemCopyMatching(legacyQuery as CFDictionary, &legacyResult)
+        if legacyStatus == errSecSuccess, let data = legacyResult as? Data, data.count == Self.keySize {
+            return data
+        }
         // 无/尺寸不符 → 生成并持久化（ThisDeviceOnly：不同步、不随备份迁移）
         let fresh = try generateMasterKey()
         var addQuery = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
         addQuery[kSecValueData as String] = fresh
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         if addStatus == errSecDuplicateItem {
-            var dupQuery = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
+            // 重读同样省略保护类过滤：撞重项可能是旧形态（并发首调窗口内新落项
+            // 均为 ThisDeviceOnly，两形态都要能命中）。
+            var dupQuery = baseQuery(account, synchronizable: false, accessible: nil)
             dupQuery[kSecReturnData as String] = true
             dupQuery[kSecMatchLimit as String] = kSecMatchLimitOne
             var dupResult: CFTypeRef?
@@ -116,13 +135,17 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
             let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: true, accessible: Self.masterAccessible) as CFDictionary,
                                              update as CFDictionary)
             if updateStatus == errSecItemNotFound {
-                // 评审修复（升级迁移）：同名旧项以非同步形态存在（39208c85 前的
-                // ThisDeviceOnly 写入）——非 Any 的同步查询对其不可见，Add 撞
-                // duplicate、Update 报 notFound，此前直接抛出=「创建备份」恒失败。
+                // 评审修复（升级迁移）：同名旧项以非同步形态存在（a6b4b7c4 切换同步形态前
+                // 的写入：dc87cfb8..1d82bed0 无保护类属性=默认 WhenUnlocked、
+                // 1d82bed0..a6b4b7c4 显式 ThisDeviceOnly）——非 Any 的同步查询对其不可见，
+                // Add 撞 duplicate、Update 报 notFound，此前直接抛出=「创建备份」恒失败。
+                // 删除查询省略 kSecAttrAccessible（评审修复）：带 ThisDeviceOnly 查不到
+                // 默认保护类的 dc87cfb8 期旧项——删除 notFound 后重试 Add 再撞 duplicate，
+                // 迁移对最老形态仍恒失败。
                 // 先删旧形态再落同步项；delete→add 之间失败由上层补发自愈
                 //（主密钥在、包裹段缺 → createBackup 补发新码）。
                 let legacyDelete = SecItemDelete(baseQuery(account, synchronizable: false,
-                                                           accessible: Self.deviceAccessible) as CFDictionary)
+                                                           accessible: nil) as CFDictionary)
                 guard legacyDelete == errSecSuccess || legacyDelete == errSecItemNotFound else {
                     throw KeyRingError.keychain(legacyDelete)
                 }
@@ -143,11 +166,14 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound {
-            // 评审修复（迁移可见性）：旧版本以 ThisDeviceOnly 写下的包裹段对新同步
+            // 评审修复（迁移可见性）：旧版本以非同步形态写下的包裹段对新同步
             // 查询恒 notFound——只读回落旧属性查询（不搬迁：搬迁归 storeRecoveryWrapped
             // 的写路径，读路径保持无副作用）。旧码因此继续对新帧有效。
+            // 省略 kSecAttrAccessible（评审修复）：该属性参与匹配，带 ThisDeviceOnly 会
+            // 漏掉 dc87cfb8 期无属性旧项（默认 WhenUnlocked）——回落查询恒 notFound、
+            // 旧码静默死亡；省略后同一次查询覆盖两种旧形态。
             let legacy = baseQuery("recovery.\(realmId.uuidString)", synchronizable: false,
-                                   accessible: Self.deviceAccessible)
+                                   accessible: nil)
             var legacyQuery = legacy
             legacyQuery[kSecReturnData as String] = true
             legacyQuery[kSecMatchLimit as String] = kSecMatchLimitOne

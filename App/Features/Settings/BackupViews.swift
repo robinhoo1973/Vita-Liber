@@ -90,7 +90,18 @@ final class BackupState {
         }
     }
 
+    /// 创建入口门（评审修复）：.working 防重入——并发 createBackup 会在 actor 挂起点
+    /// 交错（主密钥双重注册、暂存 GC 互删在飞 blob）；.recoveryCodeCreated 未确认前
+    /// 不得开启新一轮——一次性码「展示即最后机会」（零存储），重跑会就地冲掉卡片。
+    var canCreateBackup: Bool {
+        switch phase {
+        case .working, .recoveryCodeCreated: return false
+        default: return true
+        }
+    }
+
     func prepareBackup() async {
+        guard canCreateBackup else { return }
         phase = .working
         do {
             // 全落点默认加密（tech V3.170 分落点口径的收敛实现）：iCloud 落点强制加密，
@@ -118,6 +129,10 @@ final class BackupState {
             }
         } catch {
             logger.error("备份创建失败: \(error)")
+            // 评审修复（跨轮残留）：本轮未产出任何包——清除上一轮未完成导出的
+            // pendingDocument/pendingPackage/pendingCarrierDocument。否则失败路径的
+            // 恢复码卡片确认会把陈旧包当作「本次成功包」导出（导出错件 + 假 recordBackup）。
+            clearDocument()
             // 评审修复（恢复码链断点）：createBackup 可能在注册主密钥并持久化包裹段后
             // 才失败（媒体载具/密封/钥匙串后半程错误）——重试恒 nil 码，码原文零存储，
             // 此处不展示即永久丢失。有未面世码 → 走恢复码卡片（确认后回降级态）。
@@ -168,8 +183,7 @@ final class BackupState {
             guard round == analysisGeneration else { return }
             logger.error("恢复码重试分析失败: \(error)")
             // 评审修复（载具 scope 泄漏）：终止态不保留 security-scope 句柄
-            pendingCarrierURL = nil
-            endCarrierScope()
+            discardCarrierScope()
             phase = .degraded(L10n.backupRestoreFailed)
         }
     }
@@ -221,22 +235,19 @@ final class BackupState {
                 phase = .recoveryCodePrompt
             } else {
                 // 评审修复（载具 scope 泄漏）：降级终态不保留 security-scope 句柄
-                pendingCarrierURL = nil
-                endCarrierScope()
+                discardCarrierScope()
                 phase = .degraded(L10n.backupChecksumFailed)
             }
         } catch BackupService.BackupError.unsupportedFormat {
             guard round == analysisGeneration else { return }
             // 校验失败绝不部分导入——本机数据保持原样；载具 scope 同款收尾（评审修复）
-            pendingCarrierURL = nil
-            endCarrierScope()
+            discardCarrierScope()
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
             guard round == analysisGeneration else { return }
             logger.error("备份分析失败: \(error)")
             // 第八轮修复同族：非校验类失败不归罪文件损坏；载具 scope 同款收尾（评审修复）
-            pendingCarrierURL = nil
-            endCarrierScope()
+            discardCarrierScope()
             phase = .degraded(L10n.backupRestoreFailed)
         }
     }
@@ -292,8 +303,7 @@ final class BackupState {
     /// pendingCarrierURL/scope 会跨到同步恢复，载具错配）。
     func analyzeSyncCandidate(_ data: Data) async {
         let round = beginAnalysisRound()
-        pendingCarrierURL = nil
-        endCarrierScope()
+        discardCarrierScope()
         phase = .analyzing
         do {
             let analysis = try await service.analyzeConflicts(from: data)
@@ -322,8 +332,7 @@ final class BackupState {
         analysisGeneration += 1   // 作废在飞分析：挂起任务完成时按世代丢弃，不再写 phase
         pendingAnalysis = nil
         pendingRestoreURL = nil
-        pendingCarrierURL = nil
-        endCarrierScope()
+        discardCarrierScope()
         phase = .idle
     }
 
@@ -344,8 +353,7 @@ final class BackupState {
         // 评审修复（载具 scope 泄漏）：与 cancelAnalysis 同款收尾——此前取消裁决
         // 不释放 security-scope 也不清 pendingCarrierURL（句柄跨会话滞留、下一轮
         // 文件选择的载具错配基准残留）。
-        pendingCarrierURL = nil
-        endCarrierScope()
+        discardCarrierScope()
         phase = .idle
     }
 
@@ -377,6 +385,13 @@ final class BackupState {
         }
         carrierScopedURL = nil
         carrierScopeActive = false
+    }
+
+    /// 载具读取窗口收尾（评审修复）：降级/取消终态不保留 security-scope 句柄与
+    /// pendingCarrierURL 残留——各终态分支统一入口（此前 7 处复制两行，新增分支易漏清一半）。
+    private func discardCarrierScope() {
+        pendingCarrierURL = nil
+        endCarrierScope()
     }
 }
 
@@ -438,6 +453,8 @@ struct BackupView: View {
                     } label: {
                         Label(L10n.backupCreate, systemImage: "icloud.and.arrow.up").frame(minHeight: 44)
                     }
+                    // 评审修复：进行中/恢复码未确认时不可重入（与 prepareBackup 入口门同源）
+                    .disabled(!state.canCreateBackup)
                     .accessibilityIdentifier("SP-24.backup.create")
 
                     Button {

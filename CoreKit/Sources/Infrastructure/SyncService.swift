@@ -50,15 +50,17 @@ public actor SyncService {
             throw error
         }
         // 成功路径排空 BackupService 侧暂存：码随 package 已交付调用方；
-        // 若 package 无码但存在残留（上轮半程失败），一并取回供失败/成功路径展示
-        if let drained = await backup.takeUnseenRecoveryCode() {
-            unseenRecoveryCode = unseenRecoveryCode ?? drained
-        }
+        // 若 package 无码但存在残留（上轮半程失败），一并取回供失败/成功路径展示。
+        // 优先级（评审修复）：本轮 package 的码恒为最新有效码——补发/重注册一旦发生，
+        // 旧暂存码对应的包裹段已被覆盖（死码）；此前陈码先占（?? 次序）会把新鲜码挤出暂存。
+        let drained = await backup.takeUnseenRecoveryCode()
+        unseenRecoveryCode = package.recoveryCode ?? unseenRecoveryCode ?? drained
         do {
             try await channel.commit(package.data, identity: identity)
         } catch {
             // commit 失败 = 信封未落云端：码未随任何包面世，暂存供调用方失败路径取回
-            unseenRecoveryCode = unseenRecoveryCode ?? package.recoveryCode
+            // （同优先级：本轮 mint 的码优先于陈旧暂存）
+            unseenRecoveryCode = package.recoveryCode ?? unseenRecoveryCode
             throw error
         }
         return package

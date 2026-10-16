@@ -149,16 +149,22 @@ public actor MediaCarrierPackager: MediaPackaging {
     /// 不再被任何清单引用的密文没有复用面，留在 Caches 只增体积（随历史媒体总量线性增长）。
     /// 仅枚举 stagingRoot/media 子树（.vlbm 载具与 manifest.json 在根层，不受影响）；
     /// 单件删除失败仅残留缓存体积，无正确性影响。
+    /// 两阶段（先收集后删除，评审修复）：枚举中途删除目录项在部分文件系统上会漏项/
+    /// 重复供给，收集完再删消除该不确定性。
     public func pruneStaged(keeping shas: Set<String>) async {
         let mediaRoot = stagingRoot.appendingPathComponent("media", isDirectory: true)
         guard let enumerator = fileManager.enumerator(at: mediaRoot,
                                                       includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        var orphans: [URL] = []
         for case let url as URL in enumerator {
             let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false   // try?-ok: 属性不可读按文件处理
             guard !isDirectory else { continue }
             if !shas.contains(url.deletingPathExtension().lastPathComponent) {
-                try? fileManager.removeItem(at: url)   // try?-ok: 缓存 GC 失败仅余体积
+                orphans.append(url)
             }
+        }
+        for url in orphans {
+            try? fileManager.removeItem(at: url)   // try?-ok: 缓存 GC 失败仅余体积
         }
     }
 

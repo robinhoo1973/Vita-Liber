@@ -32,6 +32,77 @@ public actor BackupService {
         return unseenRecoveryCode
     }
 
+    /// 主密钥解析临界段（评审修复，actor 重入）：master 读取 → 注册/补发 → 包裹段
+    /// 落库跨多个 await，两个 createBackup 入口（备份页 prepareBackup 与 SyncService.push）
+    /// 交错时 check-then-act 失守——双重注册/双重铸码（后写覆盖先写：用户只见其一，
+    /// 另一码静默死亡）；且两调用各持不同主密钥做媒体密封，幂等 stage 会把先落盘的
+    /// 跨钥密文复用进另一方的载具（恢复侧该载具整包媒体静默 missing）。
+    /// 仅串行化钥匙串临界段（毫秒级）；媒体打包（分钟级，读写暂存/载具）不占锁。
+    private var masterResolutionBusy = false
+    private var masterResolutionWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func beginMasterResolution() async {
+        if masterResolutionBusy {
+            await withCheckedContinuation { masterResolutionWaiters.append($0) }
+            return   // 所有权随 resume 移交（busy 保持 true）
+        }
+        masterResolutionBusy = true
+    }
+
+    private func endMasterResolution() {
+        if masterResolutionWaiters.isEmpty {
+            masterResolutionBusy = false
+        } else {
+            masterResolutionWaiters.removeFirst().resume()
+        }
+    }
+
+    /// 一次性恢复码铸造（评审复用：补发/首注册两分支同链，消除双份实现）：
+    /// 码 → HKDF KEK → 包裹主密钥 → 包裹段持久化 → 记入未面世暂存。
+    /// 码原文不入任何存储（零知识纪律）；持久化失败按整体失败上抛，绝不返回未落段的码。
+    private func mintRecoveryCode(masterData: Data, realmId: UUID,
+                                  keyRing: any DeviceKeyRing) async throws -> (code: String, wrapped: Data) {
+        let code = RecoveryCode.generate()
+        let kek = BackupCrypto.recoveryKEK(code: code, realmId: realmId)
+        let wrapped = try BackupCrypto.wrapKey(SymmetricKey(data: masterData), using: kek)
+        try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
+        unseenRecoveryCode = code
+        return (code, wrapped)
+    }
+
+    /// 主密钥解析/签发（评审修复提取：原 createBackup 内联——提取以被临界段包裹）。
+    /// 返回 (主密钥, 本次新铸码或 nil, 随帧包裹段)；既有包裹段在位 → 不重铸、码 nil。
+    private func resolveMasterKey(realmId: UUID, keyRing: any DeviceKeyRing)
+        async throws -> (masterData: Data, recoveryCode: String?, recoveryWrapped: Data?) {
+        if let existing = try await keyRing.masterKey(realmId: realmId) {
+            if let wrapped = try await keyRing.recoveryWrapped(realmId: realmId) {
+                return (existing, nil, wrapped)   // 既有包裹段随帧走（信封自足）
+            }
+            // 评审修复（恢复码链断点）：主密钥在位但包裹段缺失——第二台设备经
+            // iCloud 收到主钥、本机从未生成过码；或旧版本 ThisDeviceOnly 项
+            // 对新同步查询不可见。此前静默封出 recLen=0 帧：钥匙串重置后用户
+            // 持任何码也无段可依（逃生舱恒 checksumMismatch）。补发：新码 →
+            // KEK → 包裹段持久化 + 随帧走（旧快照的 embedded 段不受影响）。
+            let minted = try await mintRecoveryCode(masterData: existing, realmId: realmId, keyRing: keyRing)
+            return (existing, minted.code, minted.wrapped)
+        }
+        let fresh = try keyRing.generateMasterKey()
+        // 评审修复（主密钥重生成 × 增量暂存）：staged blob 密封密钥 =
+        // HKDF(旧主密钥)——新钥对它永久不可解，而 stage 按 sha 幂等会把旧密文
+        // 原样打包装车（恢复侧静默「媒体全 missing」）。旧钥密文无任何修复面，
+        // 整树清除是唯一正确处置；此处不限 includeMedia——sync push（false）
+        // 注册新钥后，后续整包备份仍复用同暂存目录。
+        // 清除置前于主密钥落库、失败不吞（评审修复：此前 try? 吞掉失败并把
+        // 失败注为「无正确性影响」——残留旧钥密文会被后续 stage/commit 复用，
+        // 与其唯一目的直接矛盾；且落库后再失败会因 master 在位跳过本分支、
+        // 重试不再清除）。清除失败 = 本次注册整体失败，重试重进本分支。
+        if let stagingRoot { try Self.purgeStagedMedia(in: stagingRoot) }
+        try await keyRing.storeMasterKey(fresh, realmId: realmId)
+        // 恢复码零知识链路：码 → HKDF KEK → 包裹主密钥；码原文不入任何存储
+        let minted = try await mintRecoveryCode(masterData: fresh, realmId: realmId, keyRing: keyRing)
+        return (fresh, minted.code, minted.wrapped)
+    }
+
     public init(writer: any DatabaseWriter, keyRing: (any DeviceKeyRing)? = nil,
                 mediaBase: URL? = nil, stagingRoot: URL? = nil) {
         self.exporter = ExportService(writer: writer)
@@ -187,46 +258,21 @@ public actor BackupService {
             // 同步信封的加密 realm 锚 = 显式 syncRealmId（跨设备同域解封一致）；
             // 普通备份锚 = owner/本人档案 id（syncRealmId 前身）
             let realmId = envelope.syncRealmId ?? envelope.owner?.id ?? envelope.selfProfile?.id ?? UUID()
-            let masterData: Data
-            let recoveryCode: String?
-            let recoveryWrapped: Data?
-            if let existing = try await keyRing.masterKey(realmId: realmId) {
-                masterData = existing
-                if let wrapped = try await keyRing.recoveryWrapped(realmId: realmId) {
-                    recoveryWrapped = wrapped   // 既有包裹段随帧走（信封自足）
-                    recoveryCode = nil
-                } else {
-                    // 评审修复（恢复码链断点）：主密钥在位但包裹段缺失——第二台设备经
-                    // iCloud 收到主钥、本机从未生成过码；或旧版本 ThisDeviceOnly 项
-                    // 对新同步查询不可见。此前静默封出 recLen=0 帧：钥匙串重置后用户
-                    // 持任何码也无段可依（逃生舱恒 checksumMismatch）。补发：新码 →
-                    // KEK → 包裹段持久化 + 随帧走（旧快照的 embedded 段不受影响）。
-                    let code = RecoveryCode.generate()
-                    let kek = BackupCrypto.recoveryKEK(code: code, realmId: realmId)
-                    let wrapped = try BackupCrypto.wrapKey(SymmetricKey(data: masterData), using: kek)
-                    try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
-                    recoveryWrapped = wrapped
-                    recoveryCode = code
-                    unseenRecoveryCode = code
-                }
-            } else {
-                masterData = try keyRing.generateMasterKey()
-                try await keyRing.storeMasterKey(masterData, realmId: realmId)
-                // 恢复码零知识链路：码 → HKDF KEK → 包裹主密钥；码原文不入任何存储
-                let code = RecoveryCode.generate()
-                let kek = BackupCrypto.recoveryKEK(code: code, realmId: realmId)
-                let wrapped = try BackupCrypto.wrapKey(SymmetricKey(data: masterData), using: kek)
-                try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
-                recoveryWrapped = wrapped
-                recoveryCode = code
-                unseenRecoveryCode = code
-                // 评审修复（主密钥重生成 × 增量暂存）：staged blob 密封密钥 =
-                // HKDF(旧主密钥)——新钥对它永久不可解，而 stage 按 sha 幂等会把旧密文
-                // 原样打包装车（恢复侧静默「媒体全 missing」）。旧钥密文无任何修复面，
-                // 整树清除是唯一正确处置；此处不限 includeMedia——sync push（false）
-                // 注册新钥后，后续整包备份仍复用同暂存目录。
-                if let stagingRoot { Self.purgeStagedMedia(in: stagingRoot) }
+            // 主密钥解析/签发走临界段（评审修复，actor 重入——见 beginMasterResolution）：
+            // 备份页与同步 push 并发首注册时各自铸码/注册、后写覆盖先写，且双钥并行
+            // 密封媒体后被幂等 stage 交叉复用。解析毫秒级，不阻塞后续打包。
+            await beginMasterResolution()
+            let resolved: (masterData: Data, recoveryCode: String?, recoveryWrapped: Data?)
+            do {
+                resolved = try await resolveMasterKey(realmId: realmId, keyRing: keyRing)
+            } catch {
+                endMasterResolution()
+                throw error
             }
+            endMasterResolution()
+            let masterData = resolved.masterData
+            let recoveryCode = resolved.recoveryCode
+            let recoveryWrapped = resolved.recoveryWrapped
             let deviceKey = try await keyRing.deviceSubKey()
             data = try BackupCrypto.sealFrame(payload: payload,
                                               masterKey: SymmetricKey(data: masterData),
@@ -435,10 +481,14 @@ public actor BackupService {
     /// 主密钥重生成后清除全部 staged blob（评审修复，旧钥密文不可跨钥复用）：
     /// staged blob 密封密钥 = HKDF(旧主密钥)，stage 的按 sha 幂等跳过会把旧密文
     /// 原样打包装车——新钥解封全数认证失败，恢复侧静默「媒体全 missing」。
-    /// 旧钥密文对新钥永远不可用且无修复面，整树清除（不清 .vlbm/.partial：前者由
-    /// removeStaleCarriers 每轮清、后者由 moveItem 原子性兜底）。
-    private static func purgeStagedMedia(in stagingRoot: URL) {
-        try? FileManager.default.removeItem(at: stagingRoot.appendingPathComponent("media", isDirectory: true))   // try?-ok: 无残留/删除失败=缓存占用与重加密开销，无正确性影响
+    /// 旧钥密文对新钥永远不可用且无修复面，整树清除；**清除失败上抛**（评审修复：
+    /// 此前 try? 吞掉失败并把失败注为「无正确性影响」，与清除唯一目的直接矛盾；
+    /// 且本函数现在只在主密钥落库前调用，失败=注册整体失败、重试可完整重进）。
+    /// 不清 .vlbm/.partial：前者由 removeStaleCarriers 每轮清、后者由 moveItem 原子性兜底。
+    private static func purgeStagedMedia(in stagingRoot: URL) throws {
+        let mediaRoot = stagingRoot.appendingPathComponent("media", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: mediaRoot.path) else { return }
+        try FileManager.default.removeItem(at: mediaRoot)
     }
 
     /// 清理暂存目录内的旧载具文件（vitaliber-media-*.vlbm）——staged blob 保留供增量复用；

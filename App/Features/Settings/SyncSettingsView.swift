@@ -61,6 +61,11 @@ final class SyncState {
             // 并发首调（syncNow 与 refreshCandidates 同拍）此前各自生成 UUID——
             // 先入缓存的写-读竞态（评审修复）：候选过滤/seq 归并围绕两个身份分裂。
             deviceId = cached
+            if existing != cached.uuidString {
+                // 首调 `settings.set` 失败只留日志（AppSettingsStore 失败不清缓存值）或
+                // 写盘在途——缓存分支不补写则身份永不落盘，重启后换新 UUID 造成身份漂移。
+                await settings.set(cached.uuidString, for: .syncDeviceId)
+            }
         } else {
             deviceId = UUID()
             deviceIdCache = deviceId   // 先入缓存再落盘：等待写盘期间再次调用同 id
