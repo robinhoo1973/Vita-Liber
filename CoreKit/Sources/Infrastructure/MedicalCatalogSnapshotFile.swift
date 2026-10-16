@@ -53,12 +53,16 @@ final class MedicalCatalogSnapshotFile: @unchecked Sendable {
             guard flock(owner.fileDescriptor, LOCK_EX | LOCK_NB) == 0 else {
                 throw MedicalCatalogUpdateError.activationFailed
             }
+            // clone/copy 优先（APFS 上 copyItem=clonefile,独立 inode,COW 近零字节;非 APFS
+            // 真拷贝）:Apple 系统 libsqlite3 的 vnode 监控会在库文件目录项被 rename 替换时
+            // 立即失效同 inode 上存活的只读连接（SQLITE_IOERR_VNODE 扩展码 6922,主码 10
+            // "disk I/O error"）——硬链接 pin 与活跃路径共享 inode 必中（CI #38897399046/
+            // #38902293848 实证,GRDB #1693）。独立 inode 后活跃路径换名不再触及快照;
+            // 硬链接仅作 clone/拷贝失败降级（同卷零字节成本,但保留 vnode 失效面,尽力面）。
             do {
-                try files.linkItem(at: source, to: url)
-            } catch {
-                // Same-directory hard links cost no extra catalog bytes; copy
-                // remains correct on filesystems without hard-link support.
                 try files.copyItem(at: source, to: url)
+            } catch {
+                try files.linkItem(at: source, to: url)
             }
             return retained
         }
