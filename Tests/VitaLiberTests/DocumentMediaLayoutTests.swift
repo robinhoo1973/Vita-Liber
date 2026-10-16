@@ -78,9 +78,11 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let fetched = try await f.documents.fetch(id: listed.id)   // list 投影不携带 meta_json（DocumentStore.swift:117 契约）
         let document = try XCTUnwrap(fetched)
         let relative = "originals/\(sha.prefix(2))/\(sha).bin"
-        print("METAJSON-DEBUG nonSensitive=\(document.metaJSON ?? "nil")")   // TODO-remove 诊断
-        XCTAssertTrue(document.metaJSON?.contains(relative) == true)   // meta 相对路径（无绝对路径）
-        XCTAssertFalse(document.metaJSON?.contains("/originals") == true)  // 绝不含容器绝对路径
+        // JSONSerialization 默认把 / 转义为 \/——子串匹配必假红;语义断言解析后比 value
+        let metaObject = try JSONSerialization.jsonObject(with: Data(document.metaJSON?.utf8 ?? Data()))
+        let metaDict = try XCTUnwrap(metaObject as? [String: Any])
+        XCTAssertEqual(metaDict["original_path"] as? String, relative)   // meta 相对路径（无绝对路径）
+        XCTAssertFalse((metaDict["original_path"] as? String)?.hasPrefix("/") == true)  // 绝不含容器绝对路径
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent(relative).path))
         XCTAssertFalse(FileManager.default.fileExists(
             atPath: f.directory.appendingPathComponent("sensitive").path))   // 非敏感绝不落敏感目录
@@ -98,8 +100,9 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let fetched = try await f.documents.fetch(id: listed.id)   // 同上：meta_json 经 fetch
         let document = try XCTUnwrap(fetched)
         let relative = "sensitive/\(f.patient.uuidString)/\(sha).bin"
-        print("METAJSON-DEBUG sensitive=\(document.metaJSON ?? "nil")")   // TODO-remove 诊断
-        XCTAssertTrue(document.metaJSON?.contains(relative) == true)
+        let metaObject = try JSONSerialization.jsonObject(with: Data(document.metaJSON?.utf8 ?? Data()))
+        let metaDict = try XCTUnwrap(metaObject as? [String: Any])
+        XCTAssertEqual(metaDict["original_path"] as? String, relative)
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent(relative).path))
         // 敏感件绝不落非敏感 CAS 路径（跨成员去重边界）
         XCTAssertFalse(FileManager.default.fileExists(
@@ -111,17 +114,20 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let first = try await imageDraft(f, isSensitive: false)
         let committedFirst = await f.docs.commitDraft(first)
         XCTAssertTrue(committedFirst)
-        // 生产形态：一笔导入一个 session（commitDraft 后 activeImport 不释放,
-        // prepareImageDraft 在 source 非 nil 时返回 nil）——同库同患者第二稿经
-        // 新 DocumentsState（新 session）落;共享同一媒体根验证 CAS 零复制
-        let f2 = try await fixture(directory: f.directory, store: f.database, patient: f.patient)
+        // 生产语义：同患者同字节被 duplicates 闸拦截（document_file.sha256 身份）——
+        // CAS 零复制的真实场景 = 不同成员各拍同一文档（跨患者去重边界）
+        let otherPatient = try await f.database.insertPatient("B", relation: "other")
+        let f2 = try await fixture(directory: f.directory, store: f.database, patient: otherPatient)
         let second = try await imageDraft(f2, isSensitive: false)
         let committedSecond = await f2.docs.commitDraft(second)
         XCTAssertTrue(committedSecond)
         let documents = try await f.documents.list(patientId: f.patient)
-        XCTAssertEqual(documents.count, 2)
+        let otherDocuments = try await f.documents.list(patientId: otherPatient)
+        XCTAssertEqual(documents.count, 1)
+        XCTAssertEqual(otherDocuments.count, 1)
         let sha = sha256Hex(image)
-        XCTAssertEqual(documents.map(\.originalSha256), [sha, sha])   // 两行同一内容身份
+        XCTAssertEqual(documents.map(\.originalSha256), [sha])   // 两行（跨患者）同一内容身份
+        XCTAssertEqual(otherDocuments.map(\.originalSha256), [sha])
         // 单份字节：CAS 目录内恰好一个文件（同字节零复制）
         let casDir = f.directory.appendingPathComponent("originals/\(sha.prefix(2))")
         let files = try FileManager.default.contentsOfDirectory(atPath: casDir.path)

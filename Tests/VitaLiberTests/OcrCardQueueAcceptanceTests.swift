@@ -474,7 +474,6 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         let draft = try await imageDraft(f)
         try Data([1]).write(to: f.directory.appendingPathComponent("originals"))
         let saved = await f.docs.commitDraft(draft)
-        print("FAILEDWRITE-DEBUG saved=\(saved) err=\(f.docs.lastImportError ?? "nil") originalsIsDir=\(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent("originals").path, isDirectory: nil))")   // TODO-remove 诊断
         XCTAssertFalse(saved)
         XCTAssertEqual(f.docs.activeImport?.draft?.id, draft.id)
         XCTAssertNotNil(f.docs.lastImportError)

@@ -486,6 +486,16 @@ final class DocumentsState {
             ? MediaDestinationRules.sensitiveOriginalRelativePath(memberId: patientId, sha256: sha)
             : MediaDestinationRules.originalRelativePath(sha256: sha)
         let url = originalsDir.appendingPathComponent(relative)
+        // 布局损坏防护（CI #38974586796 实证）：FileManager.createDirectory
+        // withIntermediateDirectories 会把路径上已存在的同名**文件**顶掉成目录——
+        // CAS 根（originals/ 或 sensitive/{member}/ 首段）被文件占位时须拒绝,
+        // 绝不静默覆写用户字节（failedOriginalWrite 契约：写失败=草稿保留+零文档）。
+        let rootComponent = relative.split(separator: "/").first.map(String.init) ?? "originals"
+        var rootIsDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: originalsDir.appendingPathComponent(rootComponent).path,
+                                          isDirectory: &rootIsDir), !rootIsDir.boolValue {
+            throw ImportError.unreadableMedia
+        }
         guard !FileManager.default.fileExists(atPath: url.path) else { return (relative, sha) }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         var options: Data.WritingOptions = [.atomic]
