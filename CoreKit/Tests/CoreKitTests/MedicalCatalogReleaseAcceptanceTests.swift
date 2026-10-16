@@ -688,7 +688,8 @@ struct MedicalCatalogFixture {
     func leftoverWorkFiles() -> [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: destinationURL.deletingLastPathComponent().path)) ?? [] // try?-ok: 测试断言读目录，失败即视为无残留由其他断言兜底
         let allowed: Set<String> = [destinationURL.lastPathComponent, patientDatabaseURL.lastPathComponent,
-                                    destinationURL.lastPathComponent + MedicalCatalogUpdateService.lastGoodSuffix]
+                                    destinationURL.lastPathComponent + MedicalCatalogUpdateService.lastGoodSuffix,
+                                    MedicalCatalogSnapshotFile.directoryName]
         return names.filter { !allowed.contains($0) }
     }
 
