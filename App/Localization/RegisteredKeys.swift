@@ -36,6 +36,7 @@ extension L10n {
     "backup.recoveryCode.saved",
     "backup.recoveryCode.prompt.title",
     "backup.recoveryCode.prompt.body",
+    "backup.mediaReportFmt",
     // V3.49：动态键（voiceIntentName(_:) 拼装）——九意图目录标签（D2 退役 F12 后由十减一），静态扫描不可见
     "voiceIntent.recordMetric",
     "voiceIntent.recordObservation",

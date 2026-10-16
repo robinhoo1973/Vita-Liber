@@ -89,8 +89,8 @@ public actor MediaReconciler {
             let files = (try? fileManager.contentsOfDirectory(atPath: memberDir.path)) ?? [] // try?-ok: 同上
             let referenced = byMember[memberId] ?? []
             for name in files {
-                guard let mtime = try? fileManager.attributesOfItem(
-                    atPath: memberDir.appendingPathComponent(name).path)[.modificationDate] as? Date // try?-ok: 属性不可读=宁留勿删
+                guard let mtime = try? fileManager.attributesOfItem(   // try?-ok: 属性不可读=宁留勿删
+                    atPath: memberDir.appendingPathComponent(name).path)[.modificationDate] as? Date
                 else { continue }
                 let verdict = MediaLifecycleRules.verdictSensitive(fileName: name, mtime: mtime.timeIntervalSince1970,
                                                                    referencedSHAs: referenced,

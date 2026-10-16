@@ -75,12 +75,12 @@ public actor BackupService {
     /// 列 original_sha256 在 → 直接用（单点转换纪律：不重复哈希）；
     /// NULL 行 → 现场哈希一次（legacy 旧库过渡；懒回填属切片 13 对账职责）。
     /// 文件不可达 → 跳过该文档（恢复报告 missing 如实呈现，绝不伪造）。
-    private func buildMediaEntries(documents: [ExportService.DocumentExport]) throws -> (items: [(entry: MediaManifestEntry, sourceURL: URL)], updates: [UUID: String]) {
+    private func buildMediaEntries(envelope: ExportService.Envelope) throws -> (items: [(entry: MediaManifestEntry, sourceURL: URL)], updates: [UUID: String]) {
         guard let mediaBase else { return ([], [:]) }
         let fm = FileManager.default
         var result: [(entry: MediaManifestEntry, sourceURL: URL)] = []
         var updates: [UUID: String] = [:]
-        for doc in documents {
+        for doc in envelope.documents ?? [] {
             let meta = doc.metaJson.flatMap { json -> [String: Any]? in
                 try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=无路径候选，该文档跳过（missing 报告如实呈现）
             } ?? [:]
@@ -109,6 +109,26 @@ public actor BackupService {
                                            memberId: doc.isSensitive ? patientId : nil, kind: .original)
             result.append((entry, source))
         }
+        // F8 照片随包（local-storage-layout-council 切片 14，业主裁决入批）：
+        // 只带 photo 原件（blur 派生可再生，恢复后按需重建）；成员身份由
+        // observation.media_asset_ids 反查；相对路径剥「MedicalNotes/」前缀对齐媒体根。
+        let memberByAsset = Dictionary(uniqueKeysWithValues:
+            (envelope.observations).flatMap { obs in
+                obs.mediaAssetIds.compactMap { id in obs.patientId.map { ($0, id) } }
+            }.map { ($0.1, $0.0) })
+        for asset in envelope.assets ?? [] where asset.kind == "photo" {
+            guard let memberId = memberByAsset[asset.id.uuidString] else { continue }
+            let stripped = asset.relativePath.hasPrefix("MedicalNotes/")
+                ? String(asset.relativePath.dropFirst("MedicalNotes/".count)) : asset.relativePath
+            let source = mediaBase.appendingPathComponent(stripped)
+            guard fm.fileExists(atPath: source.path) else { continue }
+            let data = try Data(contentsOf: source)
+            let sha = CryptoKitContentHasher().sha256Hex(data)
+            let entry = MediaManifestEntry(sha256: sha, size: Int64(data.count),
+                                           mime: "image/jpeg", relativePath: stripped,
+                                           isSensitive: true, memberId: memberId, kind: .photo)
+            result.append((entry, source))
+        }
         return (result, updates)
     }
 
@@ -121,7 +141,7 @@ public actor BackupService {
         // legacy 行不写回则恢复后仍是悬空绝对路径）。
         var mediaItems: [(entry: MediaManifestEntry, sourceURL: URL)] = []
         if encrypted, mediaBase != nil, stagingRoot != nil {
-            let built = try buildMediaEntries(documents: envelope.documents ?? [])
+            let built = try buildMediaEntries(envelope: envelope)
             mediaItems = built.items
             if var docs = envelope.documents, !built.updates.isEmpty {
                 for index in docs.indices {
