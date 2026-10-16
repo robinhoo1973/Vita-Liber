@@ -166,6 +166,7 @@ struct BackupView: View {
     @Environment(BackupState.self) private var state
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
+    @Environment(AppEntitlementStore.self) private var entitlements
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showExportConfirm = false
@@ -195,6 +196,12 @@ struct BackupView: View {
                     }
                     Button {
                         Task {
+                            // 订阅门槛（comercial V1.12）：备份本体订阅——未解锁先弹墙（24h 频控在 evaluateTrigger），
+                            // 已解锁走既有导出前身份验证；导出（FR13.2/13.3）恒免费不受此门槛
+                            guard entitlements.owned.contains(.proBase) else {
+                                _ = entitlements.evaluateTrigger(.backupFirstTap)
+                                return
+                            }
                             // FR13.4：导出前身份验证（门禁复用）——验证通过才进入隐私确认
                             guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
                             showExportConfirm = true
@@ -205,6 +212,11 @@ struct BackupView: View {
                     .accessibilityIdentifier("SP-24.backup.create")
 
                     Button {
+                        // 订阅门槛（comercial V1.12）：恢复同属订阅本体
+                        guard entitlements.owned.contains(.proBase) else {
+                            _ = entitlements.evaluateTrigger(.backupFirstTap)
+                            return
+                        }
                         showImporter = true
                     } label: {
                         Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
