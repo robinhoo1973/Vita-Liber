@@ -21,8 +21,18 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let directory: URL
     }
 
-    private func fixture(directory: URL? = nil) async throws -> Fixture {
-        let (database, patient) = try await GRDBStore.inMemoryWithOwner()
+    private func fixture(directory: URL? = nil, store: GRDBStore? = nil, patient: UUID? = nil) async throws -> Fixture {
+        let database: GRDBStore
+        let patientID: UUID
+        if let store, let patient {
+            database = store
+            patientID = patient
+        } else if let store {
+            database = store
+            patientID = try await store.insertPatient("Owner", relation: "self")
+        } else {
+            (database, patientID) = try await GRDBStore.inMemoryWithOwner()
+        }
         let directory = directory ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("media-layout-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -34,7 +44,7 @@ final class DocumentMediaLayoutTests: XCTestCase {
                                   decoder: PDFKitDecoder(), originalsDir: directory,
                                   understandingEngine: NLTextUnderstanding(), pendingCards: pending,
                                   scheduler: InMemoryReminderScheduler(), cardStore: OCRCardStore(writer: database.writer))
-        return Fixture(database: database, patient: patient, documents: documents,
+        return Fixture(database: database, patient: patientID, documents: documents,
                        pending: pending, docs: docs, directory: directory)
     }
 
@@ -68,6 +78,7 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let fetched = try await f.documents.fetch(id: listed.id)   // list 投影不携带 meta_json（DocumentStore.swift:117 契约）
         let document = try XCTUnwrap(fetched)
         let relative = "originals/\(sha.prefix(2))/\(sha).bin"
+        print("METAJSON-DEBUG nonSensitive=\(document.metaJSON ?? "nil")")   // TODO-remove 诊断
         XCTAssertTrue(document.metaJSON?.contains(relative) == true)   // meta 相对路径（无绝对路径）
         XCTAssertFalse(document.metaJSON?.contains("/originals") == true)  // 绝不含容器绝对路径
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent(relative).path))
@@ -87,6 +98,7 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let fetched = try await f.documents.fetch(id: listed.id)   // 同上：meta_json 经 fetch
         let document = try XCTUnwrap(fetched)
         let relative = "sensitive/\(f.patient.uuidString)/\(sha).bin"
+        print("METAJSON-DEBUG sensitive=\(document.metaJSON ?? "nil")")   // TODO-remove 诊断
         XCTAssertTrue(document.metaJSON?.contains(relative) == true)
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent(relative).path))
         // 敏感件绝不落非敏感 CAS 路径（跨成员去重边界）
@@ -99,8 +111,12 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let first = try await imageDraft(f, isSensitive: false)
         let committedFirst = await f.docs.commitDraft(first)
         XCTAssertTrue(committedFirst)
-        let second = try await imageDraft(f, isSensitive: false)
-        let committedSecond = await f.docs.commitDraft(second)
+        // 生产形态：一笔导入一个 session（commitDraft 后 activeImport 不释放,
+        // prepareImageDraft 在 source 非 nil 时返回 nil）——同库同患者第二稿经
+        // 新 DocumentsState（新 session）落;共享同一媒体根验证 CAS 零复制
+        let f2 = try await fixture(directory: f.directory, store: f.database, patient: f.patient)
+        let second = try await imageDraft(f2, isSensitive: false)
+        let committedSecond = await f2.docs.commitDraft(second)
         XCTAssertTrue(committedSecond)
         let documents = try await f.documents.list(patientId: f.patient)
         XCTAssertEqual(documents.count, 2)
