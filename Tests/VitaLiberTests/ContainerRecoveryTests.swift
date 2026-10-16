@@ -5,7 +5,6 @@ import Domain
 import Infrastructure
 import Protocols
 @testable import VitaLiber
-import CoreKit
 
 /// 库丢失判据（双布局）与媒体生命周期（local-storage-layout-council §8 切片 13，macOS CI）。
 @MainActor

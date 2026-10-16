@@ -6,7 +6,6 @@ import Domain
 import Infrastructure
 import Protocols
 @testable import VitaLiber
-import CoreKit
 
 /// 文档媒体布局（local-storage-layout-council §7.1 切片 10，macOS CI）：
 /// 内容寻址落盘 / 相对路径入 meta / original_sha256 落列 / 双形态读。
