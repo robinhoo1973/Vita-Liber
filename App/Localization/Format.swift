@@ -30,6 +30,9 @@ extension L10n {
         String(format: t("backup.restoreReportFmt"), kept, adopted, coexisted)
     }
 
+    /// 批次 2 同步候选计数（预选后待合并设备信封数）
+    static func syncCandidates(_ n: Int) -> String { String(format: t("sync.candidatesFmt"), n) }
+
     /// 恢复报告卡媒体三分项（local-storage-layout-council 切片 12）：
     /// 到位 = 已导入 + 已在库；缺失 = 清单声称而载具缺字节（绝不伪造恢复）
     static func backupMediaReport(restored: Int, missing: Int) -> String {

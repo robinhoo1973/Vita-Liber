@@ -52,6 +52,12 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case remindChannelAlert
     case remindChannelBackup
     case backupReminderIntervalDays // FR13.10 定期备份提醒间隔（天：7/30/90；0=关闭；V4.20 可配置落地）
+    // 批次 2 同步（FR13.12/V4.21 订阅）：开关/设备身份/seq/上次同步（BR-010 即时生效；
+    // 关闭=停止读写+保留云端信封——H6 裁决「关授权不毁数据」）
+    case syncEnabled
+    case syncDeviceId
+    case syncSeq
+    case syncLastSyncAt
     case inAppBannerEnabled        // 应用内横幅总开关（默认开）
     case voiceMixedInput           // FR17.15 混说开关（默认开）
     case voiceEngine               // FR17.15 V3.66 识别引擎档位（VoiceEngineChoice：auto/advanced/dictation/classic）
@@ -93,6 +99,10 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
              .remindChannelExpiry, .remindChannelAlert, .remindChannelBackup:
             return "local"
         case .backupReminderIntervalDays: return "30"
+        case .syncEnabled: return "false"
+        case .syncDeviceId: return ""
+        case .syncSeq: return "0"
+        case .syncLastSyncAt: return ""
         case .inAppBannerEnabled: return "true"
         case .voiceMixedInput: return "true"
         case .voiceEngine: return VoiceEngineChoice.auto.rawValue

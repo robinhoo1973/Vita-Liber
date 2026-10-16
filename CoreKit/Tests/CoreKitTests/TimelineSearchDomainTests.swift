@@ -451,7 +451,10 @@ struct AppSettingsTests {
     /// 原名：全键默认值齐备
     @Test func allKeysHaveDefaultValues() {
         for key in AppSettingKey.allCases {
-            #expect(!key.defaultValue.isEmpty || key == .defaultMemberId || key == .dataRetentionDays,
+            // syncDeviceId/syncLastSyncAt 为懒初始化状态键（空=「尚未生成/尚未同步」，
+            // 由 SyncState 首用生成——空默认值即其合法初态，同 defaultMemberId 语义）
+            #expect(!key.defaultValue.isEmpty || key == .defaultMemberId || key == .dataRetentionDays
+                    || key == .syncDeviceId || key == .syncLastSyncAt,
                     "键 \(key.rawValue) 必须声明默认值（新增键禁止裸奔）")
         }
     }

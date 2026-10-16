@@ -77,6 +77,8 @@ struct AppContainer {
     let prescriptions: PrescriptionStore
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
     let backup: BackupService
+    /// FR13.12 多设备同步（批次 2）——SyncState 的服务端（推送/预选；合并归 App 层 ADR-019 流程）
+    let sync: SyncService
     /// 媒体生命周期对账（local-storage-layout-council 切片 13）：孤儿 GC / 懒回填 / 清空 / 成员删除
     let mediaReconciler: MediaReconciler
     /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
@@ -305,6 +307,9 @@ struct AppContainer {
                                        .appendingPathComponent("vlbm-staging"))
         let mediaReconciler = MediaReconciler(mediaBase: mediaBaseDir ?? defaultOriginalsDir(),
                                               writer: store.writer)
+        // FR13.12 多设备同步通道（批次 2）：iCloud 文档容器 VitaSync/ 子目录；
+        // 文件层零仲裁，语义合并归 SyncMergeRules + ADR-019
+        let sync = SyncService(channel: ICloudDocumentSyncChannel(), backup: backup)
         let pdfExport = PDFExportService(writer: store.writer)
         // FR16.1 V3.86：HKHealthStore 单实例共享（Apple 文档纪律：一进程一实例，
         // reader 与 sync service 同源注入）
@@ -375,6 +380,7 @@ struct AppContainer {
                             documents: documents,
                              prescriptions: prescriptions,
                              backup: backup,
+                             sync: sync,
                              mediaReconciler: mediaReconciler,
                              medicalCatalog: medicalCatalog,
                              medicalCatalogUpdater: medicalCatalogUpdater,

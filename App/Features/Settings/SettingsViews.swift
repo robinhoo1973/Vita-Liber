@@ -101,6 +101,10 @@ struct SettingsView: View {
                         BackupView()
                     }
                     .accessibilityIdentifier("SP-23.backup.entry")
+                    NavigationLink(L10n.syncTitle) {
+                        SyncSettingsView()
+                    }
+                    .accessibilityIdentifier("SP-sync.entry")
                 }
                 // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：原 12 入口「健康记录」
                 // 大区拆分——「数据与资源」= 数据导入/资源下载同域聚合；其余档案与记录

@@ -38,6 +38,7 @@ struct VitaLiberApp: App {
     /// 运行时自 CNB 下载——状态与生命周期同样上提 App 层。
     @State private var llmModelInstallCenter: LLMModelInstallCenter
     @State private var backupState: BackupState
+    @State private var syncState: SyncState
     @State private var medicalCatalogState: MedicalCatalogState
     @State private var updateAdviceState: UpdateAdviceState
     /// 统一更新中心批（2026-10-07）：ASR 检查态 + 中心编排（App 级跨页存活）。
@@ -198,6 +199,9 @@ struct VitaLiberApp: App {
         // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
         // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
         _backupState = State(initialValue: BackupState(service: container.backup))
+        _syncState = State(initialValue: SyncState(service: container.sync,
+                                                   settings: appSettings,
+                                                   realmProvider: { [appState] in appState.owner?.id }))
         // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，恢复的
         // 计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发。回调在此
         // 装配（self 完全初始化之后）：init 内捕获 self 会触发「backupState
@@ -409,6 +413,7 @@ struct VitaLiberApp: App {
             .environment(exportWizardState)
              .environment(f16DeviceState)
              .environment(backupState)
+             .environment(syncState)
              .environment(medicalCatalogState)
              // E①（收口批）：四域参考目录端口（nil=未就绪零渲染）
              .environment(\.medicalReferenceCatalog, container.medicalReferenceCatalog)

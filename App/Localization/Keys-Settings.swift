@@ -644,6 +644,19 @@ extension L10n {
     static var backupRecoveryCodeSaved: String { t("backup.recoveryCode.saved") }
     static var backupRecoveryCodePromptTitle: String { t("backup.recoveryCode.prompt.title") }
     static var backupRecoveryCodePromptBody: String { t("backup.recoveryCode.prompt.body") }
+    static var syncTitle: String { t("sync.title") }
+    static var syncEnable: String { t("sync.enable") }
+    static var syncEnableNote: String { t("sync.enableNote") }
+    static var syncNow: String { t("sync.now") }
+    static var syncPushing: String { t("sync.pushing") }
+    static var syncRefreshCandidates: String { t("sync.refreshCandidates") }
+    static var syncScopeNote: String { t("sync.scopeNote") }
+    static var syncUnavailableNoRealm: String { t("sync.unavailableNoRealm") }
+    static var syncPushFailed: String { t("sync.pushFailed") }
+    static var syncPullFailed: String { t("sync.pullFailed") }
+    static func syncLastSync(_ date: String) -> String {
+        t("sync.lastSync").replacingOccurrences(of: "%@", with: date)
+    }
     static var backupConfirmImpactTitle: String { t("backup.confirmImpact.title") }
 
     static var backupReminderIntervalTitle: String { t("backup.reminder.interval.title") }
