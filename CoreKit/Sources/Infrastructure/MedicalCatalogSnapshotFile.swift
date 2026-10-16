@@ -7,6 +7,9 @@ import Darwin
 /// A pool may open a new reader after active-path rename. Keep its filename
 /// immutable for the entire pair's lifetime, including suspended reads.
 final class MedicalCatalogSnapshotFile: @unchecked Sendable {
+    /// 读快照缓存目录名（与活跃路径同目录——硬链接要求同卷，故不可挪到 Caches/）。
+    /// 测试夹具的「目录内只许活跃/患者库/last-good」断言须把它列入允许集。
+    static let directoryName = ".medical-catalog-read-snapshots"
     let url: URL
     private let owner: FileHandle
     private let ownerURL: URL
@@ -36,7 +39,7 @@ final class MedicalCatalogSnapshotFile: @unchecked Sendable {
                 throw MedicalCatalogUpdateError.catalogIntegrityFailed
             }
             let root = source.deletingLastPathComponent()
-                .appendingPathComponent(".medical-catalog-read-snapshots", isDirectory: true)
+                .appendingPathComponent(Self.directoryName, isDirectory: true)
             try files.createDirectory(at: root, withIntermediateDirectories: true)
             removeOrphans(in: root)
             let name = UUID().uuidString
