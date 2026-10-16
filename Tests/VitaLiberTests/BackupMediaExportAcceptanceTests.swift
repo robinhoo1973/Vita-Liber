@@ -82,8 +82,35 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
                 """, arguments: [UUID().uuidString, patient.uuidString, "sha:\(missingSha)",
                                  "{\"original_path\":\"originals/cc/\(missingSha).bin\"}",
                                  missingSha])
+            // ⑤F8 照片（asset photo 行 + observation.media_asset_ids 引用 + 文件）
+            let assetId = UUID()
+            try db.execute(sql: """
+                INSERT INTO asset (id, kind, relative_path, file_protection, width, height, size_bytes, created_at)
+                VALUES (?, 'photo', ?, 'complete', 100, 100, 5, 10)
+                """, arguments: [assetId.uuidString,
+                                 "MedicalNotes/sensitive/\(patient.uuidString)/\(assetId.uuidString).jpg"])
+            try db.execute(sql: """
+                INSERT INTO observation (id, patient_id, kind, occurred_at, created_at, updated_at, media_asset_ids)
+                VALUES (?, ?, 'skin', 1700006500, 10, 20, ?)
+                """, arguments: [UUID().uuidString, patient.uuidString,
+                                 "[\"\(assetId.uuidString)\"]"])
         }
         return (store, patient)
+    }
+
+    /// seeded ⑤ 的照片 assetId（DB 反查，测试侧不双写 UUID）
+    private func photoAssetId(_ store: GRDBStore) async throws -> UUID {
+        let id = try await store.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM asset WHERE kind = 'photo'")
+        }
+        return try XCTUnwrap(id.flatMap(UUID.init(uuidString:)))
+    }
+
+    /// 写 seeded ⑤ 的照片字节（makeSeededStore 后调用）
+    private func writePhotoFile(mediaBase: URL, patient: UUID, assetId: UUID) throws {
+        let url = mediaBase.appendingPathComponent("sensitive/\(patient.uuidString)/\(assetId.uuidString).jpg")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([5, 5, 5]).write(to: url)
     }
 
     func test_encryptedBackupProducesSealedCarrier() async throws {
@@ -97,21 +124,30 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         try FileManager.default.createDirectory(at: casURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(bytesA).write(to: casURL)
 
-        let (store, _) = try await makeSeededStore(mediaBase: mediaBase)
+        let (store, patient) = try await makeSeededStore(mediaBase: mediaBase)
+        // ⑤照片字节（asset 行已在 seeded store 内）
+        let photoId = try await photoAssetId(store)
+        try writePhotoFile(mediaBase: mediaBase, patient: patient, assetId: photoId)
         let service = BackupService(writer: store.writer, keyRing: StubKeyRing(),
                                     mediaBase: mediaBase, stagingRoot: staging)
         let pkg = try await service.createBackup(encrypted: true)
 
         let carrier = try XCTUnwrap(pkg.mediaCarrier)
         let manifest = try XCTUnwrap(pkg.mediaManifest)
-        XCTAssertEqual(manifest.entries.count, 3)   // ④缺失文件跳过；①②③在包
+        XCTAssertEqual(manifest.entries.count, 4)   // ④缺失文件跳过；①②③⑤在包
+        let photoSHA = CryptoKitContentHasher().sha256Hex(Data([5, 5, 5]))
         let shas = Set(manifest.entries.map(\.sha256))
-        XCTAssertEqual(shas, Set([shaA, shaB, CryptoKitContentHasher().sha256Hex(Data(bytesB))]))
+        XCTAssertEqual(shas, Set([shaA, shaB, CryptoKitContentHasher().sha256Hex(Data(bytesB)), photoSHA]))
 
         // 清单哈希 = 明文哈希语义（条目相对路径规范形）
         for entry in manifest.entries {
             XCTAssertTrue(MediaDestinationRules.isCanonicalEntry(entry))
         }
+        // ⑤照片条目：kind=photo、敏感路由、路径形状（{assetId}.jpg）
+        let photoEntry = try XCTUnwrap(manifest.entries.first { $0.kind == .photo })
+        XCTAssertTrue(photoEntry.isSensitive)
+        XCTAssertNotNil(photoEntry.memberId)
+        XCTAssertTrue(photoEntry.relativePath.hasSuffix("\"\(photoId.uuidString).jpg\""))
         // 敏感条目路由到 sensitive/{memberId}/（跨患者去重边界）
         let sensitiveEntry = try XCTUnwrap(manifest.entries.first { $0.sha256 == shaB })
         XCTAssertTrue(sensitiveEntry.isSensitive)
@@ -135,7 +171,9 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         try FileManager.default.createDirectory(at: casURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(bytesA).write(to: casURL)
 
-        let (source, _) = try await makeSeededStore(mediaBase: mediaBase)
+        let (source, sourcePatient) = try await makeSeededStore(mediaBase: mediaBase)
+        let photoId = try await photoAssetId(source)
+        try writePhotoFile(mediaBase: mediaBase, patient: sourcePatient, assetId: photoId)
         let sourceService = BackupService(writer: source.writer, keyRing: StubKeyRing(),
                                           mediaBase: mediaBase, stagingRoot: staging)
         let pkg = try await sourceService.createBackup(encrypted: true)
@@ -153,7 +191,7 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         let analysis = try await restoreService.analyzeConflicts(from: pkg.data)
         let masterKey = try XCTUnwrap(analysis.masterKey)
         let mediaReport = try await restoreService.importMediaCarrier(from: carrier, masterKey: masterKey)
-        XCTAssertEqual(mediaReport.imported, 3)
+        XCTAssertEqual(mediaReport.imported, 4)
         XCTAssertEqual(mediaReport.missing.count, 0)
         let records = try await restoreService.restore(from: pkg.data)
         XCTAssertGreaterThan(records, 0)
@@ -185,10 +223,19 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         let missingFile = restoreBase.appendingPathComponent(
             MediaDestinationRules.originalRelativePath(sha256: missingSha))
         XCTAssertFalse(FileManager.default.fileExists(atPath: missingFile.path))
+        // ⑤照片簿记与字节：asset 行在 + 文件落敏感成员目录（blur 派生再生）
+        let restoredAsset = try await destination.writer.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM asset WHERE kind = 'photo'")
+        }
+        XCTAssertNotNil(restoredAsset)
+        let restoredPhoto = restoreBase.appendingPathComponent(
+            "sensitive/\(sourcePatient.uuidString)/\(photoId.uuidString).jpg")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: restoredPhoto.path))
+        XCTAssertEqual(try Data(contentsOf: restoredPhoto), Data([5, 5, 5]))
         // 幂等：再次导入同一载具 → 全 alreadyPresent（字节零改写）
         let again = try await restoreService.importMediaCarrier(from: carrier, masterKey: masterKey)
         XCTAssertEqual(again.imported, 0)
-        XCTAssertEqual(again.alreadyPresent, 3)
+        XCTAssertEqual(again.alreadyPresent, 4)
     }
 
     func test_plaintextBackupCarriesNoCarrier() async throws {

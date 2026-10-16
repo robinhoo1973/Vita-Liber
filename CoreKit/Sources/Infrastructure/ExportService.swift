@@ -98,6 +98,9 @@ public actor ExportService {
         /// 硬删实体墓碑、同步身份键（syncRealmId=便携身份首次建档生成；deviceId/seq=per-device 单调版本）。
         /// 全部 Optional：旧包缺键 → nil（零恢复，不猜）；schemaVersion 仍为 2（只增可选键，不破坏 v2 读侧）。
         public var media: [MediaManifestEntry]?
+        /// v35 附件行（local-storage-layout-council 切片 14）：F8 照片 asset 行随包
+        /// （photo 原件；blur 派生可再生不随包，恢复后按需重建）；旧包 nil。
+        public var assets: [AssetExport]?
         public var tombstones: [Tombstone]?
         public var syncRealmId: UUID?
         public var deviceId: UUID?
@@ -355,6 +358,26 @@ public actor ExportService {
                 self.id = id; self.patientId = patientId; self.kind = kind; self.title = title; self.atDate = atDate; self.repeats = repeats
                 self.status = status; self.source = source; self.channelPref = channelPref; self.sourceTable = sourceTable; self.sourceId = sourceId
                 self.createdAt = createdAt; self.updatedAt = updatedAt
+            }
+        }
+        /// asset 表行（kind/relative_path/file_protection/size/width/height/parent_id）——
+        /// F8 照片簿记随包（切片 14）；恢复按创建序 INSERT OR IGNORE（同 id 已在库=不动）。
+        public struct AssetExport: Sendable, Codable, Equatable {
+            public var id: UUID
+            public var kind: String
+            public var relativePath: String
+            public var fileProtection: String
+            public var width: Int?
+            public var height: Int?
+            public var sizeBytes: Int
+            public var parentId: UUID?
+            public var createdAt: Date
+            public init(id: UUID, kind: String, relativePath: String, fileProtection: String,
+                        width: Int?, height: Int?, sizeBytes: Int, parentId: UUID?,
+                        createdAt: Date) {
+                self.id = id; self.kind = kind; self.relativePath = relativePath
+                self.fileProtection = fileProtection; self.width = width; self.height = height
+                self.sizeBytes = sizeBytes; self.parentId = parentId; self.createdAt = createdAt
             }
         }
         public struct ObservationExport: Sendable, Codable, Equatable {
@@ -838,6 +861,18 @@ public actor ExportService {
                                     consentRecords: consents,
                                     timeline: timeline, plans: plans, appointments: appointments)
             envelope.documents = documents
+            // F8 照片簿记随包（切片 14）：blur 行也导出（parent_id 回指，恢复按创建序保父先子后）
+            envelope.assets = try Row.fetchAll(db, sql: "SELECT * FROM asset ORDER BY created_at").map { row in
+                Envelope.AssetExport(
+                    id: (try Self.requiredUUID(row["id"] as String?, column: "asset.id")),
+                    kind: row["kind"] as String,
+                    relativePath: row["relative_path"] as String,
+                    fileProtection: row["file_protection"] as String,
+                    width: row["width"] as Int?, height: row["height"] as Int?,
+                    sizeBytes: row["size_bytes"] as Int,
+                    parentId: (row["parent_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
+            }
             envelope.ocrCardCommits = try OCRCardStore.exportCommits(db)
             envelope.ocrMedications = try Row.fetchAll(db, sql: """
                 SELECT m.* FROM medication m WHERE EXISTS
@@ -1748,6 +1783,7 @@ private struct ImportSession {
         try restoreDocuments()
         try restorePlans()
         try restoreAppointments()
+        try restoreAssets()
         try restoreObservations()
         try restoreAllergies()
         try restoreEncounters()
@@ -2031,6 +2067,22 @@ private struct ImportSession {
     /// 经活管线入库的文档（title/ocr_text/grade 直列）在恢复中全部丢失）。
     /// encounter_id 外键两段式：encounter 行恢复在文档之后（FK 拓扑序），
     /// 先行落 NULL、encounters 恢复完成后统一回填。
+    /// F8 照片簿记恢复（切片 14）：INSERT OR IGNORE 按创建序（父先子后由 ORDER BY created_at 保证）；
+    /// 同 id 已在库=不动（keep-on-doubt；照片字节由媒体载具按 relativePath 落盘，
+    /// blur 派生再生）。asset 表不参与 ADR-019 裁决（派生簿记，非事实实体）。
+    func restoreAssets() throws {
+        for asset in envelope.assets ?? [] {
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO asset
+                  (id, kind, relative_path, file_protection, width, height, size_bytes, parent_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, arguments: [asset.id.uuidString, asset.kind, asset.relativePath,
+                                 asset.fileProtection, asset.width, asset.height,
+                                 asset.sizeBytes, asset.parentId?.uuidString,
+                                 asset.createdAt.timeIntervalSince1970])
+        }
+    }
+
     mutating func restoreDocuments() throws {
         for audit in envelope.ocrCardCommits ?? [] {
             if idMap[audit.documentId] != nil || idMap[audit.patientId] != nil || idMap[audit.entityId] != nil {
