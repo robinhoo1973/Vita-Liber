@@ -325,8 +325,10 @@ public actor ExportService {
         public struct AppointmentExport: Sendable, Codable, Equatable {
             public var id: UUID
             public var patientId: UUID?
-            public var hospital: String
-            public var department: String
+            /// v3（备份/同步批）：hospital/department 改可选——NULL 保 NULL
+            /// （旧导出侧 ?? "" 把 NULL 归一成空串,往返漂移）。
+            public var hospital: String?
+            public var department: String?
             public var startsAt: Date
             public var status: String
             /// v27（FR10.7）：所挂就诊（恢复时经就诊 remap、就诊落库后回填）与预约目的（CHECK 枚举 raw）；旧包缺键 → nil。
@@ -1112,7 +1114,7 @@ public actor ExportService {
             let timelineTitle = Dictionary(uniqueKeysWithValues: (envelope.documents ?? []).map { ($0.id.uuidString, $0.title) }
                                            + envelope.timeline.map { ($0.id.uuidString, $0.title) })
             let planTitle = Dictionary(uniqueKeysWithValues: envelope.plans.map { ($0.id.uuidString, $0.medicationName) })
-            let aptTitle = Dictionary(uniqueKeysWithValues: envelope.appointments.map { ($0.id.uuidString, $0.hospital) })
+            let aptTitle = Dictionary(uniqueKeysWithValues: envelope.appointments.map { ($0.id.uuidString, $0.hospital ?? "") })
             let obsTitle = Dictionary(uniqueKeysWithValues: envelope.observations.map { ($0.id.uuidString, $0.kind) })
             let allergyTitle = Dictionary(uniqueKeysWithValues: envelope.allergies.map { ($0.id.uuidString, $0.substance) })
             let encTitle = Dictionary(uniqueKeysWithValues: envelope.encounters.map { ($0.id.uuidString, $0.kind) })
