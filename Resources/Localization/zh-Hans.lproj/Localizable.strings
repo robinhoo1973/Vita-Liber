@@ -1464,6 +1464,7 @@
 "backup.confirmImpact.title" = "确认恢复";
 "backup.confirmImpactFmt" = "将导入 %d 条记录,与本机冲突 %d 项,确认后逐项核对。";
 "backup.restoreReportFmt" = "冲突裁决:保留本机 %d · 采用 %d · 并存 %d";
+"backup.mediaReportFmt" = "附件：%d 件到位 · %d 件缺失";
 "backup.recoveryCode.title" = "恢复码已生成";
 "backup.recoveryCode.body" = "这是找回加密备份的唯一凭证,请抄写保存。本应用不存储恢复码原文,关闭后无法再查看。";
 "backup.recoveryCode.saved" = "我已保存";

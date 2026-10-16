@@ -30,6 +30,12 @@ extension L10n {
         String(format: t("backup.restoreReportFmt"), kept, adopted, coexisted)
     }
 
+    /// 恢复报告卡媒体三分项（local-storage-layout-council 切片 12）：
+    /// 到位 = 已导入 + 已在库；缺失 = 清单声称而载具缺字节（绝不伪造恢复）
+    static func backupMediaReport(restored: Int, missing: Int) -> String {
+        String(format: t("backup.mediaReportFmt"), restored, missing)
+    }
+
     static func inventoryMonthlyReportFmt(_ planned: Int, _ confirmed: Int, _ skipped: Int, _ missed: Int) -> String {
         String(format: t("inventory.monthlyReportFmt"), planned, confirmed, skipped, missed)
     }

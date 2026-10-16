@@ -70,14 +70,16 @@ public actor BackupService {
         case encryptionUnavailable // 请求加密/解密但密钥环未注入
     }
 
-    /// 装配点媒体枚举（local-storage-layout-council §8 切片 11）：每条 (entry, 源文件)。
+    /// 装配点媒体枚举（local-storage-layout-council §8 切片 11）：每条 (entry, 源文件)，
+    /// 附带 NULL 行的现场哈希回写集（doc id → sha）——供 createBackup 回写信封。
     /// 列 original_sha256 在 → 直接用（单点转换纪律：不重复哈希）；
     /// NULL 行 → 现场哈希一次（legacy 旧库过渡；懒回填属切片 13 对账职责）。
     /// 文件不可达 → 跳过该文档（恢复报告 missing 如实呈现，绝不伪造）。
-    private func buildMediaEntries(documents: [ExportService.DocumentExport]) throws -> [(entry: MediaManifestEntry, sourceURL: URL)] {
-        guard let mediaBase else { return [] }
+    private func buildMediaEntries(documents: [ExportService.DocumentExport]) throws -> (items: [(entry: MediaManifestEntry, sourceURL: URL)], updates: [UUID: String]) {
+        guard let mediaBase else { return ([], [:]) }
         let fm = FileManager.default
         var result: [(entry: MediaManifestEntry, sourceURL: URL)] = []
+        var updates: [UUID: String] = [:]
         for doc in documents {
             let meta = doc.metaJson.flatMap { json -> [String: Any]? in
                 try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=无路径候选，该文档跳过（missing 报告如实呈现）
@@ -96,6 +98,7 @@ public actor BackupService {
                 sha = original
             } else {
                 sha = CryptoKitContentHasher().sha256Hex(try Data(contentsOf: source))
+                updates[doc.id] = sha
             }
             let relative = doc.isSensitive
                 ? MediaDestinationRules.sensitiveOriginalRelativePath(memberId: patientId, sha256: sha)
@@ -106,17 +109,27 @@ public actor BackupService {
                                            memberId: doc.isSensitive ? patientId : nil, kind: .original)
             result.append((entry, source))
         }
-        return result
+        return (result, updates)
     }
 
     public func createBackup(encrypted: Bool = false) async throws -> BackupPackage {
         var envelope = try await exporter.exportJSON()
         // 媒体随包（local-storage-layout-council §8 切片 11）：仅加密路径携带载具
         // （明文模式 = 旧过渡行为，media 留 nil 不承诺字节）；entries 在装配点
-        // 单点计算（列在则直接用，NULL 行现场哈希一次——绝不把「处理后哈希」当原件身份）。
-        let mediaItems = (encrypted && mediaBase != nil && stagingRoot != nil)
-            ? try buildMediaEntries(documents: envelope.documents ?? [])
-            : []
+        // 单点计算（列在则直接用，NULL 行现场哈希一次——绝不把「处理后哈希」当原件身份）；
+        // 现场哈希**回写信封 originalSha256**（恢复侧 normalizeMediaPaths 依列归一，
+        // legacy 行不写回则恢复后仍是悬空绝对路径）。
+        var mediaItems: [(entry: MediaManifestEntry, sourceURL: URL)] = []
+        if encrypted, mediaBase != nil, stagingRoot != nil {
+            let built = try buildMediaEntries(documents: envelope.documents ?? [])
+            mediaItems = built.items
+            if var docs = envelope.documents, !built.updates.isEmpty {
+                for index in docs.indices {
+                    if let sha = built.updates[docs[index].id] { docs[index].originalSha256 = sha }
+                }
+                envelope.documents = docs
+            }
+        }
         envelope.media = mediaItems.isEmpty ? nil : mediaItems.map(\.entry)
         let payload = try await exporter.encode(envelope)
         let data: Data
@@ -199,11 +212,32 @@ public actor BackupService {
     public struct ConflictAnalysis: Sendable {
         public var conflicts: [ExportService.ConflictItem]
         public var envelope: ExportService.Envelope
+        /// v2 加密帧解封后的主密钥（Data 形态）——媒体载具解密依赖
+        /// （媒体密钥 = HKDF-SHA256(masterKey,"vlbm-media-v1")，切片 12）；
+        /// 明文/遗留包 nil（无载具可解）。
+        public var masterKey: Data?
+        public init(conflicts: [ExportService.ConflictItem], envelope: ExportService.Envelope,
+                    masterKey: Data? = nil) {
+            self.conflicts = conflicts
+            self.envelope = envelope
+            self.masterKey = masterKey
+        }
     }
     public func analyzeConflicts(from data: Data, recoveryCode: String? = nil) async throws -> ConflictAnalysis {
-        let envelope = try await verifiedEnvelope(from: data, recoveryCode: recoveryCode)
-        return ConflictAnalysis(conflicts: try await exporter.conflictReport(envelope),
-                                envelope: envelope)
+        let verified = try await verifiedEnvelope(from: data, recoveryCode: recoveryCode)
+        return ConflictAnalysis(conflicts: try await exporter.conflictReport(verified.envelope),
+                                envelope: verified.envelope,
+                                masterKey: verified.masterKey)
+    }
+
+    /// 媒体载具导入（local-storage-layout-council §8 切片 12）：**必须先于 DB 事务**
+    /// （文件先行、行后行——最坏为不可见孤儿，GC 宽限清；反向窗口对读路径可见）。
+    /// 幂等可重入：重复导入全 alreadyPresent。返回三分项报告（imported/alreadyPresent/missing）。
+    public func importMediaCarrier(from url: URL, masterKey: Data) async throws -> MediaImportReport {
+        guard let mediaBase, let stagingRoot else { throw BackupError.encryptionUnavailable }
+        let sealing = try CryptoKitMediaBlobSealing(masterKey: masterKey)
+        let packager = MediaCarrierPackager(mediaBase: mediaBase, stagingRoot: stagingRoot, sealing: sealing)
+        return try await packager.importMedia(url)
     }
 
     /// 恢复（已校验 envelope 直用）：导入失败即抛错，**不做任何部分导入**——
@@ -228,13 +262,15 @@ public actor BackupService {
     public func restore(from data: Data,
                         resolutions: [UUID: ExportService.ConflictResolution] = [:],
                         recoveryCode: String? = nil) async throws -> Int {
-        let envelope = try await verifiedEnvelope(from: data, recoveryCode: recoveryCode)
-        return try await restore(envelope: envelope, resolutions: resolutions)
+        let verified = try await verifiedEnvelope(from: data, recoveryCode: recoveryCode)
+        return try await restore(envelope: verified.envelope, resolutions: resolutions)
     }
 
     /// 解码 + 校验（三格式兼容：v1 明文帧 / v2 加密段帧 / 遗留 JSON），返回已校验的 envelope
-    private func verifiedEnvelope(from data: Data, recoveryCode: String? = nil) async throws -> ExportService.Envelope {
+    /// 与主密钥（v2 帧解封可得；v1/JSON 为 nil——无载具可解）
+    private func verifiedEnvelope(from data: Data, recoveryCode: String? = nil) async throws -> (envelope: ExportService.Envelope, masterKey: Data?) {
         let (payload, claimedSHA): (Data, String)
+        var masterKey: Data?
         switch EnvelopeFrame.binaryFormatVersion(data) {
         case 2:
             // v2 加密段帧（tech V3.170）：AEAD 认证 + aadHash 双保险；
@@ -245,12 +281,14 @@ public actor BackupService {
                 let opened = try BackupCrypto.openFrame(data, unwrapWith: SymmetricKey(data: deviceKey))
                 payload = opened.payload
                 claimedSHA = opened.aadHash
+                masterKey = opened.masterKey
             } catch BackupCrypto.CryptoError.tamperOrKeyMismatch, BackupCrypto.CryptoError.malformed {
                 guard let code = recoveryCode else { throw BackupError.checksumMismatch }
                 do {
                     let opened = try BackupCrypto.openWithRecoveryCode(data, code: code)
                     payload = opened.payload
                     claimedSHA = opened.aadHash
+                    masterKey = opened.masterKey
                 } catch {
                     throw BackupError.checksumMismatch
                 }
@@ -282,7 +320,7 @@ public actor BackupService {
         guard Self.sha256(payload) == claimedSHA else {
             throw BackupError.checksumMismatch
         }
-        return try await exporter.decode(payload)
+        return (try await exporter.decode(payload), masterKey)
     }
 
     static func sha256(_ data: Data) -> String {

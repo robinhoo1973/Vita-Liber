@@ -125,6 +125,72 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         XCTAssertNotEqual(blob, Data(bytesA))   // 载具内只存密文
     }
 
+    func test_restoreMediaRoundTripRelinksDocuments() async throws {
+        let mediaBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-media-rt-\(UUID().uuidString)", isDirectory: true)
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-staging-rt-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaBase, withIntermediateDirectories: true)
+        let casURL = mediaBase.appendingPathComponent(MediaDestinationRules.originalRelativePath(sha256: shaA))
+        try FileManager.default.createDirectory(at: casURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(bytesA).write(to: casURL)
+
+        let (source, _) = try await makeSeededStore(mediaBase: mediaBase)
+        let sourceService = BackupService(writer: source.writer, keyRing: StubKeyRing(),
+                                          mediaBase: mediaBase, stagingRoot: staging)
+        let pkg = try await sourceService.createBackup(encrypted: true)
+        let carrier = try XCTUnwrap(pkg.mediaCarrier)
+
+        // 目标设备：空库 + 空媒体根 + 同钥匙环（deviceSubKey 相同 = 可解帧）
+        let destination = try GRDBStore.inMemory()
+        let restoreBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-restore-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: restoreBase, withIntermediateDirectories: true)
+        let restoreService = BackupService(writer: destination.writer, keyRing: StubKeyRing(),
+                                           mediaBase: restoreBase, stagingRoot: staging)
+
+        // 媒体先行（幂等）→ DB 单事务——与 restic「内容→索引→快照」写序同构
+        let analysis = try await restoreService.analyzeConflicts(from: pkg.data)
+        let masterKey = try XCTUnwrap(analysis.masterKey)
+        let mediaReport = try await restoreService.importMediaCarrier(from: carrier, masterKey: masterKey)
+        XCTAssertEqual(mediaReport.imported, 3)
+        XCTAssertEqual(mediaReport.missing.count, 0)
+        let records = try await restoreService.restore(from: pkg.data)
+        XCTAssertGreaterThan(records, 0)
+
+        // 重连断言：行列 original_sha256 在、meta 路径相对、字节可达
+        let docs = try await destination.writer.read { db in
+            try Row.fetchAll(db, sql: "SELECT * FROM document_file ORDER BY created_at")
+        }
+        XCTAssertEqual(docs.count, 4)
+        for row in docs {
+            let sha = row["original_sha256"] as String?
+            XCTAssertNotNil(sha, "恢复行必须携带原件身份")
+            let meta = try JSONSerialization.jsonObject(with: Data((row["meta_json"] as String).utf8)) as? [String: Any]
+            let path = meta?["original_path"] as? String
+            XCTAssertNotNil(path)
+            XCTAssertFalse(path?.hasPrefix("/") == true, "恢复后绝不写回绝对路径")
+        }
+        // 非敏感 CAS 字节可达
+        let restoredA = restoreBase.appendingPathComponent(MediaDestinationRules.originalRelativePath(sha256: shaA))
+        XCTAssertEqual(try Data(contentsOf: restoredA), Data(bytesA))
+        // 敏感件落在敏感成员目录（跨患者去重边界保持；memberId 由行反查）
+        let sensitiveRows = docs.filter { ($0["is_sensitive"] as Int?) == 1 }
+        XCTAssertEqual(sensitiveRows.count, 1)
+        let memberId = sensitiveRows[0]["patient_id"] as String
+        let sensitiveFile = restoreBase.appendingPathComponent("sensitive/\(memberId)/\(shaB).bin")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sensitiveFile.path))
+        // 缺失文档（④）：行在、列在、字节缺——「原件缺失」态（报告已如实呈现），不伪造
+        let missingSha = String(repeating: "c", count: 64)
+        let missingFile = restoreBase.appendingPathComponent(
+            MediaDestinationRules.originalRelativePath(sha256: missingSha))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: missingFile.path))
+        // 幂等：再次导入同一载具 → 全 alreadyPresent（字节零改写）
+        let again = try await restoreService.importMediaCarrier(from: carrier, masterKey: masterKey)
+        XCTAssertEqual(again.imported, 0)
+        XCTAssertEqual(again.alreadyPresent, 3)
+    }
+
     func test_plaintextBackupCarriesNoCarrier() async throws {
         let mediaBase = FileManager.default.temporaryDirectory
             .appendingPathComponent("backup-media-plain-\(UUID().uuidString)", isDirectory: true)

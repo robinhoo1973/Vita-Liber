@@ -1232,6 +1232,33 @@ public actor ExportService {
         return String(decoding: try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]), as: UTF8.self)
     }
 
+    /// v35 媒体路径归一（local-storage-layout-council 切片 12）：恢复侧绝不写回
+    /// 源设备绝对路径（换机失效根源）——original_sha256 在列的行改写为规范相对路径
+    /// （非敏感 originals/{sha2}/{sha}.bin；敏感 sensitive/{targetPatientId}/{sha}.bin）；
+    /// 列 NULL 的旧包行原样保留（legacy 容忍读）。processed_path 原值保留
+    /// （处理版不随包 G10；悬空由 resolver 回落原件）。
+    static func normalizeMediaPaths(_ metadata: String?, document: Envelope.DocumentExport,
+                                    targetPatientId: String?) throws -> String? {
+        guard let sha = document.originalSha256, MediaDestinationRules.isLowercaseHex64(sha) else {
+            return metadata
+        }
+        var meta: [String: Any] = [:]
+        if let metadata {
+            guard let decoded = try JSONSerialization.jsonObject(with: Data(metadata.utf8)) as? [String: Any] else {
+                return metadata
+            }
+            meta = decoded
+        }
+        let relative: String
+        if document.isSensitive, let targetPatientId, let member = UUID(uuidString: targetPatientId) {
+            relative = MediaDestinationRules.sensitiveOriginalRelativePath(memberId: member, sha256: sha)
+        } else {
+            relative = MediaDestinationRules.originalRelativePath(sha256: sha)
+        }
+        meta["original_path"] = relative
+        return String(decoding: try JSONSerialization.data(withJSONObject: meta), as: UTF8.self)
+    }
+
     static func documentReference(_ ref: String) throws -> (UUID, Int?) {
         let parts = String(ref.dropFirst(4)).components(separatedBy: "#p")
         guard parts.count == 1 || parts.count == 2, let document = UUID(uuidString: parts[0]) else { throw ExportError.invalidOCRBackup }
@@ -2023,6 +2050,10 @@ private struct ImportSession {
             let targetPatientId = (remap(d.patientId) ?? d.patientId)?.uuidString
             let targetEncounterId = (remap(d.encounterId) ?? d.encounterId)
             let reviewMetadata = try ExportService.remapReviewMetadata(d.metaJson, cardMap: cardMap, entityMap: idMap)
+            // v35 媒体路径归一（local-storage-layout-council 切片 12）：恢复侧绝不写回
+            // 源设备绝对路径（换机失效根源）——original_sha256 在列的行改写为规范相对路径
+            let storedMetadata = try ExportService.normalizeMediaPaths(reviewMetadata, document: d,
+                                                                       targetPatientId: targetPatientId)
             // 第五轮全仓审查修复（5WHY）：keep 裁决的行必须原样保留、绝不
             // 记入回填清单——此前回填循环对所有 envelope 行统一
             // UPDATE encounter_id，keep 行（既有行被跳过、未被 INSERT/UPDATE）
@@ -2041,7 +2072,7 @@ private struct ImportSession {
                 let v25Arguments: [DatabaseValueConvertible?] = legacyEnvelope ? [] : [d.docTypeKey, d.titleSource]
                 let baseArguments: [DatabaseValueConvertible?] = [targetPatientId,
                                      d.docType, d.status, d.sha256, d.mimeType,
-                                      d.isSensitive ? 1 : 0, d.origin, reviewMetadata, d.title,
+                                      d.isSensitive ? 1 : 0, d.origin, storedMetadata, d.title,
                                      d.ocrText, d.notes, d.grade,
                                      d.createdAt.timeIntervalSince1970,
                                      d.updatedAt.timeIntervalSince1970]
@@ -2062,7 +2093,7 @@ private struct ImportSession {
                 VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [targetId.uuidString, targetPatientId,
                                  d.docType, d.status, d.sha256, d.mimeType,
-                                  d.isSensitive ? 1 : 0, d.origin, reviewMetadata, d.title,
+                                  d.isSensitive ? 1 : 0, d.origin, storedMetadata, d.title,
                                  d.ocrText, d.notes, d.grade,
                                  d.createdAt.timeIntervalSince1970,
                                  d.updatedAt.timeIntervalSince1970, d.docTypeKey, d.titleSource])

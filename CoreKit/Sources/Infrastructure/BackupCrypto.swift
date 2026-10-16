@@ -132,6 +132,10 @@ public struct BackupCrypto: Sendable {
         public var keyRef: UUID
         public var aadHash: String
         public var recoveryWrapped: Data?
+        /// 解封后的主密钥（Data 形态——SymmetricKey 无 Equatable 且不脱帧传播）；
+        /// 媒体载具解密依赖（媒体密钥 = HKDF-SHA256(masterKey,"vlbm-media-v1")，
+        /// local-storage-layout-council 切片 12）。仅随帧打开时可得。
+        public var masterKey: Data
     }
 
     public static func openFrame(_ data: Data, unwrapWith wrappingKey: SymmetricKey) throws -> OpenedFrame {
@@ -169,7 +173,8 @@ public struct BackupCrypto: Sendable {
         return OpenedFrame(payload: payload,
                            realmId: UUID(uuid: realmBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
                            keyRef: UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }),
-                           aadHash: aadHash, recoveryWrapped: recoveryWrapped)
+                           aadHash: aadHash, recoveryWrapped: recoveryWrapped,
+                           masterKey: master.withUnsafeBytes { Data($0) })
     }
 
     /// 恢复码 → KEK（HKDF-SHA256；salt = realmId 字节，域隔离——同一恢复码不跨同步域通用）。
@@ -218,7 +223,8 @@ public struct BackupCrypto: Sendable {
         let payload = try open(Data(data[ctLenEnd...]), key: master)
         guard sha256Hex(payload) == aadHash else { throw CryptoError.tamperOrKeyMismatch }
         return OpenedFrame(payload: payload, realmId: realmId, keyRef: keyRef,
-                           aadHash: aadHash, recoveryWrapped: Data(data[recLenEnd..<recEnd]))
+                           aadHash: aadHash, recoveryWrapped: Data(data[recLenEnd..<recEnd]),
+                           masterKey: master.withUnsafeBytes { Data($0) })
     }
 
     static func sha256Hex(_ data: Data) -> String {

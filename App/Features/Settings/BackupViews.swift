@@ -35,8 +35,9 @@ final class BackupState {
         /// 真实影响清单确认（V1.7 恢复流程重构：分析前移到确认之前，
         /// 清单来自真实分析结果而非静态文案）
         case confirmRestore(records: Int, conflictCount: Int)
-        /// FR13.5 恢复后数据校验报告（导入计数 + 冲突裁决三分项）
-        case restored(records: Int, kept: Int, adopted: Int, coexisted: Int)
+        /// FR13.5 恢复后数据校验报告（导入计数 + 冲突裁决三分项 + 媒体三分项）
+        case restored(records: Int, kept: Int, adopted: Int, coexisted: Int,
+                      mediaRestored: Int, mediaMissing: Int)
         /// ADR-019：冲突预览——逐项裁决（保留本机/采用备份/并存）后确认应用
         case conflicts([ExportService.ConflictItem])
         case degraded(String)          // 降级文案（未登录/空间不足/校验失败）
@@ -50,6 +51,8 @@ final class BackupState {
     /// 恢复码输入逃生舱的暂存（包数据 + 来源 URL，供带码重试）
     private var pendingRestoreData: Data?
     private var pendingRestoreURL: URL?
+    /// 媒体载具来源（.vlbm，与信封同次选择；nil = 无载具——恢复照常，媒体全 missing 如实报告）
+    private var pendingCarrierURL: URL?
     /// 冲突裁决（默认保留本机——绝不静默覆盖）
     private(set) var resolutions: [UUID: ExportService.ConflictResolution] = [:]
     /// 已校验的冲突分析（含 envelope）——裁决后恢复直接复用，不再二次哈希+解码整包
@@ -144,7 +147,8 @@ final class BackupState {
 
     /// 选文件后的后台分析（V1.7 恢复流程重构）：读包 + 校验 + 冲突分析，
     /// 产出真实影响清单进确认态——分析完成前用户看不到静态「覆盖」承诺
-    func analyzeRestore(from url: URL) async {
+    func analyzeRestore(from url: URL, carrierURL: URL? = nil) async {
+        pendingCarrierURL = carrierURL
         phase = .analyzing
         // security-scoped：picker 返回的 URL 需显式取用权限，否则读取静默失败
         let scoped = url.startAccessingSecurityScopedResource()
@@ -196,17 +200,28 @@ final class BackupState {
         phase = .conflicts(analysis.conflicts)
     }
 
-    /// 恢复执行 + 报告（成功/冲突裁决三分项——V1.7 报告卡）
+    /// 恢复执行 + 报告（成功/冲突裁决三分项 + 媒体三分项——V1.7 报告卡）
     private func performRestore(_ analysis: BackupService.ConflictAnalysis,
                                 resolutions: [UUID: ExportService.ConflictResolution]) async {
         do {
+            // 媒体先行（local-storage-layout-council §8 切片 12）：文件先落（幂等可重入）→
+            // DB 单事务；两路独立成败——载具缺失/密钥不可解=媒体全 missing，DB 恢复照常
+            let claimed = analysis.envelope.media?.map(\.sha256) ?? []
+            var mediaReport = MediaImportReport(missing: claimed)
+            if let carrierURL = pendingCarrierURL, let masterKey = analysis.masterKey {
+                mediaReport = (try? await service.importMediaCarrier(from: carrierURL, masterKey: masterKey))   // try?-ok: 载具导入失败=全 missing（DB 恢复照常，绝不因载具阻断恢复）
+                    ?? MediaImportReport(missing: claimed)
+            }
             let records = try await service.restore(envelope: analysis.envelope, resolutions: resolutions)
             let kept = resolutions.values.filter { $0 == .keep }.count
             let adopted = resolutions.values.filter { $0 == .adopt }.count
             let coexisted = resolutions.values.filter { $0 == .coexist }.count
             pendingAnalysis = nil
             self.resolutions = [:]
-            phase = .restored(records: records, kept: kept, adopted: adopted, coexisted: coexisted)
+            pendingCarrierURL = nil
+            phase = .restored(records: records, kept: kept, adopted: adopted, coexisted: coexisted,
+                              mediaRestored: mediaReport.imported + mediaReport.alreadyPresent,
+                              mediaMissing: mediaReport.missing.count)
             await onRestored?()   // 恢复末步重建提醒投影（恢复的计划立即进入排程）
         } catch BackupService.BackupError.conflictDetected {
             logger.error("冲突裁决不完整")
@@ -222,6 +237,7 @@ final class BackupState {
         pendingAnalysis = nil
         pendingRestoreData = nil
         pendingRestoreURL = nil
+        pendingCarrierURL = nil
         phase = .idle
     }
 
@@ -474,13 +490,19 @@ struct BackupView: View {
                         Text(L10n.backupRestoreConfirmBody)
                             .font(.caption2)
                     }
-                case .restored(let records, let kept, let adopted, let coexisted):
-                    // FR13.5 恢复后数据校验报告（V1.7 报告卡）：导入计数 + 冲突裁决三分项
+                case .restored(let records, let kept, let adopted, let coexisted,
+                               let mediaRestored, let mediaMissing):
+                    // FR13.5 恢复后数据校验报告（V1.7 报告卡）：导入计数 + 冲突裁决三分项 + 媒体三分项
                     Section {
                         Label(L10n.backupRestoredCount(records), systemImage: "checkmark.circle")
                             .accessibilityIdentifier("SP-24.backup.restored")
                         Text(L10n.backupRestoreReport(kept: kept, adopted: adopted, coexisted: coexisted))
                             .font(.caption2).foregroundStyle(.secondary)
+                        if mediaRestored > 0 || mediaMissing > 0 {
+                            Text(L10n.backupMediaReport(restored: mediaRestored, missing: mediaMissing))
+                                .font(.caption2).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("SP-24.backup.mediaReport")
+                        }
                     }
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
@@ -544,13 +566,30 @@ struct BackupView: View {
                 state.clearDocument()
             }
             .fileImporter(isPresented: $showImporter,
-                          allowedContentTypes: [.data, .json]) { result in
-                guard case .success(let url) = result else { return }
+                          allowedContentTypes: [.data, .json],
+                          allowsMultipleSelection: true) { result in
+                guard case .success(let urls) = result else { return }
+                // 多选（local-storage-layout-council 切片 12）：信封 .vlbu 与媒体载具 .vlbm
+                // 同次选择；按文件头分类（VLBU1 魔数/JSON 首字节 = 信封，其余 = 载具）。
+                // 只选信封也合法——载具缺失由恢复报告如实呈现（绝不伪造）。
+                var envelopeURL: URL?
+                var carrierURL: URL?
+                for url in urls {
+                    let scoped = url.startAccessingSecurityScopedResource()
+                    let head = (try? FileHandle(forReadingFrom: url).read(upToCount: 8)) ?? Data() // try?-ok: 头部读取失败=无法分类，该文件跳过
+                    if scoped { url.stopAccessingSecurityScopedResource() }
+                    if head.starts(with: Data("VLBU1".utf8)) || head.first == 0x7B {   // "{" = 遗留 JSON 信封
+                        envelopeURL = url
+                    } else if carrierURL == nil {
+                        carrierURL = url
+                    }
+                }
+                guard let envelopeURL else { return }
                 // FR13.5/V1.7 恢复流程：选文件 → 门禁 → 后台分析 →
                 // 真实影响清单确认 → (冲突裁决) → 恢复报告
                 Task {
                     guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
-                    await state.analyzeRestore(from: url)
+                    await state.analyzeRestore(from: envelopeURL, carrierURL: carrierURL)
                 }
             }
         }
