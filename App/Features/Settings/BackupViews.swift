@@ -486,30 +486,21 @@ struct BackupView: View {
                 }
 
                 // FR13.10 定期备份提醒间隔可配置（V4.20）：7/30/90/关；
-                // 提醒只引导到备份入口，绝不自动创建备份文件
-                Section(L10n.backupReminderIntervalTitle) {
-                    Picker(L10n.backupReminderIntervalTitle, selection: Binding(
-                        get: { Int(settings.values[.backupReminderIntervalDays] ?? "") ?? BackupReminderRules.defaultIntervalDays },
-                        set: { newValue in
-                            Task {
-                                await settings.set("\(newValue)", for: .backupReminderIntervalDays)
-                                // 评审修复（关档即时生效）：0=关闭须立即撤销已武装/在途提醒——
-                                // 排程评估只在冷启动跑，仅改设置则本次会话内先前武装的提醒照常
-                                // 触发（「关档遗留提醒」只被延后到下次冷启动）。
-                                if newValue == 0 { await reminderStore.clearBackupReminderDelivered() }
-                            }
+                // 提醒只引导到备份入口，绝不自动创建备份文件。
+                // 型检超时拆分（CI #38926490206 报点 503=间隔 Picker 首 tag）：
+                // Section 迁出为显式 @Binding 子视图（见 BackupIntervalSection）。
+                BackupIntervalSection(interval: Binding(
+                    get: { Int(settings.values[.backupReminderIntervalDays] ?? "") ?? BackupReminderRules.defaultIntervalDays },
+                    set: { newValue in
+                        Task {
+                            await settings.set("\(newValue)", for: .backupReminderIntervalDays)
+                            // 评审修复（关档即时生效）：0=关闭须立即撤销已武装/在途提醒——
+                            // 排程评估只在冷启动跑，仅改设置则本次会话内先前武装的提醒照常
+                            // 触发（「关档遗留提醒」只被延后到下次冷启动）。
+                            if newValue == 0 { await reminderStore.clearBackupReminderDelivered() }
                         }
-                    )) {
-                        Text(L10n.backupReminderIntervalOff).tag(0)
-                        Text(L10n.backupReminderInterval7).tag(7)
-                        Text(L10n.backupReminderInterval30).tag(30)
-                        Text(L10n.backupReminderInterval90).tag(90)
                     }
-                    .accessibilityIdentifier("SP-23.backup.interval")
-                } footer: {
-                    Text(L10n.backupReminderIntervalNote)
-                        .font(.caption2)
-                }
+                ))
 
                 switch state.phase {
                 case .conflicts(let items):
@@ -517,30 +508,8 @@ struct BackupView: View {
                     // 确认后整体应用——绝不静默覆盖或丢弃
                     Section(L10n.backupConflictTitle) {
                         ForEach(items) { item in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(conflictKindLabel(item.table))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Text(L10n.docTitle(item.backupTitle ?? item.existingTitle))
-                                    .font(.subheadline)
-                                // V1.7 双值对比：本机摘要 vs 备份摘要（字段级三列对比登记债：
-                                // 跨库实体身份与逐字段 diff 属批次 2/D1 议题，design V1.7 §5.4）
-                                if let existing = item.existingTitle {
-                                    Text("\(L10n.backupConflictExisting) \(L10n.docTitle(existing))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                if let backup = item.backupTitle {
-                                    Text("\(L10n.backupConflictBackup) \(L10n.docTitle(backup))")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Picker(L10n.backupConflictChoice, selection: conflictChoice(item.id)) {
-                                    Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
-                                    Text(L10n.backupConflictAdopt).tag(ExportService.ConflictResolution.adopt)
-                                    Text(L10n.backupConflictCoexist).tag(ExportService.ConflictResolution.coexist)
-                                }
-                                .pickerStyle(.segmented)
-                                .accessibilityIdentifier("SP-23.conflict.choice.\(item.id.uuidString)")
-                            }
-                            .padding(.vertical, 4)
+                            // 型检超时拆分（CI #38926490206）：行内容迁出到显式类型子视图
+                            BackupConflictRow(item: item, choice: conflictChoice(item.id))
                         }
                         Button(L10n.backupConflictApply) {
                             Task { await state.applyConflicts() }
@@ -753,7 +722,7 @@ struct BackupView: View {
     }
 
     /// ADR-019：表名 → 可读类别（Infrastructure 不携带展示文案）
-    private func conflictKindLabel(_ table: String) -> String {
+    fileprivate static func conflictKindLabel(_ table: String) -> String {
         switch table {
         case "patient_profile", "local_owner": return L10n.backupConflictKindProfile
         case "consent_record": return L10n.backupConflictKindConsent
@@ -766,5 +735,62 @@ struct BackupView: View {
         Binding(
             get: { state.resolutions[id] ?? .keep },
             set: { state.setResolution(id, $0) })
+    }
+}
+
+/// 备份提醒间隔 Section（型检超时拆分，CI #38926490206 报点 503=间隔 Picker 首 tag）：
+/// 内联 Binding(get:set:) 含 Task 闭包 + Picker 四 tag 的推断组合是超时主源，
+/// 迁出为显式 @Binding 类型子视图后推断成本归零。
+private struct BackupIntervalSection: View {
+    @Binding var interval: Int
+
+    var body: some View {
+        Section(L10n.backupReminderIntervalTitle) {
+            Picker(L10n.backupReminderIntervalTitle, selection: $interval) {
+                Text(L10n.backupReminderIntervalOff).tag(0)
+                Text(L10n.backupReminderInterval7).tag(7)
+                Text(L10n.backupReminderInterval30).tag(30)
+                Text(L10n.backupReminderInterval90).tag(90)
+            }
+            .accessibilityIdentifier("SP-23.backup.interval")
+        } footer: {
+            Text(L10n.backupReminderIntervalNote)
+                .font(.caption2)
+        }
+    }
+}
+
+/// 冲突行子视图（型检超时拆分，CI #38926490206）：自 BackupView 巨表达式迁出，
+/// 显式 item/choice 类型——ForEach 闭包 + Picker 三 tag 的推断成本是超时主源。
+/// ADR-019 逐项裁决语义不变（保留本机/采用备份/并存，确认后整体应用）。
+private struct BackupConflictRow: View {
+    let item: ExportService.ConflictItem
+    @Binding var choice: ExportService.ConflictResolution
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(BackupView.conflictKindLabel(item.table))
+                .font(.caption).foregroundStyle(.secondary)
+            Text(L10n.docTitle(item.backupTitle ?? item.existingTitle))
+                .font(.subheadline)
+            // V1.7 双值对比：本机摘要 vs 备份摘要（字段级三列对比登记债：
+            // 跨库实体身份与逐字段 diff 属批次 2/D1 议题，design V1.7 §5.4）
+            if let existing = item.existingTitle {
+                Text("\(L10n.backupConflictExisting) \(L10n.docTitle(existing))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let backup = item.backupTitle {
+                Text("\(L10n.backupConflictBackup) \(L10n.docTitle(backup))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Picker(L10n.backupConflictChoice, selection: $choice) {
+                Text(L10n.backupConflictKeep).tag(ExportService.ConflictResolution.keep)
+                Text(L10n.backupConflictAdopt).tag(ExportService.ConflictResolution.adopt)
+                Text(L10n.backupConflictCoexist).tag(ExportService.ConflictResolution.coexist)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("SP-23.conflict.choice.\(item.id.uuidString)")
+        }
+        .padding(.vertical, 4)
     }
 }
