@@ -246,6 +246,12 @@ struct MediaCarrierPackagerTests {
         }
         let manifestURL = staging.appendingPathComponent(MediaCarrierPackager.manifestFileName)
         try JSONEncoder().encode(evilManifest).write(to: manifestURL, options: .atomic)
+        // ZIPFoundation update 模式 addEntry 是追加语义：同路径会产出重复条目，import 读到的
+        // 仍是首个（原好）manifest——先删后加才是真替换。生产侧重复 manifest 首条胜出
+        // 是安全方向（逐条目规范形+GCM+明文 sha 校验仍生效），无需变更生产读取语义。
+        if let oldManifest = archive[MediaCarrierPackager.manifestFileName] {
+            try archive.remove(oldManifest)
+        }
         try archive.addEntry(with: MediaCarrierPackager.manifestFileName, relativeTo: staging,
                              compressionMethod: .deflate)
 
