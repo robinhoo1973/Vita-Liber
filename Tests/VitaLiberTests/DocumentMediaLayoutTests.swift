@@ -79,7 +79,7 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let document = try XCTUnwrap(fetched)
         let relative = "originals/\(sha.prefix(2))/\(sha).bin"
         // JSONSerialization 默认把 / 转义为 \/——子串匹配必假红;语义断言解析后比 value
-        let metaObject = try JSONSerialization.jsonObject(with: Data(document.metaJSON?.utf8 ?? Data()))
+        let metaObject = try JSONSerialization.jsonObject(with: Data((document.metaJSON ?? "").utf8))
         let metaDict = try XCTUnwrap(metaObject as? [String: Any])
         XCTAssertEqual(metaDict["original_path"] as? String, relative)   // meta 相对路径（无绝对路径）
         XCTAssertFalse((metaDict["original_path"] as? String)?.hasPrefix("/") == true)  // 绝不含容器绝对路径
@@ -100,7 +100,7 @@ final class DocumentMediaLayoutTests: XCTestCase {
         let fetched = try await f.documents.fetch(id: listed.id)   // 同上：meta_json 经 fetch
         let document = try XCTUnwrap(fetched)
         let relative = "sensitive/\(f.patient.uuidString)/\(sha).bin"
-        let metaObject = try JSONSerialization.jsonObject(with: Data(document.metaJSON?.utf8 ?? Data()))
+        let metaObject = try JSONSerialization.jsonObject(with: Data((document.metaJSON ?? "").utf8))
         let metaDict = try XCTUnwrap(metaObject as? [String: Any])
         XCTAssertEqual(metaDict["original_path"] as? String, relative)
         XCTAssertTrue(FileManager.default.fileExists(atPath: f.directory.appendingPathComponent(relative).path))
