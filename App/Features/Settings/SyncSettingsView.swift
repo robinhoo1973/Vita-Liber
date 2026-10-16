@@ -25,6 +25,9 @@ final class SyncState {
     private let settings: AppSettingsStore
     private let realmProvider: @MainActor () -> UUID?
     private let logger = Logger(subsystem: "com.vitaliber", category: "sync")
+    /// 设备身份缓存（评审修复，写-读竞态）：首调生成 UUID 并写盘前，并发调用会各自生成
+    /// 不同身份——先入缓存再等待落盘，进程内身份单点。
+    private var deviceIdCache: UUID?
 
     init(service: SyncService, settings: AppSettingsStore, realmProvider: @escaping @MainActor () -> UUID?) {
         self.service = service
@@ -51,8 +54,16 @@ final class SyncState {
     private func deviceIdentity() async -> (deviceId: UUID, seq: UInt64) {
         let existing = settings.values[.syncDeviceId] ?? ""
         let parsed = UUID(uuidString: existing)
-        let deviceId = parsed ?? UUID()
-        if parsed == nil {
+        let deviceId: UUID
+        if let parsed {
+            deviceId = parsed
+        } else if let cached = deviceIdCache {
+            // 并发首调（syncNow 与 refreshCandidates 同拍）此前各自生成 UUID——
+            // 先入缓存的写-读竞态（评审修复）：候选过滤/seq 归并围绕两个身份分裂。
+            deviceId = cached
+        } else {
+            deviceId = UUID()
+            deviceIdCache = deviceId   // 先入缓存再落盘：等待写盘期间再次调用同 id
             await settings.set(deviceId.uuidString, for: .syncDeviceId)
         }
         let seq = UInt64(settings.values[.syncSeq] ?? "0") ?? 0
@@ -75,9 +86,19 @@ final class SyncState {
             if let code = package.recoveryCode {
                 // 一次性恢复码（码原文零存储）：展示即最后机会，确认后清除
                 pendingRecoveryCode = code
+                _ = await service.takeUnseenRecoveryCode()   // 同一码已在手——排空暂存防日后回弹
+            } else if let stillborn = await service.takeUnseenRecoveryCode() {
+                // 上轮 push 半程失败（createBackup 内/commit 失败）的码：主密钥已注册、
+                // 重试恒 nil 码——此处不展示即永久丢失（评审修复，零知识链断头）
+                pendingRecoveryCode = stillborn
             }
         } catch {
             logger.error("同步推送失败: \(error)")
+            // 评审修复（恢复码链断点）：push 失败路径取回未面世的一次性码——
+            // createBackup 可能已生成码并持久化包裹段（媒体载具/密封/commit 后半程错误）
+            if let code = await service.takeUnseenRecoveryCode() {
+                pendingRecoveryCode = code
+            }
             degradedMessage = L10n.syncPushFailed
         }
         phase = .idle
@@ -123,8 +144,12 @@ struct SyncSettingsView: View {
                     Toggle(L10n.syncEnable, isOn: Binding(
                         get: { state.enabled },
                         set: { on in
-                            // 订阅门槛（comercial V1.12）：同步本体订阅——未解锁弹墙并保持关闭
-                            guard entitlements.gateProBase(.syncFirstToggle) else { return }
+                            // 订阅门槛（comercial V1.12）：同步本体订阅——未解锁弹墙并保持关闭。
+                            // 仅拦「开启」方向（评审修复）：此前双向拦截——订阅态异常
+                            //（恢复导入/权益读取故障）时已开用户连关闭都点不动，隐私开关卡死。
+                            if on {
+                                guard entitlements.gateProBase(.syncFirstToggle) else { return }
+                            }
                             Task {
                                 // 评审修复（写读竞态）：等设置落盘再刷新候选——此前
                                 // fire-and-forget 写 + 立即刷新，refreshCandidates 的
@@ -190,7 +215,7 @@ struct SyncSettingsView: View {
                     Section {
                         Label(L10n.backupRecoveryCodeTitle, systemImage: "key.fill")
                         Text(code)
-                            .font(.system(.body, design: .monospaced))
+                            .font(VLFont.recoveryCode)
                             .textSelection(.enabled)
                             .accessibilityIdentifier("SP-sync.recoveryCode")
                         Text(L10n.backupRecoveryCodeBody)

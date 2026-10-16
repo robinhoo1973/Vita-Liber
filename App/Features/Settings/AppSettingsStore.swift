@@ -287,3 +287,16 @@ final class AppSettingsStore {
         }
     }
 }
+
+/// SettingsStoring 端口适配（评审修复，L1 编译红清零）：
+/// ReminderStore 以 `any SettingsStoring` 注入（V4.20 可配置备份提醒间隔），
+/// 而组合根/预览/测试四处传 AppSettingsStore——此前本类未声明一致性，
+/// 整仓 macOS 型检必红（`cannot convert 'AppSettingsStore' to 'any SettingsStoring'`）。
+/// value(for:) 缓存先行（values 由 load() 全量预载、含默认值解析）；未命中回落
+/// SettingsStore 真源——提醒兜底不因设置故障消失。set/restoreDefaults 已有同签名实现。
+extension AppSettingsStore: SettingsStoring {
+    func value(for key: AppSettingKey) async throws -> String {
+        if let cached = values[key] { return cached }
+        return try await store.value(for: key)
+    }
+}

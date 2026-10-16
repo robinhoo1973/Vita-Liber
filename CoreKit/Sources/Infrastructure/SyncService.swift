@@ -13,10 +13,20 @@ public actor SyncService {
 
     private let channel: any SyncChannel
     private let backup: BackupService
+    /// 最近一次 push 未面世的恢复码（评审修复，恢复码链断点）：commit 失败=信封
+    /// 未落云端，但 createBackup 已注册主密钥并生成码——重试恒返回 nil 码（master 已在位），
+    /// 不取回即永久丢失。取走即清（展示即最后机会，与 BackupService 同纪律）。
+    private var unseenRecoveryCode: String?
 
     public init(channel: any SyncChannel, backup: BackupService) {
         self.channel = channel
         self.backup = backup
+    }
+
+    /// 取走未面世的恢复码（nil = 无丢失面）
+    public func takeUnseenRecoveryCode() -> String? {
+        defer { unseenRecoveryCode = nil }
+        return unseenRecoveryCode
     }
 
     /// 推送本机快照：seq 由调用方维护（每次 push +1，同设备单调）；
@@ -28,8 +38,29 @@ public actor SyncService {
     @discardableResult
     public func push(realmId: UUID, deviceId: UUID, seq: UInt64) async throws -> BackupService.BackupPackage {
         let identity = SyncFileNaming.Identity(realmId: realmId, deviceId: deviceId, seq: seq)
-        let package = try await backup.createBackup(encrypted: true, syncIdentity: identity, includeMedia: false)
-        try await channel.commit(package.data, identity: identity)
+        let package: BackupService.BackupPackage
+        do {
+            package = try await backup.createBackup(encrypted: true, syncIdentity: identity, includeMedia: false)
+        } catch {
+            // createBackup 半程失败（密封/钥匙串后半程）也可能已注册主密钥 + 生成码——
+            // 取回暂存，绝不静默丢弃（评审修复）
+            if let stillborn = await backup.takeUnseenRecoveryCode() {
+                unseenRecoveryCode = stillborn
+            }
+            throw error
+        }
+        // 成功路径排空 BackupService 侧暂存：码随 package 已交付调用方；
+        // 若 package 无码但存在残留（上轮半程失败），一并取回供失败/成功路径展示
+        if let drained = await backup.takeUnseenRecoveryCode() {
+            unseenRecoveryCode = unseenRecoveryCode ?? drained
+        }
+        do {
+            try await channel.commit(package.data, identity: identity)
+        } catch {
+            // commit 失败 = 信封未落云端：码未随任何包面世，暂存供调用方失败路径取回
+            unseenRecoveryCode = unseenRecoveryCode ?? package.recoveryCode
+            throw error
+        }
         return package
     }
 

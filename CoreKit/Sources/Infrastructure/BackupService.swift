@@ -19,6 +19,18 @@ public actor BackupService {
     private let mediaBase: URL?
     /// 载具暂存目录（Caches——不进 Documents 明文）。
     private let stagingRoot: URL?
+    /// 已生成但尚未面世的一次性恢复码（评审修复，恢复码链断点）：createBackup
+    /// 半程失败（媒体载具/密封/钥匙串后半程错误）或 createBackup 成功后 commit 失败时，
+    /// 主密钥已注册、码已持久化进包裹段——重试恒返回 nil 码（master 已在位），
+    /// 此处不展示即永久丢失（码原文零存储=零知识纪律，无法事后找回）。
+    /// 取走即清（展示即最后机会）；仅内存，不落任何存储。
+    private var unseenRecoveryCode: String?
+
+    /// 取走未面世的恢复码（nil = 无——正常路径码随 BackupPackage.recoveryCode 返回）
+    public func takeUnseenRecoveryCode() -> String? {
+        defer { unseenRecoveryCode = nil }
+        return unseenRecoveryCode
+    }
 
     public init(writer: any DatabaseWriter, keyRing: (any DeviceKeyRing)? = nil,
                 mediaBase: URL? = nil, stagingRoot: URL? = nil) {
@@ -180,8 +192,23 @@ public actor BackupService {
             let recoveryWrapped: Data?
             if let existing = try await keyRing.masterKey(realmId: realmId) {
                 masterData = existing
-                recoveryWrapped = try await keyRing.recoveryWrapped(realmId: realmId)   // 既有包裹段随帧走（信封自足）
-                recoveryCode = nil
+                if let wrapped = try await keyRing.recoveryWrapped(realmId: realmId) {
+                    recoveryWrapped = wrapped   // 既有包裹段随帧走（信封自足）
+                    recoveryCode = nil
+                } else {
+                    // 评审修复（恢复码链断点）：主密钥在位但包裹段缺失——第二台设备经
+                    // iCloud 收到主钥、本机从未生成过码；或旧版本 ThisDeviceOnly 项
+                    // 对新同步查询不可见。此前静默封出 recLen=0 帧：钥匙串重置后用户
+                    // 持任何码也无段可依（逃生舱恒 checksumMismatch）。补发：新码 →
+                    // KEK → 包裹段持久化 + 随帧走（旧快照的 embedded 段不受影响）。
+                    let code = RecoveryCode.generate()
+                    let kek = BackupCrypto.recoveryKEK(code: code, realmId: realmId)
+                    let wrapped = try BackupCrypto.wrapKey(SymmetricKey(data: masterData), using: kek)
+                    try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
+                    recoveryWrapped = wrapped
+                    recoveryCode = code
+                    unseenRecoveryCode = code
+                }
             } else {
                 masterData = try keyRing.generateMasterKey()
                 try await keyRing.storeMasterKey(masterData, realmId: realmId)
@@ -192,6 +219,13 @@ public actor BackupService {
                 try await keyRing.storeRecoveryWrapped(wrapped, realmId: realmId)
                 recoveryWrapped = wrapped
                 recoveryCode = code
+                unseenRecoveryCode = code
+                // 评审修复（主密钥重生成 × 增量暂存）：staged blob 密封密钥 =
+                // HKDF(旧主密钥)——新钥对它永久不可解，而 stage 按 sha 幂等会把旧密文
+                // 原样打包装车（恢复侧静默「媒体全 missing」）。旧钥密文无任何修复面，
+                // 整树清除是唯一正确处置；此处不限 includeMedia——sync push（false）
+                // 注册新钥后，后续整包备份仍复用同暂存目录。
+                if let stagingRoot { Self.purgeStagedMedia(in: stagingRoot) }
             }
             let deviceKey = try await keyRing.deviceSubKey()
             data = try BackupCrypto.sealFrame(payload: payload,
@@ -202,7 +236,9 @@ public actor BackupService {
                                               recoveryWrapped: recoveryWrapped)
             digest = BackupCrypto.sha256Hex(payload)   // 明文 payload 哈希——清单哈希语义延续（加密不改清单哈希纪律）
             // 媒体载具：blob 先加密后入包（媒体密钥 HKDF 派生自主密钥），
-            // 清单明文哈希；暂存目录每次重建（stale staged 不残留、stage 按 sha 幂等）
+            // 清单明文哈希；暂存目录**增量保留**（stage 按 sha 幂等、每轮仅清 .vlbm 载具 +
+            // 按本次条目集 GC 孤儿 blob；主密钥重生成时整树清除见上——修订先前
+            // 「暂存目录每次重建」的不实注释）
             let mediaCarrier: URL?
             let mediaManifest: MediaManifest?
             if !mediaItems.isEmpty, let stagingRoot {
@@ -215,6 +251,9 @@ public actor BackupService {
                 for item in mediaItems {
                     _ = try await packager.stage(sourceURL: item.sourceURL, entry: item.entry)
                 }
+                // 暂存 GC（评审修复）：数据被删除/裁剪后不再引用的旧 blob 随本轮清理——
+                // 否则暂存体积随历史媒体总量线性增长（Caches 虽有系统回收，仍属无界占用）。
+                await packager.pruneStaged(keeping: Set(mediaItems.map(\.entry.sha256)))
                 let carrierURL = stagingRoot.appendingPathComponent(
                     "vitaliber-media-\(Int(Date().timeIntervalSince1970)).vlbm")
                 mediaManifest = try await packager.commit(to: carrierURL, entries: mediaItems.map(\.entry))
@@ -318,6 +357,7 @@ public actor BackupService {
     private func verifiedEnvelope(from data: Data, recoveryCode: String? = nil) async throws -> (envelope: ExportService.Envelope, masterKey: Data?) {
         let (payload, claimedSHA): (Data, String)
         var masterKey: Data?
+        var frameVerified = false
         switch EnvelopeFrame.binaryFormatVersion(data) {
         case 2:
             // v2 加密段帧（tech V3.170）：AEAD 认证 + aadHash 双保险；
@@ -355,6 +395,9 @@ public actor BackupService {
             } catch {
                 throw BackupError.unsupportedFormat
             }
+            // v2 全部成功路径都经 openFrame* 解封（内部已核对 aadHash == sha256(payload)）——
+            // 帧层再全量重哈希一次纯冗余（数百 MB 备份多算一遍 SHA-256），跳过（评审修复）。
+            frameVerified = true
         case 1:
             guard let frame = EnvelopeFrame.parseBinary(data) else {
                 throw BackupError.unsupportedFormat
@@ -377,7 +420,7 @@ public actor BackupService {
             claimedSHA = outer.sha256
             payload = outer.payload
         }
-        guard Self.sha256(payload) == claimedSHA else {
+        guard frameVerified || Self.sha256(payload) == claimedSHA else {
             throw BackupError.checksumMismatch
         }
         return (try await exporter.decode(payload), masterKey)
@@ -387,6 +430,15 @@ public actor BackupService {
         // 收敛到 ContentHashing 单实现（CryptoKitContentHasher）——
         // 全仓哈希不再各自内联 CryptoKit 表达式
         CryptoKitContentHasher().sha256Hex(data)
+    }
+
+    /// 主密钥重生成后清除全部 staged blob（评审修复，旧钥密文不可跨钥复用）：
+    /// staged blob 密封密钥 = HKDF(旧主密钥)，stage 的按 sha 幂等跳过会把旧密文
+    /// 原样打包装车——新钥解封全数认证失败，恢复侧静默「媒体全 missing」。
+    /// 旧钥密文对新钥永远不可用且无修复面，整树清除（不清 .vlbm/.partial：前者由
+    /// removeStaleCarriers 每轮清、后者由 moveItem 原子性兜底）。
+    private static func purgeStagedMedia(in stagingRoot: URL) {
+        try? FileManager.default.removeItem(at: stagingRoot.appendingPathComponent("media", isDirectory: true))   // try?-ok: 无残留/删除失败=缓存占用与重加密开销，无正确性影响
     }
 
     /// 清理暂存目录内的旧载具文件（vitaliber-media-*.vlbm）——staged blob 保留供增量复用；

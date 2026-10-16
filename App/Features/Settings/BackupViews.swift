@@ -107,25 +107,39 @@ final class BackupState {
                     pendingCarrierDocument = BackupDocument(data: carrierData)
                 }
             }
-            if let code = pkg.recoveryCode {
-                // 恢复码零知识：原文不入任何存储——展示即最后机会，确认后继续导出
+            // 恢复码零知识：原文不入任何存储——展示即最后机会，确认后继续导出。
+            // 成功路径先排空服务侧暂存（同码/上轮残留）：package 码优先展示，nil 时
+            // 回落残留（上轮半程失败从未面世的码，评审修复）。
+            let unseen = await service.takeUnseenRecoveryCode()
+            if let code = pkg.recoveryCode ?? unseen {
                 phase = .recoveryCodeCreated(code)
             } else {
                 phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
             }
         } catch {
             logger.error("备份创建失败: \(error)")
-            // 审查修复：创建失败未必是空间不足（信封序列化/DB 读取失败同样
-            // 落入此分支）——此前恒报「iCloud 空间不足」，用户清理空间后
-            // 重试依旧失败。通用失败文案，不把错误原因归罪为空间。
-            phase = .degraded(L10n.backupCreateFailed)
+            // 评审修复（恢复码链断点）：createBackup 可能在注册主密钥并持久化包裹段后
+            // 才失败（媒体载具/密封/钥匙串后半程错误）——重试恒 nil 码，码原文零存储，
+            // 此处不展示即永久丢失。有未面世码 → 走恢复码卡片（确认后回降级态）。
+            if let code = await service.takeUnseenRecoveryCode() {
+                phase = .recoveryCodeCreated(code)
+            } else {
+                // 审查修复：创建失败未必是空间不足（信封序列化/DB 读取失败同样
+                // 落入此分支）——此前恒报「iCloud 空间不足」，用户清理空间后
+                // 重试依旧失败。通用失败文案，不把错误原因归罪为空间。
+                phase = .degraded(L10n.backupCreateFailed)
+            }
         }
     }
 
-    /// 恢复码已保存确认 → 继续导出
+    /// 恢复码已保存确认 → 继续导出（无待导出包 = 失败路径的一次性展示，回到失败态）
     func confirmRecoveryCodeSaved() {
-        guard case .recoveryCodeCreated = phase, let pkg = pendingPackage else { return }
-        phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
+        guard case .recoveryCodeCreated = phase else { return }
+        if let pkg = pendingPackage {
+            phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
+        } else {
+            phase = .degraded(L10n.backupCreateFailed)
+        }
     }
 
     /// 恢复码输入重试（设备子密钥不可达的逃生舱）
@@ -153,6 +167,9 @@ final class BackupState {
         } catch {
             guard round == analysisGeneration else { return }
             logger.error("恢复码重试分析失败: \(error)")
+            // 评审修复（载具 scope 泄漏）：终止态不保留 security-scope 句柄
+            pendingCarrierURL = nil
+            endCarrierScope()
             phase = .degraded(L10n.backupRestoreFailed)
         }
     }
@@ -191,28 +208,35 @@ final class BackupState {
             // 明文包校验失败 = 真损坏，如实报错。
             // 版本判定只读帧头（评审修复）：此前 try? Data(contentsOf:) 把整包
             //（可达数百 MB）在 MainActor 上同步重读一遍——校验失败路径再冻 UI 一次。
+            // 帧头判定归 EnvelopeFrame.binaryFormatVersion（评审修复：此外此前内联
+            // 一份魔数/版本逐字节判定，两处漂移即逃生舱静默失效）。
             let headVersion: UInt8? = {
                 guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }   // try?-ok: 头读失败=走损坏文案
                 defer { try? handle.close() }                                                // try?-ok: 关闭失败无补救面
-                guard let head = try? handle.read(upToCount: EnvelopeFrame.binaryMagic.count + 1),   // try?-ok: 读取失败=走损坏文案
-                      head.count == EnvelopeFrame.binaryMagic.count + 1,
-                      head.starts(with: EnvelopeFrame.binaryMagic) else { return nil }
-                return head[head.startIndex.advanced(by: EnvelopeFrame.binaryMagic.count)]
+                guard let head = try? handle.read(upToCount: EnvelopeFrame.binaryMagic.count + 1) else { return nil }   // try?-ok: 读取失败=走损坏文案
+                return EnvelopeFrame.binaryFormatVersion(head)
             }()
             if headVersion == 2 {
                 pendingRestoreURL = url
                 phase = .recoveryCodePrompt
             } else {
+                // 评审修复（载具 scope 泄漏）：降级终态不保留 security-scope 句柄
+                pendingCarrierURL = nil
+                endCarrierScope()
                 phase = .degraded(L10n.backupChecksumFailed)
             }
         } catch BackupService.BackupError.unsupportedFormat {
             guard round == analysisGeneration else { return }
-            // 校验失败绝不部分导入——本机数据保持原样
+            // 校验失败绝不部分导入——本机数据保持原样；载具 scope 同款收尾（评审修复）
+            pendingCarrierURL = nil
+            endCarrierScope()
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
             guard round == analysisGeneration else { return }
             logger.error("备份分析失败: \(error)")
-            // 第八轮修复同族：非校验类失败不归罪文件损坏
+            // 第八轮修复同族：非校验类失败不归罪文件损坏；载具 scope 同款收尾（评审修复）
+            pendingCarrierURL = nil
+            endCarrierScope()
             phase = .degraded(L10n.backupRestoreFailed)
         }
     }
@@ -317,6 +341,11 @@ final class BackupState {
     func cancelConflicts() {
         pendingAnalysis = nil
         resolutions = [:]
+        // 评审修复（载具 scope 泄漏）：与 cancelAnalysis 同款收尾——此前取消裁决
+        // 不释放 security-scope 也不清 pendingCarrierURL（句柄跨会话滞留、下一轮
+        // 文件选择的载具错配基准残留）。
+        pendingCarrierURL = nil
+        endCarrierScope()
         phase = .idle
     }
 
@@ -516,7 +545,7 @@ struct BackupView: View {
                     Section {
                         Label(L10n.backupRecoveryCodeTitle, systemImage: "key.fill")
                         Text(code)
-                            .font(.system(.body, design: .monospaced))
+                            .font(VLFont.recoveryCode)
                             .textSelection(.enabled)
                             .accessibilityIdentifier("SP-24.backup.recoveryCode")
                         Text(L10n.backupRecoveryCodeBody)
