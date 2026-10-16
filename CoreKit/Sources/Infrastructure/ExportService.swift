@@ -13,17 +13,9 @@ public actor ExportService {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     /// 导出 envelope（VersionedData 语义：版本 + 生成时间 + 数据）
-    /// 媒体清单条目（v3 备份补全批，discussions/2026-10-16-backup-sync-share-design.md §8.5）：
-    /// 清单哈希 = 明文原件哈希语义——document_file.sha256/去重/restoreOCRPages 守卫全部依赖它，
+    /// 媒体清单条目与 Domain.MediaManifestEntry 同型收敛（local-storage-layout-council §8 切片 9）：
+    /// 清单哈希 = 明文原件哈希语义——跨设备身份/去重/restoreOCRPages 守卫依赖它，
     /// 加密不得改清单哈希。字节本体在独立媒体载具 `.vlbm` 内，不进 JSON payload。
-    public struct MediaEntry: Sendable, Codable, Equatable {
-        public var sha256: String
-        public var size: Int64
-        public var mime: String
-        public init(sha256: String, size: Int64, mime: String) {
-            self.sha256 = sha256; self.size = size; self.mime = mime
-        }
-    }
 
     /// 硬删实体墓碑（v3）：observation 等硬删实体无 deleted_at 软删列，删除不可传播——
     /// 快照同步经墓碑清单传播删除（软删实体走既有 deleted_at 随包，无需墓碑）。
@@ -105,7 +97,7 @@ public actor ExportService {
         /// v3 备份补全批（discussions/2026-10-16-backup-sync-share-design.md V1.7）：媒体清单（明文原件哈希语义）、
         /// 硬删实体墓碑、同步身份键（syncRealmId=便携身份首次建档生成；deviceId/seq=per-device 单调版本）。
         /// 全部 Optional：旧包缺键 → nil（零恢复，不猜）；schemaVersion 仍为 2（只增可选键，不破坏 v2 读侧）。
-        public var media: [MediaEntry]?
+        public var media: [MediaManifestEntry]?
         public var tombstones: [Tombstone]?
         public var syncRealmId: UUID?
         public var deviceId: UUID?

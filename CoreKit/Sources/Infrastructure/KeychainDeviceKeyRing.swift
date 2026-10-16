@@ -15,11 +15,14 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
 
     public init() {}
 
-    private func baseQuery(_ account: String, synchronizable: Bool) -> [String: Any] {
+    private func baseQuery(_ account: String, synchronizable: Bool, accessible: CFString) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: account,
+            // 显式保护类（安全席 T2b：默认 WhenUnlocked 依赖隐式行为，显式声明防止静默漂移）：
+            // 同步主钥仅兼容 WhenUnlocked；本机密钥收窄为 WhenUnlockedThisDeviceOnly。
+            kSecAttrAccessible as String: accessible,
         ]
         if synchronizable {
             query[kSecAttrSynchronizable as String] = kCFBooleanTrue!
@@ -27,8 +30,11 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
         return query
     }
 
+    private static let masterAccessible = kSecAttrAccessibleWhenUnlocked
+    private static let deviceAccessible = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+
     public func masterKey(realmId: UUID) async throws -> Data? {
-        var query = baseQuery("master.\(realmId.uuidString)", synchronizable: true)
+        var query = baseQuery("master.\(realmId.uuidString)", synchronizable: true, accessible: Self.masterAccessible)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -42,13 +48,13 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
 
     public func storeMasterKey(_ key: Data, realmId: UUID) async throws {
         guard key.count == Self.keySize else { throw KeyRingError.invalidKeySize(key.count) }
-        var query = baseQuery("master.\(realmId.uuidString)", synchronizable: true)
+        var query = baseQuery("master.\(realmId.uuidString)", synchronizable: true, accessible: Self.masterAccessible)
         query[kSecValueData as String] = key
         let addStatus = SecItemAdd(query as CFDictionary, nil)
         if addStatus == errSecDuplicateItem {
             // 已存在 → 覆盖（幂等注册；同一 realm 换钥经显式调用，审计由上层承担）
             let update: [String: Any] = [kSecValueData as String: key]
-            let updateStatus = SecItemUpdate(baseQuery("master.\(realmId.uuidString)", synchronizable: true) as CFDictionary,
+            let updateStatus = SecItemUpdate(baseQuery("master.\(realmId.uuidString)", synchronizable: true, accessible: Self.masterAccessible) as CFDictionary,
                                              update as CFDictionary)
             guard updateStatus == errSecSuccess else { throw KeyRingError.keychain(updateStatus) }
         } else if addStatus != errSecSuccess {
@@ -58,7 +64,7 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
 
     public func deviceSubKey() async throws -> Data {
         let account = "device-sub"
-        var readQuery = baseQuery(account, synchronizable: false)
+        var readQuery = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
         readQuery[kSecReturnData as String] = true
         readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -68,11 +74,11 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
         }
         // 无/尺寸不符 → 生成并持久化（ThisDeviceOnly：不同步、不随备份迁移）
         let fresh = try generateMasterKey()
-        var addQuery = baseQuery(account, synchronizable: false)
+        var addQuery = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
         addQuery[kSecValueData as String] = fresh
         let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
         if addStatus == errSecDuplicateItem {
-            var dupQuery = baseQuery(account, synchronizable: false)
+            var dupQuery = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
             dupQuery[kSecReturnData as String] = true
             dupQuery[kSecMatchLimit as String] = kSecMatchLimitOne
             var dupResult: CFTypeRef?
@@ -95,12 +101,12 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
 
     public func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws {
         let account = "recovery.\(realmId.uuidString)"
-        var query = baseQuery(account, synchronizable: false)
+        var query = baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible)
         query[kSecValueData as String] = wrapped
         let addStatus = SecItemAdd(query as CFDictionary, nil)
         if addStatus == errSecDuplicateItem {
             let update: [String: Any] = [kSecValueData as String: wrapped]
-            let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: false) as CFDictionary,
+            let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: false, accessible: Self.deviceAccessible) as CFDictionary,
                                              update as CFDictionary)
             guard updateStatus == errSecSuccess else { throw KeyRingError.keychain(updateStatus) }
         } else if addStatus != errSecSuccess {
@@ -109,7 +115,7 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
     }
 
     public func recoveryWrapped(realmId: UUID) async throws -> Data? {
-        var query = baseQuery("recovery.\(realmId.uuidString)", synchronizable: false)
+        var query = baseQuery("recovery.\(realmId.uuidString)", synchronizable: false, accessible: Self.deviceAccessible)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?

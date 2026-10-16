@@ -3,6 +3,7 @@ import Testing
 #if os(iOS) || os(macOS)
 // linux-blind: （平台守卫：ExportService/Envelope 整文件在 Linux 编译为空单元，本套件仅 macOS CI 执行）
 @testable import Infrastructure
+@testable import Domain
 
 /// 信封 v3 可选键兼容（discussions/2026-10-16-backup-sync-share-design.md V1.7 切片 1）：
 /// 旧包（无新键）解码 → nil 零恢复不猜；带值往返 → 逐字段相等；nil 时编码不落键（encodeIfPresent 语义）。
@@ -30,7 +31,11 @@ struct EnvelopeV3FieldsTests {
 
     @Test func v3KeysRoundTrip() throws {
         var envelope = try decode(legacyJSON)
-        let media = ExportService.MediaEntry(sha256: String(repeating: "f", count: 64), size: 12345, mime: "image/jpeg")
+        let media = MediaManifestEntry(sha256: String(repeating: "f", count: 64), size: 12345,
+                                       mime: "image/jpeg",
+                                       relativePath: MediaDestinationRules.originalRelativePath(
+                                           sha256: String(repeating: "f", count: 64)),
+                                       isSensitive: false, kind: .original)
         let tombstone = ExportService.Tombstone(kind: "observation", id: UUID(), deletedAt: Date(timeIntervalSince1970: 1_700_000_000))
         let realm = UUID(); let device = UUID()
         envelope.media = [media]
