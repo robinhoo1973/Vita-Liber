@@ -46,7 +46,11 @@ public actor BackupService {
         guard let pending = pendingRecoveryWrapped, let keyRing else { return }
         do {
             try await keyRing.storeRecoveryWrapped(pending.wrapped, realmId: pending.realmId)
-            pendingRecoveryWrapped = nil
+            // 评审修复（actor 重入）：落钥 await 挂起期间可能有新暂存写入——无条件清空
+            // 会把新码的包裹段一并丢弃（新码已展示、再确认即静默 no-op）。只清自己确认的那份。
+            if pendingRecoveryWrapped?.wrapped == pending.wrapped {
+                pendingRecoveryWrapped = nil
+            }
         } catch {
             // 落钥失败=下次运行钥匙串仍无包裹段 → resolveMasterKey 重铸新码重展示
         }
@@ -105,6 +109,13 @@ public actor BackupService {
             // KEK → 包裹段持久化 + 随帧走（旧快照的 embedded 段不受影响）。
             // 评审修复（恢复码静默死亡窗）：钥匙串无包裹段不再只是「第二台设备/
             // 旧版项」——上次运行铸码后确认前被杀同样落此分支，统一重铸重展示。
+            // 评审修复（单槽覆盖=已誊写码静默死亡）：确认前又有 createBackup 进入
+            // （备份页卡片与同步 push 卡片并存）——重铸会覆盖暂存包裹段。同为 realm
+            // 的未确认暂存一律复用：包裹段不换；码原文仍在暂存则再返回（已被取走=
+            // nil——旧卡片仍在展示，不再新增卡片），确认时落钥的即用户誊写的那份。
+            if let pending = pendingRecoveryWrapped, pending.realmId == realmId {
+                return (existing, unseenRecoveryCode, pending.wrapped)
+            }
             let minted = try await mintRecoveryCode(masterData: existing, realmId: realmId)
             return (existing, minted.code, minted.wrapped)
         }
@@ -406,38 +417,44 @@ public actor BackupService {
     /// 恢复侧改写为 sensitive/{targetMember}/、照片读取按行 patient_id 拼目录；但媒体载具导入
     /// 先于 DB 事务，只知**源**成员路径，敏感字节留在 sensitive/{sourceMember}/：读路径不可达
     /// （敏感件 resolver 禁 sha 回落），且 GC 引用集按行成员判定 → 源目录文件无引用、600s 宽限
-    /// 后整删（BR-002 原件永久丢失）。此处按 idMap 把敏感字节重归位到目标成员目录。
-    /// 失败语义：移动失败退拷贝（目标字节先落地，源副本由下轮对账按无引用清理，宁留勿删）。
+    /// 后整删（BR-002 原件永久丢失）。此处按 idMap 把敏感字节**拷贝**到目标成员目录。
+    /// 拷贝而非移动（评审修复，keep 行数据安全）：同 sha 源文件可能仍被本机既有行引用
+    /// （同一备份族的并存/重复恢复场景，且本函数不查 resolutions，无从判定该行是否真被导入）
+    /// ——移动即令其读路径永久失效（宁留勿删 BR-002）。
+    /// 回收语义（评审复核修正）：文档类源副本（{sha}.bin）由 MediaReconciler 按无引用
+    /// 600s 宽限清理；**照片类副本无回收路径**——SensitiveAssetStore.reconcileUnreferenced
+    /// 按行 relative_path 删（从不扫树），MediaReconciler 对 {uuid}.jpg 形状一律
+    /// keep-unknown-shape。照片源副本/竞态目标副本属已登记残留（有限重复，不构成双重暴露）。
+    /// 目标已存在（同 sha 去重）=无需补偿。失败语义：拷贝失败=本轮无补偿，源文件原位未动。
+    /// 路径一律经 MediaDestinationRules 重算（唯一路径知识，与读侧/条目规范校验同源）。
     private func refileSensitiveMedia(envelope: ExportService.Envelope, idMap: [UUID: UUID]) {
         guard let mediaBase, !idMap.isEmpty else { return }
         let fm = FileManager.default
-        func refile(fileName: String, source: UUID?) {
-            guard let source, let target = idMap[source], target != source else { return }
-            let sourceURL = mediaBase.appendingPathComponent("sensitive/\(source.uuidString)/\(fileName)")
+        func refile(from sourceRelative: String, to targetRelative: String) {
+            let sourceURL = mediaBase.appendingPathComponent(sourceRelative)
             guard fm.fileExists(atPath: sourceURL.path) else { return }
-            let targetDir = mediaBase.appendingPathComponent("sensitive/\(target.uuidString)", isDirectory: true)
-            let targetURL = targetDir.appendingPathComponent(fileName)
+            let targetURL = mediaBase.appendingPathComponent(targetRelative)
             do {
-                try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
-                if fm.fileExists(atPath: targetURL.path) {
-                    // 目标已在（同 sha 去重/重复恢复）= 源副本按孤儿清理
-                    try fm.removeItem(at: sourceURL)
-                } else {
-                    try fm.moveItem(at: sourceURL, to: targetURL)
-                }
+                try fm.createDirectory(at: targetURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                guard !fm.fileExists(atPath: targetURL.path) else { return }
+                try fm.copyItem(at: sourceURL, to: targetURL)
             } catch {
-                // 移动失败退拷贝：目标字节先落地（读路径恢复），源副本下轮对账清理
-                try? fm.copyItem(at: sourceURL, to: targetURL)   // try?-ok: 拷贝同样失败=本轮无补偿，文件留在源目录（对账宽限窗内可重试恢复）
+                // 拷贝失败=本轮无补偿，源文件仍在原处（对账宽限窗内可重试恢复）
             }
         }
         for doc in envelope.documents ?? [] {
             guard doc.isSensitive, let sha = doc.originalSha256,
-                  MediaDestinationRules.isLowercaseHex64(sha) else { continue }
-            refile(fileName: "\(sha).bin", source: doc.patientId)
+                  MediaDestinationRules.isLowercaseHex64(sha),
+                  let source = doc.patientId, let target = idMap[source], target != source else { continue }
+            refile(from: MediaDestinationRules.sensitiveOriginalRelativePath(memberId: source, sha256: sha),
+                   to: MediaDestinationRules.sensitiveOriginalRelativePath(memberId: target, sha256: sha))
         }
         for obs in envelope.observations {
+            guard let source = obs.patientId, let target = idMap[source], target != source else { continue }
             for assetId in obs.mediaAssetIds {
-                refile(fileName: "\(assetId).jpg", source: obs.patientId)
+                guard let assetUUID = UUID(uuidString: assetId) else { continue }
+                refile(from: MediaDestinationRules.photoRelativePath(memberId: source, assetId: assetUUID),
+                       to: MediaDestinationRules.photoRelativePath(memberId: target, assetId: assetUUID))
             }
         }
     }

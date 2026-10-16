@@ -2,7 +2,7 @@ import Foundation
 
 /// 同步候选——每设备信封头的最小身份三元组。
 /// 信封本体在 Infrastructure，规则层零依赖（Domain 纯函数，Linux 可跑）。
-public struct SyncCandidate: Sendable, Equatable {
+public struct SyncCandidate: Sendable, Hashable {
     public let deviceId: UUID
     public let seq: UInt64
     public let realmId: UUID

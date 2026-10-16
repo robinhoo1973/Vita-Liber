@@ -27,7 +27,7 @@ final class SyncState {
     /// 订阅本体门槛的动作侧读取（comercial V1.12：订阅过期/取消 → 同步停止写入）。
     /// 评审修复（半闸缺口）：门槛此前只在开关「开启」方向评估——订阅过期后设置值
     /// 仍为 "true"，syncNow/refreshCandidates 照常读写云端。默认 true 保持预览/测试
-    /// 装配不变；生产在组装根注入 `entitlements.owned.contains(.proBase)`。
+    /// 装配不变；生产在组装根注入 `entitlements.isProBaseOwned`（AppEntitlementStore 唯一读点）。
     private let isEntitled: @MainActor () -> Bool
     private let logger = Logger(subsystem: "com.vitaliber", category: "sync")
     /// 设备身份缓存（评审修复，写-读竞态）：首调生成 UUID 并写盘前，并发调用会各自生成
@@ -61,24 +61,18 @@ final class SyncState {
 
     private func deviceIdentity() async -> (deviceId: UUID, seq: UInt64) {
         let existing = settings.values[.syncDeviceId] ?? ""
-        let parsed = UUID(uuidString: existing)
         let deviceId: UUID
-        if let parsed {
+        if let parsed = UUID(uuidString: existing) {
             deviceId = parsed
-        } else if let cached = deviceIdCache {
+        } else {
             // 并发首调（syncNow 与 refreshCandidates 同拍）此前各自生成 UUID——
             // 先入缓存的写-读竞态（评审修复）：候选过滤/seq 归并围绕两个身份分裂。
-            deviceId = cached
-            // 首调 `settings.set` 失败只留日志（AppSettingsStore 失败不清缓存值）或
-            // 写盘在途——缓存分支不补写则身份永不落盘，重启后换新 UUID 造成身份漂移。
-            // 评审修复（死条件清理）：此前包 `if existing != cached.uuidString`——到达
-            // 本分支时 existing 必为 "" 或不可解析值（可解析已在 parsed 分支返回），
-            // 条件恒真；补写本就应无条件执行。
-            await settings.set(cached.uuidString, for: .syncDeviceId)
-        } else {
-            deviceId = UUID()
-            deviceIdCache = deviceId   // 先入缓存再落盘：等待写盘期间再次调用同 id
-            await settings.set(deviceId.uuidString, for: .syncDeviceId)
+            // 评审简化（双臂合一）：缓存命中/未命中行为一致（都是先入缓存再落盘补写，
+            // 缓存分支不补写则身份永不落盘，重启后换新 UUID 造成身份漂移）——单路实现。
+            let id = deviceIdCache ?? UUID()
+            deviceIdCache = id   // 先入缓存再落盘：等待写盘期间再次调用同 id
+            await settings.set(id.uuidString, for: .syncDeviceId)
+            deviceId = id
         }
         let seq = UInt64(settings.values[.syncSeq] ?? "0") ?? 0
         return (deviceId, seq)
@@ -134,6 +128,10 @@ final class SyncState {
     }
 
     func refreshCandidates() async {
+        // 评审修复（单飞纪律，相位互踩）：与 syncNow 同款 phase 防重入——此前无守卫且
+        // 结束时无条件写 .idle：push 在飞时经开关 set 路径进入会把 .pushing 抹成
+        // .idle，立即同步按钮重新可点 → 第二次 push 复用同一 seq 就地覆盖同名信封。
+        guard phase == .idle else { return }
         guard enabled else { return }
         guard isEntitled() else {
             degradedMessage = L10n.syncSubscriptionRequired
@@ -227,7 +225,10 @@ struct SyncSettingsView: View {
                                     // 评审修复（门禁缺口）：候选合并走恢复管线落库医疗数据——
                                     // 与文件恢复同源门禁（BackupViews 选包后 requestUnlock）
                                     guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
-                                    await backupState.analyzeSyncCandidate(candidate.data)
+                                    // 评审修复（静默丢弃 + 误导航）：分析被流程门挡下（进行中
+                                    // 流程/码展示中）时不推进导航——此前无条件 openMerge，用户
+                                    // 落到空态/码卡片页，候选从未分析且无任何反馈。
+                                    guard await backupState.analyzeSyncCandidate(candidate.data) else { return }
                                     openMerge = true
                                 }
                             } label: {
@@ -235,6 +236,7 @@ struct SyncSettingsView: View {
                                       systemImage: "arrow.down.circle")
                             }
                             .frame(minHeight: 44)
+                            .disabled(!backupState.canCreateBackup)
                             .accessibilityIdentifier("SP-sync.candidate.\(index)")
                         }
                     } footer: {

@@ -29,6 +29,12 @@ public actor SyncService {
         return unseenRecoveryCode
     }
 
+    /// 恢复码卡片确认穿透（评审修复，恢复码静默死亡窗）：包裹段在用户确认前
+    /// 不落钥——确认动作必须到达 BackupService，否则下次运行重铸新码。
+    public func confirmRecoveryCodeSaved() async {
+        await backup.persistPendingRecoveryWrapped()
+    }
+
     /// 推送本机快照：seq 由调用方维护（每次 push +1，同设备单调）；
     /// 同设备多版本保留最近 3 份再回收由 App 层调度（保守回收，绝不删最新）。
     /// 返回 BackupPackage（评审修复）：首次 push 若触发主密钥注册，recoveryCode 必须

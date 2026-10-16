@@ -468,6 +468,7 @@ final class DocumentsState {
     /// 原件此前在主线程同步执行 Data(contentsOf:)，冻结 UI 且有看门狗杀进程风险。
     private func mediaData(storedPath: String?, originalSha256: String?) async -> Data? {
         for candidate in MediaPathResolver.candidates(storedPath: storedPath, originalSha256: originalSha256) {
+            if Task.isCancelled { return nil }   // 评审修复：取消后不再逐候选续读（detached 读不可取消，至少不追加新读）
             let url = candidate.hasPrefix("/") ? URL(fileURLWithPath: candidate) : originalsDir.appendingPathComponent(candidate)
             if let data = try? await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value { return data } // try?-ok: 单候选不可读=跳过试下一候选（legacy 绝对路径常悬空），全部失败→原件缺失态
         }
@@ -922,8 +923,16 @@ final class DocumentsState {
                                                      originalSha256: document.originalSha256) else {
                 throw ImportError.unreadableMedia
             }
-            let processedData = (await mediaData(storedPath: meta["processed_path"] as? String, originalSha256: nil))
-                ?? originalData
+            // 评审修复（同路径双读）：processed_path == original_path（加工未改动原件的常态）或
+            // 缺失时，加工件字节即原件——复用已读数据；此前对同一文件又做一遍 detached 全量读
+            //（30 MB 文档 = 双倍磁盘读 + 双份驻留内存）。
+            let processedData: Data
+            if let processedPath = meta["processed_path"] as? String,
+               processedPath != (meta["original_path"] as? String) {
+                processedData = await mediaData(storedPath: processedPath, originalSha256: nil) ?? originalData
+            } else {
+                processedData = originalData
+            }
             let input = PendingDocument(patientId: patientId, originalData: originalData, processedData: processedData,
                 mimeType: document.mimeType ?? ImageInputRules.sniffMimeType(of: originalData), docType: document.docType,
                 title: document.title, sha256: document.sha256 ?? "sha:" + Self.hash(processedData),

@@ -90,21 +90,18 @@ final class BackupState {
         }
     }
 
-    /// 创建入口门（评审修复）：.working 防重入——并发 createBackup 会在 actor 挂起点
+    /// 单流程入口门（评审修复）：.working 防重入——并发 createBackup 会在 actor 挂起点
     /// 交错（主密钥双重注册、暂存 GC 互删在飞 blob）；.recoveryCodeCreated 未确认前
-    /// 不得开启新一轮——一次性码「展示即最后机会」（零存储），重跑会就地冲掉卡片。
+    /// 不得开启新一轮——一次性码「展示即最后机会」（零存储），重跑会就地冲掉卡片；
+    /// .recoveryCodePrompt 输入恢复码期间同样不得开新流程（会冲掉输入态与待恢复包）。
+    /// 创建与恢复两个入口共用此门（评审修复：此前恢复只挡 .recoveryCodeCreated，
+    /// .working 中可开分析——分析完成会覆写 .recoveryCodeCreated，把已排空的码卡片冲掉）。
     var canCreateBackup: Bool {
         switch phase {
-        case .working, .recoveryCodeCreated, .analyzing, .confirmRestore, .conflicts: return false
+        case .working, .recoveryCodeCreated, .recoveryCodePrompt,
+             .analyzing, .confirmRestore, .conflicts: return false
         default: return true
         }
-    }
-
-    /// 一次性恢复码展示中（评审修复）：不得启动任何新流程——分析会覆写 phase
-    /// 冲掉码卡片，而码已被 takeUnseenRecoveryCode 排空（零存储，展示即最后机会）。
-    var isRecoveryCodePending: Bool {
-        if case .recoveryCodeCreated = phase { return true }
-        return false
     }
 
     func prepareBackup() async {
@@ -201,7 +198,7 @@ final class BackupState {
     /// 选文件后的后台分析（V1.7 恢复流程重构）：读包 + 校验 + 冲突分析，
     /// 产出真实影响清单进确认态——分析完成前用户看不到静态「覆盖」承诺
     func analyzeRestore(from url: URL, carrierURL: URL? = nil) async {
-        guard !isRecoveryCodePending else { return }   // 评审修复：码展示中禁启分析（覆写 phase 冲掉一次性码）
+        guard canCreateBackup else { return }   // 评审修复：任何进行中流程/码展示中禁启分析（覆写 phase 冲掉一次性码或半程流程）
         let round = beginAnalysisRound()
         // 载具 security-scope 自分析起持有（评审修复）：读取窗口必须覆盖 performRestore
         // 的 importMediaCarrier 调用；此前分类循环一拍即释，恢复侧读取静默失败。
@@ -312,31 +309,32 @@ final class BackupState {
     /// 分析 → 真实影响清单 → (冲突三选一) → 恢复报告；整包只哈希+解码一次。
     /// 评审修复：同步候选无载具——先清残留载具态（此前若上一轮文件恢复被放弃，
     /// pendingCarrierURL/scope 会跨到同步恢复，载具错配）。
-    func analyzeSyncCandidate(_ data: Data) async {
-        guard !isRecoveryCodePending else { return }   // 评审修复：码展示中禁启分析（覆写 phase 冲掉一次性码）
+    func analyzeSyncCandidate(_ data: Data) async -> Bool {
+        guard canCreateBackup else { return false }   // 评审修复：进行中流程/码展示中禁启分析（覆写 phase 冲掉一次性码或半程流程）
         let round = beginAnalysisRound()
         discardCarrierScope()
         phase = .analyzing
         do {
             let analysis = try await service.analyzeConflicts(from: data)
-            guard round == analysisGeneration else { return }
+            guard round == analysisGeneration else { return true }
             pendingAnalysis = analysis
             phase = .confirmRestore(records: analysis.envelope.totalRecords,
                                     conflictCount: analysis.conflicts.count)
         } catch BackupService.BackupError.checksumMismatch {
-            guard round == analysisGeneration else { return }
+            guard round == analysisGeneration else { return true }
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
-            guard round == analysisGeneration else { return }
+            guard round == analysisGeneration else { return true }
             logger.error("同步候选分析失败: \(error)")
             phase = .degraded(L10n.backupRestoreFailed)
         }
+        return true   // 已进入本页流程（成功/降级文案均在 BackupView 呈现）
     }
 
     /// 多选里没有可识别信封 → 降级文案（评审修复：此前 guard 静默 return，
     /// 用户点「恢复」后毫无反馈）
     func reportMissingEnvelope() {
-        guard !isRecoveryCodePending else { return }   // 评审修复：码展示中禁覆写 phase
+        guard canCreateBackup else { return }   // 评审修复：进行中流程/码展示中禁覆写 phase
         phase = .degraded(L10n.backupRestoreFailed)
     }
 
@@ -428,6 +426,7 @@ struct BackupView: View {
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppEntitlementStore.self) private var entitlements
+    @Environment(ReminderStore.self) private var reminderStore
     @State private var showExporter = false
     @State private var showCarrierExporter = false
     @State private var showImporter = false
@@ -477,9 +476,9 @@ struct BackupView: View {
                     } label: {
                         Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
                     }
-                    // 评审修复（一次性码保护）：恢复码展示中禁启恢复——分析会覆写 phase
-                    // 冲掉码卡片（码零存储，冲掉即永久丢失）
-                    .disabled(state.isRecoveryCodePending)
+                    // 评审修复（单流程门）：与创建同门——进行中流程/恢复码展示中禁启恢复，
+                    // 分析会覆写 phase 冲掉码卡片或半程流程（码零存储，冲掉即永久丢失）
+                    .disabled(!state.canCreateBackup)
                     .accessibilityIdentifier("SP-23.backup.restore")
                 } footer: {
                     Text(L10n.backupScopeNote)
@@ -492,7 +491,13 @@ struct BackupView: View {
                     Picker(L10n.backupReminderIntervalTitle, selection: Binding(
                         get: { Int(settings.values[.backupReminderIntervalDays] ?? "") ?? BackupReminderRules.defaultIntervalDays },
                         set: { newValue in
-                            Task { await settings.set("\(newValue)", for: .backupReminderIntervalDays) }
+                            Task {
+                                await settings.set("\(newValue)", for: .backupReminderIntervalDays)
+                                // 评审修复（关档即时生效）：0=关闭须立即撤销已武装/在途提醒——
+                                // 排程评估只在冷启动跑，仅改设置则本次会话内先前武装的提醒照常
+                                // 触发（「关档遗留提醒」只被延后到下次冷启动）。
+                                if newValue == 0 { await reminderStore.clearBackupReminderDelivered() }
+                            }
                         }
                     )) {
                         Text(L10n.backupReminderIntervalOff).tag(0)

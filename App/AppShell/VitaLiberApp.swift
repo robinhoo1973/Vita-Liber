@@ -206,7 +206,9 @@ struct VitaLiberApp: App {
                                                    settings: appSettings,
                                                    realmProvider: { [appState] in appState.owner?.id },
                                                    entitlementProvider: { [entitlements] in
-                                                       entitlements.owned.contains(.proBase)
+                                                       // 评审修复（单点口径）：经 AppEntitlementStore
+                                                       // 唯一判定读点——不再逐点展开 owned.contains(.proBase)
+                                                       entitlements.isProBaseOwned
                                                    }))
         // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，恢复的
         // 计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发。回调在此

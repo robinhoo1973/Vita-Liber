@@ -40,6 +40,11 @@ final class AppEntitlementStore {
     // 供设置/诊断页读取。Domain Paywall.quotaExceeded 保留（D3 商业化规则，
     // 金样测试覆盖）。）
 
+    /// 订阅本体是否已解锁（App 层唯一判定读点，评审修复）：门槛入口与组装根注入
+    /// （SyncState entitlementProvider）共用同一表达式——此前组装根逐点展开
+    /// `owned.contains(.proBase)` 属第 4 份拷贝，权益语义变更时易漏改。
+    var isProBaseOwned: Bool { owned.contains(.proBase) }
+
     // MARK: - 24h 频控持久化（comercial §3：跨启动频控不得失效）
 
     private func restoreShownAt() {
@@ -89,7 +94,7 @@ final class AppEntitlementStore {
     /// 五时机弹墙调度（comercial §3）：价值触发 + 24h 频控 + 反向约束
     func shouldShowPaywall(trigger: PaywallTrigger, now: Date = Date()) -> Bool {
         PaywallRules.shouldShow(trigger: trigger,
-                                entitlementUnlocked: owned.contains(.proBase),
+                                entitlementUnlocked: isProBaseOwned,
                                 lastShownAt: lastShownAt[trigger], now: now)
     }
 
@@ -126,7 +131,7 @@ final class AppEntitlementStore {
     /// 配对（评审修复：逐点展开曾一处漏配频控/口径不齐；App 层唯一门槛入口）。
     @MainActor
     func gateProBase(_ trigger: PaywallTrigger) -> Bool {
-        guard owned.contains(.proBase) else {
+        guard isProBaseOwned else {
             _ = evaluateTrigger(trigger)
             return false
         }

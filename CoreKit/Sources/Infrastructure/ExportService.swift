@@ -2088,17 +2088,36 @@ private struct ImportSession {
     /// F8 照片簿记恢复（切片 14）：INSERT OR IGNORE 按创建序（父先子后由 ORDER BY created_at 保证）；
     /// 同 id 已在库=不动（keep-on-doubt；照片字节由媒体载具按 relativePath 落盘，
     /// blur 派生再生）。asset 表不参与 ADR-019 裁决（派生簿记，非事实实体）。
+    /// 评审修复（coexist 重映射族，行/字节分家）：成员重映射时行内 relative_path 仍是源成员
+    /// 目录，而字节经 refileSensitiveMedia 归位到目标成员目录——备份打包按行路径探源会静默
+    /// 跳过该照片（此后备份丢照片且无 missing 报告）、删除观察时按行路径删文件落空成残留。
+    /// 此处按 (重映射成员, assetId) 规则重算规范路径（MediaDestinationRules 唯一路径知识）。
     func restoreAssets() throws {
+        let assetMember = Dictionary(
+            envelope.observations.flatMap { obs in
+                obs.mediaAssetIds.compactMap { id in remap(obs.patientId).map { (id, $0) } }
+            },
+            uniquingKeysWith: { first, _ in first })
         for asset in envelope.assets ?? [] {
+            let relative = Self.remappedAssetRelativePath(asset, member: assetMember[asset.id])
             try db.execute(sql: """
                 INSERT OR IGNORE INTO asset
                   (id, kind, relative_path, file_protection, width, height, size_bytes, parent_id, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [asset.id, asset.kind, asset.relativePath,
+                """, arguments: [asset.id, asset.kind, relative,
                                  asset.fileProtection, asset.width, asset.height,
                                  asset.sizeBytes, asset.parentId?.uuidString,
                                  asset.createdAt.timeIntervalSince1970])
         }
+    }
+
+    /// 照片规范相对路径重算（无重映射成员 → 原样）：与 refileSensitiveMedia 字节归位
+    /// 共用同一路径知识；blur 行为派生簿记（打包只带 photo 原件、读取按规则拼路径），
+    /// 其 relative_path 无消费者 → 一律原样落库。
+    static func remappedAssetRelativePath(_ asset: AssetExport, member: UUID?) -> String {
+        guard asset.kind == "photo", let member,
+              let assetUUID = UUID(uuidString: asset.id) else { return asset.relativePath }
+        return MediaDestinationRules.photoRelativePath(memberId: member, assetId: assetUUID)
     }
 
     mutating func restoreDocuments() throws {

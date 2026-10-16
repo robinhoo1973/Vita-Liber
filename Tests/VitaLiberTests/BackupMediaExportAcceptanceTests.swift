@@ -338,8 +338,8 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(
             atPath: destMediaBase.appendingPathComponent(candidate).path),
             "敏感原件必须在 meta 指向的位置真实存在（修复前滞留源成员目录=读不可达+GC 整删）")
-        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceSensitive.path),
-                       "归位后源侧不保留副本（同字节双份会被对账按无引用清理，且暴露面翻倍）")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceSensitive.path),
+                      "归位按拷贝语义：源侧副本暂留（拷贝-提交窗口内崩溃时源字节仍可挽救）；文档类源副本由 MediaReconciler 按孤儿清理（照片类副本无回收路径=已登记残留，见 BackupService.refileSensitiveMedia 注释）")
 
         // 照片：读取按行成员拼目录——字节必须归位到重映射成员目录
         let obsPatient = try await dest.writer.read { db in
