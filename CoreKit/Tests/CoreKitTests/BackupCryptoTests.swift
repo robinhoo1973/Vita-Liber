@@ -88,5 +88,37 @@ struct BackupCryptoTests {
             _ = try BackupCrypto.unwrapKey(wrapped, using: SymmetricKey(size: .bits256))
         }
     }
+
+    // MARK: - v2 加密信封帧
+
+    @Test func sealFrameOpenFrameRoundTrip() throws {
+        let master = SymmetricKey(size: .bits256)
+        let device = SymmetricKey(size: .bits256)
+        let ref = UUID()
+        let payload = Data("frame payload".utf8)
+        let frame = try BackupCrypto.sealFrame(payload: payload, masterKey: master, wrappingKey: device, keyRef: ref)
+        let opened = try BackupCrypto.openFrame(frame, unwrapWith: device)
+        #expect(opened.payload == payload)
+        #expect(opened.keyRef == ref)
+        #expect(opened.aadHash == BackupCrypto.sha256Hex(payload))
+    }
+
+    @Test func sealFrameWrongDeviceKeyRejected() throws {
+        let frame = try BackupCrypto.sealFrame(payload: Data("x".utf8), masterKey: SymmetricKey(size: .bits256),
+                                               wrappingKey: SymmetricKey(size: .bits256), keyRef: UUID())
+        #expect(throws: BackupCrypto.CryptoError.tamperOrKeyMismatch) {
+            _ = try BackupCrypto.openFrame(frame, unwrapWith: SymmetricKey(size: .bits256))
+        }
+    }
+
+    @Test func sealFrameTamperRejected() throws {
+        let frame = try BackupCrypto.sealFrame(payload: Data("secret frame".utf8), masterKey: SymmetricKey(size: .bits256),
+                                               wrappingKey: SymmetricKey(size: .bits256), keyRef: UUID())
+        var corrupted = frame
+        corrupted[corrupted.count - 1] ^= 0x01
+        #expect(throws: BackupCrypto.CryptoError.self) {
+            _ = try BackupCrypto.openFrame(corrupted, unwrapWith: SymmetricKey(size: .bits256))
+        }
+    }
 }
 #endif

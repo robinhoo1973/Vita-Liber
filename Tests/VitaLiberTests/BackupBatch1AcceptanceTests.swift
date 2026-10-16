@@ -123,6 +123,28 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         XCTAssertNil(restored["source_id"] as String?, "来源缺失必须置 NULL，绝不猜")
     }
 
+    func test_encryptedBackupRoundTripAndWrongKeyRejected() async throws {
+        let (source, _, _, _) = try await makeSeededStore()
+        let subKey = Data((0..<32).map { _ in UInt8.random(in: 0...255) })
+        let ring = InMemoryKeyRing(subKey: subKey)
+        let package = try await BackupService(writer: source.writer, keyRing: ring).createBackup(encrypted: true)
+        XCTAssertEqual(EnvelopeFrame.binaryFormatVersion(package.data), 2)
+
+        let destination = try GRDBStore.inMemory()
+        let records = try await BackupService(writer: destination.writer, keyRing: ring).restore(from: package.data)
+        XCTAssertGreaterThan(records, 0)
+        XCTAssertEqual(try await rows(destination, "patient_profile").count, 1)
+
+        // 错钥 → AEAD 认证失败 → checksumMismatch，零部分导入
+        let wrongRing = InMemoryKeyRing(subKey: Data(repeating: 9, count: 32))
+        do {
+            _ = try await BackupService(writer: GRDBStore.inMemory(), keyRing: wrongRing).restore(from: package.data)
+            XCTFail("错钥必须拒绝")
+        } catch BackupService.BackupError.checksumMismatch {
+            // 期望路径
+        }
+    }
+
     func test_legacyJSONEnvelopeRestores() async throws {
         let (source, _, _, _) = try await makeSeededStore()
         let envelope = try await ExportService(writer: source.writer).exportJSON()
@@ -139,4 +161,15 @@ final class BackupBatch1AcceptanceTests: XCTestCase {
         let profiles = try await rows(destination, "patient_profile")
         XCTAssertEqual(profiles.count, 1)
     }
+}
+
+/// 测试用内存密钥环（DeviceKeyRing 端口实现；主密钥按 realm 隔离，子密钥固定注入）
+private actor InMemoryKeyRing: DeviceKeyRing {
+    private var masters: [UUID: Data] = [:]
+    private let subKey: Data
+    init(subKey: Data) { self.subKey = subKey }
+    func masterKey(realmId: UUID) async throws -> Data? { masters[realmId] }
+    func storeMasterKey(_ key: Data, realmId: UUID) async throws { masters[realmId] = key }
+    func deviceSubKey() async throws -> Data { subKey }
+    func generateMasterKey() throws -> Data { Data((0..<32).map { _ in UInt8.random(in: 0...255) }) }
 }

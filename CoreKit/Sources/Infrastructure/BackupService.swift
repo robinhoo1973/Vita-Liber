@@ -11,9 +11,13 @@ import Protocols
 /// 文件经 UIDocumentPicker 交由系统落 iCloud Drive——本服务只负责序列化与校验。
 public actor BackupService {
     private let exporter: ExportService
+    /// 设备密钥环（可选注入）：加密备份（iCloud 落点默认加密，comercial/tech V3.170）
+    /// 与加密信封恢复依赖；nil = 明文模式（本地落点过渡/旧测试路径）
+    private let keyRing: (any DeviceKeyRing)?
 
-    public init(writer: any DatabaseWriter) {
+    public init(writer: any DatabaseWriter, keyRing: (any DeviceKeyRing)? = nil) {
         self.exporter = ExportService(writer: writer)
+        self.keyRing = keyRing
     }
 
     /// 备份包（含文件名建议与校验和——完整性由 sha256 承担）
@@ -44,19 +48,43 @@ public actor BackupService {
         case checksumMismatch      // 文件损坏——一律拒绝导入，绝不「尽力恢复」
         case unsupportedFormat
         case conflictDetected      // ADR-019：目标库已有同名数据——不静默覆盖/丢弃
+        case encryptionUnavailable // 请求加密/解密但密钥环未注入
     }
 
-    public func createBackup() async throws -> BackupPackage {
+    public func createBackup(encrypted: Bool = false) async throws -> BackupPackage {
         let envelope = try await exporter.exportJSON()
         let payload = try await exporter.encode(envelope)
-        let digest = Self.sha256(payload)
-        var data = Data()
-        data.append(Self.binaryMagic)
-        data.append(contentsOf: [1])                       // 二进制格式版本
-        data.append(contentsOf: digest.utf8)               // 64 字符 sha256 hex
-        var length = UInt64(payload.count).bigEndian
-        withUnsafeBytes(of: &length) { data.append(contentsOf: $0) }
-        data.append(payload)
+        let data: Data
+        let digest: String
+        if encrypted {
+            // iCloud 落点默认加密（tech V3.170）：主密钥经每设备子密钥包裹进帧头（信封自足）；
+            // 主密钥缺失 → 生成并持久化（首启注册语义，realm 锚 = owner/本人档案 id，syncRealmId 前身）
+            guard let keyRing else { throw BackupError.encryptionUnavailable }
+            let realmId = envelope.owner?.id ?? envelope.selfProfile?.id ?? UUID()
+            let masterData: Data
+            if let existing = try await keyRing.masterKey(realmId: realmId) {
+                masterData = existing
+            } else {
+                masterData = try keyRing.generateMasterKey()
+                try await keyRing.storeMasterKey(masterData, realmId: realmId)
+            }
+            let deviceKey = try await keyRing.deviceSubKey()
+            data = try BackupCrypto.sealFrame(payload: payload,
+                                              masterKey: SymmetricKey(data: masterData),
+                                              wrappingKey: SymmetricKey(data: deviceKey),
+                                              keyRef: UUID())
+            digest = BackupCrypto.sha256Hex(payload)   // 明文 payload 哈希——清单哈希语义延续（加密不改清单哈希纪律）
+        } else {
+            digest = Self.sha256(payload)
+            var frame = Data()
+            frame.append(Self.binaryMagic)
+            frame.append(contentsOf: [1])               // 二进制格式版本
+            frame.append(contentsOf: digest.utf8)       // 64 字符 sha256 hex
+            var length = UInt64(payload.count).bigEndian
+            withUnsafeBytes(of: &length) { frame.append(contentsOf: $0) }
+            frame.append(payload)
+            data = frame
+        }
         let name = "vitaliber-backup-\(Int(Date().timeIntervalSince1970)).vlbu"
         return BackupPackage(fileName: name, data: data,
                              sha256: digest,
@@ -105,15 +133,32 @@ public actor BackupService {
     /// 解码 + 校验（双格式兼容），返回已校验的 envelope
     private func verifiedEnvelope(from data: Data) async throws -> ExportService.Envelope {
         let (payload, claimedSHA): (Data, String)
-        if EnvelopeFrame.isBinary(data) {
-            // 外层帧解析收敛到 EnvelopeFrame 纯函数（V1.7 切片 1；长度限界/trap 纪律原样保留，
-            // 结构违规一律映射 unsupportedFormat——二进制魔数文件绝不落入 JSON 分支误读）。
+        switch EnvelopeFrame.binaryFormatVersion(data) {
+        case 2:
+            // v2 加密段帧（tech V3.170）：AEAD 认证 + aadHash 双保险；
+            // 结构/错钥/篡改 → 统一 unsupportedFormat/checksumMismatch 语义由调用方映射
+            guard let keyRing else { throw BackupError.encryptionUnavailable }
+            do {
+                let deviceKey = try await keyRing.deviceSubKey()
+                let opened = try BackupCrypto.openFrame(data, unwrapWith: SymmetricKey(data: deviceKey))
+                payload = opened.payload
+                claimedSHA = opened.aadHash
+            } catch BackupCrypto.CryptoError.tamperOrKeyMismatch {
+                throw BackupError.checksumMismatch
+            } catch {
+                throw BackupError.unsupportedFormat
+            }
+        case 1:
             guard let frame = EnvelopeFrame.parseBinary(data) else {
                 throw BackupError.unsupportedFormat
             }
             claimedSHA = frame.claimedSHA
             payload = frame.payload
-        } else {
+        default:
+            // 二进制魔数但版本未知/结构不足 → unsupportedFormat，绝不落入 JSON 分支误读
+            if EnvelopeFrame.isBinary(data) {
+                throw BackupError.unsupportedFormat
+            }
             // 遗留 JSON 信封（旧版本导出文件，继续可读）
             let outer: BackupEnvelope
             do {

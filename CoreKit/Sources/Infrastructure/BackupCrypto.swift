@@ -95,5 +95,61 @@ public struct BackupCrypto: Sendable {
             throw CryptoError.tamperOrKeyMismatch
         }
     }
+
+    // MARK: - v2 加密信封帧（外层格式版本 2，discussions/2026-10-16-backup-sync-share-design.md §8.5）
+    // 帧布局：[magic VLBU1][2][alg(1B)][keyRef(16B)][wrappedKeyLen(BE u16)][wrappedKey]
+    //         [aadHashHex(64B)][ciphertextLen(BE u64)][ciphertext]
+    // aadHash = sha256(明文 payload) hex——备份报告/清单哈希语义延续（加密不改清单哈希纪律）；
+    // AEAD 提供机密+完整+防篡改，aadHash 供报告口径与双保险核对。
+
+    public static func sealFrame(payload: Data, masterKey: SymmetricKey,
+                                 wrappingKey: SymmetricKey, keyRef: UUID) throws -> Data {
+        let wrappedKey = try wrapKey(masterKey, using: wrappingKey)
+        let aadHash = sha256Hex(payload)
+        let ciphertext = try seal(payload: payload, key: masterKey)
+        var out = Data(EnvelopeFrame.binaryMagic)
+        out.append(contentsOf: [2, algorithmID])
+        withUnsafeBytes(of: keyRef.uuid) { out.append(contentsOf: $0) }
+        var wrappedLen = UInt16(wrappedKey.count).bigEndian
+        withUnsafeBytes(of: &wrappedLen) { out.append(contentsOf: $0) }
+        out.append(wrappedKey)
+        out.append(contentsOf: aadHash.utf8)
+        var ctLen = UInt64(ciphertext.count).bigEndian
+        withUnsafeBytes(of: &ctLen) { out.append(contentsOf: $0) }
+        out.append(ciphertext)
+        return out
+    }
+
+    public static func openFrame(_ data: Data, unwrapWith wrappingKey: SymmetricKey) throws -> (payload: Data, keyRef: UUID, aadHash: String) {
+        let magicLen = EnvelopeFrame.binaryMagic.count
+        guard data.count > magicLen + 1, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
+            throw CryptoError.malformed
+        }
+        let algEnd = magicLen + 2
+        let keyRefEnd = algEnd + 16
+        let lenEnd = keyRefEnd + 2
+        guard data.count > lenEnd else { throw CryptoError.malformed }
+        let keyRefBytes = data[algEnd..<keyRefEnd]
+        let wrappedLen = Int(data[keyRefEnd..<lenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt16.self) }.bigEndian)
+        let wrappedEnd = lenEnd + wrappedLen
+        let aadEnd = wrappedEnd + 64
+        let ctLenEnd = aadEnd + 8
+        guard data.count > ctLenEnd else { throw CryptoError.malformed }
+        let wrappedKey = data[lenEnd..<wrappedEnd]
+        let aadHash = String(data: data[wrappedEnd..<aadEnd], encoding: .ascii) ?? ""
+        let ciphertextLen = Int(data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian)
+        guard ciphertextLen <= data.count - ctLenEnd, data.count - ctLenEnd == ciphertextLen else {
+            throw CryptoError.malformed
+        }
+        let ciphertext = data[ctLenEnd...]
+        let master = try unwrapKey(Data(wrappedKey), using: wrappingKey)
+        let payload = try open(Data(ciphertext), key: master)
+        guard sha256Hex(payload) == aadHash else { throw CryptoError.tamperOrKeyMismatch }
+        return (payload, UUID(uuid: keyRefBytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) }), aadHash)
+    }
+
+    static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
 }
 #endif

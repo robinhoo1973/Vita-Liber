@@ -86,4 +86,13 @@ struct EnvelopeFrameTests {
         let frame = makeFrame(payload: Data("x".utf8), sha: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
         #expect(EnvelopeFrame.parseBinary(frame)?.claimedSHA == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
     }
+
+    @Test func binaryFormatVersionPeek() {
+        #expect(EnvelopeFrame.binaryFormatVersion(makeFrame(payload: Data(), sha: sha)) == 1)
+        var v2 = EnvelopeFrame.binaryMagic
+        v2.append(contentsOf: [2])
+        #expect(EnvelopeFrame.binaryFormatVersion(v2) == 2)
+        #expect(EnvelopeFrame.binaryFormatVersion(Data("{}".utf8)) == nil)
+        #expect(EnvelopeFrame.binaryFormatVersion(EnvelopeFrame.binaryMagic) == nil)   // 结构不足
+    }
 }

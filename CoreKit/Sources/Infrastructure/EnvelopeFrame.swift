@@ -19,6 +19,13 @@ public struct EnvelopeFrame: Sendable {
         data.starts(with: binaryMagic)
     }
 
+    /// 二进制帧格式版本窥探（v1=明文 sha256 帧；v2=加密段帧，结构归 BackupCrypto 所有）。
+    /// 结构不足/版本未知 → nil（调用方映射 unsupportedFormat）。
+    public static func binaryFormatVersion(_ data: Data) -> UInt8? {
+        guard isBinary(data), data.count > binaryMagic.count else { return nil }
+        return data[binaryMagic.count]
+    }
+
     /// 二进制帧解析；结构性违规一律 nil（不抛——帧层不持有错误语义）。
     public static func parseBinary(_ data: Data) -> Parsed? {
         guard isBinary(data) else { return nil }
