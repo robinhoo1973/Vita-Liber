@@ -97,6 +97,15 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
                 VALUES (?, ?, 'skin', 1700006500, 10, 20, ?)
                 """, arguments: [UUID().uuidString, patient.uuidString,
                                  "[\"\(assetId.uuidString)\"]"])
+            // ⑤b blur 派生行（与 SensitiveAssetStore.savePhoto 同形：id「{uuid}.blur」非 UUID，
+            // parent_id 回指原图行）。回归病历：旧导出对 asset.id 走 requiredUUID 必抛
+            // corruptIdentity——凡存过照片的库导出/同步全断；本行保证该路径永久在测。
+            try db.execute(sql: """
+                INSERT INTO asset (id, kind, relative_path, file_protection, size_bytes, parent_id, created_at)
+                VALUES (?, 'blur', ?, 'complete', 5, ?, 11)
+                """, arguments: ["\(assetId.uuidString).blur",
+                                 "MedicalNotes/sensitive/\(patient.uuidString)/\(assetId.uuidString).blur.jpg",
+                                 assetId.uuidString])
         }
         return (store, patient)
     }
@@ -235,6 +244,12 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
             "sensitive/\(sourcePatient.uuidString)/\(photoId.uuidString).jpg")
         XCTAssertTrue(FileManager.default.fileExists(atPath: restoredPhoto.path))
         XCTAssertEqual(try Data(contentsOf: restoredPhoto), Data([5, 5, 5]))
+        // ⑤b blur 行字符串保真往返（id「{uuid}.blur」；parent_id 回指原图）
+        let restoredBlur = try await destination.writer.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM asset WHERE kind = 'blur'")
+        }
+        XCTAssertEqual(restoredBlur?["id"] as String?, "\(photoId.uuidString).blur")
+        XCTAssertEqual(restoredBlur?["parent_id"] as String?, photoId.uuidString)
         // 幂等：再次导入同一载具 → 全 alreadyPresent（字节零改写）
         let again = try await restoreService.importMediaCarrier(from: carrier, masterKey: masterKey)
         XCTAssertEqual(again.imported, 0)
@@ -252,5 +267,86 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         let pkg = try await service.createBackup(encrypted: false)
         XCTAssertNil(pkg.mediaCarrier)   // 明文过渡模式：不承诺媒体字节（信封仍带元数据）
         XCTAssertNil(pkg.mediaManifest)
+    }
+
+    /// 回归（评审 idx38/50/58，coexist 成员重映射族）：ADR-019 coexist 下成员行重映射新 id——
+    /// envelope 全部行的 patient 随映射改写（文档 meta 已改写为 sensitive/{newMember}/、照片按行
+    /// 成员拼读路径），但媒体载具导入先于 DB 事务、只知**源**成员路径。修复前：敏感字节滞留
+    /// sensitive/{source}/——文档读不可达（敏感件 resolver 禁 sha 回落），且对账引用集按行成员
+    /// 判定 → 源目录文件无引用、600s 宽限后整删＝原件永久丢失（BR-002）。
+    /// 本用例钉住：恢复后敏感字节必须归位到重映射成员目录（文档与照片两族）。
+    func test_coexistRestoreRefilesSensitiveMediaToRemappedMember() async throws {
+        let mediaBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-media-coexist-\(UUID().uuidString)", isDirectory: true)
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-staging-coexist-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaBase, withIntermediateDirectories: true)
+
+        let (source, sourcePatient) = try await makeSeededStore(mediaBase: mediaBase)
+        let photoId = try await photoAssetId(source)
+        try writePhotoFile(mediaBase: mediaBase, patient: sourcePatient, assetId: photoId)
+        let sourceService = BackupService(writer: source.writer, keyRing: StubKeyRing(),
+                                          mediaBase: mediaBase, stagingRoot: staging)
+        let pkg = try await sourceService.createBackup(encrypted: true)
+        let carrier = try XCTUnwrap(pkg.mediaCarrier)
+
+        // 目标：独立媒体根 + 空库；预置同 id 成员行制造成员冲突；载具按源成员路径导入
+        let destMediaBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("backup-media-coexist-dest-\(UUID().uuidString)", isDirectory: true)
+        let dest = try GRDBStore.inMemory()
+        try await dest.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO patient_profile (id, display_name, relation, created_at, updated_at)
+                VALUES (?, 'Owner', 'self', 10, 20)
+                """, arguments: [sourcePatient.uuidString])
+        }
+        let destService = BackupService(writer: dest.writer, keyRing: StubKeyRing(),
+                                        mediaBase: destMediaBase, stagingRoot: staging)
+        let analysis = try await destService.analyzeConflicts(from: pkg.data)
+        XCTAssertTrue(analysis.conflicts.contains { $0.id == sourcePatient },
+                      "同 id 成员行必须构成 ADR-019 冲突（coexist 前置）")
+        let masterKey = try XCTUnwrap(analysis.masterKey)
+        let imported = try await destService.importMediaCarrier(from: carrier, masterKey: masterKey)
+        XCTAssertEqual(imported.imported, 4)
+        let sourceSensitive = destMediaBase.appendingPathComponent("sensitive/\(sourcePatient.uuidString)/\(shaB).bin")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sourceSensitive.path),
+                      "导入口先行：字节此刻仍在源成员目录（refile 的修复对象）")
+
+        var resolutions: [UUID: ExportService.ConflictResolution] = [:]
+        for conflict in analysis.conflicts where conflict.id != sourcePatient {
+            resolutions[conflict.id] = .keep
+        }
+        resolutions[sourcePatient] = .coexist
+        try await destService.restore(envelope: analysis.envelope, resolutions: resolutions)
+
+        let newMemberRaw = try await dest.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT id FROM patient_profile WHERE id != ?",
+                                arguments: [sourcePatient.uuidString])
+        }
+        let target = try XCTUnwrap(newMemberRaw)
+
+        // 敏感文档：meta 相对路径 = 事实落点（成员段已重映射），经 resolver 首候选字节可达
+        let docRow = try await dest.writer.read { db in
+            try Row.fetchOne(db, sql: "SELECT * FROM document_file WHERE is_sensitive = 1")
+        }
+        let doc = try XCTUnwrap(docRow)
+        let meta = try JSONSerialization.jsonObject(with: Data((doc["meta_json"] as String).utf8)) as? [String: Any]
+        let storedPath = try XCTUnwrap(meta?["original_path"] as? String)
+        XCTAssertEqual(storedPath, "sensitive/\(target)/\(shaB).bin")
+        let candidate = try XCTUnwrap(MediaPathResolver.candidates(
+            storedPath: storedPath, originalSha256: doc["original_sha256"] as String?).first)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: destMediaBase.appendingPathComponent(candidate).path),
+            "敏感原件必须在 meta 指向的位置真实存在（修复前滞留源成员目录=读不可达+GC 整删）")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceSensitive.path),
+                       "归位后源侧不保留副本（同字节双份会被对账按无引用清理，且暴露面翻倍）")
+
+        // 照片：读取按行成员拼目录——字节必须归位到重映射成员目录
+        let obsPatient = try await dest.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT patient_id FROM observation LIMIT 1")
+        }
+        XCTAssertEqual(obsPatient, target)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: destMediaBase.appendingPathComponent("sensitive/\(target)/\(photoId.uuidString).jpg").path))
     }
 }

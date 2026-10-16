@@ -173,7 +173,7 @@ private actor InMemoryKeyRing: DeviceKeyRing {
     func masterKey(realmId: UUID) async throws -> Data? { masters[realmId] }
     func storeMasterKey(_ key: Data, realmId: UUID) async throws { masters[realmId] = key }
     func deviceSubKey() async throws -> Data { subKey }
-    func generateMasterKey() throws -> Data { Data((0..<32).map { _ in UInt8.random(in: 0...255) }) }
+    nonisolated func generateMasterKey() throws -> Data { Data((0..<32).map { _ in UInt8.random(in: 0...255) }) }   // 评审修复：actor 隔离见证不满足 nonisolated 同步协议要求（ConformanceIsolation）
     func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws { recoveryWrappeds[realmId] = wrapped }
     func recoveryWrapped(realmId: UUID) async throws -> Data? { recoveryWrappeds[realmId] }
 }
