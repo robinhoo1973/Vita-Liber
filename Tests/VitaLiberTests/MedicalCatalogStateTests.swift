@@ -202,8 +202,8 @@ final class MedicalCatalogStateTests: XCTestCase {
     func testReaderGenerationChange_invalidatesTheWholeMatchCache() async {
         let catalog = GenerationalCatalog()
         let state = MedicalCatalogState(store: catalog)
-        let old = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 1, printedName: "old")
-        let fresh = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 2, printedName: "new")
+        let old = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 1, printedName: "old", createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 20))
+        let fresh = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 2, printedName: "new", createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 20))
         _ = await state.match(old)
         XCTAssertNotNil(state.matchByLineID[old.id])
         catalog.advance()
@@ -217,7 +217,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         let gate = GatedMatch()
         let catalog = GenerationalCatalog(gate: gate)
         let state = MedicalCatalogState(store: catalog)
-        let line = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 1, printedName: "old")
+        let line = PrescriptionLine(prescriptionId: UUID(), patientId: UUID(), ordinal: 1, printedName: "old", createdAt: Date(timeIntervalSince1970: 10), updatedAt: Date(timeIntervalSince1970: 20))
         state.matchByLineID[line.id] = .init(status: .unmatched, exact: nil, candidates: [])
         let task = Task { await state.match(line) }
         await waitUntilGated("match must be suspended") { await gate.isGated }
