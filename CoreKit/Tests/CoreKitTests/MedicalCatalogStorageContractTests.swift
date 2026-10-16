@@ -94,7 +94,14 @@ struct MedicalCatalogStorageContractTests {
         let old = try UnifiedAppFixture.make()
         let fresh = try UnifiedAppFixture.make()
         defer { old.cleanUp(); fresh.cleanUp() }
-        let prepared = try MedicalCatalogReadAccess.prepare(path: old.path)
+        let prepared: MedicalCatalogReadAccess.Snapshot
+        do {
+            prepared = try MedicalCatalogReadAccess.prepare(path: old.path)
+        } catch let error as DatabaseError {
+            // 首亮诊断（macOS CI #38897399046 曾抛 IOERR）：记录扩展码区分 SHORT_READ/LOCK 等子型
+            Issue.record("prepare IOERR extendedResultCode=\(error.extendedResultCode.rawValue) message=\(error.message ?? "nil")")
+            throw error
+        }
         let pin = try #require(prepared.retainedFile?.url)
         #expect(pin != old.path)
         let access = MedicalCatalogReadAccess()
@@ -175,7 +182,14 @@ struct MedicalCatalogStorageContractTests {
         let fresh = try UnifiedAppFixture.make()
         defer { old.cleanUp(); fresh.cleanUp() }
         try fresh.mutate("INSERT INTO metadata VALUES ('diagnostic','history-only repack')")
-        let access = try MedicalCatalogReadAccess(path: old.path)
+        let access: MedicalCatalogReadAccess
+        do {
+            access = try MedicalCatalogReadAccess(path: old.path)
+        } catch let error as DatabaseError {
+            // 首亮诊断（macOS CI #38897399046 曾抛 IOERR）：记录扩展码区分 SHORT_READ/LOCK 等子型
+            Issue.record("open IOERR extendedResultCode=\(error.extendedResultCode.rawValue) message=\(error.message ?? "nil")")
+            throw error
+        }
         let before = try #require(access.installedVersion)
         let generation = access.catalogGeneration
         let bytes = try Data(contentsOf: fresh.path)
@@ -249,7 +263,9 @@ struct MedicalCatalogStorageContractTests {
         let fixture = try UnifiedAppFixture.make(golden: "bridge-full-v9")
         defer { fixture.cleanUp() }
         let access = try MedicalCatalogReadAccess(path: fixture.path)
-        let beforeDrug = try await access.drug(id: 92)
+        // 夹具现实（bridge-full-v9 为合成单行夹具：drug id=1 "Drug A"/hospital "Hospital"/detail 511 行）：
+        // 内容断言必须与 checked-in 夹具逐字节一致（expected.json 钉哈希），不得虚构 id=92 之类。
+        let beforeDrug = try await access.drug(id: 1)
         let beforeHospitals = try await access.hospitalSuggest(query: "Hospital", region: nil, limit: 10)
         #expect(access.installedVersion?.dataVersion == expected.base.releaseID)
         #expect(access.installedVersion?.sqliteSHA256 == expected.base.sqliteSHA256)
@@ -267,10 +283,10 @@ struct MedicalCatalogStorageContractTests {
         #expect(access.installedVersion?.dataVersion == expected.reviewed.releaseID)
         #expect(access.installedVersion?.activationID == expected.reviewed.activationID)
         #expect(access.catalogGeneration == 2)
-        #expect(try await access.drug(id: 92) == beforeDrug)
+        #expect(try await access.drug(id: 1) == beforeDrug)
         #expect(try await access.hospitalSuggest(query: "Hospital", region: nil, limit: 10) == beforeHospitals)
         let detail = try await access.detail(for: #require(beforeDrug))
-        #expect((detail?.indications?.count ?? 0) > 5000)
+        #expect(detail?.indications?.count == 511)   // 夹具钉版：base 与 reviewed 均为 511 行（KG-only 评审不动 App 列）
     }
 
     @Test("physical9 recovery uses persisted signed content/SHA and restores last-good on a development lifecycle")
