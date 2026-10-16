@@ -182,7 +182,10 @@ public struct BackupCrypto: Sendable {
         let ctLenEnd = aadEnd + 8
         guard data.count > ctLenEnd else { throw CryptoError.malformed }
         let rawCiphertextLen = data[aadEnd..<ctLenEnd].withUnsafeBytes { $0.loadUnaligned(as: UInt64.self) }.bigEndian
-        guard rawCiphertextLen <= UInt64(Int.max), rawCiphertextLen == UInt64(data.count - ctLenEnd) else {
+        // 评审修复（死条件清理）：等式已蕴含 ≤ Int.max（右侧 Int 差值恒 ≤ Int.max，
+        // UInt64 化后不可能超上界）——原双条件的前半永不生效；本实现无 Int(raw) 直转，
+        // 畸形高位长度由等式直接拒绝（不 trap）。
+        guard rawCiphertextLen == UInt64(data.count - ctLenEnd) else {
             throw CryptoError.malformed
         }
         return V2Frame(
@@ -206,10 +209,19 @@ public struct BackupCrypto: Sendable {
         try openFrame(try parseV2Frame(data), master: masterKey)
     }
 
-    /// 帧头轻读：只取 realmId（零解密）——调用方据此选择「可同步主密钥」重试路径。
-    /// 结构不符返回 nil（探测失败=走既有回退链，不抛错）。
+    /// 帧头轻读：只取 realmId（零解密、零整体拷贝）——调用方据此选择「可同步主密钥」
+    /// 重试路径。结构不符返回 nil（探测失败=走既有回退链，不抛错）。
+    /// 评审修复：此前经 parseV2Frame 全帧解析——虽「零解密」但仍整段拷贝 ciphertext
+    ///（数百 MB 信封每次探测一次全量复制），且 wrappedKey/recoveryWrapped 切片同样无谓。
+    /// realmId 固定在第 magicLen+2..+16 字节，够长即取。
     public static func peekRealmId(_ data: Data) -> UUID? {
-        (try? parseV2Frame(data))?.realmId   // try?-ok: 探测语义——解析失败=nil，调用方回退恢复码链
+        let magicLen = EnvelopeFrame.binaryMagic.count
+        let algEnd = magicLen + 2
+        let realmEnd = algEnd + 16
+        guard data.count >= realmEnd, data[magicLen] == 2, data[magicLen + 1] == algorithmID else {
+            return nil
+        }
+        return UUID(uuid: data[algEnd..<realmEnd].withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) })
     }
 
     /// 已解析帧 + 主密钥 → 打开（openFrame 两条公开入口的单点实现）

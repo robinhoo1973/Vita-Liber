@@ -31,9 +31,13 @@ public enum ShareEnvelopeBuilder {
     /// 逐级裁剪（原地副本，不污染源信封）。
     /// 白名单纪律（评审重写）：原实现是「短黑名单」——只在个别级清掉 4 个字段，其余全部
     /// 临床数组（时间轴/病历正文/处方/检验/就诊/过敏史/语音记录/免疫…）随包全量透传，
-    /// 四级「最小必要」承诺在数据层整体失效（通知级分享=整库病历外发）。重写为逐级白名单：
-    /// 先零基线全清临床数据，再按级回填本级条款字段——新增字段默认被清
-    /// （白名单失效方向安全：漏清=泄漏；漏回填=功能缺项可测），function V4.22 四级语义。
+    /// 四级「最小必要」承诺在数据层整体失效（通知级分享=整库病历外发）。重写为
+    /// 「零基线全清 + 逐级回填」：clearClinicalFields 显式枚举清空全部既有临床字段，
+    /// 再按级回填本级条款字段，function V4.22 四级语义。
+    /// 注意（评审修订：修正「新增字段默认被清」的不实注释）：清空是**显式枚举**而非
+    /// 结构默认拒绝——Envelope 未来新增临床字段若不同步加入 clearClinicalFields，
+    /// 会随全级透传。新增字段时必须同步该函数（收敛手段登记：结构上做「分享安全构造
+    /// 器」需全字段初始化，属批次 2 重构）。
     public static func build(id: UUID, from source: ExportService.Envelope,
                              selection: ShareSelection) throws -> SharePackage {
         var envelope = source
@@ -68,9 +72,12 @@ public enum ShareEnvelopeBuilder {
             }
             envelope.metrics = source.metrics
         case .card:
-            // 选定信息卡整体（其余卡剥离）
+            // 选定信息卡整体（其余卡剥离）。评审修复：ShareSelection.selectedCardIds
+            // 语义 = **卡 id**（ShareRules.swift:35），而此前按回执行 rowId 过滤——
+            // 两 id 分属不同实体（AuditRecord.cardId=卡行、rowId=底层数据行），
+            // 勾选的卡一行都匹配不上（全空包）或误配无关行。
             let selected = selection.selectedCardIds
-            envelope.ocrCardCommits = source.ocrCardCommits?.filter { selected.contains($0.rowId) }
+            envelope.ocrCardCommits = source.ocrCardCommits?.filter { selected.contains($0.cardId) }
         case .original:
             // 逐件显式勾选（水印与二次确认由 UI 层强制，BR-009）：
             // 仅入选文档及其时间轴投影、对应回执；其余临床数组一律不入（含他成员数据）

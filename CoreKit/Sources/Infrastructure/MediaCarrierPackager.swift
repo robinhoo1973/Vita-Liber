@@ -78,8 +78,10 @@ public actor MediaCarrierPackager: MediaPackaging {
         }
         try archive.addEntry(with: Self.manifestFileName, relativeTo: stagingRoot, compressionMethod: .deflate)
         for entry in sorted {
+            // blob 已是 AES-GCM 密文（高熵不可压缩）——deflate 是纯 CPU 浪费且增大载具，
+            // 评审修复：媒体 blob 存储（.none）；manifest 明文 JSON 保留 deflate。
             try archive.addEntry(with: MediaDestinationRules.carrierRelativePath(sha256: entry.sha256),
-                                 relativeTo: stagingRoot, compressionMethod: .deflate)
+                                 relativeTo: stagingRoot, compressionMethod: .none)
         }
         return manifest
     }
@@ -141,6 +143,23 @@ public actor MediaCarrierPackager: MediaPackaging {
             }
         }
         return report
+    }
+
+    /// 暂存 GC（评审修复）：清除不在本次条目集内的 staged blob——数据删除/裁剪后
+    /// 不再被任何清单引用的密文没有复用面，留在 Caches 只增体积（随历史媒体总量线性增长）。
+    /// 仅枚举 stagingRoot/media 子树（.vlbm 载具与 manifest.json 在根层，不受影响）；
+    /// 单件删除失败仅残留缓存体积，无正确性影响。
+    public func pruneStaged(keeping shas: Set<String>) async {
+        let mediaRoot = stagingRoot.appendingPathComponent("media", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(at: mediaRoot,
+                                                      includingPropertiesForKeys: [.isDirectoryKey]) else { return }
+        for case let url as URL in enumerator {
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false   // try?-ok: 属性不可读按文件处理
+            guard !isDirectory else { continue }
+            if !shas.contains(url.deletingPathExtension().lastPathComponent) {
+                try? fileManager.removeItem(at: url)   // try?-ok: 缓存 GC 失败仅余体积
+            }
+        }
     }
 
     private func stagedBlobURL(_ sha256: String) -> URL {

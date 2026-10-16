@@ -115,7 +115,22 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
             let update: [String: Any] = [kSecValueData as String: wrapped]
             let updateStatus = SecItemUpdate(baseQuery(account, synchronizable: true, accessible: Self.masterAccessible) as CFDictionary,
                                              update as CFDictionary)
-            guard updateStatus == errSecSuccess else { throw KeyRingError.keychain(updateStatus) }
+            if updateStatus == errSecItemNotFound {
+                // 评审修复（升级迁移）：同名旧项以非同步形态存在（39208c85 前的
+                // ThisDeviceOnly 写入）——非 Any 的同步查询对其不可见，Add 撞
+                // duplicate、Update 报 notFound，此前直接抛出=「创建备份」恒失败。
+                // 先删旧形态再落同步项；delete→add 之间失败由上层补发自愈
+                //（主密钥在、包裹段缺 → createBackup 补发新码）。
+                let legacyDelete = SecItemDelete(baseQuery(account, synchronizable: false,
+                                                           accessible: Self.deviceAccessible) as CFDictionary)
+                guard legacyDelete == errSecSuccess || legacyDelete == errSecItemNotFound else {
+                    throw KeyRingError.keychain(legacyDelete)
+                }
+                let retryStatus = SecItemAdd(query as CFDictionary, nil)
+                guard retryStatus == errSecSuccess else { throw KeyRingError.keychain(retryStatus) }
+            } else if updateStatus != errSecSuccess {
+                throw KeyRingError.keychain(updateStatus)
+            }
         } else if addStatus != errSecSuccess {
             throw KeyRingError.keychain(addStatus)
         }
@@ -127,7 +142,23 @@ public struct KeychainDeviceKeyRing: DeviceKeyRing, Sendable {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if status == errSecItemNotFound { return nil }
+        if status == errSecItemNotFound {
+            // 评审修复（迁移可见性）：旧版本以 ThisDeviceOnly 写下的包裹段对新同步
+            // 查询恒 notFound——只读回落旧属性查询（不搬迁：搬迁归 storeRecoveryWrapped
+            // 的写路径，读路径保持无副作用）。旧码因此继续对新帧有效。
+            let legacy = baseQuery("recovery.\(realmId.uuidString)", synchronizable: false,
+                                   accessible: Self.deviceAccessible)
+            var legacyQuery = legacy
+            legacyQuery[kSecReturnData as String] = true
+            legacyQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+            var legacyResult: CFTypeRef?
+            let legacyStatus = SecItemCopyMatching(legacyQuery as CFDictionary, &legacyResult)
+            if legacyStatus == errSecItemNotFound { return nil }
+            guard legacyStatus == errSecSuccess, let data = legacyResult as? Data else {
+                throw KeyRingError.keychain(legacyStatus)
+            }
+            return data
+        }
         guard status == errSecSuccess, let data = result as? Data else {
             throw KeyRingError.keychain(status)
         }
