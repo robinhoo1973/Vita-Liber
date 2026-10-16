@@ -43,12 +43,21 @@ public actor MediaReconciler {
         var sensitiveByMember: [UUID: Set<String>] = [:]
         var tokens: [String] = []
         for row in rows {
-            tokens.append((row["sha256"] as String?) ?? "")
+            let docSha = (row["sha256"] as String?) ?? ""
+            tokens.append(docSha)
+            let isSensitive = (row["is_sensitive"] as Int?) == 1
+            let member = (row["patient_id"] as String?).flatMap(UUID.init(uuidString:))
+            if isSensitive, let member {
+                // 评审修复：敏感处理版落 sensitive/{member}/{sha}.bin（非 CAS 根）——
+                // 引用集此前只收原件 sha，处理版 blob 在 600s 宽限后被 GC 清走
+                // （resolver 回落原件=静默降级，重新处理前最佳清晰度丢失）。
+                sensitiveByMember[member, default: []].formUnion(
+                    MediaLifecycleRules.processedRootSHAs(from: [docSha]))
+            }
             guard let sha = (row["original_sha256"] as String?),
                   MediaDestinationRules.isLowercaseHex64(sha) else { continue }
             originals.insert(sha)
-            if (row["is_sensitive"] as Int?) == 1,
-               let member = (row["patient_id"] as String?).flatMap(UUID.init(uuidString:)) {
+            if isSensitive, let member {
                 sensitiveByMember[member, default: []].insert(sha)
             }
         }

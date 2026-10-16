@@ -24,6 +24,9 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
     private let writer: any DatabaseWriter
     private let compressor: any ImageCompressing
     private let baseDir: URL
+    /// 锁定缩略图参数（§5.10：CIGaussianBlur(radius:12)）——保存路径与
+    /// 按需再生路径单点共用（两处各写一份常量必然漂移）。
+    private static let blurSpec = ThumbnailSpec(maxDimension: 320, blurRadius: 12, quality: 0.6)
     /// blur 缩略图内存缓存（§5.10 内存警告响应：收到警告即清空）。
     /// 经 CacheBox 供 @Sendable 观察者闭包捕获（NSCache 无 Sendable 标注）。
     private let blurCache: CacheBox
@@ -70,7 +73,7 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
             // 局部 let 快照再捕获（评审修正）：闭包内不引用 self 属性——
             // actor 属性在 @Sendable 闭包中要求显式 self 且受隔离检查。
             let compressor = self.compressor
-            let blurSpec = ThumbnailSpec(maxDimension: 320, blurRadius: 12, quality: 0.6)
+            let blurSpec = Self.blurSpec
             let blur = try await Task.detached(priority: .userInitiated) {
                 try await compressor.generateThumbnail(data, spec: blurSpec)
             }.value
@@ -128,8 +131,25 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
     public func blurData(for assetId: UUID, memberId: UUID) async throws -> Data? {
         let key = assetId.uuidString as NSString
         if let cached = blurCache.cache.object(forKey: key) { return cached as Data }
-        let url = memberDir(memberId).appendingPathComponent("\(assetId.uuidString).blur.jpg")
-        guard let data = try? Data(contentsOf: url) else { return nil }   // try?-ok: blur 读取失败降级为「无缩略图」，不阻断列表
+        let dir = memberDir(memberId)
+        let url = dir.appendingPathComponent("\(assetId.uuidString).blur.jpg")
+        if let data = try? Data(contentsOf: url) {   // try?-ok: blur 读取失败走按需再生，不阻断列表
+            blurCache.cache.setObject(data as NSData, forKey: key)
+            return data
+        }
+        // 按需再生（评审修复）：备份包只随 photo 原件（blur 派生不随包——「恢复后按需
+        // 重建」此前是空头承诺，恢复后锁定缩略图恒空）。blur 由原件确定性派生：
+        // 原件在即读回 → detached 生成 → 落盘（同 savePhoto 规格与保护级）→ 入缓存。
+        // 原件也缺失 → nil（如实降级「无缩略图」，不阻断列表）。
+        let originalURL = dir.appendingPathComponent("\(assetId.uuidString).jpg")
+        guard let original = try? Data(contentsOf: originalURL) else { return nil }   // try?-ok: 无再生源，降级无缩略图
+        let compressor = self.compressor
+        let blurSpec = Self.blurSpec
+        let regeneration = Task.detached(priority: .userInitiated) {
+            try await compressor.generateThumbnail(original, spec: blurSpec)
+        }
+        guard let data = try? await regeneration.value else { return nil }   // try?-ok: 再生失败降级「无缩略图」，不阻断列表
+        try? data.write(to: url, options: [.atomic, .completeFileProtection])   // try?-ok: 落盘失败=下次读取再再生，本次仍返回
         blurCache.cache.setObject(data as NSData, forKey: key)
         return data
     }

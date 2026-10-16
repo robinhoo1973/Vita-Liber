@@ -112,10 +112,13 @@ public actor BackupService {
         // F8 照片随包（local-storage-layout-council 切片 14，业主裁决入批）：
         // 只带 photo 原件（blur 派生可再生，恢复后按需重建）；成员身份由
         // observation.media_asset_ids 反查；相对路径剥「MedicalNotes/」前缀对齐媒体根。
-        let memberByAsset = Dictionary(uniqueKeysWithValues:
+        // 评审修复：uniqueKeysWithValues 对重复 assetId（同一照片挂多条观测/重复行）直接
+        // 触发陷阱崩溃——改 uniquing 保留首个（照片归属以首个可达映射为准，宁打包不崩溃）。
+        let memberByAsset = Dictionary(
             (envelope.observations).flatMap { obs in
                 obs.mediaAssetIds.compactMap { id in obs.patientId.map { ($0, id) } }
-            }.map { ($0.1, $0.0) })
+            }.map { ($0.1, $0.0) },
+            uniquingKeysWith: { first, _ in first })
         for asset in envelope.assets ?? [] where asset.kind == "photo" {
             guard let memberId = memberByAsset[asset.id.uuidString] else { continue }
             let stripped = asset.relativePath.hasPrefix("MedicalNotes/")
@@ -135,8 +138,10 @@ public actor BackupService {
     /// syncIdentity 非 nil = 同步信封（批次 2）：envelope 写 syncRealmId/deviceId/seq，
     /// 加密 realm 锚改用显式 syncRealmId（跨设备同一同步域解封密钥一致）；
     /// 其余管线（媒体载具/加密段/恢复码链）与普通备份完全同构，零重复实现。
+    /// includeMedia=false = 仅信封（同步 push 用：载具随备份导出链路走，同步通道只承载信封字节）。
     public func createBackup(encrypted: Bool = false,
-                             syncIdentity: SyncFileNaming.Identity? = nil) async throws -> BackupPackage {
+                             syncIdentity: SyncFileNaming.Identity? = nil,
+                             includeMedia: Bool = true) async throws -> BackupPackage {
         var envelope = try await exporter.exportJSON()
         if let syncIdentity {
             envelope.syncRealmId = syncIdentity.realmId
@@ -149,7 +154,7 @@ public actor BackupService {
         // 现场哈希**回写信封 originalSha256**（恢复侧 normalizeMediaPaths 依列归一，
         // legacy 行不写回则恢复后仍是悬空绝对路径）。
         var mediaItems: [(entry: MediaManifestEntry, sourceURL: URL)] = []
-        if encrypted, mediaBase != nil, stagingRoot != nil {
+        if encrypted, includeMedia, mediaBase != nil, stagingRoot != nil {
             let built = try buildMediaEntries(envelope: envelope)
             mediaItems = built.items
             if var docs = envelope.documents, !built.updates.isEmpty {
@@ -201,7 +206,10 @@ public actor BackupService {
             let mediaCarrier: URL?
             let mediaManifest: MediaManifest?
             if !mediaItems.isEmpty, let stagingRoot {
-                try? FileManager.default.removeItem(at: stagingRoot)   // try?-ok: 首备无暂存目录，删除失败=按「重建」处理
+                // 评审修复（增量暂存）：stage 按 sha 幂等（已在暂存 → 跳过 nil）——保留 staged blob
+                // 让重复备份媒体零拷贝；此前每轮整目录删除令每次备份重读+重加密全部媒体
+                //（大库每次 O(媒体总量) 读+加密）。仅清上一轮产出的 .vlbm 载具文件（防暂存累积）。
+                Self.removeStaleCarriers(in: stagingRoot)
                 let sealing = try CryptoKitMediaBlobSealing(masterKey: masterData)
                 let packager = MediaCarrierPackager(mediaBase: mediaBase!, stagingRoot: stagingRoot, sealing: sealing)
                 for item in mediaItems {
@@ -297,6 +305,14 @@ public actor BackupService {
         return try await restore(envelope: verified.envelope, resolutions: resolutions)
     }
 
+    /// 跨设备主路径（design §5.2）：帧头 realmId → 可同步主密钥直接解帧。
+    /// nil = 无帧头/主密钥不可取回/密钥不匹配（调用方继续回退恢复码链）。
+    private func openViaSyncedMasterKey(_ data: Data, keyRing: any DeviceKeyRing) async -> BackupCrypto.OpenedFrame? {
+        guard let realmId = BackupCrypto.peekRealmId(data),
+              let syncedMaster = try? await keyRing.masterKey(realmId: realmId) else { return nil }   // try?-ok: 钥匙串读失败=无主路径，回退恢复码链
+        return try? BackupCrypto.openFrame(data, masterKey: SymmetricKey(data: syncedMaster))   // try?-ok: 主密钥不匹配=继续回退链
+    }
+
     /// 解码 + 校验（三格式兼容：v1 明文帧 / v2 加密段帧 / 遗留 JSON），返回已校验的 envelope
     /// 与主密钥（v2 帧解封可得；v1/JSON 为 nil——无载具可解）
     private func verifiedEnvelope(from data: Data, recoveryCode: String? = nil) async throws -> (envelope: ExportService.Envelope, masterKey: Data?) {
@@ -305,7 +321,10 @@ public actor BackupService {
         switch EnvelopeFrame.binaryFormatVersion(data) {
         case 2:
             // v2 加密段帧（tech V3.170）：AEAD 认证 + aadHash 双保险；
-            // 设备子密钥不可达（换机/钥匙串重置）→ 恢复码逃生舱（码错=checksumMismatch 零部分导入）
+            // 回退链（评审修复，design §5.2）：设备子密钥 → 可同步主密钥（跨设备主路径）
+            // → 恢复码逃生舱（码错=checksumMismatch 零部分导入）。此前缺中间一环：
+            // 主密钥按设计为 synchronizable（跨设备主路径），本机子密钥解不开他设备信封时
+            // 直接报 checksumMismatch/索要恢复码——主路径被跳过（换机用户被无谓支到逃生舱）。
             guard let keyRing else { throw BackupError.encryptionUnavailable }
             do {
                 let deviceKey = try await keyRing.deviceSubKey()
@@ -314,15 +333,25 @@ public actor BackupService {
                 claimedSHA = opened.aadHash
                 masterKey = opened.masterKey
             } catch BackupCrypto.CryptoError.tamperOrKeyMismatch, BackupCrypto.CryptoError.malformed {
-                guard let code = recoveryCode else { throw BackupError.checksumMismatch }
-                do {
-                    let opened = try BackupCrypto.openWithRecoveryCode(data, code: code)
+                if let opened = await openViaSyncedMasterKey(data, keyRing: keyRing) {
                     payload = opened.payload
                     claimedSHA = opened.aadHash
                     masterKey = opened.masterKey
-                } catch {
-                    throw BackupError.checksumMismatch
+                } else {
+                    guard let code = recoveryCode else { throw BackupError.checksumMismatch }
+                    do {
+                        let opened = try BackupCrypto.openWithRecoveryCode(data, code: code)
+                        payload = opened.payload
+                        claimedSHA = opened.aadHash
+                        masterKey = opened.masterKey
+                    } catch {
+                        throw BackupError.checksumMismatch
+                    }
                 }
+            } catch is KeyRingError {
+                // 钥匙串不可用（KeyRingError）≠ 文件格式不支持（评审修复：此前并入
+                // unsupportedFormat，用户被引向「文件坏了」的错误归因；钥匙串故障可自愈可申诉）
+                throw BackupError.encryptionUnavailable
             } catch {
                 throw BackupError.unsupportedFormat
             }
@@ -358,6 +387,16 @@ public actor BackupService {
         // 收敛到 ContentHashing 单实现（CryptoKitContentHasher）——
         // 全仓哈希不再各自内联 CryptoKit 表达式
         CryptoKitContentHasher().sha256Hex(data)
+    }
+
+    /// 清理暂存目录内的旧载具文件（vitaliber-media-*.vlbm）——staged blob 保留供增量复用；
+    /// 首备目录不存在=无旧件可清；单件删除失败只余缓存占用，不影响本次备份。
+    private static func removeStaleCarriers(in stagingRoot: URL) {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: stagingRoot.path) else { return }   // try?-ok: 目录不存在=首备
+        for name in names where name.hasPrefix("vitaliber-media-") && name.hasSuffix(".vlbm") {
+            try? fm.removeItem(at: stagingRoot.appendingPathComponent(name))   // try?-ok: 清理失败=缓存残留，无正确性影响
+        }
     }
 }
 #endif

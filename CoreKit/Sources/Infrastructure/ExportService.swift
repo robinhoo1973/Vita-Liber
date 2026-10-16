@@ -1285,7 +1285,13 @@ public actor ExportService {
             meta = decoded
         }
         let relative: String
-        if document.isSensitive, let targetPatientId, let member = UUID(uuidString: targetPatientId) {
+        if document.isSensitive {
+            // 评审修复（保护域降级）：敏感文档必须落 sensitive/{member}/ 域（BR-007/008）——
+            // 目标成员缺失/不可解析时保持原 metadata 不动；此前回落非敏感 CAS 路径，
+            // 敏感原件被改写为普通目录形态（读取方按非敏感路径命中=保护域静默降级）。
+            guard let targetPatientId, let member = UUID(uuidString: targetPatientId) else {
+                return metadata
+            }
             relative = MediaDestinationRules.sensitiveOriginalRelativePath(memberId: member, sha256: sha)
         } else {
             relative = MediaDestinationRules.originalRelativePath(sha256: sha)
@@ -2133,22 +2139,24 @@ private struct ImportSession {
                         patient_id = ?, doc_type = ?, status = ?,
                         sha256 = ?, mime_type = ?, is_sensitive = ?, origin = ?,
                         meta_json = ?, title = ?, ocr_text = ?, notes = ?, grade = ?,
-                        created_at = ?, updated_at = ?\(v25Columns)
+                        created_at = ?, updated_at = ?,
+                        original_sha256 = COALESCE(?, original_sha256)\(v25Columns)
                     WHERE id = ?
-                    """, arguments: StatementArguments(baseArguments + v25Arguments + [targetId.uuidString]))
+                    """, arguments: StatementArguments(baseArguments + [d.originalSha256] + v25Arguments + [targetId.uuidString]))
             }) { continue }
             try db.execute(sql: """
                 INSERT INTO document_file
                   (id, patient_id, encounter_id, doc_type, status, sha256, mime_type,
                    is_sensitive, origin, meta_json, title, ocr_text, notes, grade,
-                   created_at, updated_at, doc_type_key, title_source)
-                VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   created_at, updated_at, doc_type_key, title_source, original_sha256)
+                VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [targetId.uuidString, targetPatientId,
                                  d.docType, d.status, d.sha256, d.mimeType,
                                   d.isSensitive ? 1 : 0, d.origin, storedMetadata, d.title,
                                  d.ocrText, d.notes, d.grade,
                                  d.createdAt.timeIntervalSince1970,
-                                 d.updatedAt.timeIntervalSince1970, d.docTypeKey, d.titleSource])
+                                 d.updatedAt.timeIntervalSince1970, d.docTypeKey, d.titleSource,
+                                 d.originalSha256])
             try ExportService.restoreOCRPages(d, targetId: targetId, replacing: false, db: db)
         }
         // 旧备份包（无 documents 维度）的投影行恢复——历史兼容路径

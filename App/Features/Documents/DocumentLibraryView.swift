@@ -799,6 +799,15 @@ final class DocumentsState {
             meta["original_sha256"] = written.sha256
             originalSha = written.sha256
             session.draft?.retainedMeta = meta
+        } else if originalSha == nil,
+                  let data = mediaData(storedPath: meta["original_path"] as? String, originalSha256: nil) {
+            // legacy 快照修复（评审）：升级前落库的 meta 有 original_path 无
+            // original_sha256（v35 新列）——此前下方 guard 直接抛 unreadableMedia，
+            // 旧文档重新确认整单被阻断（明明可读）。文件可达即补哈希一次写回
+            //（同启动回填语义；列缺失无法按 CAS 形态读回）。
+            originalSha = Self.hash(data)
+            meta["original_sha256"] = originalSha
+            session.draft?.retainedMeta = meta
         }
         if meta["processed_path"] == nil {
             meta["processed_path"] = draft.originalData == draft.processedData ? meta["original_path"]
@@ -898,9 +907,15 @@ final class DocumentsState {
         do {
             guard let document = try await store.fetch(id: id), document.patientId == patientId,
                   ["active", "favorite"].contains(document.status) else { throw ImportError.unreadableMedia }
-            let meta = document.metaJSON.flatMap { json -> [String: Any]? in
+            var meta = document.metaJSON.flatMap { json -> [String: Any]? in
                 try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] // try?-ok: meta 损坏=按「无元数据」处理，媒体候选为空→unreadableMedia（失败态不崩溃）
             } ?? [:]
+            if let columnSha = document.originalSha256 {
+                // v35 列回注快照（评审修复）：legacy meta 缺 original_sha256 时，
+                // 重新确认走 persistMediaPaths 旧快照分支无法补列而抛 unreadableMedia——
+                // 列为同事务写入的权威值，回注后重试路径可写回。
+                meta["original_sha256"] = columnSha
+            }
             // 双形态读（local-storage-layout-council）：相对路径（新写）→ sha 推导 → legacy 绝对路径
             guard let originalData = mediaData(storedPath: meta["original_path"] as? String,
                                                originalSha256: document.originalSha256) else {
