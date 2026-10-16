@@ -992,15 +992,26 @@ public actor ExportService {
     }
 
     /// 冲突预览：备份与目标库的同名主键清单 + 双方摘要（UI 逐项呈现）。
+    /// 500/批分块 IN 查询（V1.7 切片 3）：超万行单表 id 清单不触碰 SQLite 变量上限；
+    /// 结果仅作集合成员判断，跨块拼接不改变语义。
+    static func chunkedIDLookup(_ db: Database, table: String, ids: [String], column: String = "id") throws -> [String] {
+        guard !ids.isEmpty else { return [] }
+        var found: [String] = []
+        for start in stride(from: 0, to: ids.count, by: 500) {
+            let slice = Array(ids[start..<min(start + 500, ids.count)])
+            let placeholders = slice.map { _ in "?" }.joined(separator: ",")
+            found += try String.fetchAll(db, sql: """
+                SELECT \(column) FROM \(table) WHERE \(column) IN (\(placeholders))
+                """, arguments: StatementArguments(slice))
+        }
+        return found
+    }
+
     public func conflictReport(_ envelope: Envelope) async throws -> [ConflictItem] {
         try Self.validateOCRBackup(envelope)
         return try await writer.read { db in
             func conflictIds(table: String, ids: [String], column: String = "id") throws -> [String] {
-                guard !ids.isEmpty else { return [] }
-                let placeholders = ids.map { _ in "?" }.joined(separator: ",")
-                return try String.fetchAll(db, sql: """
-                    SELECT \(column) FROM \(table) WHERE \(column) IN (\(placeholders))
-                    """, arguments: StatementArguments(ids))
+                try Self.chunkedIDLookup(db, table: table, ids: ids, column: column)
             }
             let memberProfiles = envelope.members ?? []
             let profileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
@@ -1751,11 +1762,7 @@ private struct ImportSession {
     /// （缺裁决抛 .conflict——UI 必须先呈现 preview，否则「未裁决即恢复」退化为静默丢弃）。
     func detectConflicts() throws -> [String: Set<String>] {
         func conflictingIds(table: String, ids: [String], column: String = "id") throws -> Set<String> {
-            guard !ids.isEmpty else { return [] }
-            let placeholders = ids.map { _ in "?" }.joined(separator: ",")
-            return Set(try String.fetchAll(db, sql: """
-                SELECT \(column) FROM \(table) WHERE \(column) IN (\(placeholders))
-                """, arguments: StatementArguments(ids)))
+            Set(try Self.chunkedIDLookup(db, table: table, ids: ids, column: column))
         }
         let allProfileIds = ([envelope.selfProfile].compactMap { $0 }.map(\.id)
                              + memberProfiles.map(\.id)).map(\.uuidString)
