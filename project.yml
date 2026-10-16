@@ -18,6 +18,9 @@ packages:
   xctest-dynamic-overlay:
     url: https://github.com/pointfreeco/xctest-dynamic-overlay
     exactVersion: 1.13.1   # swift-perception 传递依赖；@Perceptible 宏展开直接调用 IssueReporting，App 须显式链接（CI 34759901369）
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation.git
+    exactVersion: 0.9.20   # CoreKit 传递依赖；测试直检 .vlbm 载具 zip 须直连（与 CoreKit Package.swift from: "0.9.19" 同解，钉精确防静默漂移）
 targets:
   VitaLiber:
     type: application
