@@ -12,8 +12,16 @@ import ZIPFoundation
 /// 清单级 zip-slip/版本拒绝/跨会话 commit/恶意多余 zip 条目忽略。
 struct MediaCarrierPackagerTests {
 
+    /// 占位 sha 仅限「不 stage 真实字节」的拒绝路径用例（缺失源/空清单/暂存缺失/版本拒绝）。
+    /// stage 有明文哈希校验（生产不变量：清单 sha = 明文原件哈希），凡 stage 真实字节的用例
+    /// 必须用 `shaHex` 由内容派生——手工捏造哈希会触发 shaMismatch，正是本轮 macOS 测试红因。
     private let shaA = String(repeating: "a", count: 64)
     private let shaB = String(repeating: "b", count: 64)
+
+    /// 内容寻址：sha 是内容的函数，夹具不得手写哈希（用生产同款 hasher 派生）。
+    private static func shaHex(_ bytes: [UInt8]) -> String {
+        CryptoKitContentHasher().sha256Hex(Data(bytes))
+    }
 
     private func makeTempDir(_ name: String) throws -> URL {
         let url = FileManager.default.temporaryDirectory
@@ -44,6 +52,8 @@ struct MediaCarrierPackagerTests {
         let staging = try makeTempDir("staging")
         let restore = try makeTempDir("restore")
         let sealing = try makeSealing()
+        let shaA = Self.shaHex([1, 2, 3])
+        let shaB = Self.shaHex([4, 5, 6, 7])
         try makeBlob(in: mediaBase, sha: shaA, bytes: [1, 2, 3])
         try makeBlob(in: mediaBase, sha: shaB, bytes: [4, 5, 6, 7])
 
@@ -128,6 +138,7 @@ struct MediaCarrierPackagerTests {
         let staging = try makeTempDir("staging")
         let restore = try makeTempDir("restore")
         let sealing = try makeSealing()
+        let shaA = Self.shaHex([7, 8])
         try makeBlob(in: mediaBase, sha: shaA, bytes: [7, 8])
         let entry = originalEntry(sha: shaA, size: 2)
 
@@ -153,6 +164,7 @@ struct MediaCarrierPackagerTests {
         let restore = try makeTempDir("restore")
         let sealing = try makeSealing()
         let member = UUID()
+        let shaA = Self.shaHex([1, 1, 1])
         try makeBlob(in: mediaBase, sha: shaA, bytes: [1, 1, 1])
         let sensitiveEntry = MediaManifestEntry(
             sha256: shaA, size: 3, mime: "image/jpeg",
@@ -180,6 +192,7 @@ struct MediaCarrierPackagerTests {
         let staging = try makeTempDir("staging")
         let restore = try makeTempDir("restore")
         let sealing = try makeSealing()
+        let shaA = Self.shaHex([5, 5, 5])
         try makeBlob(in: mediaBase, sha: shaA, bytes: [5, 5, 5])
         let entry = originalEntry(sha: shaA, size: 3)
 
@@ -207,6 +220,7 @@ struct MediaCarrierPackagerTests {
         let staging = try makeTempDir("staging")
         let restore = try makeTempDir("restore")
         let sealing = try makeSealing()
+        let shaA = Self.shaHex([3, 3, 3])
         try makeBlob(in: mediaBase, sha: shaA, bytes: [3, 3, 3])
 
         // 清单级 zip-slip：relativePath 带 `..`，而 zip 内 media/{sha2}/{sha}.bin 字节正常在位——
@@ -248,6 +262,7 @@ struct MediaCarrierPackagerTests {
         let staging = try makeTempDir("staging")
         let restore = try makeTempDir("restore")
         let sealing = try makeSealing()
+        let shaA = Self.shaHex([2, 2])
         try makeBlob(in: mediaBase, sha: shaA, bytes: [2, 2])
         let entry = originalEntry(sha: shaA, size: 2)
         let packager = MediaCarrierPackager(mediaBase: mediaBase, stagingRoot: staging, sealing: sealing)
