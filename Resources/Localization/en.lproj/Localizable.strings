@@ -1460,6 +1460,10 @@
 "backup.reminder.interval.30" = "Every 30 days";
 "backup.reminder.interval.90" = "Every 90 days";
 "backup.reminder.interval.note" = "The reminder only guides you to the backup page; it never creates backup files automatically.";
+"backup.analyzing" = "Analyzing backup…";
+"backup.confirmImpact.title" = "Confirm Restore";
+"backup.confirmImpactFmt" = "Will import %d records; %d conflict(s) with data on this device, reviewed item by item after confirmation.";
+"backup.restoreReportFmt" = "Conflicts: kept local %d · adopted %d · coexisted %d";
 
 "auth.ocr" = "OCR & image processing";
 "auth.ai" = "AI analysis";

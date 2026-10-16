@@ -25,8 +25,14 @@ final class BackupState {
     enum Phase: Equatable {
         case idle
         case working
+        /// 分析中（读包+校验+冲突分析，detached；可取消——取消只丢分析结果，本机零改动）
+        case analyzing
         case exported(fileName: String, sha256: String)
-        case restored(records: Int)    // FR13.5 恢复后数据校验报告（导入记录计数）
+        /// 真实影响清单确认（V1.7 恢复流程重构：分析前移到确认之前，
+        /// 清单来自真实分析结果而非静态文案）
+        case confirmRestore(records: Int, conflictCount: Int)
+        /// FR13.5 恢复后数据校验报告（导入计数 + 冲突裁决三分项）
+        case restored(records: Int, kept: Int, adopted: Int, coexisted: Int)
         /// ADR-019：冲突预览——逐项裁决（保留本机/采用备份/并存）后确认应用
         case conflicts([ExportService.ConflictItem])
         case degraded(String)          // 降级文案（未登录/空间不足/校验失败）
@@ -76,8 +82,10 @@ final class BackupState {
         }
     }
 
-    func restore(from url: URL) async {
-        phase = .working
+    /// 选文件后的后台分析（V1.7 恢复流程重构）：读包 + 校验 + 冲突分析，
+    /// 产出真实影响清单进确认态——分析完成前用户看不到静态「覆盖」承诺
+    func analyzeRestore(from url: URL) async {
+        phase = .analyzing
         // security-scoped：picker 返回的 URL 需显式取用权限，否则读取静默失败
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -89,29 +97,60 @@ final class BackupState {
             let data = try await Task.detached(priority: .userInitiated) {
                 try Data(contentsOf: url)
             }.value
-            // ADR-019：先分析冲突——无冲突直接恢复；有冲突进入逐项裁决预览。
-            // 校验后的 envelope 随分析返回，恢复路径复用（整包只哈希+解码一次）
+            // ADR-019：先分析冲突——校验后的 envelope 随分析返回，
+            // 确认/恢复路径复用（整包只哈希+解码一次）
             let analysis = try await service.analyzeConflicts(from: data)
-            guard !analysis.conflicts.isEmpty else {
-                let records = try await service.restore(envelope: analysis.envelope)
-                phase = .restored(records: records)
-                await onRestored?()   // 恢复末步重建提醒投影（恢复的计划立即进入排程）
-                return
-            }
             pendingAnalysis = analysis
-            resolutions = Dictionary(uniqueKeysWithValues: analysis.conflicts.map { ($0.id, .keep) })
-            phase = .conflicts(analysis.conflicts)
+            phase = .confirmRestore(records: analysis.envelope.totalRecords,
+                                    conflictCount: analysis.conflicts.count)
         } catch BackupService.BackupError.checksumMismatch,
                 BackupService.BackupError.unsupportedFormat {
             // 校验失败绝不部分导入——本机数据保持原样
             phase = .degraded(L10n.backupChecksumFailed)
         } catch {
-            logger.error("备份恢复失败: \(error)")
-            // 第八轮修复：非校验类失败（读文件/磁盘满/FK/schema 不匹配）
-            // 此前一律显示「文件校验失败」——把完好的备份归罪为损坏，用户
-            // 可能丢弃有效备份。通用失败独立文案，不误导换文件重试。
+            logger.error("备份分析失败: \(error)")
+            // 第八轮修复同族：非校验类失败不归罪文件损坏
             phase = .degraded(L10n.backupRestoreFailed)
         }
+    }
+
+    /// 影响清单确认后应用：无冲突直接恢复；有冲突进入逐项裁决预览（默认 keep）
+    func applyRestore() async {
+        guard case .confirmRestore = phase, let analysis = pendingAnalysis else { return }
+        guard !analysis.conflicts.isEmpty else {
+            phase = .working
+            await performRestore(analysis, resolutions: [:])
+            return
+        }
+        resolutions = Dictionary(uniqueKeysWithValues: analysis.conflicts.map { ($0.id, .keep) })
+        phase = .conflicts(analysis.conflicts)
+    }
+
+    /// 恢复执行 + 报告（成功/冲突裁决三分项——V1.7 报告卡）
+    private func performRestore(_ analysis: BackupService.ConflictAnalysis,
+                                resolutions: [UUID: ExportService.ConflictResolution]) async {
+        do {
+            let records = try await service.restore(envelope: analysis.envelope, resolutions: resolutions)
+            let kept = resolutions.values.filter { $0 == .keep }.count
+            let adopted = resolutions.values.filter { $0 == .adopt }.count
+            let coexisted = resolutions.values.filter { $0 == .coexist }.count
+            pendingAnalysis = nil
+            self.resolutions = [:]
+            phase = .restored(records: records, kept: kept, adopted: adopted, coexisted: coexisted)
+            await onRestored?()   // 恢复末步重建提醒投影（恢复的计划立即进入排程）
+        } catch BackupService.BackupError.conflictDetected {
+            logger.error("冲突裁决不完整")
+            phase = .degraded(L10n.backupConflictDetected)
+        } catch {
+            logger.error("恢复失败: \(error)")
+            phase = .degraded(L10n.backupRestoreFailed)
+        }
+    }
+
+    /// 分析阶段取消（只丢分析结果，本机零改动）
+    func cancelAnalysis() {
+        pendingAnalysis = nil
+        phase = .idle
     }
 
     func setResolution(_ id: UUID, _ choice: ExportService.ConflictResolution) {
@@ -122,20 +161,7 @@ final class BackupState {
     func applyConflicts() async {
         guard case .conflicts = phase, let analysis = pendingAnalysis else { return }
         phase = .working
-        do {
-            let records = try await service.restore(envelope: analysis.envelope, resolutions: resolutions)
-            pendingAnalysis = nil
-            resolutions = [:]
-            phase = .restored(records: records)
-            await onRestored?()   // 同 restore(from:) 无冲突路径
-        } catch BackupService.BackupError.conflictDetected {
-            logger.error("冲突裁决不完整")
-            phase = .degraded(L10n.backupConflictDetected)
-        } catch {
-            logger.error("恢复失败: \(error)")
-            // 第八轮修复：与 restore(from:) 同款——非校验类失败不归罪文件损坏
-            phase = .degraded(L10n.backupRestoreFailed)
-        }
+        await performRestore(analysis, resolutions: resolutions)
     }
 
     func cancelConflicts() {
@@ -170,10 +196,6 @@ struct BackupView: View {
     @State private var showExporter = false
     @State private var showImporter = false
     @State private var showExportConfirm = false
-    /// 恢复确认弹窗的呈现态由此 URL 派生（审查修复：此前 showRestoreConfirm
-    /// 与 pendingRestoreURL 双状态须三处同步维护——取消按钮只清了 URL，
-    /// 依赖 SwiftUI 自动复位布尔；派生绑定使「有 URL ⇔ 弹确认」不可分家）
-    @State private var pendingRestoreURL: URL?
 
     var body: some View {
         WithPerceptionTracking {
@@ -291,11 +313,46 @@ struct BackupView: View {
                         Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
                             .foregroundStyle(.secondary)
                     }
-                case .restored(let records):
-                    // FR13.5 恢复后数据校验报告：哈希比对通过 + 导入记录计数
+                case .analyzing:
+                    Section {
+                        HStack {
+                            ProgressView()
+                            Text(L10n.backupAnalyzing)
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("SP-24.backup.analyzing")
+                        Button(L10n.commonCancel, role: .cancel) {
+                            state.cancelAnalysis()
+                        }
+                        .frame(minHeight: 44)
+                    }
+                case .confirmRestore(let records, let conflicts):
+                    // V1.7 真实影响清单：清单来自分析结果而非静态文案
+                    Section {
+                        Label(L10n.backupConfirmImpactTitle, systemImage: "checkmark.shield")
+                        Text(L10n.backupConfirmImpact(records, conflicts))
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Button(L10n.onboard_confirm) {
+                            Task { await state.applyRestore() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("SP-24.backup.apply")
+                        Button(L10n.commonCancel, role: .cancel) {
+                            state.cancelAnalysis()
+                        }
+                        .frame(minHeight: 44)
+                    } footer: {
+                        Text(L10n.backupRestoreConfirmBody)
+                            .font(.caption2)
+                    }
+                case .restored(let records, let kept, let adopted, let coexisted):
+                    // FR13.5 恢复后数据校验报告（V1.7 报告卡）：导入计数 + 冲突裁决三分项
                     Section {
                         Label(L10n.backupRestoredCount(records), systemImage: "checkmark.circle")
                             .accessibilityIdentifier("SP-24.backup.restored")
+                        Text(L10n.backupRestoreReport(kept: kept, adopted: adopted, coexisted: coexisted))
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
@@ -327,20 +384,6 @@ struct BackupView: View {
             } message: {
                 Text(L10n.backupExportConfirmBody)
             }
-            // FR13.5 恢复前确认：门禁验证 + 影响清单（覆盖现有数据）+ 校验承诺
-            .alert(L10n.backupRestoreConfirmTitle,
-                   isPresented: Binding(get: { pendingRestoreURL != nil },
-                                        set: { if !$0 { pendingRestoreURL = nil } })) {
-                Button(L10n.commonCancel, role: .cancel) { pendingRestoreURL = nil }
-                Button(L10n.onboard_confirm) {
-                    if let url = pendingRestoreURL {
-                        Task { await state.restore(from: url) }
-                    }
-                    pendingRestoreURL = nil
-                }
-            } message: {
-                Text(L10n.backupRestoreConfirmBody)
-            }
             .fileExporter(isPresented: $showExporter,
                           document: state.pendingDocument,
                           contentType: .data,
@@ -360,10 +403,11 @@ struct BackupView: View {
             .fileImporter(isPresented: $showImporter,
                           allowedContentTypes: [.data, .json]) { result in
                 guard case .success(let url) = result else { return }
-                // FR13.5：选文件后不立即恢复——先门禁验证 + 影响清单确认
+                // FR13.5/V1.7 恢复流程：选文件 → 门禁 → 后台分析 →
+                // 真实影响清单确认 → (冲突裁决) → 恢复报告
                 Task {
                     guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
-                    pendingRestoreURL = url
+                    await state.analyzeRestore(from: url)
                 }
             }
         }

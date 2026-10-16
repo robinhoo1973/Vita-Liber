@@ -20,6 +20,16 @@ extension L10n {
 
     static func backupRestoredCount(_ n: Int) -> String { String(format: t("backup.restoredCountFmt"), n) }
 
+    /// V1.7 真实影响清单（分析前移到确认之前；清单来自分析结果而非静态文案）
+    static func backupConfirmImpact(_ records: Int, _ conflicts: Int) -> String {
+        String(format: t("backup.confirmImpactFmt"), records, conflicts)
+    }
+
+    /// V1.7 恢复报告卡冲突裁决三分项（保留本机/采用/并存）
+    static func backupRestoreReport(kept: Int, adopted: Int, coexisted: Int) -> String {
+        String(format: t("backup.restoreReportFmt"), kept, adopted, coexisted)
+    }
+
     static func inventoryMonthlyReportFmt(_ planned: Int, _ confirmed: Int, _ skipped: Int, _ missed: Int) -> String {
         String(format: t("inventory.monthlyReportFmt"), planned, confirmed, skipped, missed)
     }

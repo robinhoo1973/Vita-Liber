@@ -1460,6 +1460,10 @@
 "backup.reminder.interval.30" = "每 30 天";
 "backup.reminder.interval.90" = "每 90 天";
 "backup.reminder.interval.note" = "提醒只引導到備份入口,絕不自動建立備份檔案";
+"backup.analyzing" = "正在分析備份…";
+"backup.confirmImpact.title" = "確認恢復";
+"backup.confirmImpactFmt" = "將匯入 %d 條記錄,與本機衝突 %d 項,確認後逐項核對。";
+"backup.restoreReportFmt" = "衝突裁決:保留本機 %d · 採用 %d · 並存 %d";
 
 "auth.ocr" = "OCR 與影像處理";
 "auth.ai" = "AI 分析";
