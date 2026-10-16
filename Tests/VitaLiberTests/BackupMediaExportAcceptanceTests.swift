@@ -20,13 +20,16 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
     /// 内存密钥环桩（DeviceKeyRing 契约：密钥材料 Data，无平台依赖）。
     private final class StubKeyRing: DeviceKeyRing, @unchecked Sendable {
         private var master: Data?
+        /// 包裹段如实存取（评审修复：原实现写丢弃/读恒 nil——主密钥在位却恒「无包裹段」，
+        /// 与真实钥匙环行为不符：触发补发分支 + 隐藏「包裹段随帧走」的接线缺陷）。
+        private var wrappeds: [UUID: Data] = [:]
         private let sub = Data((0..<32).map { UInt8($0 & 0xFF) })
         func masterKey(realmId: UUID) async throws -> Data? { master }
         func storeMasterKey(_ key: Data, realmId: UUID) async throws { master = key }
         func deviceSubKey() async throws -> Data { sub }
         func generateMasterKey() throws -> Data { Data((0..<32).map { _ in UInt8.random(in: 0...255) }) }
-        func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws {}
-        func recoveryWrapped(realmId: UUID) async throws -> Data? { nil }
+        func storeRecoveryWrapped(_ wrapped: Data, realmId: UUID) async throws { wrappeds[realmId] = wrapped }
+        func recoveryWrapped(realmId: UUID) async throws -> Data? { wrappeds[realmId] }
     }
 
     private func makeSeededStore(mediaBase: URL) async throws -> (store: GRDBStore, patient: UUID) {

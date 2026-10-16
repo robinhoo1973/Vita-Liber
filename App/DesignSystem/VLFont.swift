@@ -20,4 +20,9 @@ enum VLFont {
     /// 编码——须配 `.monospacedDigit()`（Font 不携带等宽数字，由 Text 修饰器承担；
     /// Linear「mono 用于状态/ID 令牌」+ Stripe tnum 心得，防 0/O、1/l 误读）
     static let monoCaption: Font = .system(size: 11, weight: .regular)
+    /// 恢复码一次性展示（备份导出/首次同步注册，30 字符）：手抄/朗读场景需**正文字号 +
+    /// 等宽**——monoCaption 11pt 过小不利转抄，等宽防 0/O、1/l 类误抄（与 §3.2 ID 类
+    /// 等宽纪律同源；评审修复：此前视图内直写 .system(.body, design: .monospaced)
+    /// 绕开令牌表，关怀模式缩放/令牌演进不达该串）。
+    static let recoveryCode: Font = .system(.body, design: .monospaced)
 }

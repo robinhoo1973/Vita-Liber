@@ -791,24 +791,23 @@ final class DocumentsState {
     /// 返回 (meta, 明文原件哈希) ——original_sha256 随 document_file 行同事务落列。
     private func persistMediaPaths(_ draft: ImportDraft, session: ImportSession) throws -> (meta: [String: Any], originalSha256: String) {
         var meta = draft.retainedMeta
-        var originalSha = meta["original_sha256"] as? String
         if meta["original_path"] == nil {
             let written = try persistOriginal(patientId: draft.patientId, data: draft.originalData,
                                               isSensitive: draft.isSensitive)
             meta["original_path"] = written.path
             meta["original_sha256"] = written.sha256
-            originalSha = written.sha256
-            session.draft?.retainedMeta = meta
-        } else if originalSha == nil,
-                  let data = mediaData(storedPath: meta["original_path"] as? String, originalSha256: nil) {
+        } else if (meta["original_sha256"] as? String) == nil {
             // legacy 快照修复（评审）：升级前落库的 meta 有 original_path 无
             // original_sha256（v35 新列）——此前下方 guard 直接抛 unreadableMedia，
-            // 旧文档重新确认整单被阻断（明明可读）。文件可达即补哈希一次写回
+            // 旧文档重新确认整单被阻断（明明可读）。draft.originalData 已在
+            // prepareStoredDocument 从同一不可变原件读回内存（BR-002）——直接复用
+            // 补哈希一次写回；此前本分支经 mediaData 再整读磁盘 + 哈希，纯冗余
             //（同启动回填语义；列缺失无法按 CAS 形态读回）。
-            originalSha = Self.hash(data)
-            meta["original_sha256"] = originalSha
-            session.draft?.retainedMeta = meta
+            meta["original_sha256"] = Self.hash(draft.originalData)
         }
+        // 单点回写（评审简化：分支内两处重复回写合一，语义不变）——成功写入/补齐的
+        // 媒体路径先于 processed_path 步骤落回 retainedMeta：该步骤抛错也不丢。
+        session.draft?.retainedMeta = meta
         if meta["processed_path"] == nil {
             meta["processed_path"] = draft.originalData == draft.processedData ? meta["original_path"]
                 : try persistOriginal(patientId: draft.patientId, data: draft.processedData,
@@ -816,7 +815,7 @@ final class DocumentsState {
         }
         // Retain successful media writes across retries, including a later DB failure.
         session.draft?.retainedMeta = meta
-        guard let originalSha else { throw ImportError.unreadableMedia }
+        guard let originalSha = meta["original_sha256"] as? String else { throw ImportError.unreadableMedia }
         return (meta, originalSha)
     }
 
