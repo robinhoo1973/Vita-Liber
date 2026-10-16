@@ -398,6 +398,11 @@ private struct PreviewRoot: View {
                                             dataChange: dataChange,
                                             settings: settingsStore))
                 .environment(BackupState(service: container.backup))
+                // 评审修复（预览接线缺口）：与产品注入对齐——此前预览缺 SyncState，
+                // 导航到「同步」页即 "No Observable object of type SyncState found" 崩溃；
+                // realmProvider 与生产同构（appState.owner?.id）。
+                .environment(SyncState(service: container.sync, settings: settingsStore,
+                                       realmProvider: { appState.owner?.id }))
         }
     }
 }

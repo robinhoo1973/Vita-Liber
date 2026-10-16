@@ -1474,6 +1474,7 @@
 "sync.unavailableNoRealm" = "Local profile is not ready yet; cannot sync";
 "sync.pushFailed" = "Sync push failed, try again later";
 "sync.pullFailed" = "Checking for updates failed, try again later";
+"sync.subscriptionRequired" = "Multi-device sync requires an active subscription; sync is paused";
 "sync.lastSync" = "Last sync: %@";
 "sync.candidatesFmt" = "Updates from other devices to merge: %d";
 "sync.candidateDevice" = "Device %@ · v%d → review and import";

@@ -228,7 +228,13 @@ final class ReminderStore {
         } else {
             intervalDays = BackupReminderRules.defaultIntervalDays
         }
-        guard intervalDays > 0 else { return }
+        // 评审修复（关档遗留提醒）：0=关闭——不仅不再排，还须撤掉已武装/在途的提醒
+        // （此前关档后上次启动武装的 1 小时提醒照常触发；同链撤 pending+delivered+武装集，
+        // 重开档后按新周期重新武装）
+        guard intervalDays > 0 else {
+            await clearBackupReminderDelivered()
+            return
+        }
         guard BackupReminderRules.needsReminder(
             lastBackupAt: lastBackupAt.map { Date(timeIntervalSince1970: $0) }, now: now,
             intervalDays: intervalDays) else { return }

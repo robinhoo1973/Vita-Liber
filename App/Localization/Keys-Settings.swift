@@ -654,6 +654,9 @@ extension L10n {
     static var syncUnavailableNoRealm: String { t("sync.unavailableNoRealm") }
     static var syncPushFailed: String { t("sync.pushFailed") }
     static var syncPullFailed: String { t("sync.pullFailed") }
+    /// 订阅失效半闸（comercial V1.12：过期/取消 → 同步停止写入）。评审修复：
+    /// 门槛此前只在开关「开启」方向，订阅过期后设置值仍 "true"、同步继续写入。
+    static var syncSubscriptionRequired: String { t("sync.subscriptionRequired") }
     static func syncLastSync(_ date: String) -> String {
         t("sync.lastSync").replacingOccurrences(of: "%@", with: date)
     }

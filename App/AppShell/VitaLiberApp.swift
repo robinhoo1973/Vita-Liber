@@ -120,7 +120,10 @@ struct VitaLiberApp: App {
         _observationState = State(initialValue: ObservationStoreState(
             store: container.observations, allergyStore: container.allergies,
             mediaAssets: container.mediaAssets))
-        _entitlementStore = State(initialValue: AppEntitlementStore(store: container.entitlements))
+        // 局部常量中转（同 dataChange 纪律）：SyncState 的动作侧订阅门槛须复用
+        // 与 @Environment 同一 AppEntitlementStore 实例（订阅态实时一致）。
+        let entitlements = AppEntitlementStore(store: container.entitlements)
+        _entitlementStore = State(initialValue: entitlements)
         _trendState = State(initialValue: TrendEntryState(store: container.trends, audit: container.audit))
         _voiceNoteState = State(initialValue: VoiceNoteState(store: container.voiceNotes))
         _m2Hub = State(initialValue: M2HubStore(
@@ -193,7 +196,7 @@ struct VitaLiberApp: App {
             syncService: container.healthSync,
             dataChange: dataChange,
             settings: appSettings))
-        // 审查修复：BackupState 此前从未装配——SP-24 打开即
+        // 审查修复：BackupState 此前从未装配——SP-23 打开即
         // "No Observable object of type BackupState found" 崩溃。
         // 且必须在此处先行赋值：下方 backgroundSyncHandler 的捕获列表
         // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
@@ -201,7 +204,10 @@ struct VitaLiberApp: App {
         _backupState = State(initialValue: BackupState(service: container.backup))
         _syncState = State(initialValue: SyncState(service: container.sync,
                                                    settings: appSettings,
-                                                   realmProvider: { [appState] in appState.owner?.id }))
+                                                   realmProvider: { [appState] in appState.owner?.id },
+                                                   entitlementProvider: { [entitlements] in
+                                                       entitlements.owned.contains(.proBase)
+                                                   }))
         // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，恢复的
         // 计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发。回调在此
         // 装配（self 完全初始化之后）：init 内捕获 self 会触发「backupState

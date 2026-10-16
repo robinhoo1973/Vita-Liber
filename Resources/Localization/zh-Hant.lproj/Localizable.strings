@@ -1474,6 +1474,7 @@
 "sync.unavailableNoRealm" = "本機檔案尚未就緒,無法同步";
 "sync.pushFailed" = "同步推送失敗,請稍後重試";
 "sync.pullFailed" = "檢查更新失敗,請稍後重試";
+"sync.subscriptionRequired" = "多裝置同步為訂閱功能,目前訂閱無法使用,同步已暫停";
 "sync.lastSync" = "上次同步:%@";
 "sync.candidatesFmt" = "待合併的其他裝置更新:%d 份";
 "sync.candidateDevice" = "裝置 %@ · 版本 %d → 核對並匯入";

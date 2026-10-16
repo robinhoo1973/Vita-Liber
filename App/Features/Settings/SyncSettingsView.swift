@@ -24,15 +24,23 @@ final class SyncState {
     private let service: SyncService
     private let settings: AppSettingsStore
     private let realmProvider: @MainActor () -> UUID?
+    /// 订阅本体门槛的动作侧读取（comercial V1.12：订阅过期/取消 → 同步停止写入）。
+    /// 评审修复（半闸缺口）：门槛此前只在开关「开启」方向评估——订阅过期后设置值
+    /// 仍为 "true"，syncNow/refreshCandidates 照常读写云端。默认 true 保持预览/测试
+    /// 装配不变；生产在组装根注入 `entitlements.owned.contains(.proBase)`。
+    private let isEntitled: @MainActor () -> Bool
     private let logger = Logger(subsystem: "com.vitaliber", category: "sync")
     /// 设备身份缓存（评审修复，写-读竞态）：首调生成 UUID 并写盘前，并发调用会各自生成
     /// 不同身份——先入缓存再等待落盘，进程内身份单点。
     private var deviceIdCache: UUID?
 
-    init(service: SyncService, settings: AppSettingsStore, realmProvider: @escaping @MainActor () -> UUID?) {
+    init(service: SyncService, settings: AppSettingsStore,
+         realmProvider: @escaping @MainActor () -> UUID?,
+         entitlementProvider: @escaping @MainActor () -> Bool = { true }) {
         self.service = service
         self.settings = settings
         self.realmProvider = realmProvider
+        self.isEntitled = entitlementProvider
     }
 
     var enabled: Bool { settings.values[.syncEnabled] == "true" }
@@ -61,11 +69,12 @@ final class SyncState {
             // 并发首调（syncNow 与 refreshCandidates 同拍）此前各自生成 UUID——
             // 先入缓存的写-读竞态（评审修复）：候选过滤/seq 归并围绕两个身份分裂。
             deviceId = cached
-            if existing != cached.uuidString {
-                // 首调 `settings.set` 失败只留日志（AppSettingsStore 失败不清缓存值）或
-                // 写盘在途——缓存分支不补写则身份永不落盘，重启后换新 UUID 造成身份漂移。
-                await settings.set(cached.uuidString, for: .syncDeviceId)
-            }
+            // 首调 `settings.set` 失败只留日志（AppSettingsStore 失败不清缓存值）或
+            // 写盘在途——缓存分支不补写则身份永不落盘，重启后换新 UUID 造成身份漂移。
+            // 评审修复（死条件清理）：此前包 `if existing != cached.uuidString`——到达
+            // 本分支时 existing 必为 "" 或不可解析值（可解析已在 parsed 分支返回），
+            // 条件恒真；补写本就应无条件执行。
+            await settings.set(cached.uuidString, for: .syncDeviceId)
         } else {
             deviceId = UUID()
             deviceIdCache = deviceId   // 先入缓存再落盘：等待写盘期间再次调用同 id
@@ -77,6 +86,14 @@ final class SyncState {
 
     /// 手动[立即同步]（默认触发形态；自动同步为显式开启的可选项，P1 不默认）
     func syncNow() async {
+        // 评审修复（单飞纪律）：与 BackupState 防重入同款——重入会在 actor 挂起点
+        // 交错，两次 push 复用同一 seq 就地覆盖同名信封
+        guard phase == .idle else { return }
+        // 订阅失效=停止写入（含云端信封不再新增；已落信封保留——FR14.1 同语义）
+        guard isEntitled() else {
+            degradedMessage = L10n.syncSubscriptionRequired
+            return
+        }
         guard let realmId = realmProvider() else {
             degradedMessage = L10n.syncUnavailableNoRealm
             return
@@ -109,13 +126,20 @@ final class SyncState {
         phase = .idle
     }
 
-    /// 恢复码已保存确认（展示卡片收起）
+    /// 恢复码已保存确认（展示卡片收起 + 包裹段落钥——评审修复：确认前不落钥，
+    /// 未确认进程死亡会静默吞码；此处穿透到 BackupService 完成一次性展示闭环）
     func confirmRecoveryCodeSaved() {
         pendingRecoveryCode = nil
+        Task { await service.confirmRecoveryCodeSaved() }
     }
 
     func refreshCandidates() async {
-        guard enabled, let realmId = realmProvider() else { return }
+        guard enabled else { return }
+        guard isEntitled() else {
+            degradedMessage = L10n.syncSubscriptionRequired
+            return
+        }
+        guard let realmId = realmProvider() else { return }
         phase = .refreshing
         do {
             // 评审修复（自合并）：fetchAccepted 的「同 deviceId 取 max seq」会把本机
@@ -140,6 +164,7 @@ struct SyncSettingsView: View {
     @Environment(SyncState.self) private var state
     @Environment(AppEntitlementStore.self) private var entitlements
     @Environment(BackupState.self) private var backupState
+    @Environment(AppState.self) private var app
     @State private var openMerge = false
 
     var body: some View {
@@ -199,6 +224,9 @@ struct SyncSettingsView: View {
                         ForEach(Array(state.candidates.enumerated()), id: \.offset) { index, candidate in
                             Button {
                                 Task {
+                                    // 评审修复（门禁缺口）：候选合并走恢复管线落库医疗数据——
+                                    // 与文件恢复同源门禁（BackupViews 选包后 requestUnlock）
+                                    guard await app.requestUnlock(reason: L10n.backupUnlockReason) else { return }
                                     await backupState.analyzeSyncCandidate(candidate.data)
                                     openMerge = true
                                 }

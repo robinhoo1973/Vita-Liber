@@ -5,7 +5,7 @@ import Domain
 import Infrastructure
 import Perception
 
-/// FR13.11 iCloud Drive 备份（SP-24 备份与恢复）。
+/// FR13.11 iCloud Drive 备份（SP-23 备份与恢复）。
 ///
 /// **本 App 不直接读写 iCloud 容器**：备份文件经系统 `fileExporter` / `fileImporter`
 /// （UIDocumentPicker）交由用户选择落点，用户选 iCloud Drive 即落 iCloud。
@@ -95,14 +95,22 @@ final class BackupState {
     /// 不得开启新一轮——一次性码「展示即最后机会」（零存储），重跑会就地冲掉卡片。
     var canCreateBackup: Bool {
         switch phase {
-        case .working, .recoveryCodeCreated: return false
+        case .working, .recoveryCodeCreated, .analyzing, .confirmRestore, .conflicts: return false
         default: return true
         }
+    }
+
+    /// 一次性恢复码展示中（评审修复）：不得启动任何新流程——分析会覆写 phase
+    /// 冲掉码卡片，而码已被 takeUnseenRecoveryCode 排空（零存储，展示即最后机会）。
+    var isRecoveryCodePending: Bool {
+        if case .recoveryCodeCreated = phase { return true }
+        return false
     }
 
     func prepareBackup() async {
         guard canCreateBackup else { return }
         phase = .working
+        analysisGeneration += 1   // 评审修复（跨流程世代）：作废在飞分析——否则挂起分析完成时把 .working 改写回 .confirmRestore，与创建流程互相覆盖
         do {
             // 全落点默认加密（tech V3.170 分落点口径的收敛实现）：iCloud 落点强制加密，
             // 本地落点同包加密——加密只增安全不减能力，旧明文包恢复侧照读（verifiedEnvelope 自动分流）
@@ -147,9 +155,11 @@ final class BackupState {
         }
     }
 
-    /// 恢复码已保存确认 → 继续导出（无待导出包 = 失败路径的一次性展示，回到失败态）
+    /// 恢复码已保存确认 → 继续导出（无待导出包 = 失败路径的一次性展示，回到失败态）。
+    /// 包裹段落钥随确认穿透（评审修复：确认前不落钥，未确认进程死亡会静默吞码）。
     func confirmRecoveryCodeSaved() {
         guard case .recoveryCodeCreated = phase else { return }
+        Task { await service.persistPendingRecoveryWrapped() }
         if let pkg = pendingPackage {
             phase = .exported(fileName: pkg.fileName, sha256: String(pkg.sha256.prefix(12)))
         } else {
@@ -191,6 +201,7 @@ final class BackupState {
     /// 选文件后的后台分析（V1.7 恢复流程重构）：读包 + 校验 + 冲突分析，
     /// 产出真实影响清单进确认态——分析完成前用户看不到静态「覆盖」承诺
     func analyzeRestore(from url: URL, carrierURL: URL? = nil) async {
+        guard !isRecoveryCodePending else { return }   // 评审修复：码展示中禁启分析（覆写 phase 冲掉一次性码）
         let round = beginAnalysisRound()
         // 载具 security-scope 自分析起持有（评审修复）：读取窗口必须覆盖 performRestore
         // 的 importMediaCarrier 调用；此前分类循环一拍即释，恢复侧读取静默失败。
@@ -302,6 +313,7 @@ final class BackupState {
     /// 评审修复：同步候选无载具——先清残留载具态（此前若上一轮文件恢复被放弃，
     /// pendingCarrierURL/scope 会跨到同步恢复，载具错配）。
     func analyzeSyncCandidate(_ data: Data) async {
+        guard !isRecoveryCodePending else { return }   // 评审修复：码展示中禁启分析（覆写 phase 冲掉一次性码）
         let round = beginAnalysisRound()
         discardCarrierScope()
         phase = .analyzing
@@ -324,6 +336,7 @@ final class BackupState {
     /// 多选里没有可识别信封 → 降级文案（评审修复：此前 guard 静默 return，
     /// 用户点「恢复」后毫无反馈）
     func reportMissingEnvelope() {
+        guard !isRecoveryCodePending else { return }   // 评审修复：码展示中禁覆写 phase
         phase = .degraded(L10n.backupRestoreFailed)
     }
 
@@ -431,14 +444,14 @@ struct BackupView: View {
                         Label(L10n.privacyAuthBackupDisabled, systemImage: "icloud.slash")
                             .font(.footnote)
                             .foregroundStyle(Color("semantic-warning", bundle: .main))
-                            .accessibilityIdentifier("SP-24.backup.authDisabled")
+                            .accessibilityIdentifier("SP-23.backup.authDisabled")
                     }
                     if !state.iCloudSignedIn {
                         // 未登录 iCloud：不隐藏功能，只如实说明落点受限（仍可导出到本机）
                         Label(L10n.backupNotSignedIn, systemImage: "icloud.slash")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("SP-24.backup.notSignedIn")
+                            .accessibilityIdentifier("SP-23.backup.notSignedIn")
                     }
                     Button {
                         Task {
@@ -455,7 +468,7 @@ struct BackupView: View {
                     }
                     // 评审修复：进行中/恢复码未确认时不可重入（与 prepareBackup 入口门同源）
                     .disabled(!state.canCreateBackup)
-                    .accessibilityIdentifier("SP-24.backup.create")
+                    .accessibilityIdentifier("SP-23.backup.create")
 
                     Button {
                         // 订阅门槛（comercial V1.12）：恢复同属订阅本体
@@ -464,7 +477,10 @@ struct BackupView: View {
                     } label: {
                         Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
                     }
-                    .accessibilityIdentifier("SP-24.backup.restore")
+                    // 评审修复（一次性码保护）：恢复码展示中禁启恢复——分析会覆写 phase
+                    // 冲掉码卡片（码零存储，冲掉即永久丢失）
+                    .disabled(state.isRecoveryCodePending)
+                    .accessibilityIdentifier("SP-23.backup.restore")
                 } footer: {
                     Text(L10n.backupScopeNote)
                         .font(.caption2)
@@ -484,7 +500,7 @@ struct BackupView: View {
                         Text(L10n.backupReminderInterval30).tag(30)
                         Text(L10n.backupReminderInterval90).tag(90)
                     }
-                    .accessibilityIdentifier("SP-24.backup.interval")
+                    .accessibilityIdentifier("SP-23.backup.interval")
                 } footer: {
                     Text(L10n.backupReminderIntervalNote)
                         .font(.caption2)
@@ -517,7 +533,7 @@ struct BackupView: View {
                                     Text(L10n.backupConflictCoexist).tag(ExportService.ConflictResolution.coexist)
                                 }
                                 .pickerStyle(.segmented)
-                                .accessibilityIdentifier("SP-24.conflict.choice.\(item.id.uuidString)")
+                                .accessibilityIdentifier("SP-23.conflict.choice.\(item.id.uuidString)")
                             }
                             .padding(.vertical, 4)
                         }
@@ -526,7 +542,7 @@ struct BackupView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(minHeight: 44)
-                        .accessibilityIdentifier("SP-24.conflict.apply")
+                        .accessibilityIdentifier("SP-23.conflict.apply")
                         Button(L10n.commonCancel, role: .cancel) {
                             state.cancelConflicts()
                         }
@@ -540,7 +556,7 @@ struct BackupView: View {
                 case .exported(let name, let digest):
                     Section {
                         Label(L10n.backupExportedName(name), systemImage: "checkmark.circle")
-                            .accessibilityIdentifier("SP-24.backup.exported")
+                            .accessibilityIdentifier("SP-23.backup.exported")
                         Text(L10n.backupChecksum(digest)).font(.caption2).monospaced()
                             .foregroundStyle(.secondary)
                     }
@@ -551,7 +567,7 @@ struct BackupView: View {
                             Text(L10n.backupAnalyzing)
                                 .font(.footnote).foregroundStyle(.secondary)
                         }
-                        .accessibilityIdentifier("SP-24.backup.analyzing")
+                        .accessibilityIdentifier("SP-23.backup.analyzing")
                         Button(L10n.commonCancel, role: .cancel) {
                             state.cancelAnalysis()
                         }
@@ -564,7 +580,7 @@ struct BackupView: View {
                         Text(code)
                             .font(VLFont.recoveryCode)
                             .textSelection(.enabled)
-                            .accessibilityIdentifier("SP-24.backup.recoveryCode")
+                            .accessibilityIdentifier("SP-23.backup.recoveryCode")
                         Text(L10n.backupRecoveryCodeBody)
                             .font(.footnote).foregroundStyle(.secondary)
                         Button(L10n.backupRecoveryCodeSaved) {
@@ -572,7 +588,7 @@ struct BackupView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(minHeight: 44)
-                        .accessibilityIdentifier("SP-24.backup.recoveryCode.saved")
+                        .accessibilityIdentifier("SP-23.backup.recoveryCode.saved")
                     }
                 case .recoveryCodePrompt:
                     // 设备子密钥不可达 → 恢复码输入逃生舱（码错保持输入态，零部分导入）
@@ -581,7 +597,7 @@ struct BackupView: View {
                         TextField(L10n.backupRecoveryCodePromptTitle, text: $recoveryCodeInput)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
-                            .accessibilityIdentifier("SP-24.backup.recoveryCode.input")
+                            .accessibilityIdentifier("SP-23.backup.recoveryCode.input")
                         Button(L10n.onboard_confirm) {
                             let code = recoveryCodeInput
                             recoveryCodeInput = ""
@@ -608,7 +624,7 @@ struct BackupView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .frame(minHeight: 44)
-                        .accessibilityIdentifier("SP-24.backup.apply")
+                        .accessibilityIdentifier("SP-23.backup.apply")
                         Button(L10n.commonCancel, role: .cancel) {
                             state.cancelAnalysis()
                         }
@@ -622,21 +638,21 @@ struct BackupView: View {
                     // FR13.5 恢复后数据校验报告（V1.7 报告卡）：导入计数 + 冲突裁决三分项 + 媒体三分项
                     Section {
                         Label(L10n.backupRestoredCount(records), systemImage: "checkmark.circle")
-                            .accessibilityIdentifier("SP-24.backup.restored")
+                            .accessibilityIdentifier("SP-23.backup.restored")
                         Text(L10n.backupRestoreReport(kept: kept, adopted: adopted, coexisted: coexisted))
                             .font(.caption2).foregroundStyle(.secondary)
                         if mediaRestored > 0 || mediaMissing > 0 {
                             Text(L10n.backupMediaReport(restored: mediaRestored, missing: mediaMissing))
                                 .font(.caption2).foregroundStyle(.secondary)
-                                .accessibilityIdentifier("SP-24.backup.mediaReport")
+                                .accessibilityIdentifier("SP-23.backup.mediaReport")
                         }
                     }
                 case .degraded(let message):
                     Label(message, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
-                        .accessibilityIdentifier("SP-24.backup.degraded")
+                        .accessibilityIdentifier("SP-23.backup.degraded")
                 case .working:
-                    ProgressView().accessibilityIdentifier("SP-24.backup.working")
+                    ProgressView().accessibilityIdentifier("SP-23.backup.working")
                 case .idle:
                     EmptyView()
                 }

@@ -48,6 +48,7 @@ extension L10n {
     "sync.unavailableNoRealm",
     "sync.pushFailed",
     "sync.pullFailed",
+    "sync.subscriptionRequired",
     "sync.lastSync",
     "sync.candidatesFmt",
     "sync.candidateDevice",

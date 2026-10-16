@@ -464,10 +464,12 @@ final class DocumentsState {
     }
 
     /// mediaURL(for:) 的数据面包装（读原件/加工件字节；processed 无 sha 推导候选）。
-    private func mediaData(storedPath: String?, originalSha256: String?) -> Data? {
+    /// 评审修复（主线程大文件读）：整文件读取移出主 Actor——重确认流程读数十 MB
+    /// 原件此前在主线程同步执行 Data(contentsOf:)，冻结 UI 且有看门狗杀进程风险。
+    private func mediaData(storedPath: String?, originalSha256: String?) async -> Data? {
         for candidate in MediaPathResolver.candidates(storedPath: storedPath, originalSha256: originalSha256) {
             let url = candidate.hasPrefix("/") ? URL(fileURLWithPath: candidate) : originalsDir.appendingPathComponent(candidate)
-            if let data = try? Data(contentsOf: url) { return data } // try?-ok: 单候选不可读=跳过试下一候选（legacy 绝对路径常悬空），全部失败→原件缺失态
+            if let data = try? await Task.detached(priority: .userInitiated) { try Data(contentsOf: url) }.value { return data } // try?-ok: 单候选不可读=跳过试下一候选（legacy 绝对路径常悬空），全部失败→原件缺失态
         }
         return nil
     }
@@ -916,11 +918,11 @@ final class DocumentsState {
                 meta["original_sha256"] = columnSha
             }
             // 双形态读（local-storage-layout-council）：相对路径（新写）→ sha 推导 → legacy 绝对路径
-            guard let originalData = mediaData(storedPath: meta["original_path"] as? String,
-                                               originalSha256: document.originalSha256) else {
+            guard let originalData = await mediaData(storedPath: meta["original_path"] as? String,
+                                                     originalSha256: document.originalSha256) else {
                 throw ImportError.unreadableMedia
             }
-            let processedData = mediaData(storedPath: meta["processed_path"] as? String, originalSha256: nil)
+            let processedData = (await mediaData(storedPath: meta["processed_path"] as? String, originalSha256: nil))
                 ?? originalData
             let input = PendingDocument(patientId: patientId, originalData: originalData, processedData: processedData,
                 mimeType: document.mimeType ?? ImageInputRules.sniffMimeType(of: originalData), docType: document.docType,
