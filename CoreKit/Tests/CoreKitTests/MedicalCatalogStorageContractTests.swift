@@ -94,14 +94,7 @@ struct MedicalCatalogStorageContractTests {
         let old = try UnifiedAppFixture.make()
         let fresh = try UnifiedAppFixture.make()
         defer { old.cleanUp(); fresh.cleanUp() }
-        let prepared: MedicalCatalogReadAccess.Snapshot
-        do {
-            prepared = try MedicalCatalogReadAccess.prepare(path: old.path)
-        } catch let error as DatabaseError {
-            // 首亮诊断（macOS CI #38897399046 曾抛 IOERR）：记录扩展码区分 SHORT_READ/LOCK 等子型
-            Issue.record("prepare IOERR extendedResultCode=\(error.extendedResultCode.rawValue) message=\(error.message ?? "nil")")
-            throw error
-        }
+        let prepared = try MedicalCatalogReadAccess.prepare(path: old.path)
         let pin = try #require(prepared.retainedFile?.url)
         #expect(pin != old.path)
         let access = MedicalCatalogReadAccess()
@@ -111,15 +104,22 @@ struct MedicalCatalogStorageContractTests {
             UPDATE hospital SET name_zh='new candidate hospital';
             """)
         #expect(rename(fresh.path.path, old.path.path) == 0)
-        try await withThrowingTaskGroup(of: Bool.self) { group in
-            for _ in 0..<24 {
-                group.addTask {
-                    let drug = try await access.drug(id: 1)
-                    let hospitals = try await access.hospitalSuggest(query: "合成", region: nil, limit: 10)
-                    return drug?.nameZh == "药品甲" && hospitals.first?.id == 41
+        do {
+            try await withThrowingTaskGroup(of: Bool.self) { group in
+                for _ in 0..<24 {
+                    group.addTask {
+                        let drug = try await access.drug(id: 1)
+                        let hospitals = try await access.hospitalSuggest(query: "合成", region: nil, limit: 10)
+                        return drug?.nameZh == "药品甲" && hospitals.first?.id == 41
+                    }
                 }
+                for try await retained in group { #expect(retained) }
             }
-            for try await retained in group { #expect(retained) }
+        } catch let error as DatabaseError {
+            // 真实抛错点诊断（委员会定位：换名后旧 pin 池读,非 prepare）——
+            // 记录扩展码坐实 SQLITE_IOERR_VNODE(6922) 或其他子型
+            Issue.record("旧快照读 IOERR extendedResultCode=\(error.extendedResultCode.rawValue) sql=\(error.sql ?? "nil")")
+            throw error
         }
         #expect(access.catalogGeneration == 1)
         #expect(FileManager.default.fileExists(atPath: pin.path))
@@ -182,14 +182,7 @@ struct MedicalCatalogStorageContractTests {
         let fresh = try UnifiedAppFixture.make()
         defer { old.cleanUp(); fresh.cleanUp() }
         try fresh.mutate("INSERT INTO metadata VALUES ('diagnostic','history-only repack')")
-        let access: MedicalCatalogReadAccess
-        do {
-            access = try MedicalCatalogReadAccess(path: old.path)
-        } catch let error as DatabaseError {
-            // 首亮诊断（macOS CI #38897399046 曾抛 IOERR）：记录扩展码区分 SHORT_READ/LOCK 等子型
-            Issue.record("open IOERR extendedResultCode=\(error.extendedResultCode.rawValue) message=\(error.message ?? "nil")")
-            throw error
-        }
+        let access = try MedicalCatalogReadAccess(path: old.path)
         let before = try #require(access.installedVersion)
         let generation = access.catalogGeneration
         let bytes = try Data(contentsOf: fresh.path)
@@ -210,8 +203,17 @@ struct MedicalCatalogStorageContractTests {
         #expect(access.catalogGeneration == generation)
         #expect(access.installedVersion == before)
         #expect(try StreamingFileHasher.sha256(of: old.path) == before.sqliteSHA256)
-        #expect(try await access.drug(id: 1)?.nameZh == "药品甲")
-        #expect(try await access.hospitalSuggest(query: "合成", region: nil, limit: 10).first?.id == 41)
+        do {
+            let drug = try await access.drug(id: 1)
+            let hospitals = try await access.hospitalSuggest(query: "合成", region: nil, limit: 10)
+            #expect(drug?.nameZh == "药品甲")
+            #expect(hospitals.first?.id == 41)
+        } catch let error as DatabaseError {
+            // 真实抛错点诊断（委员会定位：失败更新后旧 pin 池读,非 open）——
+            // 记录扩展码坐实 SQLITE_IOERR_VNODE(6922) 或其他子型
+            Issue.record("旧快照读 IOERR extendedResultCode=\(error.extendedResultCode.rawValue) sql=\(error.sql ?? "nil")")
+            throw error
+        }
     }
 
     @Test("successful installation replaces the pair once and the same DI references read the new generation")
