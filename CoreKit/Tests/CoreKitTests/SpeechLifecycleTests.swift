@@ -248,10 +248,12 @@ struct SpeechLifecycleTests {
         let driver = ManualSpeechDriver()
         var limits = SpeechSessionLimits()
         // 2026-09-27 CI 36303130713/36303662286 连发抖动：10ms 计时在负载 runner 上
-        // 恢复预算与主流程赛跑（.timedOut 先到）；放宽到 50ms 保留全部语义断言。
-        limits.rotationInterval = 0.05
-        limits.finalizationTimeout = 0.05
-        limits.restartDelay = 0.001
+        // 恢复预算与主流程赛跑（.timedOut 先到）；50ms 仍复发（2026-10-17
+        // #38961326531/#38979753926,约 1/4 轮）——放宽到 250ms:窗口保证 emit 必落在
+        // 首段窗口内,预算耗尽仍由 maximumRecoveryAttempts 计数驱动,全部语义断言不变。
+        limits.rotationInterval = 0.25
+        limits.finalizationTimeout = 0.25
+        limits.restartDelay = 0.01
         let engine = SpeechSessionCoordinator(limits: limits) { _ in driver }
         let request = TranscriptionRequest(localeIdentifier: "en-US")
         let work = Task { try await engine.transcribe(request, onPartial: nil) }
