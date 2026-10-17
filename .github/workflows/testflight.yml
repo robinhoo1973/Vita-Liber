@@ -1114,6 +1114,70 @@ jobs:
               print('APP_ID=（空 —— 上传自动创建后由复核步骤按 bundleId 解析）')
           PYEOF
 
+      # ── build 号单调闸（2026-10-17 业主反馈防复发）─────────
+      # workflow 改名/重建会静默重置 GITHUB_RUN_NUMBER → build 号回退 →
+      # ASC 拒收。上传前查 ASC 已登记最大 build：new < max = 硬红（回归面），
+      # new == max = 告警放行（同号重传路径），new > max = 通过。
+      - name: build 号单调校验（ASC 已登记最大值比对）
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          EXPECTED="${{ needs.build.outputs.build_number }}"
+          if [ -z "$APPLE_API_KEY_P8" ]; then
+            echo "::error::APPLE_API_KEY_P8 未配置——单调闸无法执行"
+            exit 1
+          fi
+          python3 -m venv /tmp/asc-mono-venv
+          export PATH="/tmp/asc-mono-venv/bin:$PATH"
+          python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/config/requirements/requirements-asc-tools.txt" >/tmp/asc-mono-pip.log 2>&1
+          umask 077
+          mkdir -p "$RUNNER_TEMP/mono-keys"
+          echo "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/mono-keys/AuthKey.p8"
+          KEYFILE="$RUNNER_TEMP/mono-keys/AuthKey.p8" KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
+          EXPECTED="$EXPECTED" python3 - <<'PYEOF'
+          import json, os, time, urllib.request, urllib.error
+          import jwt
+          key = open(os.environ['KEYFILE']).read()
+          now = int(time.time())
+          tok = jwt.encode({'iss': os.environ['ISS'], 'iat': now, 'exp': now + 1200,
+                            'aud': 'appstoreconnect-v1'}, key, algorithm='ES256',
+                           headers={'alg': 'ES256', 'kid': os.environ['KEYID']})
+          BASE = 'https://api.appstoreconnect.apple.com/v1'
+          def call(url):
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', 'Bearer ' + tok)
+              req.add_header('Accept', 'application/json')
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.loads(r.read() or b'{}')
+              except urllib.error.HTTPError as e:
+                  raise SystemExit(f'ASC API {e.code}: {e.read()[:200]}')
+          apps = call(f"{BASE}/apps?filter[bundleId]=com.vitaliber.app")['data']
+          if not apps:
+              print('无已登记 App（首传/自动创建路径）——单调闸跳过')
+              raise SystemExit(0)
+          app = apps[0]['id']
+          builds = call(f"{BASE}/builds?sort=-version&limit=5&filter[app]={app}")['data']
+          registered = [int(b['attributes']['version']) for b in builds
+                        if str(b['attributes']['version']).isdigit()]
+          expected = int(os.environ['EXPECTED'])
+          if not registered:
+              print(f'ASC 无数字 build 记录——放行（expected={expected}）')
+              raise SystemExit(0)
+          mx = max(registered)
+          print(f'expected={expected} ASC-max={mx}')
+          if expected < mx:
+              raise SystemExit(f'build 号回退：expected={expected} < 已登记最大 {mx}——'
+                               f'workflow 计数器被重置或版本逻辑回归，禁止上传')
+          if expected == mx:
+              print('::warning::build 号与已登记最大值相同——同号重传路径（若为新二进制将遭 ASC 拒收）')
+          raise SystemExit(0)
+          PYEOF
+
       # ── 上传：xcrun altool（同步校验，退出码即结果）─────────
       # 参考 NetDiagnostics action.yml：--upload-app + --apiKey/--apiIssuer。
       # altool 会同步完成 Apple 初步校验，失败返回非零退出码并在日志给出 ITMS 错误。
