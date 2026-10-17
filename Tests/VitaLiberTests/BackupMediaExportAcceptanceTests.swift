@@ -60,6 +60,11 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
                 """, arguments: [UUID().uuidString, patient.uuidString, "sha:\(shaA)",
                                  "{\"original_path\":\"originals/aa/\(shaA).bin\"}",
                                  shaA])
+            // ①的 CAS 字节落盘（meta 指向但此前从未写——载具缺条目,coexist 导入 3≠4）
+            let casURL = mediaBase.appendingPathComponent("originals/aa/\(shaA).bin")
+            try FileManager.default.createDirectory(at: casURL.deletingLastPathComponent(),
+                                                    withIntermediateDirectories: true)
+            try Data(bytesA).write(to: casURL)
             // ②列 NULL + legacy 绝对路径 + 文件在旧布局（现场哈希一次）
             let legacyURL = mediaBase.appendingPathComponent("originals/\(patient.uuidString)/legacy.png")
             try FileManager.default.createDirectory(at: legacyURL.deletingLastPathComponent(),

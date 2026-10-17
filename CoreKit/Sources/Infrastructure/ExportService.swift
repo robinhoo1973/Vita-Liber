@@ -540,6 +540,9 @@ public actor ExportService {
             /// v3（备份/同步批）：tags 原始 JSON 原样往返（NULL 保 NULL——恢复曾硬编码
             /// "[]" 把 NULL 变空数组）；created/updated 随包（恢复曾硬编码 occurred_at）。
             public var tagsJSON: String? = nil
+            /// 源列 tags IS NULL 的显式标记：可选链无法区分「旧包缺键」与「源 NULL」,
+            /// 恢复据本标记写 NULL（缺标记=旧包,回落 encode(tags) 旧行为）。
+            public var tagsNull: Bool = false
             public var createdAt: Date? = nil
             public var updatedAt: Date? = nil
         }
@@ -879,6 +882,7 @@ public actor ExportService {
                     tags: tags,
                     inTimeline: (row["in_timeline"] as Int?) == 1,
                     tagsJSON: row["tags"] as String?,
+                    tagsNull: (row["tags"] as String?) == nil,
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double),
                     updatedAt: Date(timeIntervalSince1970: row["updated_at"] as Double))
             }
@@ -3076,20 +3080,20 @@ private struct ImportSession {
     func restoreVoiceNotes() throws {
         for v in envelope.voiceNotes {
             if try adoptOrSkip(noteConflicts, v.id, adopt: {
-                let tagsJSON = v.tagsJSON ?? {
+                let tagsJSON = v.tagsNull ? nil : (v.tagsJSON ?? {
                 guard let data = try? JSONEncoder().encode(v.tags) else { return "[]" }   // try?-ok: 编码失败回落空数组（旧行为）
                 return String(data: data, encoding: .utf8) ?? "[]"
-            }()
+            }())
                 try db.execute(sql: """
                     UPDATE voice_note SET patient_id = ?, body = ?, occurred_at = ?, tags = ?, in_timeline = ?
                     WHERE id = ?
                     """, arguments: [(remap(v.patientId) ?? v.patientId)?.uuidString ?? "", v.body,
                                      v.occurredAt.timeIntervalSince1970, tagsJSON, v.inTimeline ? 1 : 0, v.id.uuidString])
             }) { continue }
-            let tagsJSON = v.tagsJSON ?? {
+            let tagsJSON = v.tagsNull ? nil : (v.tagsJSON ?? {
                 guard let data = try? JSONEncoder().encode(v.tags) else { return "[]" }   // try?-ok: 编码失败回落空数组（旧行为）
                 return String(data: data, encoding: .utf8) ?? "[]"
-            }()
+            }())
             try db.execute(sql: """
                 INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, in_timeline, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
