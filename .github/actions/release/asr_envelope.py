@@ -17,7 +17,7 @@ nonce 派生长度合同(2026-10-05 审查定稿):python 侧直接派生 12 字�
 Swift 侧因工具链约束派生 32 字节取前 12——HKDF 前缀性质(RFC 5869)保证
 两者逐字节相同,任何一侧改动派生长度/盐值/信息串即破坏互解。
 
-主密钥经 env `ASR_PACKAGE_KEY`(64 hex)注入;需要加解密处缺密钥 = 硬错
+主密钥经 env `VITA_PACKAGE_KEY`(64 hex)注入;需要加解密处缺密钥 = 硬错
 (发布未经加密即违反 R1,绝不静默发明文包)。主密钥与 App 内嵌常量同值,
 轮换时两处同步更新(test-asr-package-integrity.py 断言一致)。
 """
@@ -65,9 +65,9 @@ def _nonce(master, identity, index):
 
 def env_package_key():
     """主密钥只从环境读取(与 CI secret 同源);缺失即硬错——绝不静默发明文包。"""
-    raw = os.environ.get("ASR_PACKAGE_KEY", "")
+    raw = os.environ.get("VITA_PACKAGE_KEY", "")
     if not re.fullmatch(r"[0-9a-fA-F]{64}", raw):
-        raise ValueError("ASR_PACKAGE_KEY must be a 64-hex (32-byte) secret in the environment")
+        raise ValueError("VITA_PACKAGE_KEY must be a 64-hex (32-byte) secret in the environment")
     return bytes.fromhex(raw)
 
 

@@ -8,7 +8,7 @@ import Foundation
 /// 帧格式与 block 解密全部下沉到中性共享核心 `PackageEnvelopeCrypto`
 /// （2026-10-07 模块化抽取：ASR/医疗同方案复用，单一出口）；本文件保留三样
 /// **不可迁移的 ASR 域契约**：
-/// 1. `masterKeyHex` 常量（与 CI secret `ASR_PACKAGE_KEY` 同值）——含 **Python
+/// 1. `masterKeyHex` 常量（与 CI secret `VITA_PACKAGE_KEY` 同值）——含 **Python
 ///    工具链对其源码字面量的正则抓取**（init_asr_secrets.py /
 ///    test-asr-package-integrity.py 的 `masterKeyHex\s*=\s*"64hex"` 契约），
 ///    改动此声明形态会断工具链；
@@ -29,7 +29,7 @@ enum ASRPackageCrypto {
     /// 加密域 namespace（info 前缀）——与 python 正本逐字节一致，**不得改动**。
     private static let namespace = "vitaliber/asr/aes256gcm/v1"
 
-    /// 主密钥（hex，与 CI secret ASR_PACKAGE_KEY 同值；Python 工具链按此声明形态抓取）。
+    /// 主密钥（hex，与 CI secret VITA_PACKAGE_KEY 同值；Python 工具链按此声明形态抓取）。
     private static let masterKeyHex = "2303fac4e6aaacc328f6ac612f77fa91c32594f9c627aab2178b19486ebe7e82"
 
     static func identity(id: String, variant: String?, version: String, artifactRevision: Int?) -> String {
