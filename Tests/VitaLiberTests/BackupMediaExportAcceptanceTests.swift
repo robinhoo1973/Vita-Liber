@@ -42,6 +42,7 @@ final class BackupMediaExportAcceptanceTests: XCTestCase {
         // 局部快照既免 self 又保持只读语义
         let shaA = self.shaA
         let shaB = self.shaB
+        let bytesA = self.bytesA
         let bytesB = self.bytesB
         try await store.writer.write { db in
             try db.execute(sql: """
