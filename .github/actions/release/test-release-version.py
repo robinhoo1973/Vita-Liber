@@ -21,6 +21,43 @@ HELPER_RE = re.compile(r"python3\s+([^\s\\]+\.py)")
 
 
 class ReleaseVersionTests(unittest.TestCase):
+    def run_direct(self, version: str, build_state: str) -> subprocess.CompletedProcess:
+        """直接跑 release-version.py（不经 workflow 文本解析）——BUILD_STATE 语义用例。"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "version.txt").write_text(version)
+            out = root / "out.txt"
+            result = subprocess.run(
+                ["python3", str(Path(__file__).with_name("release-version.py")),
+                 "--version-file", str(root / "version.txt"),
+                 "--run-number", "27", "--build-state", build_state,
+                 "--code-hash", "abcdef12", "--output", str(out)],
+                capture_output=True, text=True)
+            return subprocess.CompletedProcess(result.args, result.returncode,
+                                                stdout=(out.read_text() if out.exists() else ""),
+                                                stderr=result.stderr)
+
+    def test_build_state_match_uses_stored_build(self):
+        # release 一致 → 沿用变量里的 build（失败 run 不消耗语义的另一半）
+        result = self.run_direct("0.0.1", '{"release": "0.0.1", "build": 749}')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("build=749\n", result.stdout)
+        self.assertIn("state_reset=false\n", result.stdout)
+
+    def test_build_state_release_mismatch_resets_to_one(self):
+        # release 不一致 → build 归 1 + state_reset=true（workflow 据此重置变量）
+        result = self.run_direct("0.0.2", '{"release": "0.0.1", "build": 749}')
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("build=001\n", result.stdout)
+        self.assertIn("state_reset=true\n", result.stdout)
+
+    def test_build_state_corrupt_falls_back_to_run_number(self):
+        # 空/损坏状态 → 回落 run_number（零回退风险）
+        result = self.run_direct("0.0.1", "not-json")
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("build=027\n", result.stdout)
+        self.assertIn("state_reset=false\n", result.stdout)
+
     def run_step(self, version, *, ref_type="branch", ref_name="master"):
         document = yaml.safe_load((WORKFLOWS / "testflight.yml").read_text())
         # 2026-10-07 P2：version job 已内联进 build job——按步骤 id 跨 job 定位，

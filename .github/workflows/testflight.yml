@@ -217,13 +217,25 @@ jobs:
 
       - name: 读取 App release 版本（version.txt）
         id: ver
+        env:
+          BUILD_STATE: ${{ vars.BUILD_STATE }}
         run: |
           set -euo pipefail
           python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
+            --build-state "${BUILD_STATE:-}" \
             --code-hash "$(git rev-parse --short=8 HEAD)" \
             --output "$GITHUB_OUTPUT"
+
+      # release 与 version.txt 不一致 → 立即把变量重置为 (release, build=1)
+      # （业主 2026-10-17 裁决：失败 run 不消耗 build 号；记账失败不阻断发布）
+      - name: BUILD_STATE 归 1（release 变更）
+        id: build-state-reset
+        if: steps.ver.outputs.state_reset == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BUILD_STATE_PAT }}
+        run: python3 .github/actions/release/build-state.py --reset --build 1
 
       # ── ASR 校验依赖（2026-10-06 CI 37391026526 实证）：Xcode 预构建脚本
       # 「Generate trusted model hashes」经 model-trust.py → asr_package →
@@ -484,11 +496,14 @@ jobs:
 
       - name: 读取 App release 版本（version.txt；2026-10-07 P2 内联自 version job）
         id: ver
+        env:
+          BUILD_STATE: ${{ vars.BUILD_STATE }}
         run: |
           set -euo pipefail
           python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
+            --build-state "${BUILD_STATE:-}" \
             --code-hash "$(git rev-parse --short=8 HEAD)" \
             --output "$GITHUB_OUTPUT"
 
@@ -1401,6 +1416,13 @@ jobs:
 
       # 2026-10-07 P2：altool/复核日志此前只落上传 job 工作区,随 runner 销毁灭失——
       # 与 build 侧同款 7 天诊断 artifact（唯一比当天更长寿命的公开证据通道）。
+      # build 号推进（业主 2026-10-17 裁决）：上传**确认登记**后 build+1——
+      # 失败/取消 run 不消耗 build 号；记账失败不阻断（下次复用本号重传）
+      - name: BUILD_STATE 推进（上传确认后 build+1）
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.BUILD_STATE_PAT }}
+        run: python3 .github/actions/release/build-state.py --build "${{ needs.build.outputs.build_number }}"
       - name: 上传诊断日志（失败/取消时）
         if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
