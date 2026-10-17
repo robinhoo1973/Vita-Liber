@@ -35,7 +35,7 @@
 name: Build + TestFlight
 
 on:
-    - cron: '41 3 2 * *'
+  workflow_dispatch:
   # 2026-10-07 业主指令：取消 push 自动触发——push master 不再自动跑整流并随之上传
   # TestFlight（发布入口改为手动 dispatch；同 llm.yml 先例「重建改手动」同族法理）。
   # 历史：v* tag 触发亦已于 2026-10-07 删除（tag 不携带 App 版本语义，版本唯一
