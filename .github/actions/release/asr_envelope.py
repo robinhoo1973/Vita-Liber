@@ -1,3 +1,5 @@
+# CANONICAL: github.com/robinhoo1973/asr-models — .github/actions/release/asr_envelope.py
+# vita-liber 侧保留副本（App prebuild/LLM 发布链消费）；改动请先改 canonical 再镜像回来。
 """ASR 下载包加密信封(2026-10-05 业主 R1:包必须加密+压缩;R2:同内容哈希比对)。
 
 格式(与 App 侧 CoreKit `ASRPackageCrypto` 逐字节对齐):

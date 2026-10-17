@@ -1,3 +1,5 @@
+# CANONICAL: github.com/robinhoo1973/asr-models — .github/actions/release/cnb_read.py
+# vita-liber 侧保留副本（App prebuild/LLM 发布链消费）；改动请先改 canonical 再镜像回来。
 #!/usr/bin/env python3
 """CNB 匿名读路径模块（2026-10-07 委员会：读路径实现收敛为单一模块）。
 

@@ -1,3 +1,5 @@
+# CANONICAL: github.com/robinhoo1973/asr-models — .github/actions/release/test-model-trust.py
+# vita-liber 侧保留副本（App prebuild/LLM 发布链消费）；改动请先改 canonical 再镜像回来。
 #!/usr/bin/env python3
 """Real Ed25519 fixtures test authorization, not a mocked signature verifier."""
 import base64

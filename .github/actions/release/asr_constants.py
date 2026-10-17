@@ -1,3 +1,5 @@
+# CANONICAL: github.com/robinhoo1973/asr-models — .github/actions/release/asr_constants.py
+# vita-liber 侧保留副本（App prebuild/LLM 发布链消费）；改动请先改 canonical 再镜像回来。
 #!/usr/bin/env python3
 """ASR 家族/档位常量（轻依赖模块）。
 

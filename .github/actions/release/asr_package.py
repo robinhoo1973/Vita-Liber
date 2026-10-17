@@ -1,3 +1,5 @@
+# CANONICAL: github.com/robinhoo1973/asr-models — .github/actions/release/asr_package.py
+# vita-liber 侧保留副本（App prebuild/LLM 发布链消费）；改动请先改 canonical 再镜像回来。
 """Shared ASR package contract for build, publish and CI verification (no signing keys)."""
 import hashlib
 import json

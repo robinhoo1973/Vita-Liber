@@ -1,3 +1,5 @@
+# CANONICAL: github.com/robinhoo1973/asr-models — .github/actions/release/check-signing-expiry.sh
+# vita-liber 侧保留副本（maintenance signing-expiry 消费）；改动请先改 canonical 再镜像回来。
 #!/usr/bin/env bash
 # 签名材料到期检查（2026-09-27 委员会 P5：自 testflight.yml 析出，Linux 可测）。
 # 用法：check-signing-expiry.sh <days-计算器> —— 或直接 source 本文件用 check_days。
