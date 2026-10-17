@@ -32,4 +32,4 @@
 `App/` 為 SwiftUI 頁面，`CoreKit/` 為 Domain/Protocols/Infrastructure，`Tests/` 與 `UITests/` 為應用測試。
 
 ## App 版本與 ASR 模型發佈
-App release 版本只讀取根目錄 `version.txt`，與 GitHub Release tag 獨立。TestFlight 呼叫 `asr.yml`；它也支援獨立 `workflow_dispatch`，在 runner 暫存目錄準備四個完整模型 ZIP、驗證模型包與簽章目錄並發佈 `asr-models` Release。Zipformer 為隨附離線基線，大模型經使用者明確下載及驗證後在本機執行。每次 App 編譯從已簽章中繼資料產生並嵌入雜湊基線。公開設定位於 `Resources/ASRModelUpdates/`，倉庫不保存 `downloads/` 目錄或模型二進位檔。操作見[工作流程與簽章說明](.github/ASR_RELEASE.md)。磁碟大小不代表推理記憶體、速度或準確率。
+App release 版本只讀取根目錄 `version.txt`，與 GitHub Release tag 獨立。ASR 模型管線（建置→簽章→發佈 `asr-models` CNB Release）位於私有倉 **`robinhoo1973/asr-models`**（2026-10-17 拆分，其 `asr.yml` 支援 `workflow_dispatch`）。Zipformer 為隨附離線基線，大模型經使用者明確下載及驗證後在本機執行。每次 App 編譯從已簽章中繼資料產生並嵌入雜湊基線。公開設定位於 `Resources/ASRModelUpdates/`，倉庫不保存 `downloads/` 目錄或模型二進位檔。操作見 [asr-models 執行手冊](https://github.com/robinhoo1973/asr-models)。磁碟大小不代表推理記憶體、速度或準確率。
