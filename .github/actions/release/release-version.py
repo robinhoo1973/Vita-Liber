@@ -20,17 +20,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version-file", type=Path, default=Path("version.txt"))
     parser.add_argument("--run-number", type=int, required=True)
-    parser.add_argument("--run-attempt", type=int, required=True)
     parser.add_argument("--code-hash", required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
         version = read_version(args.version_file)
-        if args.run_number < 1 or args.run_attempt < 1:
-            raise ValueError("build number and attempt must be positive")
+        if args.run_number < 1:
+            raise ValueError("build number must be positive")
         if not re.fullmatch(r"[0-9a-f]{8,40}", args.code_hash):
             raise ValueError("invalid commit hash")
-        build = f"{args.run_number:03d}.{args.run_attempt}"
+        build = f"{args.run_number:03d}"
         with args.output.open("a", encoding="utf-8") as output:
             output.write(f"version={version}\nbuild={build}\nhash={args.code_hash}\n")
         print(f"version.txt → Version {version} | Build {build} | Code Hash {args.code_hash}")
