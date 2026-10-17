@@ -51,22 +51,14 @@ runs:
         bash "$GITHUB_ACTION_PATH/../gates/l0-static-gate.sh" 2>&1 | tee /tmp/l0-gate.log
         python3 "$GITHUB_ACTION_PATH/../gates/test-schema-integrity.py" 2>&1 | tee -a /tmp/l0-gate.log
 
-    # 发布契约测试左移（2026-10-07 委员会：原仅在 asr.yml 的
-    # dispatch 链路执行——引用面断裂/断言失配要等下次 ASR 发布才暴露，天级延迟。
-    # 12 脚本全部纯离线、Linux 本地实测 rc=0 全绿；release 链保留原步为发布前复检。
+    # 发布契约测试左移（2026-10-07 委员会：原仅在 asr.yml 的 dispatch 链路执行；
+    # 2026-10-17 仓库拆分后 ASR/LLM 管线已迁私有仓（robinhoo1973/asr-models），
+    # 本步只跑留在本仓的契约面。
     - name: 发布契约测试（离线矩阵）
       shell: bash
       run: |
         set -o pipefail
-        for t in test-release-version test-next-catalog-version test-asr-assets \
-                 test-asr-secrets-init test-asr-package-integrity test-model-trust \
-                 test-asr-release test-asr-release-page test-medical-package-fixture \
-                 test-cnb-release test-cnb-release-workflow test-seed-cnb-model-assets \
-                 test-asr-overview test-asr-config-projection test-resolve-asr-models \
-                 test-apply-asr-catalog-copy test-asr-change-set test-bootstrap-asr-model \
-                 test-distill-asr-metadata test-llm-client test-suggest-asr-metadata \
-                 test-draft-release-text test-distill-release-text \
-                 test-publish-llm-model; do
+        for t in test-release-version test-medical-package-fixture test-model-trust; do
           echo "── $t"
           python3 "$GITHUB_ACTION_PATH/../release/$t.py"
         done 2>&1 | tee -a /tmp/l0-gate.log

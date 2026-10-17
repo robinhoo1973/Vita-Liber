@@ -11,12 +11,10 @@
 ├── workflows/      # 仅工作流定义（*.yml，含 workflow_call reusable——平台硬约束：
 │                   #   GitHub 只在此层扫描；工作流禁止放入任何子目录）
 ├── actions/        # 被 workflows 调用的脚本 / 公用代码（按域归簇）
-│   ├── l0-gate/    #   L0 门禁 composite action 执行体（workflows 四个的公用调用面）
+│   ├── l0-gate/    #   L0 门禁 composite action 执行体（testflight/maintenance 的公用调用面）
 │   ├── gates/      #   域:L0 静态门禁(20 节)判定器簇
-│   ├── release/    #   域:发布/签名信任链/模型物化(共用 asr_package / model_trust 库)
-│   └── distill/    #   域:蒸馏训练簇(CNB 零密钥取数 fetch_catalog + entlink 确定性召回 +
-│                   #     抽取/对话/实体链接三面语料构建 + 生成式 smoke 训练循环 + 双评测闸;
-│                   #     零 PHI 数据纪律、ubuntu CPU 吞吐标定(MPS 腿 2026-10-08 退役)、checkpoint 断点续训,详见簇 README)
+│   ├── release/    #   域:版本解析/model-trust 预构建闭包/reconcile-frameworks/签名到期周检
+│                   #   （2026-10-17 拆分：ASR/LLM 管线脚本已全部迁 robinhoo1973/asr-models 私仓）
 └── config/         # 可公开的配置（纯配置/清单按域入子目录）
     ├── gates/        #   gate-suites.tsv / l10n-legacy-allowlist.txt / 依赖能力矩阵
     └── requirements/ #   pip --require-hashes 钉版清单
@@ -35,9 +33,10 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 - `python3 script.py` 会把脚本所在目录加入 `sys.path`,所以**同簇脚本可以互相
   `from xxx import`**,而 `Path(__file__).with_name("yyy.py")` 与子进程调用同理——
   全部依赖「同目录」这一事实。
-- **因此:共用库的脚本必须同簇,禁止跨簇 import / with_name 定位。** 实证示例:
-  `release/` 簇里 `asr_package.py` 被 13 个脚本导入、`model_trust.py` 被 5 个消费
-  (含 runpy 挂载形式;计数随簇演进,以 grep 实况为准)。
+- **因此:共用库的脚本必须同簇,禁止跨簇 import / with_name 定位。**（2026-10-17 拆分后
+  本仓 release/ 簇只留 App 构建/维护消费面：model-trust 预构建闭包 5 件 +
+  release-version + reconcile-frameworks + check-signing-expiry；ASR/LLM 管线脚本
+  已迁 robinhoo1973/asr-models 私仓。）
 - 仓库根探测**禁止按固定层级 `parents[N]` 假设**:一律逐级向上找
   `CoreKit/Sources/Domain`(Python)或 `project.yml`(shell)锚点。
   教训见 `.github/actions/gates/l0-container-id-mask.py:20`(2026-09-12 假绿实证)。
@@ -60,13 +59,10 @@ workflows/ 或 actions/ 顶层;辅助数据文件随所属簇存放(如
 
 | 文件 | 触发 | 职责 | 调用簇 |
 |---|---|---|---|
-| `testflight.yml` | dispatch 唯一发布入口（push/PR 自动触发已删除，2026-10-08 业主指令；2026-10-16 业主指令删除 llama XCFramework 重建 job——schedule 与 dispatch 输入一并移除，llama 重建轨已整体退役） | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：**三阶段 DAG（业主 2026-10-07 终稿）：(L0 ∥ CoreKit) → (L1 ∥ build) → upload**——一级任一红不进二级；二级 l1（编译门禁+型检预算+L1 单元/UI）与 build（版本内联→签名材料→archive→export→IPA 校验）并联；upload（altool→buildUploads 秒级证据+≤90s 列表确认）**四依赖门控——测试红不上传 TestFlight**。PR 测试面已删——L1 单元/UI 仅手动 dispatch 执行（合流前 macOS 型检盲区已登记）。**llama XCFramework 重建**（2026-10-09 自 llm.yml 迁入——App 构建依赖，属发布面）：勾 `build_xcframework` 仅跑该 job（App 全链含上传整体跳过），发布内容寻址 zip 至 release `llama-xcframework`（月度调度同 job）。 | gates / release / requirements |
-| `asr.yml` | workflow_call / dispatch | ASR 包构建、签名、发布至 **CNB 资源仓 Release**（2026-10-03 cutover 后非 GitHub Releases；发布成功触发资源仓 README 同步） | release / requirements |
-| `llm.yml` | workflow_dispatch（task 输入：llm-pipeline / train-encoder） | **distill v2（2026-10-08：rebase 入四文件布局 + round4 设计批 + job 细分原子化批）：一 job 一任务，文件经 artifact 传递、控制/裁决经 needs+outputs 传递。tests/tests-torch/export-prompts(前置并联)→fetch-catalog(CNB 匿名 v3 零密钥取数+信封解密)→materialize-catalog(SQLite→data-dir 经 artifact 共享)→build-extraction/build-dialogue(消费 data-dir)/build-entlink(消费 SQLite)三个构建并联；calibrate(ubuntu CPU 吞吐基准,记录面——不进裁决器 needs)→smoke-encoder/smoke-extraction/smoke-dialogue(三个冒烟并联，含断点续训回归与五条结构断言)+eval-entlink/eval-corpora(双评测闸)→acceptance(唯一裁决器：13 必需 job 全绿且 entlink∧corpora verdict=pass 才 go；未达=run 判红)→publish-corpus(训练输入件冻结，draft→REST ?name= 上传→digest 复核→裁决器放行才翻转可见；不含模型；对话面发布暂缓至 D-1 裁决)**。**训练轨 task=train-encoder（2026-10-09）：CPU 分块训练链（状态机三重闸+自派发续链；状态/checkpoint 经 llama-models Release draft；启动=手动 dispatch——定时调度 job 已按业主指令删除）**。llama XCFramework 构建 2026-10-09 起迁 `testflight.yml`（task 选项已删）。 | distill / release / requirements |
-| `llm-model.yml` | dispatch（id / source / mode=dry-run\|publish） | **T2 本机 LLM 模型发布（2026-10-09 换型+下载化批）**：把仓库内已钉版目录条目（`Resources/LLMCatalog/catalog.json`：URL+sha256+bytes）对应的上游字节发布到 **CNB** `robinhoo1973/Resources` release `llama-models`——内容寻址资产名 `<id>-<sha16>.gguf`、匿名回读核对；**与 GitHub release `llama-models`（训练 checkpoint draft 通道）是两平台独立命名空间，不混存**。preflight（publish 模式缺 CNB_RESOURCE_TOKEN 即红）+ battery（发布器离线契约测试）+ publish 三段。 | release / requirements |
-| `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ 周一 03:23 UTC（目录漂移）/ dispatch（四 job 全跑） | 维护四件套：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`；`seed-cnb-assets.yml` 已删——业主 2026-10-07：本地离线执行完成）+ ASR 目录漂移周检（2026-10-08）。训练窗口调度 job 已按业主指令删除（2026-10-09）。 | release / requirements |
+| `testflight.yml` | dispatch 唯一发布入口（push/PR 自动触发已删除，2026-10-08 业主指令；2026-10-16 业主指令删除 llama XCFramework 重建 job——schedule 与 dispatch 输入一并移除，重建轨整体退役） | **编译+上传 TestFlight + 测试面（2026-10-07 消解 ci-tests.yml 后）**：**三阶段 DAG（业主 2026-10-07 终稿）：(L0 ∥ CoreKit) → (L1 ∥ build) → upload**——一级任一红不进二级；二级 l1（编译门禁+型检预算+L1 单元/UI）与 build（版本内联→签名材料→archive→export→IPA 校验）并联；upload（altool→buildUploads 秒级证据+≤90s 列表确认）**四依赖门控——测试红不上传 TestFlight**。PR 测试面已删——L1 单元/UI 仅手动 dispatch 执行（合流前 macOS 型检盲区已登记）。build 号单调闸：upload 前 ASC 已登记最大值比对，防 workflow 改名计数器归零回退。 | gates / release / requirements |
+| `maintenance.yml` | 每日 16:00 UTC（清理）/ 周日 23:17 UTC（签名到期）/ dispatch（全 job 跑） | 维护三件套：执行记录清理（规则A/B）+ 签名材料到期周检 + ASC build 状态查询（原 `cleanup-runs.yml` / `signing-expiry-check.yml` / `asc-build-status.yml`；`seed-cnb-assets.yml` 已删——业主 2026-10-07：本地离线执行完成；2026-10-17 拆分后 ASR 目录漂移周检迁 asr-models 的 asr-maintenance.yml） | release / requirements |
 
-**Release/sqlite 契约**:医疗数据唯一发布位置已迁 **CNB `robinhoo1973/Resources` release `medical-data`**（wire 保持 pointer3 / manifest2：固定名 `manifest.json` 签名指针 + `package-<版本>.bin` 信封包 + `overview.json`；包名版本 `<= catalogVersion` 以允许续签；本地 producer 为唯一写者,源站 WAF 拒云上出口 IP,CI 不直连源站——见 `refactor/discussions/2026-10-07-distill-ci-medical-data-v2.md` §3.5 与私有仓 MEDICAL_DATA_RELEASE.md）。`llm.yml` 的 `distill-corpus` Release 为**合成语料**冻结资产（内容寻址、append-only;对话面暂缓至 D-1 裁决）,与医疗数据 Release 无耦合;旧 age 加密 `medical-data.bin` 契约随 v2 数据面退役。
+**Release/sqlite 契约**:医疗数据唯一发布位置已迁 **CNB `robinhoo1973/Resources` release `medical-data`**（wire 保持 pointer3 / manifest2：固定名 `manifest.json` 签名指针 + `package-<版本>.bin` 信封包 + `overview.json`；包名版本 `<= catalogVersion` 以允许续签；本地 producer 为唯一写者,源站 WAF 拒云上出口 IP,CI 不直连源站——见 `refactor/discussions/2026-10-07-distill-ci-medical-data-v2.md` §3.5 与私有仓 MEDICAL_DATA_RELEASE.md）。`distill-corpus` Release（合成语料冻结资产，内容寻址、append-only）随 LLM 管线迁私有仓,与医疗数据 Release 无耦合;旧 age 加密 `medical-data.bin` 契约随 v2 数据面退役。
 
 SQLite 消费门支持显式 legacy4–7 与 `unified-medical-kg/v1` physical9 / graph2 / App4，
 拒 physical8、坏/缺 marker 或非 full/ready/versioned 的 9，不影响既有已签7摘要算法。
@@ -74,8 +70,6 @@ ZIP 固定且唯一普通 `medical-catalog.sqlite`；已签 R/content、实际�
 current binding、release/activation 全部互核后才替换。`source.json` 随 artifact 传至
 materialize/entlink（显式 `--source-json`），身份继续进入实体 dump/语料自哈希与评测漂移闸。
 App 安装/恢复复用同一 storage gate，双读面原子换代并以 generation 失效缓存；
-同 R 不同文件 SHA 不误判为可复用。公共契约/合成 bridge golden 与离线验证边界详见
-`.github/actions/distill/README.md`；Windows Python/静态 Swift 不替代 macOS 编译/iOS 验收，
-此项实现未 dispatch 任何发布 workflow。
+同 R 不同文件 SHA 不误判为可复用。公共契约/合成 bridge golden 与离线验证边界随 distill 簇迁私有仓；Windows Python/静态 Swift 不替代 macOS 编译/iOS 验收。
 
-发布操作文档:`.github/ASR_RELEASE.md`；医疗数据 Release 契约已迁入私有仓 `tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md`（[仅授权成员可访问](https://github.com/robinhoo1973/robinhoo-pipelines/blob/main/tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md)）。
+发布操作文档:2026-10-17 起全部迁 **robinhoo1973/asr-models** 私仓；医疗数据 Release 契约已迁入私有仓 `tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md`（[仅授权成员可访问](https://github.com/robinhoo1973/robinhoo-pipelines/blob/main/tasks/vita-liber/medical-data/docs/MEDICAL_DATA_RELEASE.md)）。

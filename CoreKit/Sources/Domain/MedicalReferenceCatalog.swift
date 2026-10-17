@@ -173,8 +173,8 @@ public actor MedicalTerminologyOverlay {
 enum CatalogJSON {
     static func stringArray(_ json: String) -> [String] {
         guard !json.isEmpty, let data = json.data(using: .utf8),
-              let value = try? JSONSerialization.jsonObject(with: data),
-              let list = value as? [Any] else { return [] } // try?-ok: malformed alias JSON has no usable text
+              let value = try? JSONSerialization.jsonObject(with: data), // try?-ok: malformed alias JSON has no usable text
+              let list = value as? [Any] else { return [] }
         return list.compactMap { item in
             let text: String?
             if let value = item as? String {
