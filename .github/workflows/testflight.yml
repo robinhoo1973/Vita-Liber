@@ -222,7 +222,6 @@ jobs:
           python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --code-hash "$(git rev-parse --short=8 HEAD)" \
             --output "$GITHUB_OUTPUT"
 
@@ -490,7 +489,6 @@ jobs:
           python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --code-hash "$(git rev-parse --short=8 HEAD)" \
             --output "$GITHUB_OUTPUT"
 

@@ -28,7 +28,7 @@ class ReleaseVersionTests(unittest.TestCase):
         # 步骤搬迁后测试滞后，ASR 发布链的「版本规则回归」步会连带必红）。
         step = next(s for job in document["jobs"].values()
                     for s in job.get("steps", []) if s.get("id") == "ver")
-        script = step["run"].replace("${{ github.run_number }}", "27").replace("${{ github.run_attempt }}", "2")
+        script = step["run"].replace("${{ github.run_number }}", "27")
         match = HELPER_RE.search(script)
         if not match:
             self.fail("ver 步骤中未找到 python3 助手脚本路径——工作流与测试脱钩,先修工作流")
@@ -61,7 +61,7 @@ class ReleaseVersionTests(unittest.TestCase):
         result, output = self.run_step("3.4.5\n")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("version=3.4.5\n", output)
-        self.assertIn("build=027.2\n", output)
+        self.assertIn("build=027\n", output)
         self.assertIn("hash=deadbeef\n", output)
 
     def test_tag_does_not_override_version_file(self):
