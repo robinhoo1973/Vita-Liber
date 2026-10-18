@@ -209,9 +209,14 @@ public actor TrendQueryStore {
     /// P0.5 阶段无通用参考范围（FR7.2 时序）：ref_* 一律 NULL。
     public func addSample(patientId: UUID, metric: MetricType, value: Double,
                           secondaryValue: Double?, unit: String,
-                          measuredAt: Date, sourceRef: String? = nil) async throws -> UUID {
+                          measuredAt: Date, sourceRef: String? = nil,
+                          audit: VoiceExecutionAudit? = nil) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
+            // 助手语音/文本动作：幂等重放不重复落行（V12/V13）。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             try Self.requireActivePatient(db, patientId: patientId)   // 批F②：归属守卫（全仓唯一例外补平）
             try db.execute(sql: """
                 INSERT INTO metric_sample
@@ -221,6 +226,10 @@ public actor TrendQueryStore {
                 """, arguments: [id.uuidString, patientId.uuidString, metric.rawValue, value,
                                  secondaryValue, unit, measuredAt.timeIntervalSince1970, sourceRef,
                                  Date().timeIntervalSince1970])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "metric_sample",
+                                                     entityId: id.uuidString, db: db)
+            }
         }
         return id
     }

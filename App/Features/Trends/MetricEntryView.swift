@@ -69,6 +69,8 @@ struct MetricQuickEntryView: View {
     /// 若已切换即拦截（不新增 UI，复用 entryError 告警面）。此前保存取
     /// app.currentPatientId 实时值，切成员后整份录入静默落到另一成员名下。
     @State private var formPatientId: UUID?
+    /// 语音/文本助手交接的审计身份（V12/V13）；手工录入为 nil。
+    @State private var voiceAudit: VoiceExecutionAudit?
     @State private var routeMonitor = AudioRouteMonitor()
     @FocusState private var focusField: Bool
 
@@ -195,6 +197,7 @@ struct MetricQuickEntryView: View {
                     if draft.intent == VoiceIntentKey.recordMetric.rawValue,
                        draft.patientId == nil || draft.patientId == app.currentPatientId {
                         applyDraft(draft.keyedValues)
+                        voiceAudit = draft.executionAudit()
                     }
                 }
                 routeMonitor.start()
@@ -264,9 +267,10 @@ struct MetricQuickEntryView: View {
         Task {
             let ok = await state.addSample(patientId: app.currentPatientId, metric: metric,
                                            value: validated.value, secondaryValue: validated.secondary, unit: unit,
-                                           measuredAt: measuredAt)
+                                           measuredAt: measuredAt, audit: voiceAudit)
             saving = false
             if ok {
+                voiceAudit = nil
                 saved = true
                 Haptics.notice(.success)   // S-2：保存成功触觉（单出口）
             } else {
@@ -295,11 +299,12 @@ extension TrendEntryState {
     /// 「保存成功」，写失败时用户以为已记录、健康读数静默丢失。
     @discardableResult
     func addSample(patientId: UUID, metric: MetricType, value: Double,
-                   secondaryValue: Double?, unit: String, measuredAt: Date) async -> Bool {
+                   secondaryValue: Double?, unit: String, measuredAt: Date,
+                   audit: VoiceExecutionAudit? = nil) async -> Bool {
         do {
             _ = try await store.addSample(patientId: patientId, metric: metric, value: value,
                                           secondaryValue: secondaryValue, unit: unit,
-                                          measuredAt: measuredAt)
+                                          measuredAt: measuredAt, audit: audit)
             rememberUnit(unit, for: metric)
             // 写回 Apple 健康（业主 2026-09-17 定）：best-effort——开关/本人/
             // 单位资格全部在 F16DeviceState 内裁决，失败不溯及本库保存结果

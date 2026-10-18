@@ -272,6 +272,8 @@ struct AppointmentFormView: View {
     @State private var saveFailed = false
     /// V11：语音草稿预填时的成员身份——表单内切成员后禁止用旧草稿落库（BR-001）。
     @State private var prefilledPatientId: UUID?
+    /// 助手交接的审计身份（V12/V13）；手工新建为 nil。
+    @State private var voiceAudit: VoiceExecutionAudit?
 
     private let rules = [0, 1, 2, 3, 4]
 
@@ -389,6 +391,7 @@ struct AppointmentFormView: View {
         }
         router.pendingVoiceIntent = nil
         prefilledPatientId = app.currentPatientId
+        voiceAudit = draft.executionAudit()
         let values = draft.keyedValues
         if let value = values["hospital"], !value.isEmpty { hospital = value }
         if let value = values["department"], !value.isEmpty { department = value }
@@ -415,7 +418,8 @@ struct AppointmentFormView: View {
                                                        itemsToBring: itemsToBring.isEmpty ? nil : itemsToBring,
                                                        notes: notes.isEmpty ? nil : notes,
                                                        followUpRule: followUpRule,
-                                                       followUpDays: followUpRule == 1 || followUpRule == 4 ? followUpDays : nil)
+                                                       followUpDays: followUpRule == 1 || followUpRule == 4 ? followUpDays : nil,
+                                                       audit: voiceAudit)
             if ok {
                 dismiss()
             } else {

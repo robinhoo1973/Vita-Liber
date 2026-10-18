@@ -30,8 +30,13 @@ public actor AppointmentStore {
                        itemsToBring: String? = nil, notes: String? = nil,
                        encounterId: UUID? = nil, purpose: AppointmentPurpose? = nil,
                        tiers: [AppointmentTier] = AppointmentTier.defaults,
-                       now: Date = Date()) async throws -> UUID {
+                       now: Date = Date(),
+                       audit: VoiceExecutionAudit? = nil) async throws -> UUID {
         try await writer.write { db in
+            // 助手语音/文本动作：幂等重放不重复建预约（V12/V13）。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             if let encounterId {
                 try Self.assertEncounter(encounterId, belongsTo: patientId, db: db)
             }
@@ -47,6 +52,10 @@ public actor AppointmentStore {
                             startsAt.timeIntervalSince1970,
                             now.timeIntervalSince1970, now.timeIntervalSince1970,
                             encounterId?.uuidString, purpose?.rawValue])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "appointment",
+                                                     entityId: id.uuidString, db: db)
+            }
         }
         for (tier, fire) in AppointmentRules.tierFireDates(startsAt: startsAt, tiers: tiers, now: now) {
             try await scheduler.schedule(dose: "apt-\(id.uuidString)-\(tier.label)", at: fire,

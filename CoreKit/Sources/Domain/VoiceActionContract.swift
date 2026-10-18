@@ -197,6 +197,20 @@ public struct VoiceExecutionAudit: Sendable, Equatable {
         self.source = plan.source
     }
 
+    /// 路由动作交接：目标页只拿到 PendingVoiceIntent 的身份字段，用它构造审计。
+    public init(planId: UUID, confirmationId: UUID, intent: VoiceIntentKey,
+                actionKind: VoiceActionKind, idempotencyKey: String, actor: String,
+                slotKeys: [String], source: VoiceActionSource) {
+        self.planId = planId
+        self.confirmationId = confirmationId
+        self.intent = intent
+        self.actionKind = actionKind
+        self.idempotencyKey = idempotencyKey
+        self.actorLocal = actor
+        self.slotKeys = slotKeys.sorted()
+        self.source = source
+    }
+
     /// 审计 meta：intent/actionKind/slotKeys/candidateCount/来源/计划与确认 ID。
     /// 不含转写全文、药名、数值、患者姓名或任何自由文本。
     public var metaJSON: String {

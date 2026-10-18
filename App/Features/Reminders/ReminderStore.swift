@@ -630,13 +630,14 @@ final class ReminderStore {
     func createAppointment(patientId: UUID, hospital: String, department: String,
                            startsAt: Date, doctor: String? = nil, address: String? = nil,
                            itemsToBring: String? = nil, notes: String? = nil,
-                           followUpRule: Int? = nil, followUpDays: Int? = nil) async -> Bool {
+                           followUpRule: Int? = nil, followUpDays: Int? = nil,
+                           audit: VoiceExecutionAudit? = nil) async -> Bool {
         do {
             let aptId = try await apts.create(patientId: patientId, hospital: hospital,
                                               department: department, startsAt: startsAt,
                                               doctor: doctor, address: address,
                                               itemsToBring: itemsToBring, notes: notes,
-                                              now: Date())
+                                              now: Date(), audit: audit)
             // FR10.2 复诊规则：规则 1（N 天后）/4（慢病定期随访 N 天）落具体
             // 日期 → 排复诊提醒（此前表单收集的复诊配置被静默丢弃）
             if let rule = followUpRule, rule == 1 || rule == 4,

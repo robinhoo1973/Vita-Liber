@@ -31,6 +31,18 @@ struct PendingVoiceIntent: Sendable, Equatable {
         for field in fields { map[field.key] = field.value }
         return map
     }
+
+    /// 路由动作交接审计（V12/V13）：目标页保存时用同一计划/确认/幂等身份。
+    func executionAudit(actor: String = "owner") -> VoiceExecutionAudit? {
+        guard patientId != nil, let sourcePlanId, let confirmationId,
+              let idempotencyKey, let actionKindRaw = actionKind,
+              let actionKind = VoiceActionKind(rawValue: actionKindRaw),
+              let intentKey = VoiceIntentKey(rawValue: intent) else { return nil }
+        return VoiceExecutionAudit(planId: sourcePlanId, confirmationId: confirmationId,
+                                   intent: intentKey, actionKind: actionKind,
+                                   idempotencyKey: idempotencyKey, actor: actor,
+                                   slotKeys: fields.map(\.key), source: .voice)
+    }
 }
 
 extension OcrConfirmationSet {
