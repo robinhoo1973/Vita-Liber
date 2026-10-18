@@ -26,6 +26,11 @@ def main() -> int:
                         help="GitHub 变量 BUILD_STATE 的 JSON（{release,build}）——业主 2026-10-17 裁决："
                              "release 与 version.txt 一致则沿用存储 build；不一致 → build=1 并输出 state_reset=true；"
                              "空/损坏 → 回落 run_number（旧行为，零回退风险）")
+    parser.add_argument("--floor-build", type=int, default=None,
+                        help="构建号硬下界（2026-10-18：build job 从 ASC 同一 marketing version 的已登记最大 "
+                             "build+1 取得）。BUILD_STATE 写回需 BUILD_STATE_PAT，secret 缺失时计数器会静默"
+                             "停摆（实证：build 751 重复上传被 ASC 拒收）。ASC 是权威登记簿，故下界优先于"
+                             "本地计数器；缺失/查询失败时由 workflow 传 -1（不设下界）。")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -50,6 +55,8 @@ def main() -> int:
             state_reset = True
         else:
             build = f"{args.run_number:03d}"
+        if args.floor_build is not None and args.floor_build > int(build):
+            build = f"{args.floor_build:03d}"
         with args.output.open("a", encoding="utf-8") as output:
             output.write(f"version={version}\nbuild={build}\nhash={args.code_hash}\n")
             output.write(f"state_reset={'true' if state_reset else 'false'}\n")

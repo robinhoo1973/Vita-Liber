@@ -498,6 +498,9 @@ jobs:
       ipa_ready: ${{ steps.ipa-ready.outputs.ipa_ready }}
       # 版本内联（2026-10-07 P2）：upload 侧复核精确匹配本值。
       build_number: ${{ steps.ver.outputs.build }}
+      # marketing version：上传单调闸按同一 version 过滤 ASC 记录
+      # （release 变更归 1 的裁定语义；2026-10-18）。
+      version: ${{ steps.ver.outputs.version }}
     # 钉版 macos-26（审计 2026-09-10）：发布流水线拒绝隐式工具链漂移；
     # 镜像内 Xcode 主版本变化由下方断言显式拦截，升级按文件头指引执行。
     runs-on: macos-26
@@ -527,16 +530,60 @@ jobs:
           # 3.13 宽 pin 命中 macos-26 镜像 toolcache（3.13.15,精确 3.13.5 会走下载）
           python-version: '3.13'
 
+      # ASC 权威下界（2026-10-18 实证 39136445104）：BUILD_STATE 写回依赖
+      # BUILD_STATE_PAT（Variables: write）。secret 缺失时记账静默跳过，
+      # 下一次 run 复用同一 build 号 → 上传期单调闸才红（浪费一次整链）。
+      # App Store Connect 是构建号登记簿：先查同一 marketing version 的
+      # 已登记最大 build，取 +1 作下界；本地计数器陈旧不再致命。
+      # 查询失败硬红：此时上传同样会因 ASC 失败，早失败省 20+ 分钟。
+      - name: ASC 构建号下界（同一 marketing version）
+        id: asc-floor
+        if: env.HAS_P8 == 'true'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' < version.txt)"
+          python3 -m venv /tmp/asc-floor-venv
+          export PATH="/tmp/asc-floor-venv/bin:$PATH"
+          python3 -m pip install --disable-pip-version-check --no-cache-dir \
+            --require-hashes -r "$GITHUB_WORKSPACE/.github/config/requirements/requirements-asc-tools.txt" >/tmp/asc-floor-pip.log 2>&1
+          umask 077
+          KEY="$RUNNER_TEMP/asc-floor-key.p8"
+          echo "$APPLE_API_KEY_P8" | base64 -d > "$KEY"
+          FLOOR=""
+          for attempt in 1 2 3; do
+            if MAX="$(KEYFILE="$KEY" KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
+                 python3 .github/actions/release/asc-max-build.py --version "$VERSION")"; then
+              FLOOR=$((MAX + 1))
+              break
+            fi
+            echo "::warning::ASC build 查询失败（第 $attempt 次），5s 后重试"
+            sleep 5
+          done
+          rm -f "$KEY"
+          if [ -z "$FLOOR" ]; then
+            echo "::error::ASC build 查询连续失败——无法确定构建号下界，禁止构建（上传同样会失败）"
+            exit 1
+          fi
+          echo "floor=$FLOOR" >> "$GITHUB_OUTPUT"
+          echo "ASC 同版本下界: expected ≥ $FLOOR（version=$VERSION）"
+
       - name: 读取 App release 版本（version.txt；2026-10-07 P2 内联自 version job）
         id: ver
         env:
           BUILD_STATE: ${{ vars.BUILD_STATE }}
+          # 空（凭据缺失/步骤跳过）→ -1，不设下界；上传前凭据硬校验会另行报红。
+          ASC_FLOOR: ${{ steps.asc-floor.outputs.floor }}
         run: |
           set -euo pipefail
           python3 .github/actions/release/release-version.py \
             --version-file version.txt \
             --run-number "$GITHUB_RUN_NUMBER" \
             --build-state "${BUILD_STATE:-}" \
+            --floor-build "${ASC_FLOOR:--1}" \
             --code-hash "$(git rev-parse --short=8 HEAD)" \
             --output "$GITHUB_OUTPUT"
 
@@ -1165,7 +1212,9 @@ jobs:
       # ── build 号单调闸（2026-10-17 业主反馈防复发）─────────
       # workflow 改名/重建会静默重置 GITHUB_RUN_NUMBER → build 号回退 →
       # ASC 拒收。上传前查 ASC 已登记最大 build：new < max = 硬红（回归面），
-      # new == max = 告警放行（同号重传路径），new > max = 通过。
+      # new == max = 同号重传必 409，硬红；new > max = 通过。
+      # 2026-10-18：比对范围收窄到同一 marketing version（filter[preReleaseVersion.version]），
+      # 与「release 变更 → build 归 1」裁定一致；构建侧同源下界见 asc-floor 步骤。
       - name: build 号单调校验（ASC 已登记最大值比对）
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
@@ -1174,6 +1223,7 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED="${{ needs.build.outputs.build_number }}"
+          EXPECTED_VERSION="${{ needs.build.outputs.version }}"
           if [ -z "$APPLE_API_KEY_P8" ]; then
             echo "::error::APPLE_API_KEY_P8 未配置——单调闸无法执行"
             exit 1
@@ -1186,8 +1236,8 @@ jobs:
           mkdir -p "$RUNNER_TEMP/mono-keys"
           echo "$APPLE_API_KEY_P8" | base64 -d > "$RUNNER_TEMP/mono-keys/AuthKey.p8"
           KEYFILE="$RUNNER_TEMP/mono-keys/AuthKey.p8" KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
-          EXPECTED="$EXPECTED" python3 - <<'PYEOF'
-          import json, os, time, urllib.request, urllib.error
+          EXPECTED="$EXPECTED" EXPECTED_VERSION="$EXPECTED_VERSION" python3 - <<'PYEOF'
+          import json, os, time, urllib.parse, urllib.request, urllib.error
           import jwt
           key = open(os.environ['KEYFILE']).read()
           now = int(time.time())
@@ -1209,12 +1259,14 @@ jobs:
               print('无已登记 App（首传/自动创建路径）——单调闸跳过')
               raise SystemExit(0)
           app = apps[0]['id']
-          builds = call(f"{BASE}/builds?sort=-version&limit=5&filter[app]={app}")['data']
+          version = urllib.parse.quote(os.environ['EXPECTED_VERSION'], safe='')
+          builds = call(f"{BASE}/builds?sort=-version&limit=200&filter[app]={app}"
+                        f"&filter[preReleaseVersion.version]={version}")['data']
           registered = [int(b['attributes']['version']) for b in builds
                         if str(b['attributes']['version']).isdigit()]
           expected = int(os.environ['EXPECTED'])
           if not registered:
-              print(f'ASC 无数字 build 记录——放行（expected={expected}）')
+              print(f'ASC 同一版本无数字 build 记录——放行（version={os.environ["EXPECTED_VERSION"]} expected={expected}）')
               raise SystemExit(0)
           mx = max(registered)
           print(f'expected={expected} ASC-max={mx}')
