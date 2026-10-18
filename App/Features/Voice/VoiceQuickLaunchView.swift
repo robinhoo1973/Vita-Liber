@@ -27,6 +27,7 @@ struct VoiceQuickLaunchView: View {
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNoteState
     @Environment(QuestionsState.self) private var questions
+    @Environment(\.auditLog) private var auditLog
     @Environment(AppSettingsStore.self) private var settings
     @Environment(M2HubStore.self) private var hub
     @Environment(\.dismiss) private var dismiss
@@ -603,6 +604,9 @@ struct VoiceQuickLaunchView: View {
                                                             confirmationId: confirmation).first
             return action.map { VoiceExecutionAudit(plan: confirmed, action: $0, actor: "owner") }
         }
+        if let audit = executionAudit() {
+            recordConfirmationAudit(audit)
+        }
         switch target {
         case .anyText:
             guard let body = fields.first?.value, !body.isEmpty else {
@@ -644,6 +648,24 @@ struct VoiceQuickLaunchView: View {
         } else {
             open(target)
             dismiss()
+        }
+    }
+
+    /// 确认事件审计（与业务写分事务；直存动作另有同事务 `voice.execute`）。
+    private func recordConfirmationAudit(_ audit: VoiceExecutionAudit) {
+        guard let auditLog else { return }
+        let meta = audit.metaJSON
+        let planId = audit.planId
+        let actor = audit.actorLocal
+        Task {
+            do {
+                try await auditLog.record(action: AuditLogWriter.Action.voiceConfirm,
+                                          entityType: "voice_plan",
+                                          entityId: planId.uuidString,
+                                          actorLocal: actor, meta: meta)
+            } catch {
+                // 审计失败不阻断确认/保存。
+            }
         }
     }
 

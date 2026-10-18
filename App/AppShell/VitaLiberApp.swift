@@ -400,6 +400,7 @@ struct VitaLiberApp: App {
             .environment(m2Hub)
             .environment(container.mediaSession)
             .environment(router)
+            .environment(\.auditLog, container.audit)
             .environment(searchState)
             .environment(encountersState)
             .environment(HealthExamViewState(store: container.healthExams))

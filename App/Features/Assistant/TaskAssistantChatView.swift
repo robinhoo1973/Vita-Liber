@@ -1,6 +1,7 @@
 import SwiftUI
 import Perception
 import Domain
+import Infrastructure
 
 /// 首页 OCR/ASR 入口旁的 AI 聊天入口（2026-10-18 业主指令）。
 ///
@@ -15,6 +16,7 @@ struct TaskAssistantChatView: View {
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNotes
     @Environment(QuestionsState.self) private var questions
+    @Environment(\.auditLog) private var auditLog
     @Environment(\.dismiss) private var dismiss
 
     @State private var messages: [ChatMessage] = []
@@ -305,6 +307,7 @@ struct TaskAssistantChatView: View {
             return
         }
         let audit = VoiceExecutionAudit(plan: confirmed, action: action, actor: "owner")
+        recordConfirmationAudit(audit)
         pendingPlan = nil
         execute(action, plan: confirmed, audit: audit, confirmationSet: set)
     }
@@ -357,6 +360,25 @@ struct TaskAssistantChatView: View {
         isSaving = false
         router.navigate(to: target)
         dismiss()
+    }
+
+    /// 确认事件审计（与业务写分事务，只记录交接；直存动作另有同事务 `voice.execute`）。
+    /// 审计失败不阻断用户保存（best-effort；错误留待 L2 观测）。
+    private func recordConfirmationAudit(_ audit: VoiceExecutionAudit) {
+        guard let auditLog else { return }
+        let meta = audit.metaJSON
+        let planId = audit.planId
+        let actor = audit.actorLocal
+        Task {
+            do {
+                try await auditLog.record(action: AuditLogWriter.Action.voiceConfirm,
+                                          entityType: "voice_plan",
+                                          entityId: planId.uuidString,
+                                          actorLocal: actor, meta: meta)
+            } catch {
+                // 审计失败不阻断确认/保存；动作自身的 voice.execute 仍按同事务写。
+            }
+        }
     }
 
     private func finishDirectSave(ok: Bool, text: String) {
