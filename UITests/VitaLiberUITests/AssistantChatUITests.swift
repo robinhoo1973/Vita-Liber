@@ -21,6 +21,7 @@ final class AssistantChatUITests: XCTestCase {
         let input = app.descendants(matching: .any)["assistant.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["assistant.send"].exists)
+        XCTAssertTrue(app.buttons["assistant.voice"].exists)
         XCTAssertTrue(app.buttons["assistant.close"].exists)
     }
 
