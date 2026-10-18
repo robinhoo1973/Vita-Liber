@@ -62,4 +62,7 @@ extension L10n {
     static var assistantDisabled: String { t("assistant.disabled") }
     static var assistantEmergencyHandoff: String { t("assistant.emergencyHandoff") }
     static var assistantMissingFields: String { t("assistant.missingFields") }
+    static var assistantVoiceTitle: String { t("assistant.voiceTitle") }
+    static var assistantVoiceHint: String { t("assistant.voiceHint") }
+    static var assistantVoiceUse: String { t("assistant.voiceUse") }
 }

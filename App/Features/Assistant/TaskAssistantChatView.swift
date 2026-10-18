@@ -28,6 +28,7 @@ struct TaskAssistantChatView: View {
     @State private var judgedTarget: String?
     @State private var judgedConfidence: Double = 1.0
     @State private var isSaving = false
+    @State private var showVoiceInput = false
     @State private var routeMonitor = AudioRouteMonitor()
 
     private struct ChatMessage: Identifiable, Equatable {
@@ -67,6 +68,14 @@ struct TaskAssistantChatView: View {
                                        reclassify(to: key)
                                    }) { confirmed in
                     handleConfirmation(confirmed)
+                }
+                .sheet(isPresented: $showVoiceInput) {
+                    AssistantVoiceInputSheet(
+                        onUse: { text in input = text },
+                        onEmergency: {
+                            dismiss()
+                            router.navigate(to: .sosHelp)
+                        })
                 }
                 .onAppear { routeMonitor.start() }
                 .onDisappear { routeMonitor.stop() }
@@ -155,10 +164,20 @@ struct TaskAssistantChatView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .accessibilityIdentifier("assistant.input")
             Button {
+                showVoiceInput = true
+            } label: {
+                Image(systemName: "mic.fill")
+                    .font(.title3)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel(L10n.assistantVoiceTitle)
+            .accessibilityIdentifier("assistant.voice")
+            Button {
                 send()
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title2)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .disabled(trimmedInput.isEmpty || isSaving)
             .accessibilityLabel(L10n.assistantSend)

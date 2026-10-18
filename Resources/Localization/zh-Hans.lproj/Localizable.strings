@@ -2402,3 +2402,6 @@
 "assistant.disabled" = "任务助手尚未通过定标，暂不可用。";
 "assistant.emergencyHandoff" = "已为你打开急救指引。请立即求助。";
 "assistant.missingFields" = "还有必填项未填写，请补全后再确认。";
+"assistant.voiceTitle" = "语音输入";
+"assistant.voiceHint" = "按住说话，松开后文字进入输入框。";
+"assistant.voiceUse" = "使用";
