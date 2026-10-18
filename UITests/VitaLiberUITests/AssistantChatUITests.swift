@@ -7,7 +7,10 @@ final class AssistantChatUITests: XCTestCase {
 
     private func launchToHome() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-uitest-seed-finished", "-uitest-gate-bypass"]
+        // 每个用例必须从确定性状态起步：既有测试会改选中 Tab/路由，
+        // 不 reset 时 AppRouter 会恢复上一个用例的 Tab（CI 39133209405
+        // 实测：落在健康档案页，首页工具栏不存在）。
+        app.launchArguments = ["-uitest-reset", "-uitest-seed-finished", "-uitest-gate-bypass"]
         app.launch()
         return app
     }
