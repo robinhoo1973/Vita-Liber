@@ -34,6 +34,7 @@ struct HomeView: View {
     @State private var showMemberPicker = false
     @State private var showSOS = false
     @State private var showVoicePanel = false
+    @State private var showAssistantChat = false
     @State private var notifDenied = false
     /// FR2.1⑦ 首页滑动处置底部条（round2 U2/U3）：撤销（写成功）/ 重试（写失败）双态，
     /// 载荷 id 为动作代次——计时与撤销均以代次判「仍是同一条」。
@@ -259,6 +260,18 @@ struct HomeView: View {
                         .accessibilityLabel(L10n.homeVoice)
                         .accessibilityIdentifier("SP-04.home.mic")
                     }
+                    // 2026-10-18 业主指令：OCR/ASR 图标旁新增 AI 聊天入口。
+                    // 定位=有据任务型助手（意图→补槽→确认→执行），非自由医疗问答。
+                    // B1 定标门：未通过脚本金样定标前入口不可见（FR17.4 不变量）。
+                    if FeatureFlags.voiceDeterministicEnabled {
+                        Button {
+                            showAssistantChat = true
+                        } label: {
+                            Image(systemName: "sparkles")
+                        }
+                        .accessibilityLabel(L10n.homeAssistant)
+                        .accessibilityIdentifier("SP-04.home.assistant")
+                    }
                     // FR2.1② 相机 OCR/资料识别入口（V3.61 单入口）：单击直接进采集页，
                     // 文档类型在识别后由共享理解层判定（FR5.5/FR6.2/ADR-029 不前置指定）；
                     // 症状录入走语音面板意图与记录页观察创建，不再挂在相机图标下
@@ -285,6 +298,8 @@ struct HomeView: View {
             .sheet(isPresented: $showSOS) { SOSHelpView() }
             // SP-55 全屏工作台
             .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
+            // AI 聊天入口（任务型助手；环境由根注入继承）
+            .fullScreenCover(isPresented: $showAssistantChat) { TaskAssistantChatView() }
             .sheet(isPresented: $showQuickCapture) {
                 NavigationStack { QuickCaptureView(kind: nil) }
             }

@@ -828,9 +828,10 @@ final class QuestionsState {
 
     /// 返回是否写入成功——调用侧据此决定反馈（写失败绝不播报「已记录」）
     @discardableResult
-    func add(patientId: UUID, body: String) async -> Bool {
+    func add(patientId: UUID, body: String,
+             audit: VoiceExecutionAudit? = nil) async -> Bool {
         do {
-            _ = try await store.add(patientId: patientId, body: body)
+            _ = try await store.add(patientId: patientId, body: body, audit: audit)
             await load(patientId: patientId)
             return true
         } catch {

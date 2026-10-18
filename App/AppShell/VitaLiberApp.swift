@@ -49,6 +49,9 @@ struct VitaLiberApp: App {
         // 消除非默认语言用户首帧 zh-Hans 闪烁；不广播（重渲染由
         // settingsStore.values[.language] 观察驱动，见 AppRootView）。
         L10n.restoreLanguage()
+        // G17（2026-10-18）：B1 随包脚本定标——60 条脚本金样 → voiceDeterministicEnabled。
+        // 缺件/不达标保持关闭（release 入口随默认隐藏）；B2 500 真人门独立。
+        VoiceCalibrationBundled.apply()
         // 组装根（评审 A2：AppContainer 由 App 消费，AppState/ReminderStore 只面向协议）。
         // 数据层装配是启动不变量：live 失败降级 preview（内存库）；连内存库都建不出来
         // 意味着 SQLite 损坏——此时任何降级都无意义，显式终止并留清晰信息。

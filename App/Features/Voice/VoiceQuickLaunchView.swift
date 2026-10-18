@@ -26,6 +26,7 @@ struct VoiceQuickLaunchView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNoteState
+    @Environment(QuestionsState.self) private var questions
     @Environment(AppSettingsStore.self) private var settings
     @Environment(M2HubStore.self) private var hub
     @Environment(\.dismiss) private var dismiss
@@ -504,6 +505,15 @@ struct VoiceQuickLaunchView: View {
         guard !Task.isCancelled, patientID == app.currentPatientId, confirmationSource == source,
               transcript.matches(source, authorized: refinerEnabled,
                                  authorizationGeneration: settings.authAIRevision) else { return }
+        // B1 定标门：未通过脚本金样定标 → 仅纯转写/速记，不跑结构化理解。
+        guard FeatureFlags.voiceDeterministicEnabled else {
+            judgedIntent = VoiceIntentKey.unknown.rawValue
+            judgedConfidence = confidence
+            confirmSet = VoiceInputTemplate.confirmationSet(
+                drafts: [VoiceInputTemplate.fallbackDraft(value: source.selectedText,
+                                                          confidence: confidence)])
+            return
+        }
         let understanding = EngineRegistry.shared.resolve(TextUnderstandingFactory.self)
         var result: UnderstandingResult
         do {
@@ -533,15 +543,18 @@ struct VoiceQuickLaunchView: View {
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: result.fields)
     }
 
-    /// 意图 key → 分发目标（期一可分发集合；未知/速记 = anyText）
+    /// 意图 key → 分发目标（B1 可分发集合；未知/速记 = anyText）。
+    /// 2026-10-18：观察预填、问诊落 QuestionStore、预约表单预填已接线——
+    /// 三条此前回落速记的意图改走各自落点；用药草稿仍未接线（不列入目录 Menu）。
     private func target(for intent: String?) -> L10n.TargetTag {
         switch intent {
         case VoiceIntentKey.recordMetric.rawValue: return .metric
         case VoiceIntentKey.recordObservation.rawValue: return .observation
         case VoiceIntentKey.createReminder.rawValue: return .reminder
+        case VoiceIntentKey.createAppointment.rawValue: return .appointment
         case VoiceIntentKey.appendProfile.rawValue: return .profile
         case VoiceIntentKey.createQuestion.rawValue: return .question
-        default: return .anyText   // appendNote/unknown/无法判定 → 语音速记兜底
+        default: return .anyText   // appendNote/appendMedDraft/unknown → 语音速记兜底
         }
     }
 
@@ -576,27 +589,50 @@ struct VoiceQuickLaunchView: View {
               transcript.canCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
                                    preservesOriginal: false) else { return }
         let fields = set.confirmedFields
-        let target = target(for: intent)
+        // B1 定标门（纵深防御）：未定标时无论卡内改类为何，一律只落速记。
+        let target = FeatureFlags.voiceDeterministicEnabled ? target(for: intent) : .anyText
+        let intentKey = intent ?? VoiceIntentKey.unknown.rawValue
+        let draftFields = set.pendingIntent(intentKey, patientId: patientID).fields
+        // 直存路径（问诊/速记）同样写 V13 审计 + 幂等键；路由路径把身份交给目标页。
+        func executionAudit() -> VoiceExecutionAudit? {
+            let plan = VoiceActionPlanner.plan(intentKey: intentKey, transcript: source.selectedText,
+                                               drafts: draftFields, patientId: patientID, source: .voice)
+            let confirmation = UUID()
+            let confirmed = VoiceActionPlanner.confirming(plan, confirmationId: confirmation)
+            let action = VoiceActionPlanner.verifiedActions(for: confirmed,
+                                                            confirmationId: confirmation).first
+            return action.map { VoiceExecutionAudit(plan: confirmed, action: $0, actor: "owner") }
+        }
         switch target {
-        case .anyText, .observation, .question:
+        case .anyText:
             guard let body = fields.first?.value, !body.isEmpty else {
                 failedDispatch = set
                 showSaveFailure = true
                 return
             }
-            let succeeded = await voiceNoteState.create(patientId: patientID, body: body, tags: nil)
+            let succeeded = await voiceNoteState.create(patientId: patientID, body: body,
+                                                        tags: nil, audit: executionAudit())
             guard succeeded else {
                 failedDispatch = set
                 showSaveFailure = true
                 return
             }
-        case .metric, .reminder, .profile:
+        case .question:
+            // FR17.19 B1：问诊问题直接落 QuestionStore，不再降级为速记。
+            guard let body = fields.first?.value, !body.isEmpty,
+                  await questions.add(patientId: patientID, body: body,
+                                      audit: executionAudit()) else {
+                failedDispatch = set
+                showSaveFailure = true
+                return
+            }
+        case .metric, .reminder, .profile, .observation, .appointment:
             guard !fields.isEmpty, router.pendingVoiceIntent == nil else {
                 failedDispatch = set
                 showSaveFailure = true
                 return
             }
-            router.pendingVoiceIntent = set.pendingIntent(intent ?? VoiceIntentKey.unknown.rawValue)
+            router.pendingVoiceIntent = set.pendingIntent(intentKey, patientId: patientID)
         }
         guard patientID == app.currentPatientId,
               transcript.finishCommit(source, authorized: refinerEnabled, authorizationGeneration: settings.authAIRevision,
@@ -617,6 +653,7 @@ struct VoiceQuickLaunchView: View {
         case .observation: router.navigate(to: .observationCreate)
         case .question: router.navigate(to: .questionList)
         case .reminder: router.navigate(to: .voiceReminderDraft)
+        case .appointment: router.navigate(to: .appointmentForm(nil))
         case .profile: router.navigate(to: .voiceGuideProfile)
         case .anyText: router.navigate(to: .voiceNotePanel)
         }

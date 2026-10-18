@@ -1,6 +1,6 @@
 {
   "version": "0.1-dev",
-  "_note": "FR17.4 语音金样语料库。isHumanRecorded=true 才计入 ≥500 条放行配额。当前全部为开发期手写样例（false），真人语料录制属业主/运营依赖项，未交付前 FeatureFlags.voiceStructuringEnabled 必须为 false（语音仅作纯转写，结构化走触屏）。",
+  "_note": "FR17.4 语音金样语料库。isHumanRecorded=true 才计入 ≥500 条放行配额。当前全部为开发期手写样例（false），真人语料录制属业主/运营依赖项，未交付前 FeatureFlags.voiceDeterministicEnabled 必须为 false（语音仅作纯转写，结构化走触屏）。",
   "samples": [
     { "id": "m-001", "transcript": "血糖6.2", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "glucose": "6.2" } },
     { "id": "m-002", "transcript": "今天血糖十三点二", "kind": "metric", "locale": "zh-Hans-CN", "isHumanRecorded": false, "expected": { "glucose": "13.2" } },

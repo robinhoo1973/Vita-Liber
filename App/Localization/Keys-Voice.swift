@@ -423,4 +423,7 @@ static var voicePanelAutoHint: String { t("voicePanel.autoHint") }
     static var voiceLangFallback: String { t("voiceLang.fallback") }
     static var voiceLangMix: String { t("voiceLang.mix") }
     static var voiceLangMixHint: String { t("voiceLang.mixHint") }
+
+    /// 槽位标签动态键（voiceSlot.*）的唯一出口——视图层禁止直接调用 `t(...)`。
+    static func voiceSlotLabel(_ key: String) -> String { t(key) }
 }

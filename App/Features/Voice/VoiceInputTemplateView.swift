@@ -180,6 +180,20 @@ struct VoiceConfirmSheet: View {
         case "pastHistory": return L10n.voiceguide_noteHistory
         case "currentMeds": return L10n.voiceguide_noteMeds
         case "emergencyContact": return L10n.voiceguide_noteContact
+        // 2026-10-18 B1 新槽位：避免确认卡/回读念出英文 Domain 键。
+        case "description": return L10n.voiceSlotLabel("voiceSlot.description")
+        case "observationType": return L10n.voiceSlotLabel("voiceSlot.observationType")
+        case "trend": return L10n.voiceSlotLabel("voiceSlot.trend")
+        case "hospital": return L10n.voiceSlotLabel("voiceSlot.hospital")
+        case "department": return L10n.voiceSlotLabel("voiceSlot.department")
+        case "doctor": return L10n.voiceSlotLabel("voiceSlot.doctor")
+        case "surgery": return L10n.voiceSlotLabel("voiceSlot.surgery")
+        case "familyHistory": return L10n.voiceSlotLabel("voiceSlot.familyHistory")
+        case "medicationName": return L10n.voiceSlotLabel("voiceSlot.medicationName")
+        case "dosageForm": return L10n.voiceSlotLabel("voiceSlot.dosageForm")
+        case "route": return L10n.voiceSlotLabel("voiceSlot.route")
+        case "frequency": return L10n.voiceSlotLabel("voiceSlot.frequency")
+        case "question": return L10n.voiceSlotLabel("voiceSlot.question")
         default:
             if let m = MetricType(grammarKey: key) { return L10n.metricName(m) }
             return key
@@ -549,18 +563,13 @@ extension View {
 
 // MARK: - FR17.19 期一可分发意图（4.27 判定结果行 Menu/候选行共用）
 
-/// 期一诚实标注（FR17.19/FR14.7）：Menu 只列**有目标页消费者**的意图——
-/// 预约/用药草稿期二接线后加入（能力级别标注纪律：不宣称超出当前能力）。
+/// 期一诚实标注（FR17.19/FR14.7）：Menu 只列**有目标页消费者**的意图。
+/// 2026-10-18 B1 接线：观察/问诊/预约落点已接，目录派生自动纳入；
+/// 用药草稿仍无 raw-text 草稿存储 → 明确排除（不宣称超出当前能力）。
 enum VoiceIntentDispatch {
-    static let dispatchableKeys: [String] = [
-        VoiceIntentKey.recordMetric.rawValue,
-        VoiceIntentKey.recordObservation.rawValue,
-        VoiceIntentKey.createReminder.rawValue,
-        VoiceIntentKey.appendProfile.rawValue,
-        VoiceIntentKey.appendNote.rawValue,
-        VoiceIntentKey.createQuestion.rawValue,
-        VoiceIntentKey.unknown.rawValue,
-    ]
+    static let dispatchableKeys: [String] = VoiceIntentCatalog.entries
+        .filter { $0.route != .medDraft }
+        .map(\.key.rawValue)
 
     /// 低置信/无法判定时的候选去向行 = 可分发 ∩ 兜底轨可自动分类——
     /// 由意图目录 classifiableFallback 派生（Domain 单一事实源，不再手维护

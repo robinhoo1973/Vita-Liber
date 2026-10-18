@@ -1,0 +1,621 @@
+{
+  "version": "2026-10-18-b1-scripted-60",
+  "samples": [
+    {
+      "id": "scripted-01",
+      "transcript": "血糖6.2",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "glucose": "6.2"
+      }
+    },
+    {
+      "id": "scripted-02",
+      "transcript": "血糖 5.6",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "glucose": "5.6"
+      }
+    },
+    {
+      "id": "scripted-03",
+      "transcript": "空腹血糖7.0",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "glucose": "7.0"
+      }
+    },
+    {
+      "id": "scripted-04",
+      "transcript": "血压 148 92",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_sys": "148",
+        "blood_pressure_dia": "92"
+      }
+    },
+    {
+      "id": "scripted-05",
+      "transcript": "血压130/85",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_sys": "130",
+        "blood_pressure_dia": "85"
+      }
+    },
+    {
+      "id": "scripted-06",
+      "transcript": "高压135",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_sys": "135"
+      }
+    },
+    {
+      "id": "scripted-07",
+      "transcript": "低压88",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_dia": "88"
+      }
+    },
+    {
+      "id": "scripted-08",
+      "transcript": "收缩压 120",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_sys": "120"
+      }
+    },
+    {
+      "id": "scripted-09",
+      "transcript": "舒张压 80",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_dia": "80"
+      }
+    },
+    {
+      "id": "scripted-10",
+      "transcript": "心率76",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "heart_rate": "76"
+      }
+    },
+    {
+      "id": "scripted-11",
+      "transcript": "脉搏 82",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "heart_rate": "82"
+      }
+    },
+    {
+      "id": "scripted-12",
+      "transcript": "体重68.5",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "weight": "68.5"
+      }
+    },
+    {
+      "id": "scripted-13",
+      "transcript": "体重 72",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "weight": "72"
+      }
+    },
+    {
+      "id": "scripted-14",
+      "transcript": "血氧97",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_oxygen": "97"
+      }
+    },
+    {
+      "id": "scripted-15",
+      "transcript": "血氧 98",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_oxygen": "98"
+      }
+    },
+    {
+      "id": "scripted-16",
+      "transcript": "体温37.2",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "temperature": "37.2"
+      }
+    },
+    {
+      "id": "scripted-17",
+      "transcript": "体温 36.5",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "temperature": "36.5"
+      }
+    },
+    {
+      "id": "scripted-18",
+      "transcript": "发烧38.5",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "temperature": "38.5"
+      }
+    },
+    {
+      "id": "scripted-19",
+      "transcript": "血压 120 80",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "blood_pressure_sys": "120",
+        "blood_pressure_dia": "80"
+      }
+    },
+    {
+      "id": "scripted-20",
+      "transcript": "血糖 10.1",
+      "kind": "metric",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "glucose": "10.1"
+      }
+    },
+    {
+      "id": "scripted-21",
+      "transcript": "明天8点提醒我吃药",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "明天",
+        "hour": "8"
+      }
+    },
+    {
+      "id": "scripted-22",
+      "transcript": "明早7点提醒我测血压",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "明早",
+        "hour": "7"
+      }
+    },
+    {
+      "id": "scripted-23",
+      "transcript": "后天9点复查",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "后天",
+        "hour": "9"
+      }
+    },
+    {
+      "id": "scripted-24",
+      "transcript": "今天下午3点吃药",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "今天",
+        "hour": "15"
+      }
+    },
+    {
+      "id": "scripted-25",
+      "transcript": "晚上8点测血糖",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "hour": "20"
+      }
+    },
+    {
+      "id": "scripted-26",
+      "transcript": "每周一早上7点测血压",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每周一",
+        "hour": "7"
+      }
+    },
+    {
+      "id": "scripted-27",
+      "transcript": "每天8点吃药",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每天",
+        "hour": "8"
+      }
+    },
+    {
+      "id": "scripted-28",
+      "transcript": "每周三提醒我缴费",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每周三"
+      }
+    },
+    {
+      "id": "scripted-29",
+      "transcript": "9月10日提醒我复诊",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "date": "9 10"
+      }
+    },
+    {
+      "id": "scripted-30",
+      "transcript": "10月1日早上9点提醒我体检",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "date": "10 1",
+        "hour": "9"
+      }
+    },
+    {
+      "id": "scripted-31",
+      "transcript": "10点复诊",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "hour": "10"
+      }
+    },
+    {
+      "id": "scripted-32",
+      "transcript": "每天提醒我吃药",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每天"
+      }
+    },
+    {
+      "id": "scripted-33",
+      "transcript": "下午3点提醒我吃药",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "hour": "15"
+      }
+    },
+    {
+      "id": "scripted-34",
+      "transcript": "周三8点提醒我复诊",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "周三",
+        "hour": "8"
+      }
+    },
+    {
+      "id": "scripted-35",
+      "transcript": "明天10点提醒我吃药",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "明天",
+        "hour": "10"
+      }
+    },
+    {
+      "id": "scripted-36",
+      "transcript": "后天8点提醒我复查",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "后天",
+        "hour": "8"
+      }
+    },
+    {
+      "id": "scripted-37",
+      "transcript": "每周五7点提醒我测血压",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每周五",
+        "hour": "7"
+      }
+    },
+    {
+      "id": "scripted-38",
+      "transcript": "每周日9点提醒我测血糖",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每周日",
+        "hour": "9"
+      }
+    },
+    {
+      "id": "scripted-39",
+      "transcript": "后天下午4点提醒我复诊",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "time": "后天",
+        "hour": "16"
+      }
+    },
+    {
+      "id": "scripted-40",
+      "transcript": "每周六提醒我交房租",
+      "kind": "reminder",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "repeat": "每周六"
+      }
+    },
+    {
+      "id": "scripted-41",
+      "transcript": "对青霉素过敏",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "allergy": "青霉素"
+      }
+    },
+    {
+      "id": "scripted-42",
+      "transcript": "对花粉过敏",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "allergy": "花粉"
+      }
+    },
+    {
+      "id": "scripted-43",
+      "transcript": "对磺胺过敏",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "allergy": "磺胺"
+      }
+    },
+    {
+      "id": "scripted-44",
+      "transcript": "过敏史：海鲜",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "allergy": "海鲜"
+      }
+    },
+    {
+      "id": "scripted-45",
+      "transcript": "得过高血压",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "pastHistory": "高血压"
+      }
+    },
+    {
+      "id": "scripted-46",
+      "transcript": "得过糖尿病",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "pastHistory": "糖尿病"
+      }
+    },
+    {
+      "id": "scripted-47",
+      "transcript": "患过胃病",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "pastHistory": "胃病"
+      }
+    },
+    {
+      "id": "scripted-48",
+      "transcript": "正在吃阿司匹林",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "currentMeds": "阿司匹林"
+      }
+    },
+    {
+      "id": "scripted-49",
+      "transcript": "在吃二甲双胍",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "currentMeds": "二甲双胍"
+      }
+    },
+    {
+      "id": "scripted-50",
+      "transcript": "吃着降压药",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "currentMeds": "降压药"
+      }
+    },
+    {
+      "id": "scripted-51",
+      "transcript": "紧急联系人是张三",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "emergencyContact": "张三"
+      }
+    },
+    {
+      "id": "scripted-52",
+      "transcript": "紧急联系人是李四",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "emergencyContact": "李四"
+      }
+    },
+    {
+      "id": "scripted-53",
+      "transcript": "紧急联系人是王五",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "emergencyContact": "王五"
+      }
+    },
+    {
+      "id": "scripted-54",
+      "transcript": "动过心脏手术",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "surgery": "心脏手术"
+      }
+    },
+    {
+      "id": "scripted-55",
+      "transcript": "动过骨折手术",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "surgery": "骨折手术"
+      }
+    },
+    {
+      "id": "scripted-56",
+      "transcript": "家里有哮喘",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "familyHistory": "哮喘"
+      }
+    },
+    {
+      "id": "scripted-57",
+      "transcript": "家里有高血压",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "familyHistory": "高血压"
+      }
+    },
+    {
+      "id": "scripted-58",
+      "transcript": "正在吃华法林",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "currentMeds": "华法林"
+      }
+    },
+    {
+      "id": "scripted-59",
+      "transcript": "得过冠心病",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "pastHistory": "冠心病"
+      }
+    },
+    {
+      "id": "scripted-60",
+      "transcript": "过敏史：牛奶",
+      "kind": "profile",
+      "locale": "zh-Hans-CN",
+      "isHumanRecorded": false,
+      "expected": {
+        "allergy": "牛奶"
+      }
+    }
+  ]
+}

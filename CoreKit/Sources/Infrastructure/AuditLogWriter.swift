@@ -18,6 +18,8 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         // 事务内绕过本白名单直写 audit_event——action 不在集合内即「类型约束」失守。
         // 登记后 MedicationStore 改经 `insert(..., db:)` 同事务写入，白名单成唯一出口。
         "inventory.reconcile",
+        // 2026-10-18 B1 任务助手：动作执行审计（V13 动作与审计同事务）。
+        "voice.plan", "voice.confirm", "voice.execute", "voice.reject",
     ]
 
     /// 审计动作常量（App 层调用点此前以字面量拼写，"viewSensitiveOriginal" 从未命中
@@ -36,6 +38,10 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         public static let feedback = "feedback"
         public static let profileSuggestionAccepted = "profile_suggestion_accepted"
         public static let inventoryReconcile = "inventory.reconcile"
+        public static let voicePlan = "voice.plan"
+        public static let voiceConfirm = "voice.confirm"
+        public static let voiceExecute = "voice.execute"
+        public static let voiceReject = "voice.reject"
     }
     public let writer: any DatabaseWriter
 

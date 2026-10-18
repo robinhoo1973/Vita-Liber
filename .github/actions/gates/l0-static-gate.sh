@@ -597,7 +597,7 @@ if [ -n "$t_hits" ]; then
   printf '    自建确认逻辑（Domain 外直接构造 OcrConfirmationSet，且无 // confirm-ok: 豁免）:\n'
   printf '%s' "$t_hits" | head -5 | sed 's/^/      /'
 fi
-t_entries_expected='语音速记 观察速记 提醒草稿 语音指导'
+t_entries_expected='语音速记 观察速记 提醒草稿 语音指导 task-assistant'
 t_missing_entry=''
 for t_e in $t_entries_expected; do
   t_files=$(grep -rl --include='*.swift' -F "FR17.13-entry: $t_e" "$APP/App" "$APP/CoreKit/Sources" 2>/dev/null || true)

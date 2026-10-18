@@ -248,13 +248,13 @@ public enum VoiceGrammarDefaults {
                             // 先命中「每周」两字，周日提醒错排到设定日（FR17.10 重复语义
                             // 静默错日）；「周天」缺位则整短语无匹配、回落一次性提醒
                             repeatPatterns: [#"(每天|每日|每周一|每周二|每周三|每周四|每周五|每周六|每周日|每周天|周一|周二|周三|周四|周五|周六|周日|周天|每周|工作日|周末)"#],
-                            hourPatterns: [#"(\d+)点"#, #"([上下]午)"#],
-                            datePatterns: [#"(\d{1,2})月(\d{1,2})[日号]"#]),
+                            hourPatterns: [#"\s*(\d+)\s*[点點]"#, #"([上下]午)"#],
+                            datePatterns: [#"(\d{1,2})月(\d{1,2})[日号號]"#]),
         ReminderGrammarRule(kind: "selfTest",
                             timePatterns: [#"(明天|后天|今天)"#],
                             repeatPatterns: [#"(每天|每周)"#],
-                            hourPatterns: [#"(\d+)点"#],
-                            datePatterns: [#"(\d{1,2})月(\d{1,2})[日号]"#]),
+                            hourPatterns: [#"\s*(\d+)\s*[点點]"#],
+                            datePatterns: [#"(\d{1,2})月(\d{1,2})[日号號]"#]),
     ]
 
     public static let profileRules: [ProfileGrammarRule] = [

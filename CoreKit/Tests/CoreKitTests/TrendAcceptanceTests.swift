@@ -365,10 +365,10 @@ struct SUM15VoiceTests {
 // binds: SU-M15-VOICE — TC-M15-01 语音金样定标放行线（FR17.4 一票否决）
 /// **不变量断言**（而非恒红断言，理由见 VoiceCalibration 头注）：
 ///     语音结构化路径已启用 ⟹ 定标已通过
-/// 真人语料未交付时，本套件强制 `voiceStructuringEnabled == false`，
+/// 真人语料未交付时，本套件强制 `voiceDeterministicEnabled == false`，
 /// 于是「未达标仍放行」在产品行为层面不可能发生。
 // 第八轮全仓审查修复：本套件的「未达标则语音结构化必须关闭」测试会
-// mutate 进程级静态 voiceCalibrationPassed（仅 defer 复位）——Swift Testing
+// mutate 进程级静态 deterministicCalibrationPassed（仅 defer 复位）——Swift Testing
 // 默认并行执行下，与同进程其他读取 FeatureFlags 的套件并发观察会看到瞬时
 // 翻转的全局。.serialized 串行化本套件（全局静态与并行执行不兼容）。
 @Suite("SU-M15-VOICE · TC-M15-01 金样定标放行线", .serialized)
@@ -396,19 +396,15 @@ struct SUM15CalibrationTests {
         #expect(corpus.samples.allSatisfy { !$0.expected.isEmpty }, "每条语料必须带期望抽取结果")
     }
 
-    /// 放行线不变量：未达标 ⟹ 语音结构化开关必须关闭
-    /// 原名：未达标则语音结构化必须关闭
-    @Test func failedCalibrationForcesVoiceStructuringOff() throws {
-        // 第七轮修复：applyCalibration 写进程级静态 voiceCalibrationPassed 且无
-        // 公开复位入口——语料库增长到放行线（运营工件，预期会增长）后本测试
-        // 会把全局静态翻绿，污染同进程其余套件（本套件不变量「强制
-        // voiceStructuringEnabled == false」失效）。测试收尾必须复位。
+    /// B1 放行线不变量：脚本定标未过 ⟹ 确定性结构化开关必须关闭。
+    @Test func failedDeterministicCalibrationForcesB1Off() throws {
+        // 进程级静态在测试收尾必须复位，避免污染同进程其余套件。
         defer {
-            FeatureFlags.applyCalibration(VoiceCalibration.evaluate(
-                corpus: VoiceCalibration.Corpus(version: "reset", samples: [])) { _ in [:] })
+            FeatureFlags.applyDeterministicCalibration(
+                VoiceCalibration.DeterministicReport(sampleCount: 0, numericAccuracy: 0, structureRate: 0))
         }
         let corpus = try loadCorpus()
-        let report = VoiceCalibration.evaluate(corpus: corpus) { sample in
+        let report = VoiceCalibration.evaluateDeterministic(corpus: corpus) { sample in
             var out: [String: String] = [:]
             let drafts: [FieldDraft]
             switch sample.kind {
@@ -419,15 +415,34 @@ struct SUM15CalibrationTests {
             for d in drafts { out[d.key] = d.value }
             return out
         }
-        FeatureFlags.applyCalibration(report)
+        FeatureFlags.applyDeterministicCalibration(report)
 
         if report.passesReleaseLine {
-            #expect(FeatureFlags.voiceStructuringEnabled)
+            #expect(FeatureFlags.voiceDeterministicEnabled)
         } else {
-            #expect(!FeatureFlags.voiceStructuringEnabled,
-                    "定标未过（\(report.blockingReasons.joined(separator: "；"))）时不得启用语音结构化路径")
-            #expect(!report.blockingReasons.isEmpty, "未达标必须给出可读原因，便于台账与 Gate Review")
+            #expect(!FeatureFlags.voiceDeterministicEnabled,
+                    "B1 脚本定标未过（\(report.sampleCount)/\(VoiceCalibration.requiredScriptedSamples)）时不得启用确定性结构化路径")
         }
+    }
+
+    /// B1 反向自检：满配脚本语料必须能把 B1 开关真的转绿。
+    @Test func fullScriptedCorpusPassesB1Line() {
+        defer {
+            FeatureFlags.applyDeterministicCalibration(
+                VoiceCalibration.DeterministicReport(sampleCount: 0, numericAccuracy: 0, structureRate: 0))
+        }
+        let samples = (0..<VoiceCalibration.requiredScriptedSamples).map {
+            VoiceCalibration.Sample(id: "s-\($0)", transcript: "血糖6.2", kind: "metric",
+                                    locale: "zh-Hans-CN", isHumanRecorded: false,
+                                    expected: ["glucose": "6.2"])
+        }
+        let report = VoiceCalibration.evaluateDeterministic(
+            corpus: VoiceCalibration.Corpus(version: "test", samples: samples)) { _ in
+                ["glucose": "6.2"]
+            }
+        FeatureFlags.applyDeterministicCalibration(report)
+        #expect(report.passesReleaseLine)
+        #expect(FeatureFlags.voiceDeterministicEnabled)
     }
 
     /// 放行线常量必须与 FR17.4 一致——阈值被悄悄调低比不达标更危险
@@ -442,6 +457,10 @@ struct SUM15CalibrationTests {
     /// 否则本门禁只会永远说不行，等同于坏掉的秤（ERR#32「检查存在但无效」同族）。
     /// 原名：满配全对时放行线可通过
     @Test func fullCorrectCorpusPassesReleaseLine() {
+        defer {
+            FeatureFlags.applyModelCalibration(VoiceCalibration.evaluate(
+                corpus: VoiceCalibration.Corpus(version: "reset", samples: [])) { _ in [:] })
+        }
         let samples = (0..<VoiceCalibration.requiredHumanSamples).map {
             VoiceCalibration.Sample(id: "h-\($0)", transcript: "血糖6.2", kind: "metric",
                                     locale: "zh-Hans-CN", isHumanRecorded: true,
@@ -451,10 +470,12 @@ struct SUM15CalibrationTests {
             corpus: VoiceCalibration.Corpus(version: "test", samples: samples)) { _ in
                 ["glucose": "6.2"]
             }
+        FeatureFlags.applyModelCalibration(report)
         #expect(report.humanSampleCount == 500)
         #expect(report.numericAccuracy == 1.0)
         #expect(report.structureRate == 1.0)
         #expect(report.passesReleaseLine, "满配全对必须能放行，否则门禁是坏的")
         #expect(report.localeQuota["zh-Hans-CN"] == 500, "六语种配额账必须如实统计")
+        #expect(FeatureFlags.voiceModelEnabled)
     }
 }

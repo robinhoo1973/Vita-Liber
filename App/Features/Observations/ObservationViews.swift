@@ -424,6 +424,8 @@ struct ObservationCreateSheet: View {
     @State private var routeMonitor = AudioRouteMonitor()
     @State private var saveFailed = false
     @State private var saving = false
+    /// V11：语音草稿预填时的成员身份——表单内切成员后禁止用旧草稿落库（BR-001）。
+    @State private var prefilledPatientId: UUID?
 
     /// SP-14 步骤2 媒体：相册与相机分源存储——相册 onChange 全量替换，
     /// 相机逐张追加；两者互不覆盖（评审修正：曾整体替换致相机照片被静默丢弃）。
@@ -448,6 +450,26 @@ struct ObservationCreateSheet: View {
         app.members.first(where: { $0.id == app.currentPatientId })
     }
 
+    /// 语音/文本助手确认后的观察草稿一次性投递（AppRouter 内存态）。
+    /// 类型键与描述键来自 FR17.19 目录；不预填媒体/归属（BR-007/FR3.3）。
+    private func consumeVoiceDraft() {
+        guard let draft = router.pendingVoiceIntent else { return }
+        guard draft.intent == VoiceIntentKey.recordObservation.rawValue,
+              draft.patientId == nil || draft.patientId == app.currentPatientId else {
+            // 意图/患者不匹配：丢弃一次性草稿，绝不跨成员预填（V11/BR-001）。
+            router.pendingVoiceIntent = nil
+            return
+        }
+        router.pendingVoiceIntent = nil
+        prefilledPatientId = app.currentPatientId
+        let values = draft.keyedValues
+        // observationType 目录槽是自由文本，与 ObservationKind.rawValue 不同域；
+        // 不做假映射（此前恒不等、属死代码）。类型仍由本页选择器决定。
+        if let value = values["description"] ?? values["note"], !value.isEmpty {
+            description = value
+        }
+    }
+
     var body: some View {
         WithPerceptionTracking {
             NavigationStack {
@@ -466,6 +488,12 @@ struct ObservationCreateSheet: View {
                         // FR8.7 三步完成承诺：其余字段全部可选、可事后补——
                         // 保存不得要求描述非空（类型+媒体+归属即完整保存路径）
                         Button(L10n.commonSave) {
+                            // V11/BR-001：预填草稿绑定生成时的成员；表单内切成员后
+                            // 不得把 A 的草稿写入 B。
+                            if let prefilledPatientId, prefilledPatientId != app.currentPatientId {
+                                saveFailed = true
+                                return
+                            }
                             // 评审修复：保存失败保留表单并告警（SaveFailedAlert 统一
                             // 出口）——此前无条件 dismiss，失败呈现为「已保存」而
                             // 照片已补偿删除、记录丢失（与 AllergyViews 同族）
@@ -487,6 +515,9 @@ struct ObservationCreateSheet: View {
                 .saveFailedAlert(title: L10n.observationSaveFailed,
                                  hint: L10n.observationSaveFailedHint,
                                  isPresented: $saveFailed)
+                // FR17.19 期二接线（2026-10-18）：语音/文本助手确认后的观察草稿预填。
+                // 只预填描述与类型；媒体/归属仍由用户在本页确认（BR-007/FR3.3）。
+                .task { consumeVoiceDraft() }
                 .sheet(isPresented: $showMemberPicker) {
                     MemberPickerSheet()
                 }

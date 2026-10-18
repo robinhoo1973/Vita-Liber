@@ -71,20 +71,23 @@ struct VoiceReminderDraftView: View {
             .onAppear {
                 routeMonitor.start()
                 // FR17.9 §5.54：语音面板确认后的提醒草稿一次性预填——
-                // 确认字段回填转写输入，本页二次核对后走本页自己的确认
+                // 确认字段回填转写输入，本页二次核对后走本页自己的确认。
+                // V11：意图/患者不匹配即丢弃，绝不跨成员预填。
+                if let draft = router.pendingVoiceIntent,
+                   draft.intent != VoiceIntentKey.createReminder.rawValue
+                    || (draft.patientId != nil && draft.patientId != app.currentPatientId) {
+                    router.pendingVoiceIntent = nil
+                }
                 if let draft = router.pendingVoiceIntent {
                     router.pendingVoiceIntent = nil
                     if transcript.isEmpty {
-                        if let content = draft.keyedValues["content"], !content.isEmpty {
-                            transcript = content
-                        } else {
-                            // 提醒文法槽位无 content 键（hour/date/time/repeat）——
-                            // 此前恒查 content 落空、已确认时间槽位静默丢弃；重组
-                            // 「日期 + N点」进正文区（Domain 纯函数，视图零字面量），
-                            // 用户二次核对后按本页流程重抽
-                            let joined = VoiceInputTemplate.reminderTranscript(from: draft.fields)
-                            if !joined.isEmpty { transcript = joined }
-                        }
+                        // content 与时间槽必须同时进入正文：聊天补槽后 content 恒存在，
+                        // 旧实现只在 content 缺失时才重组时间，已确认的 date/hour/time
+                        // 会被静默丢弃。两部分拼接后由本页重新抽取（FR17.10）。
+                        let content = draft.keyedValues["content"] ?? draft.keyedValues["note"] ?? ""
+                        let time = VoiceInputTemplate.reminderTranscript(from: draft.fields)
+                        let parts = [content, time].filter { !$0.isEmpty }
+                        if !parts.isEmpty { transcript = parts.joined(separator: " ") }
                     }
                 }
             }
@@ -237,7 +240,13 @@ struct VoiceGuidedProfileView: View {
             }
             .onAppear {
                 routeMonitor.start()
-                // FR17.9 §5.54：语音面板确认后的档案草稿一次性预填（与提醒入口同款）
+                // FR17.9 §5.54：语音面板确认后的档案草稿一次性预填（与提醒入口同款）。
+                // V11：意图/患者不匹配即丢弃。
+                if let draft = router.pendingVoiceIntent,
+                   draft.intent != VoiceIntentKey.appendProfile.rawValue
+                    || (draft.patientId != nil && draft.patientId != app.currentPatientId) {
+                    router.pendingVoiceIntent = nil
+                }
                 if let draft = router.pendingVoiceIntent {
                     router.pendingVoiceIntent = nil
                     if answer.isEmpty,

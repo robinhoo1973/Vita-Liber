@@ -253,4 +253,6 @@ extension L10n {
     static var captureSensitiveToggle: String { t("home.capture.sensitive") }
 
     static var homeVoice: String { t("home.voice") }
+
+    static var homeAssistant: String { t("home.assistant") }
 }

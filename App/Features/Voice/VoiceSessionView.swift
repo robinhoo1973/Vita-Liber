@@ -16,7 +16,7 @@ import Perception
 /// 零业务判断（tech-spec §1.1 规则 4）：危险分级、拒绝、超时全部由状态机裁决。
 ///
 /// 转写接入说明：`TranscriptionEngine` 端口已就绪，但语音结构化路径受
-/// FR17.4 定标放行线门控（`FeatureFlags.voiceStructuringEnabled == false`）。
+/// FR17.4 定标放行线门控（`FeatureFlags.voiceDeterministicEnabled == false` 时仅纯转写）。
 /// 因此当前会话态以键盘输入驱动（F19 的降级路径）；引擎接入后同一视图
 /// 直接消费转写文本，交互状态零改动——这是刻意的：UI 不因能力开关分叉。
 
@@ -366,18 +366,19 @@ struct VoiceSessionView: View {
 
     private var listeningIndicator: some View {
         // 虚假聆听态修复（审查修复）：本视图无任何录音/听写控件，输入只有
-        // 键盘 TextField；FR17.4 定标门控（FeatureFlags.voiceStructuringEnabled）
-        // 放行前语音路径未接通，session.start() 仅翻转 isListening 布尔——
-        // 此前恒渲染绿点「正在聆听」误导用户（声称在听却没有任何采集）。
-        // 门控放行前渲染「已停止」且不提供 resume（无处可 resume）。
-        let listening = session.isListening && FeatureFlags.voiceStructuringEnabled
+        // 键盘 TextField；session.start() 仅翻转 isListening 布尔。
+        // 2026-10-18 委员会修正：指示器不得借用 feature flag（B1 定标 flag
+        // 置真后本视图会假显绿点「正在聆听」）。采集接线前恒显示「已停止」，
+        // 是否可恢复只取决于真实采集能力。
+        let captureWired = false   // F19 音频采集尚未接线（键盘输入）
+        let listening = session.isListening && captureWired
         return HStack(spacing: 8) {
             Circle()
                 .fill(listening ? Color("semantic-success", bundle: .main) : Color("text-tertiary", bundle: .main))
                 .frame(width: 10, height: 10)
             Text(listening ? L10n.f19_listeningHint : L10n.f19_stopped)
                 .font(.caption).foregroundStyle(.secondary)
-            if !listening && FeatureFlags.voiceStructuringEnabled {
+            if !listening && captureWired {
                 Button(L10n.f19_paused) { session.resume() }
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("F19.session.resume")

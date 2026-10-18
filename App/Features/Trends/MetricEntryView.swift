@@ -189,9 +189,13 @@ struct MetricQuickEntryView: View {
                 // 单位记忆（FR7.8：每种指标记忆上次单位）
                 unitText = state.rememberedUnit(for: metric)
                 // FR17.9 面板确认草稿预填（类型化 pendingVoiceIntent 一次性投递）
+                // V11：患者/意图必须匹配；不匹配的草稿直接丢弃，绝不跨成员预填。
                 if let draft = router.pendingVoiceIntent {
                     router.pendingVoiceIntent = nil
-                    applyDraft(draft.keyedValues)
+                    if draft.intent == VoiceIntentKey.recordMetric.rawValue,
+                       draft.patientId == nil || draft.patientId == app.currentPatientId {
+                        applyDraft(draft.keyedValues)
+                    }
                 }
                 routeMonitor.start()
             }

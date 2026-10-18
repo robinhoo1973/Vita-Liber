@@ -253,6 +253,7 @@ struct AppointmentListView: View {
 struct AppointmentFormView: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminders
+    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
 
     @State private var hospital = ""
@@ -269,6 +270,8 @@ struct AppointmentFormView: View {
     /// 审查修复（响亮失败纪律）：保存失败保留表单 + 可见告警——
     /// 此前 createAppointment 吞错、表单无条件 dismiss（失败呈现为成功）
     @State private var saveFailed = false
+    /// V11：语音草稿预填时的成员身份——表单内切成员后禁止用旧草稿落库（BR-001）。
+    @State private var prefilledPatientId: UUID?
 
     private let rules = [0, 1, 2, 3, 4]
 
@@ -367,11 +370,38 @@ struct AppointmentFormView: View {
                 .alert(L10n.reminder_apptSaveFailed, isPresented: $saveFailed) {
                     Button(L10n.commonConfirm, role: .cancel) { }
                 }
+                // FR17.19 期二接线（2026-10-18）：语音/文本助手确认后的预约草稿预填。
+                // 时间键不预填——FR10.2 要求显式时间选择器（模糊时间必须落具体点）。
+                .task { consumeVoiceDraft() }
             }
         }
     }
 
+    /// 语音/文本助手确认后的预约草稿一次性投递（AppRouter 内存态）。
+    /// 只预填结构化文本槽；时间仍由用户在本页 DatePicker 显式选择（FR10.2）。
+    private func consumeVoiceDraft() {
+        guard let draft = router.pendingVoiceIntent else { return }
+        guard draft.intent == VoiceIntentKey.createAppointment.rawValue,
+              draft.patientId == nil || draft.patientId == app.currentPatientId else {
+            // 意图/患者不匹配：丢弃一次性草稿，绝不跨成员预填（V11/BR-001）。
+            router.pendingVoiceIntent = nil
+            return
+        }
+        router.pendingVoiceIntent = nil
+        prefilledPatientId = app.currentPatientId
+        let values = draft.keyedValues
+        if let value = values["hospital"], !value.isEmpty { hospital = value }
+        if let value = values["department"], !value.isEmpty { department = value }
+        if let value = values["doctor"], !value.isEmpty { doctor = value }
+        if let value = values["content"] ?? values["note"], !value.isEmpty { notes = value }
+    }
+
     private func save() {
+        // V11/BR-001：预填草稿绑定生成时的成员；表单内切成员后拒绝落库。
+        if let prefilledPatientId, prefilledPatientId != app.currentPatientId {
+            saveFailed = true
+            return
+        }
         // 规则 2/3（检查完成后/疗程结束后）无法落具体日期 → 本次不排复诊提醒，
         // 保存预约本身（预约提醒照常）；复诊日期留待用户稍后确认（FR10.2）。
         // 审查修复：医生/地址/物品/备注与复诊配置此前被静默丢弃——全部随单保存

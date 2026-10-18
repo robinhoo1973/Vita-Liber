@@ -14,8 +14,13 @@ public actor VoiceNoteStore {
 
     public func create(id: UUID = UUID(), patientId: UUID, body: String,
                        tags: [String]? = nil, encounterId: UUID? = nil,
-                       inTimeline: Bool = false, now: Date = Date()) async throws {   // FR17.14：默认不入轴
+                       inTimeline: Bool = false, now: Date = Date(),
+                       audit: VoiceExecutionAudit? = nil) async throws {   // FR17.14：默认不入轴
         try await writer.write { db in
+            // V13 幂等：同 idempotencyKey 已执行 → 不重复插入（跨启动有效）。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             try db.execute(sql: """
                 INSERT INTO voice_note (id, patient_id, body, occurred_at, tags, encounter_id, in_timeline, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -23,6 +28,10 @@ public actor VoiceNoteStore {
                                  now.timeIntervalSince1970, Self.encodeTags(tags),
                                  encounterId?.uuidString, inTimeline ? 1 : 0,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "voice_note",
+                                                     entityId: id.uuidString, db: db)
+            }
         }
     }
 

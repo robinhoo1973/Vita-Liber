@@ -57,9 +57,10 @@ final class VoiceNoteState {
     }
 
     @discardableResult
-    func create(patientId: UUID, body: String, tags: [String]?) async -> Bool {
+    func create(patientId: UUID, body: String, tags: [String]?,
+                audit: VoiceExecutionAudit? = nil) async -> Bool {
         await perform(patientId: patientId) {
-            try await store.create(patientId: patientId, body: body, tags: tags)
+            try await store.create(patientId: patientId, body: body, tags: tags, audit: audit)
         }
     }
 

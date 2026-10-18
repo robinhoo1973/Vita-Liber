@@ -29,33 +29,148 @@ public enum VoiceIntentKey: String, Sendable, Equatable, CaseIterable, Codable {
 }
 
 /// 意图目录条目（槽位抽取随轨分期：期一=文法/启发式；期二/三=模型）。
+/// FR17.19 契约字段：槽位 schema + 落库路由 + 确认标签（`VoiceActionContract`）。
 public struct VoiceIntentEntry: Sendable, Equatable {
     public var key: VoiceIntentKey
     /// 确认标签（L10n 键语义，App 层映射）
     public var displayLabelKey: String
     /// 期一兜底轨是否可自动分类（有文法/启发式证据）
     public var classifiableFallback: Bool
-    public init(key: VoiceIntentKey, displayLabelKey: String, classifiableFallback: Bool) {
+    /// 槽位定义（空 = 该意图无结构化槽位，仅走原文/引导）。
+    public var slots: [VoiceSlotSpec]
+    /// 组内至少命中一个即满足（如提醒的时间三键、指标的任一指标键）。
+    public var requiredAnyOfKeys: [String]
+    /// 落点路由。
+    public var route: VoiceActionRoute
+    /// 确认卡主按钮标签（L10n 键语义）。
+    public var confirmationLabelKey: String
+    /// 整句原文可直填的主文本槽（观察描述/问诊问题/用药草稿/速记）。
+    /// nil = 原文不可冒充结构化槽位（如预约医院/科室）。
+    public var primaryTextSlotKey: String?
+
+    public init(key: VoiceIntentKey, displayLabelKey: String, classifiableFallback: Bool,
+                slots: [VoiceSlotSpec] = [], requiredAnyOfKeys: [String] = [],
+                route: VoiceActionRoute = .note,
+                confirmationLabelKey: String? = nil,
+                primaryTextSlotKey: String? = nil) {
         self.key = key
         self.displayLabelKey = displayLabelKey
         self.classifiableFallback = classifiableFallback
+        self.slots = slots
+        self.requiredAnyOfKeys = requiredAnyOfKeys
+        self.route = route
+        self.confirmationLabelKey = confirmationLabelKey ?? "\(displayLabelKey).confirm"
+        self.primaryTextSlotKey = primaryTextSlotKey
     }
 }
 
 /// FR17.19 目录与期一兜底轨分类器（Domain 纯函数，零资产恒可用）。
 public enum VoiceIntentCatalog {
+    /// 槽位构造助手：优先级从 1 起，数值小者先问。
+    private static func slot(_ key: String, _ type: VoiceSlotValueType,
+                             required: Bool = false, priority: Int = 1,
+                             label: String) -> VoiceSlotSpec {
+        VoiceSlotSpec(key: key, type: type, required: required,
+                      priority: priority, displayLabelKey: label)
+    }
+
     /// 目录顺序 = 呈现顺序（FR17.19 首层单一事实源；「未知」恒居末位）。
+    /// 槽位 schema 与落点路由同表定义（新增能力 = 目录加一行 + 路由加一支）。
     public static let entries: [VoiceIntentEntry] = [
-        .init(key: .recordMetric, displayLabelKey: "voiceIntent.recordMetric", classifiableFallback: true),
-        .init(key: .recordObservation, displayLabelKey: "voiceIntent.recordObservation", classifiableFallback: false),
-        .init(key: .createReminder, displayLabelKey: "voiceIntent.createReminder", classifiableFallback: true),
-        .init(key: .createAppointment, displayLabelKey: "voiceIntent.createAppointment", classifiableFallback: false),
-        .init(key: .appendProfile, displayLabelKey: "voiceIntent.appendProfile", classifiableFallback: true),
-        .init(key: .appendMedDraft, displayLabelKey: "voiceIntent.appendMedDraft", classifiableFallback: false),
-        .init(key: .appendNote, displayLabelKey: "voiceIntent.appendNote", classifiableFallback: true),
-        .init(key: .createQuestion, displayLabelKey: "voiceIntent.createQuestion", classifiableFallback: false),
-        .init(key: .unknown, displayLabelKey: "voiceIntent.unknown", classifiableFallback: true),
+        .init(key: .recordMetric, displayLabelKey: "voiceIntent.recordMetric",
+              classifiableFallback: true,
+              slots: [
+                slot("glucose", .number, label: "voiceSlot.metric"),
+                slot("blood_pressure_sys", .number, label: "voiceSlot.metric"),
+                slot("blood_pressure_dia", .number, label: "voiceSlot.metric"),
+                slot("heart_rate", .number, label: "voiceSlot.metric"),
+                slot("weight", .number, label: "voiceSlot.metric"),
+                slot("blood_oxygen", .number, label: "voiceSlot.metric"),
+                slot("temperature", .number, label: "voiceSlot.metric"),
+              ],
+              requiredAnyOfKeys: ["glucose", "blood_pressure_sys", "blood_pressure_dia",
+                                  "heart_rate", "weight", "blood_oxygen", "temperature"],
+              route: .metric),
+        .init(key: .recordObservation, displayLabelKey: "voiceIntent.recordObservation",
+              classifiableFallback: false,
+              slots: [
+                slot("description", .text, required: true, priority: 1, label: "voiceSlot.description"),
+                slot("observationType", .text, priority: 2, label: "voiceSlot.observationType"),
+                slot("trend", .text, priority: 3, label: "voiceSlot.trend"),
+              ],
+              route: .observation, primaryTextSlotKey: "description"),
+        .init(key: .createReminder, displayLabelKey: "voiceIntent.createReminder",
+              classifiableFallback: true,
+              slots: [
+                slot("time", .time, priority: 1, label: "voiceSlot.time"),
+                slot("date", .date, priority: 1, label: "voiceSlot.time"),
+                slot("hour", .time, priority: 1, label: "voiceSlot.time"),
+                slot("content", .text, required: true, priority: 2, label: "voiceSlot.content"),
+                slot("repeat", .text, priority: 3, label: "voiceSlot.repeat"),
+              ],
+              requiredAnyOfKeys: ["time", "date", "hour"],
+              route: .reminder, primaryTextSlotKey: "content"),
+        .init(key: .createAppointment, displayLabelKey: "voiceIntent.createAppointment",
+              classifiableFallback: false,
+              slots: [
+                slot("hospital", .text, required: true, priority: 1, label: "voiceSlot.hospital"),
+                slot("department", .text, required: true, priority: 2, label: "voiceSlot.department"),
+                slot("time", .time, priority: 3, label: "voiceSlot.time"),
+                slot("date", .date, priority: 3, label: "voiceSlot.time"),
+                slot("hour", .time, priority: 3, label: "voiceSlot.time"),
+                slot("doctor", .text, priority: 4, label: "voiceSlot.doctor"),
+                slot("content", .text, priority: 5, label: "voiceSlot.content"),
+              ],
+              // 时间不在计划层强制：预约表单用显式 DatePicker 落具体时刻（FR10.2），
+              // time/date/hour 仅作参考槽；强制必填会制造无法确认的空占位死路。
+              requiredAnyOfKeys: [],
+              route: .appointment, primaryTextSlotKey: nil),
+        .init(key: .appendProfile, displayLabelKey: "voiceIntent.appendProfile",
+              classifiableFallback: true,
+              slots: [
+                slot("allergy", .text, label: "voiceSlot.allergy"),
+                slot("pastHistory", .text, label: "voiceSlot.pastHistory"),
+                slot("currentMeds", .text, label: "voiceSlot.currentMeds"),
+                slot("emergencyContact", .text, label: "voiceSlot.emergencyContact"),
+                slot("surgery", .text, label: "voiceSlot.surgery"),
+                slot("familyHistory", .text, label: "voiceSlot.familyHistory"),
+              ],
+              requiredAnyOfKeys: ["allergy", "pastHistory", "currentMeds",
+                                  "emergencyContact", "surgery", "familyHistory"],
+              route: .profile),
+        .init(key: .appendMedDraft, displayLabelKey: "voiceIntent.appendMedDraft",
+              classifiableFallback: false,
+              slots: [
+                slot("medicationName", .text, required: true, priority: 1,
+                     label: "voiceSlot.medicationName"),
+                slot("dosageForm", .text, priority: 2, label: "voiceSlot.dosageForm"),
+                slot("route", .text, priority: 3, label: "voiceSlot.route"),
+                slot("frequency", .text, priority: 4, label: "voiceSlot.frequency"),
+              ],
+              route: .medDraft, primaryTextSlotKey: "medicationName"),
+        .init(key: .appendNote, displayLabelKey: "voiceIntent.appendNote",
+              classifiableFallback: true,
+              slots: [slot("note", .text, required: true, label: "voiceSlot.note")],
+              route: .note, primaryTextSlotKey: "note"),
+        .init(key: .createQuestion, displayLabelKey: "voiceIntent.createQuestion",
+              classifiableFallback: false,
+              slots: [slot("question", .text, required: true, label: "voiceSlot.question")],
+              route: .question, primaryTextSlotKey: "question"),
+        .init(key: .unknown, displayLabelKey: "voiceIntent.unknown",
+              classifiableFallback: true,
+              slots: [slot("note", .text, required: true, label: "voiceSlot.note")],
+              route: .note, primaryTextSlotKey: "note"),
     ]
+
+    /// 目录查询单一出口（未登记 key → unknown 条目，绝不崩）。
+    public static func entry(for key: VoiceIntentKey) -> VoiceIntentEntry {
+        if let entry = entries.first(where: { $0.key == key }) { return entry }
+        return entries.first(where: { $0.key == .unknown })
+            ?? VoiceIntentEntry(key: .unknown, displayLabelKey: "voiceIntent.unknown",
+                                classifiableFallback: true,
+                                slots: [slot("note", .text, required: true, label: "voiceSlot.note")],
+                                route: .note, primaryTextSlotKey: "note")
+    }
 
     /// 兜底轨自动分类：三套既有文法并行抽取、命中数多者胜（FR17.19
     /// 「文法首命中即分类」；同命中数按目录序取先——指标 > 提醒 > 档案，

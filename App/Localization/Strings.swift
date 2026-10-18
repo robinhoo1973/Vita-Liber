@@ -338,7 +338,7 @@ enum L10n {
     // MARK: - FR6.9 V3.66 一键确认与卡片互联
 
     enum TargetTag: String, CaseIterable {
-        case metric, observation, question, reminder, profile, anyText
+        case metric, observation, question, reminder, profile, appointment, anyText
     }
 
     /// 支持的本地化（三文件纪律）

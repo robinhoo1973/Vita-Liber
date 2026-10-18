@@ -41,4 +41,25 @@ extension L10n {
     static var aiQuickGlucose: String { t("ai.quickGlucose") }
 
     static var aiQuickNext: String { t("ai.quickNext") }
+
+    // 2026-10-18 任务型 AI 聊天入口（首页 OCR/ASR 图标旁）
+    static var assistantChatTitle: String { t("assistant.chatTitle") }
+    static var assistantClose: String { t("assistant.close") }
+    static var assistantChatEmptyTitle: String { t("assistant.emptyTitle") }
+    static var assistantChatEmptyBody: String { t("assistant.emptyBody") }
+    static var assistantChatPlaceholder: String { t("assistant.placeholder") }
+    static var assistantSend: String { t("assistant.send") }
+    static func assistantClarify(_ slot: String) -> String {
+        String(format: t("assistant.clarifyFmt"), slot)
+    }
+    static var assistantSavedNote: String { t("assistant.savedNote") }
+    static var assistantSavedQuestion: String { t("assistant.savedQuestion") }
+    static var assistantSaveFailed: String { t("assistant.saveFailed") }
+    static var assistantMedDraftDeferred: String { t("assistant.medDraftDeferred") }
+    static var assistantQuickMetric: String { t("assistant.quickMetric") }
+    static var assistantQuickReminder: String { t("assistant.quickReminder") }
+    static var assistantQuickQuestion: String { t("assistant.quickQuestion") }
+    static var assistantDisabled: String { t("assistant.disabled") }
+    static var assistantEmergencyHandoff: String { t("assistant.emergencyHandoff") }
+    static var assistantMissingFields: String { t("assistant.missingFields") }
 }

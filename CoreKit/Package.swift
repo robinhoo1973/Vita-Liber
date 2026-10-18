@@ -46,7 +46,8 @@ let package = Package(
         // 校验和 = 发布资产 sha256（SPM binaryTarget 强制）。
     ],
     targets: [
-        .target(name: "Domain"),
+        // Domain 资源：B1 随包脚本金样（VoiceCalibrationBundled，2026-10-18）。
+        .target(name: "Domain", resources: [.process("Resources")]),
         .target(name: "Protocols", dependencies: ["Domain"]),
         .target(
             name: "Infrastructure",

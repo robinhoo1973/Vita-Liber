@@ -18,6 +18,13 @@ struct PendingVoiceIntent: Sendable, Equatable {
     var intent: String
     /// 已确认字段（C 级映射；rawText 保留原文）
     var fields: [FieldDraft]
+    /// V11：动作归属患者（消费方必须与当前成员比对后使用；nil = 旧调用未提供）
+    var patientId: UUID?
+    /// V12：计划/确认/幂等身份（路由类动作在目标页保存时用于审计串联）
+    var sourcePlanId: UUID?
+    var confirmationId: UUID?
+    var idempotencyKey: String?
+    var actionKind: String?
     /// 预填消费方的统一读取出口（旧字典形态语义保留——键→确认值）
     var keyedValues: [String: String] {
         var map: [String: String] = [:]
@@ -27,11 +34,19 @@ struct PendingVoiceIntent: Sendable, Equatable {
 }
 
 extension OcrConfirmationSet {
-    /// 已确认字段 → 类型化意图草稿（语音确认卡唯一出口）
-    func pendingIntent(_ intent: String) -> PendingVoiceIntent {
+    /// 已确认字段 → 类型化意图草稿（语音确认卡唯一出口）。
+    /// 字段**恒为 C 级**：确认卡的 confirmedFields 就是用户已核对的值
+    /// （此前漏传 grade，默认回落 D 级，与「C 级映射」注释矛盾）。
+    func pendingIntent(_ intent: String, patientId: UUID? = nil,
+                       sourcePlanId: UUID? = nil, confirmationId: UUID? = nil,
+                       idempotencyKey: String? = nil,
+                       actionKind: String? = nil) -> PendingVoiceIntent {
         PendingVoiceIntent(intent: intent, fields: confirmedFields.map {
-            FieldDraft(key: $0.key, value: $0.value, confidence: 1.0, rawText: $0.rawText)
-        })
+            FieldDraft(key: $0.key, value: $0.value, confidence: 1.0,
+                       rawText: $0.rawText, grade: .userConfirmed)
+        }, patientId: patientId, sourcePlanId: sourcePlanId,
+           confirmationId: confirmationId, idempotencyKey: idempotencyKey,
+           actionKind: actionKind)
     }
 }
 

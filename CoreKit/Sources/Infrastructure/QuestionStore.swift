@@ -29,15 +29,24 @@ public actor QuestionStore {
 
     @discardableResult
     public func add(patientId: UUID, body: String, encounterId: UUID? = nil,
-                    now: Date = Date()) async throws -> UUID {
+                    now: Date = Date(),
+                    audit: VoiceExecutionAudit? = nil) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
+            // V13 幂等：同 idempotencyKey 已执行 → 不重复插入（跨启动有效）。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             try db.execute(sql: """
                 INSERT INTO encounter_question (id, patient_id, encounter_id, body, asked_at, status, created_at, updated_at)
                 VALUES (?, ?, ?, ?, NULL, 'open', ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString,
                                  encounterId?.uuidString, body,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "encounter_question",
+                                                     entityId: id.uuidString, db: db)
+            }
         }
         return id
     }
