@@ -242,7 +242,8 @@ final class ObservationStoreState {
     /// createAllergy 同族：保存失败绝不静默呈现为「已保存」）。
     @discardableResult
     func create(patientId: UUID, kind: String, description: String, selfMark: String?,
-                occurredAt: Date = Date(), photoData: [Data]) async -> Bool {
+                occurredAt: Date = Date(), photoData: [Data],
+                audit: VoiceExecutionAudit? = nil) async -> Bool {
         var saved: [UUID] = []
         do {
             // 局部 Sendable 快照：TaskGroup 闭包非隔离，直接引用 self.mediaAssets
@@ -280,7 +281,8 @@ final class ObservationStoreState {
                                    kind: ObservationKind(rawValue: kind) ?? .custom,
                                    description: description, selfMark: selfMark,
                                    mediaAssetIds: assetIds.map(\.uuidString),
-                                   occurredAt: occurredAt)   // S-4：发生时间如实落库；captured_at 默认=now（拍摄时刻）
+                                   occurredAt: occurredAt,   // S-4：发生时间如实落库；captured_at 默认=now（拍摄时刻）
+                                   audit: audit)
             // 评审修复：成员切换后迟到的保存不重写共享状态——创建页含成员
             // 切换入口，保存期间切换成员后此 load 会以旧 patientId 击穿
             // BR-001 守卫；切换回该成员时 .task(id:) 自会重载
@@ -412,7 +414,7 @@ struct ObservationCreateSheet: View {
     @Environment(\.dismiss) private var dismiss
     /// 返回是否保存成功——false 时保留表单并告警，绝不静默呈现为「已保存」。
     /// S-4：载荷增 occurredAt（发生时间），顺序 (kind, 描述, 自述标记, 发生时间, 照片)。
-    let onCreate: (String, String, String?, Date, [Data]) async -> Bool
+    let onCreate: (String, String, String?, Date, [Data], VoiceExecutionAudit?) async -> Bool
 
     /// SP-14 步骤1：默认值在 onAppear 从 AppState 记忆项回填（FR8.1 默认高亮）
     @State private var kind = ObservationKind.skin.rawValue
@@ -426,6 +428,8 @@ struct ObservationCreateSheet: View {
     @State private var saving = false
     /// V11：语音草稿预填时的成员身份——表单内切成员后禁止用旧草稿落库（BR-001）。
     @State private var prefilledPatientId: UUID?
+    /// 助手交接的审计身份（V12/V13）；手工新建为 nil。
+    @State private var voiceAudit: VoiceExecutionAudit?
 
     /// SP-14 步骤2 媒体：相册与相机分源存储——相册 onChange 全量替换，
     /// 相机逐张追加；两者互不覆盖（评审修正：曾整体替换致相机照片被静默丢弃）。
@@ -462,6 +466,7 @@ struct ObservationCreateSheet: View {
         }
         router.pendingVoiceIntent = nil
         prefilledPatientId = app.currentPatientId
+        voiceAudit = draft.executionAudit()
         let values = draft.keyedValues
         // observationType 目录槽是自由文本，与 ObservationKind.rawValue 不同域；
         // 不做假映射（此前恒不等、属死代码）。类型仍由本页选择器决定。
@@ -499,7 +504,8 @@ struct ObservationCreateSheet: View {
                             // 照片已补偿删除、记录丢失（与 AllergyViews 同族）
                             saving = true
                             Task {
-                                if await onCreate(kind, description, selfMark, occurredAt, photoData) {
+                                if await onCreate(kind, description, selfMark, occurredAt,
+                                                  photoData, voiceAudit) {
                                     dismiss()
                                 } else {
                                     saveFailed = true

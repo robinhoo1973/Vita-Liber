@@ -20,8 +20,13 @@ public actor ObservationStore {
     public func create(id: UUID = UUID(), patientId: UUID, kind: ObservationKind, description: String,
                        selfMark: String?, groupId: UUID? = nil, mediaAssetIds: [String] = [],
                        occurredAt: Date? = nil, capturedAt: Date? = nil,
-                       now: Date = Date()) async throws {
+                       now: Date = Date(),
+                       audit: VoiceExecutionAudit? = nil) async throws {
         try await writer.write { db in
+            // 助手语音/文本动作：幂等重放不重复落观察（V12/V13）。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             let mediaJSON = mediaAssetIds.isEmpty ? nil
                 : String(data: try JSONEncoder().encode(mediaAssetIds), encoding: .utf8)
             try db.execute(sql: """
@@ -35,6 +40,10 @@ public actor ObservationStore {
                                  groupId?.uuidString, selfMark,
                                  mediaJSON,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "observation",
+                                                     entityId: id.uuidString, db: db)
+            }
         }
     }
 
