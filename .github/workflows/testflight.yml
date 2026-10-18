@@ -78,7 +78,7 @@ jobs:
           STORED="$(python3 -c "import json,sys; print((json.loads(sys.argv[1]) or {}).get('commitSHA256',''))" "$BUILD_STATE" 2>/dev/null || true)"
           if [ -n "$STORED" ] && [ "$STORED" = "$GITHUB_SHA" ]; then
             echo "unchanged=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::源码与上次已发布完全一致（$GITHUB_SHA）——整链退出，不构建不上传"
+            echo "::notice::源码与上次已发布完全一致（${GITHUB_SHA}）——整链退出，不构建不上传"
           else
             echo "unchanged=false" >> "$GITHUB_OUTPUT"
             echo "源码有变化（$GITHUB_SHA vs ${STORED:-<无记录>}）——继续"
@@ -226,7 +226,7 @@ jobs:
           # 防止 Swift 语言模式/编译器默认值随镜像静默漂移造成「昨天绿今天红」。
           XCODE_MAJOR="$(xcodebuild -version | awk '/Xcode/{print $2}' | cut -d. -f1)"
           if [ "$XCODE_MAJOR" != "26" ]; then
-            echo "::error::runner Xcode 主版本为 $XCODE_MAJOR（期望 26）——请按 workflow 文件头升级指引评估后同步断言"
+            echo "::error::runner Xcode 主版本为 ${XCODE_MAJOR}（期望 26）——请按 workflow 文件头升级指引评估后同步断言"
             exit 1
           fi
           # 纯 ASCII 输出：日志服务对「数字紧跟全角括号」的 UTF-8 字节组合
@@ -569,7 +569,7 @@ jobs:
             exit 1
           fi
           echo "floor=$FLOOR" >> "$GITHUB_OUTPUT"
-          echo "ASC 同版本下界: expected ≥ $FLOOR（version=$VERSION）"
+          echo "ASC 同版本下界: expected ≥ ${FLOOR}（version=${VERSION}）"
 
       - name: 读取 App release 版本（version.txt；2026-10-07 P2 内联自 version job）
         id: ver
@@ -596,7 +596,7 @@ jobs:
           [ "$HAS_CERTS" = "true" ] || missing="$missing APPLE_DEV_CERT_P12/APPLE_DIS_CERT_P12"
           [ "$HAS_PP" = "true" ] || missing="$missing APPLE_DIS_PROVISION_PROFILE"
           if [ -n "$missing" ]; then
-            echo "::error::签名凭据缺失:$missing——补建 Secrets 后重跑（纯编译+上传链不允许跳签名）"
+            echo "::error::签名凭据缺失:${missing}——补建 Secrets 后重跑（纯编译+上传链不允许跳签名）"
             exit 1
           fi
 
@@ -629,7 +629,7 @@ jobs:
           # 防止 Swift 语言模式/编译器默认值随镜像静默漂移造成「昨天绿今天红」。
           XCODE_MAJOR="$(xcodebuild -version | awk '/Xcode/{print $2}' | cut -d. -f1)"
           if [ "$XCODE_MAJOR" != "26" ]; then
-            echo "::error::runner Xcode 主版本为 $XCODE_MAJOR（期望 26）——请按 workflow 文件头升级指引评估后同步断言"
+            echo "::error::runner Xcode 主版本为 ${XCODE_MAJOR}（期望 26）——请按 workflow 文件头升级指引评估后同步断言"
             exit 1
           fi
           # 纯 ASCII 输出：日志服务对「数字紧跟全角括号」的 UTF-8 字节组合
@@ -695,14 +695,14 @@ jobs:
             # 2026-09-27 委员会裁决 P5：负天数=已过期（比 ≤7 更严重）——此前与
             # -1 哨兵碰撞被当「解析失败」仅 warning 放行，门禁在唯一重要的日子失职。
             if [ "$days" -lt 0 ]; then
-              echo "::error::$label 已过期 $((-days)) 天（$enddate）——立即轮换并更新仓库 Secrets"
+              echo "::error::$label 已过期 $((-days)) 天（${enddate}）——立即轮换并更新仓库 Secrets"
               return 1
             fi
             if [ "$days" -le 7 ]; then
-              echo "::error::$label 将在 $days 天内到期（$enddate）——请立即轮换并更新仓库 Secrets"
+              echo "::error::$label 将在 $days 天内到期（${enddate}）——请立即轮换并更新仓库 Secrets"
               return 1
             elif [ "$days" -le 30 ]; then
-              echo "::warning::$label 将在 $days 天内到期（$enddate）——请安排轮换并更新仓库 Secrets"
+              echo "::warning::$label 将在 $days 天内到期（${enddate}）——请安排轮换并更新仓库 Secrets"
             else
               echo "$label 剩余 $days 天 ✓"
             fi

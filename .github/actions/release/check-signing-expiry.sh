@@ -29,15 +29,15 @@ verdict() {
     return 1
   fi
   if [ "$days" -lt 0 ]; then
-    echo "$label 已过期 $((-days)) 天（$enddate）"
+    echo "$label 已过期 $((-days)) 天（${enddate}）"
     return 1
   fi
   if [ "$days" -le 7 ]; then
-    echo "$label 将在 $days 天内到期（$enddate）"
+    echo "$label 将在 $days 天内到期（${enddate}）"
     return 1
   fi
   if [ "$days" -le 30 ]; then
-    echo "$label 将在 $days 天内到期（$enddate）"
+    echo "$label 将在 $days 天内到期（${enddate}）"
     return 0
   fi
   echo "$label 剩余 $days 天 ✓"

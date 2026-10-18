@@ -117,6 +117,25 @@ class ReleaseVersionTests(unittest.TestCase):
                                    "--build", "752", "--commit-sha", "a" * 40],
                                   cwd=root, env=env, capture_output=True, text=True)
 
+    def test_shell_variables_braced_before_non_ascii(self):
+        # 2026-10-18 CI 39141299939：macOS runner 的 bash 3.2 把 `$FLOOR（` 的
+        # 全角括号首字节并入变量名，set -u 报 "FLOOR<…>: unbound variable"。
+        # 中文提示语紧贴变量时一律写 ${VAR}。
+        pattern = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)[^\x00-\x7f]")
+        offenders = []
+        document = yaml.safe_load((WORKFLOWS / "testflight.yml").read_text())
+        for job in document["jobs"].values():
+            for step in job.get("steps", []):
+                for line in str(step.get("run", "")).splitlines():
+                    if line.lstrip().startswith("#"):
+                        continue
+                    offenders += [f"testflight.yml: {m.group(0)}" for m in pattern.finditer(line)]
+        for line in (CLUSTER / "check-signing-expiry.sh").read_text().splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            offenders += [f"check-signing-expiry.sh: {m.group(0)}" for m in pattern.finditer(line)]
+        self.assertEqual(offenders, [], "shell 变量后紧跟非 ASCII 字符必须写 ${VAR}（bash 3.2）")
+
     def test_build_state_write_failure_warns_without_failing_release(self):
         # 上传已成功；记账失败只告警（ASC 下界使下一次 run 自愈），不得把发布判红。
         result = self.run_build_state(gh_exit=1)
