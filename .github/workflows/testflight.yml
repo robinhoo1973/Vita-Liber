@@ -59,12 +59,39 @@ jobs:
   # Job 1: 解析版本号（ubuntu，快速廉价）
   # ═══════════════════════════════════════════════════════════════
   # ═══════════════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════
+  # 源码不变前置闸（业主 2026-10-18 裁决）：github.sha 与上次已发布提交一致
+  # → 整链退出（不构建、不上传、build 不 +1）。省 ~25 分钟，取代上传期哈希比对。
+  # ═══════════════════════════════════════════════════════════
+  source-unchanged:
+    name: '源码不变前置闸（sha 比对）'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      unchanged: ${{ steps.check.outputs.unchanged }}
+    steps:
+      - name: 与上次已发布提交比对
+        id: check
+        env:
+          BUILD_STATE: ${{ vars.BUILD_STATE }}
+        run: |
+          STORED="$(python3 -c "import json,sys; print((json.loads(sys.argv[1]) or {}).get('commitSHA256',''))" "$BUILD_STATE" 2>/dev/null || true)"
+          if [ -n "$STORED" ] && [ "$STORED" = "$GITHUB_SHA" ]; then
+            echo "unchanged=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::源码与上次已发布完全一致（$GITHUB_SHA）——整链退出，不构建不上传"
+          else
+            echo "unchanged=false" >> "$GITHUB_OUTPUT"
+            echo "源码有变化（$GITHUB_SHA vs ${STORED:-<无记录>}）——继续"
+          fi
+
   # L0 静态门禁（ubuntu 并行）：与 build 同时跑,失败挡 upload（机械冻结——
   # 仓库无分支保护,此为五架构门禁唯一自我兑现装置）。2026-10-07 起执行体为
   # composite action ./.github/actions/l0-gate（workflows/ 四文件化）；测试 job
   # （corekit/l1）同文件下方并行运行。版本解析已内联进 build。
   # ═══════════════════════════════════════════════════════════════
   gates:
+    needs: [source-unchanged]
+    if: needs.source-unchanged.outputs.unchanged != 'true'
     name: 'L0 静态门禁（并行）'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -83,6 +110,8 @@ jobs:
   # gates/build 并行；2026-10-07 业主裁决：upload 四依赖门控（测试红不上传）。）
   # ═══════════════════════════════════════════════════════════════
   corekit:
+    needs: [source-unchanged]
+    if: needs.source-unchanged.outputs.unchanged != 'true'
     name: 'CoreKit 域层测试（swift test）'
     runs-on: macos-26
     timeout-minutes: 30
@@ -162,7 +191,9 @@ jobs:
     timeout-minutes: 60
     # 二级闸：第一级 gates+corekit 全绿才进入（业主 2026-10-07 三阶段 DAG：
     # (L0 ∥ CoreKit) → (L1 ∥ build) → upload——L0 不过不进 L1 在依赖图上成字面）。
-    needs: [gates, corekit]
+    needs: [source-unchanged, gates, corekit]
+    if: needs.source-unchanged.outputs.unchanged != 'true'
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1   # v7.0.1
 
@@ -477,7 +508,9 @@ jobs:
     # gates/corekit 任一红 ⇒ 默认跳过（不入二级）；**l1 与 build 并联**——两个编译
     # 互相独立，串行白等 l1 的 UI 测试时长（≈13-22 分钟/绿路径）；l1 红在 upload
     # 闸口拦截（四依赖门控见下），安全语义不变。
-    needs: [gates, corekit]
+    needs: [source-unchanged, gates, corekit]
+    if: needs.source-unchanged.outputs.unchanged != 'true'
+
     # 密钥面收窄：job 级 env 只保留存在性布尔，实际密钥值由各消费步骤
     # 以 step 级 env 注入——不消费密钥的步骤（artifact 上传等）
     # 不再可见密钥内容。
@@ -960,7 +993,8 @@ jobs:
   # ═══════════════════════════════════════════════════════════════
   upload:
     name: '上传 TestFlight'
-    needs: [build, gates, corekit, l1]
+    needs: [source-unchanged, build, gates, corekit, l1]
+    if: needs.source-unchanged.outputs.unchanged != 'true'
     # 与 build job 同钉 macos-26（审计 2026-09-10），防工具链漂移。
     runs-on: macos-26
     # P2：altool ~95s + 复核收窄后 ≤~4min + 固定开销——15 保留 3x 余量。
@@ -1195,30 +1229,7 @@ jobs:
           raise SystemExit(0)
           PYEOF
 
-      # ── 二进制一致性闸（业主 2026-10-18 裁决）─────────
-      # IPA 哈希与上次已上传的相同 → 跳过上传、build 不 +1（同内容不重复消耗 build 号）。
-      - name: 二进制哈希比对（与上次上传一致则跳过）
-        id: hash-check
-        env:
-          BUILD_STATE: ${{ vars.BUILD_STATE }}
-        run: |
-          set -euo pipefail
-          CURRENT="$(shasum -a 256 Build/export/VitaLiber.ipa | awk '{print $1}')"
-          echo "current-app-sha256=$CURRENT" >> "$GITHUB_OUTPUT"
-          STORED="$(python3 -c "import json,sys; print((json.loads(sys.argv[1]) or {}).get('appSHA256',''))" "$BUILD_STATE" 2>/dev/null || true)"
-          if [ -n "$STORED" ] && [ "$STORED" = "$CURRENT" ]; then
-            echo "same=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::二进制与上次已上传完全一致（sha256=$CURRENT）——跳过上传，build 号不推进"
-          else
-            echo "same=false" >> "$GITHUB_OUTPUT"
-            echo "二进制与上次不同（$CURRENT vs ${STORED:-<无记录>}）——继续上传"
-          fi
-
-      # ── 上传：xcrun altool（同步校验，退出码即结果）─────────
-      # 参考 NetDiagnostics action.yml：--upload-app + --apiKey/--apiIssuer。
-      # altool 会同步完成 Apple 初步校验，失败返回非零退出码并在日志给出 ITMS 错误。
       - name: 上传 TestFlight（xcrun altool）
-        if: steps.hash-check.outputs.same != 'true'
 
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
