@@ -1193,10 +1193,31 @@ jobs:
           raise SystemExit(0)
           PYEOF
 
+      # ── 二进制一致性闸（业主 2026-10-18 裁决）─────────
+      # IPA 哈希与上次已上传的相同 → 跳过上传、build 不 +1（同内容不重复消耗 build 号）。
+      - name: 二进制哈希比对（与上次上传一致则跳过）
+        id: hash-check
+        env:
+          BUILD_STATE: ${{ vars.BUILD_STATE }}
+        run: |
+          set -euo pipefail
+          CURRENT="$(shasum -a 256 Build/export/VitaLiber.ipa | awk '{print $1}')"
+          echo "current-app-sha256=$CURRENT" >> "$GITHUB_OUTPUT"
+          STORED="$(python3 -c "import json,sys; print((json.loads(sys.argv[1]) or {}).get('appSHA256',''))" "$BUILD_STATE" 2>/dev/null || true)"
+          if [ -n "$STORED" ] && [ "$STORED" = "$CURRENT" ]; then
+            echo "same=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::二进制与上次已上传完全一致（sha256=$CURRENT）——跳过上传，build 号不推进"
+          else
+            echo "same=false" >> "$GITHUB_OUTPUT"
+            echo "二进制与上次不同（$CURRENT vs ${STORED:-<无记录>}）——继续上传"
+          fi
+
       # ── 上传：xcrun altool（同步校验，退出码即结果）─────────
       # 参考 NetDiagnostics action.yml：--upload-app + --apiKey/--apiIssuer。
       # altool 会同步完成 Apple 初步校验，失败返回非零退出码并在日志给出 ITMS 错误。
       - name: 上传 TestFlight（xcrun altool）
+        if: steps.hash-check.outputs.same != 'true'
+
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_KEY_ISSUER_ID: ${{ secrets.APPLE_API_KEY_ISSUER_ID }}
@@ -1418,11 +1439,14 @@ jobs:
       # 与 build 侧同款 7 天诊断 artifact（唯一比当天更长寿命的公开证据通道）。
       # build 号推进（业主 2026-10-17 裁决）：上传**确认登记**后 build+1——
       # 失败/取消 run 不消耗 build 号；记账失败不阻断（下次复用本号重传）
-      - name: BUILD_STATE 推进（上传确认后 build+1）
-        if: success()
+      - name: BUILD_STATE 推进（上传确认后 build+1 并记二进制哈希）
+        if: success() && steps.hash-check.outputs.same != 'true'
         env:
           GH_TOKEN: ${{ secrets.BUILD_STATE_PAT }}
-        run: python3 .github/actions/release/build-state.py --build "${{ needs.build.outputs.build_number }}"
+        run: python3 .github/actions/release/build-state.py \
+          --build "${{ needs.build.outputs.build_number }}" \
+          --app-sha256 "${{ steps.hash-check.outputs.current-app-sha256 }}"
+
       - name: 上传诊断日志（失败/取消时）
         if: ${{ failure() || cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a   # v7.0.1
