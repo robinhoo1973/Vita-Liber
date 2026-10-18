@@ -994,7 +994,6 @@ jobs:
   upload:
     name: '上传 TestFlight'
     needs: [source-unchanged, build, gates, corekit, l1]
-    if: needs.source-unchanged.outputs.unchanged != 'true'
     # 与 build job 同钉 macos-26（审计 2026-09-10），防工具链漂移。
     runs-on: macos-26
     # P2：altool ~95s + 复核收窄后 ≤~4min + 固定开销——15 保留 3x 余量。
@@ -1006,7 +1005,7 @@ jobs:
     # 红/跳过（result != 'success'）一律不放行，取消语义（!cancelled）保持原样。
     # 测试门控上传（业主 2026-10-07 裁决：测试红 ⇒ 不上传 TestFlight——
     # 注释「任一 red 即阻断归档上传」由此成真；整流全绿 = 已发布 = 单一裁决）。
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.gates.result == 'success'
+    if: ${{ !cancelled() && needs.source-unchanged.outputs.unchanged != 'true' && needs.build.result == 'success' && needs.gates.result == 'success'
         && needs.corekit.result == 'success' && needs.l1.result == 'success' }}
     steps:
       # 哈希钉版清单（requirements-asc-tools.txt）随仓获取，与 build job 同纪律。
