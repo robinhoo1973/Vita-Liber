@@ -43,8 +43,11 @@ def main() -> int:
         commit = "" if args.reset else args.commit_sha
         rc = resolve(args.version_file, target, commit, args.repo)
         if rc != 0:
-            print(f"::error::BUILD_STATE 写回失败（gh exit {rc}）——build 记账未推进，下次 run 将复用本号")
-            return 1
+            # 记账失败不阻断发布：上传已成功，且 build job 会以 ASC 已登记
+            # 最大 build+1 作下界（2026-10-18），陈旧计数器不再产生重复号。
+            print(f"::warning::BUILD_STATE 写回失败（gh exit {rc}）——本次发布不受影响；"
+                  f"下次 run 由 ASC 下界自愈")
+            return 0
         print(f"BUILD_STATE → {json.dumps({'release': read_version(args.version_file), 'build': target, 'commitSHA256': commit or ''})}")
         return 0
     print("::warning::GH_TOKEN 未注入 BUILD_STATE_PAT——build 记账跳过（回落 run_number 语义，不阻断发布）")

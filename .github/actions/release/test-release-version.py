@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -88,6 +89,44 @@ class ReleaseVersionTests(unittest.TestCase):
         self.assertLess(asc_index, ver_index, "ASC 下界必须先于版本号步骤")
         self.assertIn("asc-max-build.py", steps[asc_index]["run"])
         self.assertIn("--floor-build", steps[ver_index]["run"])
+
+    def test_build_state_step_matches_script_arguments(self):
+        # 2026-10-18 CI 39138730803：上传成功后 job 仍红——调用点传了脚本已删除的
+        # --app-sha256，并引用不存在的 hash-check 步骤。调用契约在此固定。
+        document = yaml.safe_load((WORKFLOWS / "testflight.yml").read_text())
+        invocation = next(s["run"] for job in document["jobs"].values()
+                         for s in job.get("steps", [])
+                         if "build-state.py" in s.get("run", "") and "--reset" not in s.get("run", ""))
+        accepted = set(re.findall(r'"--([a-z-]+)"', Path(__file__).with_name("build-state.py").read_text()))
+        used = set(re.findall(r"--([a-z-]+)", invocation)) - {"build"}
+        self.assertTrue(used <= accepted, f"workflow 传给 build-state.py 未定义参数: {sorted(used - accepted)}")
+        self.assertIn("--commit-sha", invocation, "写回必须记录已发布提交（源码不变闸依据）")
+        self.assertNotIn("hash-check", invocation)
+
+    def run_build_state(self, gh_exit: int) -> subprocess.CompletedProcess:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "version.txt").write_text("0.0.1\n")
+            binaries = root / "bin"
+            binaries.mkdir()
+            (binaries / "gh").write_text(f"#!/bin/sh\nexit {gh_exit}\n")
+            (binaries / "gh").chmod(0o755)
+            env = dict(os.environ, PATH=f"{binaries}:{os.environ['PATH']}",
+                       GH_TOKEN="stub-token", GITHUB_REPOSITORY="fixture/app")
+            return subprocess.run([sys.executable, str(Path(__file__).with_name("build-state.py")),
+                                   "--build", "752", "--commit-sha", "a" * 40],
+                                  cwd=root, env=env, capture_output=True, text=True)
+
+    def test_build_state_write_failure_warns_without_failing_release(self):
+        # 上传已成功；记账失败只告警（ASC 下界使下一次 run 自愈），不得把发布判红。
+        result = self.run_build_state(gh_exit=1)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::warning::BUILD_STATE 写回失败", result.stdout)
+
+    def test_build_state_success_is_green(self):
+        result = self.run_build_state(gh_exit=0)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("BUILD_STATE →", result.stdout)
 
     def run_step(self, version, *, ref_type="branch", ref_name="master"):
         document = yaml.safe_load((WORKFLOWS / "testflight.yml").read_text())

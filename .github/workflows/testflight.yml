@@ -1502,12 +1502,14 @@ jobs:
       # 2026-10-07 P2：altool/复核日志此前只落上传 job 工作区,随 runner 销毁灭失——
       # 与 build 侧同款 7 天诊断 artifact（唯一比当天更长寿命的公开证据通道）。
       # build 号推进（业主 2026-10-17 裁决）：上传**确认登记**后 build+1——
-      # 失败/取消 run 不消耗 build 号；记账失败不阻断（下次复用本号重传）
-      - name: BUILD_STATE 推进（上传确认后 build+1 并记二进制哈希）
-        if: success() && steps.hash-check.outputs.same != 'true'
+      # 失败/取消 run 不消耗 build 号；记账失败不阻断（下次复用本号重传）。
+      # 2026-10-18 CI 39138730803：此步骤曾传 build-state.py 已不接受的
+      # --app-sha256 并引用不存在的 hash-check 步骤（源码不变闸改 commit-sha 时
+      # 调用点漏改），上传成功后 job 仍红。调用契约由 test-release-version.py 固定。
+      - name: BUILD_STATE 推进（上传确认后 build+1 并记已发布提交）
         env:
           GH_TOKEN: ${{ secrets.BUILD_STATE_PAT }}
-        run: python3 .github/actions/release/build-state.py --build "${{ needs.build.outputs.build_number }}" --app-sha256 "${{ steps.hash-check.outputs.current-app-sha256 }}"
+        run: python3 .github/actions/release/build-state.py --build "${{ needs.build.outputs.build_number }}" --commit-sha "${{ github.sha }}"
 
       - name: 上传诊断日志（失败/取消时）
         if: ${{ failure() || cancelled() }}
