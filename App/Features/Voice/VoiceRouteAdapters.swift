@@ -49,8 +49,9 @@ struct VoiceGuidedProfileRouteView: View {
     var body: some View {
         WithPerceptionTracking {
             let patientId = app.currentPatientId
-            VoiceGuidedProfileView { key, value in
-                await app.commitVoiceProfileField(key, value: value, patientId: patientId)
+            VoiceGuidedProfileView { key, value, audit in
+                await app.commitVoiceProfileField(key, value: value, patientId: patientId,
+                                                  audit: audit)
             }
             // 同一无参路由可能留在 Me 栈顶：换人必须重建答案/步骤/确认态，
             // 旧会话在途提交仍只持有上面捕获的原 patientId（BR-001）。

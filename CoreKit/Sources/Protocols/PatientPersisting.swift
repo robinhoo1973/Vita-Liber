@@ -15,6 +15,8 @@ public protocol PatientPersisting: Sendable {
     func members() async throws -> [PatientProfile]
     /// FR3.1 成员字段补全（血型/证件号/医保号等）
     func updateMember(_ profile: PatientProfile) async throws
+    /// 助手语音/文本动作的成员字段更新（V12/V13）：默认忽略审计，生产实现同事务落库。
+    func updateMember(_ profile: PatientProfile, audit: VoiceExecutionAudit?) async throws
     func loadConsents() async throws -> [ConsentRecord]
     func saveConsent(_ c: ConsentRecord) async throws
     /// FR22.4 数据与存储健康：逻辑库大小（page_count × page_size）与完整性。
@@ -31,5 +33,10 @@ public extension PatientPersisting {
     /// 生产 `GRDBPatientPersistor` 以三参事务覆盖。
     func saveOwner(_ owner: LocalOwner, profile: PatientProfile, contact: EmergencyContactDraft?) async throws {
         try await saveOwner(owner, profile: profile)
+    }
+
+    /// 默认忽略审计（测试替身/旧实现零改动）；生产 GRDB 实现覆盖。
+    func updateMember(_ profile: PatientProfile, audit: VoiceExecutionAudit?) async throws {
+        try await updateMember(profile)
     }
 }

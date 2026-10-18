@@ -4,7 +4,8 @@ import Domain
 extension AppState {
     /// FR17.11/BR-001：确认答案仅写入访谈建立时绑定的成员。
     /// 原字段/备注及完善进度共用成功写入边界，成员失效时不借用当前档案。
-    func commitVoiceProfileField(_ key: String, value: String, patientId: UUID) async -> Bool {
+    func commitVoiceProfileField(_ key: String, value: String, patientId: UUID,
+                                 audit: VoiceExecutionAudit? = nil) async -> Bool {
         guard var profile = members.first(where: { $0.id == patientId && $0.deletedAt == nil }) else { return false }
         switch key {
         case "bloodType": profile.bloodType = value
@@ -21,7 +22,7 @@ extension AppState {
                 .joined(separator: "\n")
         }
         profile.updatedAt = Date().timeIntervalSince1970
-        return await updateMember(profile, completingVoiceInterviewStep: key)
+        return await updateMember(profile, completingVoiceInterviewStep: key, audit: audit)
     }
 
     private static func voiceProfileSectionTitle(_ key: String) -> String? {

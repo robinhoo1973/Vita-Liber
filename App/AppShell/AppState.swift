@@ -382,9 +382,10 @@ final class AppState {
     // MARK: - FR3.1 字段补全 / FR3.4 删除 / FR3.5 重新归属
 
     /// FR3.1 成员字段更新（血型/证件号/医保号等补全）
-    func updateMember(_ profile: PatientProfile, completingVoiceInterviewStep: String? = nil) async -> Bool {
+    func updateMember(_ profile: PatientProfile, completingVoiceInterviewStep: String? = nil,
+                      audit: VoiceExecutionAudit? = nil) async -> Bool {
         do {
-            try await persistor.updateMember(profile)
+            try await persistor.updateMember(profile, audit: audit)
             if let completingVoiceInterviewStep {
                 markVoiceInterviewStep(completingVoiceInterviewStep, patientId: profile.id)
             }

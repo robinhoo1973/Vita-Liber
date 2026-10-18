@@ -163,7 +163,8 @@ struct VoiceGuidedProfileView: View {
     @Environment(\.dismiss) private var dismiss
     /// 写入成败必须回传（审查修复：此前 Void + 调用方丢弃——落库失败时
     /// 答案静默丢失而访谈照常前进，用户以为已保存）
-    let onCommitField: (_ key: String, _ value: String) async -> Bool
+    let onCommitField: (_ key: String, _ value: String,
+                        _ audit: VoiceExecutionAudit?) async -> Bool
 
     /// 访谈步骤（FR17.11 + FR3.1 紧急联系人基础字段随本条提前至 P0.5）
     private let steps: [(key: String, prompt: String)] = [
@@ -189,6 +190,8 @@ struct VoiceGuidedProfileView: View {
     @State private var dictationScope = UUID()
     @State private var committing = false
     @State private var dictationConfidence: Double = 1
+    /// 助手交接的审计身份（V12/V13）；逐字段写时按字段派生幂等键。
+    @State private var voiceAudit: VoiceExecutionAudit?
     /// 访谈完成态（审查修复：此前无终结态，末步提交后原地追问、重复作答
     /// 重复追加档案备注）
     @State private var interviewDone = false
@@ -254,6 +257,7 @@ struct VoiceGuidedProfileView: View {
                 }
                 if let draft = router.pendingVoiceIntent {
                     router.pendingVoiceIntent = nil
+                    voiceAudit = draft.executionAudit()
                     if answer.isEmpty,
                        let v = draft.keyedValues.values.first(where: { !$0.isEmpty }) {
                         answer = v
@@ -283,12 +287,17 @@ struct VoiceGuidedProfileView: View {
         defer { committing = false }
         var allOK = true
         for field in set.confirmedFields {
-            if !(await onCommitField(field.key, field.value)) { allOK = false; break }
+            if !(await onCommitField(field.key, field.value,
+                                     voiceAudit?.scoped(to: field.key))) {
+                allOK = false
+                break
+            }
         }
         guard allOK else {
             saveFailed = true
             return
         }
+        voiceAudit = nil
         dictationScope = UUID()
         dictationBusy = false
         dictationConfidence = 1

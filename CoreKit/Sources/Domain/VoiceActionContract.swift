@@ -211,6 +211,14 @@ public struct VoiceExecutionAudit: Sendable, Equatable {
         self.source = source
     }
 
+    /// 多字段逐项写入（如档案访谈）时按字段派生幂等键：
+    /// 每字段恰好执行一次，重试不会重复写同一字段。
+    public func scoped(to suffix: String) -> VoiceExecutionAudit {
+        VoiceExecutionAudit(planId: planId, confirmationId: confirmationId, intent: intent,
+                            actionKind: actionKind, idempotencyKey: "\(idempotencyKey):\(suffix)",
+                            actor: actorLocal, slotKeys: slotKeys, source: source)
+    }
+
     /// 审计 meta：intent/actionKind/slotKeys/candidateCount/来源/计划与确认 ID。
     /// 不含转写全文、药名、数值、患者姓名或任何自由文本。
     public var metaJSON: String {

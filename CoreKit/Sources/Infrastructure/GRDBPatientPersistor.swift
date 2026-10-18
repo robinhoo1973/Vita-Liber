@@ -105,7 +105,16 @@ public actor GRDBPatientPersistor: PatientPersisting {
 
     /// FR3.1 成员字段更新（血型/证件号/医保号/备注等补全）
     public func updateMember(_ profile: PatientProfile) async throws {
+        try await updateMember(profile, audit: nil)
+    }
+
+    public func updateMember(_ profile: PatientProfile,
+                             audit: VoiceExecutionAudit?) async throws {
         try await store.writer.write { db in
+            // 助手语音/文本动作：逐字段幂等键（scoped）防重试重复写。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             try db.execute(sql: """
                 UPDATE patient_profile
                 SET display_name = ?, relation = ?, gender = ?, birth_date = ?,
@@ -115,6 +124,10 @@ public actor GRDBPatientPersistor: PatientPersisting {
                                    profile.birthDate, profile.bloodType, profile.idNo,
                                    profile.insuranceNo, profile.note,
                                    profile.updatedAt, profile.id.uuidString])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "patient_profile",
+                                                     entityId: profile.id.uuidString, db: db)
+            }
         }
     }
 
