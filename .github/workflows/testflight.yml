@@ -1445,9 +1445,7 @@ jobs:
         if: success() && steps.hash-check.outputs.same != 'true'
         env:
           GH_TOKEN: ${{ secrets.BUILD_STATE_PAT }}
-        run: python3 .github/actions/release/build-state.py \
-          --build "${{ needs.build.outputs.build_number }}" \
-          --app-sha256 "${{ steps.hash-check.outputs.current-app-sha256 }}"
+        run: python3 .github/actions/release/build-state.py --build "${{ needs.build.outputs.build_number }}" --app-sha256 "${{ steps.hash-check.outputs.current-app-sha256 }}"
 
       - name: 上传诊断日志（失败/取消时）
         if: ${{ failure() || cancelled() }}
