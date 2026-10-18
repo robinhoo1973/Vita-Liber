@@ -247,18 +247,31 @@ struct SpeechLifecycleTests {
     @Test func repeatedMissingFinalsExhaustRecoveryBudgetAndStopCapture() async throws {
         let driver = ManualSpeechDriver()
         var limits = SpeechSessionLimits()
-        // 2026-09-27 CI 36303130713/36303662286 连发抖动：10ms 计时在负载 runner 上
-        // 恢复预算与主流程赛跑（.timedOut 先到）；放宽到 50ms 保留全部语义断言。
-        limits.rotationInterval = 0.05
+        // 2026-10-18 CI 39132276603：50ms 轮换窗在负载 runner 上仍与
+        // emit→队列处理赛跑——轮换先到则 partial 未入 accumulator，
+        // 预算耗尽时 segments 为空、settle 抛 .timedOut（测试失败）。
+        // 业界做法：不要用紧实时钟窗口赌调度；轮换窗放宽到 500ms
+        // （语义不变），并用 onPartial 事件探针等到文本真正入账。
+        limits.rotationInterval = 0.5
         limits.finalizationTimeout = 0.05
         limits.restartDelay = 0.001
         let engine = SpeechSessionCoordinator(limits: limits) { _ in driver }
         let request = TranscriptionRequest(localeIdentifier: "en-US")
-        let work = Task { try await engine.transcribe(request, onPartial: nil) }
+        let partials = SpeechTextLog()
+        let work = Task {
+            try await engine.transcribe(request, onPartial: { text in partials.append(text) })
+        }
         await driver.waitFor("authorize")
         driver.approve()
         await driver.waitFor("capture")
         driver.emit(segment: 0, text: "retained")
+        // 等协调器真正处理 partial（而非假定固定延迟内一定处理完）。
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while !partials.values.contains("retained"), clock.now < deadline {
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(partials.values.contains("retained"), "partial 必须先在轮换前入账")
         let result = try await work.value
         #expect(result.text == "retained")
         #expect(result.completion == .timedOut)
