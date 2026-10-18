@@ -1189,7 +1189,9 @@ jobs:
               raise SystemExit(f'build 号回退：expected={expected} < 已登记最大 {mx}——'
                                f'workflow 计数器被重置或版本逻辑回归，禁止上传')
           if expected == mx:
-              print('::warning::build 号与已登记最大值相同——同号重传路径（若为新二进制将遭 ASC 拒收）')
+              # 2026-10-18 实证：同号重传必 409（altool "bundle version must be higher"），
+              # 无放行价值——fail fast，不烧到 altool 才失败
+              raise SystemExit(f'build 号重复：expected={expected} 已登记——记账未推进（BUILD_STATE_PAT 缺失？），禁止上传')
           raise SystemExit(0)
           PYEOF
 
