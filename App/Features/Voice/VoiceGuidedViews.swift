@@ -15,9 +15,12 @@ struct VoiceReminderDraftView: View {
     @Environment(AppRouter.self) private var router
     /// 调度结果必须回传（审查修复：此前 Void——调度失败仍弹「已保存」，
     /// 用户以为提醒已设置实则永不触发）
-    let onCommit: (_ title: String, _ fireAt: Date, _ repeatRule: String?) async -> Bool
+    let onCommit: (_ title: String, _ fireAt: Date, _ repeatRule: String?,
+                   _ audit: VoiceExecutionAudit?) async -> Bool
 
     @State private var transcript = ""
+    /// 助手交接的审计身份（V12/V13）；手动进入为 nil。
+    @State private var voiceAudit: VoiceExecutionAudit?
     @State private var confirmSet: OcrConfirmationSet?
     @State private var routeMonitor = AudioRouteMonitor()
     @State private var unresolved: String?
@@ -80,6 +83,7 @@ struct VoiceReminderDraftView: View {
                 }
                 if let draft = router.pendingVoiceIntent {
                     router.pendingVoiceIntent = nil
+                    voiceAudit = draft.executionAudit()
                     if transcript.isEmpty {
                         // content 与时间槽必须同时进入正文：聊天补槽后 content 恒存在，
                         // 旧实现只在 content 缺失时才重组时间，已确认的 date/hour/time
@@ -136,8 +140,9 @@ struct VoiceReminderDraftView: View {
         // 丢失双重打击）。成功才清稿。
         // 审查修复：调度失败必须可见（此前后台吞错 + 无条件弹「已保存」，
         // 用户以为提醒已设置——通知权限被拒/调度抛错时提醒永不触发）
-        let ok = await onCommit(title, fireAt, rule)
+        let ok = await onCommit(title, fireAt, rule, voiceAudit)
         if ok {
+            voiceAudit = nil
             dictationScope = UUID()
             transcript = ""
             savedAlert = true   // TestFlight 实测修复：保存后必须有可见反馈（引导用户知道提醒已设置）

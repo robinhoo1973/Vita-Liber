@@ -1081,8 +1081,13 @@ public actor MedicationStore: DoseSource {
     /// 记一条送达事实（FR9.7 扩展：channel 字段）。
     /// 记录的是「经哪个通道触达」，与用户确认状态完全分离（BR-004）。
     public func recordDelivery(notifyId: String, doseLogId: String?, channel: ReminderChannelKind,
-                               outcome: String? = nil, at: Date) async throws {
+                               outcome: String? = nil, at: Date,
+                               audit: VoiceExecutionAudit? = nil) async throws {
         try await writer.write { db in
+            // 助手语音/文本动作：幂等重放不重复簿记/审计（V12/V13）。
+            if let audit, try VoiceExecutionAuditWriter.hasExecuted(audit.idempotencyKey, db: db) {
+                return
+            }
             // INSERT OR IGNORE（幂等）：用户清理通知中心后 delivered 守卫失效、
             // 重排路径对同 id 重插——此前 PK 冲突抛错中止调用方 for 循环，
             // 其余批次的到期提醒被静默吞掉（FR9.11 链断）
@@ -1092,6 +1097,10 @@ public actor MedicationStore: DoseSource {
                 """, arguments: [notifyId, doseLogId, at.timeIntervalSince1970,
                                  outcome == "delivered" ? at.timeIntervalSince1970 : nil,
                                  channel.rawValue, outcome, at.timeIntervalSince1970])
+            if let audit {
+                try VoiceExecutionAuditWriter.record(audit, entityType: "notification_delivery",
+                                                     entityId: notifyId, db: db)
+            }
         }
     }
 

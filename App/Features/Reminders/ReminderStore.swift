@@ -161,7 +161,8 @@ final class ReminderStore {
     /// 只允许 outcome=NULL（仅 scheduled 行），delivered 由系统送达事实回写。
     @discardableResult
     func scheduleVoiceReminder(title: String, fireAt: Date, repeatRule: String?,
-                               patientId: UUID) async -> Bool {
+                               patientId: UUID,
+                               audit: VoiceExecutionAudit? = nil) async -> Bool {
         let notifyId = "voice-rem-\(UUID().uuidString)"
         do {
             // 审查修复（顺序）：先落簿记行再调度——旧序调度成功后
@@ -170,7 +171,8 @@ final class ReminderStore {
             // outcome=NULL 簿记行（对账不消费 voice-rem，无副作用），
             // 「保存失败」名副其实、通知从未武装。
             try await meds.recordDelivery(notifyId: notifyId, doseLogId: nil,
-                                          channel: .local, outcome: nil, at: fireAt)
+                                          channel: .local, outcome: nil, at: fireAt,
+                                          audit: audit)
             // 审查修复：route 此前硬编码 .questionList——点按送达的语音提醒
             // 会跳转无关的问诊问题列表页；语音提醒无自然目的地，
             // §5.45 契约应为无路由 → 降级回首页。

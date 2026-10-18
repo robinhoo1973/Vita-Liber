@@ -12,13 +12,14 @@ struct VoiceReminderDraftRouteView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            VoiceReminderDraftView { title, fireAt, repeatRule in
+            VoiceReminderDraftView { title, fireAt, repeatRule, audit in
                 // 通用 Reminder 语义（FR8.10 同实体）：经调度通道落「voice-rem-」通知；
                 // 模糊时间必须落具体日期（FR10.2）——视图层 resolveDate 已强制。
                 // 调度成败回传（审查修复）：失败时调用方可见报错、绝不弹「已保存」
                 await reminders.scheduleVoiceReminder(title: title, fireAt: fireAt,
                                                       repeatRule: repeatRule,
-                                                      patientId: app.currentPatientId)
+                                                      patientId: app.currentPatientId,
+                                                      audit: audit)
             }
         }
     }
