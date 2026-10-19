@@ -25,6 +25,7 @@ struct AssistantVoiceInputSheet: View {
     @State private var dictationBusy = false
     /// 聊天语音消息录音（2026-10-19）：每次按压新文件，最近一次 URL 随「使用」回传。
     @State private var lastAudioURL: URL?
+    @State private var temporaryAudioURLs: [URL] = []
 
     var body: some View {
         WithPerceptionTracking {
@@ -49,7 +50,11 @@ struct AssistantVoiceInputSheet: View {
                                 onEmergency()
                             },
                             isBusy: $dictationBusy,
-                            recordingURLProvider: { ChatAudioStore.makeTemporaryURL() },
+                            recordingURLProvider: {
+                let url = ChatAudioStore.makeTemporaryURL()
+                if let url { temporaryAudioURLs.append(url) }
+                return url
+            },
                             lastRecordingURL: $lastAudioURL)
                         .accessibilityIdentifier("assistant.voiceDictation")
                         Spacer()
@@ -75,7 +80,9 @@ struct AssistantVoiceInputSheet: View {
                 }
             }
             .onDisappear {
-                ChatAudioStore.removeTemporary(lastAudioURL)
+                // 未采用的临时录音全部清理；已采用的文件 chat 已移走。
+                for url in temporaryAudioURLs { ChatAudioStore.removeTemporary(url) }
+                temporaryAudioURLs.removeAll()
             }
         }
     }
