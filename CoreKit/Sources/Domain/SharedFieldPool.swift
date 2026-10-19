@@ -34,6 +34,72 @@ public enum SharedFieldPool {
         "treated_at", "diagnosed_at", "surgery_at", "administered_at",
     ]
 
+    // MARK: - 共同字段修正的跨卡同步（业主 2026-10-19）
+
+    /// 参与自动同步的共同概念：日期键统一为 `shared_date`；机构/科室/医生同名。
+    /// nil = 不跨卡复制（金额、结论、行级事实等各卡独立，绝不扩散）。
+    public static func sharedConcept(_ key: String) -> String? {
+        if dateConceptKeys.contains(key) { return "shared_date" }
+        return ["hospital", "department", "doctor"].contains(key) ? key : nil
+    }
+
+    /// 目标卡上该概念的键：日期 → 该卡注册的 `dateKey`；文本 → 仅当该卡放行同名键。
+    public static func targetKey(forConcept concept: String, kind: String) -> String? {
+        guard let entry = CardKindRegistry.entry(for: kind) else { return nil }
+        if concept == "shared_date" { return entry.dateKey }
+        return entry.sharedAllowed.contains(concept) ? concept : nil
+    }
+
+    /// 把一次共同字段修正写入目标字段集（同概念的副本）。
+    /// 安全闸：只覆盖**未被单独编辑过**（`value == originalValue`）且**原值与源相同**的副本——
+    /// 两卡原本就是不同医院/不同日期时，修正一张不得抹掉另一张的事实。
+    /// 返回是否有改动。
+    @discardableResult
+    public static func applying(_ source: FieldDraft, to fields: inout [FieldDraft]) -> Bool {
+        guard let concept = sharedConcept(source.key) else { return false }
+        var changed = false
+        for index in fields.indices {
+            guard sharedConcept(fields[index].key) == concept,
+                  fields[index].value != source.value,
+                  fields[index].originalValue == source.originalValue,
+                  fields[index].value == fields[index].originalValue else { continue }
+            fields[index].revise(to: source.value)
+            fields[index].unit = source.unit
+            if source.isConfirmed { _ = fields[index].confirm() }
+            changed = true
+        }
+        return changed
+    }
+
+    /// 落库层同步闸（纯函数，单测覆盖）：兄弟卡当前值仍等于源卡旧值、或原本为空时才覆盖。
+    public static func propagatesText(current: String, old: String, new: String) -> Bool {
+        (current == old || current.isEmpty) && current != new
+    }
+
+    /// 日期版同步闸（epoch 秒；nil = 原值为空）。
+    public static func propagatesDate(current: Double?, old: Double?, new: Double) -> Bool {
+        (current == old || current == nil) && current != new
+    }
+
+    /// 卡级修正传播：源卡之外的每张卡（共享面 / 各行 / 主卡草稿）按 `applying` 同步。
+    public static func applying(_ source: FieldDraft, from sourceCardId: UUID,
+                                to cards: [MatchedCard]) -> [MatchedCard] {
+        guard sharedConcept(source.key) != nil else { return cards }
+        return cards.map { card in
+            guard card.id != sourceCardId else { return card }
+            var updated = card
+            _ = applying(source, to: &updated.shared)
+            for index in updated.rows.indices {
+                _ = applying(source, to: &updated.rows[index].fields)
+            }
+            if case .newHub(var draft) = updated.encounterAssociation,
+               applying(source, to: &draft.fields) {
+                updated.encounterAssociation = .newHub(draft)
+            }
+            return updated
+        }
+    }
+
     /// 承载方：哪张卡的哪个面持有该键。
     public struct Carrier: Hashable, Sendable {
         public enum Face: Hashable, Sendable {

@@ -34,6 +34,69 @@ struct SharedFieldPoolTests {
         #expect(hospital.first?.repeatedAcrossCards == true, "入池原因 = 跨卡重复")
     }
 
+    @Test("共用行被修正 → 所有承载卡同时拿到新值（业主 2026-10-19 实测诉求）")
+    func editingMergedRowBackfillsEveryCarrier() {
+        let a = card("prescription", shared: [field("hospital", "市一院", grade: .userConfirmed)])
+        let b = card("claim_item", shared: [field("hospital", "市一院", grade: .userConfirmed)])
+        var rows = SharedFieldPool.rows(cards: [a, b])
+        guard let index = rows.firstIndex(where: { $0.key == "hospital" }) else {
+            Issue.record("医院应入池；实得 \(rows.map(\.key))"); return
+        }
+        rows[index].field.fillByUser("市二院")
+        _ = rows[index].field.confirm()
+        let projected = SharedFieldPool.project(rows, into: [a, b])
+        #expect(projected[0].shared.first { $0.key == "hospital" }?.value == "市二院", "A 卡同步修正")
+        #expect(projected[1].shared.first { $0.key == "hospital" }?.value == "市二院", "B 卡同步修正")
+        #expect(projected[1].shared.first { $0.key == "hospital" }?.isConfirmed == true, "B 卡确认态随行")
+    }
+
+    @Test("共同字段修正按概念跨卡同步；原值不同的副本不被抹掉")
+    func applyingPropagatesCommonConceptSafely() {
+        var edited = field("hospital", "市二院", grade: .userConfirmed)
+        edited.revise(to: "市三院")
+        _ = edited.confirm()
+        var same = field("hospital", "市二院")
+        var different = field("hospital", "市二院")
+        different.revise(to: "省医院")            // 另一张卡被单独编辑过
+        var untouchedDifferent = field("hospital", "县医院")
+        var fields = [same, different, untouchedDifferent]
+        #expect(SharedFieldPool.applying(edited, to: &fields))
+        #expect(fields[0].value == "市三院" && fields[0].isConfirmed, "同原值的副本同步")
+        #expect(fields[1].value == "省医院", "已单独编辑的副本不覆盖")
+        #expect(fields[2].value == "县医院", "原值不同的卡不抹掉")
+        _ = same
+        untouchedDifferent.value = "x"
+    }
+
+    @Test("跨卡传播：日期按各卡自己的 dateKey 落位")
+    func crossCardPropagationUsesOwnDateKey() {
+        let prescription = card("prescription", shared: [field("prescribed_at", "2026-09-16")])
+        let claim = card("claim_item", shared: [field("date", "2026-09-16")])
+        var edited = field("prescribed_at", "2026-09-16", grade: .userConfirmed)
+        edited.revise(to: "2026-09-17")
+        _ = edited.confirm()
+        let propagated = SharedFieldPool.applying(edited, from: prescription.id, to: [prescription, claim])
+        #expect(propagated[1].shared.first { $0.key == "date" }?.value == "2026-09-17",
+                "收费卡的 date 同步为修正后的日期")
+        #expect(SharedFieldPool.targetKey(forConcept: "shared_date", kind: "claim_item") == "date")
+        #expect(SharedFieldPool.targetKey(forConcept: "shared_date", kind: "prescription") == "prescribed_at")
+        #expect(SharedFieldPool.sharedConcept("amount") == nil,
+                "金额不是共同字段，不参与同步")
+    }
+
+    @Test("落库同步闸：只在兄弟值未变或为空时覆盖")
+    func propagationGatesRespectNeighbourState() {
+        #expect(SharedFieldPool.propagatesText(current: "市一院", old: "市一院", new: "市二院"))
+        #expect(SharedFieldPool.propagatesText(current: "", old: "市一院", new: "市二院"), "空值可补")
+        #expect(!SharedFieldPool.propagatesText(current: "省医院", old: "市一院", new: "市二院"),
+                "兄弟已被单独改成别的值 → 不覆盖")
+        #expect(!SharedFieldPool.propagatesText(current: "市二院", old: "市一院", new: "市二院"),
+                "已是目标值 → 无需写")
+        #expect(SharedFieldPool.propagatesDate(current: 100, old: 100, new: 200))
+        #expect(SharedFieldPool.propagatesDate(current: nil, old: 100, new: 200))
+        #expect(!SharedFieldPool.propagatesDate(current: 150, old: 100, new: 200))
+    }
+
     @Test("同键不同值 → 各成一行，不强行合并（两卡的医院真不一样）")
     /// 原名：同键不同值不合并
     func sameKeyDifferentValuesNotMerged() {

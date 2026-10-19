@@ -124,9 +124,100 @@ extension OCRCardStore {
             }
         }
 
+        // —— 3.5 共同字段跨卡同步（业主 2026-10-19）——
+        try propagateSharedCorrections(kind: kind, patientId: patientId, shared: shared,
+                                       fact: fact, receipts: receipts, calendar: calendar, db: db)
+
         // —— 4. 回执审计 JSON 同步（重审一致性）——
         try syncAuditsForEdits(cardId: cardId, kind: kind, shared: shared, lines: lines,
                                receipts: receipts, calendar: calendar, db: db)
+    }
+
+    /// 共同字段跨卡同步（业主 2026-10-19：「在第一个信息卡里纠正了，之后的信息卡显示也应该纠正」）。
+    ///
+    /// 范围 = 同一 `document_file` 的兄弟卡（同一份资料的多张信息卡）。可同步概念由
+    /// Domain `SharedFieldPool.sharedConcept` 单源裁定：日期键（各卡按自己的 `dateKey` 落位）
+    /// 与 医院/科室/医生。安全闸：仅当兄弟卡当前值仍等于源卡**修正前的旧值**（或原本为空）
+    /// 才覆盖——两卡本来就是不同医院/日期时，修正一张不抹掉另一张的事实。
+    /// 审计 `ocr_result.raw_blocks` 不在此改写：它记录各卡自己的识别证据，事实列才是读面真值。
+    private static func propagateSharedCorrections(kind: String, patientId: UUID, shared: [FieldDraft],
+                                                   fact: Row, receipts: [Row],
+                                                   calendar: Calendar, db: Database) throws {
+        let documentIds = Set(receipts.compactMap { $0["document_file_id"] as String })
+        guard let sourceCardId = receipts.compactMap({ $0["card_id"] as String }).first,
+              !documentIds.isEmpty else { return }
+        let sourceColumns = detailColumns(kind: kind)
+        struct Correction {
+            let concept: String
+            let value: String
+            let oldText: String?
+            let oldDate: Double?
+        }
+        var corrections: [Correction] = []
+        for field in shared {
+            guard let concept = SharedFieldPool.sharedConcept(field.key) else { continue }
+            let value = field.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+            let column = sourceColumns.first(where: { $0.key == field.key })?.column ?? field.key
+            guard fact.hasColumn(column) else { continue }
+            corrections.append(Correction(concept: concept, value: value,
+                                          oldText: fact[column] as String?,
+                                          oldDate: fact[column] as Double?))
+        }
+        guard !corrections.isEmpty else { return }
+
+        let marks = Array(repeating: "?", count: documentIds.count).joined(separator: ",")
+        let args: [DatabaseValueConvertible] = [patientId.uuidString, sourceCardId]
+            + documentIds.sorted().map { $0 as DatabaseValueConvertible }
+        let siblings = try Row.fetchAll(db, sql: """
+            SELECT DISTINCT card_kind, entity_id, entity_table FROM ocr_card_commit
+            WHERE patient_id = ? AND card_id != ? AND document_file_id IN (\(marks))
+            """, arguments: StatementArguments(args))
+        var headerTables = Set(CardKindRegistry.entries.map(\.headerTable))
+        headerTables.insert("lab_report")
+        let now = Date().timeIntervalSince1970
+        for sibling in siblings {
+            guard let siblingKind = sibling["card_kind"] as String?,
+                  let siblingEntity = sibling["entity_id"] as String?,
+                  let table = sibling["entity_table"] as String?,
+                  headerTables.contains(table),
+                  let row = try Row.fetchOne(db, sql: "SELECT * FROM \(table) WHERE id = ? AND patient_id = ?",
+                                             arguments: [siblingEntity, patientId.uuidString]) else { continue }
+            var sets: [String] = []
+            var values: [DatabaseValueConvertible] = []
+            for correction in corrections {
+                guard let key = SharedFieldPool.targetKey(forConcept: correction.concept, kind: siblingKind),
+                      let column = detailColumns(kind: siblingKind).first(where: { $0.key == key })?.column
+                          ?? (row.hasColumn(key) ? key : nil),
+                      row.hasColumn(column) else { continue }
+                switch EntityCardProjection.valueKind(kind: siblingKind, key: key) {
+                case .date:
+                    guard let date = EntityCardProjection.parseDate(correction.value, calendar: calendar) else { continue }
+                    let current = row[column] as Double?
+                    guard SharedFieldPool.propagatesDate(current: current, old: correction.oldDate,
+                                                         new: date.timeIntervalSince1970) else { continue }
+                    sets.append("\(column) = ?")
+                    values.append(date.timeIntervalSince1970)
+                default:
+                    let current = (row[column] as String?) ?? ""
+                    let old = correction.oldText ?? ""
+                    guard SharedFieldPool.propagatesText(current: current, old: old,
+                                                         new: correction.value) else { continue }
+                    sets.append("\(column) = ?")
+                    values.append(correction.value)
+                }
+            }
+            guard !sets.isEmpty else { continue }
+            var sql = "UPDATE \(table) SET \(sets.joined(separator: ", "))"
+            if row.hasColumn("updated_at") {
+                sql += ", updated_at = ?"
+                values.append(now)
+            }
+            sql += " WHERE id = ? AND patient_id = ?"
+            values.append(siblingEntity)
+            values.append(patientId.uuidString)
+            try db.execute(sql: sql, arguments: StatementArguments(values))
+        }
     }
 
     /// 更正后的共享面/行字段写回本卡的 ocr_result 审计行（decode → 替换 → re-encode）。

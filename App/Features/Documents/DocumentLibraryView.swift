@@ -308,6 +308,7 @@ final class DocumentsState {
         guard let session = activeImport, session.id == sessionID, !session.isSaving,
               SharedFieldPool.isSettled(rows) else { return false }
         session.cards = SharedFieldPool.project(rows, into: session.cards)
+        applySharedRowsToDraft(rows)
         session.sharedFieldsSettled = true
         return true
     }
@@ -324,15 +325,50 @@ final class DocumentsState {
     private func applySharedFieldsWithoutGate(_ rows: [SharedFieldPool.Row], sessionID: UUID) -> Bool {
         guard let session = activeImport, session.id == sessionID, !session.isSaving else { return false }
         session.cards = SharedFieldPool.project(rows, into: session.cards)
+        applySharedRowsToDraft(rows)
         return true
     }
 
+    /// 共同字段修正的「总数据源」同步（业主 2026-10-19）：共用页的修正同时写回
+    /// 文档复核快照（`draft.pages[].fields`），后续任何卡片重组都从修正值派生。
+    private func applySharedRowsToDraft(_ rows: [SharedFieldPool.Row]) {
+        guard let session = activeImport, var draft = session.draft else { return }
+        var changed = false
+        for row in rows where row.field.isConfirmed {
+            for page in draft.pages.indices {
+                changed = SharedFieldPool.applying(row.field, to: &draft.pages[page].fields) || changed
+            }
+        }
+        if changed { session.draft = draft }
+    }
+
+    /// 卡级修正的共同字段即时同步（业主 2026-10-19）：第一张卡里改正的医院/科室/
+    /// 医生/日期，同步到同会话其余卡（共享面/行/主卡草稿）与文档复核快照。
+    /// 只覆盖未单独编辑且原值相同的副本——不同的真实值不被抹掉（见 Domain 规则）。
     func updateEntityCard(_ card: MatchedCard) -> Bool {
         guard let session = activeImport, !session.isSaving, !session.isBulkDeferring,
               let index = session.cards.firstIndex(where: { $0.id == card.id }),
               session.cards[index].pageIndex == card.pageIndex,
               session.cards[index].kind == card.kind else { return false }
-        session.cards[index] = card
+        let old = session.cards[index]
+        var cards = session.cards
+        cards[index] = card
+        var draftChanged = false
+        var draft = session.draft
+        for field in card.shared where SharedFieldPool.sharedConcept(field.key) != nil {
+            guard let previous = old.shared.first(where: { $0.key == field.key }),
+                  previous.value != field.value || previous.unit != field.unit else { continue }
+            cards = SharedFieldPool.applying(field, from: card.id, to: cards)
+            if var current = draft {
+                var changed = false
+                for page in current.pages.indices {
+                    changed = SharedFieldPool.applying(field, to: &current.pages[page].fields) || changed
+                }
+                if changed { draft = current; draftChanged = true }
+            }
+        }
+        session.cards = cards
+        if draftChanged { session.draft = draft }
         return true
     }
 

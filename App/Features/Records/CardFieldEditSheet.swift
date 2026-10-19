@@ -20,6 +20,7 @@ struct CardFieldEditSheet: View {
     let onSaved: () -> Void
 
     @Environment(DocumentsState.self) private var docs
+    @Environment(AppDataChangeCenter.self) private var dataChange
     @Environment(\.dismiss) private var dismiss
 
     @State private var fields: [FieldDraft] = []
@@ -221,6 +222,9 @@ struct CardFieldEditSheet: View {
             do {
                 try await store.updateCardFields(kind: kind, entityId: entityId, patientId: patientId,
                                                  shared: snapshotFields, lines: snapshotLines)
+                // 共同字段修正已同步同文档兄弟卡（store 同事务）；通知时间轴/首页重载，
+                // 否则「总数据源」要切页才刷新（业主 2026-10-19）。
+                dataChange.documentSaved()
                 saved = true
                 onSaved()
             } catch {
