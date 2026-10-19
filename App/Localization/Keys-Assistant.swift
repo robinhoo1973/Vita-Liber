@@ -75,4 +75,21 @@ extension L10n {
     static var assistantAttachCamera: String { t("assistant.attachCamera") }
     static var assistantAttachPDF: String { t("assistant.attachPDF") }
     static var assistantCaptureQueued: String { t("assistant.captureQueued") }
+    // 2026-10-19 聊天内媒体 → 信息卡
+    static var assistantCardDone: String { t("assistant.cardDone") }
+    static var assistantCardDeferred: String { t("assistant.cardDeferred") }
+    static var assistantCardLocked: String { t("assistant.cardLocked") }
+    static var assistantCardEdit: String { t("assistant.cardEdit") }
+    static var assistantCardUnavailable: String { t("assistant.cardUnavailable") }
+    static var assistantMediaProcessing: String { t("assistant.mediaProcessing") }
+    static var assistantMediaReady: String { t("assistant.mediaReady") }
+    static var assistantMediaFailed: String { t("assistant.mediaFailed") }
+    static var assistantMediaDuplicate: String { t("assistant.mediaDuplicate") }
+    static var assistantImportBusy: String { t("assistant.importBusy") }
+    static var assistantDocTypeUnresolved: String { t("assistant.docTypeUnresolved") }
+    static var assistantCaptureSaved: String { t("assistant.captureSaved") }
+    static var assistantVoiceMessage: String { t("assistant.voiceMessage") }
+    static var assistantVoiceReplay: String { t("assistant.voiceReplay") }
+    static var assistantVoiceToText: String { t("assistant.voiceToText") }
+
 }

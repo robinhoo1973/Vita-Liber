@@ -18,6 +18,7 @@ struct VitaLiberApp: App {
     @State private var appState: AppState
     @State private var reminderStore: ReminderStore
     @State private var settingsStore: AppSettingsStore
+    @State private var avatarState: AvatarState
     @State private var observationState: ObservationStoreState
     @State private var entitlementStore: AppEntitlementStore
     @State private var trendState: TrendEntryState
@@ -116,6 +117,7 @@ struct VitaLiberApp: App {
         // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）
         let appSettings = AppSettingsStore(store: container.settings)
         _settingsStore = State(initialValue: appSettings)
+        _avatarState = State(initialValue: AvatarState(settings: appSettings))
         _observationState = State(initialValue: ObservationStoreState(
             store: container.observations, allergyStore: container.allergies,
             mediaAssets: container.mediaAssets))
@@ -389,6 +391,7 @@ struct VitaLiberApp: App {
             .environment(appState)
             .environment(reminderStore)
             .environment(settingsStore)
+            .environment(avatarState)
             .environment(observationState)
             .environment(dataChangeCenter)
             .environment(asrInstallCenter)

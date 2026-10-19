@@ -290,6 +290,18 @@ extension L10n {
     static var settings_themeSystem: String { t("settings.themeSystem") }
 
     static var settings_highContrast: String { t("settings.highContrast") }
+    // 2026-10-19 头像（设置 → 头像）
+    static var settings_avatarTitle: String { t("settings.avatarTitle") }
+    static var settings_avatarHint: String { t("settings.avatarHint") }
+    static var settings_avatarPreview: String { t("settings.avatarPreview") }
+    static var settings_avatarPresets: String { t("settings.avatarPresets") }
+    static var settings_avatarLocal: String { t("settings.avatarLocal") }
+    static var settings_avatarPhoto: String { t("settings.avatarPhoto") }
+    static var settings_avatarFile: String { t("settings.avatarFile") }
+    static var settings_avatarReset: String { t("settings.avatarReset") }
+    static var settings_avatarFailed: String { t("settings.avatarFailed") }
+    static var settings_avatarLocalFooter: String { t("settings.avatarLocalFooter") }
+
 
     static var settings_highContrastFooter: String { t("settings.highContrastFooter") }
 

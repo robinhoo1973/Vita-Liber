@@ -13,6 +13,24 @@ struct SettingsView: View {
     var body: some View {
         WithPerceptionTracking {
             Form {
+                // 头像（2026-10-19 业主指令）：聊天用户侧头像；预设图标 + 本地照片/文件。
+                Section {
+                    NavigationLink {
+                        AvatarSettingsView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            AvatarView(size: 44)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L10n.settings_avatarTitle)
+                                Text(L10n.settings_avatarHint)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("SP-25.setting.avatar")
+                }
                 // 2026-10-03 呈现评审（V4.13）：独立「离线说明」Section 为 mock 对齐残留，
                 // 降级为关于区页尾轻行（信任声明不占首屏权重）。
                 Section(L10n.settings_authTitle) {
@@ -258,11 +276,11 @@ struct SettingsView: View {
     }
 
     /// FR17.15 语音语言行值摘要（V4.13 呈现评审）：「主语言原生名」或「主语言 +N」——
-    /// 行值必须人类可读，不直出 locale 代码。原生名映射走 Domain 六语言单一事实源。
+    /// 行值必须人类可读，不直出 locale 代码。原生名映射走 Domain 两语言单一事实源。
     private var currentVoiceLanguages: String {
         let locales = SettingsRules.voiceLocales(settings.values[.voiceInputLanguages])
         guard let primary = locales.first else { return L10n.voiceLangTitle }
-        let name = EngineCapabilityProfile.sixLanguages.first {
+        let name = EngineCapabilityProfile.twoLanguages.first {
             TranscriptionLocale.normalizedIdentifier($0.locale) == TranscriptionLocale.normalizedIdentifier(primary)
         }?.nativeName ?? primary
         return locales.count > 1 ? "\(name) +\(locales.count - 1)" : name

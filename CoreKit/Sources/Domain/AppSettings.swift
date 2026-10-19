@@ -56,6 +56,9 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case voiceEngine               // FR17.15 V3.66 识别引擎档位（VoiceEngineChoice：auto/advanced/dictation/classic）
     case gateGraceSeconds          // FR1.4 退后台自动锁定宽限（秒：0/15/60）
     case speechRate                // FR14.7 默认语速：slow/normal/fast（TTS 三档，FR19.3 语速可调）
+    /// 聊天头像（2026-10-19 业主指令）：`symbol:<SF Symbol>` 或 `photo:<本地文件名>`。
+    /// 仅本机保存，不上传；默认 `symbol:person.crop.circle.fill`。
+    case avatarChoice
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -96,6 +99,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .voiceEngine: return VoiceEngineChoice.auto.rawValue
         case .gateGraceSeconds: return "5"
         case .speechRate: return "normal"
+        case .avatarChoice: return "symbol:person.crop.circle.fill"
         case .healthAutoImport: return "true"
         case .healthWriteBack: return "false"
         }

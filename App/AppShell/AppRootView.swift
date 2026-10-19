@@ -12,6 +12,7 @@ struct AppRootView: View {
     @Environment(AppState.self) private var appState
     @Environment(ReminderStore.self) private var reminderStore
     @Environment(AppSettingsStore.self) private var settingsStore
+    @Environment(AvatarState.self) private var avatarState
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(AppRouter.self) private var router
     @Environment(F16DeviceState.self) private var deviceState
@@ -168,6 +169,7 @@ struct AppRootView: View {
     /// 就位 → 语言对账 → 档案引导 → 备份时刻镜像 → 三/五链并行。
     private func startTasks() async {
         await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
+        await avatarState.load()   // 头像（本地文件/预设）随设置就位
         // 语言初始化已移至 VitaLiberApp.init（L10n.restoreLanguage 同步恢复，
         // 首帧即正确语言，无闪烁）；但 restoreLanguage 只读 vl.language 镜像，
         // 设置库（DB，随备份迁移）才是权威事实源——备份恢复到新设备时二者
