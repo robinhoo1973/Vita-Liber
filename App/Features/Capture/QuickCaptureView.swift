@@ -105,6 +105,12 @@ struct QuickCaptureView: View {
     private func handleCameraDismiss() {
         captureSheetTransition = false
         guard scenePhase == .active else { return }
+        // 全图识别（2026-10-19）：相机返回后直接进遮挡（脱敏）页，不取消会话。
+        if selection?.captureStep == .occlusion {
+            captureSheetTransition = true
+            showOcclusion = true
+            return
+        }
         if regionAfterCamera {
             regionAfterCamera = false
             captureSheetTransition = true
@@ -114,11 +120,14 @@ struct QuickCaptureView: View {
 
     private func handleCameraImage(_ image: UIImage) {
         guard let session = selection, let data = image.jpegData(compressionQuality: 1) else { failSelection(); return }
-        session.captureOriginalData = data; session.captureOrigin = "camera"
-        session.captureStep = .region
-        regionImage = image
-        regionAfterCamera = true
+        // 全图识别（业主 2026-10-19）：跳过识别区间选择，直接进入遮挡（脱敏）→ OCR。
+        session.captureOriginalData = data; session.captureProcessedData = data
+        session.captureOrigin = "camera"
+        session.captureStep = .occlusion
+        occlusionImage = image
+        captureSheetTransition = true
         showCamera = false
+        showOcclusion = true
     }
 
     private func handleScenePhase(_ phase: ScenePhase) {
@@ -138,9 +147,11 @@ struct QuickCaptureView: View {
                     throw DocumentsState.ImportError.unreadableMedia
                 }
                 session.isPreparing = false
+                // 全图识别：跳过区域选择，原图直接 OCR。
                 session.captureOriginalData = data; session.captureOrigin = "photoLibrary"
-                session.captureStep = .region
-                regionImage = image; captureSheetTransition = true; showRegionEditor = true
+                session.captureProcessedData = data
+                session.captureStep = .review
+                startOCR()
             } catch {
                 session.isPreparing = false
                 failSelection()
@@ -175,8 +186,9 @@ struct QuickCaptureView: View {
                     let data = try Data(contentsOf: url)
                     guard let image = UIImage(data: data) else { throw DocumentsState.ImportError.unreadableMedia }
                     session.captureOriginalData = data; session.captureOrigin = "import"
-                    session.captureStep = .region
-                    regionImage = image; captureSheetTransition = true; showRegionEditor = true
+                    session.captureProcessedData = data
+                    session.captureStep = .review
+                    startOCR()
                 } catch { failSelection() }
             } else {
                 reviewEnabled = true
