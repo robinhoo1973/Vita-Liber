@@ -23,9 +23,39 @@ final class AssistantChatUITests: XCTestCase {
 
         let input = app.descendants(matching: .any)["assistant.input"]
         XCTAssertTrue(input.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["assistant.send"].exists)
-        XCTAssertTrue(app.buttons["assistant.voice"].exists)
+        XCTAssertTrue(app.buttons["assistant.modeToggle"].exists)
+        XCTAssertTrue(app.buttons["assistant.attach"].exists, "空输入时右端为附件 ＋")
+        XCTAssertFalse(app.buttons["assistant.send"].exists, "空输入时不显示发送")
         XCTAssertTrue(app.buttons["assistant.close"].exists)
+    }
+
+    /// 2026-10-19 微信式输入栏：语音/键盘切换 + 附件面板。
+    func testVoiceModeToggleSwapsComposer() {
+        let app = launchToHome()
+        app.buttons["SP-04.home.assistant"].tap()
+
+        let toggle = app.buttons["assistant.modeToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.tap()
+        XCTAssertTrue(app.buttons["assistant.voiceTap"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["assistant.input"].exists)
+
+        toggle.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["assistant.input"].waitForExistence(timeout: 5))
+    }
+
+    func testAttachmentPanelShowsPhotoAndPDF() {
+        let app = launchToHome()
+        app.buttons["SP-04.home.assistant"].tap()
+
+        let attach = app.buttons["assistant.attach"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 5))
+        attach.tap()
+        XCTAssertTrue(app.buttons["assistant.attach.photos"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["assistant.attach.pdf"].exists)
+
+        attach.tap()
+        XCTAssertTrue(app.buttons["assistant.attach.photos"].waitForNonExistence(timeout: 5))
     }
 
     func testNoteFlowReachesStandardConfirmation() {
@@ -38,7 +68,9 @@ final class AssistantChatUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         input.tap()
         input.typeText("记一下")
-        app.buttons["assistant.send"].tap()
+        let send = app.buttons["assistant.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "有文本时右端换成发送")
+        send.tap()
 
         let confirm = app.buttons["FR17.13.confirm"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 10), "必须走 FR17.13 标准确认卡")
@@ -58,7 +90,9 @@ final class AssistantChatUITests: XCTestCase {
         XCTAssertTrue(input.waitForExistence(timeout: 5))
         input.tap()
         input.typeText("我胸痛喘不上气")
-        app.buttons["assistant.send"].tap()
+        let send = app.buttons["assistant.send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5))
+        send.tap()
 
         // 急救路径：会话关闭并进 SOS；不得出现任何确认卡/动作。
         XCTAssertFalse(app.buttons["FR17.13.confirm"].waitForExistence(timeout: 3))

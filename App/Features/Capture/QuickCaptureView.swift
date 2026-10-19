@@ -9,8 +9,19 @@ import Perception
 
 /// Camera, photos and files all finish in the same retained import review session.
 struct QuickCaptureView: View {
+    /// SP-65 附件面板的预选来源（2026-10-19）：同一采集/导入/OCR 管线，
+    /// 只跳过来源按钮的二次选择——不复制 picker 与审核流程。
+    enum InitialSource: String, Identifiable, Equatable {
+        case camera, photos, file
+        var id: String { rawValue }
+    }
+
     let kind: CaptureKind?
     var patientId: UUID? = nil
+    /// nil = 常规入口（用户自行选择来源）。
+    var initialSource: InitialSource? = nil
+    /// 审核会话结束回调（saved/deferred）；用户取消不回调。
+    var onFinished: ((DocumentsState.ImportOutcome) -> Void)? = nil
     @Environment(AppState.self) private var app
     @Environment(DocumentsState.self) private var docs
     @Environment(\.dismiss) private var dismiss
@@ -31,12 +42,14 @@ struct QuickCaptureView: View {
     @State private var permissionDenied = false
     @State private var processedInput: Data?
     @State private var captureSheetTransition = false
+    @State private var didAutoStartInitialSource = false
 
     private var selection: DocumentsState.ImportSession? {
         guard let session = docs.activeImport, session.id == selectionSessionID else { return nil }
         return session
     }
-    private var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    @MainActor static var cameraAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+    private var cameraAvailable: Bool { Self.cameraAvailable }
     private var reviewCanPresent: Bool {
         let step = docs.activeImport?.captureStep
         return reviewEnabled && (step == nil || step == .review)
@@ -230,7 +243,10 @@ struct QuickCaptureView: View {
                 }
                 Button(L10n.commonCancel, role: .cancel) {}
             } message: { Text(L10n.docImportFailed) }
-            .onAppear { recoverSelection() }
+            .onAppear {
+                recoverSelection()
+                autoStartInitialSource()
+            }
             .onChangeCompat(of: docs.activeImport?.captureStep) { _, _ in
                 if !captureSheetTransition && !showCamera && !showRegionEditor && !showOcclusion && !showPhotos && !fileImporterActive { recoverSelection() }
             }
@@ -260,7 +276,27 @@ struct QuickCaptureView: View {
     private func handleReviewOutcome(_ outcome: DocumentsState.ImportOutcome) {
         selectionSessionID = nil
         regionImage = nil; processedInput = nil
+        onFinished?(outcome)
         if outcome != .cancelled { dismiss() }
+    }
+
+    /// 预选来源自动开流（2026-10-19 SP-65 附件面板）：等 sheet 完成呈现再触发
+    /// 系统 picker；已有活动导入时不抢占（沿用 resume 路径）。
+    private func autoStartInitialSource() {
+        guard !didAutoStartInitialSource, let source = initialSource else { return }
+        didAutoStartInitialSource = true
+        guard docs.activeImport == nil else { return }
+        Task { @MainActor in
+            await Task.yield()
+            switch source {
+            case .camera:
+                if cameraAvailable { startCamera() }
+            case .photos:
+                if beginSelection(step: .photos) { showPhotos = true }
+            case .file:
+                if beginSelection(step: .file) { fileImporterActive = true }
+            }
+        }
     }
 
     @ViewBuilder

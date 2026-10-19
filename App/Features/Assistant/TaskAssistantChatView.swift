@@ -28,8 +28,25 @@ struct TaskAssistantChatView: View {
     @State private var judgedTarget: String?
     @State private var judgedConfidence: Double = 1.0
     @State private var isSaving = false
-    @State private var showVoiceInput = false
+    /// 单 sheet 槽（2026-10-19）：语音与附件采集共用一次 presentation，
+    /// 避免同视图多 `.sheet` 在 iOS 16 的相互覆盖。
+    @State private var activeSheet: AssistantSheet?
+    @State private var voiceMode = false
+    @State private var attachmentPanel = false
+    @FocusState private var inputFocused: Bool
     @State private var routeMonitor = AudioRouteMonitor()
+
+    private enum AssistantSheet: Identifiable {
+        case voice
+        case capture(QuickCaptureView.InitialSource)
+
+        var id: String {
+            switch self {
+            case .voice: return "voice"
+            case .capture(let source): return "capture-\(source.rawValue)"
+            }
+        }
+    }
 
     private struct ChatMessage: Identifiable, Equatable {
         enum Role: Equatable { case user, assistant, receipt }
@@ -69,13 +86,8 @@ struct TaskAssistantChatView: View {
                                    }) { confirmed in
                     handleConfirmation(confirmed)
                 }
-                .sheet(isPresented: $showVoiceInput) {
-                    AssistantVoiceInputSheet(
-                        onUse: { text in input = text },
-                        onEmergency: {
-                            dismiss()
-                            router.navigate(to: .sosHelp)
-                        })
+                .sheet(item: $activeSheet) { sheet in
+                    sheetContent(sheet)
                 }
                 .onAppear { routeMonitor.start() }
                 .onDisappear { routeMonitor.stop() }
@@ -153,25 +165,80 @@ struct TaskAssistantChatView: View {
         }
     }
 
+    /// 微信式输入栏（2026-10-19 业主指令）：[语音/键盘] [输入框|点按语音] [＋|发送]。
+    /// 文本优先；附件面板在输入栏上方展开（同一栏位，不弹系统菜单）。
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField(L10n.assistantChatPlaceholder, text: $input, axis: .vertical)
-                .lineLimit(1...4)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.secondary.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .accessibilityIdentifier("assistant.input")
+        VStack(spacing: 0) {
+            if attachmentPanel {
+                attachmentPanelView
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                modeToggleButton
+                if voiceMode {
+                    voiceModeButton
+                } else {
+                    textField
+                }
+                trailingButton
+            }
+            .padding(12)
+        }
+    }
+
+    private var modeToggleButton: some View {
+        Button {
+            voiceMode.toggle()
+            if voiceMode {
+                inputFocused = false
+                attachmentPanel = false
+            }
+        } label: {
+            Image(systemName: voiceMode ? "keyboard" : "mic.fill")
+                .font(.title3)
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .accessibilityLabel(voiceMode ? L10n.assistantKeyboardMode : L10n.assistantVoiceMode)
+        .accessibilityIdentifier("assistant.modeToggle")
+    }
+
+    private var textField: some View {
+        TextField(L10n.assistantChatPlaceholder, text: $input, axis: .vertical)
+            .lineLimit(1...4)
+            .textFieldStyle(.plain)
+            .focused($inputFocused)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.secondary.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .accessibilityIdentifier("assistant.input")
+    }
+
+    private var voiceModeButton: some View {
+        Button {
+            activeSheet = .voice
+        } label: {
+            Text(L10n.assistantVoiceTap)
+                .frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityIdentifier("assistant.voiceTap")
+    }
+
+    /// 空输入（或语音模式）显示 ＋；有文本时换成发送——右端永远只有一个主行动。
+    @ViewBuilder
+    private var trailingButton: some View {
+        if voiceMode || trimmedInput.isEmpty {
             Button {
-                showVoiceInput = true
+                withAnimation(.easeOut(duration: 0.2)) { attachmentPanel.toggle() }
+                if attachmentPanel { inputFocused = false }
             } label: {
-                Image(systemName: "mic.fill")
-                    .font(.title3)
+                Image(systemName: "plus.circle.fill")
+                    .font(.title2)
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .accessibilityLabel(L10n.assistantVoiceTitle)
-            .accessibilityIdentifier("assistant.voice")
+            .accessibilityLabel(L10n.assistantAttach)
+            .accessibilityIdentifier("assistant.attach")
+        } else {
             Button {
                 send()
             } label: {
@@ -179,11 +246,79 @@ struct TaskAssistantChatView: View {
                     .font(.title2)
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .disabled(trimmedInput.isEmpty || isSaving)
+            .disabled(isSaving)
             .accessibilityLabel(L10n.assistantSend)
             .accessibilityIdentifier("assistant.send")
         }
-        .padding(12)
+    }
+
+    private var attachmentPanelView: some View {
+        HStack(spacing: 12) {
+            attachmentOption(L10n.assistantAttachPhotos, systemImage: "photo.on.rectangle",
+                             identifier: "assistant.attach.photos") {
+                startCapture(.photos)
+            }
+            if QuickCaptureView.cameraAvailable {
+                attachmentOption(L10n.assistantAttachCamera, systemImage: "camera.fill",
+                                 identifier: "assistant.attach.camera") {
+                    startCapture(.camera)
+                }
+            }
+            attachmentOption(L10n.assistantAttachPDF, systemImage: "doc.fill",
+                             identifier: "assistant.attach.pdf") {
+                startCapture(.file)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private func attachmentOption(_ title: String, systemImage: String,
+                                  identifier: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.title2)
+                Text(title)
+                    .font(.caption)
+            }
+            .frame(minWidth: 64, minHeight: 64)
+            .background(Color.secondary.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func startCapture(_ source: QuickCaptureView.InitialSource) {
+        withAnimation(.easeOut(duration: 0.2)) { attachmentPanel = false }
+        inputFocused = false
+        activeSheet = .capture(source)
+    }
+
+    @ViewBuilder
+    private func sheetContent(_ sheet: AssistantSheet) -> some View {
+        switch sheet {
+        case .voice:
+            AssistantVoiceInputSheet(
+                onUse: { text in
+                    input = text
+                    voiceMode = false
+                },
+                onEmergency: {
+                    dismiss()
+                    router.navigate(to: .sosHelp)
+                })
+        case .capture(let source):
+            NavigationStack {
+                QuickCaptureView(kind: nil, initialSource: source) { outcome in
+                    guard outcome != .cancelled else { return }
+                    append(.init(role: .receipt, text: L10n.assistantCaptureQueued))
+                }
+            }
+        }
     }
 
     private var trimmedInput: String {

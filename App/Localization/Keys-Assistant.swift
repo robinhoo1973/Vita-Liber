@@ -65,4 +65,14 @@ extension L10n {
     static var assistantVoiceTitle: String { t("assistant.voiceTitle") }
     static var assistantVoiceHint: String { t("assistant.voiceHint") }
     static var assistantVoiceUse: String { t("assistant.voiceUse") }
+
+    // 2026-10-19 微信式输入栏：语音/键盘切换、附件面板（照片/拍照/PDF）
+    static var assistantVoiceMode: String { t("assistant.modeVoice") }
+    static var assistantKeyboardMode: String { t("assistant.modeText") }
+    static var assistantVoiceTap: String { t("assistant.voiceTap") }
+    static var assistantAttach: String { t("assistant.attach") }
+    static var assistantAttachPhotos: String { t("assistant.attachPhotos") }
+    static var assistantAttachCamera: String { t("assistant.attachCamera") }
+    static var assistantAttachPDF: String { t("assistant.attachPDF") }
+    static var assistantCaptureQueued: String { t("assistant.captureQueued") }
 }

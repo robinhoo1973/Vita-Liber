@@ -2405,3 +2405,11 @@
 "assistant.voiceTitle" = "Voice input";
 "assistant.voiceHint" = "Hold to talk; text goes to the composer when you release.";
 "assistant.voiceUse" = "Use";
+"assistant.modeVoice" = "Voice input";
+"assistant.modeText" = "Keyboard input";
+"assistant.voiceTap" = "Tap to start voice input";
+"assistant.attach" = "Add attachment";
+"assistant.attachPhotos" = "Photos";
+"assistant.attachCamera" = "Camera";
+"assistant.attachPDF" = "PDF file";
+"assistant.captureQueued" = "Submitted for recognition — review it in Pending Cards";

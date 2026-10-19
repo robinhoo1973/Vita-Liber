@@ -2405,3 +2405,11 @@
 "assistant.voiceTitle" = "语音输入";
 "assistant.voiceHint" = "按住说话，松开后文字进入输入框。";
 "assistant.voiceUse" = "使用";
+"assistant.modeVoice" = "语音输入";
+"assistant.modeText" = "键盘输入";
+"assistant.voiceTap" = "点击开始语音输入";
+"assistant.attach" = "添加附件";
+"assistant.attachPhotos" = "照片";
+"assistant.attachCamera" = "拍照";
+"assistant.attachPDF" = "PDF 文件";
+"assistant.captureQueued" = "已提交识别，请在待确认卡片中核对";

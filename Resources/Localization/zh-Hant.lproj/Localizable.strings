@@ -2405,3 +2405,11 @@
 "assistant.voiceTitle" = "語音輸入";
 "assistant.voiceHint" = "按住說話，鬆開後文字進入輸入框。";
 "assistant.voiceUse" = "使用";
+"assistant.modeVoice" = "語音輸入";
+"assistant.modeText" = "鍵盤輸入";
+"assistant.voiceTap" = "點擊開始語音輸入";
+"assistant.attach" = "新增附件";
+"assistant.attachPhotos" = "照片";
+"assistant.attachCamera" = "拍照";
+"assistant.attachPDF" = "PDF 檔案";
+"assistant.captureQueued" = "已提交辨識，請在待確認卡片中核對";
