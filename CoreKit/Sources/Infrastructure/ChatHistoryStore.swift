@@ -122,6 +122,7 @@ public actor ChatHistoryStore {
                 SELECT c.id, c.title, c.pinned, c.updated_at,
                   (SELECT COUNT(*) FROM chat_message m WHERE m.conversation_id = c.id) AS message_count,
                   (SELECT COALESCE(NULLIF(m.text, ''),
+                                   json_extract(m.payload_json, '$.media.transcript'),
                                    json_extract(m.payload_json, '$.media.filename'),
                                    json_extract(m.payload_json, '$.card.title'), '')
                      FROM chat_message m WHERE m.conversation_id = c.id
