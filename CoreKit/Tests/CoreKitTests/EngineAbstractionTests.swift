@@ -73,17 +73,16 @@ struct EngineAbstractionTests {
         }
     }
 
-    // TC-MT-ENGINEBUS-04：方言矩阵泛化为 EngineCapabilityProfile（T1/T2）
+    // TC-MT-ENGINEBUS-04：方言矩阵泛化为 EngineCapabilityProfile（2026-10-19 收敛：两语全 T1）
     /// 原名：方言矩阵_泛化为能力画像
     @Test func dialectMatrixGeneralizedToCapabilityProfile() {
         let matrix = EngineCapabilityProfile.dialectMatrix()
-        #expect(matrix.count == 6)
+        #expect(matrix.count == 2)
         let t1 = matrix.filter { $0.tier == .complete }
         let t2 = matrix.filter { $0.tier == .bestEffort }
-        #expect(t1.count == 3)
-        #expect(t2.count == 3)
+        #expect(t1.count == 2)
+        #expect(t2.isEmpty, "T2 尽力识别层已删除，矩阵不得含 bestEffort 条目")
         #expect(t1.allSatisfy { $0.onDeviceOnly })
-        #expect(t2.allSatisfy { $0.onDeviceOnly })
         // 能力缺口来自数据 + 运行时探测，不硬编码
         #expect(matrix.allSatisfy { !$0.supportedLocales.isEmpty })
     }

@@ -104,8 +104,8 @@ struct VoiceLanguageSettingsView: View {
 
     private var inputLanguageOptions: [(locale: String, nativeName: String, tier: EngineCapabilityProfile.Tier)] {
         // I6 审查修复：选项派生收敛 Domain 单出口（EngineCapabilityProfile
-        // .inputLanguageOptions，sixLanguages 亦随之下沉）——视图不再内联
-        // 模型目录→语种表派生。2026-10-05 目录驱动：语种覆盖取自路由目录。
+        // .inputLanguageOptions，twoLanguages 亦随之下沉）——视图不再内联
+        // 模型目录→语种表派生。V4.26 收敛：只呈现五语种，目录 extras 不注入。
         EngineCapabilityProfile.inputLanguageOptions(
             choice: VoiceEngineChoice.resolve(settings.values[.voiceEngine]),
             index: ASRFamilyIndexStore.routingIndex())
@@ -191,7 +191,7 @@ struct VoiceLanguageSettingsView: View {
                 }
 
                 Section {
-                    ForEach(EngineCapabilityProfile.sixLanguages, id: \.locale) { lang in
+                    ForEach(EngineCapabilityProfile.twoLanguages, id: \.locale) { lang in
                         // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                         WithPerceptionTracking {
                             Button {

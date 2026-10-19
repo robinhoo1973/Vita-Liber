@@ -121,15 +121,11 @@ public enum ASRModelCatalog {
         return result.joined(separator: ",")
     }
 
-    /// Qwen3-ASR 官方语言名称表（模型卡 30 语种；中文各方言归 Chinese，粤语独立为 Cantonese）。
+    /// Qwen3-ASR 官方语言名称表（2026-10-19 语言面收敛：只保留两语种——普通话/英语）。
     /// 解码提示只能用这些名称：模型输出/提示格式为 `language <Name><asr_text>`。
     public static func qwenLanguageName(forCode code: String) -> String? {
         let names: [String: String] = [
-            "zh": "Chinese", "en": "English", "yue": "Cantonese", "ar": "Arabic", "de": "German", "fr": "French",
-            "es": "Spanish", "pt": "Portuguese", "id": "Indonesian", "it": "Italian", "ko": "Korean", "ru": "Russian",
-            "th": "Thai", "vi": "Vietnamese", "ja": "Japanese", "tr": "Turkish", "hi": "Hindi", "ms": "Malay",
-            "nl": "Dutch", "sv": "Swedish", "da": "Danish", "fi": "Finnish", "pl": "Polish", "cs": "Czech",
-            "fil": "Filipino", "fa": "Persian", "el": "Greek", "hu": "Hungarian", "mk": "Macedonian", "ro": "Romanian"]
+            "zh": "Chinese", "en": "English"]
         return names[code]
     }
 

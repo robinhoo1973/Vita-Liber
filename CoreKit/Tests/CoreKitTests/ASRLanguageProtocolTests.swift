@@ -40,13 +40,23 @@ struct ASRLanguageProtocolTests {
     @Test(arguments: [
         ("zh-Hans-CN", "Chinese"), ("zh-Hant-TW", "Chinese"), ("nan-TW", "Chinese"),
         ("wuu-CN", "Chinese"), ("zh-Hans-CN-Sichuan", "Chinese"),
-        ("yue-Hant-HK", "Cantonese"), ("yue-Hans-CN", "Cantonese"),
-        ("en-US", "English"), ("ja-JP", "Japanese"), ("fil-PH", "Filipino")
+        ("en-US", "English")
     ])
     /// 原名：Qwen单语模式产出官方语言名称
     func qwenMonolingualModeProducesOfficialLanguageName(_ locale: String, _ expected: String) throws {
         let qwen = try #require(ASRModelCatalog.model(for: .qwen3, in: Self.fixtureIndex))
         #expect(qwen.decoderLanguage(for: locale, mode: .single) == expected)
+    }
+
+    /// 2026-10-19 语言面收敛：名称表只留两语种（普通话/英语）——其余 locale 必须 nil（不猜测）。
+    @Test func qwenNameTableTrimmedToTwoLanguages() throws {
+        let qwen = try #require(ASRModelCatalog.model(for: .qwen3, in: Self.fixtureIndex))
+        #expect(qwen.decoderLanguage(for: "fil-PH", mode: .single) == nil)
+        #expect(qwen.decoderLanguage(for: "ar-SA", mode: .single) == nil)
+        #expect(qwen.decoderLanguage(for: "de-DE", mode: .single) == nil)
+        #expect(qwen.decoderLanguage(for: "ja-JP", mode: .single) == nil)
+        #expect(qwen.decoderLanguage(for: "ko-KR", mode: .single) == nil)
+        #expect(qwen.decoderLanguage(for: "yue-Hant-HK", mode: .single) == nil)
     }
 
     /// 原名：Qwen混说模式不强制语言以启用自带语种识别

@@ -115,15 +115,14 @@ struct SherpaOnnxEngineTests {
 
     // MARK: - 能力诚实（FR17.15 / V3.94）
 
-    @Test("主轨能力：六语种选择面 = Domain 方言矩阵，T2 尽力识别")
+    @Test("主轨能力：两语种选择面 = Domain 方言矩阵，全部 T1（2026-10-19 收敛）")
     func capabilityLocaleMatrix() {
         // 模型资产缺失时构造失败——通过装配链断言主轨存在性，
         // 能力面断言落在共享 Domain 矩阵（单一事实源）上
         let matrix = EngineCapabilityProfile.dialectMatrix()
         let locales = Set(matrix.flatMap { $0.supportedLocales.map(\.identifier) })
-        #expect(locales.count == 6)
+        #expect(locales.count == 2)
         #expect(locales.contains("zh-Hans-CN"))
-        #expect(locales.contains("yue-Hant-HK"))
         #expect(locales.contains("en-US"))
     }
 }
