@@ -8,28 +8,59 @@ struct SettingsView: View {
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppEntitlementStore.self) private var entitlements
+    @Environment(DocumentsState.self) private var docs
+    @Environment(ChatHistoryState.self) private var chatHistory
     @State private var toggles: [AppSettingKey: Bool] = [:]
+    @State private var chatCount = 0
 
     var body: some View {
         WithPerceptionTracking {
             Form {
-                // 头像（2026-10-19 业主指令）：聊天用户侧头像；预设图标 + 本地照片/文件。
+                // User Profile 头部（2026-10-19 设计稿 04）：头像/昵称 + 本机徽标 + 概览。
                 Section {
                     NavigationLink {
                         AvatarSettingsView()
                     } label: {
-                        HStack(spacing: 12) {
-                            AvatarView(size: 44)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(L10n.settings_avatarTitle)
-                                Text(L10n.settings_avatarHint)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                        VStack(spacing: 8) {
+                            AvatarView(size: 84)
+                            Text(userDisplayName)
+                                .font(.title3.weight(.semibold))
+                            Text(L10n.profileLocalBadge)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .frame(minHeight: 44)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
                     }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier("SP-25.setting.avatar")
+                }
+                Section {
+                    HStack(spacing: 0) {
+                        statCell("\(app.members.count)", L10n.profileStatMembers)
+                        Divider().frame(height: 34)
+                        statCell("\(docs.documents.count)", L10n.profileStatRecords)
+                        Divider().frame(height: 34)
+                        statCell("\(chatCount)", L10n.profileStatChats)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                Section(L10n.profilePersonal) {
+                    NavigationLink {
+                        AvatarSettingsView()
+                    } label: {
+                        Label(L10n.profileAvatarRow, systemImage: "person.crop.circle")
+                    }
+                    NavigationLink {
+                        AssistantAppearanceView()
+                    } label: {
+                        Label(L10n.profileAssistantRow, systemImage: "sparkles")
+                    }
+                    NavigationLink {
+                        MemberManagementView()
+                    } label: {
+                        LabeledContent(L10n.profileMembersRow, value: "\(app.members.count)")
+                    }
                 }
                 // 2026-10-03 呈现评审（V4.13）：独立「离线说明」Section 为 mock 对齐残留，
                 // 降级为关于区页尾轻行（信任声明不占首屏权重）。
@@ -230,7 +261,10 @@ struct SettingsView: View {
             .tintedCanvas()   // 与全部设置子页视觉基底统一（此前本页 Form 裸白）
             .navigationTitle(L10n.navMe)
             .navigationBarTitleDisplayMode(.inline)   // 2026-10-04 业主反馈：tab 根统一 inline（同 HomeView 先例）
-            .task { await settings.load() }
+            .task {
+                await settings.load()
+                chatCount = await chatHistory.count(patientId: app.currentPatientId)
+            }
         }
     }
 
@@ -284,6 +318,19 @@ struct SettingsView: View {
             TranscriptionLocale.normalizedIdentifier($0.locale) == TranscriptionLocale.normalizedIdentifier(primary)
         }?.nativeName ?? primary
         return locales.count > 1 ? "\(name) +\(locales.count - 1)" : name
+    }
+
+    private func statCell(_ value: String, _ title: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.title3.weight(.semibold))
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var userDisplayName: String {
+        app.owner?.displayName ?? app.members.first?.displayName ?? L10n.help_appName
     }
 
     private func label(for key: AppSettingKey) -> String {

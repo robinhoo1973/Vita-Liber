@@ -59,6 +59,8 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     /// 聊天头像（2026-10-19 业主指令）：`symbol:<SF Symbol>` 或 `photo:<本地文件名>`。
     /// 仅本机保存，不上传；默认 `symbol:person.crop.circle.fill`。
     case avatarChoice
+    /// 助手头像（2026-10-19）：仅预设 SF Symbol，保证与真人/医生可区分。
+    case assistantAvatarChoice
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -100,6 +102,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .gateGraceSeconds: return "5"
         case .speechRate: return "normal"
         case .avatarChoice: return "symbol:person.crop.circle.fill"
+        case .assistantAvatarChoice: return "sparkles"
         case .healthAutoImport: return "true"
         case .healthWriteBack: return "false"
         }

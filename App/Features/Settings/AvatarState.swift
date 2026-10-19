@@ -19,20 +19,41 @@ final class AvatarState {
     ]
     static let defaultSymbol = "person.crop.circle.fill"
 
+    static let assistantPresets: [String] = [
+        "sparkles", "leaf", "moon.stars", "sun.max", "waveform",
+        "star", "cloud", "location.north.circle",
+    ]
+    static let defaultAssistantSymbol = "sparkles"
+
     private(set) var choice: String
+    private(set) var assistantChoice: String
     private(set) var image: UIImage?
     private let settings: AppSettingsStore
 
     init(settings: AppSettingsStore) {
         self.settings = settings
         self.choice = SettingsRules.resolved(settings.values[.avatarChoice], key: .avatarChoice)
+        self.assistantChoice = SettingsRules.resolved(settings.values[.assistantAvatarChoice],
+                                                      key: .assistantAvatarChoice)
     }
 
     var symbol: String { Self.symbolName(in: choice) ?? Self.defaultSymbol }
 
+    var assistantSymbol: String {
+        Self.assistantPresets.contains(assistantChoice) ? assistantChoice : Self.defaultAssistantSymbol
+    }
+
     func load() async {
         choice = SettingsRules.resolved(settings.values[.avatarChoice], key: .avatarChoice)
+        assistantChoice = SettingsRules.resolved(settings.values[.assistantAvatarChoice],
+                                                 key: .assistantAvatarChoice)
         image = Self.loadImage(for: choice)
+    }
+
+    func setAssistantSymbol(_ symbol: String) async {
+        guard Self.assistantPresets.contains(symbol) else { return }
+        assistantChoice = symbol
+        await settings.set(symbol, for: .assistantAvatarChoice)
     }
 
     func setSymbol(_ symbol: String) async {

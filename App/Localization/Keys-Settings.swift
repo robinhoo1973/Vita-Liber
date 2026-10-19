@@ -301,6 +301,32 @@ extension L10n {
     static var settings_avatarReset: String { t("settings.avatarReset") }
     static var settings_avatarFailed: String { t("settings.avatarFailed") }
     static var settings_avatarLocalFooter: String { t("settings.avatarLocalFooter") }
+    static var settings_avatarPresetHint: String { t("settings.avatarPresetHint") }
+    static var settings_avatarCustomHint: String { t("settings.avatarCustomHint") }
+    static var settings_avatarUpload: String { t("settings.avatarUpload") }
+    static var settings_avatarCropTitle: String { t("settings.avatarCropTitle") }
+    static var settings_avatarDone: String { t("settings.avatarDone") }
+    static var settings_avatarChooseSource: String { t("settings.avatarChooseSource") }
+    static var settings_avatarCamera: String { t("settings.avatarCamera") }
+    static var settings_avatarZoom: String { t("settings.avatarZoom") }
+    static var settings_avatarReselect: String { t("settings.avatarReselect") }
+    static var settings_avatarCropHint: String { t("settings.avatarCropHint") }
+    static var settings_assistantAppearance: String { t("settings.assistantAppearance") }
+    static var settings_assistantHint: String { t("settings.assistantHint") }
+    static var settings_assistantPick: String { t("settings.assistantPick") }
+    static var settings_assistantFooter: String { t("settings.assistantFooter") }
+    static var settings_assistantReset: String { t("settings.assistantReset") }
+    static var assistantName: String { t("assistant.name") }
+    static var profileLocalBadge: String { t("profile.localBadge") }
+    static var profileStatMembers: String { t("profile.stat.members") }
+    static var profileStatRecords: String { t("profile.stat.records") }
+    static var profileStatChats: String { t("profile.stat.chats") }
+    static var profilePersonal: String { t("profile.personal") }
+    static var profileAvatarRow: String { t("profile.avatarRow") }
+    static var profileAssistantRow: String { t("profile.assistantRow") }
+    static var profileMembersRow: String { t("profile.membersRow") }
+    static var profileData: String { t("profile.data") }
+    static var profileChatHistory: String { t("profile.chatHistory") }
 
 
     static var settings_highContrastFooter: String { t("settings.highContrastFooter") }

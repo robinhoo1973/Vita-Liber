@@ -31,10 +31,11 @@ struct AvatarView: View {
 
 /// 助手头像（固定身份，不随用户设置变化）。
 struct AssistantAvatarView: View {
+    @Environment(AvatarState.self) private var avatar
     var size: CGFloat = 32
 
     var body: some View {
-        Image(systemName: "sparkles")
+        Image(systemName: avatar.assistantSymbol)
             .resizable()
             .scaledToFit()
             .padding(size * 0.22)
