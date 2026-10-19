@@ -1,4 +1,8 @@
 import SwiftUI
+import UIKit
+import AVFoundation
+import PhotosUI
+import UniformTypeIdentifiers
 import Perception
 import Domain
 import Infrastructure
@@ -16,6 +20,7 @@ struct TaskAssistantChatView: View {
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNotes
     @Environment(QuestionsState.self) private var questions
+    @Environment(DocumentsState.self) private var docs
     @Environment(\.auditLog) private var auditLog
     @Environment(\.dismiss) private var dismiss
 
@@ -36,25 +41,61 @@ struct TaskAssistantChatView: View {
     @FocusState private var inputFocused: Bool
     @State private var routeMonitor = AudioRouteMonitor()
 
+    // 2026-10-19 聊天内采集（业主指令）：媒体 → 全图 OCR → 助理侧信息卡。
+    @State private var chatSessionID: UUID?
+    @State private var importing = false
+    @State private var showPhotoPicker = false
+    @State private var showCamera = false
+    @State private var showFileImporter = false
+    @State private var pickedPhoto: PhotosPickerItem?
+
+    // 语音消息重放（2026-10-19）：本机音频文件 + 转文本展开态。
+    @State private var audioPlayer: AVAudioPlayer?
+    @State private var playingMessageID: UUID?
+    @State private var shownTranscripts: Set<UUID> = []
+
     private enum AssistantSheet: Identifiable {
         case voice
-        case capture(QuickCaptureView.InitialSource)
+        case sharedReview(sessionID: UUID)
+        case cardReview(cardID: UUID, sessionID: UUID)
 
         var id: String {
             switch self {
             case .voice: return "voice"
-            case .capture(let source): return "capture-\(source.rawValue)"
+            case .sharedReview(let id): return "shared-\(id.uuidString)"
+            case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
             }
         }
+    }
+
+    private struct MediaInfo: Equatable {
+        enum Kind: Equatable { case image, pdf, file, voice }
+        enum Status: Equatable { case processing, ready, failed }
+        var kind: Kind
+        var filename: String
+        var status: Status
+        var audioFilename: String?
+        var transcript: String?
+    }
+
+    private struct CardInfo: Equatable, Identifiable {
+        enum Kind: Equatable { case shared, entity }
+        var id: String
+        var kind: Kind
+        var entityKind: String?
+        var fieldCount: Int
+        var sessionID: UUID
     }
 
     private struct ChatMessage: Identifiable, Equatable {
         enum Role: Equatable { case user, assistant, receipt }
         let id = UUID()
         var role: Role
-        var text: String
+        var text: String = ""
         var isRefusal = false
         var isEmergency = false
+        var media: MediaInfo?
+        var card: CardInfo?
     }
 
     private var suggestions: [String] {
@@ -89,8 +130,20 @@ struct TaskAssistantChatView: View {
                 .sheet(item: $activeSheet) { sheet in
                     sheetContent(sheet)
                 }
+                .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
+                .onChangeCompat(of: pickedPhoto) { _, item in handlePickedPhoto(item) }
+                .fullScreenCover(isPresented: $showCamera) {
+                    CameraPicker { image in handleCameraImage(image) }
+                }
+                .fileImporter(isPresented: $showFileImporter,
+                              allowedContentTypes: [.pdf, .image],
+                              allowsMultipleSelection: false,
+                              onCompletion: handleImportedFile)
                 .onAppear { routeMonitor.start() }
-                .onDisappear { routeMonitor.stop() }
+                .onDisappear {
+                    routeMonitor.stop()
+                    releaseChatSessionIfNeeded()
+                }
             }
         }
     }
@@ -139,19 +192,248 @@ struct TaskAssistantChatView: View {
         .padding(.top, 24)
     }
 
+    /// 微信式消息行（2026-10-19）：用户媒体/文本在右（用户头像），
+    /// 助手文本/信息卡在左（助手头像）。
     private func messageRow(_ message: ChatMessage) -> some View {
-        HStack {
-            if message.role == .user { Spacer(minLength: 40) }
-            VStack(alignment: .leading, spacing: 4) {
-                Text(message.text)
-                    .font(.body)
-                    .foregroundStyle(message.isRefusal || message.isEmergency ? Color.red : Color.primary)
+        HStack(alignment: .top, spacing: 8) {
+            if message.role == .user { Spacer(minLength: 24) }
+            if message.role != .user { AssistantAvatarView(size: 32) }
+            if let media = message.media {
+                mediaBubble(media, messageID: message.id)
+            } else if let card = message.card {
+                cardBubble(card)
+            } else {
+                textBubble(message)
             }
+            if message.role == .user { AvatarView(size: 32) }
+            if message.role != .user { Spacer(minLength: 24) }
+        }
+    }
+
+    private func textBubble(_ message: ChatMessage) -> some View {
+        Text(message.text)
+            .font(.body)
+            .foregroundStyle(message.isRefusal || message.isEmergency
+                ? Color("semantic-danger", bundle: .main) : Color.primary)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(background(for: message))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            if message.role != .user { Spacer(minLength: 40) }
+    }
+
+    /// 用户侧媒体记录（2026-10-19 业主：像微信上传文件一样进聊天记录；
+    /// 窄列只用类型图标 + 文件名，不做大缩略图）。
+    @ViewBuilder
+    private func mediaBubble(_ media: MediaInfo, messageID: UUID) -> some View {
+        if media.kind == .voice {
+            voiceBubble(media, messageID: messageID)
+        } else {
+            HStack(spacing: 10) {
+                Image(systemName: media.kind == .image ? "photo.fill"
+                      : media.kind == .pdf ? "doc.fill" : "doc.text.fill")
+                    .font(.title3)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(media.filename)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                    Text(mediaStatusText(media.status))
+                        .font(.caption2)
+                        .foregroundStyle(media.status == .failed
+                            ? Color("semantic-danger", bundle: .main) : Color.secondary)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: 220, alignment: .leading)
+            .background(Color("brand-primary", bundle: .main).opacity(0.14))
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("assistant.media")
+        }
+    }
+
+    /// 语音消息（2026-10-19）：本机音频可重放；[转文本] 展开识别文本。
+    private func voiceBubble(_ media: MediaInfo, messageID: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Button {
+                    playVoice(media, messageID: messageID)
+                } label: {
+                    Image(systemName: playingMessageID == messageID ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.title2)
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel(L10n.assistantVoiceReplay)
+                .accessibilityIdentifier("assistant.voice.replay")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.assistantVoiceMessage)
+                        .font(.subheadline)
+                    Text(mediaStatusText(media.status))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 4)
+                Button(L10n.assistantVoiceToText) {
+                    toggleTranscript(messageID)
+                }
+                .font(.caption)
+                .frame(minWidth: 44, minHeight: 44)
+                .accessibilityIdentifier("assistant.voice.toText")
+            }
+            if shownTranscripts.contains(messageID), let transcript = media.transcript {
+                Text(transcript)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(Color("brand-primary", bundle: .main).opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func playVoice(_ media: MediaInfo, messageID: UUID) {
+        guard let filename = media.audioFilename,
+              let url = ChatAudioStore.fileURL(filename) else { return }
+        if playingMessageID == messageID {
+            audioPlayer?.stop()
+            audioPlayer = nil
+            playingMessageID = nil
+            return
+        }
+        audioPlayer?.stop()
+        guard let player = try? AVAudioPlayer(contentsOf: url) else { return }   // try?-ok: 文件缺失/损坏 → 不播
+        player.prepareToPlay()
+        player.play()
+        audioPlayer = player
+        playingMessageID = messageID
+    }
+
+    private func toggleTranscript(_ messageID: UUID) {
+        if shownTranscripts.contains(messageID) { shownTranscripts.remove(messageID) }
+        else { shownTranscripts.insert(messageID) }
+    }
+
+    /// 助手侧信息卡（2026-10-19）：开篇行右侧编辑图标进入修正/确认；完成后显示勾。
+    private func cardBubble(_ card: CardInfo) -> some View {
+        let state = cardState(card)
+        return HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(cardTitle(card))
+                    .font(.subheadline.weight(.semibold))
+                Text(cardSubtitle(card, state: state))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            cardStatusControl(card, state: state)
+        }
+        .padding(12)
+        .frame(maxWidth: 300, alignment: .leading)
+        .background(cardBackground(state))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("assistant.card.\(card.id)")
+    }
+
+    @ViewBuilder
+    private func cardStatusControl(_ card: CardInfo, state: CardState) -> some View {
+        switch state {
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
+                .foregroundStyle(Color("semantic-success", bundle: .main))
+                .accessibilityLabel(L10n.assistantCardDone)
+        case .deferred:
+            Image(systemName: "clock.badge.checkmark")
+                .font(.title3)
+                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                .accessibilityLabel(L10n.assistantCardDeferred)
+        case .pending, .locked:
+            Button {
+                openCard(card, state: state)
+            } label: {
+                Image(systemName: "square.and.pencil")
+                    .font(.title3)
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .accessibilityLabel(L10n.assistantCardEdit)
+            .accessibilityIdentifier("assistant.card.edit.\(card.id)")
+        }
+    }
+
+    private func cardBackground(_ state: CardState) -> Color {
+        switch state {
+        case .done: return Color("semantic-success", bundle: .main).opacity(0.10)
+        case .deferred: return Color("semantic-warning", bundle: .main).opacity(0.10)
+        case .pending, .locked: return Color.secondary.opacity(0.10)
+        }
+    }
+
+    private enum CardState: Equatable { case pending, done, deferred, locked }
+
+    private func cardState(_ info: CardInfo) -> CardState {
+        guard let session = docs.activeImport, session.id == info.sessionID else { return .done }
+        switch info.kind {
+        case .shared:
+            let rows = docs.sharedFieldRows(for: session)
+            if rows.isEmpty || session.sharedFieldsSettled { return .done }
+            if session.outcome != nil { return .deferred }
+            return .pending
+        case .entity:
+            guard let cardID = UUID(uuidString: info.id) else { return .done }
+            if session.committedCards.contains(cardID) { return .done }
+            guard session.cards.contains(where: { $0.id == cardID }) else { return .deferred }
+            let rows = docs.sharedFieldRows(for: session)
+            return rows.isEmpty || session.sharedFieldsSettled ? .pending : .locked
+        }
+    }
+
+    private func cardTitle(_ card: CardInfo) -> String {
+        switch card.kind {
+        case .shared: return L10n.sharedFieldsTitle
+        case .entity: return L10n.entityCardKindName(card.entityKind ?? "")
+        }
+    }
+
+    private func cardSubtitle(_ card: CardInfo, state: CardState) -> String {
+        switch state {
+        case .done: return L10n.assistantCardDone
+        case .deferred: return L10n.assistantCardDeferred
+        case .locked: return L10n.assistantCardLocked
+        case .pending:
+            switch card.kind {
+            case .shared:
+                let pending = docs.activeImport.map { docs.sharedFieldRows(for: $0).filter { !$0.field.isConfirmed }.count } ?? 0
+                return L10n.sharedFieldsPending(pending)
+            case .entity:
+                return L10n.ocrCardFieldCount(card.fieldCount)
+            }
+        }
+    }
+
+    private func mediaStatusText(_ status: MediaInfo.Status) -> String {
+        switch status {
+        case .processing: return L10n.assistantMediaProcessing
+        case .ready: return L10n.assistantMediaReady
+        case .failed: return L10n.assistantMediaFailed
+        }
+    }
+
+    private func openCard(_ card: CardInfo, state: CardState) {
+        switch card.kind {
+        case .shared:
+            activeSheet = .sharedReview(sessionID: card.sessionID)
+        case .entity:
+            if state == .locked {
+                activeSheet = .sharedReview(sessionID: card.sessionID)
+                return
+            }
+            guard let cardID = UUID(uuidString: card.id) else { return }
+            activeSheet = .cardReview(cardID: cardID, sessionID: card.sessionID)
         }
     }
 
@@ -295,10 +577,15 @@ struct TaskAssistantChatView: View {
         .accessibilityIdentifier(identifier)
     }
 
+    /// 附件选项直接开系统选择器（2026-10-19 业主：不显示 OCR 前的选择页）。
     private func startCapture(_ source: QuickCaptureView.InitialSource) {
         withAnimation(.easeOut(duration: 0.2)) { attachmentPanel = false }
         inputFocused = false
-        activeSheet = .capture(source)
+        switch source {
+        case .photos: showPhotoPicker = true
+        case .camera: showCamera = true
+        case .file: showFileImporter = true
+        }
     }
 
     @ViewBuilder
@@ -306,7 +593,12 @@ struct TaskAssistantChatView: View {
         switch sheet {
         case .voice:
             AssistantVoiceInputSheet(
-                onUse: { text in
+                onUse: { text, audioURL in
+                    if let audioURL, let filename = ChatAudioStore.adopt(audioURL) {
+                        append(ChatMessage(role: .user, media: MediaInfo(
+                            kind: .voice, filename: L10n.assistantVoiceMessage, status: .ready,
+                            audioFilename: filename, transcript: text)))
+                    }
                     input = text
                     voiceMode = false
                 },
@@ -314,18 +606,202 @@ struct TaskAssistantChatView: View {
                     dismiss()
                     router.navigate(to: .sosHelp)
                 })
-        case .capture(let source):
-            NavigationStack {
-                QuickCaptureView(kind: nil, initialSource: source) { outcome in
-                    guard outcome != .cancelled else { return }
-                    append(.init(role: .receipt, text: L10n.assistantCaptureQueued))
-                }
+        case .sharedReview(let sessionID):
+            if let session = docs.activeImport, session.id == sessionID {
+                SharedFieldsReviewView(session: session, patientId: session.patientId)
+                    .onChangeCompat(of: session.sharedFieldsSettled) { _, settled in
+                        if settled { activeSheet = nil }
+                    }
+                    .onChangeCompat(of: session.outcome != nil) { _, finished in
+                        if finished { activeSheet = nil }
+                    }
+            } else {
+                reviewUnavailable
             }
+        case .cardReview(let cardID, let sessionID):
+            ChatCardReviewSheet(cardID: cardID, sessionID: sessionID)
+        }
+    }
+
+    private var reviewUnavailable: some View {
+        NavigationStack {
+            VLUnavailableView(L10n.assistantCardUnavailable, systemImage: "checkmark.circle")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.assistantClose) { activeSheet = nil }
+                    }
+                }
         }
     }
 
     private var trimmedInput: String {
         input.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - 媒体采集 → 全图 OCR → 信息卡（2026-10-19 业主指令）
+
+    private func handlePickedPhoto(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        pickedPhoto = nil
+        Task {
+            guard let data = try? await item.loadTransferable(type: Data.self) else {   // try?-ok: 相册读取失败统一提示
+                append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+                return
+            }
+            await importImage(data, filename: L10n.assistantAttachPhotos, origin: "photoLibrary")
+        }
+    }
+
+    private func handleCameraImage(_ image: UIImage) {
+        showCamera = false
+        guard let data = image.jpegData(compressionQuality: 1) else {
+            append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+            return
+        }
+        Task { await importImage(data, filename: L10n.assistantAttachCamera, origin: "camera") }
+    }
+
+    private func handleImportedFile(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
+        let kind: MediaInfo.Kind = url.pathExtension.lowercased() == "pdf" ? .pdf : .image
+        Task { await importURL(url, filename: url.lastPathComponent, kind: kind) }
+    }
+
+    /// 全图识别：originalData == processedData，跳过区域/遮挡选择（业主 2026-10-19）。
+    private func importImage(_ data: Data, filename: String, origin: String) async {
+        guard let messageID = appendMedia(filename: filename, kind: .image) else { return }
+        importing = true
+        defer { importing = false }
+        guard let session = startChatSession() else {
+            failMedia(messageID, text: L10n.assistantImportBusy)
+            return
+        }
+        let draft = await docs.prepareImageDraft(
+            patientId: session.patientId,
+            originalData: data, processedData: data,
+            mimeType: ImageInputRules.sniffMimeType(of: data),
+            docType: nil, title: nil, isSensitive: true, origin: origin)
+        await finishImport(draft, session: session, messageID: messageID)
+    }
+
+    private func importURL(_ url: URL, filename: String, kind: MediaInfo.Kind) async {
+        guard let messageID = appendMedia(filename: filename, kind: kind) else { return }
+        importing = true
+        defer { importing = false }
+        guard let session = startChatSession() else {
+            failMedia(messageID, text: L10n.assistantImportBusy)
+            return
+        }
+        let draft = await docs.importDocument(patientId: session.patientId, url: url,
+                                              docType: nil, isSensitive: true)
+        await finishImport(draft, session: session, messageID: messageID)
+    }
+
+    @discardableResult
+    private func appendMedia(filename: String, kind: MediaInfo.Kind) -> UUID? {
+        guard docs.activeImport == nil else {
+            append(.init(role: .assistant, text: L10n.assistantImportBusy, isRefusal: true))
+            return nil
+        }
+        let message = ChatMessage(role: .user,
+                                  media: MediaInfo(kind: kind, filename: filename, status: .processing))
+        messages.append(message)
+        return message.id
+    }
+
+    private func startChatSession() -> DocumentsState.ImportSession? {
+        guard docs.activeImport == nil,
+              let session = docs.beginImport(patientId: app.currentPatientId) else { return nil }
+        session.captureSensitive = true
+        chatSessionID = session.id
+        return session
+    }
+
+    private func finishImport(_ draft: DocumentsState.ImportDraft?,
+                              session: DocumentsState.ImportSession,
+                              messageID: UUID?) async {
+        // 重复资料：聊天内不静默覆盖（ADR-019），保留原件并提示去资料库处理。
+        if session.duplicate != nil {
+            updateMedia(messageID, status: .failed)
+            append(.init(role: .assistant, text: L10n.assistantMediaDuplicate, isRefusal: true))
+            _ = await docs.resolveDuplicate(.keep)
+            _ = docs.finishImportPresentation(sessionID: session.id)
+            chatSessionID = nil
+            return
+        }
+        guard let draft else {
+            await failImport(session: session, messageID: messageID, text: L10n.assistantMediaFailed)
+            return
+        }
+        guard draft.docTypeResolved else {
+            await failImport(session: session, messageID: messageID,
+                             text: L10n.assistantDocTypeUnresolved)
+            return
+        }
+        guard await docs.commitDraft(draft) else {
+            await failImport(session: session, messageID: messageID, text: L10n.assistantMediaFailed)
+            return
+        }
+        updateMedia(messageID, status: .ready)
+        appendImportCards(for: session)
+    }
+
+    private func appendImportCards(for session: DocumentsState.ImportSession) {
+        let rows = docs.sharedFieldRows(for: session)
+        if !rows.isEmpty {
+            append(ChatMessage(role: .assistant, card: CardInfo(
+                id: "shared-\(session.id.uuidString)", kind: .shared,
+                entityKind: nil, fieldCount: rows.count, sessionID: session.id)))
+        }
+        for card in session.cards {
+            let count = card.shared.count + card.rows.reduce(0) { $0 + $1.fields.count }
+            append(ChatMessage(role: .assistant, card: CardInfo(
+                id: card.id.uuidString, kind: .entity,
+                entityKind: card.kind, fieldCount: count, sessionID: session.id)))
+        }
+        if session.cards.isEmpty && rows.isEmpty {
+            append(.init(role: .receipt, text: L10n.assistantCaptureSaved))
+        }
+    }
+
+    private func updateMedia(_ messageID: UUID?, status: MediaInfo.Status) {
+        guard let messageID, let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        messages[index].media?.status = status
+    }
+
+    private func failMedia(_ messageID: UUID?, text: String) {
+        updateMedia(messageID, status: .failed)
+        append(.init(role: .assistant, text: text, isRefusal: true))
+    }
+
+    private func failImport(session: DocumentsState.ImportSession, messageID: UUID?,
+                            text: String) async {
+        updateMedia(messageID, status: .failed)
+        append(.init(role: .assistant, text: text, isRefusal: true))
+        if session.source == nil {
+            docs.cancelImport(sessionID: session.id)
+        } else {
+            _ = await docs.deferRemainingEntityCards()
+        }
+        _ = docs.finishImportPresentation(sessionID: session.id)
+        chatSessionID = nil
+    }
+
+    /// 关闭聊天时收尾：未完成卡整批落待办（用户的识别成果不丢），释放导入槽。
+    private func releaseChatSessionIfNeeded() {
+        guard let sessionID = chatSessionID,
+              let session = docs.activeImport, session.id == sessionID else { return }
+        Task {
+            if session.outcome == nil {
+                if session.source == nil {
+                    docs.cancelImport(sessionID: sessionID)
+                } else {
+                    _ = await docs.deferRemainingEntityCards()
+                }
+            }
+            _ = docs.finishImportPresentation(sessionID: sessionID)
+            chatSessionID = nil
+        }
     }
 
     // MARK: - 确定性流程
@@ -550,5 +1026,51 @@ struct TaskAssistantChatView: View {
 
     private func append(_ message: ChatMessage) {
         messages.append(message)
+    }
+}
+
+/// 聊天内单卡确认（2026-10-19）：只承载 `EntityCardConfirmView`；
+/// 保存/稍后处理导致卡出队或会话收尾时关闭，回到聊天看勾选态。
+private struct ChatCardReviewSheet: View {
+    let cardID: UUID
+    let sessionID: UUID
+    @Environment(DocumentsState.self) private var docs
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        WithPerceptionTracking {
+            Group {
+                if let session = docs.activeImport, session.id == sessionID,
+                   let source = session.source,
+                   let card = session.cards.first(where: { $0.id == cardID }) {
+                    NavigationStack {
+                        EntityCardConfirmView(
+                            card: Binding(
+                                get: { docs.activeImport?.cards.first(where: { $0.id == cardID }) ?? card },
+                                set: { _ = docs.updateEntityCard($0) }),
+                            mode: .queue(session),
+                            patientId: source.patientId,
+                            documentId: source.documentId,
+                            pageCount: source.pages.count,
+                            position: nil)
+                    }
+                    .onChangeCompat(of: session.committedCards.contains(cardID)) { _, done in
+                        if done { dismiss() }
+                    }
+                    .onChangeCompat(of: session.outcome != nil) { _, done in
+                        if done { dismiss() }
+                    }
+                } else {
+                    NavigationStack {
+                        VLUnavailableView(L10n.assistantCardUnavailable, systemImage: "checkmark.circle")
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button(L10n.assistantClose) { dismiss() }
+                                }
+                            }
+                    }
+                }
+            }
+        }
     }
 }

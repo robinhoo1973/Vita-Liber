@@ -186,6 +186,8 @@ struct DataLifecycleView: View {
                             // 可据，此前敏感原图与模糊副本永久滞留沙盒
                             //（function-spec §6 删除矩阵：清空全部 → 本地文件 删）。
                             await observationState.wipeMediaFiles()
+                            // 聊天语音消息音频（2026-10-19）：清空全部 = 文件真删。
+                            ChatAudioStore.wipe()
                             try await app.persistorReset()
                             // 审查修复（内存投影失效）：全量失效让各页（首页/
                             // 提醒/观察/文档…）重载——此前各仓内存投影仍渲染
