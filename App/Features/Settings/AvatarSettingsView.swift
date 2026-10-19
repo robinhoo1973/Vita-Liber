@@ -49,7 +49,7 @@ struct AvatarSettingsView: View {
                     .padding(.vertical, 4)
                 }
 
-                Section(L10n.settings_avatarLocal) {
+                Section {
                     Button {
                         showPhotos = true
                     } label: {
@@ -64,6 +64,8 @@ struct AvatarSettingsView: View {
                             .frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("SP-25.avatar.file")
+                } header: {
+                    Text(L10n.settings_avatarLocal)
                 } footer: {
                     Text(L10n.settings_avatarLocalFooter)
                 }
