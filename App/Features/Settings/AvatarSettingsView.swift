@@ -43,21 +43,7 @@ struct AvatarSettingsView: View {
                 Section(L10n.settings_avatarPresets) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(AvatarState.presets, id: \.self) { symbol in
-                            Button {
-                                Task { await avatar.setSymbol(symbol) }
-                            } label: {
-                                Image(systemName: symbol)
-                                    .font(.title2)
-                                    .frame(maxWidth: .infinity, minHeight: 52)
-                                    .background(Circle().fill(selected(symbol)
-                                        ? Color("brand-primary", bundle: .main).opacity(0.20)
-                                        : Color.secondary.opacity(0.10)))
-                                    .clipShape(Circle())
-                                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(symbol)
-                            .accessibilityIdentifier("SP-25.avatar.symbol.\(symbol)")
+                            presetButton(symbol)
                         }
                     }
                     .padding(.vertical, 4)
@@ -132,6 +118,33 @@ struct AvatarSettingsView: View {
                 }
             }
         }
+    }
+
+    /// 预设头像按钮（类型检查预算：cell 表达式拆出，CI 06:55 type-check timeout 修复）。
+    private func presetButton(_ symbol: String) -> some View {
+        Button {
+            Task { await avatar.setSymbol(symbol) }
+        } label: {
+            presetLabel(symbol)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(symbol)
+        .accessibilityIdentifier("SP-25.avatar.symbol.\(symbol)")
+    }
+
+    private func presetLabel(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.title2)
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(Circle().fill(presetFill(symbol)))
+            .clipShape(Circle())
+            .foregroundStyle(Color("brand-primary", bundle: .main))
+    }
+
+    private func presetFill(_ symbol: String) -> Color {
+        selected(symbol)
+            ? Color("brand-primary", bundle: .main).opacity(0.20)
+            : Color.secondary.opacity(0.10)
     }
 
     private func selected(_ symbol: String) -> Bool {

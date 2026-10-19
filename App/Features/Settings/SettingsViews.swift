@@ -280,7 +280,7 @@ struct SettingsView: View {
     private var currentVoiceLanguages: String {
         let locales = SettingsRules.voiceLocales(settings.values[.voiceInputLanguages])
         guard let primary = locales.first else { return L10n.voiceLangTitle }
-        let name = EngineCapabilityProfile.twoLanguages.first {
+        let name = EngineCapabilityProfile.sixLanguages.first {
             TranscriptionLocale.normalizedIdentifier($0.locale) == TranscriptionLocale.normalizedIdentifier(primary)
         }?.nativeName ?? primary
         return locales.count > 1 ? "\(name) +\(locales.count - 1)" : name
