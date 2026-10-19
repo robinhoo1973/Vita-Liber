@@ -125,8 +125,8 @@ public actor TimelineQueryStore {
             let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
             return rows.map { Self.entry($0, member: member) }
         }
-        // 游标谓词已下推各分支，合并结果即页内序列——直接分页
-        return TimelineProjectionRules.page(collected, limit: limit)
+        // 游标谓词已下推各分支；页序再由 Domain 纯函数固定一次（最新在前）。
+        return TimelineProjectionRules.page(TimelineProjectionRules.sort(collected), limit: limit)
     }
 
     // MARK: - v27 主卡 / 子卡投影（子项目 J · round1 §E.3）
@@ -178,7 +178,8 @@ public actor TimelineQueryStore {
                 return out
             }
         }
-        return TimelineHubPage(entries: TimelineHierarchyRules.group(rows: pageRows, children: children), nextCursor: page.nextCursor)
+        let grouped = TimelineHierarchyRules.group(rows: pageRows, children: children)
+        return TimelineHubPage(entries: TimelineHierarchyRules.sorted(grouped), nextCursor: page.nextCursor)
     }
 
     /// 计划文本 / Domain 注释中的旧名（`hubs(for:)`）——同一实现，`hubPage(patientId:)` 为规范名。

@@ -99,6 +99,16 @@ public enum TimelineHierarchyRules {
         }
     }
 
+    /// 顶层序（业主 2026-10-19）：日期倒序（最新在前）→ refID 倒序，与游标同向。
+    /// SQL 已带 `ORDER BY d DESC, id DESC`，此处再以 Domain 纯函数固定一次——
+    /// 视图顺序不再依赖复合 SELECT 的别名排序细节，任何调用方拿到的页都已定序。
+    public static func sorted(_ entries: [TimelineHubEntry]) -> [TimelineHubEntry] {
+        entries.sorted {
+            if $0.entry.date != $1.entry.date { return $0.entry.date > $1.entry.date }
+            return $0.entry.refID.uuidString > $1.entry.refID.uuidString
+        }
+    }
+
     /// 子卡序：日期倒序 → 类型序（`childKindOrder`，未登记类型排末）→ refID 倒序（与 §5.30 游标序同向、稳定）。
     public static func childOrder(_ a: TimelineEntry, _ b: TimelineEntry) -> Bool {
         if a.date != b.date { return a.date > b.date }

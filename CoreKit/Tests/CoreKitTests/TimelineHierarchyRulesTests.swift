@@ -32,6 +32,21 @@ struct TimelineHierarchyRulesTests {
                 "展开记忆键 = <hub|leaf>-<kind>-<refID>")
     }
 
+    /// 业主 2026-10-19：顶层页序必须最新在前（日期倒序，同刻 refID 倒序）——
+    /// 即使 SQL 复合查询的别名排序退化，Domain 定序仍保证视图可预期。
+    @Test func topLevelOrderIsNewestFirstRegardlessOfInputOrder() {
+        let grouped = TimelineHierarchyRules.group(
+            rows: [TimelineHubRow(entry: entry(.observation, obs, day: 5), hub: nil),
+                   TimelineHubRow(entry: entry(.encounter, enc, day: 12), hub: .encounter),
+                   TimelineHubRow(entry: entry(.healthExam, exam, day: 9), hub: .healthExam)],
+            children: [])
+        let sorted = TimelineHierarchyRules.sorted(grouped)
+        #expect(sorted.map(\.entry.date) == [entry(.encounter, enc, day: 12).date,
+                                             entry(.healthExam, exam, day: 9).date,
+                                             entry(.observation, obs, day: 5).date],
+                "最新在前；实得 \(sorted.map(\.entry.refID))")
+    }
+
     /// 原名：同主卡内重复子卡只出现一次_同刻同类按refID倒序_未登记类型排末
     @Test func duplicateChildrenDedupeSameDayKindsSortByRefIDDescendingAndUnlistedKindsLast() {
         let a = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000000")!, b = UUID(uuidString: "BBBBBBBB-0000-0000-0000-000000000000")!
