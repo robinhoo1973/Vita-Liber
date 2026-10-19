@@ -43,6 +43,11 @@ final class VoiceDictationModel {
     var onTranscript: ((String, Double) -> Void)?
     /// BR-012 紧急关键词横切动作（命中即调用并跳过 onTranscript 草稿投递）
     var onEmergency: ((String) -> Void)?
+    /// 聊天语音消息录音（2026-10-19）：每次按压前取一个新文件 URL；
+    /// 引擎把采集缓冲旁路写入该文件（本机、受保护）。nil = 不录音。
+    var recordingURLProvider: (() -> URL?)?
+    /// 最近一次按压的录音 URL（仅在本次按压真正起采时回传）。
+    var onRecordingURL: ((URL?) -> Void)?
     /// Synchronous activity notifications keep guided controls correct before the next SwiftUI render.
     var onActivityChange: ((Bool) -> Void)?
 
@@ -216,6 +221,11 @@ final class VoiceDictationModel {
         let gate = context.partialGate
         let outcome: Result<TranscriptionResult, Error>
         do {
+            let recordingURL = recordingURLProvider?()
+            onRecordingURL?(recordingURL)
+            if let recordingURL, let recorder = engine as? any TranscriptionAudioRecording {
+                await recorder.setRecordingURL(recordingURL)
+            }
             let capability = await engine.currentCapability()
             try Task.checkCancellation()
             guard lifetime == epoch, contexts[id] != nil else { return }
@@ -358,6 +368,9 @@ struct VoiceDictationButton: View {
     /// 被未关闭的面板盖住，用户在面板内看不到任何变化）
     var onEmergencyAction: ((String) -> Void)? = nil
     var isBusy: Binding<Bool>? = nil
+    /// 聊天语音消息录音（2026-10-19）：新文件 URL 供给 + 最近一次录音回传。
+    var recordingURLProvider: (() -> URL?)? = nil
+    var lastRecordingURL: Binding<URL?>? = nil
 
     @State private var model: VoiceDictationModel?
 
@@ -440,6 +453,8 @@ struct VoiceDictationButton: View {
         // 单一选择 = 该语言；多选 = 取第一个（引擎内再按能力回落）。
         // 解析规则收敛 Domain SettingsRules（与设置页存储格式同源）。
         let m = model ?? VoiceDictationModel(engine: app.transcriptionEngine)
+        m.recordingURLProvider = recordingURLProvider
+        m.onRecordingURL = { url in lastRecordingURL?.wrappedValue = url }
         m.setAuthorization(settings.values[.authVoiceDictation] != "false")
         m.onTranscript = onTranscript
         m.onEmergency = onEmergency

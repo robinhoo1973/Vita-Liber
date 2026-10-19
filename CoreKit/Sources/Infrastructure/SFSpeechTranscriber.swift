@@ -593,18 +593,25 @@ import AVFoundation
 import Speech
 
 /// ADR-023 baseline: on-device recognition, one capture owner, no permanent audio files.
-public actor SFSpeechTranscriber: TranscriptionCaptureReporting {
+public actor SFSpeechTranscriber: TranscriptionCaptureReporting, TranscriptionAudioRecording {
     public nonisolated let capability: TranscriptionCapability
     private nonisolated let coordinator: SpeechSessionCoordinator<NativeSpeechSessionDriver>
+    private nonisolated let recordingBox: RecordingURLBox
 
     public init() {
         let probed = Self.probeCapability()
         capability = probed
+        let box = RecordingURLBox()
+        recordingBox = box
         let queue = DispatchQueue(label: "com.vitaliber.speech.native", qos: .userInitiated)
         coordinator = SpeechSessionCoordinator(queue: queue) { request in
-            NativeSpeechSessionDriver(request: request, queue: queue, capability: probed)
+            NativeSpeechSessionDriver(request: request, queue: queue, capability: probed,
+                                      recordingURL: box.value)
         }
     }
+
+    /// 聊天语音消息录音目标（2026-10-19）：只影响旁路文件写入，不改变识别结果。
+    public func setRecordingURL(_ url: URL?) async { recordingBox.set(url) }
 
     fileprivate static func probeCapability() -> TranscriptionCapability {
         var locales = Set<String>()
@@ -653,15 +660,20 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     /// 全在 AudioCaptureController——此前与 sherpa 轨逐字重复两份（"主轨已修、
     /// 降级轨漏修"的成因）。
     private let capture = AudioCaptureController()
+    /// 聊天语音消息旁路录音（2026-10-19）：只写本机文件，不参与识别。
+    private let recordingURL: URL?
+    private var recorder: AudioFileRecorder?
     private var requests: [UUID: SFSpeechAudioBufferRecognitionRequest] = [:]
     private var tasks: [UUID: SFSpeechRecognitionTask] = [:]
     private var ended: Set<UUID> = []
     private(set) var resolvedLocale = ""
 
-    init(request: TranscriptionRequest, queue: DispatchQueue, capability: TranscriptionCapability) {
+    init(request: TranscriptionRequest, queue: DispatchQueue, capability: TranscriptionCapability,
+         recordingURL: URL? = nil) {
         self.request = request
         self.queue = queue
         self.capability = capability
+        self.recordingURL = recordingURL
     }
 
     func authorize(_ completion: @escaping @Sendable (Bool) -> Void,
@@ -731,14 +743,22 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<NativeSpeechAudio>) -> Void,
                       onFailure: @escaping @Sendable () -> Void,
                       isStopped: @escaping @Sendable () -> Bool) throws {
-        try capture.start(configuration: .standard, onBuffer: { copy, bytes in
+        try capture.start(configuration: .standard, onBuffer: { [self] copy, bytes in
+            if let recordingURL, recorder == nil {
+                recorder = AudioFileRecorder(url: recordingURL, format: copy.format)
+            }
+            recorder?.write(copy)
             onAudio(SpeechAudioChunk(buffer: NativeSpeechAudio(buffer: copy),
                                      duration: Double(copy.frameLength) / copy.format.sampleRate,
                                      byteCount: bytes))
         }, onFailure: onFailure, isStopped: isStopped)
     }
 
-    func stopCapture() { capture.stop() }
+    func stopCapture() {
+        capture.stop()
+        recorder?.finish()
+        recorder = nil
+    }
 
     func append(_ audio: NativeSpeechAudio, to id: UUID) {
         guard !ended.contains(id) else { return }

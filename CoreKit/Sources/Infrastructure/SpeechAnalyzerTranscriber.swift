@@ -110,7 +110,7 @@ public enum SpeechAnalyzerSupport {
 ///   本文件不出现任何 `URL`/文件写入（FR17.7 类型级纪律延续）；
 /// - 采集拆除沿用 `AudioSessionCapture` 快照对称还原（与另两轨同一出口）。
 @available(iOS 26.0, macOS 26.0, *)
-public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
+public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, TranscriptionAudioRecording {
     public nonisolated let capability: TranscriptionCapability
     private let flavor: SpeechAnalyzerFlavor
     private var sessions: [UUID: AnalyzerSession] = [:]
@@ -121,6 +121,8 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
     /// finish/cancel/discard 按 id 精确路由到基线引擎。
     private var baseline: SFSpeechTranscriber?
     private var delegated: Set<UUID> = []
+    /// 聊天语音消息录音目标（2026-10-19）。
+    private var recordingURL: URL?
 
     public init(flavor: SpeechAnalyzerFlavor = .standard) {
         self.flavor = flavor
@@ -131,6 +133,8 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
     }
 
     public nonisolated func currentCapability() async -> TranscriptionCapability { await Self.probe(flavor: flavor) }
+
+    public func setRecordingURL(_ url: URL?) async { recordingURL = url }
 
     private nonisolated static func probe(flavor: SpeechAnalyzerFlavor) async -> TranscriptionCapability {
         let installed = Set(await SpeechAnalyzerSupport.installedLocales(of: flavor))
@@ -291,7 +295,8 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting {
         }
 
         let session = AnalyzerSession(id: id, locale: locale, module: module,
-                                      analyzerFormat: analyzerFormat, onPartial: onPartial)
+                                      analyzerFormat: analyzerFormat,
+                                      recordingURL: recordingURL, onPartial: onPartial)
         sessions[id] = session
         defer { sessions[id] = nil; intents[id] = nil; session.stopCapture() }
 
@@ -405,7 +410,8 @@ final class AnalyzerSession: @unchecked Sendable {
     private var capture: AnalyzerCapture
 
     init(id: UUID, locale: Locale, module: any SpeechModule,
-         analyzerFormat: AVAudioFormat, onPartial: (@Sendable (String) -> Void)?) {
+         analyzerFormat: AVAudioFormat, recordingURL: URL?,
+         onPartial: (@Sendable (String) -> Void)?) {
         self.id = id
         self.locale = locale
         self.onPartial = onPartial
@@ -416,7 +422,8 @@ final class AnalyzerSession: @unchecked Sendable {
         let (stream, builder) = AsyncStream.makeStream(of: AnalyzerInput.self)
         self.stream = stream
         self.builder = builder
-        self.capture = AnalyzerCapture(analyzerFormat: analyzerFormat, builder: builder, onFailure: {})
+        self.capture = AnalyzerCapture(analyzerFormat: analyzerFormat, builder: builder,
+                                       recordingURL: recordingURL, onFailure: {})
         // 回接失败回报：此刻全部存储属性已就位，闭包捕获 self 合法。
         self.capture.onFailure = { [weak self] in self?.noteFailure(TranscriptionError.engineUnavailable) }
     }
@@ -559,6 +566,8 @@ private final class AnalyzerCapture: @unchecked Sendable {
     fileprivate(set) var onFailure: () -> Void
     private var engine: AVAudioEngine?
     private var tapInstalled = false
+    private let recordingURL: URL?
+    private var recorder: AudioFileRecorder?
     private var configurationObserver: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
     #if os(iOS)
@@ -566,9 +575,10 @@ private final class AnalyzerCapture: @unchecked Sendable {
     #endif
 
     init(analyzerFormat: AVAudioFormat, builder: AsyncStream<AnalyzerInput>.Continuation,
-         onFailure: @escaping () -> Void) {
+         recordingURL: URL? = nil, onFailure: @escaping () -> Void) {
         self.analyzerFormat = analyzerFormat
         self.builder = builder
+        self.recordingURL = recordingURL
         self.onFailure = onFailure
     }
 
@@ -592,6 +602,12 @@ private final class AnalyzerCapture: @unchecked Sendable {
                                     builder: builder)
         input.installTap(onBus: 0, bufferSize: 1024, format: captureFormat) { [weak self] buffer, _ in
             guard buffer.frameLength > 0 else { return }
+            if let recordingURL = self?.recordingURL {
+                if self?.recorder == nil {
+                    self?.recorder = AudioFileRecorder(url: recordingURL, format: buffer.format)
+                }
+                self?.recorder?.write(buffer)
+            }
             if !feeder.feed(buffer) { self?.onFailure() }
         }
         tapInstalled = true
@@ -617,6 +633,8 @@ private final class AnalyzerCapture: @unchecked Sendable {
     }
 
     func stop() {
+        recorder?.finish()
+        recorder = nil
         #if os(iOS)
         let hasSessionState = sessionState != nil
         #else

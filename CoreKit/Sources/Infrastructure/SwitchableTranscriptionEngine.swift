@@ -13,7 +13,7 @@ public protocol TranscribingEngineEvicting: Sendable {
 }
 
 /// FR17.15：选择锁定在一次按压，停止按ID精确路由；早停不依赖委托是否已创建。
-actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, TranscribingEngineEvicting {
+actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, TranscribingEngineEvicting, TranscriptionAudioRecording {
     private enum Stop { case finish, cancel }
     private let choiceProvider: @Sendable () -> VoiceEngineChoice
     private let builder: @Sendable (VoiceEngineChoice) -> any TranscriptionEngine
@@ -24,6 +24,9 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
     private var captureOwner: UUID?
     private var cached: (VoiceEngineChoice, any TranscriptionEngine)?
     private var cachedAssetIdentity: String?
+
+    /// 聊天语音消息录音目标（2026-10-19）：按本次实际服务引擎转发。
+    private var recordingURL: URL?
 
     init(choiceProvider: @escaping @Sendable () -> VoiceEngineChoice,
          builder: @escaping @Sendable (VoiceEngineChoice) -> any TranscriptionEngine = { choice in
@@ -64,6 +67,8 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
                     onPartial: (@Sendable (String) -> Void)?) async throws -> TranscriptionResult {
         try await transcribe(request, onPartial: onPartial, onCaptureStarted: {})
     }
+
+    func setRecordingURL(_ url: URL?) async { recordingURL = url }
 
     func transcribe(_ request: TranscriptionRequest, onPartial: (@Sendable (String) -> Void)?,
                     onCaptureStarted: @escaping @Sendable () -> Void) async throws -> TranscriptionResult {
@@ -107,6 +112,9 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
             try Task.checkCancellation()
             let engine = delegate(for: current)
             serving[id] = engine
+            if let recorder = engine as? any TranscriptionAudioRecording {
+                await recorder.setRecordingURL(recordingURL)
+            }
             if stops[id] == .finish { await engine.finish(sessionID: id) }
             do {
                 var result: TranscriptionResult

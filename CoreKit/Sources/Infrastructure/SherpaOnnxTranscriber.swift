@@ -8,16 +8,19 @@ import UIKit
 
 /// ADR-023：随包开源权重的生产端口。初始化不加载模型，能力查询不启动麦克风。
 #if os(iOS) || os(macOS)
-public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchecked Sendable {
+public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, TranscriptionAudioRecording, @unchecked Sendable {
     private let choice: VoiceEngineChoice
     private let assets: ASRModelAssets
     private let assetLease: ASRModelAssets.Lease
     private var memoryObserver: NSObjectProtocol?
+    private let recordingBox: RecordingURLBox
     #if canImport(SherpaOnnxC)
     private let coordinator: SpeechSessionCoordinator<SherpaSpeechSessionDriver>
     #endif
 
     public init(choice: VoiceEngineChoice = .zipformer, assets: ASRModelAssets? = nil) {
+        let box = RecordingURLBox()
+        self.recordingBox = box
         self.choice = choice
         // 缺省即走双路径解析（下载版优先、随包回落）——后续新增调用点不再可能
         // 忘调 resolve 而静默忽略已装下载模型（EngineFactories 四处的显式 resolve 保留）。
@@ -31,7 +34,8 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
         limits.rotationInterval = 25
         limits.finalizationTimeout = 20
         coordinator = SpeechSessionCoordinator(queue: queue, limits: limits) { request in
-            SherpaSpeechSessionDriver(request: request, choice: choice, assets: resolvedAssets)
+            SherpaSpeechSessionDriver(request: request, choice: choice, assets: resolvedAssets,
+                                      recordingURL: box.value)
         }
         #endif
         #if os(iOS)
@@ -46,6 +50,9 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, @unchec
         SherpaSpeechSessionDriver.unloadWhenIdle()
         #endif
     }
+
+    /// 聊天语音消息录音目标（2026-10-19）：只影响旁路文件写入，不改变识别结果。
+    public func setRecordingURL(_ url: URL?) async { recordingBox.set(url) }
 
     public var capability: TranscriptionCapability {
         #if canImport(SherpaOnnxC)

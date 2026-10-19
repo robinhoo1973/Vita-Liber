@@ -9,6 +9,9 @@ struct CapturedSpeechAudio: @unchecked Sendable { let pcm: AVAudioPCMBuffer }
 /// 控制队列只处理采集/格式转换；串行推理队列负责模型与解码。
 /// 有限mailbox不会为每个tap创建一个无界Task或把大量buffer挂在DispatchQueue上。
 final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable {
+    /// 聊天语音消息旁路录音（2026-10-19）：只写本机文件，不参与识别。
+    private let recordingURL: URL?
+    private var recorder: AudioFileRecorder?
     private static let inferenceQueue = DispatchQueue(label: "com.vitaliber.speech.inference", qos: .userInitiated)
     private static let pool = RuntimePool()
     /// 会话结束后运行时常驻时长：A13 加载 Qwen3 需数秒，连续按压间不得重载（round2 A-N2）。
@@ -50,7 +53,9 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
     /// nil = 未失败或为系统麦克风授权拒绝（协调器回落 unauthorized）。round2 A-N5。
     var preparationFailure: TranscriptionError? { readinessLock.withLock { failure } }
 
-    init(request: TranscriptionRequest, choice: VoiceEngineChoice, assets: ASRModelAssets) {
+    init(request: TranscriptionRequest, choice: VoiceEngineChoice, assets: ASRModelAssets,
+         recordingURL: URL? = nil) {
+        self.recordingURL = recordingURL
         self.request = request; self.choice = choice; self.assets = assets
     }
 
@@ -204,13 +209,21 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
                 throw TranscriptionError.engineUnavailable
             }
             targetFormat = target; self.converter = converter
-        }, onBuffer: { copy, bytes in
+        }, onBuffer: { [self] copy, bytes in
+            if let recordingURL, recorder == nil {
+                recorder = AudioFileRecorder(url: recordingURL, format: copy.format)
+            }
+            recorder?.write(copy)
             onAudio(.init(buffer: .init(pcm: copy),
                           duration: Double(copy.frameLength) / copy.format.sampleRate, byteCount: bytes))
         }, onFailure: onFailure, isStopped: isStopped)
     }
 
-    func stopCapture() { capture.stop() }
+    func stopCapture() {
+        capture.stop()
+        recorder?.finish()
+        recorder = nil
+    }
 
     private final class RuntimePool: @unchecked Sendable {
         var owner: UUID?

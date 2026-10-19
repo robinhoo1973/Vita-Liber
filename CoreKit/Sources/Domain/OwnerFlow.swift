@@ -115,7 +115,7 @@ public enum DisclosureRegistry {
               version: "1.0"),
         .init(key: "disclosure.l2.voice", scene: "voice_session", level: 2,
               title: "语音会话须知",
-              body: "语音识别在本机完成，音频不会上传或存储。识别结果仅供参考，请确认后保存。",
+              body: "语音识别在本机完成，音频不会上传；聊天中的语音消息仅保存在本机。识别结果仅供参考，请确认后保存。",
               version: "1.0"),
         .init(key: "disclosure.l2.showcase", scene: "doctor_showcase", level: 2,
               title: "就诊展示模式须知",

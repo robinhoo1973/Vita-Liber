@@ -103,3 +103,13 @@ public actor StubTranscriptionEngine: TranscriptionEngine {
                                    segmented: plan.count > 1)
     }
 }
+
+/// 聊天语音消息的本机录音能力（2026-10-19 业主指令）。
+///
+/// 不改 `TranscriptionRequest` / `TranscriptionResult`（FR17.7 值对象零文件句柄）：
+/// 调用方在 `transcribe` 前设置目标文件，引擎把同一份采集缓冲旁路写入该文件
+/// （本机、受文件保护）；不改变识别结果与上传面（全程零网络）。
+public protocol TranscriptionAudioRecording: Sendable {
+    /// 设置本次会话的录音目标；nil = 停止录音。应在 `transcribe` 前调用。
+    func setRecordingURL(_ url: URL?) async
+}

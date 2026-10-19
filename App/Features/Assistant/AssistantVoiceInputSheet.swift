@@ -7,12 +7,24 @@ import Domain
 /// 不在本页做意图判定或确认——文本回到聊天后仍走同一条 B1 流程。
 struct AssistantVoiceInputSheet: View {
     @Environment(\.dismiss) private var dismiss
-    let onUse: (String) -> Void
+    let onUse: (String, URL?) -> Void
     /// 急救时由聊天壳负责关闭自身并进 SOS（本 sheet 只负责先收起）。
     let onEmergency: () -> Void
 
+    init(onUse: @escaping (String, URL?) -> Void, onEmergency: @escaping () -> Void) {
+        self.onUse = onUse
+        self.onEmergency = onEmergency
+    }
+
+    /// 兼容旧调用（无语音消息音频）：只回传文本。
+    init(onUse: @escaping (String) -> Void, onEmergency: @escaping () -> Void) {
+        self.init(onUse: { text, _ in onUse(text) }, onEmergency: onEmergency)
+    }
+
     @State private var draft = ""
     @State private var dictationBusy = false
+    /// 聊天语音消息录音（2026-10-19）：每次按压新文件，最近一次 URL 随「使用」回传。
+    @State private var lastAudioURL: URL?
 
     var body: some View {
         WithPerceptionTracking {
@@ -36,7 +48,9 @@ struct AssistantVoiceInputSheet: View {
                                 dismiss()
                                 onEmergency()
                             },
-                            isBusy: $dictationBusy)
+                            isBusy: $dictationBusy,
+                            recordingURLProvider: { ChatAudioStore.makeTemporaryURL() },
+                            lastRecordingURL: $lastAudioURL)
                         .accessibilityIdentifier("assistant.voiceDictation")
                         Spacer()
                     }
@@ -52,13 +66,16 @@ struct AssistantVoiceInputSheet: View {
                         Button(L10n.assistantVoiceUse) {
                             let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                             guard !text.isEmpty else { return }
-                            onUse(text)
+                            onUse(text, lastAudioURL)
                             dismiss()
                         }
                         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .accessibilityIdentifier("assistant.voiceUse")
                     }
                 }
+            }
+            .onDisappear {
+                ChatAudioStore.removeTemporary(lastAudioURL)
             }
         }
     }
