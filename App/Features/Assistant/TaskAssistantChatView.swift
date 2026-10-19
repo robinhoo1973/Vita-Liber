@@ -50,10 +50,11 @@ struct TaskAssistantChatView: View {
     @State private var showFileImporter = false
     @State private var pickedPhoto: PhotosPickerItem?
 
-    // 语音消息重放（2026-10-19）：本机音频文件 + 转文本展开态。
+    // 语音消息重放（2026-10-19；2026-10-20 转写文本常显）：本机音频文件。
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingMessageID: UUID?
-    @State private var shownTranscripts: Set<UUID> = []
+    /// 已写入历史的视图消息 ID（媒体在 OCR 终态才落库，避免 processing 快照）。
+    @State private var persistedMessageIDs: Set<UUID> = []
     @State private var conversationID: UUID?
     @State private var titleCaptured = false
     @State private var showHistory = false
@@ -278,7 +279,8 @@ struct TaskAssistantChatView: View {
         }
     }
 
-    /// 语音消息（2026-10-19）：本机音频可重放；[转文本] 展开识别文本。
+    /// 语音消息（2026-10-19；2026-10-20 业主指令）：本机音频可重放；
+    /// 转写文本不再需要手动触发——识别在后台完成，直接展开显示在语音下方。
     private func voiceBubble(_ media: MediaInfo, messageID: UUID) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -289,6 +291,7 @@ struct TaskAssistantChatView: View {
                         .font(.title2)
                         .frame(minWidth: 44, minHeight: 44)
                 }
+                .disabled(media.audioFilename == nil)
                 .accessibilityLabel(L10n.assistantVoiceReplay)
                 .accessibilityIdentifier("assistant.voice.replay")
 
@@ -300,17 +303,14 @@ struct TaskAssistantChatView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
-                Button(L10n.assistantVoiceToText) {
-                    toggleTranscript(messageID)
-                }
-                .font(.caption)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityIdentifier("assistant.voice.toText")
             }
-            if shownTranscripts.contains(messageID), let transcript = media.transcript {
+            if let transcript = media.transcript,
+               !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(transcript)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("assistant.voice.transcript")
             }
         }
         .padding(.horizontal, 12)
@@ -335,11 +335,6 @@ struct TaskAssistantChatView: View {
         player.play()
         audioPlayer = player
         playingMessageID = messageID
-    }
-
-    private func toggleTranscript(_ messageID: UUID) {
-        if shownTranscripts.contains(messageID) { shownTranscripts.remove(messageID) }
-        else { shownTranscripts.insert(messageID) }
     }
 
     /// 助手侧信息卡（2026-10-19）：开篇行右侧编辑图标进入修正/确认；完成后显示勾。
@@ -673,11 +668,12 @@ struct TaskAssistantChatView: View {
         case .voice:
             AssistantVoiceInputSheet(
                 onUse: { text, audioURL in
-                    if let audioURL, let filename = ChatAudioStore.adopt(audioURL) {
-                        append(ChatMessage(role: .user, media: MediaInfo(
-                            kind: .voice, filename: L10n.assistantVoiceMessage, status: .ready,
-                            audioFilename: filename, transcript: text)))
-                    }
+                    // 音频采用失败也保留语音消息：转写文本是用户输入的事实，
+                    // 只是重放不可用（2026-10-20 历史缺失修复）。
+                    let filename = audioURL.flatMap(ChatAudioStore.adopt)
+                    append(ChatMessage(role: .user, media: MediaInfo(
+                        kind: .voice, filename: L10n.assistantVoiceMessage, status: .ready,
+                        audioFilename: filename, transcript: text)))
                     input = text
                     voiceMode = false
                 },
@@ -720,6 +716,8 @@ struct TaskAssistantChatView: View {
     // MARK: - 历史持久化（2026-10-19 业主指令）
 
     private struct PersistedMessage: Codable {
+        /// 视图层消息 ID：媒体状态/转写更新按它定位历史行（旧快照无此键，容忍）。
+        var clientId: String?
         var role: String
         var text: String
         var isRefusal: Bool
@@ -745,6 +743,9 @@ struct TaskAssistantChatView: View {
     }
 
     private func persist(_ message: ChatMessage) {
+        // 同一视图消息只写一次历史（媒体先渲染、OCR 终态才落库；后续变化走
+        // persistUpdate 重写快照）。
+        guard persistedMessageIDs.insert(message.id).inserted else { return }
         let role: String
         switch message.role {
         case .user: role = "user"
@@ -760,6 +761,19 @@ struct TaskAssistantChatView: View {
             await chatHistory.append(conversationId: id, role: role,
                                      kind: kind, text: message.text, payloadJSON: payload)
             if let title { await chatHistory.rename(id, title: title) }
+        }
+    }
+
+    /// 媒体/语音消息状态与转写变化后重写历史快照（2026-10-20）。
+    /// 只更新已落库的消息；未落库（历史写入失败/旧会话）时静默跳过。
+    private func persistUpdate(_ messageID: UUID) {
+        guard let conversationID,
+              let message = messages.first(where: { $0.id == messageID }),
+              let payload = encode(message) else { return }
+        Task {
+            await chatHistory.updateMessagePayload(conversationId: conversationID,
+                                                   clientId: messageID,
+                                                   payloadJSON: payload)
         }
     }
 
@@ -779,11 +793,45 @@ struct TaskAssistantChatView: View {
     private func titleCandidate(_ message: ChatMessage) -> String? {
         guard message.role == .user else { return nil }
         if let media = message.media {
-            let text = (media.transcript?.isEmpty == false ? media.transcript : media.filename) ?? media.filename
-            return String(text.prefix(24))
+            // ASR：语音转写文本直接作为会话名（内容相关）。
+            // 图片/PDF：文件名通常是「照片」这类泛称，等 OCR 结果再命名
+            // （autoTitleFromImport），此处返回 nil。
+            guard media.kind == .voice,
+                  let transcript = media.transcript,
+                  !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return String(transcript.prefix(24))
         }
         let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : String(trimmed.prefix(24))
+    }
+
+    /// OCR 会话自动命名（2026-10-20 业主指令）：首个实体卡类型 + 首个识别值
+    /// （如「检验报告 · 血红蛋白」「处方 · 阿莫西林」）；无实体卡时用共同信息；
+    /// 用户已命名/已捕获则不再覆盖。
+    private func autoTitleFromImport(_ session: DocumentsState.ImportSession) {
+        guard !titleCaptured else { return }
+        let title: String?
+        if let card = session.cards.first {
+            let kind = L10n.entityCardKindName(card.kind)
+            if let value = card.rows.flatMap(\.fields)
+                .map(\.value)
+                .first(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                title = "\(kind) · \(value)"
+            } else {
+                title = kind
+            }
+        } else if !docs.sharedFieldRows(for: session).isEmpty {
+            title = L10n.sharedFieldsTitle
+        } else {
+            title = nil
+        }
+        guard let title else { return }
+        titleCaptured = true
+        let trimmed = String(title.prefix(24))
+        Task {
+            guard let id = await ensureConversationID() else { return }
+            await chatHistory.rename(id, title: trimmed)
+        }
     }
 
     private func encode(_ message: ChatMessage) -> String? {
@@ -805,7 +853,8 @@ struct TaskAssistantChatView: View {
                           snapshotState: snapshotState($0),
                           title: cardTitle($0))
         }
-        let payload = PersistedMessage(role: role, text: message.text,
+        let payload = PersistedMessage(clientId: message.id.uuidString,
+                                       role: role, text: message.text,
                                        isRefusal: message.isRefusal, isEmergency: message.isEmergency,
                                        media: media, card: card)
         guard let data = try? JSONEncoder().encode(payload) else { return nil }   // try?-ok: 编码失败则本消息不落历史
@@ -895,6 +944,7 @@ struct TaskAssistantChatView: View {
         pendingClarification = nil
         isSaving = false
         input = ""
+        persistedMessageIDs = []
     }
 
     // MARK: - 媒体采集 → 全图 OCR → 信息卡（2026-10-19 业主指令）
@@ -1021,11 +1071,20 @@ struct TaskAssistantChatView: View {
         if session.cards.isEmpty && rows.isEmpty {
             append(.init(role: .receipt, text: L10n.assistantCaptureSaved))
         }
+        // OCR 内容命名放在卡消息之后：会话已创建/已有首条消息，改名命中同一会话。
+        autoTitleFromImport(session)
     }
 
     private func updateMedia(_ messageID: UUID?, status: MediaInfo.Status) {
         guard let messageID, let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
         messages[index].media?.status = status
+        // 终态才落历史：processing 快照没有保留价值，也避免与 OCR 收尾竞态。
+        guard status != .processing else { return }
+        if persistedMessageIDs.contains(messageID) {
+            persistUpdate(messageID)
+        } else {
+            persist(messages[index])
+        }
     }
 
     private func failMedia(_ messageID: UUID?, text: String) {

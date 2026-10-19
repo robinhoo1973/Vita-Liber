@@ -66,6 +66,19 @@ public actor ChatHistoryStore {
         return id
     }
 
+    /// 消息快照更新（2026-10-20）：按客户端消息 ID 重写 payload（媒体状态
+    /// processing→ready/failed、语音转写文本补全）。`clientId` 由 App 层写入
+    /// payload_json，DB 行 id 不暴露给视图层。
+    public func updateMessagePayload(conversationId: UUID, clientId: UUID, payloadJSON: String) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE chat_message SET payload_json = ?
+                WHERE conversation_id = ?
+                  AND json_extract(payload_json, '$.clientId') = ?
+                """, arguments: [payloadJSON, conversationId.uuidString, clientId.uuidString])
+        }
+    }
+
     /// 卡片状态快照更新（完成勾 / 转待办）：只改 payload 内状态，不动消息内容。
     public func updateCardSnapshot(conversationId: UUID, cardId: String, state: String) async throws {
         try await writer.write { db in

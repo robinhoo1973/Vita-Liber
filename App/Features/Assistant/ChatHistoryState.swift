@@ -39,6 +39,11 @@ final class ChatHistoryState {
         try? await store.updateCardSnapshot(conversationId: conversationId, cardId: cardId, state: state)   // try?-ok: 快照更新尽力而为
     }
 
+    /// 媒体/语音消息快照更新（状态流转、转写文本）：按客户端消息 ID 重写 payload。
+    func updateMessagePayload(conversationId: UUID, clientId: UUID, payloadJSON: String) async {
+        try? await store.updateMessagePayload(conversationId: conversationId, clientId: clientId, payloadJSON: payloadJSON)   // try?-ok: 历史快照更新尽力而为，不阻断聊天
+    }
+
     func messages(conversationId: UUID) async -> [ChatHistoryStore.StoredMessage] {
         (try? await store.messages(conversationId: conversationId)) ?? []   // try?-ok: 读取失败按空历史呈现
     }
