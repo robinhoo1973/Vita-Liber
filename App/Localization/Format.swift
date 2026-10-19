@@ -149,6 +149,8 @@ extension L10n {
 
     static func homeSwipeSnoozedTomorrow(_ title: String) -> String { String(format: t("home.swipe.snoozedTomorrow"), title) }
 
+    static func homeSwipeDeleted(_ title: String) -> String { String(format: t("home.swipe.deleted"), title) }
+
     static func observationGroupSummary(_ count: Int, _ mark: String) -> String {
         String(format: t("observation.groupSummary"), count, mark)   // %1$d %2$@
     }

@@ -1057,6 +1057,8 @@ struct HomeModelDownloadFailedCard: View {
 struct HomeActionToastBanner: View {
     let toast: HomeActionToast
     let onUndo: (String) -> Void
+    /// 源级软删除撤销（待确认资料/待补充事项）；与通知键撤销分开回调。
+    let onUndoSource: () -> Void
     let onRetry: () -> Void
     let onExpire: () -> Void
     /// round2 U-N6：Reduce Motion 开启时行移除/底部条不做动画。
@@ -1072,6 +1074,10 @@ struct HomeActionToastBanner: View {
                 Button(L10n.homeSwipeUndo) { onUndo(key) }
                     .font(.subheadline.bold())
                     .frame(minHeight: 44)   // 设计系统触控目标 ≥44pt
+            case .undoSource:
+                Button(L10n.homeSwipeUndo) { onUndoSource() }
+                    .font(.subheadline.bold())
+                    .frame(minHeight: 44)
             case .failed:
                 Button(L10n.retry) { onRetry() }
                     .font(.subheadline.bold())

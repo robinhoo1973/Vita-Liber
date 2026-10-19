@@ -484,6 +484,34 @@ final class DocumentsState {
         } catch { lastImportError = L10n.docImportFailed }
     }
 
+    /// 首页滑动删除待确认资料（2026-10-19 业主指令）：仅 D 级待确认文档可归档；
+    /// 源级软归档保留原件（BR-002），移出 SP-53 队列与首页投影。失败返回 false。
+    func dismissPendingDocument(id: UUID) async -> Bool {
+        guard let doc = try? await store.fetch(id: id), doc.isPendingConfirmation else { return false }   // try?-ok: 读取失败按不可删除处理
+        do { try await store.setArchived(id: id, archived: true) } catch { return false }
+        await refreshPendingSurfaces()
+        return true
+    }
+
+    /// 撤销首页删除：归档 → 原状态（favorite/active 由 DocumentStore 状态机还原）。
+    func restorePendingDocument(id: UUID) async -> Bool {
+        do { try await store.setArchived(id: id, archived: false) } catch { return false }
+        await refreshPendingSurfaces()
+        return true
+    }
+
+    /// 待确认删除/撤销后同步三处投影：队列内存快照、版本号（首页 task 依赖）、
+    /// 当前成员资料库列表（归档项默认不显示）。
+    private func refreshPendingSurfaces() async {
+        pendingVersion &+= 1
+        if !pendingRequestPatientIds.isEmpty {
+            await loadPending(patientIds: pendingRequestPatientIds)
+        }
+        if let patient = loadingPatientId {
+            await load(patientId: patient, includeArchived: lastIncludeArchived)
+        }
+    }
+
     private func persistOriginal(patientId: UUID, data: Data, ext: String) throws -> String {
         guard !data.isEmpty else { throw ImportError.unreadableMedia }
         let directory = originalsDir.appendingPathComponent("originals", isDirectory: true)

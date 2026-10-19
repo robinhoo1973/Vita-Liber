@@ -1979,6 +1979,8 @@
 "home.swipe.viewEvidence" = "View evidence";
 "home.swipe.view" = "View";
 "home.swipe.failed" = "Action failed";
+"home.swipe.delete" = "Delete";
+"home.swipe.deleted" = "Deleted \"%@\"";
 "ocr.cards.overview" = "Prefilled information cards";
 "ocr.cards.none" = "Not enough fields to form a card yet. The original and recognized text will be retained for later completion.";
 "ocr.cards.hint" = "After saving the original, switch between cards to check prefilled content and complete missing fields. Confirm and save each card.";

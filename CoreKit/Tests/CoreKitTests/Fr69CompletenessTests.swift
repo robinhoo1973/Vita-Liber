@@ -309,5 +309,42 @@ struct PendingCardDedupTests {
         let cards = try await store.list(patientId: patient)
         #expect(cards.count == 1)
     }
+
+    /// 2026-10-19 业主指令：首页滑动删除待补充事项 = 源级软归档，可撤销；
+    /// 草稿原文不删除（BR-002），归档卡移出活跃投影。
+    @Test("待办卡软归档移出投影且撤销回 pending")
+    func archiveAndRestoreKeepsDraft() async throws {
+        let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        let patient = UUID()
+        try await dbQueue.write { db in
+            try db.execute(sql: SchemaV2.ddl)
+            try db.execute(sql: """
+                INSERT INTO patient_profile
+                  (id, display_name, relation, created_at, updated_at)
+                VALUES (?, '王女士', 'self', ?, ?)
+                """, arguments: [patient.uuidString, Date().timeIntervalSince1970,
+                                 Date().timeIntervalSince1970])
+        }
+        let store = PendingCardStore(writer: dbQueue)
+        let draft = PendingCardDraft(patientId: patient, sourceType: "manual", sourceDocId: nil,
+                                     cardKind: "prescription",
+                                     incompleteFields: [IncompleteField(key: "dosage", confidence: 0.5)],
+                                     partialData: ["drug_name": "阿莫西林"],
+                                     rawText: "阿莫西林 每日三次")
+        let id = try await store.upsert(draft)
+        let before = try await store.aggregationItems(patientId: patient)
+        #expect(before.count == 1)
+        try await store.archive(id: id)
+        let afterArchive = try await store.aggregationItems(patientId: patient)
+        #expect(afterArchive.isEmpty)
+        let archived = try await store.card(id: id)
+        #expect(archived?.status == "archived")
+        #expect(archived?.rawText == "阿莫西林 每日三次")   // 原文保留（软删除）
+        try await store.restoreArchived(id: id)
+        let afterRestore = try await store.aggregationItems(patientId: patient)
+        let restored = try await store.card(id: id)
+        #expect(afterRestore.count == 1)
+        #expect(restored?.status == "pending")
+    }
 }
 #endif

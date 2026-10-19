@@ -18,8 +18,8 @@ struct ReminderDispositionTests {
         ("stock_backlog", 0, nil, [.openCabinet, .snoozeUntilTomorrow, .archive]),
         ("appointment", 0, nil, [.archive]),
         ("alert_event", 2, "L2", [.viewEvidence]),
-        ("ocr", 2, nil, [.view]), ("ocr", 0, nil, [.snoozeUntilTomorrow]),
-        ("pending_card", 0, "pending", [.resumePendingCard, .snoozeUntilTomorrow]),
+        ("ocr", 2, nil, [.view]), ("ocr", 0, nil, [.snoozeUntilTomorrow, .dismissPending]),
+        ("pending_card", 0, "pending", [.resumePendingCard, .snoozeUntilTomorrow, .dismissPending]),
         ("profile_progress", 0, nil, [])
     ]
 
@@ -33,6 +33,17 @@ struct ReminderDispositionTests {
     @Test func noSourceArchivesMedicationAndMedicalActionsAreThree() {
         #expect(!ReminderAggregationCenter.dispositions(for: item("dose_slot", status: "pending")).contains(.archive))
         #expect(ReminderDisposition.allCases.filter(\.isMedicalAction) == [.markTaken, .snoozeDose, .skipDose])
+    }
+
+    /// 2026-10-19 业主指令：待确认（未逾期）/待补充行可源级软删除；
+    /// 逾期待确认（isPinned）保留 FR2.3 置顶，不提供删除；其他源不受影响。
+    @Test func dismissPendingOnlyForNonPinnedOCRAndPendingCard() {
+        #expect(ReminderAggregationCenter.dispositions(for: item("ocr", priority: 2)) == [.view])
+        #expect(ReminderAggregationCenter.dispositions(for: item("pending_card")).contains(.dismissPending))
+        #expect(ReminderAggregationCenter.dispositions(for: item("refill")).contains(.dismissPending) == false)
+        #expect(ReminderDisposition.dismissPending.side == .trailing)
+        // 删除不是全滑候选（首项仍是稍后/归档），避免误触不可逆手势
+        #expect(NotificationItemKey.writeKey(for: item("pending_card"), disposition: .dismissPending, now: Date()) == nil)
     }
 
     /// 原名：全滑仅对纯信息行的稍后或归档开放

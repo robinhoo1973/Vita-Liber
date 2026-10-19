@@ -121,7 +121,13 @@ struct PendingOcrQueueView: View {
                             .accessibilityIdentifier("SP-53.queue.row")
                         }
                     }
+                    // 2026-10-19 业主反馈（顶端留空仍未解决）：此前未显式指定
+                    // listStyle——iOS 默认 insetGrouped 给首节再加一段顶部内边距；
+                    // 与 Home/提醒/健康同口径改 plain + 顶部内容边距归零 + 紧凑节距。
+                    .listStyle(.plain)
                     .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
+                    .contentMarginsCompat(.top, 0, for: .scrollContent)
+                    .listSectionSpacingCompat(.compact)
                     .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
                 }
             }
@@ -148,6 +154,8 @@ struct PendingOcrQueueView: View {
                 .background(.thinMaterial)
             }
             .navigationTitle(L10n.ocrQueueTitle)
+            // 2026-10-19：与 tab 根同口径 inline（大标题 + 筛选条叠加会再加一层顶端留白）
+            .navigationBarTitleDisplayMode(.inline)
             .task(id: "\(app.members.map(\.id))-\(docs.pendingVersion)") { await load() }
         }
     }

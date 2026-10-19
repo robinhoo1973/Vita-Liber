@@ -102,6 +102,8 @@ extension L10n {
 
     static var homeSwipeFailed: String { t("home.swipe.failed") }
 
+    static var homeSwipeDelete: String { t("home.swipe.delete") }
+
     static var homeTodayTodos: String { t("home.todayTodos") }
 
     static var homeExpiringSoon: String { t("home.expiringSoon") }

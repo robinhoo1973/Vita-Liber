@@ -129,6 +129,8 @@ struct HomeView: View {
             open(item)
         case .resumePendingCard:
             resumingCard = ResumeTarget(id: item.id.sourceId)
+        case .dismissPending:
+            Task { await dismissPending(item) }
         case .markTaken, .snoozeDose, .skipDose, .archive, .snoozeUntilTomorrow:
             Task {
                 if await write(d, item: item) { return }            // 成功：行/底部条已在 write 内 withAnimation 更新
@@ -173,6 +175,53 @@ struct HomeView: View {
         }
     }
 
+    /// 源级软删除（2026-10-19 业主指令）：待确认资料 = D 级文档归档；
+    /// 待补充事项 = 待办卡置 archived。均不触碰医疗事实/原件（BR-002），
+    /// 底部条提供撤销（反向写源仓；通知键撤销不适用）。
+    private func dismissPending(_ item: AggregatedReminderItem) async {
+        let patientId = item.patientID ?? app.currentPatientId
+        let ok: Bool
+        switch item.id.kind {
+        case "pending_card":
+            ok = await pendingCenter.discard(id: item.id.sourceId, patientId: patientId)
+        case "ocr":
+            guard let docId = UUID(uuidString: item.id.sourceId) else { return }
+            ok = await docs.dismissPendingDocument(id: docId)
+        default:
+            return
+        }
+        withAnimation(rowAnimation) {
+            actionToast = ok
+                ? HomeActionToast(title: L10n.homeSwipeDeleted(item.title),
+                                  kind: .undoSource(action: { restoreDismissed(item) }))
+                : HomeActionToast(title: L10n.homeSwipeFailed,
+                                  kind: .failed(retry: { Task { await dismissPending(item) } }))
+        }
+    }
+
+    /// 撤销源级软删除：文档取消归档（原状态 favorite/active 由 DocumentStore
+    /// 状态机还原）；待办卡回 pending。失败换成重试条。
+    private func restoreDismissed(_ item: AggregatedReminderItem) {
+        let patientId = item.patientID ?? app.currentPatientId
+        Task {
+            let ok: Bool
+            switch item.id.kind {
+            case "pending_card":
+                ok = await pendingCenter.restore(id: item.id.sourceId, patientId: patientId)
+            case "ocr":
+                guard let docId = UUID(uuidString: item.id.sourceId) else { return }
+                ok = await docs.restorePendingDocument(id: docId)
+            default:
+                return
+            }
+            withAnimation(rowAnimation) {
+                actionToast = ok ? nil
+                    : HomeActionToast(title: L10n.homeSwipeFailed,
+                                      kind: .failed(retry: { restoreDismissed(item) }))
+            }
+        }
+    }
+
     /// 撤销（归档/稍后）：先落库再恢复可观察态；失败换成重试条。代次守卫：
     /// 只有底部条仍是本次动作那一条时才顺带清条，否则只恢复行、不动新条。
     private func undo(_ toast: HomeActionToast, key: String) {
@@ -201,6 +250,11 @@ struct HomeView: View {
             HomeActionToastBanner(
                 toast: toast,
                 onUndo: { key in undo(toast, key: key) },
+                onUndoSource: {
+                    guard case .undoSource(let action) = toast.kind else { return }
+                    withAnimation(rowAnimation) { actionToast = nil }
+                    action()
+                },
                 onRetry: {
                     actionToast = nil
                     if case .failed(let retry) = toast.kind { retry() }

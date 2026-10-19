@@ -1979,6 +1979,8 @@
 "home.swipe.viewEvidence" = "查看证据";
 "home.swipe.view" = "查看";
 "home.swipe.failed" = "操作失败";
+"home.swipe.delete" = "删除";
+"home.swipe.deleted" = "已删除「%@」";
 "ocr.cards.overview" = "已填好的信息卡";
 "ocr.cards.none" = "尚无足够字段形成信息卡。原件和识别文字将保留，可稍后补充。";
 "ocr.cards.hint" = "保存原件后可切换各张信息卡，检查预填内容并补充缺失项；按卡确认保存。";

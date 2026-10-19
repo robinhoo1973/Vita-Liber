@@ -11,12 +11,17 @@ public enum ReminderDisposition: String, Sendable, Equatable, CaseIterable, Coda
     case snoozeUntilTomorrow                    // 次日键：refill / stock_backlog / ocr 未逾期 / pending_card
     case archive                                // appointment / refill / stock_backlog
     case viewEvidence, view                     // alert L1+ 证据卡 / 逾期高风险 OCR 队列
-    case resumePendingCard                      // pending_card（放弃仅经详情确认流）
+    case resumePendingCard                      // pending_card：进入补全流
+    /// 待确认/待补充事项移出首页（2026-10-19 业主指令）：**源级软删除**——
+    /// 待办卡置 archived、D 级文档置 archived，不删除任何医疗事实、草稿原文或
+    /// 原件（BR-002）；可经撤销恢复。逾期待确认（isPinned）不提供本动作：
+    /// FR2.3/BR-003 禁止高风险未确认资料被忽略超过 72 小时。
+    case dismissPending
 
     public var side: SwipeSide {
         switch self {
         case .markTaken, .openCabinet, .viewEvidence, .view, .resumePendingCard: return .leading
-        case .snoozeDose, .skipDose, .snoozeUntilTomorrow, .archive: return .trailing
+        case .snoozeDose, .skipDose, .snoozeUntilTomorrow, .archive, .dismissPending: return .trailing
         }
     }
     /// 医疗事实动作（BR-004）：不得全滑触发。
@@ -31,8 +36,8 @@ public extension ReminderAggregationCenter {
         case "refill", "stock_backlog": return [.openCabinet, .snoozeUntilTomorrow, .archive]
         case "appointment": return [.archive]
         case "alert_event": return item.isPinned ? [.viewEvidence] : []
-        case "ocr": return item.isPinned ? [.view] : [.snoozeUntilTomorrow]
-        case "pending_card": return [.resumePendingCard, .snoozeUntilTomorrow]
+        case "ocr": return item.isPinned ? [.view] : [.snoozeUntilTomorrow, .dismissPending]
+        case "pending_card": return [.resumePendingCard, .snoozeUntilTomorrow, .dismissPending]
         default: return []   // profile_progress 与未知源：无滑动动作
         }
     }

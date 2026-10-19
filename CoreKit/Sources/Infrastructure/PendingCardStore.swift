@@ -257,6 +257,35 @@ public actor PendingCardStore {
         }
     }
 
+    /// 用户放弃待办（2026-10-19 业主指令，首页滑动删除）：源级**软归档**——
+    /// 仅置 status=archived 并移出活跃投影，不删除草稿原文或任何医疗事实
+    /// （BR-002/BR-003 事实链不受影响）。resolved_by 记 user，撤销仅限用户归档。
+    public func archive(id: String, by: String = "user", now: Date = Date()) async throws {
+        let epoch = now.timeIntervalSince1970
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE pending_card SET status = 'archived',
+                    resolved_at = ?, resolved_by = ?, updated_at = ?
+                WHERE id = ? AND status IN ('pending','in_progress','expired')
+                """, arguments: [epoch, by, epoch, id])
+            guard db.changesCount == 1 else { throw StoreError.inactive }
+        }
+    }
+
+    /// 撤销用户放弃：archived → pending（清 resolved_at/by）。过期归档
+    /// （resolved_by='expired'）不得经此复活——生命周期口径仍归 advanceLifecycle。
+    public func restoreArchived(id: String, now: Date = Date()) async throws {
+        let epoch = now.timeIntervalSince1970
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE pending_card SET status = 'pending',
+                    resolved_at = NULL, resolved_by = NULL, updated_at = ?
+                WHERE id = ? AND status = 'archived' AND resolved_by = 'user'
+                """, arguments: [epoch, id])
+            guard db.changesCount == 1 else { throw StoreError.inactive }
+        }
+    }
+
     /// 生命周期推进（FR6.9/§21.3）：7 天未处理 → expired（通知用户）；
     /// 30 天 → archived（不再提醒、移出活跃投影）。
     /// 幂等：只推进未完结卡；返回 (过期数, 归档数) 供提醒链消费。

@@ -46,6 +46,20 @@ final class PendingCardCenterState {
         Task { await load(patientId: patientId) }
     }
 
+    /// 首页滑动删除（2026-10-19 业主指令）：源级软归档待办卡并刷新投影。
+    /// 不删除草稿原文/医疗事实（BR-002），失败返回 false 由调用方保留行并提示。
+    func discard(id: String, patientId: UUID) async -> Bool {
+        do { try await store.archive(id: id, by: "user") } catch { return false }
+        await load(patientId: patientId)
+        return true
+    }
+
+    /// 撤销首页删除：archived → pending 并刷新投影。
+    func restore(id: String, patientId: UUID) async -> Bool {
+        do { try await store.restoreArchived(id: id) } catch { return false }
+        await load(patientId: patientId)
+        return true
+    }
 
     /// 用户补全完结（期一无 LLM 补全；resolved_by=user）后刷新投影。
 }

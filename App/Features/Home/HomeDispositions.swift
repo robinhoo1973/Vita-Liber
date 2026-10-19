@@ -17,6 +17,7 @@ extension ReminderDisposition {
         case .viewEvidence: return L10n.homeSwipeViewEvidence
         case .view: return L10n.homeSwipeView
         case .resumePendingCard: return L10n.pendingCardResume
+        case .dismissPending: return L10n.homeSwipeDelete
         }
     }
 
@@ -29,6 +30,7 @@ extension ReminderDisposition {
         case .archive: return "archivebox"
         case .viewEvidence, .view: return "doc.text.magnifyingglass"
         case .resumePendingCard: return "checkmark.circle"
+        case .dismissPending: return "trash"
         }
     }
 
@@ -37,11 +39,12 @@ extension ReminderDisposition {
     /// 复用到纯查看动作，且系统色绕过 token。新纪律（HIG：破坏性动作才用红）：
     /// 主行动（医疗确认/开药箱/续确认）走 brand-primary；其余（稍后/跳过/归档/
     /// 查看）一律中性 token `text-secondary`；**破坏性动作走 semantic-danger**——
-    /// 当前动作表无删除医疗事实的 case（Domain ReminderDisposition 文档明示），
-    /// 如未来新增删除类动作必须用 semantic-danger，不得再引入第三类彩色。
+    /// 当前仅 `.dismissPending` 属删除类（源级软归档，撤销可恢复），
+    /// 不得再引入第三类彩色。
     var tint: Color {
         switch self {
         case .markTaken, .openCabinet, .resumePendingCard: return Color("brand-primary", bundle: .main)
+        case .dismissPending: return Color("semantic-danger", bundle: .main)
         case .snoozeDose, .snoozeUntilTomorrow, .skipDose,
              .archive, .viewEvidence, .view: return Color("text-secondary", bundle: .main)
         }
@@ -54,6 +57,9 @@ extension ReminderDisposition {
 struct HomeActionToast: Identifiable {
     enum Kind {
         case undo(key: String)
+        /// 源级软删除（待确认资料/待补充事项）的撤销：通知键撤销不适用，
+        /// 需反向写源仓（文档取消归档 / 待办卡回 pending）。
+        case undoSource(action: () -> Void)
         case failed(retry: () -> Void)
     }
     let id = UUID()

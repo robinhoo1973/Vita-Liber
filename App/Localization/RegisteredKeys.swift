@@ -741,6 +741,7 @@ extension L10n {
         "voicenote.empty.title", "voicenote.inTimeline", "voicenote.save.accessibility", "voicenote.saveFailed", "voicenote.title",
         "home.swipe.archive", "home.swipe.archived", "home.swipe.undo",
         "home.swipe.openCabinet", "home.swipe.snoozeTomorrow", "home.swipe.snoozedTomorrow", "home.swipe.viewEvidence", "home.swipe.view", "home.swipe.failed",
+        "home.swipe.delete", "home.swipe.deleted",
         "voicenote.dictation", "voicenote.dictating", "voicenote.dictationFailed", "voicenote.stop",
     "voicenote.tapHint", "voicenote.dictationDenied",
     "voicenote.dictationEngineUnavailable",
