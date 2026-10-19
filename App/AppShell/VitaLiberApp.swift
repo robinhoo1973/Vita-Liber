@@ -19,6 +19,7 @@ struct VitaLiberApp: App {
     @State private var reminderStore: ReminderStore
     @State private var settingsStore: AppSettingsStore
     @State private var avatarState: AvatarState
+    @State private var chatHistoryState: ChatHistoryState
     @State private var observationState: ObservationStoreState
     @State private var entitlementStore: AppEntitlementStore
     @State private var trendState: TrendEntryState
@@ -134,6 +135,7 @@ struct VitaLiberApp: App {
         _timelineState = State(initialValue: TimelineViewState(
             store: container.timelineQuery, problemStore: container.healthProblems))
         _questionsState = State(initialValue: QuestionsState(store: container.questions))
+        _chatHistoryState = State(initialValue: ChatHistoryState(store: container.chatHistory))
         // 类型化数据变更信号（先于 DocumentsState 装配——后者携带本实例注入）
         // 局部常量中转（审查修复）：init 内引用 State 包装值（dataChangeCenter）
         // 即触 self 属性访问——Swift 明确初始化纪律禁止全部存储属性就绪前
@@ -409,6 +411,7 @@ struct VitaLiberApp: App {
             .environment(HealthExamViewState(store: container.healthExams))
             .environment(timelineState)
             .environment(questionsState)
+            .environment(chatHistoryState)
             .environment(documentsState)
             .environment(exportWizardState)
              .environment(f16DeviceState)

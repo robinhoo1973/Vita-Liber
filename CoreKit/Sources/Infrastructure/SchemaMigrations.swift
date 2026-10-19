@@ -905,6 +905,28 @@ public enum SchemaMigrations {
         // 覆盖面）——表重建补 FK；实现为代码迁移（列集交集搬运 + 终态探测,
         // 见 GRDBStore.repairPatientReferences 头注）。
         Step(version: 34, name: "patient-fk-repair", sql: ""),
+        // v35：AI 聊天历史（2026-10-19 业主「聊天要能保存」）：本机会话/消息，
+        // 消息 payload_json 存展示快照；会话删除级联删消息（真删）。
+        Step(version: 35, name: "chat-history", sql: """
+        CREATE TABLE IF NOT EXISTS chat_conversation (
+          id TEXT PRIMARY KEY,
+          patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+          title TEXT NOT NULL,
+          pinned INTEGER NOT NULL DEFAULT 0,
+          created_at REAL NOT NULL,
+          updated_at REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_chat_conversation_patient ON chat_conversation(patient_id, pinned DESC, updated_at DESC);
+        CREATE TABLE IF NOT EXISTS chat_message (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES chat_conversation(id) ON DELETE CASCADE,
+          role TEXT NOT NULL CHECK(role IN ('user','assistant','receipt')),
+          kind TEXT NOT NULL CHECK(kind IN ('text','media','card')),
+          text TEXT NOT NULL DEFAULT '',
+          payload_json TEXT,
+          created_at REAL NOT NULL,
+          ordinal INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_chat_message_conversation ON chat_message(conversation_id, ordinal);
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

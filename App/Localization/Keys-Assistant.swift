@@ -91,5 +91,24 @@ extension L10n {
     static var assistantVoiceMessage: String { t("assistant.voiceMessage") }
     static var assistantVoiceReplay: String { t("assistant.voiceReplay") }
     static var assistantVoiceToText: String { t("assistant.voiceToText") }
+    // 2026-10-19 对话历史
+    static var assistantHistoryTitle: String { t("assistant.historyTitle") }
+    static var assistantHistoryNew: String { t("assistant.historyNew") }
+    static var assistantHistorySearch: String { t("assistant.historySearch") }
+    static var assistantHistoryEmpty: String { t("assistant.historyEmpty") }
+    static var assistantHistoryToday: String { t("assistant.historyToday") }
+    static var assistantHistoryYesterday: String { t("assistant.historyYesterday") }
+    static var assistantHistoryEarlier: String { t("assistant.historyEarlier") }
+    static var assistantHistoryRename: String { t("assistant.historyRename") }
+    static var assistantHistoryRenamePrompt: String { t("assistant.historyRenamePrompt") }
+    static var assistantHistoryPin: String { t("assistant.historyPin") }
+    static var assistantHistoryUnpin: String { t("assistant.historyUnpin") }
+    static var assistantHistoryDelete: String { t("assistant.historyDelete") }
+    static var assistantHistoryDeleteBody: String { t("assistant.historyDeleteBody") }
+    static func assistantHistoryMessages(_ count: Int) -> String {
+        String(format: t("assistant.historyMessages"), count)
+    }
+    static var assistantHistoryNoPreview: String { t("assistant.historyNoPreview") }
+    static var assistantNewConversation: String { t("assistant.newConversation") }
 
 }

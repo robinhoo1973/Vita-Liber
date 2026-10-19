@@ -21,6 +21,7 @@ struct TaskAssistantChatView: View {
     @Environment(VoiceNoteState.self) private var voiceNotes
     @Environment(QuestionsState.self) private var questions
     @Environment(DocumentsState.self) private var docs
+    @Environment(ChatHistoryState.self) private var chatHistory
     @Environment(\.auditLog) private var auditLog
     @Environment(\.dismiss) private var dismiss
 
@@ -53,15 +54,20 @@ struct TaskAssistantChatView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingMessageID: UUID?
     @State private var shownTranscripts: Set<UUID> = []
+    @State private var conversationID: UUID?
+    @State private var titleCaptured = false
+    @State private var showHistory = false
 
     private enum AssistantSheet: Identifiable {
         case voice
+        case history
         case sharedReview(sessionID: UUID)
         case cardReview(cardID: UUID, sessionID: UUID)
 
         var id: String {
             switch self {
             case .voice: return "voice"
+            case .history: return "history"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
             }
@@ -85,6 +91,8 @@ struct TaskAssistantChatView: View {
         var entityKind: String?
         var fieldCount: Int
         var sessionID: UUID
+        /// 离线恢复时的状态快照（"done"/"deferred"/"pending"/"locked"）。
+        var snapshotState: String = "done"
     }
 
     private struct ChatMessage: Identifiable, Equatable {
@@ -113,6 +121,14 @@ struct TaskAssistantChatView: View {
                 .navigationTitle(L10n.assistantChatTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            activeSheet = .history
+                        } label: {
+                            Label(L10n.assistantHistoryTitle, systemImage: "clock.arrow.circlepath")
+                        }
+                        .accessibilityIdentifier("assistant.history")
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(L10n.assistantClose) { dismiss() }
                             .accessibilityIdentifier("assistant.close")
@@ -140,6 +156,15 @@ struct TaskAssistantChatView: View {
                               allowsMultipleSelection: false,
                               onCompletion: handleImportedFile)
                 .onAppear { routeMonitor.start() }
+                .onChangeCompat(of: docs.activeImport?.sharedFieldsSettled) { _, _ in
+                    syncCardSnapshots()
+                }
+                .onChangeCompat(of: docs.activeImport?.committedCards.count) { _, _ in
+                    syncCardSnapshots()
+                }
+                .onChangeCompat(of: activeSheet == nil) { _, closed in
+                    if closed { syncCardSnapshots() }
+                }
                 .onDisappear {
                     routeMonitor.stop()
                     releaseChatSessionIfNeeded()
@@ -320,7 +345,15 @@ struct TaskAssistantChatView: View {
     /// 助手侧信息卡（2026-10-19）：开篇行右侧编辑图标进入修正/确认；完成后显示勾。
     private func cardBubble(_ card: CardInfo) -> some View {
         let state = cardState(card)
+        let style = cardKindStyle(card)
         return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: style.symbol)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(style.color)
+                .frame(width: 34, height: 34)
+                .background(style.color.opacity(0.14))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(cardTitle(card))
                     .font(.subheadline.weight(.semibold))
@@ -376,7 +409,12 @@ struct TaskAssistantChatView: View {
     private enum CardState: Equatable { case pending, done, deferred, locked }
 
     private func cardState(_ info: CardInfo) -> CardState {
-        guard let session = docs.activeImport, session.id == info.sessionID else { return .done }
+        guard let session = docs.activeImport, session.id == info.sessionID else {
+            switch info.snapshotState {
+            case "deferred", "pending", "locked": return .deferred
+            default: return .done
+            }
+        }
         switch info.kind {
         case .shared:
             let rows = docs.sharedFieldRows(for: session)
@@ -389,6 +427,41 @@ struct TaskAssistantChatView: View {
             guard session.cards.contains(where: { $0.id == cardID }) else { return .deferred }
             let rows = docs.sharedFieldRows(for: session)
             return rows.isEmpty || session.sharedFieldsSettled ? .pending : .locked
+        }
+    }
+
+    /// 卡类 → 左端圆角方形图标（不同卡一眼可辨；右端留给编辑/确认）。
+    private func cardKindStyle(_ card: CardInfo) -> (symbol: String, color: Color) {
+        if card.kind == .shared {
+            return ("info.circle.fill", Color("card-kind-shared", bundle: .main))
+        }
+        switch card.entityKind ?? "" {
+        case "prescription":
+            return ("doc.text.fill", Color("card-kind-rx", bundle: .main))
+        case "medication":
+            return ("pills.fill", Color("card-kind-med", bundle: .main))
+        case "metric_sample", "lab_report", "lab":
+            return ("testtube.2", Color("card-kind-lab", bundle: .main))
+        case "claim_item":
+            return ("creditcard.fill", Color("card-kind-rx", bundle: .main))
+        case "diagnosis":
+            return ("list.clipboard.fill", Color("card-kind-rx", bundle: .main))
+        case "immunization":
+            return ("syringe.fill", Color("card-kind-med", bundle: .main))
+        case "exam_report":
+            return ("waveform.path.ecg", Color("card-kind-lab", bundle: .main))
+        case "surgery":
+            return ("bandage.fill", Color("card-kind-med", bundle: .main))
+        case "treatment_record":
+            return ("cross.case.fill", Color("card-kind-med", bundle: .main))
+        case "health_exam":
+            return ("checklist", Color("card-kind-shared", bundle: .main))
+        case "clinical_conclusion":
+            return ("text.badge.checkmark", Color("card-kind-lab", bundle: .main))
+        case "hospitalization":
+            return ("bed.double.fill", Color("card-kind-rx", bundle: .main))
+        default:
+            return ("doc.text.fill", Color("card-kind-shared", bundle: .main))
         }
     }
 
@@ -591,6 +664,12 @@ struct TaskAssistantChatView: View {
     @ViewBuilder
     private func sheetContent(_ sheet: AssistantSheet) -> some View {
         switch sheet {
+        case .history:
+            ChatHistoryView(
+                patientId: app.currentPatientId,
+                onOpen: { summary in openConversation(summary) },
+                onNew: { startNewConversation() },
+                onClose: { activeSheet = nil })
         case .voice:
             AssistantVoiceInputSheet(
                 onUse: { text, audioURL in
@@ -636,6 +715,186 @@ struct TaskAssistantChatView: View {
 
     private var trimmedInput: String {
         input.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - 历史持久化（2026-10-19 业主指令）
+
+    private struct PersistedMessage: Codable {
+        var role: String
+        var text: String
+        var isRefusal: Bool
+        var isEmergency: Bool
+        var media: PersistedMedia?
+        var card: PersistedCard?
+    }
+    private struct PersistedMedia: Codable {
+        var kind: String
+        var filename: String
+        var status: String
+        var audioFilename: String?
+        var transcript: String?
+    }
+    private struct PersistedCard: Codable {
+        var id: String
+        var kind: String
+        var entityKind: String?
+        var fieldCount: Int
+        var sessionID: String
+        var snapshotState: String
+        var title: String?
+    }
+
+    private func persist(_ message: ChatMessage) {
+        let role: String
+        switch message.role {
+        case .user: role = "user"
+        case .assistant: role = "assistant"
+        case .receipt: role = "receipt"
+        }
+        let kind = message.media != nil ? "media" : message.card != nil ? "card" : "text"
+        let payload = encode(message)
+        let title = !titleCaptured ? titleCandidate(message) : nil
+        if title != nil { titleCaptured = true }
+        Task {
+            guard let id = await ensureConversationID() else { return }
+            await chatHistory.append(conversationId: id, role: role,
+                                     kind: kind, text: message.text, payloadJSON: payload)
+            if let title { await chatHistory.rename(id, title: title) }
+        }
+    }
+
+    /// 懒创建会话：首条消息落库前不产生空会话；并发首条消息只保留一个会话。
+    private func ensureConversationID() async -> UUID? {
+        if let conversationID { return conversationID }
+        guard let created = await chatHistory.createConversation(
+            patientId: app.currentPatientId, title: L10n.assistantNewConversation) else { return nil }
+        if let existing = conversationID {
+            Task { await chatHistory.delete(created) }
+            return existing
+        }
+        conversationID = created
+        return created
+    }
+
+    private func titleCandidate(_ message: ChatMessage) -> String? {
+        guard message.role == .user else { return nil }
+        if let media = message.media {
+            let text = (media.transcript?.isEmpty == false ? media.transcript : media.filename) ?? media.filename
+            return String(text.prefix(24))
+        }
+        let trimmed = message.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed.prefix(24))
+    }
+
+    private func encode(_ message: ChatMessage) -> String? {
+        let role: String
+        switch message.role {
+        case .user: role = "user"
+        case .assistant: role = "assistant"
+        case .receipt: role = "receipt"
+        }
+        let media = message.media.map {
+            PersistedMedia(kind: mediaKind($0.kind), filename: $0.filename,
+                           status: mediaStatus($0.status),
+                           audioFilename: $0.audioFilename, transcript: $0.transcript)
+        }
+        let card = message.card.map {
+            PersistedCard(id: $0.id, kind: $0.kind == .shared ? "shared" : "entity",
+                          entityKind: $0.entityKind, fieldCount: $0.fieldCount,
+                          sessionID: $0.sessionID.uuidString,
+                          snapshotState: snapshotState($0),
+                          title: cardTitle($0))
+        }
+        let payload = PersistedMessage(role: role, text: message.text,
+                                       isRefusal: message.isRefusal, isEmergency: message.isEmergency,
+                                       media: media, card: card)
+        guard let data = try? JSONEncoder().encode(payload) else { return nil }   // try?-ok: 编码失败则本消息不落历史
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func decode(_ stored: ChatHistoryStore.StoredMessage) -> ChatMessage? {
+        guard let json = stored.payloadJSON, let data = json.data(using: .utf8),
+              let payload = try? JSONDecoder().decode(PersistedMessage.self, from: data) else {   // try?-ok: 旧/损坏快照回落纯文本
+            let role: ChatMessage.Role = stored.role == "user" ? .user
+                : stored.role == "receipt" ? .receipt : .assistant
+            return ChatMessage(role: role, text: stored.text)
+        }
+        let role: ChatMessage.Role = payload.role == "user" ? .user
+            : payload.role == "receipt" ? .receipt : .assistant
+        let media = payload.media.map {
+            MediaInfo(kind: mediaKind(from: $0.kind), filename: $0.filename,
+                      status: mediaStatus(from: $0.status),
+                      audioFilename: $0.audioFilename, transcript: $0.transcript)
+        }
+        let card = payload.card.map {
+            CardInfo(id: $0.id, kind: $0.kind == "shared" ? .shared : .entity,
+                     entityKind: $0.entityKind, fieldCount: $0.fieldCount,
+                     sessionID: UUID(uuidString: $0.sessionID) ?? UUID(),
+                     snapshotState: $0.snapshotState)
+        }
+        return ChatMessage(role: role, text: payload.text, isRefusal: payload.isRefusal,
+                           isEmergency: payload.isEmergency, media: media, card: card)
+    }
+
+    private func mediaKind(_ kind: MediaInfo.Kind) -> String {
+        switch kind { case .image: return "image"; case .pdf: return "pdf"
+        case .file: return "file"; case .voice: return "voice" }
+    }
+    private func mediaKind(from raw: String) -> MediaInfo.Kind {
+        switch raw { case "image": return .image; case "pdf": return .pdf
+        case "voice": return .voice; default: return .file }
+    }
+    private func mediaStatus(_ status: MediaInfo.Status) -> String {
+        switch status { case .processing: return "processing"; case .ready: return "ready"; case .failed: return "failed" }
+    }
+    private func mediaStatus(from raw: String) -> MediaInfo.Status {
+        switch raw { case "ready": return .ready; case "failed": return .failed; default: return .processing }
+    }
+    private func snapshotState(_ card: CardInfo) -> String {
+        switch cardState(card) {
+        case .done: return "done"; case .deferred: return "deferred"
+        case .pending: return "pending"; case .locked: return "locked"
+        }
+    }
+
+    private func syncCardSnapshots() {
+        guard let conversationID else { return }
+        for message in messages {
+            guard let card = message.card else { continue }
+            let state = snapshotState(card)
+            Task { await chatHistory.updateCardSnapshot(conversationId: conversationID,
+                                                        cardId: card.id, state: state) }
+        }
+    }
+
+    private func openConversation(_ summary: ChatHistoryStore.ConversationSummary) {
+        Task {
+            let stored = await chatHistory.messages(conversationId: summary.id)
+            await MainActor.run {
+                conversationID = summary.id
+                titleCaptured = true
+                messages = stored.compactMap(decode)
+                resetTransient()
+                activeSheet = nil
+            }
+        }
+    }
+
+    private func startNewConversation() {
+        // 懒创建：清空界面即可；首条消息落库时创建会话，避免空行。
+        conversationID = nil
+        titleCaptured = false
+        messages = []
+        resetTransient()
+        activeSheet = nil
+    }
+
+    private func resetTransient() {
+        confirmSet = nil
+        pendingPlan = nil
+        pendingClarification = nil
+        isSaving = false
+        input = ""
     }
 
     // MARK: - 媒体采集 → 全图 OCR → 信息卡（2026-10-19 业主指令）
@@ -1026,7 +1285,9 @@ struct TaskAssistantChatView: View {
 
     private func append(_ message: ChatMessage) {
         messages.append(message)
+        persist(message)
     }
+
 }
 
 /// 聊天内单卡确认（2026-10-19）：只承载 `EntityCardConfirmView`；

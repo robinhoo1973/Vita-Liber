@@ -56,6 +56,8 @@ struct AppContainer {
     /// 通知中心可观察门面（@Environment 注入要求 @Observable）
     let notificationCenterState: NotificationCenterState
     let voiceNotes: VoiceNoteStore
+    /// AI 聊天历史（2026-10-19）：本机会话/消息
+    let chatHistory: ChatHistoryStore
     let guidelines: GuidelineStore
     let emergencyCards: EmergencyCardStore
     let immunizations: ImmunizationStore
@@ -300,6 +302,7 @@ struct AppContainer {
         let notificationCenterState = NotificationCenterState(store: notificationState)
         let pendingCards = PendingCardStore(writer: store.writer)
         let voiceNotes = VoiceNoteStore(writer: store.writer)
+        let chatHistory = ChatHistoryStore(writer: store.writer)
         return AppContainer(degradedReason: degradedReason,
                             store: store,
                             audit: auditWriter,
@@ -340,6 +343,7 @@ struct AppContainer {
                             pendingCards: pendingCards,
                             notificationCenterState: notificationCenterState,
                             voiceNotes: voiceNotes,
+                            chatHistory: chatHistory,
                             guidelines: guidelines,
                             emergencyCards: emergencyCards,
                             immunizations: immunizations,
