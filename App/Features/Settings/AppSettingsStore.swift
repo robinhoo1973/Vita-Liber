@@ -50,6 +50,19 @@ final class AppSettingsStore {
             }
             values = loaded
             seedMirrorsIfNeeded()
+            // P0-③（2026-10-19 委员会）：旧持久化语音语言幂等写回——
+            // 读时归一保证正确性，写回保证状态卫生（旧值不复活、诊断可解释）。
+            // 只在无并发授权写入的 load 窗口内执行；写回失败仅记日志（读时归一生效）。
+            let rawVoice = loaded[.voiceInputLanguages]
+            let canonicalVoice = SettingsRules.voiceLocales(rawVoice).joined(separator: ",")
+            if canonicalVoice != rawVoice {
+                do {
+                    try await store.set(canonicalVoice, for: .voiceInputLanguages)
+                    values[.voiceInputLanguages] = canonicalVoice
+                } catch {
+                    logger.error("语音语言旧值写回失败: \(error)")
+                }
+            }
         } catch {
             logger.error("设置加载失败: \(error)")
         }

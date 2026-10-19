@@ -84,7 +84,9 @@ struct VoiceQuickLaunchView: View {
         // （round2 A-N2 首句丢失症状在下载→可用转换点复发）。
         let choice = VoiceEngineChoice.resolve(settings.values[.voiceEngine] ?? "")
         let locale = model.preferredLocale ?? TranscriptionSegmentation.fallbackLocale
-        let resolved = choice == .auto ? ASRModelCatalog.automaticChoice(locale: locale, in: ASRFamilyIndexStore.routingIndex()) : choice
+        // P0-①（2026-10-19 委员会）：预热键改走 builder 门控（含资产闸与
+        // canExpress 判据）——Domain 直调绕过了缺件回落与可解码门。
+        let resolved = choice == .auto ? TranscriptionEngineBuilder.automaticChoice(locale: locale) : choice
         let assetIdentity = resolved.isBundledModel ? ASRModelAssets.resolve(for: resolved).identity : ""
         return locale + "|" + (settings.values[.voiceEngine] ?? "") + "|" + assetIdentity
     }

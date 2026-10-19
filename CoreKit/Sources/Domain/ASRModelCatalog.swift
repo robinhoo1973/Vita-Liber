@@ -36,6 +36,14 @@ public struct ASRModelDescriptor: Sendable, Equatable {
         }
     }
 
+    /// 可解码判据（2026-10-19 委员会 P0-①）：路由谓词与提示谓词必须同源——
+    /// 目录声明覆盖（languageCode != nil）但名称表不可表达时（如 qwen3 声明 30 语、
+    /// 名称表仅两语），单语选择该引擎会在 driver 抛 engineUnavailable（R4 缺陷族）。
+    /// 所有自动选择/回落环一律经此判据，不再直接用 languageCode。
+    public func canExpress(locale: String, mode: TranscriptionLanguageMode) -> Bool {
+        decoderLanguage(for: locale, mode: mode) != nil
+    }
+
     public var availableLocales: Set<String> {
         var locales = Set(languageCodes)
         if languageCodes.contains("zh") { locales.formUnion(["zh-Hans-CN", "zh-Hant-TW"]) }
@@ -130,22 +138,25 @@ public enum ASRModelCatalog {
     }
 
     /// 完整解码模型优先：按目录 families 发布序（CI 所有 = 质量/能力优先序，
-    /// 以签名目录为准；2026-10-05 目录化后不再有 App 内模板序）取第一个覆盖该 locale 的模型。
+    /// 以签名目录为准；2026-10-05 目录化后不再有 App 内模板序）取第一个
+    /// **可表达**该 locale 的模型（2026-10-19 委员会 P0-①：覆盖声明与解码提示
+    /// 判据统一为 `canExpress`——「可路由≠可解码」缺陷族关闭，R4 不再可达）。
     /// 随包资产缺件时的回落由 `TranscriptionEngineBuilder.automaticChoice` 门控（Domain 不读 Bundle）。
     public static func automaticChoice(locale: String, in index: ASRModelReleaseIndex?) -> VoiceEngineChoice {
-        for model in descriptors(from: index) where model.languageCode(for: locale) != nil {
+        for model in descriptors(from: index) where model.canExpress(locale: locale, mode: .single) {
             return model.choice
         }
         return .classic
     }
 
     /// FR17.15（2026-10-05 业主反馈修复批）：混说模式的**多语种**引擎选择——
-    /// 按目录序取第一个**覆盖全部已选语种**的模型。无模型全量覆盖时回落主语言单语种
-    /// 逻辑（不因次要语种改变引擎——保持既有行为）。空列表回落 `.classic`
+    /// 按目录序取第一个**覆盖全部已选语种**的模型（P0-①：混说判据同样走
+    /// `canExpress(.mixed)`）。无模型全量覆盖时回落主语言单语种逻辑
+    /// （不因次要语种改变引擎——保持既有行为）。空列表回落 `.classic`
     /// （零资产基线轨，无主语言可依）。
     public static func automaticChoice(locales: [String], in index: ASRModelReleaseIndex?) -> VoiceEngineChoice {
         guard let primary = locales.first else { return .classic }
-        for model in descriptors(from: index) where locales.allSatisfy({ model.languageCode(for: $0) != nil }) {
+        for model in descriptors(from: index) where locales.allSatisfy({ model.canExpress(locale: $0, mode: .mixed) }) {
             return model.choice
         }
         return automaticChoice(locale: primary, in: index)

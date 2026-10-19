@@ -94,7 +94,9 @@ struct ASRLanguageProtocolTests {
     /// 原名：自动选择让Qwen优先承担英语与外语（目录发布序 = 优先序，CI 所有）
     @Test func automaticChoicePrefersQwenForEnglishAndForeign() {
         #expect(ASRModelCatalog.automaticChoice(locale: "en-US", in: Self.fixtureIndex) == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE", in: Self.fixtureIndex) == .qwen3)
+        // P0-①（2026-10-19 委员会）：qwen3 名称表两语后不可表达 de——自动选择
+        // 跳过 qwen3 落到 whisper（夹具合成协议向量）。
+        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE", in: Self.fixtureIndex) == .whisper)
         #expect(ASRModelCatalog.automaticChoice(locale: "ur-PK", in: Self.fixtureIndex) == .dolphin)
         #expect(ASRModelCatalog.automaticChoice(locale: "la-VA", in: Self.fixtureIndex) == .whisper)
         // 目录无覆盖/空目录 → classic 零资产基线轨

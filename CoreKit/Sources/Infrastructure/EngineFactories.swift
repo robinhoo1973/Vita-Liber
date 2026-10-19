@@ -99,7 +99,8 @@ public enum TranscriptionEngineBuilder {
         guard preferred.isBundledModel else { return preferred }
         guard !ASRModelAssets.resolve(for: preferred).isPresent(preferred) else { return preferred }
         // 能力表与候选选择同源：已有离线基线不能被缺件 Qwen 遮蔽。
-        for model in ASRModelCatalog.descriptors(from: index) where model.languageCode(for: locale) != nil {
+        // P0-①（2026-10-19 委员会）：回落环同走 canExpress 判据，缺件扫描不复活 R4。
+        for model in ASRModelCatalog.descriptors(from: index) where model.canExpress(locale: locale, mode: .single) {
             if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
         }
         return fallbackForMissingBundledModel()
@@ -112,7 +113,8 @@ public enum TranscriptionEngineBuilder {
         let primary = locales.first ?? TranscriptionSegmentation.fallbackLocale
         guard mixed else { return automaticChoice(locale: primary) }
         let index = ASRFamilyIndexStore.routingIndex()
-        for model in ASRModelCatalog.descriptors(from: index) where locales.allSatisfy({ model.languageCode(for: $0) != nil }) {
+        // P0-①（2026-10-19 委员会）：混说过闸环同走 canExpress(.mixed)。
+        for model in ASRModelCatalog.descriptors(from: index) where locales.allSatisfy({ model.canExpress(locale: $0, mode: .mixed) }) {
             if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
         }
         return automaticChoice(locale: primary)
@@ -127,7 +129,7 @@ public enum TranscriptionEngineBuilder {
     /// 「不得换引擎冒充」只约束缺件/校验失败；OOM 回落必须明示实际引擎）。
     public static func loadFallback(after failed: VoiceEngineChoice, locale: String) -> VoiceEngineChoice? {
         for model in ASRModelCatalog.descriptors(from: ASRFamilyIndexStore.routingIndex())
-        where model.choice != failed && model.languageCode(for: locale) != nil {
+        where model.choice != failed && model.canExpress(locale: locale, mode: .single) {
             let assets = ASRModelAssets.resolve(for: model.choice)
             guard assets.isPresent(model.choice), let bytes = assets.byteCount(model.choice) else { continue }
             guard ModelMemoryBudget.firstLoadableIndex(modelBytes: [bytes],

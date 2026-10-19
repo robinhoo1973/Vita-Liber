@@ -174,12 +174,27 @@ public enum SettingsRules {
 
     /// FR17.15（V3.61）：语音输入语言列表——**存储顺序即优先级**（首位 = 主语言，
     /// 设置页保序写入，不再字母序），去重、去空；空存储回落默认。
+    /// 2026-10-19 委员会 P0-③（语言面收敛两语种）：**读时归一**——旧持久化值
+    /// （升级前选过 yue/ja/ko/nan/wuu/四川话 等）映射为产品两语种：
+    /// zh*/yue*/nan*/wuu*/zh-Hans-CN-Sichuan → zh-Hans-CN、en* → en-US、
+    /// 其余丢弃；保序、映射后去重、空结果回落默认。归一不写库（写回由
+    /// AppSettingsStore 幂等执行，见其 load 路径）。
     public static func voiceLocales(_ stored: String?) -> [String] {
         var seen = Set<String>()
-        let parsed = (stored ?? "").split(separator: ",")
+        let canonical: [String] = (stored ?? "").split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && seen.insert($0).inserted }
-        return parsed.isEmpty ? [AppSettingKey.voiceInputLanguages.defaultValue] : parsed
+            .filter { !$0.isEmpty }
+            .compactMap { raw in
+                let norm = TranscriptionLocale.normalizedIdentifier(raw)
+                if norm.hasPrefix("zh") || norm.hasPrefix("yue") || norm.hasPrefix("nan")
+                    || norm.hasPrefix("wuu") || norm == "zh-hans-cn-sichuan" {
+                    return "zh-Hans-CN"
+                }
+                if norm.hasPrefix("en") { return "en-US" }
+                return nil
+            }
+            .filter { seen.insert($0).inserted }
+        return canonical.isEmpty ? [AppSettingKey.voiceInputLanguages.defaultValue] : canonical
     }
 
     /// FR14.7/FR17.15 语音输入主语言 = 列表首位（引擎内再按能力回落）。

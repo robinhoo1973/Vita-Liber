@@ -108,11 +108,24 @@ struct TranscriptSessionTests {
     // MARK: - FR17.15 主语言与混说
 
     /// 原名：语音语言保序去重且主语言为首位
+    /// P0-③（2026-10-19 委员会）：读时归一——旧持久化方言/外语映射为产品两语种。
     @Test func voiceLocalesPreserveOrderDedupePrimaryFirst() {
         #expect(SettingsRules.voiceLocales("en-US,zh-Hans-CN,en-US") == ["en-US", "zh-Hans-CN"])
-        #expect(SettingsRules.preferredVoiceLocale("yue-Hant-HK,zh-Hans-CN") == "yue-Hant-HK")
+        #expect(SettingsRules.preferredVoiceLocale("yue-Hant-HK,zh-Hans-CN") == "zh-Hans-CN",
+                "粤语旧值归普通话，保序后 zh 首位")
         #expect(SettingsRules.preferredVoiceLocale(nil) == "zh-Hans-CN", "默认主语言普通话")
         #expect(SettingsRules.voiceLocales(" ") == ["zh-Hans-CN"], "空存储回落默认")
+    }
+
+    /// P0-③（2026-10-19 委员会）：旧值归一矩阵——方言归普通话、外语丢弃、
+    /// 保序、映射后去重、幂等。
+    @Test func voiceLocalesNormalizeLegacyValuesToTwoLanguages() {
+        #expect(SettingsRules.voiceLocales("yue-Hant-HK,ja-JP,en-US") == ["zh-Hans-CN", "en-US"])
+        #expect(SettingsRules.voiceLocales("nan-TW,wuu-CN,zh-Hans-CN-Sichuan") == ["zh-Hans-CN"])
+        #expect(SettingsRules.voiceLocales("de-DE,ko-KR") == ["zh-Hans-CN"], "全丢弃回落默认")
+        #expect(SettingsRules.voiceLocales("en-GB,en-US") == ["en-US"], "映射后去重")
+        let once = SettingsRules.voiceLocales("yue-Hant-HK,en-GB")
+        #expect(SettingsRules.voiceLocales(once.joined(separator: ",")) == once, "幂等")
     }
 
     /// 原名：混说词表有上限_药名优先_含英文医学词与单位

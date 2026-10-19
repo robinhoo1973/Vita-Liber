@@ -24,7 +24,9 @@ struct ASRSelectionTests {
         #expect(ASRModelCatalog.automaticChoice(locale: "zh-Hans-CN", in: Self.index) == .qwen3)
         // round2 A-N5：完整解码模型优先——英语/外语由 Qwen3 承担，缺件回落在 builder 门控。
         #expect(ASRModelCatalog.automaticChoice(locale: "en-US", in: Self.index) == .qwen3)
-        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE", in: Self.index) == .qwen3)
+        // P0-①（2026-10-19 委员会）：qwen3 名称表收敛两语后不可表达 de——自动选择
+        // 跳过 qwen3 落到 whisper（夹具合成协议向量；真实目录 v10 下 de 回落 classic）。
+        #expect(ASRModelCatalog.automaticChoice(locale: "de-DE", in: Self.index) == .whisper)
         #expect(ASRModelCatalog.automaticChoice(locale: "ur-PK", in: Self.index) == .dolphin)
         #expect(VoiceEngineChoice.resolve("dolphin") == .dolphin)
         #expect(VoiceEngineChoice.resolve("classic") == .classic)
