@@ -196,17 +196,26 @@ struct QuickCaptureView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            ScrollView {
-                VStack(spacing: 20) {
-                    capturePromptCard
-                    captureActions
-                    if docs.activeImport != nil {
-                        if docs.activeImport?.isPreparing == true { ProgressView() }
-                        Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)
+            Group {
+                if initialSource == nil {
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            capturePromptCard
+                            captureActions
+                            if docs.activeImport != nil {
+                                if docs.activeImport?.isPreparing == true { ProgressView() }
+                                Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .frame(maxWidth: 480)
+                        .padding(24)
                     }
+                } else {
+                    // 预选来源（SP-65 附件面板）：直达系统相机/相册/文件选择器，
+                    // 不再显示「拍照/相册/文件」三选一页（业主 2026-10-19）。
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: 480)
-                .padding(24)
             }
             .tintedCanvas()   // ui-ux §3.0 surface/tint：渐变画布直挂（V4.06 修正）
             .navigationTitle(title)
@@ -277,7 +286,8 @@ struct QuickCaptureView: View {
         selectionSessionID = nil
         regionImage = nil; processedInput = nil
         onFinished?(outcome)
-        if outcome != .cancelled { dismiss() }
+        // 预选来源模式取消审核也直接回聊天，不留在空白采集页。
+        if outcome != .cancelled || initialSource != nil { dismiss() }
     }
 
     /// 预选来源自动开流（2026-10-19 SP-65 附件面板）：等 sheet 完成呈现再触发
@@ -397,12 +407,15 @@ struct QuickCaptureView: View {
         }
     }
 
-    private func cancelSelection() {
+    /// `dismissDirect`：预选来源模式（`initialSource != nil`）取消系统 picker 后
+    /// 直接关闭本 sheet，返回聊天；失败路径传 false 以保留告警面。
+    private func cancelSelection(dismissDirect: Bool = true) {
         guard let session = selection else { return }
         docs.cancelImport(sessionID: session.id)
         _ = docs.finishImportPresentation(sessionID: session.id)
         selectionSessionID = nil; regionImage = nil; processedInput = nil
         reviewEnabled = true
+        if dismissDirect, initialSource != nil { dismiss() }
     }
 
     private func failSelection() {
@@ -410,9 +423,9 @@ struct QuickCaptureView: View {
         // handleCameraImage 守卫失败（会话已被清空/jpegData nil）时 cover 仍在，
         // importFailed 告警挂在被 cover 的视图上无处呈现，用户困在相机界面
         // （重拍因 selection 已 nil 再次失败，仅 picker 自带取消可逃）。
-        // 相机未呈现时置 false 无副作用。
+        // 相机未呈现时置 false 无副作用。预选来源模式保留告警面（不 dismiss）。
         showCamera = false
-        cancelSelection()
+        cancelSelection(dismissDirect: false)
         importFailed = true
     }
 

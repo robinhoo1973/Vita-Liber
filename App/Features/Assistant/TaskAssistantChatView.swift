@@ -252,8 +252,9 @@ struct TaskAssistantChatView: View {
         }
     }
 
+    /// 2026-10-19 业主指令：选项竖排（一行一项），不做横向图标排。
     private var attachmentPanelView: some View {
-        HStack(spacing: 12) {
+        VStack(spacing: 8) {
             attachmentOption(L10n.assistantAttachPhotos, systemImage: "photo.on.rectangle",
                              identifier: "assistant.attach.photos") {
                 startCapture(.photos)
@@ -268,7 +269,6 @@ struct TaskAssistantChatView: View {
                              identifier: "assistant.attach.pdf") {
                 startCapture(.file)
             }
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -278,15 +278,18 @@ struct TaskAssistantChatView: View {
     private func attachmentOption(_ title: String, systemImage: String,
                                   identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
+            HStack(spacing: 12) {
                 Image(systemName: systemImage)
-                    .font(.title2)
+                    .font(.title3)
+                    .frame(width: 24)
                 Text(title)
-                    .font(.caption)
+                    .font(.body)
+                Spacer(minLength: 0)
             }
-            .frame(minWidth: 64, minHeight: 64)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 48)
             .background(Color.secondary.opacity(0.10))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
