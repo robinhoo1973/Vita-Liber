@@ -34,7 +34,7 @@ public actor ChatHistoryStore {
 
     @discardableResult
     public func createConversation(patientId: UUID, title: String,
-                                   at now: Date = Date()) throws -> UUID {
+                                   at now: Date = Date()) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
             try db.execute(sql: """
@@ -49,7 +49,7 @@ public actor ChatHistoryStore {
     @discardableResult
     public func appendMessage(conversationId: UUID, role: String, kind: String,
                               text: String, payloadJSON: String?,
-                              at now: Date = Date()) throws -> UUID {
+                              at now: Date = Date()) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
             let next = try Int.fetchOne(db, sql: """
@@ -67,7 +67,7 @@ public actor ChatHistoryStore {
     }
 
     /// 卡片状态快照更新（完成勾 / 转待办）：只改 payload 内状态，不动消息内容。
-    public func updateCardSnapshot(conversationId: UUID, cardId: String, state: String) throws {
+    public func updateCardSnapshot(conversationId: UUID, cardId: String, state: String) async throws {
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE chat_message
@@ -78,7 +78,7 @@ public actor ChatHistoryStore {
         }
     }
 
-    public func rename(_ id: UUID, title: String) throws {
+    public func rename(_ id: UUID, title: String) async throws {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         try await writer.write { db in
@@ -87,20 +87,21 @@ public actor ChatHistoryStore {
         }
     }
 
-    public func setPinned(_ id: UUID, pinned: Bool) throws {
+    public func setPinned(_ id: UUID, pinned: Bool) async throws {
         try await writer.write { db in
             try db.execute(sql: "UPDATE chat_conversation SET pinned = ? WHERE id = ?",
                            arguments: [pinned ? 1 : 0, id.uuidString])
         }
     }
 
-    public func delete(_ id: UUID) throws {
+    public func delete(_ id: UUID) async throws {
         try await writer.write { db in
-            _ = try ChatConversationRow.deleteOne(db, key: id.uuidString)
+            try db.execute(sql: "DELETE FROM chat_conversation WHERE id = ?",
+                           arguments: [id.uuidString])
         }
     }
 
-    public func conversations(patientId: UUID, query: String = "") throws -> [ConversationSummary] {
+    public func conversations(patientId: UUID, query: String = "") async throws -> [ConversationSummary] {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let like = "%\(term)%"
         return try await writer.read { db in
@@ -134,7 +135,7 @@ public actor ChatHistoryStore {
         }
     }
 
-    public func messages(conversationId: UUID) throws -> [StoredMessage] {
+    public func messages(conversationId: UUID) async throws -> [StoredMessage] {
         try await writer.read { db in
             try Row.fetchAll(db, sql: """
                 SELECT id, role, kind, text, payload_json, created_at, ordinal
@@ -152,7 +153,7 @@ public actor ChatHistoryStore {
         }
     }
 
-    public func count(patientId: UUID) throws -> Int {
+    public func count(patientId: UUID) async throws -> Int {
         try await writer.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM chat_conversation WHERE patient_id = ?",
                              arguments: [patientId.uuidString]) ?? 0
@@ -160,16 +161,11 @@ public actor ChatHistoryStore {
     }
 
     /// 清空全部 / 隐私擦除：整表真删（消息由 FK 级联）。
-    public func wipeAll() throws {
+    public func wipeAll() async throws {
         try await writer.write { db in
-            _ = try ChatConversationRow.deleteAll(db)
+            try db.execute(sql: "DELETE FROM chat_conversation")
         }
     }
 }
 
-/// GRDB 删除辅助（仅提供表名与主键映射）。
-private struct ChatConversationRow: TableRecord, FetchableRecord, PersistableRecord {
-    static let databaseTableName = "chat_conversation"
-    var id: String
-}
 #endif

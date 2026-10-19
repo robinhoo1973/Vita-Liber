@@ -376,7 +376,8 @@ private struct PreviewRoot: View {
                 .environment(asrInstallCenter)
                 .environment(llmModelInstallCenter)
                 .environment(container.notificationCenterState)
-                .environment(PendingCardCenterState(store: container.pendingCards))
+                .environment(PendingCardCenterState(store: container.pendingCards,
+                                                    scheduler: container.reminderScheduler))
                 .environment(DocumentsState(
                     store: container.documents,
                     pipeline: OCRPipeline(

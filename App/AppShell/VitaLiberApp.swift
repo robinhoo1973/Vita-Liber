@@ -398,7 +398,8 @@ struct VitaLiberApp: App {
             .environment(dataChangeCenter)
             .environment(asrInstallCenter)
             .environment(container.notificationCenterState)
-            .environment(PendingCardCenterState(store: container.pendingCards))
+            .environment(PendingCardCenterState(store: container.pendingCards,
+                                                scheduler: container.reminderScheduler))
             .environment(entitlementStore)
             .environment(trendState)
             .environment(voiceNoteState)
