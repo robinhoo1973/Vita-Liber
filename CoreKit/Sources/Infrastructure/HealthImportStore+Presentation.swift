@@ -16,11 +16,16 @@ extension HealthImportStore {
             let binding = try Self.binding(db)
             var types: [HealthTypeSummary] = []
             for kind in HealthDataKind.allCases {
+                // 天数优先：同一自然日的多个投影行（睡眠一晚六键、心率一小时一行）
+                // 只计一天；`localtime` 用设备当前时区，与用户看到的日期一致。
                 let row = try Row.fetchOne(db, sql: """
-                    SELECT COUNT(*) AS n, MAX(measured_at) AS last_at FROM metric_sample
+                    SELECT COUNT(*) AS n, MAX(measured_at) AS last_at,
+                           COUNT(DISTINCT date(measured_at, 'unixepoch', 'localtime')) AS days
+                    FROM metric_sample
                     WHERE patient_id = ? AND origin = 'device' AND source_ref LIKE ? AND excluded = 0
                     """, arguments: [owner.uuidString, "hk:\(kind.rawValue):%"])
                 types.append(.init(kind: kind, rowCount: row?["n"] ?? 0,
+                    dayCount: row?["days"] ?? 0,
                     latestAt: (row?["last_at"] as Double?).map(Date.init(timeIntervalSince1970:))))
             }
             var report: SyncReport?

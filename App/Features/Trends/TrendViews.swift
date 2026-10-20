@@ -16,7 +16,7 @@ import Domain
 struct TrendChartView: View {
     let series: TrendSeries
     /// 可见时间窗（chartXVisibleDomain 长度；数据范围优先取 series.identity.range）
-    var window: TrendTimeWindow = .year
+    var window: TrendTimeWindow = .week
     /// 选点回原报告（sourceRef → 深链）；nil 时点不可跳转
     var onOpenSource: ((TrendPoint) -> Void)?
     /// 排除 / 恢复
@@ -465,7 +465,7 @@ private struct TrendPointRow: View {
 struct SleepTrendDetailView: View {
     let series: SleepTrendSeries
     /// round2 H4：所选时间窗（路由页分段控件下传，图表可见域随之）
-    var window: TrendTimeWindow = .year
+    var window: TrendTimeWindow = .week
     var onToggleExcluded: ((SleepTrendNight, Bool) -> Void)?
 
     var body: some View {
@@ -481,7 +481,7 @@ struct SleepTrendDetailView: View {
 /// 睡眠堆叠柱 + 阶段图例 + 逐夜列表。
 struct SleepTrendChartView: View {
     let series: SleepTrendSeries
-    var window: TrendTimeWindow = .year
+    var window: TrendTimeWindow = .week
     /// (夜, 是否排除)：可见段传 true（排除该夜），已排除段传 false（恢复）
     var onToggleExcluded: ((SleepTrendNight, Bool) -> Void)?
 
@@ -709,7 +709,7 @@ private struct SleepNightRow: View {
 struct TrendDetailView: View {
     let series: TrendSeries
     /// round2 H4：所选时间窗（路由页分段控件下传，图表可见域随之）
-    var window: TrendTimeWindow = .year
+    var window: TrendTimeWindow = .week
     var onOpenSource: ((TrendPoint) -> Void)?
     var onToggleExcluded: ((TrendPoint) -> Void)?
 

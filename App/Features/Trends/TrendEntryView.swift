@@ -70,7 +70,7 @@ final class TrendEntryState {
     ///   - window: 时间窗（日历日，DayArithmetic 出口——切换日不漂移）
     ///   - periodEnd: 周期末（业主 2026-09-16 第 4 项翻页；nil = 自动锚定**今天**）
     ///   - origin: 来源过滤（nil = 全部；`.device` 由查询层强制本人绑定，BR-001）
-    func loadDetail(patientId: UUID, metricKey: String, window: TrendTimeWindow = .year,
+    func loadDetail(patientId: UUID, metricKey: String, window: TrendTimeWindow = .week,
                     periodEnd: Date? = nil, origin: MetricOrigin? = nil) async {
         let request = UUID()
         detailRequest = request
@@ -174,8 +174,9 @@ struct TrendChartRouteView: View {
     @Environment(TrendEntryState.self) private var state
     @Environment(AppRouter.self) private var router
     @Environment(AppDataChangeCenter.self) private var dataChange
-    /// round2 H4：时间窗四档（默认 1 年）——周期**长度**（进入查询身份）
-    @State private var window: TrendTimeWindow = .year
+    /// 时间窗四档（默认最短 7 天，业主 2026-10-20）——周期**长度**（进入查询身份）。
+    /// 默认停留在一年的旧语义会把最近几天压成几个像素，睡眠等稀疏数据看起来像缺失。
+    @State private var window: TrendTimeWindow = .week
     /// 周期末（业主 2026-09-16 第 4 项翻页）：nil = 自动锚定**今天**（第 1 项），
     /// 非 nil = 用户翻页/跳到最近读数周期后的显式周期末。换窗只改长度、不动周期末
     /// （同一段数据不跳走）。成员/指标切换时重置（见 `.task`）——否则甲的翻页游标
@@ -380,7 +381,7 @@ struct TrendChartRouteView: View {
                 // （切成员后仍显示甲的周期——同一 stale-@State 家族）。
                 if loadedRouteKey != routeKey {
                     loadedRouteKey = routeKey
-                    window = .year
+                    window = .week
                     periodEnd = nil
                 }
                 await state.loadDetail(patientId: patientId, metricKey: metricKey,

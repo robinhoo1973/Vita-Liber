@@ -7,11 +7,15 @@ import Foundation
 /// 迁移后读模型可在 Domain 层单测（P7），存储侧只留 SQL。
 public struct HealthTypeSummary: Sendable, Identifiable {
     public let kind: HealthDataKind
+    /// 可显示的数据点数（心率=小时均值、步数=日累计、睡眠=每夜六键行）。
     public let rowCount: Int
+    /// 覆盖的自然日数（按本地日历去重 measured_at）——业主 2026-10-20：
+    /// 类型行先报「多少天」，再报数据点；睡眠同夜六键只算一天。
+    public let dayCount: Int
     public let latestAt: Date?
     public var id: HealthDataKind { kind }
-    public init(kind: HealthDataKind, rowCount: Int, latestAt: Date?) {
-        self.kind = kind; self.rowCount = rowCount; self.latestAt = latestAt
+    public init(kind: HealthDataKind, rowCount: Int, dayCount: Int = 0, latestAt: Date?) {
+        self.kind = kind; self.rowCount = rowCount; self.dayCount = dayCount; self.latestAt = latestAt
     }
 }
 

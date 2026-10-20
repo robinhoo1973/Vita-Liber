@@ -20,6 +20,11 @@ public actor HealthKitSyncService {
     private let guidelines: GuidelineStore
     private let scheduler: any ReminderScheduling
     private static let windowsPerRound = 32
+    /// 类型轮转起点（2026-10-20 睡眠缺失修复）：受限轮次不再固定从心率开始——
+    /// 心率一年约 8760 个小时窗，固定在前会吞掉整个预算，末尾的睡眠永远排不到。
+    /// 每次 `run` 轮转一格，配合按剩余预算均分的每类 deadline（Domain
+    /// `HealthImportScheduling`），每次唤醒每类都拿到工作份额。
+    private var kindRotationStart = 0
     private var inFlight: Task<SyncReport, Error>?
     private var inFlightID: UUID?
     /// C1-5（2026-10-04 评审）：共享轮次启动时刻——join 者陈旧检测用；
@@ -316,12 +321,24 @@ public actor HealthKitSyncService {
         var report = SyncReport(lastSyncAt: Date(), bindingId: binding.id, patientId: binding.patientId)
         let scopes = imports.scopes(for: binding)
         // Fetch one page per type/round. Drained work resumes by window without losing the old checkpoint.
-        for kind in HealthDataKind.allCases {
-            // 轮内 deadline：不再只在轮间检查预算。一次投递/一次 BGProcessing
-            // 到期前必须能停下来提交已做窗口，否则 completion/上报都来不及。
-            if let deadline, ContinuousClock.now >= deadline {
+        // 公平调度（2026-10-20）：固定顺序 + 单一全局 deadline 会让心率等重类型
+        // 耗尽预算，睡眠排在最后永远拿不到查询机会。轮转起点 + 按剩余类型均分
+        // 每类 deadline，保证每次受限轮次六类都有份额；跨轮转起点分散重活。
+        let orderedKinds = HealthImportScheduling.rotated(HealthDataKind.allCases, startingAt: kindRotationStart)
+        kindRotationStart = (kindRotationStart + 1) % max(1, HealthDataKind.allCases.count)
+        for (offset, kind) in orderedKinds.enumerated() {
+            let now = ContinuousClock.now
+            // 全局 deadline：真到点才退出；正常路径下每类已有自己的份额。
+            if let deadline, now >= deadline {
                 report.hasMore = true
                 break
+            }
+            // 轮内 per-kind deadline：一次投递/一次 BGProcessing 到期前必须能停下来
+            // 提交已做窗口；本类只用剩余预算的均分份额，未用完的自动留给后续类型。
+            let kindDeadline = deadline.map {
+                now.advanced(by: HealthImportScheduling.share(
+                    remaining: now.duration(to: $0),
+                    kindsLeft: orderedKinds.count - offset))
             }
             var hasPending = false
             do {
@@ -352,7 +369,7 @@ public actor HealthKitSyncService {
                 for scope in order {
                     let outcome = try await drain(kind: kind, scope: scope, binding: binding,
                                                   existing: existing?.lane == scope.lane ? existing : nil,
-                                                  report: &report, deadline: deadline)
+                                                  report: &report, deadline: kindDeadline)
                     hasPending = hasPending || outcome.hasMore
                     // 业主 2026-10-20：完成态只在“该道最终空页提交”时落盘。
                     // 失败/延迟窗口由 drain 的 laneComplete 过滤，绝不把半成品标完成。

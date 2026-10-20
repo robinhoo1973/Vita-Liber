@@ -351,6 +351,11 @@ extension L10n {
 
     static func healthImportedDayCount(_ n: Int) -> String { String(format: t("health.importedDayCount"), n) }
 
+    /// 业主 2026-10-20：类型行先报覆盖天数，再报数据点数。
+    static func healthImportedDaysPoints(days: Int, points: Int) -> String {
+        String(format: t("health.importedDaysPoints"), days, points)
+    }
+
     static func healthCandidateExisting(_ value: String) -> String { String(format: t("health.candidate.existingFmt"), value) }
 
     static func healthWriteBackLast(_ written: Int, _ skipped: Int) -> String {

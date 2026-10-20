@@ -2046,7 +2046,8 @@
 "health.importedData" = "已匯入的健康資料";
 "health.importedPointCount" = "%d 個資料點";
 "health.importedDayCount" = "%d 條記錄";
-"health.importedDataHint" = "點開類型查看全部已匯入記錄，再進入趨勢。這裡統計可顯示的資料點，不是原始樣本數：心率按小時、步數按日、睡眠按夜彙總。歷史資料分批匯入，完整窗口會先顯示。";
+"health.importedDaysPoints" = "%1$d 天 · %2$d 個資料點";
+"health.importedDataHint" = "前一個數字是已覆蓋的天數，後一個數字是可顯示的資料點。這裡統計的不是原始樣本數：心率按小時、步數按日、睡眠按夜彙總。歷史資料分批匯入，完整窗口會先顯示。";
 "health.appleSource" = "來自 Apple 健康";
 "health.viewTrendChart" = "查看趨勢圖表";
 "health.viewTrendChartHint" = "按時間軸查看該項指標的歷史變化與連續趨勢曲線";

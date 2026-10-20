@@ -2046,7 +2046,8 @@
 "health.importedData" = "Imported health data";
 "health.importedPointCount" = "%d data points";
 "health.importedDayCount" = "%d records";
-"health.importedDataHint" = "Open a type to browse all imported records, then view its trend. Counts represent visible data points, not raw samples: hourly heart rate, daily steps and nightly sleep summaries. History imports in batches; complete windows appear immediately.";
+"health.importedDaysPoints" = "%1$d days · %2$d data points";
+"health.importedDataHint" = "The first number is the days covered; the second is the visible data points. Counts are not raw samples: hourly heart rate, daily steps and one row set per night for sleep. History imports in batches; complete windows appear immediately.";
 "health.appleSource" = "From Apple Health";
 "health.viewTrendChart" = "View Trend Chart";
 "health.viewTrendChartHint" = "View timeline changes and continuous trend curve for this metric";

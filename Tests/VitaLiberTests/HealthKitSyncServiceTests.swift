@@ -466,6 +466,58 @@ extension HealthKitSyncServiceTests {
     }
 }
 
+// 2026-10-20 睡眠缺失修复：受限轮次的类型公平调度（心率不得饿死睡眠）。
+extension HealthKitSyncServiceTests {
+
+    /// 固定顺序 + 单一全局 deadline 时，心率等前置类型会耗尽预算；轮转起点保证
+    /// 连续受限轮次里每一类都轮到过「第一个拿预算」的位置。
+    func test_kindRotationLetsEachTypeLeadASyncRound() async throws {
+        let (db, imports, _) = try await makeStore()
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        var firstKinds: [HealthDataKind] = []
+        var seenCount = 0
+        for _ in HealthDataKind.allCases {
+            _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+            let requests = await provider.requests
+            guard requests.count > seenCount else {
+                return XCTFail("每轮至少应查询一个类型")
+            }
+            firstKinds.append(requests[seenCount].kind)
+            seenCount = requests.count
+        }
+        XCTAssertEqual(Set(firstKinds), Set(HealthDataKind.allCases),
+                       "连续六轮必须以六个不同类型领跑，睡眠不得恒排最后")
+    }
+
+    /// 带 deadline 的轮次仍要覆盖全部六类：每类拿到剩余预算的均分份额。
+    func test_budgetedRoundStillQueriesEveryKind() async throws {
+        let (db, imports, _) = try await makeStore()
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00",
+                                       deadline: ContinuousClock.now.advanced(by: .seconds(5)))
+        let requests = await provider.requests
+        let queried = Set(requests.map(\.kind))
+        XCTAssertEqual(queried, Set(HealthDataKind.allCases),
+                       "预算受限轮次不得只做前置类型；睡眠必须被查询")
+    }
+
+    /// 业主 2026-10-20：仪表盘按「天数优先、数据点其次」呈现；睡眠六键同夜只算一天。
+    func test_dashboardReportsDistinctDaysAlongsidePointCount() async throws {
+        let (db, imports, _) = try await makeStore()
+        let fixture = discreteFixture(days: 2)
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen,
+            pages: [HealthChangeBatch(added: fixture.samples, deleted: [], anchor: Data([1]), hasMore: false)],
+            snapshots: fixture.snapshots)
+        let sync = service(db, imports: imports, provider: provider)
+        _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+        let summary = try await imports.dashboard().types.first { $0.kind == .bloodOxygen }
+        XCTAssertEqual(summary?.rowCount, 2)
+        XCTAssertEqual(summary?.dayCount, 2)
+    }
+}
+
 // 2026-10-04 后台任务专项评审 C1-5/C1-8 断言锁
 // （discussions/2026-10-04-background-tasks-council.md）：join 陈旧检测与三遥测字段
 // 的 macOS 契约测试——Linux 平台守卫空单元，此处是行为唯一机器闸。

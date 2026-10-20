@@ -1166,7 +1166,8 @@ extension L10n {
         "field.visit_summary", "field.reimbursed_amount", "field.out_of_pocket", "field.reference_range",
         "field.vaccine_name", "field.dose_number", "field.administered_at", "field.provider", "field.lot_number",
         "health.settingsTitle", "health.autoImport", "health.readPermissionHint", "health.importedData",
-        "health.importedPointCount", "health.importedDayCount", "health.importedDataHint", "health.appleSource",
+        "health.importedPointCount", "health.importedDayCount", "health.importedDaysPoints",
+        "health.importedDataHint", "health.appleSource",
         "health.viewTrendChart", "health.viewTrendChartHint", "health.importedRecordsSection",
         // 业主 2026-09-17 定：特征型档案候选 + 写回 Apple 健康
         "health.candidate.section", "health.candidate.hint", "health.candidate.adopt",
