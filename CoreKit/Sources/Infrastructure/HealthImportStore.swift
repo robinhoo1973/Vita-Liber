@@ -742,6 +742,8 @@ public actor HealthImportStore {
         let newKey = anchorKey(newBinding, kind, .history)
         guard oldKey != newKey, try anchor(db, key: newKey) == nil,
               let value = try anchor(db, key: oldKey) else { return }
+        try db.execute(sql: "DELETE FROM hk_sync_anchor WHERE anchor_key = ?",
+                       arguments: [fetchAnchorKey(newBinding, kind, .history)])
         try db.execute(sql: """
             INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
             ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value,
