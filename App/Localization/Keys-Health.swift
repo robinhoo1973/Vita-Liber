@@ -40,6 +40,20 @@ extension L10n {
 
     static var healthImportSettingsTitle: String { t("health.settingsTitle") }
 
+    // 业主 2026-10-20：导入范围选择 + 初始完成态
+    static var healthImportRangeTitle: String { t("health.importRange.title") }
+    static var healthImportRangeOneYear: String { t("health.importRange.oneYear") }
+    static var healthImportRangeFiveYears: String { t("health.importRange.fiveYears") }
+    static var healthImportRangeAll: String { t("health.importRange.all") }
+    static var healthImportRangeHint: String { t("health.importRange.hint") }
+    static func healthInitialImportProgress(_ remainingKinds: Int) -> String {
+        t("health.initialImport.progressFmt").replacingOccurrences(
+            of: "%@", with: String(remainingKinds))
+    }
+    static func healthInitialImportDone(_ date: String) -> String {
+        t("health.initialImport.doneFmt").replacingOccurrences(of: "%@", with: date)
+    }
+
     static var healthAutoImport: String { t("health.autoImport") }
 
     static var healthReadPermissionHint: String { t("health.readPermissionHint") }

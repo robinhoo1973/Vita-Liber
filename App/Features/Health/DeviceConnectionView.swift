@@ -12,6 +12,12 @@ final class F16DeviceState {
     private(set) var connected = false
     private(set) var report: SyncReport?
     private(set) var dashboard: HealthImportDashboard?
+    /// 业主 2026-10-20：导入范围（首次连接生效；已连接以 dashboard.plan 为准）。
+    var historyDepth: HealthHistoryDepth = .oneYear
+    /// 已连接时展示/改范围用的真实深度。
+    var selectedDepth: HealthHistoryDepth { dashboard?.plan?.depth ?? historyDepth }
+    /// 初始回填 vs 只更新缺失部分（dashboard 快照；nil = 未探测）。
+    var importMode: HealthImportMode? { dashboard?.mode }
     /// 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：类型 → 排空进度 0…1。
     /// 基线 = 本轮同步第一次观察到的剩余窗口数（会话内单调收敛）。
     private(set) var kindProgress: [String: Double] = [:]
@@ -64,10 +70,11 @@ final class F16DeviceState {
         guard authEnabled else { return false }
         availabilityProbed = true
         do {
-            _ = try await syncService.connect()
+            _ = try await syncService.connect(depth: historyDepth)
             connected = true
             ownerMissing = false
             await refreshDashboard()
+            if let depth = dashboard?.plan?.depth { historyDepth = depth }
             return true
         } catch HealthKitReader.ReaderError.unavailable {
             // H-N4：设备不提供 HealthKit——如实说明，不归入通用「授权失败」
@@ -125,6 +132,12 @@ final class F16DeviceState {
         }
     }
 
+    /// 业主 2026-10-20：激活即判定模式（未完成 → 断点续导；完成 → 只更新缺失）。
+    func currentImportMode() async -> HealthImportMode {
+        do { return try await syncService.importMode() }
+        catch { return .incremental }   // 读失败不阻断前台对账；保守走增量
+    }
+
     func currentAuthorization() async -> Bool {
         available = await syncService.isAvailable()
         availabilityProbed = true
@@ -147,7 +160,7 @@ final class F16DeviceState {
     /// `userInitiated`（round5 Q2）：用户点「立即同步」时为 true——iOS 26 经 `BackgroundWorkScheduler.runContinued` 提交
     /// continued processing（切后台续跑、系统显示进度、可取消）；回前台自动对账（非用户动作）不得使用该原语。
     func sync(authEnabled: Bool = true, quietStart: String = "22:00", quietEnd: String = "07:00", maxRounds: Int = 20,
-              userInitiated: Bool = false) async {
+              timeBudget: Duration = .seconds(30), userInitiated: Bool = false) async {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
         phase = .syncing
@@ -205,7 +218,13 @@ final class F16DeviceState {
                     // 开始跑。ASR 长负载保持默认 8s（必须保住系统续跑通道）。
                     startTimeout: .seconds(2)) { progress, _ in
                     do {
-                        progress?.totalUnitCount = Int64(maxRounds)
+                        // 2026-10-20：iOS 26 continued 路径有系统续跑时用 5 分钟预算
+                        // （进度心跳按轮上报）；旧系统/回落路径保持调用方给的 30s。
+                        let continued = progress != nil
+                        let budget: Duration = continued ? .seconds(300) : timeBudget
+                        let rounds = continued
+                            ? HealthSyncBacklogPolicy.maxRounds(for: budget) : maxRounds
+                        progress?.totalUnitCount = Int64(max(1, rounds))
                         // C6（2026-10-03 评审修复）：每轮上报 completedUnitCount——
                         // 此前全程 0/20，系统优先终止无进度任务（BGContinuedProcessingTask 文档）。
                         // L1 编译修复：ValueBox 为无参 init，先建盒再装值
@@ -215,7 +234,8 @@ final class F16DeviceState {
                         let progressBox = ValueBox<Progress>()   // iOS 26 SDK：NSProgress 已更名 Progress（CI #647）
                         if let progress { progressBox.value = progress }
                         let report = try await service.performSyncAll(
-                            quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds,
+                            quietStart: quietStart, quietEnd: quietEnd, maxRounds: rounds,
+                            timeBudget: budget,
                             onRound: { round in
                                 progressBox.value?.completedUnitCount = Int64(round)
                             })
@@ -231,7 +251,9 @@ final class F16DeviceState {
                 guard let report = captured.value else { throw CancellationError() }
                 total = report
             } else {
-                total = try await syncService.performSyncAll(quietStart: quietStart, quietEnd: quietEnd, maxRounds: maxRounds)
+                total = try await syncService.performSyncAll(
+                    quietStart: quietStart, quietEnd: quietEnd,
+                    maxRounds: maxRounds, timeBudget: timeBudget)
             }
             applyLiveReport(total, epoch: epoch, force: true)
             syncEpoch &+= 1   // 终态落定：旧轮询刻度（已在途读取者）失效，不得再覆盖终态
@@ -374,6 +396,21 @@ final class F16DeviceState {
     /// 后如实同步标志（静默死亡警示的单一回填点补齐第二消费路径）。
     /// 2026-09-23 修复：改走 `maintainBackgroundAutomation` 单一入口——开关打开时
     /// 顺带重排后台请求；开关关闭时撤销挂起请求（不占用系统预算）。
+    /// 业主 2026-10-20：改导入范围。只影响 history 道；已导入行不删。
+    /// 扩大范围 → 完成态作废、立即续导；缩小 → 已导入数据保留。
+    func changeHistoryDepth(_ depth: HealthHistoryDepth) async {
+        guard depth != selectedDepth else { return }
+        do {
+            _ = try await syncService.setHistoryDepth(depth)
+            historyDepth = depth
+            await refreshDashboard()
+            await sync(quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
+                       quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
+        } catch {
+            phase = .degraded(L10n.f16SyncFailed)
+        }
+    }
+
     func updateAutomation() async {
         await syncService.maintainBackgroundAutomation()
         backgroundSyncBroken = await syncService.backgroundRegistrationFailed
@@ -464,6 +501,27 @@ struct DeviceConnectionView: View {
                     .accessibilityIdentifier("SP-29.health.ownerMissing")
             case .notConnected, .connectedEmpty, .visible:
                 if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
+                // 业主 2026-10-20：首次连接由用户选择导入范围；已连接可改范围（不删已导入行）。
+                if pageState == .notConnected {
+                    Picker(L10n.healthImportRangeTitle, selection: Binding(
+                        get: { deviceState.historyDepth },
+                        set: { deviceState.historyDepth = $0 })) {
+                        Text(L10n.healthImportRangeOneYear).tag(HealthHistoryDepth.oneYear)
+                        Text(L10n.healthImportRangeFiveYears).tag(HealthHistoryDepth.fiveYears)
+                        Text(L10n.healthImportRangeAll).tag(HealthHistoryDepth.all)
+                    }
+                    .accessibilityIdentifier("SP-29.health.importRange")
+                } else {
+                    Picker(L10n.healthImportRangeTitle, selection: Binding(
+                        get: { deviceState.selectedDepth },
+                        set: { depth in Task { await deviceState.changeHistoryDepth(depth) } })) {
+                        Text(L10n.healthImportRangeOneYear).tag(HealthHistoryDepth.oneYear)
+                        Text(L10n.healthImportRangeFiveYears).tag(HealthHistoryDepth.fiveYears)
+                        Text(L10n.healthImportRangeAll).tag(HealthHistoryDepth.all)
+                    }
+                    .disabled(deviceState.isSyncing)
+                    .accessibilityIdentifier("SP-29.health.importRangeConnected")
+                }
                 Button(L10n.f16RequestAuth) {
                     Task {
                         if await deviceState.requestAuthorization(authEnabled: healthEnabled) {
@@ -477,7 +535,14 @@ struct DeviceConnectionView: View {
             }
             Text(L10n.healthImportSubject(deviceState.dashboard?.ownerName ?? app.owner?.displayName ?? L10n.commonMember))
                 .font(.caption).foregroundStyle(.secondary)
-        } header: { Text(L10n.f16AuthSection) } footer: { Text(L10n.f16AuthHint) }
+        } header: { Text(L10n.f16AuthSection) } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.f16AuthHint)
+                if pageState == .notConnected || pageState == .connectedEmpty || pageState == .visible {
+                    Text(L10n.healthImportRangeHint)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -684,6 +749,21 @@ struct SyncStatusSectionView: View {
                         .foregroundStyle(Color("semantic-warning", bundle: .main))
                         .accessibilityIdentifier("SP-29.health.backgroundSyncFailed")
                 }
+                // 业主 2026-10-20：初始导入完成态。未完成显示剩余类数（激活即续导）；
+                // 完成显示时刻，之后只更新缺失部分。
+                if let plan = deviceState.dashboard?.plan {
+                    if let completed = plan.initialCompletedAt {
+                        Text(L10n.healthInitialImportDone(
+                            completed.formatted(date: .numeric, time: .shortened)))
+                            .font(.caption)
+                            .accessibilityIdentifier("SP-29.health.initialImportDone")
+                    } else {
+                        Text(L10n.healthInitialImportProgress(
+                            plan.remainingKinds(depth: plan.depth).count))
+                            .font(.caption)
+                            .accessibilityIdentifier("SP-29.health.initialImportProgress")
+                    }
+                }
                 if let report = deviceState.report {
                     Text(L10n.f16SyncedRows(report.persistedRows))
                         .accessibilityIdentifier("SP-29.health.syncedRows")
@@ -695,6 +775,13 @@ struct SyncStatusSectionView: View {
                     if !report.failedTypes.isEmpty {
                         Label(L10n.healthImportPartial(report.failedTypes.count), systemImage: "exclamationmark.triangle")
                             .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        // 业主 2026-10-20：按类失败不再只给计数——列出类型名，
+                        // 配合下方「立即同步」重试；不展示原始错误文本（BR-006）。
+                        Text(ListFormatter.localizedString(byJoining:
+                            report.failedTypes.map { L10n.metricName($0.primaryMetric) }))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("SP-29.health.failedTypes")
                     }
                     if report.hasMore { Text(L10n.healthImportMore).font(.caption) }
                     // H-N1：排空进度——当前道（近一年 / 更早历史）与剩余统计窗口数（纯进度事实）

@@ -259,14 +259,17 @@ struct AppRootView: View {
                     // 无新数据时开销为单次锚点探测
                     let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
                     if healthAuthOn, settingsStore.values[.healthAutoImport] != "false", await deviceState.currentAuthorization() {
+                        // 业主 2026-10-20：激活即判完成态。初始未完成 → 从断点立即续导
+                        // （30s，优先 pending/history）；已完成 → 只更新缺失部分（3 轮）。
+                        let mode = await deviceState.currentImportMode()
                         await deviceState.sync(
                             authEnabled: true,
                             quietStart: SettingsRules.resolved(
                                 settingsStore.values[.quietHoursStart], key: .quietHoursStart),
                             quietEnd: SettingsRules.resolved(
                                 settingsStore.values[.quietHoursEnd], key: .quietHoursEnd),
-                            // round5 Q2：回前台 1→3 轮（Domain 常量；仍有界，不再「每次回前台只前进一页」）
-                            maxRounds: HealthSyncBacklogPolicy.foregroundActiveRounds)
+                            maxRounds: mode.isInitial ? 20 : HealthSyncBacklogPolicy.foregroundActiveRounds,
+                            timeBudget: mode.isInitial ? .seconds(30) : .seconds(20))
                     }
                 }
             }

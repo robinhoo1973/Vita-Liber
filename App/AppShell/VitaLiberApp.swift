@@ -252,15 +252,22 @@ struct VitaLiberApp: App {
                 guard try await bgSync.canAutomaticallySync() else { return BackgroundJobOutcome(success: true, reschedule: false) }
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
-                let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
-                                                             maxRounds: HealthSyncBacklogPolicy.maxRounds(for: budget),
-                                                             timeBudget: budget)
+                let report = try await bgSync.performSyncAll(
+                    quietStart: start, quietEnd: end,
+                    maxRounds: HealthSyncBacklogPolicy.maxRounds(for: budget),
+                    timeBudget: budget, joinTimeout: .seconds(15))
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
                 }
                 let more = HealthSyncBacklogPolicy.shouldRequestProcessing(remainingWindows: report.remainingWindows, hasMore: report.hasMore)
-                return BackgroundJobOutcome(success: report.failedTypes.isEmpty, reschedule: more)
+                // 2026-10-20：部分窗口失败不等于整次 BGTask 失败；把
+                // setTaskCompleted(false) 留给致命态，避免系统降频。失败用重排重试。
+                return BackgroundJobOutcome(success: true,
+                                            reschedule: more || !report.failedTypes.isEmpty)
+            } catch HealthImportStore.ImportError.busy {
+                // 已有共享轮次在跑：本次回填不排队等；重排保留积压处理权。
+                return BackgroundJobOutcome(success: true, reschedule: true)
             } catch is CancellationError {
                 return BackgroundJobOutcome(success: false, reschedule: true)   // 到期打断：进度已逐类落盘，下次续排
             } catch {
@@ -310,14 +317,20 @@ struct VitaLiberApp: App {
                 // C3（2026-10-03 评审修复）：后台每唤醒此前只跑 1 轮（1 页/类），
                 // 20s 预算只用 2-7s——改多轮排空（预算内 ≤8 轮），唤醒次数 3-5× 降。
                 // 实参顺序必须与声明一致（maxRounds 先于 timeBudget）——L1 编译修复 CI #646
-                let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
-                                                             maxRounds: 8, timeBudget: .seconds(18))
+                let report = try await bgSync.performSyncAll(
+                    quietStart: start, quietEnd: end,
+                    maxRounds: 8, timeBudget: .seconds(18),
+                    joinTimeout: .seconds(5))
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
                 }
                 await bgSync.scheduleBackgroundRefresh()
-                return report.failedTypes.isEmpty
+                return true
+            } catch HealthImportStore.ImportError.busy {
+                // 共享轮次在跑：本次唤醒不排队等；不是失败，下一唤醒/回前台继续。
+                await bgSync.scheduleBackgroundRefresh()
+                return true
             } catch {
                 await MainActor.run {
                     dataChange.metricsChanged()
@@ -335,17 +348,20 @@ struct VitaLiberApp: App {
             do {
                 guard try await bgSync.canAutomaticallySync() else { return false }
                 await bgSync.scheduleBackgroundRefresh()
-                let source = BackgroundJobPolicy.WakeupSource.observerDelivery
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
-                let report = try await bgSync.performSyncAll(quietStart: start, quietEnd: end,
-                                                             maxRounds: source.roundsCap,
-                                                             timeBudget: source.defaultTimeBudget)
+                // 2026-10-20：投递只做有界推进；completion 已由 Reader 提前确认，
+                // 撞上共享轮次最多等 2s，不把 15s 投递预算耗在 join 上。
+                let report = try await bgSync.performSyncAll(
+                    quietStart: start, quietEnd: end,
+                    maxRounds: 1, timeBudget: .seconds(5),
+                    joinTimeout: .seconds(2))
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
                 }
-                return report.failedTypes.isEmpty
+                // 投递已确认（Reader 提前 completion）；部分失败由 refresh/backfill 重试。
+                return true
             } catch {
                 await MainActor.run {
                     dataChange.metricsChanged()

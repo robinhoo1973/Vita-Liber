@@ -2057,6 +2057,13 @@
 "health.importedEmpty" = "尚無已匯入的資料。首次同步會優先匯入最近一年。";
 "health.sparseWindowsFmt" = "%d 個小時樣本稀疏，未形成小時統計。";
 "health.backgroundSyncFailed" = "後台自動導入註冊失敗——新資料僅在手動同步時到達（可重新連線，或到「健康」App 檢查本應用的讀取權限）。";
+"health.importRange.title" = "匯入範圍";
+"health.importRange.oneYear" = "最近 1 年";
+"health.importRange.fiveYears" = "最近 5 年";
+"health.importRange.all" = "全部歷史";
+"health.importRange.hint" = "縮小範圍不會刪除已匯入資料；擴大範圍會補匯新增區間。選擇全部歷史時，後台匯入可能持續較長時間，建議連接電源。";
+"health.initialImport.progressFmt" = "初始匯入進行中：仍有 %@ 類資料待完成；每次開啟 App 會從斷點繼續。";
+"health.initialImport.doneFmt" = "初始匯入已於 %@ 完成；之後只同步新增與缺失部分。";
 "health.backfillProgressFmt" = "正在匯入%@，剩餘 %d 個統計視窗。";
 "health.backfillLane.recent" = "最近一年";
 "health.backfillLane.history" = "更早歷史";
