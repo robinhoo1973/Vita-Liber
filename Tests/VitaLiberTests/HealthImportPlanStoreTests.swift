@@ -79,6 +79,22 @@ final class HealthImportPlanStoreTests: XCTestCase {
         XCTAssertNil(plan?.completion(.sleep).recentCompletedAt)
     }
 
+    func testShrinkingCoveredDepthCopiesHistoryAnchor() async throws {
+        let (_, store) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC", depth: .all)
+        for kind in HealthDataKind.allCases {
+            try await store.markRecentComplete(kind: kind)
+            try await store.markHistoryComplete(kind: kind, depth: .all)
+        }
+        _ = try await store.markInitialCompletedIfCovered()
+        try await store.saveAnchor(binding: binding, kind: .heartRate, lane: .history, anchor: Data([7]))
+
+        let narrowedRaw = try await store.setHistoryDepth(.fiveYears)
+        let narrowed = try XCTUnwrap(narrowedRaw)
+        let copied = try await store.anchor(binding: narrowed, kind: .heartRate, lane: .history)
+        XCTAssertEqual(copied, Data([7]), "缩小到已覆盖深度不得从 nil 重扫历史")
+    }
+
     func testDiscardPendingRemovesOnlyInFlightPage() async throws {
         let (_, store) = try await makeStore()
         let binding = try await store.connect(timeZoneID: "UTC", depth: .fiveYears)

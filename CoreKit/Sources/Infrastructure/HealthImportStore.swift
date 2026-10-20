@@ -725,6 +725,30 @@ public actor HealthImportStore {
                        arguments: ["hk.f1.\(bindingId.uuidString).\(kind.rawValue).%"])
     }
 
+    /// 深度缩小到已被完成态覆盖的范围时，把旧深度的 history committed anchor
+    /// 复制到新深度键：增量只从流末端接后续变化，不重扫已覆盖历史。
+    /// 只在新键为空时复制；旧 anchor 的谓词是更宽/相同的超集，作为起点安全。
+    static func copyHistoryAnchor(_ db: Database, binding: Binding, kind: HealthDataKind,
+                                  from oldDepth: HealthHistoryDepth,
+                                  to newDepth: HealthHistoryDepth) throws {
+        guard oldDepth != newDepth else { return }
+        let oldBinding = Binding(id: binding.id, patientId: binding.patientId,
+                                 timeZoneID: binding.timeZoneID, connectedAt: binding.connectedAt,
+                                 historyDepth: oldDepth)
+        let newBinding = Binding(id: binding.id, patientId: binding.patientId,
+                                 timeZoneID: binding.timeZoneID, connectedAt: binding.connectedAt,
+                                 historyDepth: newDepth)
+        let oldKey = anchorKey(oldBinding, kind, .history)
+        let newKey = anchorKey(newBinding, kind, .history)
+        guard oldKey != newKey, try anchor(db, key: newKey) == nil,
+              let value = try anchor(db, key: oldKey) else { return }
+        try db.execute(sql: """
+            INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value,
+              updated_at = excluded.updated_at
+            """, arguments: [newKey, value.base64EncodedString(), Date().timeIntervalSince1970])
+    }
+
     /// 旧方案的 recent 锚点键（一次性作废用，见 `prepareRecentLane`）。
     private static func legacyRecentAnchorKey(_ binding: Binding, _ kind: HealthDataKind) -> String {
         "hk.v3.\(binding.id.uuidString).\(kind.rawValue).recent"

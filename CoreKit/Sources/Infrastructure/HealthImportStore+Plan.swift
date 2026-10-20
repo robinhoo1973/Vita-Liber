@@ -55,12 +55,19 @@ extension HealthImportStore {
                     UPDATE hk_import_plan SET initial_completed_at = NULL
                     WHERE binding_id = ?
                     """, arguments: [binding.id.uuidString])
-            } else if plan.initialCompletedAt == nil {
-                // 缩小到已被覆盖的深度：完成态即刻成立（completion 已证明该范围排空）。
-                try db.execute(sql: """
-                    UPDATE hk_import_plan SET initial_completed_at = ?
-                    WHERE binding_id = ?
-                    """, arguments: [Date().timeIntervalSince1970, binding.id.uuidString])
+            } else {
+                // 缩小到已被覆盖的深度：完成态即刻成立（completion 已证明该范围排空），
+                // 并复制旧 history anchor 到新深度键，增量不重扫已覆盖历史。
+                if plan.initialCompletedAt == nil {
+                    try db.execute(sql: """
+                        UPDATE hk_import_plan SET initial_completed_at = ?
+                        WHERE binding_id = ?
+                        """, arguments: [Date().timeIntervalSince1970, binding.id.uuidString])
+                }
+                for kind in HealthDataKind.allCases {
+                    try Self.copyHistoryAnchor(db, binding: binding, kind: kind,
+                                               from: binding.historyDepth, to: depth)
+                }
             }
             try Self.discardHistoryPending(db, bindingId: binding.id)
             return try Self.binding(db)
