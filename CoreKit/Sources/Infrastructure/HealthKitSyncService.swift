@@ -484,6 +484,7 @@ public actor HealthKitSyncService {
         if page.added.isEmpty && page.deleted.isEmpty && page.hasMore {
             try await imports.saveScanCheckpoint(binding: binding, kind: kind,
                                                  lane: scope.lane, anchor: page.anchor)
+            report.backfillLane = scope.lane
             return DrainOutcome(hadWork: true, hasMore: true)
         }
         let staged = try await imports.stage(binding: binding, kind: kind, scope: scope,
