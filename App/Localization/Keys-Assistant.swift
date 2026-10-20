@@ -62,14 +62,14 @@ extension L10n {
     static var assistantDisabled: String { t("assistant.disabled") }
     static var assistantEmergencyHandoff: String { t("assistant.emergencyHandoff") }
     static var assistantMissingFields: String { t("assistant.missingFields") }
-    static var assistantVoiceTitle: String { t("assistant.voiceTitle") }
-    static var assistantVoiceHint: String { t("assistant.voiceHint") }
-    static var assistantVoiceUse: String { t("assistant.voiceUse") }
 
     // 2026-10-19 微信式输入栏：语音/键盘切换、附件面板（照片/拍照/PDF）
     static var assistantVoiceMode: String { t("assistant.modeVoice") }
     static var assistantKeyboardMode: String { t("assistant.modeText") }
     static var assistantVoiceTap: String { t("assistant.voiceTap") }
+    static var assistantVoiceStop: String { t("assistant.voiceStop") }
+    static var assistantVoiceRecording: String { t("assistant.voiceRecording") }
+    static var assistantVoiceRecognizing: String { t("assistant.voiceRecognizing") }
     static var assistantAttach: String { t("assistant.attach") }
     static var assistantAttachPhotos: String { t("assistant.attachPhotos") }
     static var assistantAttachCamera: String { t("assistant.attachCamera") }

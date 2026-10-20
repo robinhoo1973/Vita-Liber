@@ -34,6 +34,9 @@ final class VoiceDictationModel {
     }
     /// 连续会话显示文本 = 已提交段 + 当前部分（引擎 onPartial 已合并，V3.61）
     private(set) var partial = ""
+    /// 实时归一化 RMS（0…1，2026-10-20 聊天内波形）：由共享旁路录音缓冲计算，
+    /// 不额外安装音频 tap（避免顶掉识别引擎的采集）。
+    private(set) var audioLevel: Float = 0
     /// 最近一次实际识别 locale（FR17.15 能力诚实：方言回落主语言时面板回显）
     private(set) var resolvedLocale: String?
     private(set) var resolvedEngineID: String?
@@ -144,6 +147,15 @@ final class VoiceDictationModel {
         displayRequestedLocale = request.localeIdentifier
         phase = .recording
         isPreparing = engine is any TranscriptionCaptureReporting
+        audioLevel = 0
+        let levelSession = request.sessionID
+        AudioLevelMonitor.shared.setHandler { [weak self] level in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.currentID == levelSession || self.recordingID == levelSession else { return }
+                self.audioLevel = level
+            }
+        }
         partial = ""
         partialRevision = 0
         resolvedLocale = nil
@@ -166,6 +178,8 @@ final class VoiceDictationModel {
         Haptics.impact(.light)
         recordingID = nil
         phase = .idle
+        AudioLevelMonitor.shared.setHandler(nil)
+        audioLevel = 0
         let precedingControl = controlTask
         let engine = engine
         controlTask = Task {
@@ -185,6 +199,8 @@ final class VoiceDictationModel {
         currentID = nil
         recordingID = nil
         phase = .idle
+        AudioLevelMonitor.shared.setHandler(nil)
+        audioLevel = 0
         failureReason = nil
         isPreparing = false            // 残留会让下次会话回显上一轮的「准备中」引擎名
         resolvedEngineID = nil

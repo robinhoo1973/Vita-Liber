@@ -2429,12 +2429,12 @@
 "assistant.disabled" = "The assistant has not passed calibration and is unavailable.";
 "assistant.emergencyHandoff" = "Opening emergency guidance now. Please get help immediately.";
 "assistant.missingFields" = "Some required fields are still empty. Please complete them before confirming.";
-"assistant.voiceTitle" = "Voice input";
-"assistant.voiceHint" = "Hold to talk; text goes to the composer when you release.";
-"assistant.voiceUse" = "Use";
 "assistant.modeVoice" = "Voice input";
 "assistant.modeText" = "Keyboard input";
 "assistant.voiceTap" = "Tap to start voice input";
+"assistant.voiceStop" = "Tap to stop recording";
+"assistant.voiceRecording" = "Recording";
+"assistant.voiceRecognizing" = "Transcribing…";
 "assistant.attach" = "Add attachment";
 "assistant.attachPhotos" = "Photos";
 "assistant.attachCamera" = "Camera";

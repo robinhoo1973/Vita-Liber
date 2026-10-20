@@ -22,6 +22,8 @@ struct TaskAssistantChatView: View {
     @Environment(QuestionsState.self) private var questions
     @Environment(DocumentsState.self) private var docs
     @Environment(ChatHistoryState.self) private var chatHistory
+    @Environment(AppSettingsStore.self) private var settingsStore
+    @Environment(M2HubStore.self) private var hub
     @Environment(\.auditLog) private var auditLog
     @Environment(\.dismiss) private var dismiss
 
@@ -38,6 +40,10 @@ struct TaskAssistantChatView: View {
     /// 避免同视图多 `.sheet` 在 iOS 16 的相互覆盖。
     @State private var activeSheet: AssistantSheet?
     @State private var voiceMode = false
+    /// 聊天内语音输入（2026-10-20）：复用 VoiceDictationModel，轻点开始/再点结束，
+    /// 波形悬浮在当前页，不再打开 AssistantVoiceInputSheet。
+    @State private var chatDictation: VoiceDictationModel?
+    @State private var pendingVoiceURLs: [URL] = []
     @State private var attachmentPanel = false
     @FocusState private var inputFocused: Bool
     @State private var routeMonitor = AudioRouteMonitor()
@@ -60,14 +66,12 @@ struct TaskAssistantChatView: View {
     @State private var showHistory = false
 
     private enum AssistantSheet: Identifiable {
-        case voice
         case history
         case sharedReview(sessionID: UUID)
         case cardReview(cardID: UUID, sessionID: UUID)
 
         var id: String {
             switch self {
-            case .voice: return "voice"
             case .history: return "history"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
@@ -157,6 +161,10 @@ struct TaskAssistantChatView: View {
                               allowsMultipleSelection: false,
                               onCompletion: handleImportedFile)
                 .onAppear { routeMonitor.start() }
+                // 语言/混说设置变化后重建听写模型（与 VoiceDictationButton 同纪律）
+                .task(id: "\(settingsStore.values[.voiceInputLanguages] ?? "")|\(settingsStore.values[.voiceMixedInput] ?? "")") {
+                    ensureChatDictationModel()
+                }
                 .onChangeCompat(of: docs.activeImport?.sharedFieldsSettled) { _, _ in
                     syncCardSnapshots()
                 }
@@ -168,6 +176,9 @@ struct TaskAssistantChatView: View {
                 }
                 .onDisappear {
                     routeMonitor.stop()
+                    chatDictation?.stopForDisappear()
+                    for url in pendingVoiceURLs { ChatAudioStore.removeTemporary(url) }
+                    pendingVoiceURLs.removeAll()
                     releaseChatSessionIfNeeded()
                 }
             }
@@ -522,6 +533,11 @@ struct TaskAssistantChatView: View {
             if attachmentPanel {
                 attachmentPanelView
             }
+            if voiceMode, let dictation = chatDictation,
+               dictation.phase == .recording || dictation.hasPendingTranscriptions {
+                ChatVoiceStatusCard(model: dictation)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             HStack(alignment: .bottom, spacing: 8) {
                 modeToggleButton
                 if voiceMode {
@@ -537,6 +553,14 @@ struct TaskAssistantChatView: View {
 
     private var modeToggleButton: some View {
         Button {
+            if voiceMode, let dictation = chatDictation,
+               dictation.phase == .recording || dictation.hasPendingTranscriptions {
+                // 录音/收尾识别中：先正常收尾并留在语音态，等转写交付后再由
+                // receiveChatTranscript 切回键盘——立即卸载按钮会触发
+                // stopForDisappear 作废在途转写。
+                dictation.stop()
+                return
+            }
             voiceMode.toggle()
             if voiceMode {
                 inputFocused = false
@@ -563,15 +587,77 @@ struct TaskAssistantChatView: View {
             .accessibilityIdentifier("assistant.input")
     }
 
+    /// 聊天内语音输入（2026-10-20 业主指令）：不再打开新页面；轻点开始录音，
+    /// 再点同一按钮结束。`DictationInteraction` 复用既有授权/前后台/长按纪律。
+    @ViewBuilder
     private var voiceModeButton: some View {
-        Button {
-            activeSheet = .voice
-        } label: {
-            Text(L10n.assistantVoiceTap)
-                .frame(maxWidth: .infinity, minHeight: 44)
+        if let model = chatDictation {
+            HStack(spacing: 8) {
+                Image(systemName: model.phase == .recording ? "stop.circle.fill" : "mic.fill")
+                Text(model.phase == .recording ? L10n.assistantVoiceStop : L10n.assistantVoiceTap)
+                    .lineLimit(1)
+            }
+            .font(.body)
+            .foregroundStyle(model.phase == .recording
+                             ? Color("semantic-danger", bundle: .main) : Color.primary)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(model.phase == .recording
+                        ? Color("semantic-danger", bundle: .main).opacity(0.14)
+                        : Color.secondary.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(Rectangle())
+            .modifier(DictationInteraction(model: model))
+            .accessibilityIdentifier("assistant.voiceTap")
+        } else {
+            Button {
+                ensureChatDictationModel()
+                chatDictation?.start()
+            } label: {
+                Text(L10n.assistantVoiceTap)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("assistant.voiceTap")
         }
-        .buttonStyle(.bordered)
-        .accessibilityIdentifier("assistant.voiceTap")
+    }
+
+    /// 装配聊天内听写模型（环境就绪后一次；语言设置变化时重配）。
+    private func ensureChatDictationModel() {
+        let model = chatDictation ?? VoiceDictationModel(engine: app.transcriptionEngine)
+        model.setAuthorization(settingsStore.values[.authVoiceDictation] != "false")
+        model.recordingURLProvider = { ChatAudioStore.makeTemporaryURL() }
+        model.onRecordingURL = { url in
+            if let url { pendingVoiceURLs.append(url) }
+        }
+        model.onTranscript = { text, _ in receiveChatTranscript(text) }
+        model.onEmergency = { _ in
+            chatDictation?.stopForDisappear()
+            dismiss()
+            router.navigate(to: .sosHelp)
+        }
+        model.applyLanguageSettings(settings: settingsStore,
+                                    recentDrugNames: hub.inventoryItems.map(\.medicationName))
+        if chatDictation == nil { chatDictation = model }
+    }
+
+    /// 语音识别完成：语音气泡立即入聊天（音频可选），转写文本回填输入框供编辑发送。
+    private func receiveChatTranscript(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let voiceURL = pendingVoiceURLs.isEmpty ? nil : pendingVoiceURLs.removeFirst()
+        guard !trimmed.isEmpty else {
+            ChatAudioStore.removeTemporary(voiceURL)
+            voiceMode = false
+            append(.init(role: .assistant, text: L10n.voicenoteDictationFailed, isRefusal: true))
+            return
+        }
+        let filename = voiceURL.flatMap(ChatAudioStore.adopt)
+        append(ChatMessage(role: .user, media: MediaInfo(
+            kind: .voice, filename: L10n.assistantVoiceMessage, status: .ready,
+            audioFilename: filename, transcript: trimmed)))
+        input = trimmed
+        voiceMode = false
     }
 
     /// 空输入（或语音模式）显示 ＋；有文本时换成发送——右端永远只有一个主行动。
@@ -665,22 +751,6 @@ struct TaskAssistantChatView: View {
                 onOpen: { summary in openConversation(summary) },
                 onNew: { startNewConversation() },
                 onClose: { activeSheet = nil })
-        case .voice:
-            AssistantVoiceInputSheet(
-                onUse: { text, audioURL in
-                    // 音频采用失败也保留语音消息：转写文本是用户输入的事实，
-                    // 只是重放不可用（2026-10-20 历史缺失修复）。
-                    let filename = audioURL.flatMap(ChatAudioStore.adopt)
-                    append(ChatMessage(role: .user, media: MediaInfo(
-                        kind: .voice, filename: L10n.assistantVoiceMessage, status: .ready,
-                        audioFilename: filename, transcript: text)))
-                    input = text
-                    voiceMode = false
-                },
-                onEmergency: {
-                    dismiss()
-                    router.navigate(to: .sosHelp)
-                })
         case .sharedReview(let sessionID):
             if let session = docs.activeImport, session.id == sessionID {
                 SharedFieldsReviewView(session: session, patientId: session.patientId)
@@ -1391,6 +1461,73 @@ private struct ChatCardReviewSheet: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// 悬浮录音状态卡（2026-10-20）：自身观察 VoiceDictationModel，避免电平/部分
+/// 转写的高频更新驱动整个聊天页重算。
+private struct ChatVoiceStatusCard: View {
+    let model: VoiceDictationModel
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    if model.phase == .recording {
+                        AssistantVoiceWaveform(model: model)
+                        Text(model.isPreparing ? L10n.asrPreparing : L10n.assistantVoiceRecording)
+                    } else {
+                        ProgressView().controlSize(.small)
+                        Text(L10n.assistantVoiceRecognizing)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .font(.caption)
+                if model.phase == .recording, !model.partial.isEmpty {
+                    Text(model.partial)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .accessibilityIdentifier("assistant.voiceOverlay")
+        }
+    }
+}
+
+/// 聊天内录音波形（2026-10-20）：真实 RMS 驱动的滚动条，不安装第二个音频 tap
+/// （电平来自共享 AudioFileRecorder 旁路缓冲）。无电平时保持最小高度。
+private struct AssistantVoiceWaveform: View {
+    let model: VoiceDictationModel
+    @State private var bars: [CGFloat] = Array(repeating: 0.12, count: 28)
+
+    var body: some View {
+        WithPerceptionTracking {
+            let level = model.audioLevel
+            HStack(alignment: .center, spacing: 2) {
+                ForEach(bars.indices, id: \.self) { index in
+                    Capsule()
+                        .fill(Color("semantic-danger", bundle: .main).opacity(0.85))
+                        .frame(width: 3, height: max(4, bars[index] * 26))
+                }
+            }
+            .frame(height: 28)
+            .onChangeCompat(of: level) { _, newValue in
+                var next = bars
+                next.removeFirst()
+                next.append(CGFloat(min(max(newValue * 4, 0), 1)))
+                bars = next
+            }
+            .accessibilityHidden(true)
+            .accessibilityIdentifier("assistant.voiceWaveform")
         }
     }
 }
