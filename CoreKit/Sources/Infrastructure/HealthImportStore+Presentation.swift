@@ -29,7 +29,7 @@ extension HealthImportStore {
                 report = try JSONDecoder().decode(SyncReport.self, from: Data(json.utf8))
                 if report?.bindingId != binding.id || report?.patientId != owner { report = nil }
             }
-            let plan = binding.map { try Self.plan(db, binding: $0) }
+            let plan = try binding.map { try Self.plan(db, binding: $0) }
             let mode = binding.map { binding -> HealthImportMode in
                 (plan ?? HealthImportPlan(depth: binding.historyDepth,
                                           selectedAt: binding.connectedAt))
