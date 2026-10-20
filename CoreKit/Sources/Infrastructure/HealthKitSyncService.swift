@@ -715,8 +715,12 @@ public actor HealthKitSyncService {
                     do { try await imports.markBlocked(kind: kind, reason: "background delivery blocked") }
                     catch { /* 阻断记账失败不阻断注册；下一轮重试 */ }
                 }
+                let failedKinds = Set(outcome.failedTypes.compactMap {
+                    HealthKitReader.kind(forSampleTypeIdentifier: $0)
+                })
                 // 授权恢复：清该类型完成态 + 全部锚点/在途批次，强制从当前范围重取。
-                for kind in previouslyBlocked.subtracting(nowBlocked) {
+                // 系统级暂态失败（failedTypes）不算恢复，保留既有进度等下次重试。
+                for kind in previouslyBlocked.subtracting(nowBlocked).subtracting(failedKinds) {
                     do { try await imports.resetKind(kind) }
                     catch { /* 同上 */ }
                 }

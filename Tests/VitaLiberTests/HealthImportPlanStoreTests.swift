@@ -79,6 +79,18 @@ final class HealthImportPlanStoreTests: XCTestCase {
         XCTAssertNil(plan?.completion(.sleep).recentCompletedAt)
     }
 
+    func testDiscardPendingRemovesOnlyInFlightPage() async throws {
+        let (_, store) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC", depth: .fiveYears)
+        let history = try XCTUnwrap(store.scopes(for: binding).first { $0.lane == .history })
+        _ = try await store.stage(binding: binding, kind: .heartRate, scope: history,
+            previousAnchor: nil,
+            page: HealthChangeBatch(added: [], deleted: [], anchor: Data([1]), hasMore: false))
+        try await store.discardPending(kind: .heartRate)
+        let pending = try await store.pendingBatch(binding: binding, kind: .heartRate)
+        XCTAssertNil(pending)
+    }
+
     func testRecentPendingSurvivesPrepareRecentLane() async throws {
         let (_, store) = try await makeStore()
         let binding = try await store.connect(timeZoneID: "UTC", depth: .all)
