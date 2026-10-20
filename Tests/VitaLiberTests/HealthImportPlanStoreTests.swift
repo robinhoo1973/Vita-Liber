@@ -75,7 +75,7 @@ final class HealthImportPlanStoreTests: XCTestCase {
 
         try await store.resetKind(.sleep)
         let plan = try await store.plan()
-        XCTAssertNil(plan?.completion(.sleep).blocked)
+        XCTAssertFalse(plan?.completion(.sleep).blocked ?? true)
         XCTAssertNil(plan?.completion(.sleep).recentCompletedAt)
     }
 
