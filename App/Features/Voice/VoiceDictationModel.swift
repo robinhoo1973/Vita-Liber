@@ -44,13 +44,18 @@ final class VoiceDictationModel {
     private(set) var hasIncompleteTranscript = false
     var hasPendingTranscriptions: Bool { !contexts.isEmpty }
     var onTranscript: ((String, Double) -> Void)?
+    /// 完整结果回调（含 completion）：聊天据此标记不完整转写（2026-10-20）。
+    var onTranscriptResult: ((UUID, TranscriptionResult) -> Void)?
+    /// 无可用转写（空结果/权限拒绝/引擎不可用）：聊天必须给可见失败提示，
+    /// 不得静默丢弃一次按压（2026-10-20）。
+    var onFailure: ((UUID, FailureReason?) -> Void)?
     /// BR-012 紧急关键词横切动作（命中即调用并跳过 onTranscript 草稿投递）
     var onEmergency: ((String) -> Void)?
     /// 聊天语音消息录音（2026-10-19）：每次按压前取一个新文件 URL；
     /// 引擎把采集缓冲旁路写入该文件（本机、受保护）。nil = 不录音。
     var recordingURLProvider: (() -> URL?)?
     /// 最近一次按压的录音 URL（仅在本次按压真正起采时回传）。
-    var onRecordingURL: ((URL?) -> Void)?
+    var onRecordingURL: ((UUID, URL?) -> Void)?
     /// Synchronous activity notifications keep guided controls correct before the next SwiftUI render.
     var onActivityChange: ((Bool) -> Void)?
 
@@ -67,6 +72,8 @@ final class VoiceDictationModel {
         let request: TranscriptionRequest
         let epoch: UInt64
         let onTranscript: ((String, Double) -> Void)?
+        let onTranscriptResult: ((UUID, TranscriptionResult) -> Void)?
+        let onFailure: ((UUID, FailureReason?) -> Void)?
         let onEmergency: ((String) -> Void)?
         let partialGate = PartialGate()
     }
@@ -141,7 +148,10 @@ final class VoiceDictationModel {
                                            languageMode: languageMode,
                                            additionalLocales: Array(selectedLocales.dropFirst()))
         let context = PressContext(request: request, epoch: epoch,
-                                   onTranscript: onTranscript, onEmergency: onEmergency)
+                                   onTranscript: onTranscript,
+                                   onTranscriptResult: onTranscriptResult,
+                                   onFailure: onFailure,
+                                   onEmergency: onEmergency)
         currentID = request.sessionID
         recordingID = request.sessionID
         displayRequestedLocale = request.localeIdentifier
@@ -238,8 +248,10 @@ final class VoiceDictationModel {
         let outcome: Result<TranscriptionResult, Error>
         do {
             let recordingURL = recordingURLProvider?()
-            onRecordingURL?(recordingURL)
-            if let recordingURL, let recorder = engine as? any TranscriptionAudioRecording {
+            onRecordingURL?(id, recordingURL)
+            if let recorder = engine as? any TranscriptionAudioRecording {
+                // nil 也必须转发：否则共享引擎保留上一次聊天的录音目标，
+                // 非聊天听写会把音频写进旧的临时文件（2026-10-20）。
                 await recorder.setRecordingURL(recordingURL)
             }
             let capability = await engine.currentCapability()
@@ -333,7 +345,10 @@ final class VoiceDictationModel {
                     original.onEmergency?(transcript.text)
                 } else {
                     original.onTranscript?(transcript.text, transcript.completion == .final ? transcript.confidence : 0)
+                    original.onTranscriptResult?(next, transcript)
                 }
+            } else {
+                original.onFailure?(next, failureReason)
             }
             // A consumer may synchronously dismiss/revoke while processing a result.
             if lifetime != epoch { break }
@@ -470,7 +485,7 @@ struct VoiceDictationButton: View {
         // 解析规则收敛 Domain SettingsRules（与设置页存储格式同源）。
         let m = model ?? VoiceDictationModel(engine: app.transcriptionEngine)
         m.recordingURLProvider = recordingURLProvider
-        m.onRecordingURL = { url in lastRecordingURL?.wrappedValue = url }
+        m.onRecordingURL = { _, url in lastRecordingURL?.wrappedValue = url }
         m.setAuthorization(settings.values[.authVoiceDictation] != "false")
         m.onTranscript = onTranscript
         m.onEmergency = onEmergency

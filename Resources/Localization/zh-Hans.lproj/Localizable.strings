@@ -2432,6 +2432,8 @@
 "assistant.modeVoice" = "语音输入";
 "assistant.modeText" = "键盘输入";
 "assistant.voiceTap" = "点击开始语音输入";
+"assistant.voiceReplayFailed" = "语音无法重放";
+"assistant.mediaOpen" = "打开原件";
 "assistant.voiceStop" = "点击结束录音";
 "assistant.voiceRecording" = "正在录音";
 "assistant.voiceRecognizing" = "识别中…";

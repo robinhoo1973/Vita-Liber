@@ -74,6 +74,8 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
                     onCaptureStarted: @escaping @Sendable () -> Void) async throws -> TranscriptionResult {
         try Task.checkCancellation()
         let id = request.sessionID
+        // 本次会话的录音目标快照：旧会话收尾清理不得影响新会话（2026-10-20）。
+        let sessionRecordingURL = recordingURL
         guard serving[id] == nil, !retired.contains(id) else { throw TranscriptionError.engineUnavailable }
         if let intent = stops.removeValue(forKey: id) {
             retire(id)
@@ -90,6 +92,9 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
             serving[id] = nil
             if captureOwner == id { captureOwner = nil }
             retire(id)
+            // 录音目标只属于本次会话（2026-10-20）：不清空会让后续非聊天听写
+            // 继续写入上一个聊天临时文件；仅当全局仍是本会话的快照时清空。
+            if recordingURL == sessionRecordingURL { recordingURL = nil }
         }
         // 停止旧硬件后再启动新会话；原生推理的迟到结果由委托按ID丢弃。
         if let (previousEngine, previousID) = previous, let previousID { await previousEngine.cancel(sessionID: previousID) }
@@ -113,7 +118,7 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
             let engine = delegate(for: current)
             serving[id] = engine
             if let recorder = engine as? any TranscriptionAudioRecording {
-                await recorder.setRecordingURL(recordingURL)
+                await recorder.setRecordingURL(sessionRecordingURL)
             }
             if stops[id] == .finish { await engine.finish(sessionID: id) }
             do {

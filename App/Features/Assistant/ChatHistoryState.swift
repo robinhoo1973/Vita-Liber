@@ -59,7 +59,11 @@ final class ChatHistoryState {
     }
 
     func delete(_ id: UUID) async {
+        // 先取语音文件名再删行：数据库删除不碰文件系统，录音必须同步真删
+        //（2026-10-20 隐私修复）。
+        let audio = (try? await store.audioFilenames(conversationId: id)) ?? []   // try?-ok: 读取失败按无音频处理，行删除仍继续
         try? await store.delete(id)   // try?-ok: 删除失败保留行，下次重试
+        for filename in audio { ChatAudioStore.remove(filename) }
         if let patientId = loadedPatientId { await load(patientId: patientId) }
     }
 

@@ -2432,6 +2432,8 @@
 "assistant.modeVoice" = "Voice input";
 "assistant.modeText" = "Keyboard input";
 "assistant.voiceTap" = "Tap to start voice input";
+"assistant.voiceReplayFailed" = "This voice message cannot be replayed";
+"assistant.mediaOpen" = "Open original";
 "assistant.voiceStop" = "Tap to stop recording";
 "assistant.voiceRecording" = "Recording";
 "assistant.voiceRecognizing" = "Transcribing…";

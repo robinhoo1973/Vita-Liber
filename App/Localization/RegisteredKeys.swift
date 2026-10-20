@@ -49,7 +49,7 @@ extension L10n {
     "assistant.missingFields",
     "assistant.modeVoice",
     "assistant.modeText",
-    "assistant.voiceTap", "assistant.voiceStop", "assistant.voiceRecording", "assistant.voiceRecognizing",
+    "assistant.voiceTap", "assistant.voiceStop", "assistant.mediaOpen", "assistant.voiceReplayFailed", "assistant.voiceRecording", "assistant.voiceRecognizing",
     "assistant.attach",
     "assistant.attachPhotos",
     "assistant.attachCamera",

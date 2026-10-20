@@ -132,11 +132,13 @@ public actor ChatHistoryStore {
                   AND (? = ''
                        OR c.title LIKE ?
                        OR EXISTS (SELECT 1 FROM chat_message m
-                                  WHERE m.conversation_id = c.id AND m.text LIKE ?))
+                                  WHERE m.conversation_id = c.id
+                                    AND (m.text LIKE ?
+                                         OR json_extract(m.payload_json, '$.media.transcript') LIKE ?)))
                 ORDER BY c.pinned DESC, c.updated_at DESC
                 LIMIT 300
                 """
-            return try Row.fetchAll(db, sql: sql, arguments: [patientId.uuidString, term, like, like])
+            return try Row.fetchAll(db, sql: sql, arguments: [patientId.uuidString, term, like, like, like])
                 .map { row in
                     ConversationSummary(
                         id: UUID(uuidString: row["id"] as String? ?? "") ?? UUID(),
@@ -164,6 +166,19 @@ public actor ChatHistoryStore {
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double? ?? 0),
                     ordinal: row["ordinal"] as Int? ?? 0)
             }
+        }
+    }
+
+    /// 会话内全部语音文件名（删除会话时由 App 层清理 ChatAudio 文件，
+    /// 数据库行删除不会触碰文件系统；2026-10-20）。
+    public func audioFilenames(conversationId: UUID) async throws -> [String] {
+        try await writer.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT json_extract(payload_json, '$.media.audioFilename')
+                FROM chat_message
+                WHERE conversation_id = ?
+                  AND json_extract(payload_json, '$.media.audioFilename') IS NOT NULL
+                """, arguments: [conversationId.uuidString])
         }
     }
 

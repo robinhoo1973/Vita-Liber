@@ -68,6 +68,8 @@ extension L10n {
     static var assistantKeyboardMode: String { t("assistant.modeText") }
     static var assistantVoiceTap: String { t("assistant.voiceTap") }
     static var assistantVoiceStop: String { t("assistant.voiceStop") }
+    static var assistantMediaOpen: String { t("assistant.mediaOpen") }
+    static var assistantVoiceReplayFailed: String { t("assistant.voiceReplayFailed") }
     static var assistantVoiceRecording: String { t("assistant.voiceRecording") }
     static var assistantVoiceRecognizing: String { t("assistant.voiceRecognizing") }
     static var assistantAttach: String { t("assistant.attach") }

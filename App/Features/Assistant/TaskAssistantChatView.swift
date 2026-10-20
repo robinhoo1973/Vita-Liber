@@ -43,7 +43,7 @@ struct TaskAssistantChatView: View {
     /// 聊天内语音输入（2026-10-20）：复用 VoiceDictationModel，轻点开始/再点结束，
     /// 波形悬浮在当前页，不再打开 AssistantVoiceInputSheet。
     @State private var chatDictation: VoiceDictationModel?
-    @State private var pendingVoiceURLs: [URL] = []
+    @State private var pendingVoiceURLs: [UUID: URL] = [:]
     @State private var attachmentPanel = false
     @FocusState private var inputFocused: Bool
     @State private var routeMonitor = AudioRouteMonitor()
@@ -59,20 +59,27 @@ struct TaskAssistantChatView: View {
     // 语音消息重放（2026-10-19；2026-10-20 转写文本常显）：本机音频文件。
     @State private var audioPlayer: AVAudioPlayer?
     @State private var playingMessageID: UUID?
+    @State private var audioDelegate = ChatAudioPlayerDelegate()
     /// 已写入历史的视图消息 ID（媒体在 OCR 终态才落库，避免 processing 快照）。
     @State private var persistedMessageIDs: Set<UUID> = []
+    /// 历史写入串行链：append 必须先于同消息的 update（2026-10-20）。
+    @State private var persistenceTail: Task<Void, Never>?
     @State private var conversationID: UUID?
+    /// 会话代次：切换会话后，晚到的持久化任务不得写进新会话（2026-10-20）。
+    @State private var conversationGeneration = UUID()
     @State private var titleCaptured = false
     @State private var showHistory = false
 
     private enum AssistantSheet: Identifiable {
         case history
+        case document(documentId: UUID, patientId: UUID)
         case sharedReview(sessionID: UUID)
         case cardReview(cardID: UUID, sessionID: UUID)
 
         var id: String {
             switch self {
             case .history: return "history"
+            case .document(let doc, _): return "document-\(doc.uuidString)"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
             }
@@ -87,6 +94,12 @@ struct TaskAssistantChatView: View {
         var status: Status
         var audioFilename: String?
         var transcript: String?
+        /// OCR 落库后的文档引用（2026-10-20）：图片/PDF 气泡可回看原件，
+        /// 历史恢复后仍可打开（原件受敏感媒体解锁链保护）。
+        var documentId: UUID? = nil
+        var patientId: UUID? = nil
+        /// 非 final 转写（超时/中断）——气泡须明示不完整。
+        var incomplete = false
     }
 
     private struct CardInfo: Equatable, Identifiable {
@@ -163,6 +176,7 @@ struct TaskAssistantChatView: View {
                 .onAppear { routeMonitor.start() }
                 // 语言/混说设置变化后重建听写模型（与 VoiceDictationButton 同纪律）
                 .task(id: "\(settingsStore.values[.voiceInputLanguages] ?? "")|\(settingsStore.values[.voiceMixedInput] ?? "")") {
+                    ChatAudioStore.sweepTemporary()
                     ensureChatDictationModel()
                 }
                 .onChangeCompat(of: docs.activeImport?.sharedFieldsSettled) { _, _ in
@@ -176,8 +190,9 @@ struct TaskAssistantChatView: View {
                 }
                 .onDisappear {
                     routeMonitor.stop()
+                    stopVoicePlayback()
                     chatDictation?.stopForDisappear()
-                    for url in pendingVoiceURLs { ChatAudioStore.removeTemporary(url) }
+                    for url in pendingVoiceURLs.values { ChatAudioStore.removeTemporary(url) }
                     pendingVoiceURLs.removeAll()
                     releaseChatSessionIfNeeded()
                 }
@@ -259,35 +274,48 @@ struct TaskAssistantChatView: View {
     }
 
     /// 用户侧媒体记录（2026-10-19 业主：像微信上传文件一样进聊天记录；
-    /// 窄列只用类型图标 + 文件名，不做大缩略图）。
+    /// 2026-10-20：OCR 落库后整块可点开原件——当前会话与历史恢复同一路径）。
     @ViewBuilder
     private func mediaBubble(_ media: MediaInfo, messageID: UUID) -> some View {
         if media.kind == .voice {
             voiceBubble(media, messageID: messageID)
-        } else {
-            HStack(spacing: 10) {
-                Image(systemName: media.kind == .image ? "photo.fill"
-                      : media.kind == .pdf ? "doc.fill" : "doc.text.fill")
-                    .font(.title3)
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(media.filename)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                    Text(mediaStatusText(media.status))
-                        .font(.caption2)
-                        .foregroundStyle(media.status == .failed
-                            ? Color("semantic-danger", bundle: .main) : Color.secondary)
-                }
+        } else if let documentId = media.documentId, let patientId = media.patientId {
+            Button {
+                activeSheet = .document(documentId: documentId, patientId: patientId)
+            } label: {
+                mediaContent(media)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: 220, alignment: .leading)
-            .background(Color("brand-primary", bundle: .main).opacity(0.14))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("assistant.media")
+            .buttonStyle(.plain)
+            .accessibilityHint(L10n.assistantMediaOpen)
+            .accessibilityIdentifier("assistant.media.open")
+        } else {
+            mediaContent(media)
         }
+    }
+
+    private func mediaContent(_ media: MediaInfo) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: media.kind == .image ? "photo.fill"
+                  : media.kind == .pdf ? "doc.fill" : "doc.text.fill")
+                .font(.title3)
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(media.filename)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                Text(mediaStatusText(media.status))
+                    .font(.caption2)
+                    .foregroundStyle(media.status == .failed
+                        ? Color("semantic-danger", bundle: .main) : Color.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: 220, alignment: .leading)
+        .background(Color("brand-primary", bundle: .main).opacity(0.14))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("assistant.media")
     }
 
     /// 语音消息（2026-10-19；2026-10-20 业主指令）：本机音频可重放；
@@ -323,12 +351,24 @@ struct TaskAssistantChatView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("assistant.voice.transcript")
             }
+            if media.incomplete {
+                Label(L10n.voiceDictationIncomplete, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .accessibilityIdentifier("assistant.voice.incomplete")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .frame(maxWidth: 260, alignment: .leading)
         .background(Color("brand-primary", bundle: .main).opacity(0.14))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func stopVoicePlayback() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        playingMessageID = nil
     }
 
     private func playVoice(_ media: MediaInfo, messageID: UUID) {
@@ -341,9 +381,21 @@ struct TaskAssistantChatView: View {
             return
         }
         audioPlayer?.stop()
-        guard let player = try? AVAudioPlayer(contentsOf: url) else { return }   // try?-ok: 文件缺失/损坏 → 不播
+        guard let player = try? AVAudioPlayer(contentsOf: url) else {   // try?-ok: 文件缺失/损坏 → 不播
+            append(.init(role: .assistant, text: L10n.assistantVoiceReplayFailed, isRefusal: true))
+            return
+        }
+        player.delegate = audioDelegate
+        audioDelegate.onFinish = { [messageID] in
+            guard playingMessageID == messageID else { return }
+            audioPlayer = nil
+            playingMessageID = nil
+        }
         player.prepareToPlay()
-        player.play()
+        guard player.play() else {
+            append(.init(role: .assistant, text: L10n.assistantVoiceReplayFailed, isRefusal: true))
+            return
+        }
         audioPlayer = player
         playingMessageID = messageID
     }
@@ -591,7 +643,13 @@ struct TaskAssistantChatView: View {
     /// 再点同一按钮结束。`DictationInteraction` 复用既有授权/前后台/长按纪律。
     @ViewBuilder
     private var voiceModeButton: some View {
-        if let model = chatDictation {
+        if settingsStore.values[.authVoiceDictation] == "false" {
+            Label(L10n.privacyAuthVoiceDisabled, systemImage: "mic.slash")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier("assistant.voice.authDisabled")
+        } else if let model = chatDictation {
             HStack(spacing: 8) {
                 Image(systemName: model.phase == .recording ? "stop.circle.fill" : "mic.fill")
                 Text(model.phase == .recording ? L10n.assistantVoiceStop : L10n.assistantVoiceTap)
@@ -628,10 +686,15 @@ struct TaskAssistantChatView: View {
         let model = chatDictation ?? VoiceDictationModel(engine: app.transcriptionEngine)
         model.setAuthorization(settingsStore.values[.authVoiceDictation] != "false")
         model.recordingURLProvider = { ChatAudioStore.makeTemporaryURL() }
-        model.onRecordingURL = { url in
-            if let url { pendingVoiceURLs.append(url) }
+        model.onRecordingURL = { sessionID, url in
+            if let url { pendingVoiceURLs[sessionID] = url }
         }
-        model.onTranscript = { text, _ in receiveChatTranscript(text) }
+        model.onTranscript = nil
+        model.onTranscriptResult = { sessionID, result in
+            receiveChatTranscript(sessionID: sessionID, result.text,
+                                  incomplete: result.completion != .final)
+        }
+        model.onFailure = { sessionID, _ in receiveVoiceFailure(sessionID: sessionID) }
         model.onEmergency = { _ in
             chatDictation?.stopForDisappear()
             dismiss()
@@ -643,20 +706,44 @@ struct TaskAssistantChatView: View {
     }
 
     /// 语音识别完成：语音气泡立即入聊天（音频可选），转写文本回填输入框供编辑发送。
-    private func receiveChatTranscript(_ text: String) {
+    private func receiveChatTranscript(sessionID: UUID, _ text: String, incomplete: Bool) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let voiceURL = pendingVoiceURLs.isEmpty ? nil : pendingVoiceURLs.removeFirst()
+        let voiceURL = takePendingVoiceURL(sessionID)
         guard !trimmed.isEmpty else {
             ChatAudioStore.removeTemporary(voiceURL)
-            voiceMode = false
-            append(.init(role: .assistant, text: L10n.voicenoteDictationFailed, isRefusal: true))
+            append(.init(role: .assistant, text: chatDictation?.failureMessage ?? L10n.voicenoteDictationFailed,
+                         isRefusal: true))
+            finishVoiceBatchIfIdle()
             return
         }
         let filename = voiceURL.flatMap(ChatAudioStore.adopt)
         append(ChatMessage(role: .user, media: MediaInfo(
             kind: .voice, filename: L10n.assistantVoiceMessage, status: .ready,
-            audioFilename: filename, transcript: trimmed)))
-        input = trimmed
+            audioFilename: filename, transcript: trimmed, incomplete: incomplete)))
+        // 保留用户切到语音前已输入的草稿（2026-10-20）。
+        input = input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? trimmed : input + " " + trimmed
+        finishVoiceBatchIfIdle()
+    }
+
+    /// 识别失败（权限/引擎/空语音）：必须可见，不得让状态卡静默消失。
+    private func receiveVoiceFailure(sessionID: UUID) {
+        ChatAudioStore.removeTemporary(takePendingVoiceURL(sessionID))
+        append(.init(role: .assistant,
+                     text: chatDictation?.failureMessage ?? L10n.voicenoteDictationFailed,
+                     isRefusal: true))
+        finishVoiceBatchIfIdle()
+    }
+
+    private func takePendingVoiceURL(_ sessionID: UUID) -> URL? {
+        pendingVoiceURLs.removeValue(forKey: sessionID)
+    }
+
+    /// 仍有录音/识别在途时保持语音态（卸载按钮会触发 stopForDisappear
+    /// 作废后续交付）；全部结束才切回键盘。
+    private func finishVoiceBatchIfIdle() {
+        guard chatDictation?.hasPendingTranscriptions != true,
+              chatDictation?.phase != .recording else { return }
         voiceMode = false
     }
 
@@ -745,12 +832,17 @@ struct TaskAssistantChatView: View {
     @ViewBuilder
     private func sheetContent(_ sheet: AssistantSheet) -> some View {
         switch sheet {
+        case .document(let documentId, let patientId):
+            DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: 0)
         case .history:
             ChatHistoryView(
                 patientId: app.currentPatientId,
                 onOpen: { summary in openConversation(summary) },
                 onNew: { startNewConversation() },
-                onClose: { activeSheet = nil })
+                onClose: { activeSheet = nil },
+                onDelete: { id in
+                    if id == conversationID { startNewConversation() }
+                })
         case .sharedReview(let sessionID):
             if let session = docs.activeImport, session.id == sessionID {
                 SharedFieldsReviewView(session: session, patientId: session.patientId)
@@ -801,6 +893,9 @@ struct TaskAssistantChatView: View {
         var status: String
         var audioFilename: String?
         var transcript: String?
+        var documentId: String?
+        var patientId: String?
+        var incomplete: Bool?
     }
     private struct PersistedCard: Codable {
         var id: String
@@ -826,11 +921,31 @@ struct TaskAssistantChatView: View {
         let payload = encode(message)
         let title = !titleCaptured ? titleCandidate(message) : nil
         if title != nil { titleCaptured = true }
-        Task {
-            guard let id = await ensureConversationID() else { return }
+        let capturedConversation = conversationID
+        let generation = conversationGeneration
+        enqueuePersistence {
+            let id: UUID
+            if let capturedConversation {
+                id = capturedConversation
+            } else {
+                guard generation == conversationGeneration else { return }
+                guard let created = await ensureConversationID() else { return }
+                guard generation == conversationGeneration else { return }
+                id = created
+            }
             await chatHistory.append(conversationId: id, role: role,
                                      kind: kind, text: message.text, payloadJSON: payload)
             if let title { await chatHistory.rename(id, title: title) }
+        }
+    }
+
+    /// 串行执行历史写操作：append 与 update 都经此链，避免 update 先到
+    /// 命中 0 行（媒体 processing→ready 丢失）。
+    private func enqueuePersistence(_ operation: @escaping @MainActor () async -> Void) {
+        let previous = persistenceTail
+        persistenceTail = Task { @MainActor in
+            await previous?.value
+            await operation()
         }
     }
 
@@ -840,7 +955,7 @@ struct TaskAssistantChatView: View {
         guard let conversationID,
               let message = messages.first(where: { $0.id == messageID }),
               let payload = encode(message) else { return }
-        Task {
+        enqueuePersistence {
             await chatHistory.updateMessagePayload(conversationId: conversationID,
                                                    clientId: messageID,
                                                    payloadJSON: payload)
@@ -914,7 +1029,10 @@ struct TaskAssistantChatView: View {
         let media = message.media.map {
             PersistedMedia(kind: mediaKind($0.kind), filename: $0.filename,
                            status: mediaStatus($0.status),
-                           audioFilename: $0.audioFilename, transcript: $0.transcript)
+                           audioFilename: $0.audioFilename, transcript: $0.transcript,
+                           documentId: $0.documentId?.uuidString,
+                           patientId: $0.patientId?.uuidString,
+                           incomplete: $0.incomplete)
         }
         let card = message.card.map {
             PersistedCard(id: $0.id, kind: $0.kind == .shared ? "shared" : "entity",
@@ -943,7 +1061,10 @@ struct TaskAssistantChatView: View {
         let media = payload.media.map {
             MediaInfo(kind: mediaKind(from: $0.kind), filename: $0.filename,
                       status: mediaStatus(from: $0.status),
-                      audioFilename: $0.audioFilename, transcript: $0.transcript)
+                      audioFilename: $0.audioFilename, transcript: $0.transcript,
+                      documentId: $0.documentId.flatMap(UUID.init(uuidString:)),
+                      patientId: $0.patientId.flatMap(UUID.init(uuidString:)),
+                      incomplete: $0.incomplete ?? false)
         }
         let card = payload.card.map {
             CardInfo(id: $0.id, kind: $0.kind == "shared" ? .shared : .entity,
@@ -990,6 +1111,8 @@ struct TaskAssistantChatView: View {
         Task {
             let stored = await chatHistory.messages(conversationId: summary.id)
             await MainActor.run {
+                stopVoicePlayback()
+                conversationGeneration = UUID()
                 conversationID = summary.id
                 titleCaptured = true
                 messages = stored.compactMap(decode)
@@ -1001,6 +1124,8 @@ struct TaskAssistantChatView: View {
 
     private func startNewConversation() {
         // 懒创建：清空界面即可；首条消息落库时创建会话，避免空行。
+        stopVoicePlayback()
+        conversationGeneration = UUID()
         conversationID = nil
         titleCaptured = false
         messages = []
@@ -1084,7 +1209,9 @@ struct TaskAssistantChatView: View {
         }
         let message = ChatMessage(role: .user,
                                   media: MediaInfo(kind: kind, filename: filename, status: .processing))
-        messages.append(message)
+        // 立即落库（processing 快照）：OCR 中被强退/切会话也不丢上传记录；
+        // 终态经串行链 update 覆盖（2026-10-20）。
+        append(message)
         return message.id
     }
 
@@ -1121,7 +1248,8 @@ struct TaskAssistantChatView: View {
             await failImport(session: session, messageID: messageID, text: L10n.assistantMediaFailed)
             return
         }
-        updateMedia(messageID, status: .ready)
+        updateMedia(messageID, status: .ready,
+                    document: session.source.map { (id: $0.documentId, patient: $0.patientId) })
         appendImportCards(for: session)
     }
 
@@ -1145,9 +1273,14 @@ struct TaskAssistantChatView: View {
         autoTitleFromImport(session)
     }
 
-    private func updateMedia(_ messageID: UUID?, status: MediaInfo.Status) {
+    private func updateMedia(_ messageID: UUID?, status: MediaInfo.Status,
+                             document: (id: UUID, patient: UUID)? = nil) {
         guard let messageID, let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
         messages[index].media?.status = status
+        if let document {
+            messages[index].media?.documentId = document.id
+            messages[index].media?.patientId = document.patient
+        }
         // 终态才落历史：processing 快照没有保留价值，也避免与 OCR 收尾竞态。
         guard status != .processing else { return }
         if persistedMessageIDs.contains(messageID) {
@@ -1529,5 +1662,20 @@ private struct AssistantVoiceWaveform: View {
             .accessibilityHidden(true)
             .accessibilityIdentifier("assistant.voiceWaveform")
         }
+    }
+}
+
+
+/// 聊天语音重放结束回调（2026-10-20）：AVAudioPlayer.delegate 是 weak，
+/// 必须由视图侧强持有；自然播完/解码失败时复位气泡图标。
+private final class ChatAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    var onFinish: (@MainActor () -> Void)?
+
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in self?.onFinish?() }
+    }
+
+    nonisolated func audioPlayerDecodeErrorDidFinish(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor [weak self] in self?.onFinish?() }
     }
 }

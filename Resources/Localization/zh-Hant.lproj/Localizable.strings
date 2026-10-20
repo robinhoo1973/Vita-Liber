@@ -2432,6 +2432,8 @@
 "assistant.modeVoice" = "語音輸入";
 "assistant.modeText" = "鍵盤輸入";
 "assistant.voiceTap" = "點擊開始語音輸入";
+"assistant.voiceReplayFailed" = "語音無法重播";
+"assistant.mediaOpen" = "開啟原件";
 "assistant.voiceStop" = "點擊結束錄音";
 "assistant.voiceRecording" = "正在錄音";
 "assistant.voiceRecognizing" = "辨識中…";

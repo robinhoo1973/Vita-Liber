@@ -42,6 +42,22 @@ struct ChatHistoryStoreTests {
         #expect(stored.first?.payloadJSON?.contains(client.uuidString) == true)
     }
 
+
+    /// 语音文件名可枚举（删除会话时清理音频）且转写文本参与搜索（2026-10-20）。
+    @Test("语音文件名枚举 + 转写文本可搜索")
+    func audioFilenamesAndTranscriptSearch() async throws {
+        let patient = UUID()
+        let (history, _) = try await store(patient)
+        let conversation = try await history.createConversation(patientId: patient, title: "语音")
+        let payload = #"{"clientId":"\#(UUID().uuidString)","role":"user","text":"","isRefusal":false,"isEmergency":false,"media":{"kind":"voice","filename":"语音消息","status":"ready","audioFilename":"voice-a.caf","transcript":"血压高压一百二"}}"#
+        _ = try await history.appendMessage(conversationId: conversation, role: "user",
+                                            kind: "media", text: "", payloadJSON: payload)
+        let files = try await history.audioFilenames(conversationId: conversation)
+        #expect(files == ["voice-a.caf"])
+        let hits = try await history.conversations(patientId: patient, query: "高压")
+        #expect(hits.map(\.id) == [conversation])
+    }
+
     /// 语音消息与转写文本随会话读回，删除会话级联真删消息。
     @Test("语音消息转写文本持久化且会话删除级联")
     func voiceTranscriptPersistsAndDeleteCascades() async throws {

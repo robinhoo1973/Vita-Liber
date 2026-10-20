@@ -38,6 +38,15 @@ enum ChatAudioStore {
         try? FileManager.default.removeItem(at: url)   // try?-ok: 取消清理尽力而为
     }
 
+    /// 启动/进入聊天时清扫遗留临时录音（崩溃/强退跳过 onDisappear；2026-10-20）。
+    static func sweepTemporary() {
+        guard let dir = directory(),
+              let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }   // try?-ok: 目录不可读按无遗留处理
+        for url in files where url.lastPathComponent.hasPrefix("temp-") {
+            try? FileManager.default.removeItem(at: url)   // try?-ok: 清扫尽力而为
+        }
+    }
+
     /// 「清空全部」等数据擦除路径调用：聊天语音不留存。
     static func wipe() {
         guard let dir = directory() else { return }
