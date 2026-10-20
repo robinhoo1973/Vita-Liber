@@ -249,19 +249,35 @@ public actor HealthKitSyncService {
     }
 
     /// 有界 join：只放弃“等待”，不取消共享轮次（只有创建者持取消权）。
+    ///
+    /// 不用 `withThrowingTaskGroup`：`task.value` 不响应子任务取消，group 退出时
+    /// 仍会等待 waiter 子任务——超时无法真正返回。改用 continuation + 一次性
+    /// resume 的竞速；等待共享任务的 Task 留在后台，不阻塞调用方。
     private static func awaitJoin(_ task: Task<SyncReport, Error>,
                                   timeout: Duration) async throws -> SyncReport {
-        try await withThrowingTaskGroup(of: SyncReport.self) { group in
-            group.addTask { try await task.value }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw HealthImportStore.ImportError.busy
+        let race = JoinRace()
+        return try await withCheckedThrowingContinuation { continuation in
+            Task {
+                do { race.finish(continuation, .success(try await task.value)) }
+                catch { race.finish(continuation, .failure(error)) }
             }
-            guard let result = try await group.next() else {
-                throw HealthImportStore.ImportError.busy
+            Task {
+                do { try await Task.sleep(for: timeout) } catch { return }
+                race.finish(continuation, .failure(HealthImportStore.ImportError.busy))
             }
-            group.cancelAll()
-            return result
+        }
+    }
+
+    private final class JoinRace: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished = false
+        func finish(_ continuation: CheckedContinuation<SyncReport, Error>,
+                    _ result: Result<SyncReport, Error>) {
+            lock.lock()
+            let shouldResume = !finished
+            finished = true
+            lock.unlock()
+            if shouldResume { continuation.resume(with: result) }
         }
     }
 
