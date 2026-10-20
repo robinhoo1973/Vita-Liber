@@ -12,10 +12,21 @@ public actor HealthImportStore {
         /// round2 H-N1：绑定时刻（`hk_import_binding.connected_at`）——两道回填的 cutoff 派生源，
         /// 固定于绑定时刻不随 now 漂移。
         public let connectedAt: Date
+        /// 业主 2026-10-20：用户选择的导入范围；只影响 history 道下界。
+        public let historyDepth: HealthHistoryDepth
         public var calendar: Calendar {
             var result = Calendar(identifier: .gregorian)
             result.timeZone = TimeZone(identifier: timeZoneID) ?? TimeZone(secondsFromGMT: 0)!
             return result
+        }
+
+        public init(id: UUID, patientId: UUID, timeZoneID: String, connectedAt: Date,
+                    historyDepth: HealthHistoryDepth = .all) {
+            self.id = id
+            self.patientId = patientId
+            self.timeZoneID = timeZoneID
+            self.connectedAt = connectedAt
+            self.historyDepth = historyDepth
         }
     }
 
@@ -24,6 +35,9 @@ public actor HealthImportStore {
         /// C1-5（2026-10-04 后台任务专项评审）：共享轮次超过陈旧阈值仍无终态——
         /// join 者返回此错误而非无限排队（只记账不杀共享任务）。
         case staleFlight
+        /// 2026-10-20：后台投递 join 超时（共享轮次仍在跑）。只让本次投递放弃等待，
+        /// 不杀共享任务；投递本身已确认，下一次 refresh/backfill 继续。
+        case busy
     }
 
     /// Fetch progress is durable but is not a materialization checkpoint.
@@ -36,6 +50,9 @@ public actor HealthImportStore {
         /// round2 H-N1 所属道；旧载荷（v2 单道）缺键解码为 nil → `pending()` 作废该行
         /// （取数进度不是物化检查点，重取安全），而非让该类型永久卡死。
         public let lane: HealthFetchLane?
+        /// v2 起 pending 只承载**一页**（≤500 refs）。旧整道累积载荷缺 version
+        /// 或 added>500 → 作废并从 committed anchor/fetch cursor 重放（幂等）。
+        public var version: Int? = 2
     }
 
     public struct CommitReport: Sendable, Equatable {
@@ -43,29 +60,39 @@ public actor HealthImportStore {
         public var preservedRows = 0
         public var deferredWindows = 0
         public var hasMore = false
+        /// 该道已到最终空页、committed anchor 已推进（无 pending/延迟）。
+        /// 只有此状态可标记类型完成（业主 2026-10-20 激活完成态）。
+        public var laneComplete = false
     }
 
     let writer: any DatabaseWriter
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    public func connect(timeZoneID: String = TimeZone.current.identifier) async throws -> Binding {
+    public func connect(timeZoneID: String = TimeZone.current.identifier,
+                        depth: HealthHistoryDepth = .all) async throws -> Binding {
         try await writer.write { db in
             guard TimeZone(identifier: timeZoneID) != nil else { throw ImportError.invalidValue }
             try Self.requireEnabled(db)
             guard let patient = try Self.ownerPatient(db) else { throw ImportError.missingOwner }
-            if let binding = try Self.binding(db) {
-                guard binding.patientId == patient else { throw ImportError.bindingChanged }
-                return binding
+            if let existing = try Self.binding(db) {
+                guard existing.patientId == patient else { throw ImportError.bindingChanged }
+                // 已有绑定：保留用户已选深度（depth 参数只在首次连接生效）；
+                // 旧库/中断留下的无 plan 行按 .all 补齐，保持既有行为。
+                try Self.ensurePlan(db, bindingId: existing.id, connectedAt: existing.connectedAt,
+                                    depth: existing.historyDepth)
+                return try Self.binding(db) ?? existing
             }
             // 落库与返回值用同一 Double：Binding.connectedAt 经 Date(timeIntervalSince1970:) 构造，
             // 重连读回的值逐位相同（Equatable 不因 Double 往返漂移）。
             let connectedAt = Date().timeIntervalSince1970
             let binding = Binding(id: UUID(), patientId: patient, timeZoneID: timeZoneID,
-                                  connectedAt: Date(timeIntervalSince1970: connectedAt))
+                                  connectedAt: Date(timeIntervalSince1970: connectedAt),
+                                  historyDepth: depth)
             try db.execute(sql: """
                 INSERT INTO hk_import_binding (singleton, id, patient_id, time_zone, connected_at)
                 VALUES (1, ?, ?, ?, ?)
                 """, arguments: [binding.id.uuidString, patient.uuidString, timeZoneID, connectedAt])
+            try Self.ensurePlan(db, bindingId: binding.id, connectedAt: binding.connectedAt, depth: depth)
             return binding
         }
     }
@@ -87,10 +114,12 @@ public actor HealthImportStore {
 
     /// round2 H-N1：两道回填范围（[recent, history]，排空顺序即数组顺序），cutoff 派生自绑定时刻。
     public nonisolated func scopes(for binding: Binding) -> [HealthFetchScope] {
-        HealthFetchScope.scopes(connectedAt: binding.connectedAt, calendar: binding.calendar)
+        HealthFetchScope.scopes(connectedAt: binding.connectedAt, calendar: binding.calendar,
+                                depth: binding.historyDepth)
     }
 
-    /// 每道独立游标（recent 道 `hk.v4` 降序首填游标 / history 道 `hk.v3`）；v2 单道键弃用——谓词变了，旧锚点不跨谓词复用，
+    /// 每道独立游标（recent 道 `hk.v4` 降序首填游标；history 道 `.all` 用 `hk.v3`，
+    /// 有限深度用 `hk.v6.<days>`）；v2 单道键弃用——谓词变了，旧锚点不跨谓词复用，
     /// 首次升级触发一次性幂等重回填（commit 按身份 upsert，不产重复行）。
     public func anchor(binding: Binding, kind: HealthDataKind, lane: HealthFetchLane) async throws -> Data? {
         try await writer.read { db in try Self.anchor(db, key: Self.anchorKey(binding, kind, lane)) }
@@ -107,6 +136,30 @@ public actor HealthImportStore {
     /// C7（2026-10-03 评审修复）：空推进页直接落锚点——recent 道稀疏扫描的断点持久化。
     /// 只推进「已覆盖」扫描位置（无 added/deleted），不触碰批次物化语义；
     /// 锚点键与 commit 推进同一 upsert 形态。
+    /// 取数游标（v2026-10-20 业主裁决）：与 committed anchor 分离。
+    /// - committed anchor 仍只在一道最终空页后排空（证明该道全部已物化）；
+    /// - fetch cursor 每完成一页就前进，崩溃从最近一页续取；pending 只装一页。
+    /// 旧库无 fetch cursor 时回落 committed anchor（既有进度不丢）。
+    public func nextFetchAnchor(binding: Binding, kind: HealthDataKind, lane: HealthFetchLane) async throws -> Data? {
+        try await writer.read { db in
+            try Self.fetchCursor(db, key: Self.fetchAnchorKey(binding, kind, lane))
+                ?? Self.anchor(db, key: Self.anchorKey(binding, kind, lane))
+        }
+    }
+
+    /// 稀疏扫描检查点（recent 降序空窗推进）：只写 fetch cursor，不推进 committed anchor。
+    /// 空扫描页没有物化内容，committed anchor 仍等该道最终空页。
+    public func saveScanCheckpoint(binding: Binding, kind: HealthDataKind,
+                                   lane: HealthFetchLane, anchor: Data) async throws {
+        try Task.checkCancellation()
+        try await writer.write { db in
+            try Task.checkCancellation()
+            try Self.requireEnabled(db)
+            try Self.requireBinding(binding, db: db)
+            try Self.saveFetchCursor(db, key: Self.fetchAnchorKey(binding, kind, lane), anchor: anchor)
+        }
+    }
+
     public func saveAnchor(binding: Binding, kind: HealthDataKind, lane: HealthFetchLane, anchor: Data) async throws {
         try Task.checkCancellation()
         try await writer.write { db in
@@ -131,11 +184,13 @@ public actor HealthImportStore {
             guard page.added.count <= 500, !page.anchor.isEmpty,
                   !page.hasMore || !page.added.isEmpty || !page.deleted.isEmpty else { throw ImportError.invalidValue }
             let committed = try Self.anchor(db, key: Self.anchorKey(binding, kind, scope.lane))
+            let fetch = try Self.fetchCursor(db, key: Self.fetchAnchorKey(binding, kind, scope.lane))
+                ?? committed
             let prior = try Self.pending(binding: binding, kind: kind, db: db)
             // round2 H-N1：另一道在途时本道不得开新批次——先排空在途道（pending 每类单行）
             guard prior == nil || prior?.lane == scope.lane else { throw ImportError.staleAnchor }
-            guard (prior?.batch.anchor ?? committed) == previousAnchor,
-                  prior == nil || prior?.previousAnchor == committed else { throw ImportError.staleAnchor }
+            guard (prior?.batch.anchor ?? fetch) == previousAnchor,
+                  prior == nil || prior?.previousAnchor == fetch else { throw ImportError.staleAnchor }
             if page.hasMore || !page.added.isEmpty || !page.deleted.isEmpty {
                 guard page.anchor != previousAnchor else { throw ImportError.staleAnchor }
             }
@@ -145,12 +200,15 @@ public actor HealthImportStore {
                 if let old = added[id], old != ref { throw ImportError.invalidValue }
                 added[id] = ref
             }
+            // 单页 pending：生产路径永远在无 pending 时取页；此守卫只拒绝
+            // 旧式“多页合并”调用，避免 version 2 载荷超过一页。
+            guard added.count <= 500 else { throw ImportError.invalidValue }
             let pageDeletions = Set(page.deleted)
             let deleted = Set(prior?.batch.deleted ?? []).union(pageDeletions)
             let oldReferences = try Self.deletedReferences(page.deleted, binding: binding, kind: kind, db: db)
             let touched = Set((page.added + oldReferences + added.values.filter { pageDeletions.contains($0.id) })
                 .flatMap { HealthImportWindow.covering($0, calendar: binding.calendar) })
-            let pending = PendingBatch(previousAnchor: committed,
+            let pending = PendingBatch(previousAnchor: fetch,
                 batch: HealthChangeBatch(added: added.values.sorted { $0.id.uuidString < $1.id.uuidString },
                     deleted: deleted.sorted { $0.uuidString < $1.uuidString }, anchor: page.anchor, hasMore: page.hasMore),
                 completedWindows: (prior?.completedWindows ?? []).subtracting(touched),
@@ -199,27 +257,39 @@ public actor HealthImportStore {
             }
             _ = try GuidelineStore.recordQualifiedHealthReadings(readings, patientId: binding.patientId, db: db)
             report.preservedRows = preserved.count
-            // hasMore 批次即使全部窗口物化完成也保持 hasMore=true——
-            // 光标（hk_sync_anchor）只在批次最终页排空后推进；分页期间的
-            // 完整窗口物化与光标推进解耦（CI 34659948629 服务测试钉死）。
-            report.hasMore = context.batch.hasMore || completed != context.requiredWindows
-            if report.hasMore {
+            // 2026-10-20 业主裁决：pending 单页 + fetch cursor 逐页推进。
+            // - 页未完成：保留 pending，不前进任何游标；
+            // - 页完成：fetch cursor ← 本页锚，退役本页墓碑，删 pending；
+            //   committed anchor 仍只在该道最终空页（batch.hasMore=false）后推进，
+            //   保留“整道已物化”的证明语义（既有测试/删除证明契约不变）。
+            let pageComplete = completed == context.requiredWindows
+            report.hasMore = context.batch.hasMore || !pageComplete
+            report.laneComplete = pageComplete && !context.batch.hasMore
+            if !pageComplete {
                 try Self.savePending(PendingBatch(previousAnchor: pending.previousAnchor, batch: context.batch,
                     completedWindows: completed, reconcileAfter: context.attempted.last?.start ?? pending.reconcileAfter,
                     revision: UUID(), lane: context.lane), binding: binding, kind: kind, db: db)
                 return report
             }
+            try Self.saveFetchCursor(db,
+                key: Self.fetchAnchorKey(binding, kind, context.lane), anchor: context.batch.anchor)
             // Retire tombstoned references only when every dependent window has been reconciled.
             for id in context.batch.deleted {
                 try db.execute(sql: "DELETE FROM hk_sample_index WHERE sample_id = ? AND type_key = ? AND patient_id = ?",
                                arguments: [id.uuidString, kind.rawValue, binding.patientId.uuidString])
             }
-            try db.execute(sql: """
-                INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
-                ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value, updated_at = excluded.updated_at
-                """, arguments: [context.key, context.batch.anchor.base64EncodedString(), Date().timeIntervalSince1970])
             try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
                            arguments: [binding.id.uuidString, kind.rawValue])
+            if report.laneComplete {
+                try db.execute(sql: """
+                    INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
+                    ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value,
+                      updated_at = excluded.updated_at
+                    """, arguments: [context.key, context.batch.anchor.base64EncodedString(),
+                                     Date().timeIntervalSince1970])
+                try db.execute(sql: "DELETE FROM hk_sync_anchor WHERE anchor_key = ?",
+                               arguments: [Self.fetchAnchorKey(binding, kind, context.lane)])
+            }
             return report
         }
     }
@@ -235,7 +305,12 @@ public actor HealthImportStore {
         // round2 H-N1：无道的批次不可提交（旧载荷已在 pending() 作废，此处只防御直接构造）
         guard let lane = pending.lane else { throw ImportError.invalidValue }
         let key = Self.anchorKey(binding, kind, lane)
-        guard try Self.anchor(db, key: key) == pending.previousAnchor,
+        // 待提交页的基准 = fetch cursor（每页推进）；旧库无 fetch cursor 时回落
+        // committed anchor。committed anchor 仍只在该道最终页后推进。
+        let committed = try Self.anchor(db, key: key)
+        let fetch = try Self.fetchCursor(db, key: Self.fetchAnchorKey(binding, kind, lane))
+            ?? committed
+        guard fetch == pending.previousAnchor,
               try Self.pending(binding: binding, kind: kind, db: db) == pending else { throw ImportError.staleAnchor }
         let batch = pending.batch
         // 分页与排空的共同不变量（CI 34658990146 + 34659948629 两个验收
@@ -252,16 +327,19 @@ public actor HealthImportStore {
         // 且无任何窗口受影响（被删除样本从未导入，affectedWindows 为空）
         // ——否则未导入样本的删除页会被误报 incompleteSnapshot，
         // 整轮浪费且该类型落进失败名单（owner round10 实测假警报）。
-        let deletionsOnlyEmptyPage = batch.added.isEmpty && snapshots.isEmpty
-            && (attemptedWindows?.isEmpty ?? true)
-        if batch.hasMore, !deletionsOnlyEmptyPage,
-           !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
-            throw ImportError.incompleteSnapshot
-        }
         _ = try Self.validatedReferences(batch.added, kind: kind, calendar: binding.calendar)
         let tombstones = Set(batch.deleted)
         let deleted = try Self.deletedReferences(batch.deleted, binding: binding, kind: kind, db: db)
         let requiredWindows = Set((batch.added + deleted).flatMap { HealthImportWindow.covering($0, calendar: binding.calendar) })
+        // 2026-10-20：页已完整物化后的“只提交”路径（fetch cursor 逐页推进/崩溃恢复）
+        // 不带快照；它不是“空证据当完整”，requiredWindows 已被 completedWindows 覆盖。
+        let alreadyMaterialized = requiredWindows.isSubset(of: pending.completedWindows)
+        let deletionsOnlyEmptyPage = batch.added.isEmpty && snapshots.isEmpty
+            && (attemptedWindows?.isEmpty ?? true)
+        if batch.hasMore, !deletionsOnlyEmptyPage, !alreadyMaterialized,
+           !snapshots.contains(where: { !$0.samples.isEmpty || !$0.rows.isEmpty }) {
+            throw ImportError.incompleteSnapshot
+        }
         let remaining = requiredWindows.subtracting(pending.completedWindows)
         let supplied = Set(snapshots.map(\.window))
         let attempted = attemptedWindows ?? snapshots.map(\.window)
@@ -517,9 +595,14 @@ public actor HealthImportStore {
         let pending = try JSONDecoder().decode(PendingBatch.self, from: Data(json.utf8))
         // round2 H-N1：v2 单道时代的载荷缺 lane——其锚点属于已弃用的无谓词查询，不能续接任何一道；
         // 作废该行（取数进度不是物化检查点，重取安全），否则该类型永久卡死。
-        guard pending.lane != nil else {
+        // 2026-10-20：单页 pending（version 2）。旧整道累积载荷（缺 version / >500 refs）
+        // 一并作废，并清 fetch cursor——否则游标已越过未物化页会漏数据；从
+        // committed anchor 重放（幂等）。
+        guard pending.lane != nil, pending.version == 2,
+              pending.batch.added.count <= 500 else {
             try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
                            arguments: [binding.id.uuidString, kind.rawValue])
+            try Self.deleteFetchCursors(db, bindingId: binding.id, kind: kind)
             return nil
         }
         guard !pending.batch.anchor.isEmpty, pending.reconcileAfter?.timeIntervalSince1970.isFinite != false,
@@ -600,8 +683,46 @@ public actor HealthImportStore {
     /// 2026-09-19：recent 道 v4——游标语义换成降序首填（JSON 游标），旧 v3 锚点
     /// （HKQueryAnchor）不跨游标方案复用；history 道维持 v3。
     private static func anchorKey(_ binding: Binding, _ kind: HealthDataKind, _ lane: HealthFetchLane) -> String {
-        let space = lane == .recent ? "hk.v4" : "hk.v3"
-        return "\(space).\(binding.id.uuidString).\(kind.rawValue).\(lane.rawValue)"
+        if lane == .recent {
+            return "hk.v4.\(binding.id.uuidString).\(kind.rawValue).recent"
+        }
+        // history：.all 沿用旧键（已有用户进度不重扫）；有限深度必须携带深度，
+        // 否则改深度后旧锚点会被错误复用（谓词已变）。
+        guard let days = binding.historyDepth.days else {
+            return "hk.v3.\(binding.id.uuidString).\(kind.rawValue).history"
+        }
+        return "hk.v6.\(binding.id.uuidString).\(kind.rawValue).history.\(days)"
+    }
+
+    /// 取数游标键（与 committed anchor 分表同表不同键；无 DDL）。
+    /// history 深度已编码进 committed key；fetch key 同样携带，避免改深度后误续。
+    private static func fetchAnchorKey(_ binding: Binding, _ kind: HealthDataKind,
+                                       _ lane: HealthFetchLane) -> String {
+        if lane == .recent {
+            return "hk.f1.\(binding.id.uuidString).\(kind.rawValue).recent"
+        }
+        if let days = binding.historyDepth.days {
+            return "hk.f1.\(binding.id.uuidString).\(kind.rawValue).history.\(days)"
+        }
+        return "hk.f1.\(binding.id.uuidString).\(kind.rawValue).history"
+    }
+
+    private static func fetchCursor(_ db: Database, key: String) throws -> Data? {
+        try anchor(db, key: key)
+    }
+
+    private static func saveFetchCursor(_ db: Database, key: String, anchor: Data) throws {
+        try db.execute(sql: """
+            INSERT INTO hk_sync_anchor (anchor_key, anchor_value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(anchor_key) DO UPDATE SET anchor_value = excluded.anchor_value,
+              updated_at = excluded.updated_at
+            """, arguments: [key, anchor.base64EncodedString(), Date().timeIntervalSince1970])
+    }
+
+    private static func deleteFetchCursors(_ db: Database, bindingId: UUID,
+                                           kind: HealthDataKind) throws {
+        try db.execute(sql: "DELETE FROM hk_sync_anchor WHERE anchor_key LIKE ?",
+                       arguments: ["hk.f1.\(bindingId.uuidString).\(kind.rawValue).%"])
     }
 
     /// 旧方案的 recent 锚点键（一次性作废用，见 `prepareRecentLane`）。
@@ -618,18 +739,20 @@ public actor HealthImportStore {
         try await writer.write { db in
             try Self.requireBinding(binding, db: db)
             if try Self.anchor(db, key: Self.anchorKey(binding, kind, .recent)) != nil { return }
-            try db.execute(sql: "DELETE FROM hk_sync_anchor WHERE anchor_key = ?",
-                           arguments: [Self.legacyRecentAnchorKey(binding, kind)])
+            // 2026-10-20：v4 committed anchor 只在 recent 道最终空页后推进；fetch cursor
+            // 与 valid v2 pending 同样是“降序首填已开始”的证据。旧实现只查 committed
+            // anchor，导致首填每轮误删在途 recent pending（v4 始终未到道末）。
+            if try Self.fetchCursor(db, key: Self.fetchAnchorKey(binding, kind, .recent)) != nil { return }
             do {
-                if try Self.pending(binding: binding, kind: kind, db: db)?.lane == .recent {
-                    try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
-                                   arguments: [binding.id.uuidString, kind.rawValue])
-                }
+                if let current = try Self.pending(binding: binding, kind: kind, db: db),
+                   current.lane == .recent { return }
             } catch ImportError.invalidValue {
                 // 旧方案损坏/缺 lane 载荷：一并作废（降序首填重新暂存）
                 try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
                                arguments: [binding.id.uuidString, kind.rawValue])
             }
+            try db.execute(sql: "DELETE FROM hk_sync_anchor WHERE anchor_key = ?",
+                           arguments: [Self.legacyRecentAnchorKey(binding, kind)])
         }
     }
 
@@ -647,9 +770,34 @@ public actor HealthImportStore {
               let connectedAt = row["connected_at"] as Double?, connectedAt.isFinite else {
             throw ImportError.bindingChanged
         }
+        let planRow = try Row.fetchOne(db,
+            sql: "SELECT history_days FROM hk_import_plan WHERE binding_id = ?",
+            arguments: [id.uuidString])
+        let days = planRow?["history_days"] as Int?
         return Binding(id: id, patientId: patient, timeZoneID: row["time_zone"],
-                       connectedAt: Date(timeIntervalSince1970: connectedAt))
+                       connectedAt: Date(timeIntervalSince1970: connectedAt),
+                       historyDepth: Self.depth(fromDays: days))
     }
+
+    /// v36 plan 行补齐（旧库/中断）：只 INSERT，不覆盖用户已选深度。
+    static func ensurePlan(_ db: Database, bindingId: UUID, connectedAt: Date,
+                                   depth: HealthHistoryDepth) throws {
+        try db.execute(sql: """
+            INSERT OR IGNORE INTO hk_import_plan
+              (binding_id, history_days, selected_at, updated_at, initial_completed_at)
+            VALUES (?, ?, ?, ?, NULL)
+            """, arguments: [bindingId.uuidString, depth.days,
+                             connectedAt.timeIntervalSince1970, Date().timeIntervalSince1970])
+    }
+
+    static func depth(fromDays days: Int?) -> HealthHistoryDepth {
+        guard let days else { return .all }
+        if days <= 365 { return .oneYear }
+        if days <= 1_825 { return .fiveYears }
+        return .all
+    }
+
+    static func days(fromDepth depth: HealthHistoryDepth) -> Int? { depth.days }
 
     static func ownerPatient(_ db: Database) throws -> UUID? {
         let id = try String.fetchOne(db, sql: """

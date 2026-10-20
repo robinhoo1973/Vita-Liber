@@ -22,10 +22,16 @@ public struct HealthImportDashboard: Sendable {
     public let bindingId: UUID?
     public let types: [HealthTypeSummary]
     public let lastReport: SyncReport?
+    /// 业主 2026-10-20：范围选择与初始完成态（nil = 未连接/旧库未读）。
+    public let plan: HealthImportPlan?
+    /// 激活/展示用：初始回填 vs 只更新缺失部分。
+    public let mode: HealthImportMode?
     public init(patientId: UUID, ownerName: String, connected: Bool, bindingId: UUID?,
-                types: [HealthTypeSummary], lastReport: SyncReport?) {
+                types: [HealthTypeSummary], lastReport: SyncReport?,
+                plan: HealthImportPlan? = nil, mode: HealthImportMode? = nil) {
         self.patientId = patientId; self.ownerName = ownerName; self.connected = connected
         self.bindingId = bindingId; self.types = types; self.lastReport = lastReport
+        self.plan = plan; self.mode = mode
     }
 }
 

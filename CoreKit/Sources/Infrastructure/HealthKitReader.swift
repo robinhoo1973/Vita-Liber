@@ -42,6 +42,11 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         return types
     }
 
+    /// 后台投递结果里的 `HKSampleType.identifier` → Domain 类型（阻断/自愈映射）。
+    public static func kind(forSampleTypeIdentifier identifier: String) -> HealthDataKind? {
+        HealthDataKind.allCases.first { sampleType($0).identifier == identifier }
+    }
+
     private static func sampleType(_ kind: HealthDataKind) -> HKSampleType {
         switch kind {
         case .heartRate: return HKQuantityType(.heartRate)
@@ -243,15 +248,33 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         public init() {}
     }
 
+    /// 回前台自愈：停掉旧 observer query 后重建。HealthKit 的投递可能因
+    /// 三次未确认/进程级错误停止，而旧实现只在 observers 为空时创建，
+    /// 非空即短路——停投后永不重建。仅在上次注册不可用时调用，避免每次前台抖动。
+    public func rebuildObservers(handler: @escaping @Sendable () async -> Bool,
+                                 enableDelivery: Bool) async -> BackgroundDeliveryOutcome {
+        for query in observers { store.stop(query) }
+        observers.removeAll()
+        return await observeChanges(handler: handler, enableDelivery: enableDelivery)
+    }
+
     public func observeChanges(handler: @escaping @Sendable () async -> Bool,
                                enableDelivery: Bool) async -> BackgroundDeliveryOutcome {
         if observers.isEmpty {
             for type in Self.readTypes {
                 guard let sampleType = type as? HKSampleType else { continue }
                 let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { _, completion, error in
+                    // 2026-10-20 平台修复：后台投递的 completion 不得等完整同步。
+                    // Apple：三次未应答后 HealthKit 停止该类型后台投递。
+                    // 先取得 beginBackgroundTask 断言，再确认投递，最后做有界工作；
+                    // 这样 App 被挂起也不会把“投递确认”拖成三振。
+                    guard error == nil else { completion(); return }
+                    let assertion = BackgroundAssertionBox()
                     Task {
-                        if error == nil { _ = await handler() }
+                        await MainActor.run { assertion.begin(name: "vitaliber-hk-delivery") }
                         completion()
+                        defer { Task { @MainActor in assertion.end() } }
+                        _ = await handler()
                     }
                 }
                 observers.append(query)
@@ -378,6 +401,10 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
     /// 首填完成边界：窗口下沿越过 cutoff 再留 48h 余量（跨窗睡眠样本的 start 可早于
     /// cutoff——道谓词 end >= cutoff 会滤掉无跨窗者，余量窗口恒返回空页/跨窗者）。
     private static let fillStraddleMargin: TimeInterval = 172_800
+    /// 稀疏空窗单次调用推进上限（2026-10-20）：整年空窗逐日查询会击穿
+    /// 后台 15s/18s 预算，且取消即丢失全部进度。每次最多推进 32 天并落
+    /// fetch cursor 检查点；下一轮从断点继续（不是失败）。
+    private static let maxEmptyAdvancesPerCall = 32
     // 收口批D（第九轮审查 D3 残留清理，2026-10-10）：`incrementalOverlap` 常量与
     // 转发壳 `incrementalPredicate` 已删除——二者是 2026-09-19「窄谓词→全道谓词」
     // 修正后的遗留（零调用；注释还完整保留了被刻意移除的窄谓词设计，误导读者把
@@ -422,6 +449,7 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         var windowStart = cursor?.windowStart ?? windowEnd.addingTimeInterval(-86_400)
         var dayStart = cursor?.dayStart ?? windowStart
         var newestStart = cursor?.newestStart
+        var emptyAdvances = 0
         while true {
             try Task.checkCancellation()
             // 首填完成判定：窗口下沿越过 cutoff − 48h 余量（跨窗样本覆盖）
@@ -459,9 +487,17 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
             var nextCursor = next
             nextCursor.newestStart = newestStart
             if refs.isEmpty {
-                // 空窗口（无样本/全为自身回声）：同调用内推进，不落空页。
-                // C7 封顶回退（2026-10-04 CI #652 契约回归）——恢复无界推进；
-                // 断点续扫优化登记重做。
+                // 空窗口（无样本/全为自身回声）：同调用内推进。
+                // 2026-10-20：封顶 32 天并返回空检查点页；服务层把它写入 fetch cursor。
+                // 不是“空页当完整”——空页只是扫描位置，不涉及任何物化窗口。
+                emptyAdvances += 1
+                if emptyAdvances >= Self.maxEmptyAdvancesPerCall {
+                    var checkpoint = nextCursor
+                    checkpoint.newestStart = newestStart
+                    return HealthChangeBatch(added: [], deleted: [],
+                                             anchor: try Self.encodeCursor(checkpoint),
+                                             hasMore: true)
+                }
                 windowEnd = next.windowEnd ?? windowEnd
                 windowStart = next.windowStart ?? windowStart
                 dayStart = next.dayStart ?? dayStart
@@ -759,7 +795,14 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         case .recent:
             return HKQuery.predicateForSamples(withStart: scope.cutoff, end: nil, options: [])
         case .history:
-            return HKQuery.predicateForSamples(withStart: nil, end: scope.cutoff, options: [.strictEndDate])
+            var parts = [HKQuery.predicateForSamples(withStart: nil, end: scope.cutoff,
+                                                    options: [.strictEndDate])]
+            // 业主 2026-10-20：1 年/5 年/全部——下界按样本 end 判定（默认左闭），
+            // 与 Domain `HealthFetchScope.matches` 同语义；nil = 无下界。
+            if let floor = scope.historyFloor {
+                parts.append(HKQuery.predicateForSamples(withStart: floor, end: nil, options: []))
+            }
+            return NSCompoundPredicate(andPredicateWithSubpredicates: parts)
         }
     }
 

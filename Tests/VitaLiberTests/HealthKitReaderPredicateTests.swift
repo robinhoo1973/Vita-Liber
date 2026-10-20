@@ -51,5 +51,30 @@ final class HealthKitReaderPredicateTests: XCTestCase {
         XCTAssertFalse(recent.evaluate(with: older))
         XCTAssertTrue(history.evaluate(with: older))
     }
+
+    /// 业主 2026-10-20：history 下界按样本 end 判定；与 Domain matches 同语义。
+    func test_historyFloorCutsOlderSamples() {
+        let cutoff = Date(timeIntervalSince1970: 1_700_006_400)
+        let floor = cutoff.addingTimeInterval(-10 * 86_400)
+        let type = HKQuantityType(.stepCount)
+        func sample(_ end: Date) -> HKQuantitySample {
+            HKQuantitySample(type: type, quantity: HKQuantity(unit: .count(), doubleValue: 1),
+                             start: end, end: end)
+        }
+        let floorSample = sample(floor)
+        let older = sample(floor.addingTimeInterval(-1))
+        let newer = sample(cutoff.addingTimeInterval(-1))
+        let scope = HealthFetchScope(lane: .history, cutoff: cutoff, historyFloor: floor)
+        let predicate = HealthKitReader.changePredicate(for: scope)
+        for candidate in [floorSample, older, newer] {
+            let ref = HealthSampleReference(id: candidate.uuid, kind: .steps, sourceID: "s",
+                                            start: candidate.startDate, end: candidate.endDate)
+            XCTAssertEqual(predicate.evaluate(with: candidate), scope.matches(ref),
+                           "Floor 谓词与 Domain 判定必须一致")
+        }
+        XCTAssertTrue(predicate.evaluate(with: floorSample))
+        XCTAssertFalse(predicate.evaluate(with: older))
+        XCTAssertTrue(predicate.evaluate(with: newer))
+    }
 }
 #endif

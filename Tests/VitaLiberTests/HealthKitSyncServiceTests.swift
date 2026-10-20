@@ -65,10 +65,12 @@ final class HealthKitSyncServiceTests: XCTestCase {
         XCTAssertNil(pending)
         XCTAssertFalse(second.hasMore)
         XCTAssertTrue(second.failedTypes.isEmpty)
-        // round2 H-N1：fixture 样本为 2023 年，落 history 道；recent 道只在首轮探到空页，在途批次续其所在道
-        XCTAssertEqual(requests.filter { $0.scope.lane == .history }.map(\.anchor), [nil, Data([1])],
-                       "Resume fetching after the staged page, not the old committed cursor")
-        XCTAssertEqual(requests.filter { $0.scope.lane == .recent }.count, 1, "A pending history batch must not re-probe recent")
+        // 2026-10-20：pending 先做——第二轮先物化 pending 的失败窗口，不再重取同一页；
+        // 页完成后同轮才继续探 recent（公平调度）。
+        XCTAssertEqual(requests.filter { $0.scope.lane == .history }.map(\.anchor), [nil],
+                       "A pending page is materialized before fetching its successor")
+        XCTAssertGreaterThanOrEqual(requests.filter { $0.scope.lane == .recent }.count, 1,
+                                    "Recent is still probed after the history page commits")
         XCTAssertTrue(requests.allSatisfy { $0.limit == 500 })
     }
 
@@ -92,11 +94,14 @@ final class HealthKitSyncServiceTests: XCTestCase {
         let first = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
         let interimAnchor = try await imports.anchor(binding: binding, kind: .bloodOxygen)
         let staged = try await imports.pendingBatch(binding: binding, kind: .bloodOxygen)
+        let fetchCursor = try await imports.nextFetchAnchor(binding: binding, kind: .bloodOxygen, lane: .history)
         let interimRows = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
         XCTAssertEqual(first.receivedChanges, 500)
         XCTAssertEqual(interimRows, 501, "A complete current window is visible while historical paging continues")
         XCTAssertNil(interimAnchor)
-        XCTAssertEqual(staged?.batch.added.count, 500)
+        // 2026-10-20：pending 单页 + fetch cursor 逐页推进；已完成页立即清 pending。
+        XCTAssertNil(staged)
+        XCTAssertEqual(fetchCursor, Data([1]))
         XCTAssertTrue(first.hasMore)
         let dashboard = try await imports.dashboard()
         XCTAssertEqual(dashboard.types.first { $0.kind == .bloodOxygen }?.rowCount, 501)

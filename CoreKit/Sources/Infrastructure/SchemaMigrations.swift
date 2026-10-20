@@ -927,6 +927,29 @@ public enum SchemaMigrations {
           ordinal INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_chat_message_conversation ON chat_message(conversation_id, ordinal);
         """),
+        // v36：Apple 健康导入范围与完成态（业主 2026-10-20 裁决）。
+        // - plan：用户选择 1 年/5 年/全部；已有绑定回填 .all，保持既有行为。
+        // - completion：每类 recent/history 是否已完成所选范围；blocked 记录
+        //   HealthKit 明确报告的投递阻断，阻断类型不标完成，授权恢复后重置。
+        // 无表重建；INSERT OR IGNORE 对已升级库/重复重放安全。
+        Step(version: 36, name: "health-import-plan", sql: """
+        CREATE TABLE IF NOT EXISTS hk_import_plan (
+          binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+          history_days INTEGER,
+          selected_at REAL NOT NULL,
+          updated_at REAL NOT NULL,
+          initial_completed_at REAL);
+        CREATE TABLE IF NOT EXISTS hk_import_completion (
+          binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+          type_key TEXT NOT NULL,
+          recent_completed_at REAL,
+          history_completed_at REAL,
+          history_days INTEGER,
+          blocked_reason TEXT,
+          PRIMARY KEY(binding_id, type_key));
+        INSERT OR IGNORE INTO hk_import_plan (binding_id, history_days, selected_at, updated_at)
+          SELECT id, NULL, connected_at, connected_at FROM hk_import_binding;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

@@ -120,14 +120,16 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
 
     /// 提交一次运行请求（重排）。系统只保证不早于 `earliestBeginDate`；处理类作业按描述附网络/电源要求。
     @discardableResult
-    public func submit(_ identifier: String, now: Date = Date()) -> Bool {
+    public func submit(_ identifier: String, now: Date = Date(),
+                       earliestBeginDate: Date? = nil) -> Bool {
         lock.lock()
         let job = jobs[identifier]
         lock.unlock()
         guard let job else { return false }
         let request = BackgroundTaskRequest(identifier: identifier,
                                             kind: job.descriptor.kind.requestKind,
-                                            earliestBeginDate: job.descriptor.earliestBeginDate(from: now))
+                                            earliestBeginDate: earliestBeginDate
+                                                ?? job.descriptor.earliestBeginDate(from: now))
         // 同名重排 = 先撤旧请求再提交（2026-09-23）：不撤旧就重提是排队族错误
         // （`tooManyPendingTaskRequests`）的经典成因。撤销只影响**挂起**请求，
         // 对正在运行的作业无影响（运行中的请求已被系统消费）。

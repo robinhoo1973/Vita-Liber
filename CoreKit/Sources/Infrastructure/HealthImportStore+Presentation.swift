@@ -29,10 +29,19 @@ extension HealthImportStore {
                 report = try JSONDecoder().decode(SyncReport.self, from: Data(json.utf8))
                 if report?.bindingId != binding.id || report?.patientId != owner { report = nil }
             }
+            let plan = binding.map { try Self.plan(db, binding: $0) }
+            let mode = binding.map { binding -> HealthImportMode in
+                (plan ?? HealthImportPlan(depth: binding.historyDepth,
+                                          selectedAt: binding.connectedAt))
+                    .mode(depth: binding.historyDepth)
+            }
+            let ownsBinding = binding?.patientId == owner
             return .init(patientId: owner,
                 ownerName: try String.fetchOne(db, sql: "SELECT display_name FROM patient_profile WHERE id = ?", arguments: [owner.uuidString]) ?? "",
-                connected: binding?.patientId == owner, bindingId: binding?.patientId == owner ? binding?.id : nil,
-                types: types, lastReport: report)
+                connected: ownsBinding, bindingId: ownsBinding ? binding?.id : nil,
+                types: types, lastReport: report,
+                plan: ownsBinding ? plan : nil,
+                mode: ownsBinding ? mode : nil)
         }
     }
 

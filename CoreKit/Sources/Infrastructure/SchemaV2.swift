@@ -538,6 +538,22 @@ public enum SchemaV2 {
       binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
       report_json TEXT NOT NULL,
       updated_at REAL NOT NULL);
+    -- v36（业主 2026-10-20）：导入范围由用户选 1 年/5 年/全部；完成态持久化，
+    -- 激活时据此决定“断点续导”还是“只更新缺失部分”。history_days NULL = 全部。
+    CREATE TABLE hk_import_plan (
+      binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      history_days INTEGER,
+      selected_at REAL NOT NULL,
+      updated_at REAL NOT NULL,
+      initial_completed_at REAL);
+    CREATE TABLE hk_import_completion (
+      binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      type_key TEXT NOT NULL,
+      recent_completed_at REAL,
+      history_completed_at REAL,
+      history_days INTEGER,
+      blocked_reason TEXT,
+      PRIMARY KEY(binding_id, type_key));
     CREATE TABLE hk_projection_state (
       binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
       metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,

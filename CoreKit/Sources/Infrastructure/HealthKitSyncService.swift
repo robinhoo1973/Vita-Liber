@@ -33,6 +33,9 @@ public actor HealthKitSyncService {
     /// 只 L1 可见）。
     public nonisolated(unsafe) static var joinStaleThresholdSeconds: TimeInterval = 120
     public private(set) var latestReport: SyncReport?
+    /// 2026-10-20：回填请求去重。旧实现每轮 cancel+submit，earliestBeginDate
+    /// 被反复推到 now+60min，活跃设备上 BGProcessing 可能永远排不上。
+    private var lastBackfillRequestAt: Date?
 
     public init(provider: any HealthReadingProvider, writer: (any HealthWritingProvider)? = nil,
                 imports: HealthImportStore, guidelines: GuidelineStore,
@@ -41,11 +44,24 @@ public actor HealthKitSyncService {
         self.guidelines = guidelines; self.scheduler = scheduler
     }
 
-    public func connect() async throws -> HealthImportStore.Binding {
+    public func connect(depth: HealthHistoryDepth = .all) async throws -> HealthImportStore.Binding {
         guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
         try await provider.requestAuthorization()
         // A completed request says nothing about individual read permissions.
-        let binding = try await imports.connect()
+        let binding = try await imports.connect(depth: depth)
+        #if os(iOS)
+        await maintainBackgroundAutomation()
+        #endif
+        return binding
+    }
+
+    /// 激活/连接时判定：初始回填（断点续）或只更新缺失部分。
+    public func importMode() async throws -> HealthImportMode { try await imports.importMode() }
+    public func plan() async throws -> HealthImportPlan? { try await imports.plan() }
+
+    @discardableResult
+    public func setHistoryDepth(_ depth: HealthHistoryDepth) async throws -> HealthImportStore.Binding? {
+        let binding = try await imports.setHistoryDepth(depth)
         #if os(iOS)
         await maintainBackgroundAutomation()
         #endif
@@ -105,14 +121,18 @@ public actor HealthKitSyncService {
     public func performSyncAll(quietStart: String, quietEnd: String,
                                maxRounds: Int = 20,
                                timeBudget: Duration = .seconds(30),
+                               /// 后台投递专用：已有共享轮次时最多等这么久（不杀共享任务）。
+                               joinTimeout: Duration? = nil,
                                /// 每轮完成的进度回调（C6 评审修复：iOS 26 continued processing
                                /// 要求全程上报 NSProgress，否则系统优先终止无进度任务）
                                onRound: (@Sendable (Int) -> Void)? = nil) async throws -> SyncReport {
         let start = ContinuousClock.now
+        let deadline = start.advanced(by: timeBudget)
         var total: SyncReport?
         for roundIndex in 0..<max(1, maxRounds) {
             try Task.checkCancellation()
-            let result = try await performSync(quietStart: quietStart, quietEnd: quietEnd)
+            let result = try await performSync(quietStart: quietStart, quietEnd: quietEnd,
+                                               joinTimeout: joinTimeout, deadline: deadline)
             onRound?(roundIndex + 1)
             if var aggregate = total, aggregate.bindingId == result.bindingId, aggregate.patientId == result.patientId {
                 aggregate.persistedRows += result.persistedRows
@@ -185,7 +205,9 @@ public actor HealthKitSyncService {
         return total
     }
 
-    public func performSync(quietStart: String, quietEnd: String) async throws -> SyncReport {
+    public func performSync(quietStart: String, quietEnd: String,
+                            joinTimeout: Duration? = nil,
+                            deadline: ContinuousClock.Instant? = nil) async throws -> SyncReport {
         try Task.checkCancellation()
         if let inFlight {
             // C1-5 join 陈旧检测：共享轮次超过阈值仍无终态（疑似 HK 查询悬挂）时，
@@ -195,7 +217,12 @@ public actor HealthKitSyncService {
                Date().timeIntervalSince(startedAt) >= Self.joinStaleThresholdSeconds {
                 throw HealthImportStore.ImportError.staleFlight
             }
-            var report = try await inFlight.value
+            var report: SyncReport
+            if let joinTimeout {
+                report = try await Self.awaitJoin(inFlight, timeout: joinTimeout)
+            } else {
+                report = try await inFlight.value
+            }
             try Task.checkCancellation()
             // C1-8c（2026-10-04 评审）：合并加入计数——「四路撞车」频率的量化事实
             // （observer/refresh/backfill/回前台并发时共享同一轮次是预期行为，
@@ -206,7 +233,8 @@ public actor HealthKitSyncService {
         let id = UUID()
         inFlightID = id
         inFlightStartedAt = Date()   // C1-5：随新轮次同置（join 支路陈旧检测的时间基准）
-        let task = Task { try await self.runAndRecord(id: id, quietStart: quietStart, quietEnd: quietEnd) }
+        let task = Task { try await self.runAndRecord(id: id, quietStart: quietStart, quietEnd: quietEnd,
+                                                      deadline: deadline) }
         inFlight = task
         // Only the creator owns cancellation of shared work. Registration also closes the startup race.
         let report = try await withTaskCancellationHandler {
@@ -220,10 +248,28 @@ public actor HealthKitSyncService {
         return report
     }
 
+    /// 有界 join：只放弃“等待”，不取消共享轮次（只有创建者持取消权）。
+    private static func awaitJoin(_ task: Task<SyncReport, Error>,
+                                  timeout: Duration) async throws -> SyncReport {
+        try await withThrowingTaskGroup(of: SyncReport.self) { group in
+            group.addTask { try await task.value }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw HealthImportStore.ImportError.busy
+            }
+            guard let result = try await group.next() else {
+                throw HealthImportStore.ImportError.busy
+            }
+            group.cancelAll()
+            return result
+        }
+    }
+
     /// 合并调用者共享整个轮次，含状态落盘；完成后才释放flight，避免反复加入已完成任务。
-    private func runAndRecord(id: UUID, quietStart: String, quietEnd: String) async throws -> SyncReport {
+    private func runAndRecord(id: UUID, quietStart: String, quietEnd: String,
+                              deadline: ContinuousClock.Instant? = nil) async throws -> SyncReport {
         defer { if inFlightID == id { inFlight = nil; inFlightID = nil } }
-        var report = try await run(quietStart: quietStart, quietEnd: quietEnd)
+        var report = try await run(quietStart: quietStart, quietEnd: quietEnd, deadline: deadline)
         // C1 埋点：每轮累计轮数（必须先 run 再计数——此前写在 let report 声明前，
         // macOS CI 编译报 use of local variable before declaration；Linux 因
         // HealthKit 平台守卫编译桩单元而全盲，属 macOS 可见面型检盲区）
@@ -241,9 +287,12 @@ public actor HealthKitSyncService {
     private struct DrainOutcome {
         var hadWork: Bool
         var hasMore: Bool
+        /// 该道最终页已提交且无查询失败/延迟窗口（可标记类型完成）。
+        var laneComplete: Bool = false
     }
 
-    private func run(quietStart: String, quietEnd: String) async throws -> SyncReport {
+    private func run(quietStart: String, quietEnd: String,
+                     deadline: ContinuousClock.Instant? = nil) async throws -> SyncReport {
         try Task.checkCancellation()
         // round2 H3/H-N4：开关关闭是独立失败态，不再与缺本人档案混为 missingOwner（视图三态文案依赖分型）
         guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
@@ -252,6 +301,12 @@ public actor HealthKitSyncService {
         let scopes = imports.scopes(for: binding)
         // Fetch one page per type/round. Drained work resumes by window without losing the old checkpoint.
         for kind in HealthDataKind.allCases {
+            // 轮内 deadline：不再只在轮间检查预算。一次投递/一次 BGProcessing
+            // 到期前必须能停下来提交已做窗口，否则 completion/上报都来不及。
+            if let deadline, ContinuousClock.now >= deadline {
+                report.hasMore = true
+                break
+            }
             var hasPending = false
             do {
                 try Task.checkCancellation()
@@ -261,21 +316,39 @@ public actor HealthKitSyncService {
                 // 互斥会 staleAnchor 永久卡死）。v4 已存在时零开销。
                 try await imports.prepareRecentLane(binding: binding, kind: kind)
                 let existing = try await imports.pendingBatch(binding: binding, kind: kind)
-                hasPending = existing != nil
-                // round2 H-N1：在途批次只续其所在道；否则先探 recent（近一年最新优先），空页再探 history。
-                // 每类每轮最多两次探测；任一道有工作即停止。
+                // 2026-10-20 业主裁决：不再“recent 有工作即 break”。
+                // - pending 道先做（断点续导）；
+                // - 该页提交后若已无 pending，同轮继续另一道（历史道不再被 recent 饿死）；
+                // - 只有仍有 pending 时才停（单类单 pending 的既有约束）。
                 let order: [HealthFetchScope]
-                if let inFlight = existing?.lane, let scope = scopes.first(where: { $0.lane == inFlight }) {
-                    order = [scope]
+                if let inFlight = existing?.lane, let first = scopes.first(where: { $0.lane == inFlight }) {
+                    order = [first] + scopes.filter { $0.lane != inFlight }
                 } else {
                     order = scopes
                 }
+                var recentComplete = false
                 for scope in order {
                     let outcome = try await drain(kind: kind, scope: scope, binding: binding,
                                                   existing: existing?.lane == scope.lane ? existing : nil,
-                                                  report: &report)
-                    hasPending = outcome.hasMore
-                    if outcome.hadWork { break }
+                                                  report: &report, deadline: deadline)
+                    hasPending = hasPending || outcome.hasMore
+                    // 业主 2026-10-20：完成态只在“该道最终空页提交”时落盘。
+                    // 失败/延迟窗口由 drain 的 laneComplete 过滤，绝不把半成品标完成。
+                    if outcome.laneComplete {
+                        switch scope.lane {
+                        case .recent:
+                            recentComplete = true
+                            try await imports.markRecentComplete(kind: kind)
+                        case .history:
+                            try await imports.markHistoryComplete(kind: kind, depth: binding.historyDepth)
+                        }
+                    }
+                    let stillPending = try await imports.pendingBatch(binding: binding, kind: kind)
+                    if stillPending != nil { break }
+                }
+                // 1 年档没有 history 查询（区间为空）；recent 完成即视为 history 覆盖完成。
+                if recentComplete, !scopes.contains(where: { $0.lane == .history }) {
+                    try await imports.markHistoryComplete(kind: kind, depth: binding.historyDepth)
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -284,6 +357,8 @@ public actor HealthKitSyncService {
             } catch HealthImportStore.ImportError.bindingChanged {
                 throw HealthImportStore.ImportError.bindingChanged
             } catch {
+                // 失败类型可能仍有在途批次；保守置 hasMore，触发一次回填重试。
+                hasPending = true
                 report.failedTypes.append(kind) // Its staged work and old checkpoint survive; other types can progress.
                 // C1 埋点：失败摘要去重入报告（诊断「不稳定」的归因通道）
                 var failures = report.lastFailures ?? []
@@ -306,6 +381,11 @@ public actor HealthKitSyncService {
             do { try await imports.saveReport(report); latestReport = report }
             catch { /* 落盘失败不阻断本轮其余类型；runAndRecord 终态仍会重试 */ }
         }
+
+        // 全部类型覆盖所选范围 → 落初始完成时刻；模式随即切 incremental（完成后的
+        // pending 属增量，不再阻止完成态）。
+        do { _ = try await imports.markInitialCompletedIfCovered() }
+        catch { /* 完成态落盘失败不阻断本轮；下一轮重试（幂等） */ }
 
         // Retry pending qualified events even when there are no new HealthKit samples.
         // The medical review gate also prevents dispatch of old unreviewed engineering examples.
@@ -352,81 +432,157 @@ public actor HealthKitSyncService {
         return (scheduled, failures)
     }
 
-    /// 单道单页排空（round2 H-N1）：取页 → 暂存 → 受影响窗口重算（每轮 ≤ windowsPerRound）→ 提交。
-    /// 检查点/删除证明/完整窗口重算语义与单道时代完全一致，只是游标与 pending 按道分列。
-    /// 在途信号由提交结果承担：提交成功 hasMore 即续排；提交抛错由外层 catch 保留
-    /// existing != nil 的 hasPending=true（暂存工作存活，下一轮续排）——入口处无需预置。
+    /// 单道排空（2026-10-20 业主裁决：pending 优先 + 单页 pending）。
+    ///
+    /// 关键顺序：**已有 pending 未排空时绝不取下一页**。
+    /// 旧实现每轮先取下一页再物化当前 pending；心率 500 样本页约 48–96 个小时窗，
+    /// 而每轮只做 32 个 —— 每轮新增窗口 > 完成窗口，remaining 在预算内永远不降，
+    /// pending 长到全道。现在一页的窗口分多轮做完才取下一页，总轮数 ≈ 总窗数/32。
+    ///
+    /// committed anchor 仍只在该道最终空页后推进（删除证明语义不变）；
+    /// fetch cursor 每完成一页前进，崩溃从最近一页续取。
     private func drain(kind: HealthDataKind, scope: HealthFetchScope, binding: HealthImportStore.Binding,
-                       existing: HealthImportStore.PendingBatch?, report: inout SyncReport) async throws -> DrainOutcome {
-        let previous: Data?
-        if let existing { previous = existing.batch.anchor }
-        else { previous = try await imports.anchor(binding: binding, kind: kind, lane: scope.lane) }
-        // Even a previously drained but incomplete batch can discover later tombstones on this page.
+                       existing: HealthImportStore.PendingBatch?, report: inout SyncReport,
+                       deadline: ContinuousClock.Instant? = nil) async throws -> DrainOutcome {
+        if let existing {
+            if let deadline, ContinuousClock.now >= deadline {
+                return DrainOutcome(hadWork: true, hasMore: true)
+            }
+            let remaining = try await pendingWindows(binding: binding, kind: kind, pending: existing)
+            if remaining.isEmpty {
+                // 页已完整物化但尚未提交（例如崩溃后恢复）：只提交，不取下一页。
+                let committed = try await imports.commit(
+                    binding: binding, kind: kind, pending: existing,
+                    snapshots: [], attemptedWindows: [])
+                applyCommitReport(committed, kind: kind, report: &report,
+                                  remainingCount: 0, attemptedCount: 0, snapshots: [])
+                report.backfillLane = scope.lane
+                return DrainOutcome(hadWork: true, hasMore: committed.hasMore,
+                                    laneComplete: committed.laneComplete
+                                        && committed.deferredWindows == 0)
+            }
+            return try await materializePending(
+                existing, remaining: remaining, kind: kind, scope: scope, binding: binding,
+                report: &report, hadWorkSeed: true, deadline: deadline)
+        }
+
+        if let deadline, ContinuousClock.now >= deadline {
+            return DrainOutcome(hadWork: false, hasMore: false)
+        }
+        // 无 pending：取一页。previous 用 fetch cursor（每页推进），旧库回落 committed。
+        let previous = try await imports.nextFetchAnchor(binding: binding, kind: kind, lane: scope.lane)
         let page = try await provider.changes(for: kind, scope: scope, anchor: previous, limit: 500)
         report.receivedChanges += page.added.count + page.deleted.count
-        let pending = try await imports.stage(binding: binding, kind: kind, scope: scope, previousAnchor: previous, page: page)
+        var samples = report.perKindSamples ?? [:]
+        samples[kind.rawValue] = (samples[kind.rawValue] ?? 0) + page.added.count + page.deleted.count
+        report.perKindSamples = samples
+        var queries = report.perKindQueries ?? [:]
+        queries[kind.rawValue] = (queries[kind.rawValue] ?? 0) + 1
+        report.perKindQueries = queries
+        // 稀疏扫描检查点（空页 + hasMore）：只前进 fetch cursor，不 stage/commit。
+        // 这是扫描位置，不是“缺失证当完整”；没有 added/deleted 可物化。
+        if page.added.isEmpty && page.deleted.isEmpty && page.hasMore {
+            try await imports.saveScanCheckpoint(binding: binding, kind: kind,
+                                                 lane: scope.lane, anchor: page.anchor)
+            return DrainOutcome(hadWork: true, hasMore: true)
+        }
+        let staged = try await imports.stage(binding: binding, kind: kind, scope: scope,
+                                             previousAnchor: previous, page: page)
+        let hadWork = !page.added.isEmpty || !page.deleted.isEmpty || page.hasMore
+        return try await materializePending(
+            staged, remaining: nil, kind: kind, scope: scope, binding: binding,
+            report: &report, hadWorkSeed: hadWork, deadline: deadline)
+    }
+
+    /// pending 未完成的窗口（保持 reconcileAfter 的“新窗优先”次序）。
+    private func pendingWindows(binding: HealthImportStore.Binding, kind: HealthDataKind,
+                                pending: HealthImportStore.PendingBatch) async throws -> [HealthImportWindow] {
         var remaining = try await imports.affectedWindows(binding: binding, kind: kind, batch: pending.batch)
             .filter { !pending.completedWindows.contains($0) }
         if let after = pending.reconcileAfter {
             remaining = remaining.filter { $0.start > after } + remaining.filter { $0.start <= after }
         }
-        // 2026-09-19 审查修复（业主实测「睡眠最新差一年」）：recent 道窗序改为**最新优先**——
-        // HKAnchoredObjectQuery 行序最旧优先 + 升序排窗 + 每轮 32 窗预算的组合曾让最新一晚
-        // 最后到达：半排空状态下仪表盘 MAX(measured_at) 呈现近一年前的旧夜。
+        return remaining
+    }
+
+    /// 物化一页的窗口（最多 windowsPerRound），一次提交。
+    private func materializePending(_ pending: HealthImportStore.PendingBatch,
+                                    remaining provided: [HealthImportWindow]?,
+                                    kind: HealthDataKind, scope: HealthFetchScope,
+                                    binding: HealthImportStore.Binding,
+                                    report: inout SyncReport,
+                                    hadWorkSeed: Bool,
+                                    deadline: ContinuousClock.Instant? = nil) async throws -> DrainOutcome {
+        let remaining: [HealthImportWindow]
+        if let provided { remaining = provided }
+        else { remaining = try await pendingWindows(binding: binding, kind: kind, pending: pending) }
+        // 2026-09-19 审查修复（业主实测「睡眠最新差一年」）：recent 道窗序**最新优先**；
         // history 道维持最旧优先（锚点推进语义不变）。
         let ordered = scope.lane == .recent ? remaining.sorted { $0.start > $1.start } : remaining
         let attempted = Array(ordered.prefix(Self.windowsPerRound))
+        var queried: [HealthImportWindow] = []
         var snapshots: [HealthWindowSnapshot] = []
         var queryFailed = false
-        // C1 埋点（2026-10-03）：分页 + 快照查询计数（诊断「慢」的查询量账本）。
-        // macOS CI 修复：inout 参数的同属性读改写构成重叠访问（exclusivity），
-        // 先落局部字典再写回（Linux 平台守卫桩全盲，CI #637 注解实证）。
-        var samples = report.perKindSamples ?? [:]
-        samples[kind.rawValue] = (samples[kind.rawValue] ?? 0) + page.added.count + page.deleted.count
-        report.perKindSamples = samples
-        var queries = report.perKindQueries ?? [:]
-        queries[kind.rawValue] = (queries[kind.rawValue] ?? 0) + 1 + attempted.count
-        report.perKindQueries = queries
-        // C2 分块并发快照与 C7 空页落锚已回退（2026-10-04 CI #652 三例契约回归：
-        // 取消/错误传播与锚点时序与既有测试契约冲突）——恢复串行窗口快照循环，
-        // 逐窗口 checkCancellation/isEnabled 与失败继续语义；优化项登记重做。
-        var firstSnapshotError: Error? = nil
+        var firstSnapshotError: Error?
+        // 串行窗口快照：取消/错误传播与失败继续语义由既有契约测试钉死
+        // （C2 并发化在 CI #652 回归，见 2026-10-04 评审）。
         for window in attempted {
+            // 轮内 deadline：到点只提交已查询窗口；未查询窗口留在 pending，
+            // 下一轮继续（不是失败，不记 failedTypes）。
+            if let deadline, ContinuousClock.now >= deadline { break }
             try Task.checkCancellation()
             guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+            queried.append(window)
             do { snapshots.append(try await provider.snapshot(for: window, calendar: binding.calendar)) }
             catch is CancellationError { throw CancellationError() }
             catch {
                 queryFailed = true
-                // C1-8b 补埋（CI 37200329449 实证）：failureReasons 此前只覆盖 run() 的
-                // 抛出通道——快照窗口失败在 drain 内部被 queryFailed 吞掉，failedTypes
-                // 记了类型、原因却为空。捕获首个错误描述，与抛出通道同口径入账。
                 if firstSnapshotError == nil { firstSnapshotError = error }
             }
         }
+        var queries = report.perKindQueries ?? [:]
+        queries[kind.rawValue] = (queries[kind.rawValue] ?? 0) + queried.count
+        report.perKindQueries = queries
+        guard !queried.isEmpty || remaining.isEmpty else {
+            // 到期且一个窗口都没做成：不提交（commit 要求 remaining≠∅ 时至少尝试一个）。
+            return DrainOutcome(hadWork: hadWorkSeed, hasMore: true)
+        }
         let committed = try await imports.commit(binding: binding, kind: kind, pending: pending,
-                                                 snapshots: snapshots, attemptedWindows: attempted)
-        report.persistedRows += committed.persistedRows
-        report.preservedRows += committed.preservedRows
-        report.deferredWindows += committed.deferredWindows
-        report.rejectedSamples += snapshots.reduce(0) { $0 + $1.rejected }
-        // round2 H-N2：稀疏窗计数上送（统计事实）；H-N1：排空进度 = 未尝试窗口 + 本轮推迟窗口
-        report.sparseWindows = (report.sparseWindows ?? 0) + snapshots.reduce(0) { $0 + $1.sparseWindows }
-        report.remainingWindows = (report.remainingWindows ?? 0) + (remaining.count - attempted.count) + committed.deferredWindows
-        // 2026-09-19 审查修复：按类型细分剩余窗口（健康 Tab 类别卡进度条数据源）。
-        report.perKindRemaining = report.perKindRemaining ?? [:]
-        report.perKindRemaining?[kind.rawValue] = remaining.count - attempted.count + committed.deferredWindows
-        if queryFailed || committed.deferredWindows > 0 { report.failedTypes.append(kind) }
+                                                 snapshots: snapshots, attemptedWindows: queried)
+        applyCommitReport(committed, kind: kind, report: &report,
+                          remainingCount: remaining.count, attemptedCount: queried.count,
+                          snapshots: snapshots)
+        if queryFailed && !report.failedTypes.contains(kind) { report.failedTypes.append(kind) }
         if queryFailed {
-            // C1-8b（同上一处）：queryFailed 通道的失败原因入账（去重截断）。
             var reasons = report.failureReasons ?? []
             let reason = "window snapshot query failed: \(String(String(describing: firstSnapshotError).prefix(160)))"
             if !reasons.contains(reason) { reasons.append(reason) }
             report.failureReasons = reasons
         }
-        let hadWork = existing != nil || !page.added.isEmpty || !page.deleted.isEmpty || page.hasMore
-        if hadWork { report.backfillLane = scope.lane }
-        return DrainOutcome(hadWork: hadWork, hasMore: committed.hasMore)
+        if hadWorkSeed { report.backfillLane = scope.lane }
+        return DrainOutcome(hadWork: hadWorkSeed || !remaining.isEmpty,
+                            hasMore: committed.hasMore,
+                            laneComplete: committed.laneComplete && !queryFailed
+                                && committed.deferredWindows == 0)
+    }
+
+    /// 报告合并（两处提交路径共用）：行数/延迟/剩余窗/稀疏/失败分型。
+    private func applyCommitReport(_ committed: HealthImportStore.CommitReport,
+                                   kind: HealthDataKind, report: inout SyncReport,
+                                   remainingCount: Int, attemptedCount: Int,
+                                   snapshots: [HealthWindowSnapshot]) {
+        report.persistedRows += committed.persistedRows
+        report.preservedRows += committed.preservedRows
+        report.deferredWindows += committed.deferredWindows
+        report.rejectedSamples += snapshots.reduce(0) { $0 + $1.rejected }
+        report.sparseWindows = (report.sparseWindows ?? 0)
+            + snapshots.reduce(0) { $0 + $1.sparseWindows }
+        report.remainingWindows = (report.remainingWindows ?? 0)
+            + max(0, remainingCount - attemptedCount) + committed.deferredWindows
+        report.perKindRemaining = report.perKindRemaining ?? [:]
+        report.perKindRemaining?[kind.rawValue] =
+            max(0, remainingCount - attemptedCount) + committed.deferredWindows
+        if committed.deferredWindows > 0 { report.failedTypes.append(kind) }
     }
 
     #if os(iOS)
@@ -444,6 +600,10 @@ public actor HealthKitSyncService {
     public private(set) var backgroundScheduleFailed = false
     /// 最近一次后台投递注册的分类结果（诊断用；`armedTypes` 为空 = 真正不可用）。
     public private(set) var lastDeliveryOutcome: HealthKitReader.BackgroundDeliveryOutcome?
+    /// 最近一次 observer 投递到达时刻（诊断/自愈判据；进程级，重启清零）。
+    nonisolated(unsafe) public static var lastObserverDeliveryAt: Date?
+    /// 上次注册明确阻断的类型（权限未定/被拒）。授权恢复 → 清该类型锚点/完成态重取。
+    private var blockedKinds: Set<HealthDataKind> = []
     nonisolated(unsafe) public static var backgroundSyncHandler: (@Sendable () async -> Bool)?
     /// 投递唤醒专用执行体（2026-10-04 评审 C1-6：HealthKit 后台投递每次唤醒仅约 15s，
     /// 与 refresh 共用 8 轮/18s 处理器系统性跑不完——分槽后投递走轻量预算
@@ -473,7 +633,15 @@ public actor HealthKitSyncService {
     /// 积压判定后申请一次回填（服务内每轮落盘报告后调用；纯策略在 Domain `HealthSyncBacklogPolicy`）。
     private func requestBackfillIfNeeded(_ report: SyncReport) {
         guard HealthSyncBacklogPolicy.shouldRequestProcessing(remainingWindows: report.remainingWindows, hasMore: report.hasMore) else { return }
-        _ = BackgroundWorkScheduler.shared.submit(Self.backfillTaskIdentifier)
+        let now = Date()
+        if let last = lastBackfillRequestAt, now.timeIntervalSince(last) < 300 { return }
+        lastBackfillRequestAt = now
+        // 有真实积压时请求最早可运行（不做 now+60min 的反复后推）；
+        // 是否真正排到仍由系统决定，去重只防每轮 cancel+submit 抖动。
+        if !BackgroundWorkScheduler.shared.submit(Self.backfillTaskIdentifier,
+                                                  now: now, earliestBeginDate: now) {
+            lastBackfillRequestAt = nil   // 提交失败下一轮重试，不被 TTL 饿死
+        }
     }
 
     public func startBackgroundObservation() async {
@@ -487,12 +655,50 @@ public actor HealthKitSyncService {
         }
         do {
             let enabled = try await canAutomaticallySync()
-            let outcome = await reader.observeChanges(handler: {
+            let handler: @Sendable () async -> Bool = {
+                Self.lastObserverDeliveryAt = Date()
                 // C1-6：投递唤醒优先走专用轻量处理器；未装配时回落共享处理器（测试/兼容）
                 if let observer = Self.backgroundObserverHandler { return await observer() }
                 return (await Self.backgroundSyncHandler?()) ?? false
-            }, enableDelivery: enabled)
+            }
+            // 自愈：上次注册不可用，或超过 7 天没有任何投递 → 重建 query。
+            let stale = Self.lastObserverDeliveryAt.map {
+                Date().timeIntervalSince($0) > 7 * 86_400
+            } ?? false
+            let shouldRebuild = backgroundRegistrationFailed
+                || (lastDeliveryOutcome.map { !$0.isUsable } ?? false) || stale
+            let outcome = shouldRebuild
+                ? await reader.rebuildObservers(handler: handler, enableDelivery: enabled)
+                : await reader.observeChanges(handler: handler, enableDelivery: enabled)
             lastDeliveryOutcome = outcome
+            if enabled {
+                let nowBlocked = Set(outcome.blockedTypes.compactMap {
+                    HealthKitReader.kind(forSampleTypeIdentifier: $0)
+                })
+                // 进程重启后 in-memory blockedKinds 为空；持久化 completion 的
+                // blocked 标记才是“上次被阻断”的事实源。
+                var persistedBlocked: Set<HealthDataKind> = []
+                do {
+                    if let plan = try await imports.plan() {
+                        for (key, completion) in plan.completions where completion.blocked {
+                            if let kind = HealthDataKind(rawValue: key) {
+                                persistedBlocked.insert(kind)
+                            }
+                        }
+                    }
+                } catch { /* 读计划失败不阻断注册；本轮按 in-memory 集合 */ }
+                let previouslyBlocked = blockedKinds.union(persistedBlocked)
+                for kind in nowBlocked.subtracting(previouslyBlocked) {
+                    do { try await imports.markBlocked(kind: kind, reason: "background delivery blocked") }
+                    catch { /* 阻断记账失败不阻断注册；下一轮重试 */ }
+                }
+                // 授权恢复：清该类型完成态 + 全部锚点/在途批次，强制从当前范围重取。
+                for kind in previouslyBlocked.subtracting(nowBlocked) {
+                    do { try await imports.resetKind(kind) }
+                    catch { /* 同上 */ }
+                }
+                blockedKinds = nowBlocked
+            }
             // 2026-09-23 修复（横幅假警报根治）：判死条件从「全部类型逐一成功」改为
             // 「至少一个类型武装」——部分授权（用户只勾了部分类型）是常态，不是注册失败；
             // 自动化关闭（enabled=false，未连接/开关关闭）时「注册失败」不适用，一律清除。

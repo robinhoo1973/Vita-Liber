@@ -15,28 +15,49 @@ public struct HealthFetchScope: Sendable, Hashable, Codable {
     /// 固定于绑定时刻（connected_at − 365 日历日），不随 now 漂移——两道边界必须持久一致，
     /// 否则边界样本在两道间漂移会出现缝隙（漏样本）或双计。
     public let cutoff: Date
+    /// history 道下界（业主 2026-10-20：导入界面选择 1 年/5 年/全部）。
+    /// nil = 无下界（全部历史）；recent 道恒为 nil。
+    /// 语义按样本 **end** 判定，与上界 `.strictEndDate` 互补，避免边界样本双计。
+    public let historyFloor: Date?
 
-    public init(lane: HealthFetchLane, cutoff: Date) {
+    public init(lane: HealthFetchLane, cutoff: Date, historyFloor: Date? = nil) {
         self.lane = lane
         self.cutoff = cutoff
+        self.historyFloor = historyFloor
     }
 
     public static func cutoff(connectedAt: Date, calendar: Calendar) -> Date {
         DayArithmetic.offset(days: -recentDays, from: connectedAt, calendar: calendar)
     }
 
+    /// history 道下界；nil = 全部历史。深度固定于连接时刻，不随 now 漂移。
+    public static func historyFloor(connectedAt: Date, calendar: Calendar,
+                                    depth: HealthHistoryDepth) -> Date? {
+        depth.days.map { DayArithmetic.offset(days: -$0, from: connectedAt, calendar: calendar) }
+    }
+
     /// 排空顺序即数组顺序：先 recent（近一年最新优先可见），空页后再 history。
-    public static func scopes(connectedAt: Date, calendar: Calendar) -> [HealthFetchScope] {
+    /// `depth == .oneYear` 时 history 区间为空，直接省略（少一类空查询）。
+    public static func scopes(connectedAt: Date, calendar: Calendar,
+                              depth: HealthHistoryDepth = .all) -> [HealthFetchScope] {
         let boundary = cutoff(connectedAt: connectedAt, calendar: calendar)
-        return [HealthFetchScope(lane: .recent, cutoff: boundary),
-                HealthFetchScope(lane: .history, cutoff: boundary)]
+        let floor = historyFloor(connectedAt: connectedAt, calendar: calendar, depth: depth)
+        var result = [HealthFetchScope(lane: .recent, cutoff: boundary)]
+        if floor == nil || floor! < boundary {
+            result.append(HealthFetchScope(lane: .history, cutoff: boundary, historyFloor: floor))
+        }
+        return result
     }
 
     /// 与 Infrastructure 的 HealthKit 谓词保持同一边界语义（HealthKitReaderPredicateTests 在 CI 实证）。
     public func matches(_ sample: HealthSampleReference) -> Bool {
         switch lane {
-        case .recent: return sample.end >= cutoff
-        case .history: return sample.end < cutoff
+        case .recent:
+            return sample.end >= cutoff
+        case .history:
+            guard sample.end < cutoff else { return false }
+            guard let historyFloor else { return true }
+            return sample.end >= historyFloor
         }
     }
 }

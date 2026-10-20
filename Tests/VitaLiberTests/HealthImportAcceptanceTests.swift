@@ -302,8 +302,11 @@ final class HealthImportAcceptanceTests: XCTestCase {
             DeviceMetricRow(metricKey: "blood_oxygen", value: 98, unit: "%", measuredAt: $0.end,
                 sourceRef: HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: $0.id, ordinal: nil))
         }
-        _ = try await store.stage(binding: binding, kind: .bloodOxygen, previousAnchor: nil,
+        // 2026-10-20：pending 单页——第一页先物化/提交（fetch cursor 前进），再取第二页。
+        let firstPage = try await store.stage(binding: binding, kind: .bloodOxygen, previousAnchor: nil,
             page: HealthChangeBatch(added: Array(samples.prefix(500)), deleted: [], anchor: Data([1]), hasMore: true))
+        _ = try await store.commit(binding: binding, kind: .bloodOxygen, pending: firstPage,
+            snapshots: [HealthWindowSnapshot(window: window, samples: samples, rows: rows)])
         let initial = try await store.stage(binding: binding, kind: .bloodOxygen, previousAnchor: Data([1]),
             page: HealthChangeBatch(added: [samples[500]], deleted: [], anchor: Data([2]), hasMore: false))
         _ = try await store.commit(binding: binding, kind: .bloodOxygen, pending: initial,
