@@ -131,6 +131,16 @@ extension HealthImportStore {
         }
     }
 
+    /// 丢弃某类型的在途批次（不触碰锚点/完成态）；用于当前深度不再包含该道
+    /// （如 5 年→1 年残留下的 history pending），避免 stage 永久 staleAnchor。
+    public func discardPending(kind: HealthDataKind) async throws {
+        try await writer.write { db in
+            guard let binding = try Self.binding(db) else { throw ImportError.missingOwner }
+            try db.execute(sql: "DELETE FROM hk_pending_batch WHERE binding_id = ? AND type_key = ?",
+                           arguments: [binding.id.uuidString, kind.rawValue])
+        }
+    }
+
     /// 授权恢复/深度回退/游标损坏：清该类型完成态 + 全部锚点 + 在途批次，强制重取。
     public func resetKind(_ kind: HealthDataKind) async throws {
         try await writer.write { db in

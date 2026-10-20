@@ -331,7 +331,13 @@ public actor HealthKitSyncService {
                 // 必须在 pendingBatch 读取前执行（旧 v3 recent 批次锚点与新空游标
                 // 互斥会 staleAnchor 永久卡死）。v4 已存在时零开销。
                 try await imports.prepareRecentLane(binding: binding, kind: kind)
-                let existing = try await imports.pendingBatch(binding: binding, kind: kind)
+                var existing = try await imports.pendingBatch(binding: binding, kind: kind)
+                // 深度变小后旧道 pending 已不在 scopes 内：丢弃它，避免该类型永久
+                // staleAnchor（例如 5 年→1 年残留 history pending）。
+                if let lane = existing?.lane, !scopes.contains(where: { $0.lane == lane }) {
+                    try await imports.discardPending(kind: kind)
+                    existing = nil
+                }
                 // 2026-10-20 业主裁决：不再“recent 有工作即 break”。
                 // - pending 道先做（断点续导）；
                 // - 该页提交后若已无 pending，同轮继续另一道（历史道不再被 recent 饿死）；
