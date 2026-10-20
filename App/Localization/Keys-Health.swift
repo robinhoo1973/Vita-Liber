@@ -62,6 +62,12 @@ extension L10n {
 
     static var healthImportedDataHint: String { t("health.importedDataHint") }
 
+    static var healthRewalk: String { t("health.rewalk") }
+
+    static var healthRewalkConfirmTitle: String { t("health.rewalk.confirmTitle") }
+
+    static var healthRewalkConfirmAction: String { t("health.rewalk.confirmAction") }
+
     static var healthAppleSource: String { t("health.appleSource") }
 
     static var healthViewTrendChart: String { t("health.viewTrendChart") }

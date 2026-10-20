@@ -360,16 +360,20 @@ private actor HealthSyncFixtureProvider: HealthReadingProvider {
     /// 逐窗口快照序列（2026-09-20 睡眠零归并回归测试用）：命中即出队，
     /// 队列空后回落 snapshots 固定表。
     private var snapshotQueues: [HealthImportWindow: [HealthWindowSnapshot]] = [:]
+    /// 删除对账 feed 队列（2026-10-20）：命中本 kind 时逐次出队；空队回落协议默认。
+    private var deletionFeeds: [HealthDeletionChangeBatch]
     private(set) var requests: [Request] = []
     private(set) var queriedWindows: [HealthImportWindow] = []
 
     init(kind: HealthDataKind, pages: [HealthChangeBatch], snapshots: [HealthWindowSnapshot],
          entered: HealthSyncTestGate? = nil, release: HealthSyncTestGate? = nil,
-         snapshotQueues: [HealthImportWindow: [HealthWindowSnapshot]] = [:]) {
+         snapshotQueues: [HealthImportWindow: [HealthWindowSnapshot]] = [:],
+         deletionFeeds: [HealthDeletionChangeBatch] = []) {
         self.kind = kind; self.pages = pages
         self.snapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.window, $0) })
         self.entered = entered; self.release = release
         self.snapshotQueues = snapshotQueues
+        self.deletionFeeds = deletionFeeds
     }
 
     func isAvailable() -> Bool { true }
@@ -398,6 +402,14 @@ private actor HealthSyncFixtureProvider: HealthReadingProvider {
             }
         }
         return HealthChangeBatch(added: [], deleted: [], anchor: anchor ?? Data("\(kind.rawValue).\(scope.lane.rawValue)".utf8), hasMore: false)
+    }
+
+    func deletionChanges(for kind: HealthDataKind, anchor: Data?,
+                         limit: Int) async throws -> HealthDeletionChangeBatch {
+        guard kind == self.kind, !deletionFeeds.isEmpty else {
+            return HealthDeletionChangeBatch(deleted: [], anchor: nil, hasMore: false)
+        }
+        return deletionFeeds.removeFirst()
     }
 
     func snapshot(for window: HealthImportWindow, calendar: Calendar) throws -> HealthWindowSnapshot {
@@ -515,6 +527,47 @@ extension HealthKitSyncServiceTests {
         let summary = try await imports.dashboard().types.first { $0.kind == .bloodOxygen }
         XCTAssertEqual(summary?.rowCount, 2)
         XCTAssertEqual(summary?.dayCount, 2)
+    }
+}
+
+// 2026-10-20 删除对账：nil 谓词 feed 的 UUID 必须经 repair 窗口重算并清行/索引。
+extension HealthKitSyncServiceTests {
+    func test_deletionFeedRepairsIndexedWindowThroughSync() async throws {
+        let (db, imports, binding) = try await makeStore()
+        let start = Date(timeIntervalSince1970: 1_700_006_400)
+        let window = HealthImportWindow(kind: .bloodOxygen, start: start, end: start.addingTimeInterval(86400))
+        let sample = HealthSampleReference(id: UUID(), kind: .bloodOxygen, sourceID: "watch",
+                                           start: start.addingTimeInterval(60), end: start.addingTimeInterval(60))
+        let row = DeviceMetricRow(metricKey: "blood_oxygen", value: 98, unit: "%", measuredAt: sample.end,
+            sourceRef: HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: sample.id, ordinal: nil),
+            sourceIdentifier: "watch", aggregation: .sample, windowEnd: sample.end)
+        let recent = try XCTUnwrap(imports.scopes(for: binding).first { $0.lane == .recent })
+        let staged = try await imports.stage(binding: binding, kind: .bloodOxygen, scope: recent,
+            previousAnchor: nil,
+            page: HealthChangeBatch(added: [sample], deleted: [], anchor: Data([1]), hasMore: false))
+        _ = try await imports.commit(binding: binding, kind: .bloodOxygen, pending: staged,
+            snapshots: [HealthWindowSnapshot(window: window, samples: [sample], rows: [row])])
+        // 删除 feed 只在增量期执行：先把初始完成态补齐。
+        for kind in HealthDataKind.allCases {
+            try await imports.markRecentComplete(kind: kind)
+            try await imports.markHistoryComplete(kind: kind, depth: binding.historyDepth)
+        }
+        _ = try await imports.markInitialCompletedIfCovered()
+
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [],
+            snapshots: [HealthWindowSnapshot(window: window, samples: [], rows: [])],
+            deletionFeeds: [HealthDeletionChangeBatch(deleted: [sample.id], anchor: Data([9]), hasMore: false)])
+        let sync = service(db, imports: imports, provider: provider)
+        _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+
+        let rows = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
+        let index = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM hk_sample_index") }
+        let repairs = try await imports.pendingRepairCount(binding: binding, kind: .bloodOxygen)
+        let anchor = try await imports.deletionAnchor(binding: binding, kind: .bloodOxygen)
+        XCTAssertEqual(rows, 0)
+        XCTAssertEqual(index, 0)
+        XCTAssertEqual(repairs, 0)
+        XCTAssertEqual(anchor, Data([9]))
     }
 }
 

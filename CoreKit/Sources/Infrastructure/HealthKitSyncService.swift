@@ -64,6 +64,11 @@ public actor HealthKitSyncService {
     public func importMode() async throws -> HealthImportMode { try await imports.importMode() }
     public func plan() async throws -> HealthImportPlan? { try await imports.plan() }
 
+    /// 手动修复（业主 2026-10-20）：清健康导入派生状态，下一次同步按所选范围完整重扫。
+    public func restartImport() async throws {
+        try await imports.resetImportStateForRewalk()
+    }
+
     @discardableResult
     public func setHistoryDepth(_ depth: HealthHistoryDepth) async throws -> HealthImportStore.Binding? {
         let binding = try await imports.setHistoryDepth(depth)
@@ -319,6 +324,10 @@ public actor HealthKitSyncService {
         guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
         guard let binding = try await imports.connection() else { throw HealthImportStore.ImportError.missingOwner }
         var report = SyncReport(lastSyncAt: Date(), bindingId: binding.id, patientId: binding.patientId)
+        // 全量重扫（迁移/手动修复）期间不做删除 feed：anchor nil 的 feed 会先扫全库
+        // 且把每页样本计入 hasMore，和初始回填抢预算；完成态落盘后再开始删除对账。
+        var initialMode = false
+        do { initialMode = try await imports.importMode().isInitial } catch { initialMode = false }
         let scopes = imports.scopes(for: binding)
         // Fetch one page per type/round. Drained work resumes by window without losing the old checkpoint.
         // 公平调度（2026-10-20）：固定顺序 + 单一全局 deadline 会让心率等重类型
@@ -388,6 +397,13 @@ public actor HealthKitSyncService {
                 // 1 年档没有 history 查询（区间为空）；recent 完成即视为 history 覆盖完成。
                 if recentComplete, !scopes.contains(where: { $0.lane == .history }) {
                     try await imports.markHistoryComplete(kind: kind, depth: binding.historyDepth)
+                }
+                // 删除对账：日期谓词收不到 HKDeletedObject；nil 谓词 feed + repair 队列
+                // 逐窗口重算。初始全量重扫期间跳过，完成后下一轮开始。
+                if !initialMode {
+                    let deletionWork = try await processDeletionFeed(
+                        kind: kind, binding: binding, report: &report, deadline: kindDeadline)
+                    hasPending = hasPending || deletionWork
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -606,6 +622,81 @@ public actor HealthKitSyncService {
                                 && committed.deferredWindows == 0)
     }
 
+    /// 删除对账（2026-10-20）：nil 谓词 feed 取 deletedObjects（日期谓词会压掉），
+    /// 已索引 UUID → repair 队列；每个窗口重新 snapshot 并按权威重算。
+    /// 每次最多翻 2 页 feed、重算 2 个窗口，剩余预算留给后续类型。
+    private func processDeletionFeed(kind: HealthDataKind, binding: HealthImportStore.Binding,
+                                     report: inout SyncReport,
+                                     deadline: ContinuousClock.Instant?) async throws -> Bool {
+        var hasMore = false
+        var pages = 0
+        var pagesQueried = 0
+        while pages < 2 {
+            if let deadline, ContinuousClock.now >= deadline { hasMore = true; break }
+            try Task.checkCancellation()
+            let anchor = try await imports.deletionAnchor(binding: binding, kind: kind)
+            let feed: HealthDeletionChangeBatch
+            do {
+                feed = try await provider.deletionChanges(for: kind, anchor: anchor, limit: 500)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // 归档锚点失效/恢复后不可复用：清游标，下一轮从 nil anchor 重扫。
+                do { try await imports.resetDeletionAnchor(binding: binding, kind: kind) }
+                catch { /* 清游标失败不阻断其他类型；下一轮重试 */ }
+                report.failureReasons = (report.failureReasons ?? []) + [
+                    "deletion feed \(kind.rawValue): \(String(String(describing: error).prefix(160)))"
+                ]
+                return true
+            }
+            pagesQueried += 1
+            report.receivedChanges += feed.deleted.count
+            var samples = report.perKindSamples ?? [:]
+            samples[kind.rawValue] = (samples[kind.rawValue] ?? 0) + feed.deleted.count
+            report.perKindSamples = samples
+            _ = try await imports.enqueueDeletionFeed(binding: binding, kind: kind,
+                                                      deleted: feed.deleted, anchor: feed.anchor)
+            pages += 1
+            if !feed.hasMore { break }
+            hasMore = true
+            // feed.anchor nil = 测试替身，无法续页；交给下一次同步而不是空转。
+            if feed.anchor == nil { break }
+        }
+        var queries = report.perKindQueries ?? [:]
+        queries[kind.rawValue] = (queries[kind.rawValue] ?? 0) + pagesQueried
+        report.perKindQueries = queries
+
+        let windows = try await imports.pendingRepairWindows(binding: binding, kind: kind, limit: 2)
+        for window in windows {
+            if let deadline, ContinuousClock.now >= deadline { hasMore = true; break }
+            try Task.checkCancellation()
+            guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
+            do {
+                let snapshot = try await provider.snapshot(for: window, calendar: binding.calendar)
+                let reconciled = try await imports.reconcileWindow(
+                    binding: binding, kind: kind, snapshot: snapshot)
+                try await imports.completeRepairWindow(binding: binding, kind: kind, window: window)
+                report.persistedRows += reconciled.rowsWritten
+                report.staleReferences = (report.staleReferences ?? 0) + reconciled.staleReferences
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                let attempts = try await imports.failRepairWindow(
+                    binding: binding, kind: kind, window: window,
+                    error: String(String(describing: error).prefix(200)))
+                if !report.failedTypes.contains(kind) { report.failedTypes.append(kind) }
+                report.failureReasons = Array(Set((report.failureReasons ?? []) + [
+                    "repair window \(kind.rawValue): \(String(String(describing: error).prefix(160)))"
+                ]))
+                // 同一窗口连续失败 3 次即丢弃，避免删除对账永久卡住整类。
+                if attempts >= 3 { try await imports.dropRepairWindow(binding: binding, kind: kind, window: window) }
+                hasMore = true
+            }
+        }
+        if try await imports.pendingRepairCount(binding: binding, kind: kind) > 0 { hasMore = true }
+        return hasMore
+    }
+
     /// 报告合并（两处提交路径共用）：行数/延迟/剩余窗/稀疏/失败分型。
     private func applyCommitReport(_ committed: HealthImportStore.CommitReport,
                                    kind: HealthDataKind, report: inout SyncReport,
@@ -614,6 +705,7 @@ public actor HealthKitSyncService {
         report.persistedRows += committed.persistedRows
         report.preservedRows += committed.preservedRows
         report.deferredWindows += committed.deferredWindows
+        report.staleReferences = (report.staleReferences ?? 0) + committed.staleReferences
         report.rejectedSamples += snapshots.reduce(0) { $0 + $1.rejected }
         report.sparseWindows = (report.sparseWindows ?? 0)
             + snapshots.reduce(0) { $0 + $1.sparseWindows }

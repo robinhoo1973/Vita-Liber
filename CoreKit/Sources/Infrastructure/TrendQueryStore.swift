@@ -156,7 +156,10 @@ public actor TrendQueryStore {
             // 参数顺序与 SQL 占位顺序逐位对应：patient → IN 键集 → 窗起 → 窗止 → [来源]
             var keyArguments: [DatabaseValueConvertible] = [query.patientId.uuidString]
             keyArguments.append(contentsOf: keys)
-            keyArguments.append(query.range.start.timeIntervalSince1970)
+            // 睡眠行 measured_at 是入睡前日 noon：下界回退半日，避免 7 天档丢首夜
+            // （SleepTrendRules.queryLowerBound 单一出口）。
+            keyArguments.append(SleepTrendRules.queryLowerBound(for: query.range, calendar: .current)
+                .timeIntervalSince1970)
             keyArguments.append(query.range.end.timeIntervalSince1970)
             let originClause = query.origin == nil ? "" : " AND origin = ?"
             if let origin = query.origin { keyArguments.append(origin.rawValue) }

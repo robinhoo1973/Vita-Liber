@@ -6,6 +6,9 @@ public protocol HealthReadingProvider: Sendable {
     func requestAuthorization() async throws
     /// round2 H-N1：按分道（近 365 天 / 更早历史）谓词分页；`anchor` 为该道独立游标。
     func changes(for kind: HealthDataKind, scope: HealthFetchScope, anchor: Data?, limit: Int) async throws -> HealthChangeBatch
+    /// 删除对账：nil 谓词查询——日期谓词会压掉 HKDeletedObject（Apple Watch
+    /// 修订=删除+重插时旧 UUID 永远收不到）。只消费 deletedObjects，samples 忽略。
+    func deletionChanges(for kind: HealthDataKind, anchor: Data?, limit: Int) async throws -> HealthDeletionChangeBatch
     func snapshot(for window: HealthImportWindow, calendar: Calendar) async throws -> HealthWindowSnapshot
     /// 特征型（血型 / 出生日期 / 生理性别）——**只读**，用户未填即如实为 nil。
     /// 业主 2026-09-17 定：导入走**档案候选**（D → 用户确认），不进趋势管道、不覆盖已有值。
@@ -17,6 +20,11 @@ public protocol HealthReadingProvider: Sendable {
 }
 
 public extension HealthReadingProvider {
+    /// 默认实现 = 无删除事件（既有测试替身免改；生产 `HealthKitReader` 覆写）。
+    func deletionChanges(for kind: HealthDataKind, anchor: Data?, limit: Int) async throws -> HealthDeletionChangeBatch {
+        HealthDeletionChangeBatch(deleted: [], anchor: nil, hasMore: false)
+    }
+
     /// 默认实现 = 完整读取授权请求（既有测试替身免改；生产 `HealthKitReader`
     /// 覆写为特征型最小请求）。
     func requestCharacteristicAuthorization() async throws {

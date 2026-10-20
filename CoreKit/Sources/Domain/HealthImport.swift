@@ -25,6 +25,17 @@ public struct HealthSampleReference: Sendable, Equatable, Codable {
     }
 }
 
+/// 删除对账 feed（2026-10-20）：nil 谓词 anchored query 只取 deletedObjects。
+/// `anchor == nil` = 测试替身/无游标，不得写库。
+public struct HealthDeletionChangeBatch: Sendable, Equatable {
+    public let deleted: [UUID]
+    public let anchor: Data?
+    public let hasMore: Bool
+    public init(deleted: [UUID], anchor: Data?, hasMore: Bool) {
+        self.deleted = deleted; self.anchor = anchor; self.hasMore = hasMore
+    }
+}
+
 public struct HealthChangeBatch: Sendable, Equatable, Codable {
     public let added: [HealthSampleReference]
     public let deleted: [UUID]
@@ -202,6 +213,8 @@ public struct SyncReport: Sendable, Equatable, Codable {
     public var perKindSamples: [String: Int]? = nil
     /// 每类型累计快照/分页查询次数
     public var perKindQueries: [String: Int]? = nil
+    /// 2026-10-20：删除+重插自愈清掉的陈旧索引引用数；>0 表示旧 UUID 已回收。
+    public var staleReferences: Int? = nil
     /// 失败类型与错误摘要（去重，诊断用）
     public var lastFailures: [String]? = nil
     // 2026-10-04 后台任务专项评审 C1-8（discussions/2026-10-04-background-tasks-council.md）：
@@ -224,6 +237,7 @@ public struct SyncReport: Sendable, Equatable, Codable {
                 sparseWindows: Int? = nil, remainingWindows: Int? = nil,
                 backfillLane: HealthFetchLane? = nil,
                 perKindRemaining: [String: Int]? = nil,
+                staleReferences: Int? = nil,
                 wallTime: TimeInterval? = nil, failureReasons: [String]? = nil,
                 coalescedJoiners: Int? = nil) {
         self.elevated = elevated; self.noRangeCount = noRangeCount
@@ -235,6 +249,7 @@ public struct SyncReport: Sendable, Equatable, Codable {
         self.sparseWindows = sparseWindows; self.remainingWindows = remainingWindows
         self.backfillLane = backfillLane
         self.perKindRemaining = perKindRemaining
+        self.staleReferences = staleReferences
         self.wallTime = wallTime; self.failureReasons = failureReasons
         self.coalescedJoiners = coalescedJoiners
     }

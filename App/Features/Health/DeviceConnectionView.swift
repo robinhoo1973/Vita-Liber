@@ -98,6 +98,18 @@ final class F16DeviceState {
         }
     }
 
+    /// 2026-10-20：清健康导入派生状态并按所选范围完整重扫（权限晚授予/旧洞修复）。
+    func restartImport() async {
+        guard !isSyncing else { return }
+        do {
+            try await syncService.restartImport()
+            await refreshDashboard()
+            phase = .idle
+        } catch {
+            phase = .degraded(L10n.f16SyncFailed)
+        }
+    }
+
     /// FR16.1 撤销即时生效：应用内读取许可关闭时取消在途同步（服务侧在每个
     /// 窗口查询边界与提交事务内再次复核许可，本调用只是尽早停止读取）。
     func permissionRevoked() {
@@ -440,6 +452,8 @@ struct DeviceConnectionView: View {
     /// 当页「开启写回尝试未获准」现场态（V4.06，业主 2026-09-23 实测修复）：门控写回状态行——
     /// 只在开关开启或刚回退的现场渲染，离开页面即消失（@State 随视图生命周期）。
     @State private var writeAttemptFailed = false
+    /// 2026-10-20：手动全量重扫确认（权限晚授予/历史缺失的可靠恢复出口）。
+    @State private var confirmingRewalk = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -600,6 +614,19 @@ struct DeviceConnectionView: View {
                     Text(L10n.healthImportedEmpty).foregroundStyle(.secondary)
                         .accessibilityIdentifier("SP-29.health.importedEmpty")
                 }
+                Button(L10n.healthRewalk) { confirmingRewalk = true }
+                    .disabled(deviceState.isSyncing)
+                    .accessibilityIdentifier("SP-29.health.rewalk")
+                    .confirmationDialog(L10n.healthRewalkConfirmTitle,
+                                        isPresented: $confirmingRewalk, titleVisibility: .visible) {
+                        Button(L10n.healthRewalkConfirmAction, role: .destructive) {
+                            Task {
+                                await deviceState.restartImport()
+                                await sync()
+                            }
+                        }
+                        Button(L10n.commonCancel, role: .cancel) { }
+                    }
                 ForEach(dashboard.types) { type in
                     // ForEach 行闭包逃逸：行内同步读感知对象属性，须自行包裹（子项目 I）
                     WithPerceptionTracking {

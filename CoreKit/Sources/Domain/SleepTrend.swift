@@ -117,6 +117,21 @@ public struct SleepTrendSeries: Sendable, Equatable {
 }
 
 public enum SleepTrendRules {
+    /// 睡眠查询下界（业主 2026-10-20）：行 `measured_at` 是入睡前日 noon，
+    /// 7 天滚动区间若直接拿 range.start（例如 19:00）过滤，会把「醒来日在
+    /// 区间首日」的那一夜（noon 在 19:00 之前）整夜丢掉。下界回退到
+    /// range.start 当日零点前 12h = 前一日 noon，刚好纳入该夜。
+    public static func queryLowerBound(for range: DateInterval, calendar: Calendar) -> Date {
+        calendar.startOfDay(for: range.start).addingTimeInterval(-12 * 3600)
+    }
+
+    /// 呈现日 = 醒来日（业主 2026-10-20）：存储仍按入睡前日 noon 归窗；
+    /// 图表/列表把夜标到醒来日，最近一夜才落在「今天」，与 Apple Health 同口径。
+    public static func displayDay(for measuredAt: Date, calendar: Calendar) -> Date {
+        let next = calendar.date(byAdding: .day, value: 1, to: measuredAt) ?? measuredAt
+        return calendar.startOfDay(for: next)
+    }
+
     /// 原始行 → 按夜聚合的整合序列（纯函数，金样单测）。
     ///
     /// 同一 (夜, 阶段) 出现多行时取**最大值**并保留全部行 id：
@@ -152,7 +167,7 @@ public enum SleepTrendRules {
             totals[day] = (max(current?.hours ?? 0, point.value), (current?.pointIds ?? []) + [point.id])
         }
         for row in rows {
-            let day = calendar.startOfDay(for: row.point.measuredAt)
+            let day = displayDay(for: row.point.measuredAt, calendar: calendar)
             guard let stage = row.metric.sleepStage else {
                 // 总量键（sleep_total）：只作整晚口径，不参与堆叠（否则与各段双计）；
                 // 行 id 一并保留——排除一整夜时它必须同被软删（否则宫格总时长瓦片

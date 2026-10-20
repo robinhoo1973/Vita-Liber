@@ -97,6 +97,108 @@ final class HealthImportAcceptanceTests: XCTestCase {
         XCTAssertNil(anchor)
     }
 
+    /// 2026-10-20：Apple Watch 修订=删除+重插，但 date-predicate anchored query 收不到
+    /// 删除。snapshot 有可见样本（B）时，索引里的旧 UUID（A）按已删除自愈；窗口照常
+    /// 完成、锚点推进，不再永久 deferred。
+    func test_visibleSnapshotRetiresStaleIndexAfterReinsertWithoutTombstone() async throws {
+        let (db, store, _) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC")
+        let start = Date(timeIntervalSince1970: 1_700_006_400)
+        let window = HealthImportWindow(kind: .bloodOxygen, start: start, end: start.addingTimeInterval(86400))
+        func sample(_ offset: TimeInterval) -> HealthSampleReference {
+            HealthSampleReference(id: UUID(), kind: .bloodOxygen, sourceID: "watch",
+                                  start: start.addingTimeInterval(offset), end: start.addingTimeInterval(offset))
+        }
+        func row(_ sample: HealthSampleReference) -> DeviceMetricRow {
+            DeviceMetricRow(metricKey: "blood_oxygen", value: 98, unit: "%", measuredAt: sample.end,
+                sourceRef: HealthImportWindow.sampleIdentity(kind: .bloodOxygen,
+                                                             sampleID: sample.id, ordinal: nil),
+                sourceIdentifier: "watch", aggregation: .sample, windowEnd: sample.end)
+        }
+        let old = sample(60), replacement = sample(120)
+        _ = try await checkpoint(store, binding: binding, kind: .bloodOxygen, previousAnchor: nil,
+            batch: HealthChangeBatch(added: [old], deleted: [], anchor: Data([1]), hasMore: false),
+            snapshots: [HealthWindowSnapshot(window: window, samples: [old], rows: [row(old)])])
+
+        let report = try await checkpoint(store, binding: binding, kind: .bloodOxygen,
+            previousAnchor: Data([1]),
+            batch: HealthChangeBatch(added: [replacement], deleted: [], anchor: Data([2]), hasMore: false),
+            snapshots: [HealthWindowSnapshot(window: window, samples: [replacement], rows: [row(replacement)])])
+        XCTAssertEqual(report.staleReferences, 1)
+        XCTAssertEqual(report.deferredWindows, 0)
+        XCTAssertGreaterThan(report.persistedRows, 0)
+
+        let index = try await db.writer.read {
+            try String.fetchAll($0, sql: "SELECT sample_id FROM hk_sample_index")
+        }
+        XCTAssertEqual(index, [replacement.id.uuidString], "旧 UUID 不得留在索引里继续楔死窗口")
+        let rows = try await db.writer.read {
+            try String.fetchAll($0, sql: "SELECT source_ref FROM metric_sample")
+        }
+        XCTAssertEqual(rows, [HealthImportWindow.sampleIdentity(kind: .bloodOxygen,
+                                                                sampleID: replacement.id, ordinal: nil)])
+        let anchor = try await store.anchor(binding: binding, kind: .bloodOxygen)
+        XCTAssertEqual(anchor, Data([2]), "窗口完成，锚点必须推进")
+    }
+
+    /// 2026-10-20：删除 feed 的 UUID → 索引窗口 → repair 队列 → 权威重算。
+    func test_deletionFeedQueuesWindowAndReconcileRemovesRows() async throws {
+        let (db, store, _) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC")
+        let start = Date(timeIntervalSince1970: 1_700_006_400)
+        let window = HealthImportWindow(kind: .bloodOxygen, start: start, end: start.addingTimeInterval(86400))
+        let sample = HealthSampleReference(id: UUID(), kind: .bloodOxygen, sourceID: "watch",
+                                           start: start.addingTimeInterval(60), end: start.addingTimeInterval(60))
+        let row = DeviceMetricRow(metricKey: "blood_oxygen", value: 98, unit: "%", measuredAt: sample.end,
+            sourceRef: HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: sample.id, ordinal: nil),
+            sourceIdentifier: "watch", aggregation: .sample, windowEnd: sample.end)
+        _ = try await checkpoint(store, binding: binding, kind: .bloodOxygen, previousAnchor: nil,
+            batch: HealthChangeBatch(added: [sample], deleted: [], anchor: Data([1]), hasMore: false),
+            snapshots: [HealthWindowSnapshot(window: window, samples: [sample], rows: [row])])
+
+        let queued = try await store.enqueueDeletionFeed(binding: binding, kind: .bloodOxygen,
+                                                         deleted: [sample.id], anchor: Data([9]))
+        XCTAssertEqual(queued, 1)
+        let repairs = try await store.pendingRepairWindows(binding: binding, kind: .bloodOxygen, limit: 2)
+        XCTAssertEqual(repairs, [window])
+        let result = try await store.reconcileWindow(binding: binding, kind: .bloodOxygen,
+            snapshot: HealthWindowSnapshot(window: window, samples: [], rows: []))
+        XCTAssertEqual(result.rowsRemoved, 1)
+        let count = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
+        let index = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM hk_sample_index") }
+        XCTAssertEqual(count, 0)
+        XCTAssertEqual(index, 0)
+        try await store.completeRepairWindow(binding: binding, kind: .bloodOxygen, window: window)
+        let remainingRepairs = try await store.pendingRepairCount(binding: binding, kind: .bloodOxygen)
+        XCTAssertEqual(remainingRepairs, 0)
+    }
+
+    func test_resetImportStateForRewalkKeepsRowsButClearsDerivedState() async throws {
+        let (db, store, _) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC")
+        let start = Date(timeIntervalSince1970: 1_700_006_400)
+        let window = HealthImportWindow(kind: .bloodOxygen, start: start, end: start.addingTimeInterval(86400))
+        let sample = HealthSampleReference(id: UUID(), kind: .bloodOxygen, sourceID: "watch",
+                                           start: start, end: start)
+        let row = DeviceMetricRow(metricKey: "blood_oxygen", value: 98, unit: "%", measuredAt: sample.end,
+            sourceRef: HealthImportWindow.sampleIdentity(kind: .bloodOxygen, sampleID: sample.id, ordinal: nil),
+            sourceIdentifier: "watch", aggregation: .sample, windowEnd: sample.end)
+        _ = try await checkpoint(store, binding: binding, kind: .bloodOxygen, previousAnchor: nil,
+            batch: HealthChangeBatch(added: [sample], deleted: [], anchor: Data([1]), hasMore: false),
+            snapshots: [HealthWindowSnapshot(window: window, samples: [sample], rows: [row])])
+        try await store.markRecentComplete(kind: .bloodOxygen)
+        try await store.resetImportStateForRewalk()
+        let rows = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") }
+        let index = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM hk_sample_index") }
+        let anchor = try await store.anchor(binding: binding, kind: .bloodOxygen)
+        let plan = try await store.plan()
+        XCTAssertEqual(rows, 1, "重扫不清用户可见行")
+        XCTAssertEqual(index, 0)
+        XCTAssertNil(anchor)
+        XCTAssertNil(plan?.initialCompletedAt)
+        XCTAssertNil(plan?.completion(.bloodOxygen).recentCompletedAt)
+    }
+
     func test_missingAddedSampleSnapshotCannotAdvanceCheckpoint() async throws {
         let (_, store, _) = try await makeStore()
         let binding = try await store.connect(timeZoneID: "UTC")

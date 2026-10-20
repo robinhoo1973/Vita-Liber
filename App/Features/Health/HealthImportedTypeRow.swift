@@ -38,7 +38,7 @@ struct HealthImportedTypeRow: View {
                             .frame(width: 26)
                         Text(L10n.metricName(type.kind.primaryMetric))
                         Spacer()
-                        Text(L10n.healthImportedDaysPoints(days: type.dayCount, points: type.rowCount))
+                        Text(L10n.healthImportedDays(type.dayCount))
                             .foregroundStyle(.secondary)
                     }
                     if let latest = type.latestAt {

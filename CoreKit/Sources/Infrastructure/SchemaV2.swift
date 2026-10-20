@@ -554,6 +554,23 @@ public enum SchemaV2 {
       history_days INTEGER,
       blocked_reason TEXT,
       PRIMARY KEY(binding_id, type_key));
+    -- v37（2026-10-20）：删除对账。nil 谓词 anchored feed 只收 deletedObjects，
+    -- 显式删除事件进入 repair 队列，逐窗口 snapshot 重算——不依赖日期谓词
+    -- （实测日期谓词会压掉 HKDeletedObject）。
+    CREATE TABLE hk_deletion_anchor (
+      binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      type_key TEXT NOT NULL,
+      anchor_value TEXT NOT NULL,
+      updated_at REAL NOT NULL,
+      PRIMARY KEY(binding_id, type_key));
+    CREATE TABLE hk_repair_window (
+      binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      type_key TEXT NOT NULL,
+      start_at REAL NOT NULL,
+      end_at REAL NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      PRIMARY KEY(binding_id, type_key, start_at, end_at));
     CREATE TABLE hk_projection_state (
       binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
       metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,

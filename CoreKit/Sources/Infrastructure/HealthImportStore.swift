@@ -63,6 +63,8 @@ public actor HealthImportStore {
         /// 该道已到最终空页、committed anchor 已推进（无 pending/延迟）。
         /// 只有此状态可标记类型完成（业主 2026-10-20 激活完成态）。
         public var laneComplete = false
+        /// 有可见样本证据时被判定为已删除的陈旧索引引用数（删除+重插自愈）。
+        public var staleReferences = 0
     }
 
     let writer: any DatabaseWriter
@@ -355,7 +357,7 @@ public actor HealthImportStore {
     }
 
     /// 写窗口前捕获各窗口既有样本引用（同一 series 可跨多窗口）。
-    nonisolated private func knownReferences(binding: Binding, kind: HealthDataKind,
+    nonisolated func knownReferences(binding: Binding, kind: HealthDataKind,
                                  snapshots: [HealthWindowSnapshot],
                                  db: Database) throws -> [HealthImportWindow: [HealthSampleReference]] {
         var knownByWindow: [HealthImportWindow: [HealthSampleReference]] = [:]
@@ -400,17 +402,31 @@ public actor HealthImportStore {
         let prior = try priorProjectionRows(binding: binding, kind: kind, window: window, db: db)
         let priorByIdentity = Dictionary(grouping: prior) { $0["source_ref"] as String }
         var complete = Set(visible.keys).isDisjoint(with: context.tombstones)
-        for ref in known + context.batch.added.filter({ window.overlaps($0) }) where !context.tombstones.contains(ref.id) {
+        // 2026-10-20（删除+重插自愈）：snapshot 有可见样本 = 读取证据。此时索引里
+        // 不再可见的旧 UUID 视为已删除（Apple Watch 修订是删除+重插）；无可见样本时
+        // 仍按「未知读取可见性」处理，绝不因权限消失清数据（既有契约测试钉死）。
+        let hasSnapshotEvidence = !visible.isEmpty
+        var staleKnown: [HealthSampleReference] = []
+        for ref in known where !context.tombstones.contains(ref.id) {
             if let seen = visible[ref.id] {
                 // The index stores Unix-epoch Doubles; comparing reference-epoch Dates can add rounding noise.
                 guard seen.sourceID == ref.sourceID,
                       seen.start.timeIntervalSince1970 == ref.start.timeIntervalSince1970,
                       seen.end.timeIntervalSince1970 == ref.end.timeIntervalSince1970 else { throw ImportError.invalidValue }
-            } else { complete = false }
+            } else if hasSnapshotEvidence {
+                staleKnown.append(ref)
+            } else {
+                complete = false
+            }
+        }
+        // 本批刚上报的新样本看不见 = 读取不完整，永远不能当删除。
+        for ref in context.batch.added where window.overlaps(ref) && !context.tombstones.contains(ref.id)
+            && visible[ref.id] == nil {
+            complete = false
         }
         let deletedHere = known.filter {
             context.tombstones.contains($0.id) && HealthImportWindow.covering($0, calendar: binding.calendar).contains(window)
-        }
+        } + staleKnown
         let removable = Self.removableProjectionRows(prior: prior, kept: kept,
                                                      deletedHere: deletedHere, window: window, kind: kind)
         // A missing row is not a deletion either, even if its parent UUID was visible.
@@ -419,6 +435,13 @@ public actor HealthImportStore {
         }
         guard complete else { report.deferredWindows += 1; return false }
 
+        for ref in staleKnown {
+            try db.execute(sql: """
+                DELETE FROM hk_sample_index
+                WHERE sample_id = ? AND type_key = ? AND patient_id = ?
+                """, arguments: [ref.id.uuidString, kind.rawValue, binding.patientId.uuidString])
+        }
+        report.staleReferences += staleKnown.count
         try applyRemovalsAndPreserves(prior: prior, removable: removable, kept: kept, kind: kind,
                                       report: &report, preserved: &preserved, db: db)
         try upsertSnapshotRows(snapshot.rows, priorByIdentity: priorByIdentity, kind: kind,
@@ -429,7 +452,7 @@ public actor HealthImportStore {
     }
 
     /// 窗口内既有 device 来源投影行（owned = 有无投影态标记，排序保证 owned 行先于非自有行）。
-    nonisolated private func priorProjectionRows(binding: Binding, kind: HealthDataKind,
+    nonisolated func priorProjectionRows(binding: Binding, kind: HealthDataKind,
                                      window: HealthImportWindow, db: Database) throws -> [Row] {
         var arguments: [DatabaseValueConvertible] = [binding.id.uuidString, binding.patientId.uuidString,
                                                     window.identityPrefix + "%"]
@@ -447,7 +470,7 @@ public actor HealthImportStore {
     }
 
     /// 可删投影行判定：自有行 + 未被本页保留 + 按类型满足删除证据条件。
-    private static func removableProjectionRows(prior: [Row], kept: Set<String>, deletedHere: [HealthSampleReference],
+    static func removableProjectionRows(prior: [Row], kept: Set<String>, deletedHere: [HealthSampleReference],
                                                 window: HealthImportWindow, kind: HealthDataKind) -> Set<String> {
         let deletedIDs = Set(deletedHere.map(\.id))
         let deletedSources = Set(deletedHere.map(\.sourceID))
@@ -476,7 +499,7 @@ public actor HealthImportStore {
     }
 
     /// 删可删行、登记保留行（非自有行或窗口仍存活的自有行）。
-    nonisolated private func applyRemovalsAndPreserves(prior: [Row], removable: Set<String>, kept: Set<String>,
+    nonisolated func applyRemovalsAndPreserves(prior: [Row], removable: Set<String>, kept: Set<String>,
                                            kind: HealthDataKind, report: inout CommitReport,
                                            preserved: inout Set<String>, db: Database) throws {
         for row in prior {
@@ -492,7 +515,7 @@ public actor HealthImportStore {
     }
 
     /// 设备行投影写入（自有行复用/刷新；legacy NULL 身份不被同时间戳行收养；恢复行保留的同时刷新自有行）。
-    nonisolated private func upsertSnapshotRows(_ rows: [DeviceMetricRow], priorByIdentity: [String: [Row]],
+    nonisolated func upsertSnapshotRows(_ rows: [DeviceMetricRow], priorByIdentity: [String: [Row]],
                                     kind: HealthDataKind, binding: Binding, report: inout CommitReport,
                                     preserved: inout Set<String>, db: Database) throws {
         for row in rows {
@@ -528,7 +551,7 @@ public actor HealthImportStore {
     }
 
     /// 样本索引回写（同样本同类型按最新来源/区间 upsert）。
-    nonisolated private func upsertSampleIndex(_ samples: [HealthSampleReference], kind: HealthDataKind,
+    nonisolated func upsertSampleIndex(_ samples: [HealthSampleReference], kind: HealthDataKind,
                                    binding: Binding, db: Database) throws {
         for ref in samples {
             try db.execute(sql: """
@@ -567,7 +590,7 @@ public actor HealthImportStore {
         return references
     }
 
-    private static func decodeReference(_ row: Row, kind: HealthDataKind) throws -> HealthSampleReference {
+    static func decodeReference(_ row: Row, kind: HealthDataKind) throws -> HealthSampleReference {
         guard let id = UUID(uuidString: row["sample_id"] as String),
               (row["type_key"] as String) == kind.rawValue else { throw ImportError.invalidValue }
         let ref = HealthSampleReference(id: id, kind: kind, sourceID: row["source_id"],
@@ -576,7 +599,7 @@ public actor HealthImportStore {
         return ref
     }
 
-    private static func validatedReferences(_ references: [HealthSampleReference], kind: HealthDataKind,
+    static func validatedReferences(_ references: [HealthSampleReference], kind: HealthDataKind,
                                              calendar: Calendar) throws -> [UUID: HealthSampleReference] {
         var result: [UUID: HealthSampleReference] = [:]
         for ref in references {
@@ -619,7 +642,7 @@ public actor HealthImportStore {
             """, arguments: [binding.id.uuidString, kind.rawValue, json])
     }
 
-    private static func validateRow(_ row: DeviceMetricRow, window: HealthImportWindow,
+    static func validateRow(_ row: DeviceMetricRow, window: HealthImportWindow,
                                     visible: [UUID: HealthSampleReference]) throws {
         guard let identity = row.sourceRef, window.contains(sourceRef: identity, measuredAt: row.measuredAt),
               row.value.isFinite, row.valueMin?.isFinite != false, row.valueMax?.isFinite != false,
@@ -675,7 +698,7 @@ public actor HealthImportStore {
         return db.changesCount
     }
 
-    private static func requireBinding(_ binding: Binding, db: Database) throws {
+    static func requireBinding(_ binding: Binding, db: Database) throws {
         guard try Self.binding(db) == binding, try ownerPatient(db) == binding.patientId else { throw ImportError.bindingChanged }
     }
 
@@ -835,7 +858,7 @@ public actor HealthImportStore {
         return patient
     }
 
-    private static func requireEnabled(_ db: Database) throws {
+    static func requireEnabled(_ db: Database) throws {
         let value = try String.fetchOne(db, sql: "SELECT value FROM app_settings WHERE key = ?",
                                        arguments: [AppSettingKey.authHealthRead.rawValue])
         guard SettingsRules.resolved(value, key: .authHealthRead) == "true" else { throw ImportError.disabled }

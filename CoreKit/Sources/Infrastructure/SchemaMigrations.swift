@@ -950,6 +950,33 @@ public enum SchemaMigrations {
         INSERT OR IGNORE INTO hk_import_plan (binding_id, history_days, selected_at, updated_at)
           SELECT id, NULL, connected_at, connected_at FROM hk_import_binding;
         """),
+        // v37：全类型一次性重扫 + 删除对账表（2026-10-20 业主实测「数据缺失不只睡眠」）。
+        // - 清空健康导入的 anchors/pending/completion/sample_index：下一次同步从所选范围
+        //   完整重扫，修复旧版本锚点越过、权限晚授予、删除漏报留下的洞；保留 metric_sample
+        //   与用户排除态（窗口重算幂等）。
+        // - 新表：nil 谓词删除 feed 的游标，以及待重算窗口队列。
+        // - 不删 hk_import_plan 的范围选择，只清 initial_completed_at。
+        Step(version: 37, name: "health-import-full-rewalk", sql: """
+        CREATE TABLE IF NOT EXISTS hk_deletion_anchor (
+          binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+          type_key TEXT NOT NULL,
+          anchor_value TEXT NOT NULL,
+          updated_at REAL NOT NULL,
+          PRIMARY KEY(binding_id, type_key));
+        CREATE TABLE IF NOT EXISTS hk_repair_window (
+          binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+          type_key TEXT NOT NULL,
+          start_at REAL NOT NULL,
+          end_at REAL NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_error TEXT,
+          PRIMARY KEY(binding_id, type_key, start_at, end_at));
+        DELETE FROM hk_pending_batch;
+        DELETE FROM hk_sync_anchor;
+        DELETE FROM hk_import_completion;
+        DELETE FROM hk_sample_index;
+        UPDATE hk_import_plan SET initial_completed_at = NULL;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

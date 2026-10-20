@@ -43,7 +43,8 @@ struct SleepTrendDomainTests {
         #expect(series.nights.count == 1)
         #expect(series.identity == identity)
         let built = series.nights[0]
-        #expect(built.day == utc.startOfDay(for: night))   // 日锚 = measured_at 所在日历日
+        #expect(built.day == SleepTrendRules.displayDay(for: night, calendar: utc),
+                "呈现日 = 醒来日（measured_at 是入睡前日 noon）")
         #expect(built.asleepHours == 7.5)                  // 总量 = sleep_total 投影（不臆造）
         #expect(built.slices.map(\.stage) == [.deep, .core, .rem, .awake])   // trendStack 序
         #expect(built.stackedHours == 7.5)                 // 1.2 + 4.0 + 1.8 + 0.5（柱高含清醒段）
@@ -53,6 +54,16 @@ struct SleepTrendDomainTests {
         // 但同属这一晚：漏掉它，宫格总时长瓦片会一直显示被排除的夜）
         #expect(built.pointIds.count == 5)
         #expect(built.totalPointIds.count == 1)
+    }
+
+    @Test("7 天档边界：晚间 range.start 仍纳入醒来日=首日的夜；呈现日=醒来日")
+    func weekBoundaryKeepsFirstNight() {
+        let now = day(2026, 9, 20, 19)
+        let range = DateInterval(start: utc.date(byAdding: .day, value: -7, to: now)!, end: now)
+        let lower = SleepTrendRules.queryLowerBound(for: range, calendar: utc)
+        let boundaryNight = day(2026, 9, 13)   // 入睡前日 noon；醒来日 9/14
+        #expect(boundaryNight >= lower, "noon 行不得因 19:00 的 range.start 被整夜过滤")
+        #expect(SleepTrendRules.displayDay(for: boundaryNight, calendar: utc) == utc.startOfDay(for: day(2026, 9, 14, 0)))
     }
 
     @Test("同一 (夜, 阶段) 多行取最大值且保留全部行 id：同夜多窗口物化不双计")
@@ -84,8 +95,8 @@ struct SleepTrendDomainTests {
             row(.sleepTotal, 0, at: second, excluded: true),      // 错值夜（已排除）
             row(.sleepDeep, 0, at: second, excluded: true),
         ], identity: nil, calendar: utc)
-        #expect(series.nights.map(\.day) == [utc.startOfDay(for: first)])              // 可见夜只有前一夜
-        #expect(series.excludedNights.map(\.day) == [utc.startOfDay(for: second)])     // 排除夜独立成集
+        #expect(series.nights.map(\.day) == [SleepTrendRules.displayDay(for: first, calendar: utc)])              // 可见夜只有前一夜
+        #expect(series.excludedNights.map(\.day) == [SleepTrendRules.displayDay(for: second, calendar: utc)])     // 排除夜独立成集
         #expect(series.excludedNights[0].slices.map(\.stage) == [.deep])
     }
 

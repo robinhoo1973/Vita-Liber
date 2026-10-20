@@ -325,6 +325,37 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         return try await anchoredChanges(kind: kind, scope: scope, anchor: anchor, limit: limit)
     }
 
+    /// 删除对账 feed（2026-10-20）：**nil 谓词** anchored query。日期谓词会压掉
+    /// `HKDeletedObject`（它只有 UUID、没有 start/end）；Apple Watch 修订=
+    /// 删除+重插，旧 UUID 必须靠这条 feed 才能回收。只消费 deletedObjects，
+    /// samples 仅用于推进 anchor（limit 按 samples 计）。
+    public func deletionChanges(for kind: HealthDataKind, anchor: Data?,
+                                limit: Int) async throws -> HealthDeletionChangeBatch {
+        try Task.checkCancellation()
+        guard isAvailable() else { throw ReaderError.unavailable }
+        guard limit > 0, limit <= 500 else { throw ReaderError.incompleteSnapshot }
+        let cursor: HKQueryAnchor?
+        if let anchor {
+            guard let decoded = try NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self,
+                                                                       from: anchor) else {
+                throw ReaderError.invalidAnchor
+            }
+            cursor = decoded
+        } else { cursor = nil }
+        let query = HKAnchoredObjectQueryDescriptor(
+            predicates: [.sample(type: Self.sampleType(kind))],
+            anchor: cursor, limit: limit)
+        let result = try await query.result(for: store)
+        try Task.checkCancellation()
+        guard result.addedSamples.count <= limit else { throw ReaderError.incompleteSnapshot }
+        let deleted = result.deletedObjects.map(\.uuid)
+        return HealthDeletionChangeBatch(
+            deleted: deleted,
+            anchor: try NSKeyedArchiver.archivedData(withRootObject: result.newAnchor,
+                                                     requiringSecureCoding: true),
+            hasMore: !result.addedSamples.isEmpty || !deleted.isEmpty)
+    }
+
     /// 锚点式分页（history 道与 recent 道增量期共用）。`predicate` 覆盖仅用于
     /// recent 道转锚点与增量（窄谓词 = 道谓词 ∧ start ≥ newestStart − 7d——转锚点
     /// 查询只命中首填期间新到样本，锚点定位在流末端，首填前数据不会重投；

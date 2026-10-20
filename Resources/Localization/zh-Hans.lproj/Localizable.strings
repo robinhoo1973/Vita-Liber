@@ -2046,8 +2046,11 @@
 "health.importedData" = "已导入的健康数据";
 "health.importedPointCount" = "%d 个数据点";
 "health.importedDayCount" = "%d 条记录";
-"health.importedDaysPoints" = "%1$d 天 · %2$d 个数据点";
-"health.importedDataHint" = "前一个数字是已覆盖的天数，后一个数字是可显示的数据点。这里统计的不是原始样本数：心率按小时、步数按日、睡眠按夜汇总。历史数据分批导入，完整窗口会先显示。";
+"health.importedDays" = "%d 天";
+"health.importedDataHint" = "这里显示已覆盖的天数，不是原始样本数：心率按小时、步数按日、睡眠按夜汇总。历史数据分批导入，完整窗口会先显示。";
+"health.rewalk" = "重新校验健康数据";
+"health.rewalk.confirmTitle" = "清空导入进度并按所选范围重新扫描？已导入记录会保留。";
+"health.rewalk.confirmAction" = "重新校验";
 "health.appleSource" = "来自 Apple 健康";
 "health.viewTrendChart" = "查看趋势图表";
 "health.viewTrendChartHint" = "按时间轴查看该项指标的历史变化与连续趋势曲线";
