@@ -54,6 +54,11 @@ struct VoiceProfileRulesTests {
         #expect(contact?.phone == "13800138000")
         #expect(VoiceProfileRules.emergencyContact(from: "没有电话") == nil)
         #expect(VoiceProfileRules.medicationNames(from: "二甲双胍 每天两次、阿司匹林") == ["二甲双胍", "阿司匹林"])
+        // 剂型字只在带数量时删除；药名后缀必须保留（真实药名常以片/胶囊结尾）。
+        #expect(VoiceProfileRules.medicationNames(from: "阿司匹林肠溶片 100mg 每天一次、二甲双胍 0.5 克")
+                == ["阿司匹林肠溶片", "二甲双胍"])
+        #expect(VoiceProfileRules.medicationNames(from: "胰岛素注射液") == ["胰岛素注射液"])
+        #expect(VoiceProfileRules.medicationNames(from: "维生素B12 片") == ["维生素B12 片"])
     }
 
     @Test func relationMapsOnlyKnownWords() {
