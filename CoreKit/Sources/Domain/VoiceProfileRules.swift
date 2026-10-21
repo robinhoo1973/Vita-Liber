@@ -130,9 +130,10 @@ public enum VoiceProfileRules {
         guard EmergencyContactDraft.validPhone(phone) else { return nil }
         var prefix = String(value[..<range.lowerBound])
         let relationAliases: [(String, String)] = [
-            ("丈夫", "配偶"), ("妻子", "配偶"), ("爱人", "配偶"),
-            ("儿子", "子女"), ("女儿", "子女"),
+            ("丈夫", "配偶"), ("妻子", "配偶"), ("爱人", "配偶"), ("老伴", "配偶"),
+            ("儿子", "子女"), ("女儿", "子女"), ("闺女", "子女"),
             ("爸爸", "父母"), ("妈妈", "父母"), ("父亲", "父母"), ("母亲", "父母"),
+            ("老爸", "父母"), ("老妈", "父母"),
             ("爷爷", "祖父母"), ("奶奶", "祖父母"),
         ]
         var relation = "其他"
@@ -148,7 +149,8 @@ public enum VoiceProfileRules {
                 prefix = prefix.replacingOccurrences(of: found, with: "")
             }
         }
-        for word in ["紧急联系人", "联系人", "电话", "手机", "：", ":"] {
+        for word in ["紧急联系人", "联系人", "电话号码", "手机号", "电话", "手机", "号码",
+                     "我的", "我", "他", "她", "：", ":"] {
             prefix = prefix.replacingOccurrences(of: word, with: "")
         }
         let name = prefix.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters))

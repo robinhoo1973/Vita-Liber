@@ -54,6 +54,10 @@ struct VoiceProfileRulesTests {
         #expect(contact?.name == "张三")
         #expect(contact?.relation == "子女")
         #expect(contact?.phone == "13800138000")
+        let spoken = VoiceProfileRules.emergencyContact(from: "我女儿张敏，手机号 138 0013 8000")
+        #expect(spoken?.name == "张敏")
+        #expect(spoken?.relation == "子女")
+        #expect(spoken?.phone == "138 0013 8000")
         #expect(VoiceProfileRules.emergencyContact(from: "没有电话") == nil)
         #expect(VoiceProfileRules.medicationNames(from: "二甲双胍 每天两次、阿司匹林") == ["二甲双胍", "阿司匹林"])
         // 剂型字只在带数量时删除；药名后缀必须保留（真实药名常以片/胶囊结尾）。
