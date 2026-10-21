@@ -254,8 +254,14 @@ struct MedicationPlanDetailView: View {
                             .foregroundStyle(Color("brand-primary", bundle: .main))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(eventLabel(event)).font(.caption)
+                            if let note = event.note, !note.isEmpty {
+                                Text(note)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             Text(event.at.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2).foregroundStyle(.secondary)
+                                .font(.caption2).foregroundStyle(.tertiary)
                         }
                     }
                 }

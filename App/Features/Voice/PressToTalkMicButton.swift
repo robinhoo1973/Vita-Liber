@@ -101,6 +101,9 @@ struct DictationInteraction: ViewModifier {
     @State private var press = DictationPressState()
     @State private var holdTask: Task<Void, Never>?
     @State private var cancelledTouch = false
+    /// 视图是否仍在屏上：`stopSpeakingAndWait()` 的等待窗口内若已离开页面，
+    /// 迟到的 `start()` 会让麦克风在无界面可停的情况下一直录。
+    @State private var isVisible = false
 
     func body(content: Content) -> some View {
         WithPerceptionTracking {
@@ -131,6 +134,10 @@ struct DictationInteraction: ViewModifier {
                             // 按压紧随其后时麦克风会把 App 自己的朗读当成用户
                             // 回答（无回声消除），转写结果变成问题文本。
                             await app.stopSpeakingAndWait()
+                            // 停止 TTS 可能等上数百毫秒；等待期间用户可能已松手、
+                            // 页面已离开或权限被关。任一发生都不得再开麦。
+                            guard !Task.isCancelled, isVisible, isEnabled,
+                                  scenePhase == .active, press.id == id else { return }
                             model.start()
                         }
                     }
@@ -154,11 +161,14 @@ struct DictationInteraction: ViewModifier {
                     prepareAuthorization()
                     Task { @MainActor in
                         await app.stopSpeakingAndWait()
+                        guard isVisible, isEnabled, scenePhase == .active,
+                              model.phase != .recording else { return }
                         model.start()
                     }
                 }
                 .accessibilityAction(named: Text(L10n.voicenoteStop)) { model.stop() }
                 .onAppear {
+                    isVisible = true
                     cancelledTouch = false
                     prepareAuthorization()
                 }
@@ -185,6 +195,7 @@ struct DictationInteraction: ViewModifier {
                     }
                 }
                 .onDisappear {
+                    isVisible = false
                     endPress(cancelled: true)
                     prepareAuthorization()
                     model.stopForDisappear()
@@ -204,7 +215,8 @@ struct DictationInteraction: ViewModifier {
         } else {
             Task { @MainActor in
                 await app.stopSpeakingAndWait()
-                guard model.phase != .recording else { return }
+                guard isVisible, isEnabled, scenePhase == .active,
+                      model.phase != .recording else { return }
                 model.start()
             }
         }

@@ -33,7 +33,11 @@ struct RecordingWaveform: View {
             }
         }
         .frame(height: maxHeight)
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        // 有显式测试/朗读 ID 时保留在无障碍树（否则 XCUITest 永远查不到）；
+        // 纯装饰波形仍隐藏，不打扰 VoiceOver。
+        .accessibilityHidden(accessibilityID == nil)
+        .accessibilityLabel(accessibilityID == nil ? "" : L10n.voicenoteDictating)
         .accessibilityIdentifier(accessibilityID ?? "voice.recording.waveform")
     }
 

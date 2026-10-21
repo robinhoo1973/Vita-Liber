@@ -90,6 +90,12 @@ extension L10n {
 
     static var voiceguide_stepOf: String { t("voiceguide.stepOf") }
 
+    /// 访谈步骤设计稿（2026-10-22）
+    static var voiceguide_continue: String { t("voiceguide.continue") }
+    static var voiceguide_replayPrompt: String { t("voiceguide.replayPrompt") }
+    static var voiceguide_suggestion: String { t("voiceguide.suggestion") }
+    static var voiceguide_confirmHint: String { t("voiceguide.confirmHint") }
+
     static var voiceguide_skip: String { t("voiceguide.skip") }
 
     static var voiceguide_next: String { t("voiceguide.next") }
@@ -173,6 +179,12 @@ extension L10n {
     static var voiceguide_profileDoneHint: String { t("voiceguide.profileDoneHint") }
 
     static var voiceguide_profileDoneTitle: String { t("voiceguide.profileDoneTitle") }
+
+    /// 自检环中心短状态与底部隐私行（2026-10-22 设计稿落地）
+    static var voiceguide_micLevelReady: String { t("voiceguide.micLevelReady") }
+    static var voiceguide_micLevelGood: String { t("voiceguide.micLevelGood") }
+    static var voiceguide_micLevelLow: String { t("voiceguide.micLevelLow") }
+    static var voiceguide_micPrivacy: String { t("voiceguide.micPrivacy") }
 
     static var f19_sendA11y: String { t("f19.sendA11y") }
 

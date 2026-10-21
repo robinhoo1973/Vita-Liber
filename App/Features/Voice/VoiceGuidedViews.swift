@@ -206,7 +206,9 @@ struct VoiceGuidedProfileView: View {
         func done(_ key: String) -> Bool {
             switch key {
             case "bloodType": return !(profile.bloodType ?? "").trimmingCharacters(in: .whitespaces).isEmpty
-            case "birthDate": return !(profile.birthDate ?? "").isEmpty
+            // 与 `MemberProfileCompleteness.progress` 同一判据：非法/空生日
+            // 不算完成，否则首页显示 7/8「缺生日」而访谈却跳过生日步骤。
+            case "birthDate": return MemberProfileCompleteness.isValidBirthDate(profile.birthDate ?? "")
             case "idNo": return !(profile.idNo ?? "").trimmingCharacters(in: .whitespaces).isEmpty
             case "insuranceNo": return !(profile.insuranceNo ?? "").trimmingCharacters(in: .whitespaces).isEmpty
             default: return completed.contains(key)
@@ -366,54 +368,113 @@ struct VoiceGuidedProfileView: View {
     private var interview: some View {
         let key = steps[stepIndex].key
         let scope = dictationScope
-        return VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.voiceguideStep(stepIndex + 1, steps.count))
-                .font(.caption).foregroundStyle(.secondary)
-            Text(steps[stepIndex].prompt)
-                .font(.headline)
-                .accessibilityIdentifier("FR17.11.prompt")
-            // TestFlight 实测修复：提问自动语音朗读（不看屏幕也能访谈），
-            // 每次进入新步骤重读一遍；听写按钮接同一回答输入（可手输可语音）
-            VoiceDictationButton(onTranscript: { text, confidence in
-                guard dictationScope == scope, steps[stepIndex].key == key, !text.isEmpty else { return }
-                dictationConfidence = min(dictationConfidence, confidence)
-                answer = answer.isEmpty ? text : answer + "\n" + text
-            }, isBusy: Binding(get: { dictationBusy }, set: { busy in
-                if dictationScope == scope, steps[stepIndex].key == key { dictationBusy = busy }
-            }))
-            .id(scope)
-            .disabled(committing)
-            TextField(L10n.voiceguide_answerHint, text: $answer, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
-                .lineLimit(1...4)
-                .disabled(committing)
-                .accessibilityIdentifier("FR17.11.answer")
-            HStack(spacing: 12) {
-                Button(L10n.voiceguide_skip) {
-                    app.stopSpeaking()
-                    dictationScope = UUID()
-                    dictationBusy = false
-                    dictationConfidence = 1
-                    answer = ""
-                    skippedSteps += 1
-                    if stepIndex + 1 < steps.count { stepIndex += 1 } else { interviewDone = true }
-                }
-                .frame(minHeight: 44)
-                .disabled(committing)
-                .accessibilityIdentifier("FR17.11.skip")
-                Spacer()
-                Button(L10n.voiceguide_next) { buildDraft() }
-                    .buttonStyle(.borderedProminent)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                stepProgress
+                HStack(alignment: .firstTextBaseline) {
+                    Text(L10n.voiceguideStep(stepIndex + 1, steps.count))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        app.stopSpeaking()
+                        app.speak(steps[stepIndex].prompt)
+                    } label: {
+                        Label(L10n.voiceguide_replayPrompt, systemImage: "speaker.wave.2")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
                     .frame(minHeight: 44)
-                    .disabled(committing || dictationBusy || answer.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .accessibilityIdentifier("FR17.11.next")
+                    .accessibilityIdentifier("FR17.11.replayPrompt")
+                }
+                Text(steps[stepIndex].prompt)
+                    .font(.title2.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("FR17.11.prompt")
+
+                // TestFlight 实测修复：提问自动语音朗读（不看屏幕也能访谈），
+                // 每次进入新步骤重读一遍；听写按钮接同一回答输入（可手输可语音）
+                VoiceDictationButton(onTranscript: { text, confidence in
+                    guard dictationScope == scope, steps[stepIndex].key == key, !text.isEmpty else { return }
+                    dictationConfidence = min(dictationConfidence, confidence)
+                    answer = answer.isEmpty ? text : answer + "\n" + text
+                }, isBusy: Binding(get: { dictationBusy }, set: { busy in
+                    if dictationScope == scope, steps[stepIndex].key == key { dictationBusy = busy }
+                }))
+                .id(scope)
+                .disabled(committing)
+
+                TextField(L10n.voiceguide_answerHint, text: $answer, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(3...6)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+                    .glassCard(cornerRadius: VLCornerRadius.compact)
+                    .disabled(committing)
+                    .accessibilityIdentifier("FR17.11.answer")
+
+                if let parsedPreview {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(L10n.voiceguide_suggestion, systemImage: "sparkles")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(parsedPreview)
+                            .font(.headline)
+                            .foregroundStyle(Color("text-primary", bundle: .main))
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(L10n.voiceguide_confirmHint)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .glassCard(cornerRadius: VLCornerRadius.compact)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("FR17.11.suggestion")
+                }
+
+                HStack(spacing: 12) {
+                    Button(L10n.voiceguide_skip) {
+                        app.stopSpeaking()
+                        dictationScope = UUID()
+                        dictationBusy = false
+                        dictationConfidence = 1
+                        answer = ""
+                        // 跳过即放弃助手草稿：审计身份不得继续挂到后续手输字段上
+                        // （否则打字回答会被记成语音来源）。
+                        voiceAudit = nil
+                        skippedSteps += 1
+                        if stepIndex + 1 < steps.count { stepIndex += 1 } else { interviewDone = true }
+                    }
+                    .frame(minHeight: 44)
+                    .disabled(committing)
+                    .accessibilityIdentifier("FR17.11.skip")
+                    Spacer()
+                    Button(L10n.voiceguide_next) { buildDraft() }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .frame(minHeight: 44)
+                        .disabled(committing || dictationBusy || answer.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .accessibilityIdentifier("FR17.11.next")
+                }
             }
-            Spacer()
+            .padding(16)
+            .frame(maxWidth: 620)
+            .frame(maxWidth: .infinity)
         }
-        .padding(16)
+        .scrollIndicators(.hidden)
         // TestFlight 实测修复：提问自动朗读——进入访谈与每次换步都读一遍。
         // 断点续填：进入时先跳到首个未完成步骤；若已在首步则直接朗读。
         .onAppear {
+            // 预填答案已与 stepIndex 对齐（助手草稿/跨页意图）。此时按断点
+            // 跳到「首个未完成步」会把答案留在原步、把问题换成别的字段——
+            // 「青霉素过敏」会被写进血型（BR-003 数据污染）。有答案就留在
+            // 当前步，只朗读该步问题。
+            if !answer.trimmingCharacters(in: .whitespaces).isEmpty {
+                app.speak(steps[stepIndex].prompt)
+                return
+            }
             let resume = firstIncompleteStep
             if resume != stepIndex {
                 stepIndex = resume          // onChange 负责朗读新步骤
@@ -427,30 +488,77 @@ struct VoiceGuidedProfileView: View {
         }
     }
 
+    private var stepProgress: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<steps.count, id: \.self) { index in
+                Capsule()
+                    .fill(index <= stepIndex
+                          ? Color("brand-primary", bundle: .main)
+                          : Color("bg-grouped", bundle: .main))
+                    .frame(height: 5)
+                    .opacity(index == stepIndex ? 1 : (index < stepIndex ? 0.85 : 0.6))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    /// 当前答案的确定性预览（与保存走同一 Domain 规则；不在这里做医学推断）。
+    private var parsedPreview: String? {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        switch steps[stepIndex].key {
+        case "bloodType": return VoiceProfileRules.bloodType(from: text)
+        case "birthDate": return VoiceProfileRules.birthDate(from: text)
+        case "idNo", "insuranceNo":
+            return VoiceProfileRules.normalizedValue(key: steps[stepIndex].key, value: text)
+        case "allergy":
+            let names = VoiceProfileRules.allergies(from: text).map(\.substance)
+            return names.isEmpty ? nil : names.joined(separator: "、")
+        case "pastHistory":
+            let names = VoiceProfileRules.healthProblemNames(from: text)
+            return names.isEmpty ? nil : names.joined(separator: "、")
+        case "currentMeds":
+            let names = VoiceProfileRules.medicationNames(from: text)
+            return names.isEmpty ? nil : names.joined(separator: "、")
+        case "emergencyContact":
+            guard let contact = VoiceProfileRules.emergencyContact(from: text) else { return nil }
+            return "\(contact.name) · \(contact.relation) · \(contact.phone)"
+        default: return nil
+        }
+    }
+
     /// 访谈完成态：末步提交后的唯一呈现——杜绝原地重复追问/重复作答
     /// （重复回答会向档案备注追加同节第二条记录）
     private var interviewDoneView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.largeTitle)
-                .foregroundStyle(Color("brand-primary", bundle: .main))
-            // 审查修复（BR-004 真实性）：标题复用 voiceguide_saved 呈
-            // 「提醒已设置」——访谈完成页误报提醒语义；跳过任一步后
-            // 「四项已写入」亦为假陈述。标题改为访谈语义，提示按实际
-            // 写入/跳过数如实报告。
+            ZStack {
+                Circle()
+                    .fill(Color("brand-primary", bundle: .main).opacity(0.10))
+                    .frame(width: 96, height: 96)
+                Image(systemName: "checkmark")
+                    .font(.largeTitle.weight(.semibold))
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+            }
             Text(L10n.voiceguide_profileDoneTitle)
-                .font(.headline)
+                .font(.title2.bold())
+                .multilineTextAlignment(.center)
             Text(skippedSteps > 0
                  ? L10n.voiceguide_profileDonePartial(steps.count - skippedSteps, skippedSteps)
                  : L10n.voiceguide_profileDoneHint)
-                .font(.footnote)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             Button(L10n.onboard_finishEnterApp) { dismiss() }
                 .buttonStyle(.borderedProminent)
-                .frame(minHeight: 44)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityIdentifier("FR17.11.done")
         }
+        .padding(24)
+        .frame(maxWidth: 560)
+        .frame(maxWidth: .infinity)
+        .glassCard(cornerRadius: VLCornerRadius.card)
         .padding(16)
     }
 

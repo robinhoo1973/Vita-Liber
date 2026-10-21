@@ -14,38 +14,51 @@ import Perception
 final class VoicePlaybackCoordinator {
     private(set) var playingID: UUID?
     private var player: AVAudioPlayer?
-    private let delegate = VoicePlaybackDelegate()
-
-    init() {
-        delegate.onFinish = { [weak self] in self?.finish() }
-    }
+    private var delegate: VoicePlaybackDelegate?
+    /// 播放代次：旧播放器晚到的完成回调不得清掉新播放器的状态
+    /// （用户连续点两条语音、或上一段自然结束回调与新播放同时到达）。
+    private var generation: UInt64 = 0
 
     /// 播放指定消息；同一消息再次调用由调用方先 stop（toggle 语义在视图层）。
-    /// 返回 false = 文件缺失/损坏（调用方给可见失败提示）。
+    /// 返回 false = 文件缺失/损坏/无法播放（调用方给可见失败提示）。
     @discardableResult
     func play(url: URL, id: UUID) -> Bool {
         stop()
         do {
             let player = try AVAudioPlayer(contentsOf: url)
+            let token = generation
+            let delegate = VoicePlaybackDelegate()
+            delegate.onFinish = { [weak self] in self?.finish(token: token) }
             player.delegate = delegate
             player.prepareToPlay()
+            self.delegate = delegate
             self.player = player
             playingID = id
-            player.play()
+            // play() 返回 false = 解码/路由失败（旧视图层实现会显式提示）；
+            // 不能只凭 AVAudioPlayer 构造成功就报成功。
+            guard player.play() else {
+                stop()
+                return false
+            }
             return true
         } catch {
+            stop()
             return false
         }
     }
 
     func stop() {
+        generation &+= 1
         player?.stop()
         player = nil
+        delegate = nil
         playingID = nil
     }
 
-    private func finish() {
+    private func finish(token: UInt64) {
+        guard token == generation else { return }
         player = nil
+        delegate = nil
         playingID = nil
     }
 }

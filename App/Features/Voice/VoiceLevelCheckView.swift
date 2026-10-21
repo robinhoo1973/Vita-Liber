@@ -53,7 +53,7 @@ struct VoiceLevelCheck: View {
     var body: some View {
         WithPerceptionTracking {
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(alignment: .leading, spacing: 18) {
                     hero
                     if !meter.inputDeviceName.isEmpty { deviceChip }
                     levelRing
@@ -61,6 +61,7 @@ struct VoiceLevelCheck: View {
                     statusArea
                     if meter.hasRecording { replayRow }
                     actions
+                    privacyLine
                 }
                 .frame(maxWidth: 560)
                 .padding(.horizontal, 24)
@@ -94,45 +95,68 @@ struct VoiceLevelCheck: View {
     // MARK: - 自检版面
 
     private var hero: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(L10n.voiceguide_micTitle)
-                .font(.title2.bold())
+                .font(.title.bold())
             Text(L10n.voiceguide_micPrompt)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 8)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var deviceChip: some View {
-        Label(L10n.voiceguideMicInputDevice(meter.inputDeviceName), systemImage: "mic")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color("bg-grouped", bundle: .main), in: Capsule())
-            .accessibilityIdentifier("voice.mic.inputDevice")
+        HStack(spacing: 8) {
+            Image(systemName: "mic")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+            Text(L10n.voiceguideMicInputDevice(meter.inputDeviceName))
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .glassCard(cornerRadius: VLCornerRadius.compact)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("voice.mic.inputDevice")
     }
 
     private var levelRing: some View {
         ZStack {
             Circle()
-                .stroke(Color("bg-grouped", bundle: .main), lineWidth: 8)
-                .frame(width: 128, height: 128)
+                .stroke(Color("bg-grouped", bundle: .main), lineWidth: 12)
+                .frame(width: 190, height: 190)
             Circle()
                 .trim(from: 0, to: max(0.02, min(CGFloat(level * 4), 1)))
-                .stroke(levelRingColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                .frame(width: 128, height: 128)
+                .stroke(levelRingColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                .frame(width: 190, height: 190)
                 .rotationEffect(.degrees(-90))
             Circle()
-                .fill(Color("brand-primary", bundle: .main).opacity(0.08))
-                .frame(width: 96, height: 96)
-            Image(systemName: "waveform.and.mic")
-                .font(.system(size: 34, weight: .medium))
-                .foregroundStyle(levelRingColor)
+                .fill(Color("brand-primary", bundle: .main).opacity(0.07))
+                .frame(width: 150, height: 150)
+            VStack(spacing: 5) {
+                Image(systemName: "waveform.and.mic")
+                    .font(.title)
+                    .foregroundStyle(levelRingColor)
+                Text(levelStateText)
+                    .font(.headline)
+                    .foregroundStyle(Color("text-primary", bundle: .main))
+                Text("\(Int(min(max(level, 0), 1) * 100))")
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
+    }
+
+    private var levelStateText: String {
+        if tooLow { return L10n.voiceguide_micLevelLow }
+        if !listening { return L10n.voiceguide_micLevelReady }
+        return L10n.voiceguide_micLevelGood
     }
 
     private var levelRingColor: Color {
@@ -143,7 +167,7 @@ struct VoiceLevelCheck: View {
     private var phraseCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(L10n.voiceguide_micTestPhrase)
+                Label(L10n.voiceguide_micTestPhrase, systemImage: "waveform")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -160,6 +184,7 @@ struct VoiceLevelCheck: View {
                 .foregroundStyle(.secondary)
         }
         .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .glassCard(cornerRadius: VLCornerRadius.compact)
     }
 
@@ -210,11 +235,23 @@ struct VoiceLevelCheck: View {
             Button {
                 if isPlaying { stopPlayback() } else { playRecording() }
             } label: {
-                Label(isPlaying ? L10n.voiceguide_micPlaying : L10n.voiceguide_micPlay,
-                      systemImage: isPlaying ? "stop.circle" : "play.circle")
-                    .frame(maxWidth: .infinity, minHeight: touchTarget)
+                HStack(spacing: 12) {
+                    Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                    Text(isPlaying ? L10n.voiceguide_micPlaying : L10n.voiceguide_micPlay)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(Color("text-primary", bundle: .main))
+                    Spacer(minLength: 0)
+                    Image(systemName: "waveform")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, minHeight: touchTarget)
+                .glassCard(cornerRadius: VLCornerRadius.compact)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(.plain)
             .accessibilityIdentifier("voice.mic.play")
             if playbackFailed {
                 Text(L10n.voiceguide_micPlaybackFailed)
@@ -227,9 +264,10 @@ struct VoiceLevelCheck: View {
     }
 
     private var actions: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Button(L10n.voiceguide_micPass) { finishAndPass() }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .frame(maxWidth: .infinity, minHeight: touchTarget)
                 .accessibilityIdentifier("voice.mic.pass")
             Button(L10n.voiceguide_micSkip) { finishAndSkip() }
@@ -237,6 +275,14 @@ struct VoiceLevelCheck: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: touchTarget)
         }
+    }
+
+    private var privacyLine: some View {
+        Label(L10n.voiceguide_micPrivacy, systemImage: "lock")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .frame(maxWidth: .infinity)
+            .multilineTextAlignment(.center)
     }
 
     private func begin() {
@@ -336,7 +382,12 @@ struct VoiceLevelCheck: View {
             playbackSession = prior
             isPlaying = true
             playbackFailed = false
-            p.play()
+            // AVAudioPlayer 构造成功不代表能出声（路由/解码失败时 play()
+            // 返回 false）；旧实现丢弃返回值，界面停在「停止播放」且无提示。
+            if !p.play() {
+                finishPlayback()
+                playbackFailed = true
+            }
         } catch {
             AudioSessionCapture.restore(prior)
             player = nil

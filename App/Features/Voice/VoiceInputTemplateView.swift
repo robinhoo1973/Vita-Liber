@@ -438,14 +438,23 @@ struct VoicePrivacyHeadphoneCard: View {
     var body: some View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 8) {
-                    VLIcon.headphone.resizable().frame(width: 28, height: 28)
-                    Text(L10n.voicePrivacyTitle).font(.headline)
+                HStack(spacing: 12) {
+                    Image(systemName: "headphones")
+                        .font(.title2)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                        .frame(width: 44, height: 44)
+                        .background(Color("brand-primary", bundle: .main).opacity(0.08),
+                                    in: RoundedRectangle(cornerRadius: 14))
+                    Text(L10n.voicePrivacyTitle).font(.title3.bold())
                 }
                 ForEach(points, id: \.self) { p in
-                    HStack(alignment: .top, spacing: 8) {
-                        VLIcon.checkCircle.resizable().frame(width: 16, height: 16)
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-success", bundle: .main))
+                            .padding(.top, 2)
                         Text(p).font(.subheadline)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -461,6 +470,8 @@ struct VoicePrivacyHeadphoneCard: View {
                 }
             }
             .padding(20)
+            .frame(maxWidth: 560, alignment: .leading)
+            .glassCard(cornerRadius: VLCornerRadius.card)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("FR17.12.card")
         }
