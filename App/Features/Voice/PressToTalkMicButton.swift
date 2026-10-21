@@ -96,6 +96,7 @@ struct PressToTalkMicButton: View {
 @MainActor
 struct DictationInteraction: ViewModifier {
     let model: VoiceDictationModel
+    @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.isEnabled) private var isEnabled
@@ -129,6 +130,10 @@ struct DictationInteraction: ViewModifier {
                             catch { return }
                             guard !Task.isCancelled, isEnabled, scenePhase == .active, press.recognize(id) else { return }
                             prepareAuthorization()
+                            // 录音前停掉在途 TTS：引导访谈/提醒会先朗读提问，
+                            // 按压紧随其后时麦克风会把 App 自己的朗读当成用户
+                            // 回答（无回声消除），转写结果变成问题文本。
+                            app.stopSpeaking()
                             model.start()
                         }
                     }
@@ -150,6 +155,7 @@ struct DictationInteraction: ViewModifier {
                 .accessibilityAction(named: Text(L10n.voicenoteDictation)) {
                     guard isEnabled, scenePhase == .active else { return }
                     prepareAuthorization()
+                    app.stopSpeaking()
                     model.start()
                 }
                 .accessibilityAction(named: Text(L10n.voicenoteStop)) { model.stop() }
@@ -194,7 +200,12 @@ struct DictationInteraction: ViewModifier {
     private func toggle() {
         guard isEnabled, scenePhase == .active else { return }
         prepareAuthorization()
-        if model.phase == .recording { model.stop() } else { model.start() }
+        if model.phase == .recording {
+            model.stop()
+        } else {
+            app.stopSpeaking()
+            model.start()
+        }
     }
 
     private func endPress(cancelled: Bool) {

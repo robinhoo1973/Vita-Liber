@@ -1724,6 +1724,8 @@
 "voiceguide.micTooLow" = "Volume is low — move closer to the microphone and try again";
 "voiceguide.micSkip" = "Skip, type instead";
 "voiceguide.micPass" = "Start Interview";
+"voiceguide.micRetry" = "Check Again";
+"voiceguide.micUnavailable" = "Microphone unavailable (audio session failed) — try again, or skip and type instead";
 "voiceguide.note.allergy" = "Allergy";
 "voiceguide.note.history" = "Past History";
 "voiceguide.note.meds" = "Current Medications";

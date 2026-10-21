@@ -110,6 +110,10 @@ extension L10n {
 
     static var voiceguide_micPass: String { t("voiceguide.micPass") }
 
+    static var voiceguide_micRetry: String { t("voiceguide.micRetry") }
+
+    static var voiceguide_micUnavailable: String { t("voiceguide.micUnavailable") }
+
     static var voiceguide_noteAllergy: String { t("voiceguide.note.allergy") }
 
     static var voiceguide_noteHistory: String { t("voiceguide.note.history") }

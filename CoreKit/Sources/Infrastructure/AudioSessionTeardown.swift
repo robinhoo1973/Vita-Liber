@@ -63,6 +63,18 @@ public enum AudioSessionCapture {
         try AVAudioSession.sharedInstance().setActive(true)
     }
 
+    /// 音量自检激活：自检必须**同时**朗读测试句（输出）与采集电平（输入）。
+    /// `.record` 类别没有输出路由——系统会把 TTS 测试句静音（业主实测「自检无语音
+    /// 指导」，讨论 F-A7-10：先按 `.record` 采集再朗读，测试句必然听不到）。
+    /// `.playAndRecord` + `.defaultToSpeaker`：无耳机时测试句走扬声器；
+    /// `.duckOthers` 对该类别合法（仅 playAndRecord/playback/multiRoute 支持 duck）。
+    /// 快照/还原契约与 `activateRecordSession` 相同。
+    public static func activateMicCheckSession() throws {
+        try AVAudioSession.sharedInstance().setCategory(
+            .playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers])
+        try AVAudioSession.sharedInstance().setActive(true)
+    }
+
     /// 还原到采集前状态：先类别后停用（类别改变在激活态下即时生效）。
     /// 失败不阻断主流程（同拆除契约降级口径）。
     public static func restore(_ prior: State) {

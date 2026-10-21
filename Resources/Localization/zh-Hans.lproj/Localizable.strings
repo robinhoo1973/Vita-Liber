@@ -1724,6 +1724,8 @@
 "voiceguide.micTooLow" = "音量偏低，请靠近麦克风再试";
 "voiceguide.micSkip" = "跳过，手动输入";
 "voiceguide.micPass" = "开始访谈";
+"voiceguide.micRetry" = "重新检测";
+"voiceguide.micUnavailable" = "麦克风不可用（音频会话启动失败），请重试；也可跳过改用键盘输入";
 "voiceguide.note.allergy" = "过敏";
 "voiceguide.note.history" = "既往史";
 "voiceguide.note.meds" = "当前用药";

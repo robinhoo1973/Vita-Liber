@@ -1724,6 +1724,8 @@
 "voiceguide.micTooLow" = "音量偏低，請靠近麥克風再試";
 "voiceguide.micSkip" = "跳過，手動輸入";
 "voiceguide.micPass" = "開始訪談";
+"voiceguide.micRetry" = "重新檢測";
+"voiceguide.micUnavailable" = "麥克風無法使用（音訊工作階段啟動失敗），請重試；也可跳過改用鍵盤輸入";
 "voiceguide.note.allergy" = "過敏";
 "voiceguide.note.history" = "既往史";
 "voiceguide.note.meds" = "目前用藥";
