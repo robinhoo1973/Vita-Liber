@@ -253,13 +253,6 @@ private struct DeleteMemberFlowSheet: View {
     let onConfirm: () -> Void
     @Environment(\.dismiss) private var dismiss
 
-    private var voiceProfileProgress: (done: Int, total: Int)? {
-        let target = app.members.first(where: { $0.id == current.id }) ?? current
-        return MemberProfileCompleteness.progress(
-            profile: target,
-            interviewCompleted: app.voiceInterviewCompleted(for: target.id))
-    }
-
     var body: some View {
         WithPerceptionTracking {
             NavigationStack {
