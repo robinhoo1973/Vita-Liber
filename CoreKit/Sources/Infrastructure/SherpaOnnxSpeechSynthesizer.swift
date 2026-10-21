@@ -131,6 +131,14 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
         lock.unlock()
     }
 
+    /// 如实反映当前是否仍有本合成器发出的声音。排队/合成中的任务不算
+    /// 「正在发声」——调用方用它等待播报结束，若把合成期也算进去会多等
+    /// 一整段无声音的窗口。锁与生成队列同源，避免读到已释放的播放器。
+    public var isSpeaking: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return audioPlayer?.isPlaying == true
+    }
+
     // MARK: - Voice Helpers
 
     /// voices.json sidecar：locale → 真实 sid（不复用数组下标——下标==sid
@@ -232,5 +240,6 @@ public final class SherpaOnnxSpeechSynthesizer: SpeechSynthesizing, @unchecked S
         SpeechOutcome(spokenLocale: localeIdentifier, didFallback: false)
     }
     public func stop() {}
+    public var isSpeaking: Bool { false }
 }
 #endif
