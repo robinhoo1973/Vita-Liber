@@ -29,6 +29,9 @@ struct VoiceLevelCheck: View {
     @State private var tooLow = false
     @State private var startTask: Task<Void, Never>?
     @State private var pollTask: Task<Void, Never>?
+    /// 语音识别授权请求本身也是异步的：返回键退出时若用户仍停在系统
+    /// 授权弹窗，旧实现返回后会继续开麦（视图已消失、teardown 已跑过）。
+    @State private var permissionTask: Task<Void, Never>?
     /// 通过/跳过按钮已收尾——onDisappear 不得再停播（否则会掐掉访谈首问的 TTS）
     @State private var finished = false
     /// 自检录音试听（FR17.11）：录到的片段只用于本页回放，离开即删（FR17.7）。
@@ -242,6 +245,7 @@ struct VoiceLevelCheck: View {
         playbackFailed = false
         listening = false
         lastAdequateAt = Date()
+        finished = false
         meter.discardRecording()
         meter.onLevel = { rms in
             // TTS 测试句播放期间不呈现电平，也不计入达标——试听/通过必须来自用户声音。
@@ -257,8 +261,11 @@ struct VoiceLevelCheck: View {
                 lastAdequateAt = Date()
             }
         }
-        Task { @MainActor in
-            guard await Self.ensureSpeechPermission() else {
+        permissionTask?.cancel()
+        permissionTask = Task { @MainActor in
+            let allowed = await Self.ensureSpeechPermission()
+            guard !Task.isCancelled else { return }
+            guard allowed else {
                 speechDenied = true
                 return
             }
@@ -294,6 +301,8 @@ struct VoiceLevelCheck: View {
     /// → 停引擎并还原采集会话。录音文件保留到 finishCheck 删除。
     private func teardown() {
         stopPlayback()
+        permissionTask?.cancel()
+        permissionTask = nil
         startTask?.cancel()
         startTask = nil
         pollTask?.cancel()
