@@ -17,16 +17,34 @@ import Domain
 ///   直接抛，会话停留 .record）；
 /// - 单块字节上限：由 `Configuration.maximumChunkBytes` 注入（此前 tap 内每次
 ///   现造 `SpeechSessionLimits()`，与邮箱侧各自持有不同默认实例）。
-final class AudioCaptureController: @unchecked Sendable {
-    struct Configuration: Sendable {
-        var bufferSize: AVAudioFrameCount = 1024
-        var maximumChunkBytes: Int
+public final class AudioCaptureController: @unchecked Sendable {
+    /// 采集会话模式：转写用 `.record`；音量自检需同时播放测试句，用
+    /// `.playAndRecord`（否则 TTS 被系统静音）。会话激活仍是单一出口。
+    public enum SessionMode: Sendable {
+        case record
+        case micCheck
+    }
+
+    public struct Configuration: Sendable {
+        public var bufferSize: AVAudioFrameCount
+        public var maximumChunkBytes: Int
+        public var sessionMode: SessionMode
+
+        public init(bufferSize: AVAudioFrameCount = 1024,
+                    maximumChunkBytes: Int,
+                    sessionMode: SessionMode = .record) {
+            self.bufferSize = bufferSize
+            self.maximumChunkBytes = maximumChunkBytes
+            self.sessionMode = sessionMode
+        }
 
         /// 生产默认：与既有 `SpeechSessionLimits` 同源。
-        static var standard: Configuration {
+        public static var standard: Configuration {
             Configuration(maximumChunkBytes: SpeechSessionLimits().maximumBufferedBytes)
         }
     }
+
+    public init() {}
 
     private var audio: AVAudioEngine?
     private var tapInstalled = false
@@ -38,18 +56,23 @@ final class AudioCaptureController: @unchecked Sendable {
     /// 安装 tap 并启动引擎。`onBuffer` 收到 (深拷贝缓冲, 源字节数)——拷贝与字节上限
     /// 校验在控制器内完成，调用方只负责把缓冲包装成各自的 chunk 类型；
     /// `onFailure` 在拷贝失败/超限/引擎配置变更/中断时调用（语义与两版一致）。
-    func start(configuration: Configuration,
-               onFormat: ((AVAudioFormat) throws -> Void)? = nil,
-               onBuffer: @escaping @Sendable (AVAudioPCMBuffer, Int) -> Void,
-               onFailure: @escaping @Sendable () -> Void,
-               isStopped: @escaping @Sendable () -> Bool) throws {
+    public func start(configuration: Configuration,
+                      onFormat: ((AVAudioFormat) throws -> Void)? = nil,
+                      onBuffer: @escaping @Sendable (AVAudioPCMBuffer, Int) -> Void,
+                      onFailure: @escaping @Sendable () -> Void,
+                      isStopped: @escaping @Sendable () -> Bool) throws {
         guard !isStopped() else { throw CancellationError() }
         #if os(iOS)
         // 采集激活单一出口 + 先记状态后激活：setActive 失败时类别已被修改，
         // 快照在场即保证拆除路径必还原（共享会话不再有停留在 .record 的窗口）。
         let prior = AudioSessionCapture.remember()
         sessionState = prior
-        do { try AudioSessionCapture.activateRecordSession() }
+        do {
+            switch configuration.sessionMode {
+            case .record: try AudioSessionCapture.activateRecordSession()
+            case .micCheck: try AudioSessionCapture.activateMicCheckSession()
+            }
+        }
         catch {
             AudioSessionCapture.restore(prior)
             sessionState = nil
@@ -81,8 +104,13 @@ final class AudioCaptureController: @unchecked Sendable {
         observers.append(NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange,
                                                                  object: engine, queue: nil) { _ in onFailure() })
         #if os(iOS)
-        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification,
-                                                                 object: nil, queue: nil) { _ in onFailure() })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification, object: nil, queue: nil) { note in
+                // 只把「开始打断」视为采集丢失；中断结束通知不代表当前采集失效。
+                guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+                      AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
+                onFailure()
+            })
         #endif
         guard !isStopped() else { stop(); throw CancellationError() }
         engine.prepare()
@@ -96,7 +124,7 @@ final class AudioCaptureController: @unchecked Sendable {
     /// 拆除单一出口（幂等）：观察者移除 → 引擎停止 + tap 移除 → 会话快照对称还原。
     /// 只停用不还原类别会让共享会话停留在 .record——其后的 FR17.13 回读 /
     /// FR17.11 提问朗读 / FR19.3 播报全部路由到听筒（该缺陷曾在主轨修、降级轨复现）。
-    func stop() {
+    public func stop() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers.removeAll()
         if let audio {

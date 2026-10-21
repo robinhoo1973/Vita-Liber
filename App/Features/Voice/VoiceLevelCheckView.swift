@@ -447,20 +447,20 @@ final class VoiceLevelMeter {
     private(set) var recordingURL: URL?
     var hasRecording: Bool { recordingURL != nil }
 
-    private let engine = AVAudioEngine()
+    /// 采集引擎/会话/观察者统一委托 Infrastructure 控制器（2026-10-21）：
+    /// 自检只是多一个 `.playAndRecord` 会话模式，不再复制一份 AVAudioEngine
+    /// 生命周期。试听片段写入与电平计算走同一个 buffer（无二次 tap）。
+    private let capture = AudioCaptureController()
+    private let sink = LevelCaptureSink()
+    private let relay = LevelRelay()
     private var started = false
     private var starting = false
     /// 启动代次：停止/重启会让旧启动任务（可能仍挂在权限弹窗上）作废，
     /// 不得在用户已重试后把旧引擎装回来或把 `starting` 清掉（Angle A #3）。
     private var startGeneration = 0
-    private var tapInstalled = false
-    /// 采集前的会话状态快照（拆除时对称还原；采集激活单一出口 AudioSessionCapture）
-    private var sessionState: AudioSessionCapture.State?
     private var recorder: AudioFileRecorder?
     private var inputFormat: AVAudioFormat?
     private var routeObserver: NSObjectProtocol?
-    private var configObserver: NSObjectProtocol?
-    private var interruptionObserver: NSObjectProtocol?
     /// 自检试听片段上限（20s）——上限内足够读完测试句，避免页面停留时无限增长。
     private static let maxRecordingSeconds: Double = 20
 
@@ -487,62 +487,20 @@ final class VoiceLevelMeter {
             return
         }
         guard !Task.isCancelled, startGeneration == generation else { return }
-        // 自检需要同时朗读（输出）与采集（输入）：专用 playAndRecord 会话
-        // （`.record` 类别会让测试句静音，见 activateMicCheckSession）。
-        let prior = AudioSessionCapture.remember()
-        do { try AudioSessionCapture.activateMicCheckSession() }
-        catch {
-            AudioSessionCapture.restore(prior)
-            if startGeneration == generation { failure = .sessionFailed }
-            return
-        }
-        guard startGeneration == generation else {
-            AudioSessionCapture.restore(prior)
-            return
-        }
-        sessionState = prior
         refreshInputDevice()
         observeRouteChanges()
-        let input = engine.inputNode
-        // 与 AudioCaptureController 同源：输入节点取 outputFormat，且装 tap 前
-        // 校验格式——非法格式会让 installTap 抛 Objective-C 异常（Linux 型检
-        // 看不见），旧实现的 inputFormat + 无校验在会话失败时正落此路径。
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            failure = .sessionFailed
-            stop()
-            return
-        }
-        // 试听片段在 TTS 播完后才由 beginRecording() 创建（录音不得包含 App 朗读）。
-        inputFormat = format
-        // 投递节流：48kHz/1024 ≈ 47 buffer/秒，每个 buffer 都 hop 主线程并
-        // 触发视图重算过密——|Δ|<0.01 的微小抖动跳过，归零必达（结束即清零）
-        var lastSent: Float = -1
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.recorder?.write(buffer)
-            guard let channel = buffer.floatChannelData?[0] else { return }
-            let n = Int(buffer.frameLength)
-            var sum: Float = 0
-            for i in 0..<n { let s = channel[i]; sum += s * s }
-            let rms = sqrt(sum / Float(max(n, 1)))
-            let clamped = min(max(rms, 0), 1)
-            // 只报变化（含首次归零；持续静音不再每 buffer 都跳主线程）。
-            guard abs(clamped - lastSent) >= 0.01 else { return }
-            lastSent = clamped
-            // tap 回调在音频线程；电平投递到主线程后按 MainActor 断言消费
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { self?.onLevel?(clamped) }
-            }
-        }
-        tapInstalled = true
-        // 停止/重试可能在权限弹窗期间发生——旧代次不得再启动引擎。
-        guard startGeneration == generation else {
-            stop()
-            discardRecording()
-            return
-        }
-        do { try engine.start() }
-        catch {
+        relay.meter = self
+        sink.setLevelHandler { [relay] level in relay.deliver(level) }
+        var configuration = AudioCaptureController.Configuration.standard
+        configuration.sessionMode = .micCheck
+        do {
+            try capture.start(
+                configuration: configuration,
+                onFormat: { [weak self] format in self?.inputFormat = format },
+                onBuffer: { [sink] buffer, _ in sink.consume(buffer) },
+                onFailure: { [relay] in relay.deliverFailure() },
+                isStopped: { false })
+        } catch {
             let isCurrent = startGeneration == generation
             stop()
             discardRecording()
@@ -570,35 +528,23 @@ final class VoiceLevelMeter {
             return
         }
         self.recorder = recorder
+        sink.setRecorder(recorder)
         recordingURL = url
     }
 
     func stop() {
-        guard started || starting || tapInstalled || sessionState != nil || recorder != nil else { return }
+        guard started || starting || inputFormat != nil || recorder != nil else { return }
         startGeneration &+= 1   // 作废仍在权限弹窗/启动中的旧任务
         starting = false
         started = false
-        engine.stop()
-        if tapInstalled {
-            engine.inputNode.removeTap(onBus: 0)
-            tapInstalled = false
-        }
+        capture.stop()          // 引擎/tap/会话快照还原的单一出口
+        sink.setRecorder(nil)
         // 停写但不删文件：试听需要保留到 finishCheck/离开页面。
         recorder?.finish()
         recorder = nil
         inputFormat = nil
-        for observer in [routeObserver, configObserver, interruptionObserver].compactMap({ $0 }) {
-            NotificationCenter.default.removeObserver(observer)
-        }
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
         routeObserver = nil
-        configObserver = nil
-        interruptionObserver = nil
-        // 采集拆除单一出口：对称还原采集前状态——只停用不还原会让共享会话
-        // 停在 .playAndRecord，其后访谈提问的 TTS 朗读路由漂移。
-        if let prior = sessionState {
-            AudioSessionCapture.restore(prior)
-            sessionState = nil
-        }
         onLevel?(0)
     }
 
@@ -606,6 +552,7 @@ final class VoiceLevelMeter {
     func discardRecording() {
         recorder?.finish()
         recorder = nil
+        sink.setRecorder(nil)
         if let url = recordingURL {
             do { try FileManager.default.removeItem(at: url) } catch { /* 已删除/文件系统竞态不阻断 */ }
         }
@@ -637,33 +584,18 @@ final class VoiceLevelMeter {
                 }
             }
         }
-        if configObserver == nil {
-            configObserver = center.addObserver(
-                forName: .AVAudioEngineConfigurationChange,
-                object: engine,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.handleCaptureLost() }
-            }
-        }
-        if interruptionObserver == nil {
-            interruptionObserver = center.addObserver(
-                forName: AVAudioSession.interruptionNotification,
-                object: AVAudioSession.sharedInstance(),
-                queue: .main
-            ) { [weak self] note in
-                guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                      AVAudioSession.InterruptionType(rawValue: raw) == .began else { return }
-                Task { @MainActor [weak self] in self?.handleCaptureLost() }
-            }
-        }
     }
 
     /// 采集被系统夺走：停止并给出可见失败（重试按钮由 failure 驱动）。
-    private func handleCaptureLost() {
-        guard started || tapInstalled || sessionState != nil else { return }
+    func handleCaptureLost() {
+        guard started || inputFormat != nil else { return }
         failure = .sessionFailed
         stop()
+    }
+
+    /// 采集 sink 已 hop 回主线程；这里只把电平交给视图，不再碰音频线程。
+    func acceptLevel(_ value: Float) {
+        onLevel?(value)
     }
 
     private static func displayName(for port: AVAudioSessionPortDescription) -> String {
@@ -707,6 +639,65 @@ final class VoiceLevelMeter {
                     continuation.resume(returning: granted)
                 }
             }
+        }
+    }
+}
+
+/// 采集缓冲 → 试听文件 + 归一化电平原语（音频线程）。
+/// 录音器与 handler 都可能被主线程替换，统一加锁；电平节流在音频线程完成，
+/// 主线程只收到 |Δ|≥0.01 的变化。
+private final class LevelCaptureSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorder: AudioFileRecorder?
+    private var handler: (@Sendable (Float) -> Void)?
+    private var lastSent: Float = -1
+
+    func setRecorder(_ recorder: AudioFileRecorder?) {
+        lock.lock()
+        self.recorder = recorder
+        lock.unlock()
+    }
+
+    func setLevelHandler(_ handler: (@Sendable (Float) -> Void)?) {
+        lock.lock()
+        self.handler = handler
+        lastSent = -1
+        lock.unlock()
+    }
+
+    func consume(_ buffer: AVAudioPCMBuffer) {
+        lock.lock()
+        let recorder = self.recorder
+        let handler = self.handler
+        lock.unlock()
+        recorder?.write(buffer)
+        guard let channel = buffer.floatChannelData?[0] else { return }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return }
+        var sum: Float = 0
+        for index in 0..<count { let sample = channel[index]; sum += sample * sample }
+        let rms = min(max(sqrt(sum / Float(count)), 0), 1)
+        lock.lock()
+        let changed = abs(rms - lastSent) >= 0.01
+        if changed { lastSent = rms }
+        lock.unlock()
+        if changed { handler?(rms) }
+    }
+}
+
+/// 音频线程 → 主线程的单跳转（不持有 meter；视图销毁即自动断开）。
+private final class LevelRelay: @unchecked Sendable {
+    weak var meter: VoiceLevelMeter?
+
+    func deliver(_ level: Float) {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.meter?.acceptLevel(level) }
+        }
+    }
+
+    func deliverFailure() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.meter?.handleCaptureLost() }
         }
     }
 }
