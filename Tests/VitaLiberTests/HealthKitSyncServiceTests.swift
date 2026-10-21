@@ -11,7 +11,14 @@ final class HealthKitSyncServiceTests: XCTestCase {
     private func makeStore() async throws -> (GRDBStore, HealthImportStore, HealthImportStore.Binding) {
         let (db, _) = try await GRDBStore.inMemoryWithOwner()
         let imports = HealthImportStore(writer: db.writer)
-        let binding = try await imports.connect(timeZoneID: "UTC")
+        let connected = try await imports.connect(timeZoneID: "UTC")
+        // 存量 lane/游标机制回归仍需历史道；产品路径已固定 365 天，测试直接
+        // 恢复 legacy plan 以覆盖底层两道路由（单独含 365 收敛断言）。
+        try await db.writer.write { db in
+            try db.execute(sql: "UPDATE hk_import_plan SET history_days = NULL WHERE binding_id = ?",
+                           arguments: [connected.id.uuidString])
+        }
+        let binding = try await imports.connection() ?? connected
         return (db, imports, binding)
     }
 

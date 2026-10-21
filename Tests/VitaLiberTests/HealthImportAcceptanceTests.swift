@@ -12,6 +12,17 @@ final class HealthImportAcceptanceTests: XCTestCase {
         return (db, HealthImportStore(writer: db.writer), patient)
     }
 
+    /// 底层两道路由回归需要历史道；产品入口固定 365 天，测试显式恢复 legacy plan。
+    private func legacyBinding(_ db: GRDBStore, _ store: HealthImportStore) async throws
+        -> HealthImportStore.Binding {
+        let connected = try await store.connect(timeZoneID: "UTC")
+        try await db.writer.write { db in
+            try db.execute(sql: "UPDATE hk_import_plan SET history_days = NULL WHERE binding_id = ?",
+                           arguments: [connected.id.uuidString])
+        }
+        return try await store.connection() ?? connected
+    }
+
     private func checkpoint(_ store: HealthImportStore, binding: HealthImportStore.Binding,
                             kind: HealthDataKind, previousAnchor: Data?, batch: HealthChangeBatch,
                             snapshots: [HealthWindowSnapshot]) async throws -> HealthImportStore.CommitReport {
@@ -758,7 +769,7 @@ final class HealthImportAcceptanceTests: XCTestCase {
     /// 旧 `payload_json` 缺 lane（v2 单道时代）→ 作废该行而非卡死该类型：取数进度不是物化检查点，重取安全。
     func test_legacyPendingBatchWithoutLaneIsDiscardedInsteadOfWedgingTheType() async throws {
         let (db, store, _) = try await makeStore()
-        let binding = try await store.connect(timeZoneID: "UTC")
+        let binding = try await legacyBinding(db, store)
         try await db.writer.write { db in
             try db.execute(sql: "INSERT INTO hk_pending_batch (binding_id, type_key, payload_json) VALUES (?, 'steps', ?)",
                 arguments: [binding.id.uuidString, #"{"previousAnchor":null,"batch":{"added":[],"deleted":[],"anchor":"AA==","hasMore":false},"completedWindows":[],"reconcileAfter":null,"revision":"\#(UUID().uuidString)"}"#])
@@ -776,7 +787,7 @@ final class HealthImportAcceptanceTests: XCTestCase {
     /// 两道游标独立：一道的检查点不充当另一道的 previousAnchor；另一道在途时本道不得开新批次。
     func test_lanesKeepIndependentCursorsAndOnlyOneLaneMayBeInFlight() async throws {
         let (db, store, _) = try await makeStore()
-        let binding = try await store.connect(timeZoneID: "UTC")
+        let binding = try await legacyBinding(db, store)
         let scopes = store.scopes(for: binding)
         XCTAssertEqual(scopes.map(\.lane), [.recent, .history])
         XCTAssertEqual(scopes[0].cutoff, HealthFetchScope.cutoff(connectedAt: binding.connectedAt, calendar: binding.calendar))
