@@ -258,9 +258,9 @@ public actor HealthKitReader: HealthReadingProvider, HealthWritingProvider {
         return await observeChanges(handler: handler, enableDelivery: enableDelivery)
     }
 
-    /// 2026-10-21 业主裁决：先枚举六类，再按类别建观察/同步 session。
+    /// 2026-10-21 业主裁决：先枚举 `HealthDataKind.allCases`，再按类别建观察/同步 session。
     /// observer 是逐 `HKSampleType` 创建的，回调把 `HealthDataKind` 带出，
-    /// 调用方可以只唤醒/同步发生变化的类别，而不是每次全量六类。
+    /// 调用方可以只唤醒/同步发生变化的类别，而不是每次全量所有类别。
     public func observeChanges(handler: @escaping @Sendable (HealthDataKind) async -> Bool,
                                enableDelivery: Bool) async -> BackgroundDeliveryOutcome {
         if observers.isEmpty {

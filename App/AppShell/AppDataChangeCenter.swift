@@ -21,6 +21,12 @@ final class AppDataChangeCenter {
     /// 下载完成不触发任何一条，导致「下载完了还是不能选」。资产是一等失效源
     /// （同时影响语言列表、档位可用性、会话解析），故并入本中心。
     private(set) var assetsVersion: UInt64 = 0
+    /// 2026-10-21：健康同步周期展示事实。周期 = 全部类别稳定；active 期间首页
+    /// 显示后台同步提示，完成一次后按设置间隔等待下一次。
+    private(set) var healthSyncActive = false
+    private(set) var healthSyncStableKinds = 0
+    private(set) var healthSyncTotalKinds = 0
+    private(set) var healthSyncLastCompletedAt: Date?
 
     /// OCR/文档确认保存成功后 +1（触发健康资料/时间轴/健康问题页重载）。
     /// FR11.4 懒创建触发判定由确认卡按**保存时** docType 判定
@@ -38,6 +44,21 @@ final class AppDataChangeCenter {
 
     func alertsChanged() { alertsVersion &+= 1 }
 
+    /// 后台/手动同步开始：首页立即显示进行中提示，不必等本轮结束。
+    func healthSyncStarted() {
+        healthSyncActive = true
+        healthSyncStableKinds = 0
+    }
+
+    /// 同步周期进度：active/已完成类别数/总数/上次完成时刻。
+    func healthSyncProgress(active: Bool, stableKinds: Int, totalKinds: Int,
+                            lastCompletedAt: Date?) {
+        healthSyncActive = active
+        healthSyncStableKinds = stableKinds
+        healthSyncTotalKinds = totalKinds
+        healthSyncLastCompletedAt = lastCompletedAt
+    }
+
     /// ASR 模型安装成功后 +1（语言列表/档位可用性失效标记）。
     func assetsChanged() { assetsVersion &+= 1 }
 
@@ -50,5 +71,9 @@ final class AppDataChangeCenter {
         metricsVersion &+= 1
         alertsVersion &+= 1
         assetsVersion &+= 1
+        healthSyncActive = false
+        healthSyncStableKinds = 0
+        healthSyncTotalKinds = 0
+        healthSyncLastCompletedAt = nil
     }
 }

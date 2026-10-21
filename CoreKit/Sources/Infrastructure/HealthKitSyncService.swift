@@ -142,6 +142,14 @@ public actor HealthKitSyncService {
 
     public func cancelSync() { inFlight?.cancel() }
 
+    /// 首页/健康页展示用：当前绑定周期状态；未连接返回 nil。
+    public func cycleProgress() async -> HealthSyncCycleState? {
+        do {
+            guard let binding = try await imports.connection() else { return nil }
+            return try await imports.cycleState(binding: binding)
+        } catch { return nil }
+    }
+
     /// FR16.3 排空轮询（服务层聚合）：循环 `performSync` 直至排空（hasMore=false）
     /// 或时间预算耗尽，多轮报告聚合成单份终态。
     ///
@@ -154,27 +162,86 @@ public actor HealthKitSyncService {
                                timeBudget: Duration = .seconds(30),
                                /// 后台投递专用：已有共享轮次时最多等这么久（不杀共享任务）。
                                joinTimeout: Duration? = nil,
-                               /// 2026-10-21：按类别创建监控同步 session；nil = 全部六类。
+                               /// 2026-10-21：按类别创建监控同步 session；nil = 全部 `HealthDataKind.allCases`。
                                kinds: [HealthDataKind]? = nil,
                                /// 2026-10-21 业主裁决：用户会话自动跑到稳定态；后台轮次保持原语义。
                                /// 稳定 = 增量模式 + 无 pending/repair/失败 + 连续两轮无 hasMore；
                                /// 另以连续 idleLimit 轮无新增作为无进展兜底，避免空页永远循环。
                                stopWhenStable: Bool = false,
                                idleLimit: Int = 3,
+                               /// 2026-10-21 同步周期：全类别稳定才算一次；间隔档位节流。
+                               cycleInterval: HealthSyncInterval = .default,
+                               enforceCycleInterval: Bool = false,
+                               /// 手动同步/重新校验：立即开始新周期，忽略间隔。
+                               newCycle: Bool = false,
+                               /// 测试/裸调用默认关闭；App 自动/手动入口必须开启。
+                               managedCycle: Bool = false,
                                /// 每轮完成的进度回调（C6 评审修复：iOS 26 continued processing
                                /// 要求全程上报 NSProgress，否则系统优先终止无进度任务）
                                onRound: (@Sendable (Int) -> Void)? = nil) async throws -> SyncReport {
         let start = ContinuousClock.now
         let deadline = start.advanced(by: timeBudget)
         var total: SyncReport?
+        let cycleBinding: HealthImportStore.Binding?
+        if managedCycle {
+            guard let binding = try await imports.connection() else {
+                throw HealthImportStore.ImportError.missingOwner
+            }
+            cycleBinding = binding
+            var state = try await imports.cycleState(binding: binding)
+            if newCycle || state.isInitial {
+                try await imports.beginCycle(binding: binding)
+                state = try await imports.cycleState(binding: binding)
+            } else if state.isComplete {
+                if enforceCycleInterval,
+                   !HealthSyncCycleRules.isDue(lastCompletedAt: state.completedAt,
+                                                now: Date(), interval: cycleInterval) {
+                    return Self.cycleReport(binding: binding, state: state,
+                                            lastSyncAt: state.completedAt ?? Date())
+                }
+                try await imports.beginCycle(binding: binding)
+                state = try await imports.cycleState(binding: binding)
+            }
+            // observer 指定的类别视作“有新数据”：清稳定标记，重新纳入本周期。
+            if let kinds {
+                for kind in kinds where state.stableKinds.contains(kind) {
+                    try await imports.clearKindStable(binding: binding, kind: kind)
+                }
+            }
+        } else {
+            cycleBinding = nil
+        }
+        if managedCycle, let binding = cycleBinding {
+            var state = try await imports.cycleState(binding: binding)
+            let base = kinds ?? HealthDataKind.allCases
+            if HealthSyncCycleRules.allStable(state.stableKinds, from: base) {
+                if !state.isComplete {
+                    try await imports.completeCycle(binding: binding)
+                    state = try await imports.cycleState(binding: binding)
+                }
+                return Self.cycleReport(binding: binding, state: state,
+                                        lastSyncAt: state.completedAt ?? Date())
+            }
+        }
         var completeStreak = 0
         var idleChunks = 0
         var sessionComplete = false
         for roundIndex in 0..<max(1, maxRounds) {
             try Task.checkCancellation()
+            var roundKinds = kinds
+            if managedCycle, let binding = cycleBinding {
+                let state = try await imports.cycleState(binding: binding)
+                let base = kinds ?? HealthDataKind.allCases
+                let pending = HealthSyncCycleRules.pendingKinds(state.stableKinds, from: base)
+                if pending.isEmpty {
+                    if !state.isComplete { try await imports.completeCycle(binding: binding) }
+                    break
+                }
+                roundKinds = pending
+            }
             let result = try await performSync(quietStart: quietStart, quietEnd: quietEnd,
                                                joinTimeout: joinTimeout, deadline: deadline,
-                                               kinds: kinds)
+                                               kinds: roundKinds, managedCycle: managedCycle)
             onRound?(roundIndex + 1)
             if var aggregate = total, aggregate.bindingId == result.bindingId, aggregate.patientId == result.patientId {
                 aggregate.persistedRows += result.persistedRows
@@ -264,6 +331,14 @@ public actor HealthKitSyncService {
         // maxRounds ≥ 1 时首轮必产出；守卫兜底无绑定（missingOwner 与
         // performSync 内部缺失绑定的失败语义一致）。
         guard var total else { throw HealthImportStore.ImportError.missingOwner }
+        if managedCycle, let binding = cycleBinding {
+            let state = try await imports.cycleState(binding: binding)
+            total.cycleStartedAt = state.startedAt
+            total.cycleCompletedAt = state.completedAt
+            total.cycleStableKinds = state.stableKinds.count
+            total.cycleTotalKinds = HealthDataKind.allCases.count
+            if !state.isComplete { total.hasMore = true }
+        }
         // 自动会话未达完成态（到时/无进展/仍有工作）→ hasMore 必须为 true，
         // UI 不得把“暂停”显示成“完成”。
         if stopWhenStable, !sessionComplete { total.hasMore = true }
@@ -276,7 +351,8 @@ public actor HealthKitSyncService {
     public func performSync(quietStart: String, quietEnd: String,
                             joinTimeout: Duration? = nil,
                             deadline: ContinuousClock.Instant? = nil,
-                            kinds: [HealthDataKind]? = nil) async throws -> SyncReport {
+                            kinds: [HealthDataKind]? = nil,
+                            managedCycle: Bool = false) async throws -> SyncReport {
         try Task.checkCancellation()
         if let inFlight {
             // C1-5 join 陈旧检测：共享轮次超过阈值仍无终态（疑似 HK 查询悬挂）时，
@@ -303,7 +379,8 @@ public actor HealthKitSyncService {
         inFlightID = id
         inFlightStartedAt = Date()   // C1-5：随新轮次同置（join 支路陈旧检测的时间基准）
         let task = Task { try await self.runAndRecord(id: id, quietStart: quietStart, quietEnd: quietEnd,
-                                                      deadline: deadline, kinds: kinds) }
+                                                      deadline: deadline, kinds: kinds,
+                                                      managedCycle: managedCycle) }
         inFlight = task
         // Only the creator owns cancellation of shared work. Registration also closes the startup race.
         let report = try await withTaskCancellationHandler {
@@ -353,9 +430,11 @@ public actor HealthKitSyncService {
     /// 合并调用者共享整个轮次，含状态落盘；完成后才释放flight，避免反复加入已完成任务。
     private func runAndRecord(id: UUID, quietStart: String, quietEnd: String,
                               deadline: ContinuousClock.Instant? = nil,
-                              kinds: [HealthDataKind]? = nil) async throws -> SyncReport {
+                              kinds: [HealthDataKind]? = nil,
+                              managedCycle: Bool = false) async throws -> SyncReport {
         defer { if inFlightID == id { inFlight = nil; inFlightID = nil } }
-        var report = try await run(quietStart: quietStart, quietEnd: quietEnd, deadline: deadline, kinds: kinds)
+        var report = try await run(quietStart: quietStart, quietEnd: quietEnd, deadline: deadline,
+                                   kinds: kinds, managedCycle: managedCycle)
         // C1 埋点：每轮累计轮数（必须先 run 再计数——此前写在 let report 声明前，
         // macOS CI 编译报 use of local variable before declaration；Linux 因
         // HealthKit 平台守卫编译桩单元而全盲，属 macOS 可见面型检盲区）
@@ -379,7 +458,8 @@ public actor HealthKitSyncService {
 
     private func run(quietStart: String, quietEnd: String,
                      deadline: ContinuousClock.Instant? = nil,
-                     kinds: [HealthDataKind]? = nil) async throws -> SyncReport {
+                     kinds: [HealthDataKind]? = nil,
+                     managedCycle: Bool = false) async throws -> SyncReport {
         try Task.checkCancellation()
         // round2 H3/H-N4：开关关闭是独立失败态，不再与缺本人档案混为 missingOwner（视图三态文案依赖分型）
         guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
@@ -393,8 +473,12 @@ public actor HealthKitSyncService {
         // Fetch one page per type/round. Drained work resumes by window without losing the old checkpoint.
         // 公平调度（2026-10-20）：固定顺序 + 单一全局 deadline 会让心率等重类型
         // 耗尽预算，睡眠排在最后永远拿不到查询机会。轮转起点 + 按剩余类型均分
-        // 每类 deadline，保证每次受限轮次六类都有份额；跨轮转起点分散重活。
-        let selectedKinds = kinds ?? HealthDataKind.allCases
+        // 每类 deadline，保证每次受限轮次每个 `HealthDataKind.allCases` 类型都有份额；跨轮转起点分散重活。
+        var selectedKinds = kinds ?? HealthDataKind.allCases
+        if managedCycle {
+            let state = try await imports.cycleState(binding: binding)
+            selectedKinds = HealthSyncCycleRules.pendingKinds(state.stableKinds, from: selectedKinds)
+        }
         let orderedKinds = HealthImportScheduling.rotated(selectedKinds, startingAt: kindRotationStart)
         kindRotationStart = (kindRotationStart + 1) % max(1, selectedKinds.count)
         for (offset, kind) in orderedKinds.enumerated() {
@@ -522,6 +606,9 @@ public actor HealthKitSyncService {
                     if quiet.idleRounds >= 3 {
                         quiet.idleRounds = 0
                         quiet.quiescedUntil = Date().addingTimeInterval(Self.kindQuiesceSeconds)
+                        if managedCycle {
+                            try await imports.markKindStable(binding: binding, kind: kind)
+                        }
                     }
                     kindIdleStates[kind] = quiet
                 } else {
@@ -529,6 +616,16 @@ public actor HealthKitSyncService {
                 }
             }
             report.hasMore = report.hasMore || hasPending
+            // 2026-10-21：同步周期未完成前保持 hasMore，后台任务继续排期；
+            // 全部类别稳定后落 completed_at，下一周期按设置间隔开始。
+            if managedCycle {
+                var cycle = try await imports.cycleState(binding: binding)
+                if HealthSyncCycleRules.allStable(cycle.stableKinds) {
+                    if !cycle.isComplete { try await imports.completeCycle(binding: binding) }
+                    cycle = try await imports.cycleState(binding: binding)
+                }
+                if !cycle.isComplete { report.hasMore = true }
+            }
             // 审查修复（共享轮次取消不丢进度）：每类页处理完即落盘报告——
             // 创建方被取消（视图拆除 / permissionRevoked → cancelSync）时共享
             // 轮次随之中止，旧实现只在全部完成后经 runAndRecord 落盘，取消
@@ -797,6 +894,18 @@ public actor HealthKitSyncService {
         }
         if try await imports.pendingRepairCount(binding: binding, kind: kind) > 0 { hasMore = true }
         return hasMore
+    }
+
+    /// 周期节流/已完成时的空报告：不触碰 HealthKit，只回报周期事实。
+    private static func cycleReport(binding: HealthImportStore.Binding,
+                                    state: HealthSyncCycleState,
+                                    lastSyncAt: Date) -> SyncReport {
+        SyncReport(lastSyncAt: lastSyncAt,
+                   bindingId: binding.id, patientId: binding.patientId,
+                   cycleStartedAt: state.startedAt,
+                   cycleCompletedAt: state.completedAt,
+                   cycleStableKinds: state.stableKinds.count,
+                   cycleTotalKinds: HealthDataKind.allCases.count)
     }
 
     /// 报告合并（两处提交路径共用）：行数/延迟/剩余窗/稀疏/失败分型。

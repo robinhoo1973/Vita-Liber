@@ -56,6 +56,23 @@ extension L10n {
 
     static var healthAutoImport: String { t("health.autoImport") }
 
+    // 2026-10-21 业主裁决：后台同步间隔（最短可靠 1 小时；系统可延后）
+    static var healthSyncIntervalTitle: String { t("health.syncInterval.title") }
+    static var healthSyncIntervalHint: String { t("health.syncInterval.hint") }
+    static func healthSyncInterval(_ interval: HealthSyncInterval) -> String {
+        switch interval {
+        case .hourly: return t("health.syncInterval.hourly")
+        case .twoHours: return t("health.syncInterval.twoHours")
+        case .fourHours: return t("health.syncInterval.fourHours")
+        case .eightHours: return t("health.syncInterval.eightHours")
+        case .daily: return t("health.syncInterval.daily")
+        }
+    }
+    static var homeHealthSyncActive: String { t("home.healthSync.active") }
+    static func homeHealthSyncProgress(_ stable: Int, _ total: Int) -> String {
+        String(format: t("home.healthSync.progressFmt"), stable, total)
+    }
+
     static var healthReadPermissionHint: String { t("health.readPermissionHint") }
 
     static var healthImportedData: String { t("health.importedData") }

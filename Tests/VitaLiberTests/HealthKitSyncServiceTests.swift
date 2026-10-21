@@ -572,6 +572,53 @@ extension HealthKitSyncServiceTests {
         XCTAssertEqual(Set(kinds), [.sleep], "类别 session 不得查询其他类别")
     }
 
+    func test_managedCycleCompletesThenWaitsForInterval() async throws {
+        let (db, imports, binding) = try await makeStore()
+        try await markAllKindsComplete(imports, binding: binding)
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        let first = try await sync.performSyncAll(
+            quietStart: "22:00", quietEnd: "07:00",
+            maxRounds: 4, timeBudget: .seconds(5),
+            cycleInterval: .hourly, managedCycle: true)
+        XCTAssertNotNil(first.cycleCompletedAt, "全部类别连续无工作后周期完成")
+        XCTAssertFalse(first.hasMore)
+        XCTAssertEqual(first.cycleStableKinds ?? 0, HealthDataKind.allCases.count)
+        let requestsAfterFirst = await provider.requests.count
+
+        let paused = try await sync.performSyncAll(
+            quietStart: "22:00", quietEnd: "07:00",
+            maxRounds: 4, timeBudget: .seconds(5),
+            cycleInterval: .hourly, enforceCycleInterval: true, managedCycle: true)
+        XCTAssertNotNil(paused.cycleCompletedAt)
+        let requestsWhilePaused = await provider.requests.count
+        XCTAssertEqual(requestsWhilePaused, requestsAfterFirst,
+                       "未到间隔不得查询 HealthKit")
+
+        _ = try await sync.performSyncAll(
+            quietStart: "22:00", quietEnd: "07:00",
+            maxRounds: 1, timeBudget: .seconds(2),
+            cycleInterval: .hourly, newCycle: true, managedCycle: true)
+        let afterManual = await provider.requests.count
+        XCTAssertGreaterThan(afterManual, requestsAfterFirst, "手动新周期必须立即查询")
+    }
+
+    func test_managedCycleSkipsKindsAlreadyStable() async throws {
+        let (db, imports, binding) = try await makeStore()
+        try await markAllKindsComplete(imports, binding: binding)
+        try await imports.beginCycle(binding: binding)
+        try await imports.markKindStable(binding: binding, kind: .bloodOxygen)
+        let provider = HealthSyncFixtureProvider(kind: .sleep, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        _ = try await sync.performSyncAll(
+            quietStart: "22:00", quietEnd: "07:00",
+            maxRounds: 1, timeBudget: .seconds(2),
+            cycleInterval: .hourly, managedCycle: true)
+        let requestedKinds = Set(await provider.requests.map(\.kind))
+        XCTAssertFalse(requestedKinds.contains(.bloodOxygen), "已稳定类别本周期不再询问")
+        XCTAssertFalse(requestedKinds.isEmpty)
+    }
+
     func test_stopWhenStableCompletesAfterTwoCleanRounds() async throws {
         let (db, imports, binding) = try await makeStore()
         try await markAllKindsComplete(imports, binding: binding)

@@ -12,10 +12,7 @@ final class F16DeviceState {
     private(set) var connected = false
     private(set) var report: SyncReport?
     private(set) var dashboard: HealthImportDashboard?
-    /// 业主 2026-10-20：导入范围（首次连接生效；已连接以 dashboard.plan 为准）。
-    var historyDepth: HealthHistoryDepth = .oneYear
-    /// 已连接时展示/改范围用的真实深度。
-    var selectedDepth: HealthHistoryDepth { dashboard?.plan?.depth ?? historyDepth }
+    /// 导入窗口固定最近 365 天（2026-10-21 业主裁决）。
     /// 初始回填 vs 只更新缺失部分（dashboard 快照；nil = 未探测）。
     var importMode: HealthImportMode? { dashboard?.mode }
     /// 2026-09-19 审查修复（业主诉求：类别卡导入进度条）：类型 → 排空进度 0…1。
@@ -73,11 +70,10 @@ final class F16DeviceState {
         guard authEnabled else { return false }
         availabilityProbed = true
         do {
-            _ = try await syncService.connect(depth: historyDepth)
+            _ = try await syncService.connect(depth: .oneYear)
             connected = true
             ownerMissing = false
             await refreshDashboard()
-            if let depth = dashboard?.plan?.depth { historyDepth = depth }
             return true
         } catch HealthKitReader.ReaderError.unavailable {
             // H-N4：设备不提供 HealthKit——如实说明，不归入通用「授权失败」
@@ -117,7 +113,8 @@ final class F16DeviceState {
         var firstChunk = true
         while !Task.isCancelled, start.duration(to: .now) < maxWallTime {
             await sync(authEnabled: true, quietStart: quietStart, quietEnd: quietEnd,
-                       userInitiated: true, wakeAllKinds: firstChunk, autoChunk: true)
+                       userInitiated: true, wakeAllKinds: firstChunk, autoChunk: true,
+                       newCycle: firstChunk)
             firstChunk = false
             if Task.isCancelled { break }
             if case .degraded = phase { break }
@@ -183,6 +180,21 @@ final class F16DeviceState {
         catch { return .incremental }   // 读失败不阻断前台对账；保守走增量
     }
 
+    /// 首页启动时从持久周期读取状态（后台任务可能在 App 未打开时推进）。
+    func refreshSyncProgress() async {
+        guard let state = await syncService.cycleProgress() else {
+            dataChange.healthSyncProgress(active: false, stableKinds: 0,
+                                          totalKinds: HealthDataKind.allCases.count,
+                                          lastCompletedAt: nil)
+            return
+        }
+        dataChange.healthSyncProgress(
+            active: state.isActive,
+            stableKinds: state.stableKinds.count,
+            totalKinds: HealthDataKind.allCases.count,
+            lastCompletedAt: state.completedAt)
+    }
+
     func currentAuthorization() async -> Bool {
         available = await syncService.isAvailable()
         availabilityProbed = true
@@ -206,12 +218,14 @@ final class F16DeviceState {
     /// continued processing（切后台续跑、系统显示进度、可取消）；回前台自动对账（非用户动作）不得使用该原语。
     func sync(authEnabled: Bool = true, quietStart: String = "22:00", quietEnd: String = "07:00", maxRounds: Int = 20,
               timeBudget: Duration = .seconds(30), userInitiated: Bool = false,
-              wakeAllKinds: Bool = true, autoChunk: Bool = false) async {
+              wakeAllKinds: Bool = true, autoChunk: Bool = false,
+              newCycle: Bool = false) async {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         // autoChunk 是 syncUntilStable 的内部续跑：会话期间 isSyncing 恒真，必须放行。
         guard autoChunk || !isSyncing else { return }
         // 回前台/手动同步：清掉后台按类别退避；自动 session 的后续 chunk 保留退避。
         if wakeAllKinds { await syncService.wakeAll() }
+        dataChange.healthSyncStarted()
         phase = .syncing
         syncEpoch &+= 1
         let epoch = syncEpoch
@@ -242,6 +256,8 @@ final class F16DeviceState {
         // 2026-10-21 修复：iOS 26 userInitiated 走 300s continued processing，
         // 旧固定 45s 看门狗会把每次同步在半途取消（业主「每点一次只多一点」的直接原因）。
         // 看门狗必须覆盖本次预算：userInitiated 360s，普通前台 45s。
+        let cycleInterval = HealthSyncInterval.resolved(
+            settings.values[.healthSyncIntervalMinutes])
         let watchdogSeconds: Double = userInitiated ? 360 : 45
         let watchdog = Task { [weak self] in
             try? await Task.sleep(for: .seconds(watchdogSeconds))   // try?-ok: 取消即结束
@@ -290,6 +306,10 @@ final class F16DeviceState {
                             quietStart: quietStart, quietEnd: quietEnd, maxRounds: rounds,
                             timeBudget: budget,
                             stopWhenStable: true,
+                            cycleInterval: cycleInterval,
+                            enforceCycleInterval: false,
+                            newCycle: newCycle,
+                            managedCycle: true,
                             onRound: { round in
                                 progressBox.value?.completedUnitCount = Int64(round)
                             })
@@ -307,9 +327,17 @@ final class F16DeviceState {
             } else {
                 total = try await syncService.performSyncAll(
                     quietStart: quietStart, quietEnd: quietEnd,
-                    maxRounds: maxRounds, timeBudget: timeBudget)
+                    maxRounds: maxRounds, timeBudget: timeBudget,
+                    cycleInterval: cycleInterval,
+                    enforceCycleInterval: true,
+                    managedCycle: true)
             }
             applyLiveReport(total, epoch: epoch, force: true)
+            dataChange.healthSyncProgress(
+                active: total.cycleCompletedAt == nil && total.cycleStartedAt != nil,
+                stableKinds: total.cycleStableKinds ?? 0,
+                totalKinds: total.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                lastCompletedAt: total.cycleCompletedAt)
             syncEpoch &+= 1   // 终态落定：旧轮询刻度（已在途读取者）失效，不得再覆盖终态
             if total.persistedRows > 0 { dataChange.metricsChanged() }
             dataChange.alertsChanged()
@@ -450,21 +478,6 @@ final class F16DeviceState {
     /// 后如实同步标志（静默死亡警示的单一回填点补齐第二消费路径）。
     /// 2026-09-23 修复：改走 `maintainBackgroundAutomation` 单一入口——开关打开时
     /// 顺带重排后台请求；开关关闭时撤销挂起请求（不占用系统预算）。
-    /// 业主 2026-10-20：改导入范围。只影响 history 道；已导入行不删。
-    /// 扩大范围 → 完成态作废、立即续导；缩小 → 已导入数据保留。
-    func changeHistoryDepth(_ depth: HealthHistoryDepth) async {
-        guard depth != selectedDepth else { return }
-        do {
-            _ = try await syncService.setHistoryDepth(depth)
-            historyDepth = depth
-            await refreshDashboard()
-            await sync(quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
-                       quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
-        } catch {
-            phase = .degraded(L10n.f16SyncFailed)
-        }
-    }
-
     func updateAutomation() async {
         await syncService.maintainBackgroundAutomation()
         backgroundSyncBroken = await syncService.backgroundRegistrationFailed
@@ -557,27 +570,9 @@ struct DeviceConnectionView: View {
                     .accessibilityIdentifier("SP-29.health.ownerMissing")
             case .notConnected, .connectedEmpty, .visible:
                 if pageState != .notConnected { Label(L10n.f16AuthGranted, systemImage: "link") }
-                // 业主 2026-10-20：首次连接由用户选择导入范围；已连接可改范围（不删已导入行）。
-                if pageState == .notConnected {
-                    Picker(L10n.healthImportRangeTitle, selection: Binding(
-                        get: { deviceState.historyDepth },
-                        set: { deviceState.historyDepth = $0 })) {
-                        Text(L10n.healthImportRangeOneYear).tag(HealthHistoryDepth.oneYear)
-                        Text(L10n.healthImportRangeFiveYears).tag(HealthHistoryDepth.fiveYears)
-                        Text(L10n.healthImportRangeAll).tag(HealthHistoryDepth.all)
-                    }
-                    .accessibilityIdentifier("SP-29.health.importRange")
-                } else {
-                    Picker(L10n.healthImportRangeTitle, selection: Binding(
-                        get: { deviceState.selectedDepth },
-                        set: { depth in Task { await deviceState.changeHistoryDepth(depth) } })) {
-                        Text(L10n.healthImportRangeOneYear).tag(HealthHistoryDepth.oneYear)
-                        Text(L10n.healthImportRangeFiveYears).tag(HealthHistoryDepth.fiveYears)
-                        Text(L10n.healthImportRangeAll).tag(HealthHistoryDepth.all)
-                    }
-                    .disabled(deviceState.isSyncing)
-                    .accessibilityIdentifier("SP-29.health.importRangeConnected")
-                }
+                // 2026-10-21 业主裁决：展示最长一年 → 固定导入最近 365 天，不再提供范围选择。
+                Label(L10n.healthImportRangeOneYear, systemImage: "calendar")
+                    .accessibilityIdentifier("SP-29.health.importRangeFixed")
                 Button(L10n.f16RequestAuth) {
                     Task {
                         if await deviceState.requestAuthorization(authEnabled: healthEnabled) {

@@ -36,7 +36,10 @@ extension HealthImportStore {
     /// 用户改导入范围。只影响 history：清该道在途批次（锚点谓词已变，旧批次不可续）；
     /// 已导入行与旧深度锚点保留（扩大范围时新深度键从 nil 幂等重取）。
     @discardableResult
-    public func setHistoryDepth(_ depth: HealthHistoryDepth) async throws -> Binding? {
+    public func setHistoryDepth(_ requested: HealthHistoryDepth) async throws -> Binding? {
+        // 2026-10-21 业主裁决：导入窗口固定最近 365 天；入口统一收敛，不再接受
+        // 5 年/全部历史。保留方法以兼容既有调用方，但忽略更大深度。
+        let depth: HealthHistoryDepth = .oneYear
         try await writer.write { db in
             guard let binding = try Self.binding(db) else { return nil }
             if depth == binding.historyDepth { return binding }

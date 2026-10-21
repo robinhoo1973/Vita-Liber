@@ -250,15 +250,25 @@ struct VitaLiberApp: App {
         HealthKitSyncService.backgroundBackfillHandler = { [dataChange] budget in
             do {
                 guard try await bgSync.canAutomaticallySync() else { return BackgroundJobOutcome(success: true, reschedule: false) }
+                await MainActor.run { dataChange.healthSyncStarted() }
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
+                let interval = HealthSyncInterval.resolved(
+                    try await healthSettings.value(for: .healthSyncIntervalMinutes))
                 let report = try await bgSync.performSyncAll(
                     quietStart: start, quietEnd: end,
                     maxRounds: HealthSyncBacklogPolicy.maxRounds(for: budget),
-                    timeBudget: budget, joinTimeout: .seconds(15))
+                    timeBudget: budget, joinTimeout: .seconds(15),
+                    cycleInterval: interval, enforceCycleInterval: true,
+                    managedCycle: true)
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
+                    dataChange.healthSyncProgress(
+                        active: report.cycleCompletedAt == nil && report.cycleStartedAt != nil,
+                        stableKinds: report.cycleStableKinds ?? 0,
+                        totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                        lastCompletedAt: report.cycleCompletedAt)
                 }
                 let more = HealthSyncBacklogPolicy.shouldRequestProcessing(remainingWindows: report.remainingWindows, hasMore: report.hasMore)
                 // 2026-10-20：部分窗口失败不等于整次 BGTask 失败；把
@@ -312,18 +322,28 @@ struct VitaLiberApp: App {
         HealthKitSyncService.backgroundSyncHandler = { [dataChange] in
             do {
                 guard try await bgSync.canAutomaticallySync() else { return false }
+                await MainActor.run { dataChange.healthSyncStarted() }
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
+                let interval = HealthSyncInterval.resolved(
+                    try await healthSettings.value(for: .healthSyncIntervalMinutes))
                 // C3（2026-10-03 评审修复）：后台每唤醒此前只跑 1 轮（1 页/类），
                 // 20s 预算只用 2-7s——改多轮排空（预算内 ≤8 轮），唤醒次数 3-5× 降。
                 // 实参顺序必须与声明一致（maxRounds 先于 timeBudget）——L1 编译修复 CI #646
                 let report = try await bgSync.performSyncAll(
                     quietStart: start, quietEnd: end,
                     maxRounds: 8, timeBudget: .seconds(18),
-                    joinTimeout: .seconds(5))
+                    joinTimeout: .seconds(5),
+                    cycleInterval: interval, enforceCycleInterval: true,
+                    managedCycle: true)
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
+                    dataChange.healthSyncProgress(
+                        active: report.cycleCompletedAt == nil && report.cycleStartedAt != nil,
+                        stableKinds: report.cycleStableKinds ?? 0,
+                        totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                        lastCompletedAt: report.cycleCompletedAt)
                 }
                 await bgSync.scheduleBackgroundRefresh()
                 return true
@@ -347,20 +367,30 @@ struct VitaLiberApp: App {
         HealthKitSyncService.backgroundObserverHandler = { [dataChange] kind in
             do {
                 guard try await bgSync.canAutomaticallySync() else { return false }
+                await MainActor.run { dataChange.healthSyncStarted() }
                 await bgSync.scheduleBackgroundRefresh()
                 // 2026-10-21 业主裁决：observer 带类别 → 只唤醒/同步该类别，
                 // 不清其他类别的退避状态；预算也只给这一类。
                 await bgSync.wake(kind: kind)
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
+                let interval = HealthSyncInterval.resolved(
+                    try await healthSettings.value(for: .healthSyncIntervalMinutes))
                 // completion 已由 Reader 提前确认；撞共享轮次最多等 2s。
                 let report = try await bgSync.performSyncAll(
                     quietStart: start, quietEnd: end,
                     maxRounds: 2, timeBudget: .seconds(10),
-                    joinTimeout: .seconds(2), kinds: [kind])
+                    joinTimeout: .seconds(2), kinds: [kind],
+                    cycleInterval: interval, enforceCycleInterval: true,
+                    managedCycle: true)
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
+                    dataChange.healthSyncProgress(
+                        active: report.cycleCompletedAt == nil && report.cycleStartedAt != nil,
+                        stableKinds: report.cycleStableKinds ?? 0,
+                        totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                        lastCompletedAt: report.cycleCompletedAt)
                 }
                 // 投递已确认（Reader 提前 completion）；部分失败由 refresh/backfill 重试。
                 return true

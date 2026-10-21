@@ -154,16 +154,34 @@ struct SettingsView: View {
                 // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：原 12 入口「健康记录」
                 // 大区拆分——「数据与资源」= 数据导入/资源下载同域聚合；其余档案与记录
                 // 管理入口归「健康记录」。入口集合不变，仅分组。
-                Section(L10n.settings_dataAndResources) {
+                Section {
                     NavigationLink(value: AppRoute.deviceConnection) {
                         Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
                     }
                     .accessibilityIdentifier("SP-25.settings.appleHealth")
+                    // 2026-10-21 业主裁决：后台同步间隔。HealthKit 最短可靠小时级；
+                    // 更大档在小时投递之上节流（系统仍可能因电量/使用习惯延后）。
+                    Picker(selection: Binding(
+                        get: { String(HealthSyncInterval.resolved(
+                            settings.values[.healthSyncIntervalMinutes]).rawValue) },
+                        set: { raw in Task { await settings.set(raw, for: .healthSyncIntervalMinutes) } }
+                    )) {
+                        ForEach(HealthSyncInterval.allCases, id: \.self) { interval in
+                            Text(L10n.healthSyncInterval(interval)).tag(String(interval.rawValue))
+                        }
+                    } label: {
+                        Text(L10n.healthSyncIntervalTitle)
+                    }
+                    .accessibilityIdentifier("SP-25.setting.healthSyncInterval")
                     // SP-64 统一资源管理页入口（2026-09-27 业主定案）
                     NavigationLink(value: AppRoute.resourceManagement) {
                         Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
                     }
                     .accessibilityIdentifier("SP-64.settings.resources")
+                } header: {
+                    Text(L10n.settings_dataAndResources)
+                } footer: {
+                    Text(L10n.healthSyncIntervalHint)
                 }
                 Section(L10n.hub_healthRecords) {
                     // mock 对齐项：语音指导模式入口（FR17.11 档案完善/修改，可语音可手输）

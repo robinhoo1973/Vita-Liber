@@ -71,17 +71,36 @@ public actor HealthImportStore {
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
     public func connect(timeZoneID: String = TimeZone.current.identifier,
-                        depth: HealthHistoryDepth = .all) async throws -> Binding {
+                        depth: HealthHistoryDepth = .oneYear) async throws -> Binding {
+        // 2026-10-21 业主裁决：展示最长一年 → 固定只抓最近 365 天。
+        // 参数保留但统一收敛；新增/既有绑定都不得再向更早历史取数。
+        let effectiveDepth: HealthHistoryDepth = .oneYear
         try await writer.write { db in
             guard TimeZone(identifier: timeZoneID) != nil else { throw ImportError.invalidValue }
             try Self.requireEnabled(db)
             guard let patient = try Self.ownerPatient(db) else { throw ImportError.missingOwner }
             if let existing = try Self.binding(db) {
                 guard existing.patientId == patient else { throw ImportError.bindingChanged }
-                // 已有绑定：保留用户已选深度（depth 参数只在首次连接生效）；
-                // 旧库/中断留下的无 plan 行按 .all 补齐，保持既有行为。
                 try Self.ensurePlan(db, bindingId: existing.id, connectedAt: existing.connectedAt,
-                                    depth: existing.historyDepth)
+                                    depth: effectiveDepth)
+                // 既有 5 年/全部绑定：收敛到 365 天，清掉不再使用的历史道在途/游标。
+                // 已导入行保留；最近一年完成态有效（covers(.oneYear)）。
+                if existing.historyDepth != .oneYear {
+                    try db.execute(sql: """
+                        UPDATE hk_import_plan SET history_days = 365, updated_at = ?
+                        WHERE binding_id = ?
+                        """, arguments: [Date().timeIntervalSince1970, existing.id.uuidString])
+                    try db.execute(sql: """
+                        DELETE FROM hk_pending_batch WHERE binding_id = ?
+                          AND payload_json LIKE '%"lane":"history"%'
+                        """, arguments: [existing.id.uuidString])
+                    try db.execute(sql: """
+                        DELETE FROM hk_sync_anchor WHERE binding_id = ?
+                          AND (anchor_key LIKE 'hk.v3.%' OR anchor_key LIKE 'hk.v6.%')
+                        """, arguments: [existing.id.uuidString])
+                    try db.execute(sql: "DELETE FROM hk_sync_cycle WHERE binding_id = ?",
+                                   arguments: [existing.id.uuidString])
+                }
                 return try Self.binding(db) ?? existing
             }
             // 落库与返回值用同一 Double：Binding.connectedAt 经 Date(timeIntervalSince1970:) 构造，
@@ -89,12 +108,13 @@ public actor HealthImportStore {
             let connectedAt = Date().timeIntervalSince1970
             let binding = Binding(id: UUID(), patientId: patient, timeZoneID: timeZoneID,
                                   connectedAt: Date(timeIntervalSince1970: connectedAt),
-                                  historyDepth: depth)
+                                  historyDepth: effectiveDepth)
             try db.execute(sql: """
                 INSERT INTO hk_import_binding (singleton, id, patient_id, time_zone, connected_at)
                 VALUES (1, ?, ?, ?, ?)
                 """, arguments: [binding.id.uuidString, patient.uuidString, timeZoneID, connectedAt])
-            try Self.ensurePlan(db, bindingId: binding.id, connectedAt: binding.connectedAt, depth: depth)
+            try Self.ensurePlan(db, bindingId: binding.id, connectedAt: binding.connectedAt,
+                                depth: effectiveDepth)
             return binding
         }
     }

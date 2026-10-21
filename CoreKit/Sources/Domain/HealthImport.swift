@@ -225,6 +225,14 @@ public struct SyncReport: Sendable, Equatable, Codable {
     public var failureReasons: [String]? = nil
     /// 合并加入次数（performSync join 支路计数；「四路撞车」频率的量化事实）
     public var coalescedJoiners: Int? = nil
+    // 2026-10-21 同步周期（全类别稳定才算一次）。全部 Optional，旧 report_json 无键可解码。
+    /// 本次同步开始时刻（周期起点）
+    public var cycleStartedAt: Date? = nil
+    /// 本周期完成时刻；nil = 未完成
+    public var cycleCompletedAt: Date? = nil
+    /// 已稳定类别数 / 类别总数
+    public var cycleStableKinds: Int? = nil
+    public var cycleTotalKinds: Int? = nil
 
     /// 跨模块构造出口（结构轮 2026-09-15 修复）：合成 memberwise init 为 internal，
     /// 迁入 Domain 后 Infrastructure 调用方不可见——显式 public init 兜底。
@@ -239,7 +247,9 @@ public struct SyncReport: Sendable, Equatable, Codable {
                 perKindRemaining: [String: Int]? = nil,
                 staleReferences: Int? = nil,
                 wallTime: TimeInterval? = nil, failureReasons: [String]? = nil,
-                coalescedJoiners: Int? = nil) {
+                coalescedJoiners: Int? = nil,
+                cycleStartedAt: Date? = nil, cycleCompletedAt: Date? = nil,
+                cycleStableKinds: Int? = nil, cycleTotalKinds: Int? = nil) {
         self.elevated = elevated; self.noRangeCount = noRangeCount
         self.persistedRows = persistedRows; self.preservedRows = preservedRows
         self.deferredWindows = deferredWindows; self.receivedChanges = receivedChanges
@@ -252,6 +262,8 @@ public struct SyncReport: Sendable, Equatable, Codable {
         self.staleReferences = staleReferences
         self.wallTime = wallTime; self.failureReasons = failureReasons
         self.coalescedJoiners = coalescedJoiners
+        self.cycleStartedAt = cycleStartedAt; self.cycleCompletedAt = cycleCompletedAt
+        self.cycleStableKinds = cycleStableKinds; self.cycleTotalKinds = cycleTotalKinds
     }
 }
 

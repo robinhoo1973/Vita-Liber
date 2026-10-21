@@ -13,12 +13,12 @@ final class HealthImportPlanStoreTests: XCTestCase {
         return (db, HealthImportStore(writer: db.writer))
     }
 
-    func testConnectPersistsSelectedDepthAndStartsInitialMode() async throws {
+    func testConnectAlwaysUsesPast365DaysAndStartsInitialMode() async throws {
         let (_, store) = try await makeStore()
         let binding = try await store.connect(timeZoneID: "UTC", depth: .fiveYears)
-        XCTAssertEqual(binding.historyDepth, .fiveYears)
+        XCTAssertEqual(binding.historyDepth, .oneYear, "导入窗口固定 365 天，忽略更大深度参数")
         let plan = try await store.plan()
-        XCTAssertEqual(plan?.depth, .fiveYears)
+        XCTAssertEqual(plan?.depth, .oneYear)
         XCTAssertNil(plan?.initialCompletedAt)
         let mode = try await store.importMode()
         XCTAssertTrue(mode.isInitial)
@@ -40,7 +40,7 @@ final class HealthImportPlanStoreTests: XCTestCase {
         XCTAssertNotNil(plan?.initialCompletedAt)
     }
 
-    func testExtendingDepthClearsInitialCompletionButKeepsRows() async throws {
+    func testExtendingDepthIsClampedTo365AndKeepsCompletion() async throws {
         let (db, store) = try await makeStore()
         _ = try await store.connect(timeZoneID: "UTC", depth: .oneYear)
         for kind in HealthDataKind.allCases {
@@ -52,12 +52,39 @@ final class HealthImportPlanStoreTests: XCTestCase {
 
         _ = try await store.setHistoryDepth(.fiveYears)
         let plan = try await store.plan()
-        XCTAssertEqual(plan?.depth, .fiveYears)
-        XCTAssertNil(plan?.initialCompletedAt, "扩大范围必须重新进入初始回填")
+        XCTAssertEqual(plan?.depth, .oneYear, "扩大深度被收敛到 365 天")
+        XCTAssertNotNil(plan?.initialCompletedAt, "一年范围已完成，无需重新初始回填")
         let mode = try await store.importMode()
-        XCTAssertTrue(mode.isInitial)
+        XCTAssertFalse(mode.isInitial)
         let after = try await db.writer.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM metric_sample") ?? 0 }
         XCTAssertEqual(before, after, "缩小/扩大范围都不删已导入行")
+    }
+
+    func testCyclePersistsStableKindsAndCompletion() async throws {
+        let (_, store) = try await makeStore()
+        let binding = try await store.connect(timeZoneID: "UTC", depth: .oneYear)
+        try await store.beginCycle(binding: binding)
+        try await store.markKindStable(binding: binding, kind: .sleep)
+        try await store.markKindStable(binding: binding, kind: .sleep)
+        var state = try await store.cycleState(binding: binding)
+        XCTAssertTrue(state.isActive)
+        XCTAssertEqual(state.stableKinds, [.sleep])
+
+        try await store.clearKindStable(binding: binding, kind: .sleep)
+        state = try await store.cycleState(binding: binding)
+        XCTAssertTrue(state.stableKinds.isEmpty, "observer 新数据必须清稳定标记")
+
+        for kind in HealthDataKind.allCases {
+            try await store.markKindStable(binding: binding, kind: kind)
+        }
+        try await store.completeCycle(binding: binding)
+        state = try await store.cycleState(binding: binding)
+        XCTAssertTrue(state.isComplete)
+        XCTAssertEqual(state.stableKinds, Set(HealthDataKind.allCases))
+        try await store.beginCycle(binding: binding)
+        state = try await store.cycleState(binding: binding)
+        XCTAssertTrue(state.isActive)
+        XCTAssertTrue(state.stableKinds.isEmpty)
     }
 
     func testBlockedKindNeverCountsAsCompleteAndResetForcesRefetch() async throws {
@@ -79,27 +106,19 @@ final class HealthImportPlanStoreTests: XCTestCase {
         XCTAssertNil(plan?.completion(.sleep).recentCompletedAt)
     }
 
-    func testShrinkingCoveredDepthCopiesHistoryAnchor() async throws {
+    func testLegacyFiveYearBindingIsNormalizedTo365Days() async throws {
         let (_, store) = try await makeStore()
-        let binding = try await store.connect(timeZoneID: "UTC", depth: .all)
-        for kind in HealthDataKind.allCases {
-            try await store.markRecentComplete(kind: kind)
-            try await store.markHistoryComplete(kind: kind, depth: .all)
-        }
-        _ = try await store.markInitialCompletedIfCovered()
-        try await store.saveAnchor(binding: binding, kind: .heartRate, lane: .history, anchor: Data([7]))
-
-        let narrowedRaw = try await store.setHistoryDepth(.fiveYears)
-        let narrowed = try XCTUnwrap(narrowedRaw)
-        let copied = try await store.anchor(binding: narrowed, kind: .heartRate, lane: .history)
-        XCTAssertEqual(copied, Data([7]), "缩小到已覆盖深度不得从 nil 重扫历史")
+        let binding = try await store.connect(timeZoneID: "UTC", depth: .fiveYears)
+        XCTAssertEqual(binding.historyDepth, .oneYear)
+        XCTAssertEqual(store.scopes(for: binding).map(\.lane), [.recent],
+                       "超过 365 天的历史道不再存在")
     }
 
     func testDiscardPendingRemovesOnlyInFlightPage() async throws {
         let (_, store) = try await makeStore()
-        let binding = try await store.connect(timeZoneID: "UTC", depth: .fiveYears)
-        let history = try XCTUnwrap(store.scopes(for: binding).first { $0.lane == .history })
-        _ = try await store.stage(binding: binding, kind: .heartRate, scope: history,
+        let binding = try await store.connect(timeZoneID: "UTC", depth: .oneYear)
+        let recent = try XCTUnwrap(store.scopes(for: binding).first { $0.lane == .recent })
+        _ = try await store.stage(binding: binding, kind: .heartRate, scope: recent,
             previousAnchor: nil,
             page: HealthChangeBatch(added: [], deleted: [], anchor: Data([1]), hasMore: false))
         try await store.discardPending(kind: .heartRate)

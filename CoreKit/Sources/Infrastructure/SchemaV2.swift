@@ -571,6 +571,14 @@ public enum SchemaV2 {
       attempts INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
       PRIMARY KEY(binding_id, type_key, start_at, end_at));
+    -- v38（2026-10-21）：同步周期。stable_kinds 为逗号分隔 rawValue；完成一次 =
+    -- 全部 HealthDataKind 稳定且无 pending/repair/失败。间隔由 App 设置节流。
+    CREATE TABLE hk_sync_cycle (
+      binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+      started_at REAL,
+      completed_at REAL,
+      stable_kinds TEXT NOT NULL DEFAULT '',
+      updated_at REAL NOT NULL);
     CREATE TABLE hk_projection_state (
       binding_id TEXT NOT NULL REFERENCES hk_import_binding(id) ON DELETE CASCADE,
       metric_id TEXT NOT NULL REFERENCES metric_sample(id) ON DELETE CASCADE,

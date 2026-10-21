@@ -41,6 +41,9 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case authAnonymizedImprovement // 匿名化改进
     case authHealthRead           // 读取 Apple 健康（F16）
     case healthAutoImport         // 前台/后台自动增量导入；关闭后仍可手动导入
+    /// 2026-10-21 业主裁决：自动同步间隔（分钟，60/120/240/480/1440）。
+    /// HealthKit 后台投递最短可靠小时级；更大间隔由 App 在小时投递上节流。
+    case healthSyncIntervalMinutes
     case healthWriteBack          // 将本机确认的手输读数写回 Apple 健康（默认关）
     case authVoiceDictation       // 语音速记识别
     // FR9.18 分通道偏好（§5.58，V3.72）：每类提醒三选一（local 仅通知/
@@ -104,6 +107,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .avatarChoice: return "symbol:person.crop.circle.fill"
         case .assistantAvatarChoice: return "sparkles"
         case .healthAutoImport: return "true"
+        case .healthSyncIntervalMinutes: return String(HealthSyncInterval.default.rawValue)
         case .healthWriteBack: return "false"
         }
     }

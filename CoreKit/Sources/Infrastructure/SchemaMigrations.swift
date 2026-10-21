@@ -977,6 +977,22 @@ public enum SchemaMigrations {
         DELETE FROM hk_sample_index;
         UPDATE hk_import_plan SET initial_completed_at = NULL;
         """),
+        // 2026-10-21 业主裁决：展示最长一年 → 只导入最近 365 天。既有绑定统一
+        // 收敛到一年档；最近一年数据已完成，历史道 pending/anchor 不再使用。
+        // 保留已导入行（不删除用户数据），只是不再抓取更早历史。
+        Step(version: 38, name: "health-import-365d-sync-cycle", sql: """
+        UPDATE hk_import_plan
+        SET history_days = 365, updated_at = CAST(strftime('%s','now') AS REAL)
+        WHERE history_days IS NULL OR history_days > 365;
+        DELETE FROM hk_pending_batch WHERE payload_json LIKE '%"lane":"history"%';
+        DELETE FROM hk_sync_anchor WHERE anchor_key LIKE 'hk.v3.%' OR anchor_key LIKE 'hk.v6.%';
+        CREATE TABLE IF NOT EXISTS hk_sync_cycle (
+          binding_id TEXT PRIMARY KEY REFERENCES hk_import_binding(id) ON DELETE CASCADE,
+          started_at REAL,
+          completed_at REAL,
+          stable_kinds TEXT NOT NULL DEFAULT '',
+          updated_at REAL NOT NULL);
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

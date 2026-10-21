@@ -31,6 +31,8 @@ struct HomeView: View {
     @Environment(NotificationCenterState.self) private var notificationState
     /// 后台任务（模型下载）中心（2026-09-16 业主）：进行中即在首页显示进度条目。
     @Environment(ASRInstallCenter.self) private var installCenter
+    /// 2026-10-21：后台健康同步周期提示（持久周期状态 + 后台任务回写）。
+    @Environment(F16DeviceState.self) private var healthSyncState
     @State private var showMemberPicker = false
     @State private var showSOS = false
     @State private var showVoicePanel = false
@@ -381,6 +383,7 @@ struct HomeView: View {
                     .environment(app)
             }
             .task(id: "\(app.currentPatientId)-\(dataChange.alertsVersion)-\(docs.pendingVersion)") { await load() }
+            .task { await healthSyncState.refreshSyncProgress() }
         }
     }
 
@@ -423,6 +426,12 @@ struct HomeView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .listRowInsets(plainRowInsets)
+            if dataChange.healthSyncActive {
+                healthSyncIndicator
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(plainRowInsets)
+            }
             aggregationRows(items, profileCompletion: progress)
             Group {
                 if showsGuide { newUserGuide }
@@ -742,6 +751,7 @@ struct HomeView: View {
     private var careModeHome: some View {
         ScrollView {
             VStack(spacing: 20) {
+                if dataChange.healthSyncActive { healthSyncIndicator }
                 pendingImportRecovery
                 pendingLoadFailure
                 // FR18.5 极简导航：四大卡（今日服药/续药/拍摄记录/呼救）
@@ -794,6 +804,31 @@ struct HomeView: View {
             .padding(20)
         }
         .accessibilityIdentifier("SP-04.home.careMode")
+    }
+
+    /// 首页后台健康同步提示（2026-10-21 业主裁决）：周期未完成时持续可见，
+    /// 完成全部类别后消失；不暴露类别明细，仅给稳定进度。
+    private var healthSyncIndicator: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.homeHealthSyncActive)
+                    .font(.subheadline.weight(.medium))
+                if dataChange.healthSyncTotalKinds > 0 {
+                    Text(L10n.homeHealthSyncProgress(
+                        dataChange.healthSyncStableKinds,
+                        dataChange.healthSyncTotalKinds))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(12)
+        .background(Color("bg-grouped", bundle: .main), in: RoundedRectangle(cornerRadius: VLCornerRadius.card))
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("SP-04.home.healthSync")
     }
 
     // MARK: - 数据加载
