@@ -424,16 +424,11 @@ final class VoiceLevelMeter {
         case sessionFailed
     }
 
-    /// 判定「音量过低」的 RMS 基准阈值（内置麦实测经验：耳语 ~0.01，正常 ~0.05-0.3）。
-    /// 蓝牙 HFP/外接麦增益低，按路由下调，避免用户被指向错误的「靠近麦克风」。
-    static let lowThreshold: Float = 0.03
-
+    /// 判定「音量过低」的 RMS 阈值：路由差异集中在 `AudioRouteFacts`；
+    /// 内置麦经验基准 0.03（耳语 ~0.01，正常 ~0.05-0.3），蓝牙/外接麦下调。
     var lowThreshold: Float {
-        switch AVAudioSession.sharedInstance().currentRoute.inputs.first?.portType {
-        case .bluetoothHFP, .bluetoothLE: return 0.012
-        case .headsetMic, .usbAudio: return 0.02
-        default: return Self.lowThreshold
-        }
+        AudioRouteFacts.lowThreshold(
+            for: AVAudioSession.sharedInstance().currentRoute.inputs.first?.portType)
     }
 
     var testPhrase: String { L10n.voiceguide_micPhrase }
@@ -561,7 +556,7 @@ final class VoiceLevelMeter {
 
     private func refreshInputDevice() {
         let port = AVAudioSession.sharedInstance().currentRoute.inputs.first
-        inputDeviceName = port.map(Self.displayName(for:)) ?? ""
+        inputDeviceName = AudioRouteFacts.deviceName(for: port)
     }
 
     /// 路由变化只刷新设备名并处理「输入消失」；引擎配置变化/中断由
@@ -599,18 +594,7 @@ final class VoiceLevelMeter {
         onLevel?(value)
     }
 
-    private static func displayName(for port: AVAudioSessionPortDescription) -> String {
-        let name = port.portName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !name.isEmpty { return name }
-        switch port.portType {
-        case .builtInMic: return L10n.voiceguide_micDeviceBuiltIn
-        case .headsetMic: return L10n.voiceguide_micDeviceHeadset
-        case .bluetoothHFP: return L10n.voiceguide_micDeviceBluetooth
-        case .usbAudio: return L10n.voiceguide_micDeviceUSB
-        case .carAudio: return L10n.voiceguide_micDeviceCar
-        default: return L10n.voiceguide_micDeviceGeneric
-        }
-    }
+
 
     /// 麦克风权限前置（iOS 16 走 AVAudioSession，17+ 走 AVAudioApplication）。
     /// 只读取系统 TCC 状态；拒绝时不重复请求（系统不会再弹）。

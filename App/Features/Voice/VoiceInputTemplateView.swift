@@ -52,11 +52,8 @@ final class AudioRouteMonitor {
     }
 
     private func refresh() {
-        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
-        let headphonePorts: Set<AVAudioSession.Port> = [
-            .headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio,
-        ]
-        route = outputs.contains { headphonePorts.contains($0.portType) } ? .headphones : .speaker
+        route = AudioRouteFacts.hasHeadphoneOutput(AVAudioSession.sharedInstance())
+            ? .headphones : .speaker
     }
 }
 
