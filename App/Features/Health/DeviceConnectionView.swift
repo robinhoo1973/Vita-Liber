@@ -115,10 +115,11 @@ final class F16DeviceState {
         let start = ContinuousClock.now
         var idleChunks = 0
         var firstChunk = true
-        while start.duration(to: .now) < maxWallTime {
+        while !Task.isCancelled, start.duration(to: .now) < maxWallTime {
             await sync(authEnabled: true, quietStart: quietStart, quietEnd: quietEnd,
                        userInitiated: true, wakeAllKinds: firstChunk, autoChunk: true)
             firstChunk = false
+            if Task.isCancelled { break }
             if case .degraded = phase { break }
             guard let last = report, last.hasMore else { break }
             // 持续失败不空转 900s：本轮已有失败类型时如实停下，交后台/用户重试。
