@@ -119,6 +119,17 @@ public enum VoiceProfileRules {
         }
     }
 
+    /// 药名 → 库存单位类型（DDL 只允许 tablet/capsule/patch/vial）。
+    /// 只按药名中的明确剂型字选择；未知一律 tablet（与既有默认一致），
+    /// 不把剂型当成医学结论。口服液/丸剂在现有枚举中无精确值，仍归 tablet，
+    /// 由用药页后续校正。
+    public static func medicationUnitKind(from name: String) -> String {
+        if name.contains("胶囊") { return "capsule" }
+        if name.contains("贴") { return "patch" }
+        if name.contains("注射") || name.contains("针") { return "vial" }
+        return "tablet"
+    }
+
     /// 紧急联系人口语 → 结构化联系人；没有可校验手机号时不落结构化表。
     public static func emergencyContact(from value: String) -> EmergencyContactDraft? {
         let pattern = #"[+]?[0-9][0-9+\- ()]{4,}"#

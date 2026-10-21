@@ -205,10 +205,11 @@ public actor GRDBPatientPersistor: PatientPersisting {
             let medicationId = UUID().uuidString
             let planId = UUID().uuidString
             let now = Date().timeIntervalSince1970
+            let unitKind = VoiceProfileRules.medicationUnitKind(from: name)
             try db.execute(sql: """
                 INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
-                VALUES (?, ?, ?, NULL, 'tablet', ?, ?)
-                """, arguments: [medicationId, patientId.uuidString, name, now, now])
+                VALUES (?, ?, ?, NULL, ?, ?, ?)
+                """, arguments: [medicationId, patientId.uuidString, name, unitKind, now, now])
             let schedule = String(data: try JSONEncoder().encode(MedicationSchedule.asNeeded),
                                   encoding: .utf8) ?? "{}"
             try db.execute(sql: """
