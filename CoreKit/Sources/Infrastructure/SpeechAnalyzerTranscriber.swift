@@ -267,7 +267,6 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
             }
             intents[id] = nil
             delegated.insert(id)
-            defer { delegated.remove(id) }
             // 委托轨是**另一个**转写器实例：聊天旁路录音 URL 必须转交，
             // 否则 chat 语音消息只得到文本、没有音频文件（2026-10-21 审查）。
             let baseline = baselineEngine()
@@ -275,10 +274,16 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
             do {
                 let result = try await baseline.transcribe(request, onPartial: onPartial,
                                                            onCaptureStarted: onCaptureStarted)
-                await baseline.setRecordingURL(nil)
+                // 只有最后一个委托会话退出才清 URL；两个语音消息重叠时，
+                // 先结束的会话清空共享 URL 会让后一个停止写盘（文本有、音频无）。
+                let shouldClear = delegated.count == 1
+                delegated.remove(id)
+                if shouldClear { await baseline.setRecordingURL(nil) }
                 return result
             } catch {
-                await baseline.setRecordingURL(nil)
+                let shouldClear = delegated.count == 1
+                delegated.remove(id)
+                if shouldClear { await baseline.setRecordingURL(nil) }
                 throw error
             }
         case .analyzer(let locale):

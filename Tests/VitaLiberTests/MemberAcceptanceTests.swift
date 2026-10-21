@@ -61,6 +61,10 @@ final class MemberAcceptanceTests: XCTestCase {
              try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM medication_plan WHERE status = 'active'") ?? 0)
         }
         XCTAssertEqual(counts.0, 1, "同过敏原重复确认只更新，不新增")
+        let severity = try await store.writer.read { db in
+            try String.fetchOne(db, sql: "SELECT severity FROM allergy_event")
+        }
+        XCTAssertEqual(severity, "severe", "语音未提严重度时不得把既有重度过敏降级为轻")
         XCTAssertEqual(counts.1, 1, "同既往史不重复建问题")
         XCTAssertEqual(counts.2, 1, "同手机号紧急联系人不重复")
         XCTAssertEqual(counts.3, 1, "同药名不重复建活动计划")

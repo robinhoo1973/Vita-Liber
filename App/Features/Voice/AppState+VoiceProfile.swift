@@ -17,14 +17,15 @@ extension AppState {
             guard let section = Self.voiceProfileSectionTitle(key) else { return false }
             // 结构化实体尚未接齐的访谈先保存完整原文，不推导医疗结论。
             profile.note = VoiceProfileRules.upsertingSection(
-                in: profile.note, section: section, value: value)
+                in: profile.note, section: section,
+                aliases: VoiceProfileRules.sectionAliases(for: key), value: value)
         }
         profile.updatedAt = Date().timeIntervalSince1970
         let saved = await updateMember(profile, completingVoiceInterviewStep: key, audit: audit)
-        if saved {
-            await persistVoiceStructuredField(key, value: value, patientId: patientId)
-        }
-        return saved
+        guard saved else { return false }
+        // 结构化落库失败必须让本步失败可见并允许重试；不能只写 note 就报
+        // 「已完成」——完成页会声称结构化数据已写入，而过敏/用药列表为空。
+        return await persistVoiceStructuredField(key, value: value, patientId: patientId)
     }
 
     private static func voiceProfileSectionTitle(_ key: String) -> String? {

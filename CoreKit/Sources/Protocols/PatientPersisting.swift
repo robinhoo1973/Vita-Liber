@@ -19,7 +19,7 @@ public protocol PatientPersisting: Sendable {
     func updateMember(_ profile: PatientProfile, audit: VoiceExecutionAudit?) async throws
     /// FR17.11：语音访谈确认后的结构化落库（过敏/既往史/紧急联系人）。
     /// 默认 no-op 供测试替身；生产 GRDB 实现写 allergy_event/health_problem/contact。
-    func saveVoiceAllergy(patientId: UUID, substance: String, severity: String,
+    func saveVoiceAllergy(patientId: UUID, substance: String, severity: String?,
                           reactionTags: [String], note: String?) async throws
     func saveVoiceHealthProblem(patientId: UUID, name: String) async throws
     func saveVoiceEmergencyContact(patientId: UUID, contact: EmergencyContactDraft) async throws
@@ -47,7 +47,7 @@ public extension PatientPersisting {
         try await updateMember(profile)
     }
 
-    func saveVoiceAllergy(patientId: UUID, substance: String, severity: String,
+    func saveVoiceAllergy(patientId: UUID, substance: String, severity: String?,
                           reactionTags: [String], note: String?) async throws {}
     func saveVoiceHealthProblem(patientId: UUID, name: String) async throws {}
     func saveVoiceEmergencyContact(patientId: UUID,

@@ -36,32 +36,50 @@ public enum VoiceProfileRules {
     /// 过敏口语 → 结构化条目（仅确定性切分/词表映射，不推断严重度以外诊断）。
     public struct AllergyEntry: Sendable, Equatable {
         public var substance: String
-        public var severity: String       // 轻/中/重
+        /// nil = 用户没有说明严重度（不得默认成「轻」写进结构化事实，BR-003）
+        public var severity: String?
         public var reactionTags: [String]
-        public init(substance: String, severity: String, reactionTags: [String]) {
+        public init(substance: String, severity: String?, reactionTags: [String]) {
             self.substance = substance; self.severity = severity; self.reactionTags = reactionTags
         }
     }
 
     public static func allergies(from value: String) -> [AllergyEntry] {
         let separators = CharacterSet(charactersIn: "、,，;；\n")
+        // 「没有药物过敏」「无其他过敏」等否定句不得切出过敏原：旧实现只认
+        // 连续子串「无过敏/没有过敏」，中间夹一个「药物」就漏网，并把
+        // 「没药物」写成一条过敏记录（BR-003 假事实）。
+        let negativePhrases = ["没有", "无任何", "没有任何", "不过敏", "不清楚", "不知道",
+                               "无其他", "无其它", "没什么"]
         var result: [AllergyEntry] = []
         for raw in value.components(separatedBy: separators) {
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty,
                   !text.contains("无过敏"), !text.contains("没有过敏"),
+                  !negativePhrases.contains(where: text.contains),
                   !["没有", "无", "没", "不清楚", "不知道"].contains(text) else { continue }
-            let severity: String
+            let severity: String?
             if text.contains("重") || text.contains("休克") { severity = "重" }
             else if text.contains("中") { severity = "中" }
-            else { severity = "轻" }
+            else if text.contains("轻") { severity = "轻" }
+            else { severity = nil }
             let tags = SevereReactionRules.reactionTagOptions.filter { text.contains($0) }
             var substance = text
             for tag in tags { substance = substance.replacingOccurrences(of: tag, with: "") }
-            for word in ["过敏", "反应", "对", "有", "轻度", "中度", "重度", "严重"] {
+            for word in ["过敏", "反应", "轻度", "中度", "重度", "严重"] {
                 substance = substance.replacingOccurrences(of: word, with: "")
             }
-            substance = substance.trimmingCharacters(in: .whitespacesAndNewlines)
+            // 只剥离句首人称，不删「对」——「对乙酰氨基酚」「对氨基水杨酸」
+            // 是药名本体，任何「对」前缀剥离都可能把药名改残；宁可保留
+            // 「对花粉」这类口语介词，也不制造错误过敏原。
+            for prefix in ["我的", "我"] where substance.hasPrefix(prefix) {
+                substance.removeFirst(prefix.count)
+                break
+            }
+            if substance.hasPrefix("有") { substance.removeFirst() }
+            if substance.hasSuffix("有") { substance.removeLast() }
+            substance = substance.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines
+                .union(.punctuationCharacters))
             guard !substance.isEmpty, substance != "无", substance != "没有" else { continue }
             result.append(AllergyEntry(substance: substance, severity: severity, reactionTags: tags))
         }
@@ -74,7 +92,12 @@ public enum VoiceProfileRules {
         var seen = Set<String>()
         return value.components(separatedBy: separators).compactMap { raw in
             var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !text.contains("无"), !text.contains("没有") else { return nil }
+            // 只认明确的否定短语；不能因包含「无」就丢弃「无痛性血尿」等真实病名。
+            let negativePhrases = ["没有", "无既往", "无其他", "无其它", "无特殊",
+                                   "无慢性", "无手术", "无疾病", "无不适", "无明显", "无异常"]
+            guard !text.isEmpty,
+                  !negativePhrases.contains(where: text.contains),
+                  !["无", "没有", "没", "不清楚", "不知道"].contains(text) else { return nil }
             for word in ["既往史", "病史", "曾经", "患有", "患过", "有过", "有", "患"] {
                 text = text.replacingOccurrences(of: word, with: "")
             }
@@ -91,7 +114,7 @@ public enum VoiceProfileRules {
         let separators = CharacterSet(charactersIn: "、,，;；\n")
         let noise = ["每天", "每日", "一日", "两次", "三次", "一次", "饭后", "饭前",
                      "早上", "晚上", "中午", "服用", "吃", "还有", "以及"]
-        let dosePattern = #"[0-9０-９一二三四五六七八九十半.]+\s*(?:毫克|mg|克|g|毫升|ml|单位|iu)"#
+        let dosePattern = #"[0-9０-９一二三四五六七八九十半.]+\s*(?:微克|毫克|μg|ug|mg|毫升|ml|国际单位|克|g|单位|iu)"#
         let doseRegex: NSRegularExpression?
         do { doseRegex = try NSRegularExpression(pattern: dosePattern, options: [.caseInsensitive]) }
         catch { doseRegex = nil }
@@ -101,9 +124,14 @@ public enum VoiceProfileRules {
         catch { oralRegex = nil }
         var seen = Set<String>()
         let negatives: Set<String> = ["没有", "无", "没", "没吃药", "没有吃药", "不吃药", "无用药"]
+        // 否定短语必须按「包含」判定：「我没有吃药」清洗后只剩「我没有药」，
+        // 会被当成一种药名写进活动计划（旧实现只做整句精确匹配）。
+        let negativePhrases = ["没有", "没吃", "不吃", "未服", "无需", "不用吃", "不需要",
+                               "无用药", "没用药", "无药"]
         return value.components(separatedBy: separators).compactMap { raw in
             var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !negatives.contains(text) else { return nil }
+            guard !text.isEmpty, !negatives.contains(text),
+                  !negativePhrases.contains(where: text.contains) else { return nil }
             if let doseRegex {
                 text = doseRegex.stringByReplacingMatches(
                     in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
@@ -135,10 +163,21 @@ public enum VoiceProfileRules {
         let pattern = #"[+]?[0-9][0-9+\- ()]{4,}"#
         let regex: NSRegularExpression
         do { regex = try NSRegularExpression(pattern: pattern) } catch { return nil }
-        guard let match = regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)),
-              let range = Range(match.range, in: value) else { return nil }
-        let phone = String(value[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard EmergencyContactDraft.validPhone(phone) else { return nil }
+        // 不能取第一个「5 位以上数字/分隔符」：日期（2024-05-01）也满足。
+        // 跳过日期文法命中的范围，并在多个候选里选数字最多者（电话号码）。
+        let dateRange = ExtractionPatterns.dateMatch(in: value)?.range
+        let full = NSRange(value.startIndex..., in: value)
+        var best: (phone: String, digits: Int)?
+        for match in regex.matches(in: value, range: full) {
+            guard let range = Range(match.range, in: value) else { continue }
+            if let dateRange, range == dateRange { continue }
+            let candidate = String(value[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard EmergencyContactDraft.validPhone(candidate) else { continue }
+            let digits = candidate.filter(\.isNumber).count
+            if best == nil || digits > best!.digits { best = (candidate, digits) }
+        }
+        guard let phone = best?.phone else { return nil }
+        guard let range = value.range(of: phone) else { return nil }
         var prefix = String(value[..<range.lowerBound])
         let relationAliases: [(String, String)] = [
             ("丈夫", "配偶"), ("妻子", "配偶"), ("爱人", "配偶"), ("老伴", "配偶"),
@@ -176,9 +215,9 @@ public enum VoiceProfileRules {
         let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
         let aliases: [(MemberRelation, [String])] = [
-            (.partner, ["配偶", "丈夫", "妻子", "老公", "老婆", "爱人"]),
-            (.child, ["子女", "儿子", "女儿", "孩子"]),
-            (.parent, ["父母", "父亲", "母亲", "爸爸", "妈妈"]),
+            (.partner, ["配偶", "丈夫", "妻子", "老公", "老婆", "爱人", "老伴"]),
+            (.child, ["子女", "儿子", "女儿", "孩子", "闺女"]),
+            (.parent, ["父母", "父亲", "母亲", "爸爸", "妈妈", "老爸", "老妈"]),
             (.grandparent, ["祖父母", "爷爷", "奶奶", "外公", "外婆"]),
         ]
         for (relation, words) in aliases where words.contains(where: text.contains) {
@@ -211,9 +250,10 @@ public enum VoiceProfileRules {
         if let match = ExtractionPatterns.dateMatch(in: value) {
             remainder.removeSubrange(match.range)
         }
-        let relationWords = ["配偶", "丈夫", "妻子", "老公", "老婆", "爱人",
-                             "子女", "儿子", "女儿", "孩子", "父母", "父亲", "母亲",
-                             "爸爸", "妈妈", "祖父母", "爷爷", "奶奶", "外公", "外婆",
+        let relationWords = ["配偶", "丈夫", "妻子", "老公", "老婆", "爱人", "老伴",
+                             "子女", "儿子", "女儿", "孩子", "闺女",
+                             "父母", "父亲", "母亲", "爸爸", "妈妈", "老爸", "老妈",
+                             "祖父母", "爷爷", "奶奶", "外公", "外婆",
                              "朋友", "同事", "其他"]
         for word in relationWords + ["我叫", "我是", "我的", "名字叫", "名称", "叫",
                                      "出生", "生日", "日期", "今年", "岁", "我", "她", "他"] {
@@ -231,13 +271,28 @@ public enum VoiceProfileRules {
                            birthDate: birthDate)
     }
 
+    /// 备注分节的跨语言别名（zh-Hans/zh-Hant/en）。语言切换后旧 marker
+    /// 仍须能匹配并替换，不得在备注里累积第二段同节内容。
+    public static func sectionAliases(for key: String) -> [String] {
+        switch key {
+        case "allergy": return ["过敏", "過敏", "Allergy"]
+        case "pastHistory": return ["既往史", "Past History"]
+        case "currentMeds": return ["当前用药", "目前用藥", "Current Medications"]
+        case "emergencyContact": return ["紧急联系人", "緊急聯絡人", "Emergency Contact"]
+        default: return []
+        }
+    }
+
     /// 访谈分段写回：替换同节旧行，避免重复进入访谈时在档案备注追加
     /// 第二段/第三段同节内容（FR17.11 可中断续填）。
     public static func upsertingSection(in note: String?, section: String,
-                                        value: String) -> String {
+                                        aliases: [String] = [], value: String) -> String {
         let marker = "【\(section)】"
+        // 语言切换后旧 marker（如「过敏」→「過敏」/「Allergy」）仍须被替换，
+        // 否则同一节会在备注里累积多份。
+        let known = Set(([section] + aliases).map { "【\($0)】" })
         var lines = (note ?? "").components(separatedBy: "\n")
-            .filter { !$0.hasPrefix(marker) && !$0.isEmpty }
+            .filter { line in !known.contains(where: line.hasPrefix) && !line.isEmpty }
         lines.append(marker + value)
         return lines.joined(separator: "\n")
     }

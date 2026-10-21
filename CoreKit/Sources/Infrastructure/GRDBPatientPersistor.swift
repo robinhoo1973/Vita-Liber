@@ -131,8 +131,10 @@ public actor GRDBPatientPersistor: PatientPersisting {
         }
     }
 
-    public func saveVoiceAllergy(patientId: UUID, substance: String, severity: String,
+    public func saveVoiceAllergy(patientId: UUID, substance: String, severity: String?,
                                  reactionTags: [String], note: String?) async throws {
+        // 用户没说明严重度：只在档案备注保留原话，不生成结构化过敏事实。
+        guard let severity else { return }
         let canonical = SevereReactionRules.canonicalSeverity(severity)
         let tags = String(data: try JSONEncoder().encode(reactionTags), encoding: .utf8) ?? "[]"
         try await writer.write { db in
@@ -141,10 +143,30 @@ public actor GRDBPatientPersistor: PatientPersisting {
                 """, arguments: [patientId.uuidString, substance])
             let now = Date().timeIntervalSince1970
             if let existing {
+                // 语音只说了过敏原、没说严重度时，规则层默认「轻」——不得据此
+                // 覆盖既有「中/重」过敏（把重度休克史降级成轻症，急救卡也随
+                // 之降级）。取两者更重者；反应标签只增不减，语音没提反应时
+                // 不抹掉既有记录。
+                let previous = try Row.fetchOne(db, sql: """
+                    SELECT severity, reaction_tags FROM allergy_event WHERE id = ?
+                    """, arguments: [existing])
+                let previousSeverity = (previous?["severity"] as String?) ?? canonical
+                var mergedTags: [String] = []
+                if let rawTags = previous?["reaction_tags"] as String?,
+                   let data = rawTags.data(using: .utf8) {
+                    do { mergedTags = try JSONDecoder().decode([String].self, from: data) }
+                    catch { mergedTags = [] }
+                }
+                for tag in reactionTags where !mergedTags.contains(tag) { mergedTags.append(tag) }
+                let previousLevel = SevereReactionRules.severityLevel(of: previousSeverity) ?? -1
+                let newLevel = SevereReactionRules.severityLevel(of: canonical) ?? -1
+                let mergedSeverity = previousLevel > newLevel ? previousSeverity : canonical
+                let mergedTagsJSON = String(
+                    data: try JSONEncoder().encode(mergedTags), encoding: .utf8) ?? tags
                 try db.execute(sql: """
                     UPDATE allergy_event SET reaction_tags = ?, severity = ?, note = ?, updated_at = ?
                     WHERE id = ?
-                    """, arguments: [tags, canonical, note, now, existing])
+                    """, arguments: [mergedTagsJSON, mergedSeverity, note, now, existing])
             } else {
                 try db.execute(sql: """
                     INSERT INTO allergy_event
