@@ -18,7 +18,10 @@ enum UITestSupport {
     static func openTab(_ name: String, in app: XCUIApplication) {
         let tabBar = app.tabBars.firstMatch
         XCTAssertTrue(tabBar.waitForExistence(timeout: 10), "Tab bar did not appear")
-        tabBar.buttons[name].tap()
+        // iOS 26 模拟器在部分恢复态下会同时暴露 tab 包装按钮与带 identifier
+        // 的真实按钮（同一 label），`buttons[name].tap()` 因多匹配而失败。
+        // 取 firstMatch 只消除系统重复暴露，不改变实际 tab 选择。
+        tabBar.buttons[name].firstMatch.tap()
     }
 
     /// 上滑直到元素可点（首屏外条目）；超限不抛，由调用方 waitForExistence 兜底断言。
