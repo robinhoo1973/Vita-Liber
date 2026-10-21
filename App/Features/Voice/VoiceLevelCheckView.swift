@@ -564,9 +564,9 @@ final class VoiceLevelMeter {
         inputDeviceName = port.map(Self.displayName(for:)) ?? ""
     }
 
-    /// 路由变化只刷新设备名；引擎配置变化/中断会让 tap 静默停摆——
-    /// 必须转为可见失败并给重试出口，否则界面继续按旧 lastAdequateAt
-    /// 报「音量偏低」（Angle A #4）。
+    /// 路由变化只刷新设备名并处理「输入消失」；引擎配置变化/中断由
+    /// `AudioCaptureController` 的观察者转为 onFailure。输入消失只在
+    /// 采集已完全启动后判失败，避免激活瞬间的瞬时空路由误杀。
     private func observeRouteChanges() {
         let center = NotificationCenter.default
         if routeObserver == nil {
@@ -578,7 +578,8 @@ final class VoiceLevelMeter {
                 Task { @MainActor [weak self] in
                     self?.refreshInputDevice()
                     // 路由切换后会话可能失去输入（如蓝牙断连的瞬时窗口）。
-                    if AVAudioSession.sharedInstance().currentRoute.inputs.isEmpty {
+                    if AVAudioSession.sharedInstance().currentRoute.inputs.isEmpty,
+                       self?.started == true {
                         self?.handleCaptureLost()
                     }
                 }
@@ -588,7 +589,7 @@ final class VoiceLevelMeter {
 
     /// 采集被系统夺走：停止并给出可见失败（重试按钮由 failure 驱动）。
     func handleCaptureLost() {
-        guard started || inputFormat != nil else { return }
+        guard started else { return }
         failure = .sessionFailed
         stop()
     }
