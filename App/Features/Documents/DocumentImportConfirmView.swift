@@ -589,7 +589,12 @@ struct DocumentReviewRouteView: View {
                 } else if failed {
                     Text(L10n.sensitiveMedia_loadFailed)
                     Button(L10n.retry) { Task { await prepare() } }.buttonStyle(.bordered)
-                } else { ProgressView() }
+                } else {
+                    HStack(spacing: 8) {
+                        VLPulsingActivityIcon(symbol: "doc.text.magnifyingglass", isActive: true)
+                        ProgressView().controlSize(.small)
+                    }
+                }
             }
             .padding()
             .navigationTitle(L10n.docConfirmTitle)

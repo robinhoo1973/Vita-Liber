@@ -93,7 +93,11 @@ struct ExportWizardView: View {
                     switch state.phase {
                     case .working(let processed, let total):
                         ProgressView(value: total > 0 ? Double(processed) / Double(total) : 0) {
-                            Text(L10n.exportProgress(processed, total))
+                            HStack(spacing: 8) {
+                                VLPulsingActivityIcon(symbol: "doc.richtext",
+                                                      isActive: true, font: .body)
+                                Text(L10n.exportProgress(processed, total))
+                            }
                         }
                         .padding(24)
                         Button(L10n.exportCancel, role: .destructive) { state.cancel() }

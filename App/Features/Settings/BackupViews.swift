@@ -33,6 +33,9 @@ final class BackupState {
     }
 
     private(set) var phase: Phase = .idle
+    /// 进行中的动作（创建/恢复），供按钮图标动效区分同一 `.working` 态。
+    enum ActiveOperation { case create, restore }
+    private(set) var activeOperation: ActiveOperation?
     private(set) var pendingDocument: BackupDocument?
     /// 冲突裁决（默认保留本机——绝不静默覆盖）
     private(set) var resolutions: [UUID: ExportService.ConflictResolution] = [:]
@@ -62,7 +65,9 @@ final class BackupState {
     }
 
     func prepareBackup() async {
+        activeOperation = .create
         phase = .working
+        defer { activeOperation = nil }
         do {
             let pkg = try await service.createBackup()
             pendingDocument = BackupDocument(data: pkg.data)
@@ -77,7 +82,9 @@ final class BackupState {
     }
 
     func restore(from url: URL) async {
+        activeOperation = .restore
         phase = .working
+        defer { activeOperation = nil }
         // security-scoped：picker 返回的 URL 需显式取用权限，否则读取静默失败
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
@@ -121,7 +128,9 @@ final class BackupState {
     /// 应用裁决并恢复（ADR-019：确认后才执行；任何一项未裁决均已在服务层拒绝）
     func applyConflicts() async {
         guard case .conflicts = phase, let analysis = pendingAnalysis else { return }
+        activeOperation = .restore
         phase = .working
+        defer { activeOperation = nil }
         do {
             let records = try await service.restore(envelope: analysis.envelope, resolutions: resolutions)
             pendingAnalysis = nil
@@ -200,14 +209,24 @@ struct BackupView: View {
                             showExportConfirm = true
                         }
                     } label: {
-                        Label(L10n.backupCreate, systemImage: "icloud.and.arrow.up").frame(minHeight: 44)
+                        HStack(spacing: 8) {
+                            VLPulsingActivityIcon(symbol: "icloud.and.arrow.up",
+                                                  isActive: state.activeOperation == .create)
+                            Text(L10n.backupCreate)
+                        }
+                        .frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("SP-24.backup.create")
 
                     Button {
                         showImporter = true
                     } label: {
-                        Label(L10n.backupRestore, systemImage: "icloud.and.arrow.down").frame(minHeight: 44)
+                        HStack(spacing: 8) {
+                            VLPulsingActivityIcon(symbol: "icloud.and.arrow.down",
+                                                  isActive: state.activeOperation == .restore)
+                            Text(L10n.backupRestore)
+                        }
+                        .frame(minHeight: 44)
                     }
                     .accessibilityIdentifier("SP-24.backup.restore")
                 } footer: {
