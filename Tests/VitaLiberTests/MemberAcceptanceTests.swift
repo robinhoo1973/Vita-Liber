@@ -66,6 +66,26 @@ final class MemberAcceptanceTests: XCTestCase {
         XCTAssertEqual(counts.3, 1, "同药名不重复建活动计划")
     }
 
+    /// 语音药名 → 库存单位：胶囊/贴/注射按药名剂型字落库，不再一律 tablet。
+    func test_voiceMedicationUnitKindFollowsName() async throws {
+        let store = try GRDBStore.inMemory()
+        let persistor = GRDBPatientPersistor(store: store)
+        let now = Date().timeIntervalSince1970
+        let owner = LocalOwner(displayName: "本人", createdAt: now)
+        let profile = PatientProfile(displayName: "本人", relation: "本人",
+                                     createdAt: now, updatedAt: now)
+        try await persistor.saveOwner(owner, profile: profile)
+
+        try await persistor.saveVoiceMedication(patientId: profile.id, name: "奥美拉唑胶囊")
+        try await persistor.saveVoiceMedication(patientId: profile.id, name: "芬太尼贴")
+        try await persistor.saveVoiceMedication(patientId: profile.id, name: "胰岛素注射液")
+
+        let kinds = try await store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT unit_kind FROM medication ORDER BY created_at")
+        }
+        XCTAssertEqual(kinds.sorted(), ["capsule", "patch", "vial"])
+    }
+
     /// 成员配额：Domain 判定与落库计数一致（4 人内不弹、第 5 人弹）
     /// 原名：test_配额边界与落库一致
     func test_quotaBoundaryMatchesPersistedState() async throws {
