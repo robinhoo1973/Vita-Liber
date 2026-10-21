@@ -494,7 +494,8 @@ extension L10n {
         "inventory.monthlyReportFmt",
         "inventory.tier3", "inventory.tier7", "inventory.title", "member.add",
         "member.addedHint", "member.addFailed", "member.birthDatePlaceholder", "member.birthDateLabel",
-        "member.birthDateInvalidHint", "member.current", "member.namePlaceholder",
+        "member.birthDateInvalidHint", "member.voiceHint", "member.voiceUnrecognized",
+        "member.current", "member.namePlaceholder",
         "member.quotaHint", "member.relation", "member.save", "member.switch",
         // 业主 2026-09-17 定：注册必要字段（特征性数据 + 紧急联系人）+ 健康预填
         "onboard.notSelected", "onboard.gender", "onboard.gender.male", "onboard.gender.female",

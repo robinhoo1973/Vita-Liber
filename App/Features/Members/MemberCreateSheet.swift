@@ -21,11 +21,29 @@ struct MemberCreateSheet: View {
     /// 保存会把「今天」当生日落库（用户只是想稍后再填）——未经显式选择的日期
     /// 一律按未填写处理，绝不落库未经用户确认的日期（BR-002 原始数据原则）。
     @State private var birthDatePicked = false
+    /// 一句话语音草稿的可见反馈（关系/生日没听清时必须明说，不静默吞掉）。
+    @State private var voiceHint: String?
 
     /// 关系显示名本地化映射（存储值仍为中文原始值，仅显示时本地化；
     /// 单一出口 = L10n.memberRelationDisplayName）
     private func localizedRelation(_ raw: String) -> String {
         L10n.memberRelationDisplayName(raw)
+    }
+
+    /// 一句话语音 → 姓名/关系/生日三个表单状态。只应用解析成功的字段；
+    /// 全空才提示重说，部分命中时让用户看到已填项并补齐其余项。
+    private func applyVoiceDraft(_ transcript: String) {
+        let draft = VoiceProfileRules.memberDraft(from: transcript)
+        if let parsed = draft.name { name = parsed }
+        if let parsed = draft.relation { relation = parsed }
+        if let raw = draft.birthDate,
+           let parsed = MemberProfileCompleteness.parsedBirthDate(raw) {
+            birthDate = parsed
+            hasBirthDate = true
+            birthDatePicked = true
+        }
+        voiceHint = draft.name == nil && draft.relation == nil && draft.birthDate == nil
+            ? L10n.member_voiceUnrecognized : nil
     }
 
     var body: some View {
@@ -35,11 +53,21 @@ struct MemberCreateSheet: View {
                     TextField(L10n.member_namePlaceholder, text: $name)
                         .accessibilityIdentifier("FR3.7.create.name")
                     if voiceMode {
+                        // 一句话草稿：关系、姓名、生日由 Domain 纯函数确定性拆分；
+                        // 表单控件仍可逐项修改，语音不直接落库。
+                        Text(L10n.member_voiceHint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         VoiceDictationButton { transcript, _ in
-                            let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !trimmed.isEmpty { name = trimmed }
+                            applyVoiceDraft(transcript)
                         }
                         .accessibilityIdentifier("FR3.7.create.nameVoice")
+                        if let voiceHint {
+                            Text(voiceHint)
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                .accessibilityIdentifier("FR3.7.create.voiceHint")
+                        }
                     }
                     Picker(L10n.member_relation, selection: $relation) {
                         // 可选集单点 = Domain MemberRelation.creatable（结构轮 2026-09-15）。

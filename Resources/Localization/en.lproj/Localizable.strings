@@ -454,6 +454,8 @@
 "member.relation" = "Relationship";
 "member.birthDateLabel" = "Birth date";
 "member.birthDateInvalidHint" = "Invalid birth date format; please re-select it under More info below.";
+"member.voiceHint" = "Say the relationship, name and birth date in one sentence, e.g. \"my daughter Zhang Min, born May 3, 1990\".";
+"member.voiceUnrecognized" = "Didn't catch that. Please say it again.";
 "member.birthDatePlaceholder" = "Birth date (e.g. 1990-05-12)";
 "member.save" = "Save";
 "member.quotaHint" = "The free tier supports up to 4 members; Pro unlocks more.";

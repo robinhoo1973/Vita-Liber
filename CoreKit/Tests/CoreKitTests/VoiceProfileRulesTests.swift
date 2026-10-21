@@ -56,6 +56,30 @@ struct VoiceProfileRulesTests {
         #expect(VoiceProfileRules.medicationNames(from: "二甲双胍 每天两次、阿司匹林") == ["二甲双胍", "阿司匹林"])
     }
 
+    @Test func relationMapsOnlyKnownWords() {
+        #expect(VoiceProfileRules.relation(from: "我女儿") == .child)
+        #expect(VoiceProfileRules.relation(from: "爱人") == .partner)
+        #expect(VoiceProfileRules.relation(from: "母亲") == .parent)
+        #expect(VoiceProfileRules.relation(from: "外婆") == .grandparent)
+        #expect(VoiceProfileRules.relation(from: "朋友") == .other)
+        #expect(VoiceProfileRules.relation(from: "嗯") == nil)
+        #expect(VoiceProfileRules.relation(from: "  ") == nil)
+    }
+
+    @Test func memberDraftSplitsNameRelationAndBirthDate() {
+        let full = VoiceProfileRules.memberDraft(from: "我女儿张敏，1990年5月3日出生")
+        #expect(full.name == "张敏")
+        #expect(full.relation == .child)
+        #expect(full.birthDate == "1990-05-03")
+        let nameOnly = VoiceProfileRules.memberDraft(from: "张三")
+        #expect(nameOnly.name == "张三")
+        #expect(nameOnly.relation == nil)
+        let relationOnly = VoiceProfileRules.memberDraft(from: "妈妈")
+        #expect(relationOnly.name == nil)
+        #expect(relationOnly.relation == .parent)
+        #expect(VoiceProfileRules.memberDraft(from: "嗯").name == nil)
+    }
+
     @Test func identifierFieldsTrimOnly() {
         #expect(VoiceProfileRules.normalizedValue(key: "idNo", value: "  110101199001011234 ") == "110101199001011234")
         #expect(VoiceProfileRules.normalizedValue(key: "insuranceNo", value: "   ") == nil)

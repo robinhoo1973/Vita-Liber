@@ -454,6 +454,8 @@
 "member.relation" = "關係";
 "member.birthDateLabel" = "生日";
 "member.birthDateInvalidHint" = "生日格式無效，請在下方「更多資訊」重新選擇";
+"member.voiceHint" = "一句話說出關係、姓名和生日，例如「我女兒張敏，1990 年 5 月 3 日出生」";
+"member.voiceUnrecognized" = "沒聽清，請再說一次";
 "member.birthDatePlaceholder" = "生日（如 1990-05-12）";
 "member.save" = "儲存";
 "member.quotaHint" = "免費檔最多 4 位成員；超過後可隨 Pro 解鎖。";

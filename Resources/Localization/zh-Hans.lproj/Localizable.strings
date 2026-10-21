@@ -454,6 +454,8 @@
 "member.relation" = "关系";
 "member.birthDateLabel" = "生日";
 "member.birthDateInvalidHint" = "生日格式无效，请在下方「更多信息」重新选择";
+"member.voiceHint" = "一句话说出关系、姓名和生日，例如「我女儿张敏，1990 年 5 月 3 日出生」";
+"member.voiceUnrecognized" = "没听清，请再说一次";
 "member.birthDatePlaceholder" = "生日（如 1990-05-12）";
 "member.save" = "保存";
 "member.quotaHint" = "免费档最多 4 位成员；超过后可随 Pro 解锁。";

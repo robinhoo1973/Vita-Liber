@@ -32,6 +32,10 @@ extension L10n {
     /// 业主裁决 3：存量非法生日值的补录提示
     static var member_birthDateInvalidHint: String { t("member.birthDateInvalidHint") }
 
+    /// 新建家属的一句话语音草稿（FR3.7 / FR17.11 入口）
+    static var member_voiceHint: String { t("member.voiceHint") }
+    static var member_voiceUnrecognized: String { t("member.voiceUnrecognized") }
+
     static var member_save: String { t("member.save") }
 
     static var member_quotaHint: String { t("member.quotaHint") }
