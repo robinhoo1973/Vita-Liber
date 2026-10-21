@@ -75,7 +75,7 @@ public actor HealthImportStore {
         // 2026-10-21 业主裁决：展示最长一年 → 固定只抓最近 365 天。
         // 参数保留但统一收敛；新增/既有绑定都不得再向更早历史取数。
         let effectiveDepth: HealthHistoryDepth = .oneYear
-        try await writer.write { db in
+        return try await writer.write { db in
             guard TimeZone(identifier: timeZoneID) != nil else { throw ImportError.invalidValue }
             try Self.requireEnabled(db)
             guard let patient = try Self.ownerPatient(db) else { throw ImportError.missingOwner }

@@ -40,7 +40,7 @@ extension HealthImportStore {
         // 2026-10-21 业主裁决：导入窗口固定最近 365 天；入口统一收敛，不再接受
         // 5 年/全部历史。保留方法以兼容既有调用方，但忽略更大深度。
         let depth: HealthHistoryDepth = .oneYear
-        try await writer.write { db in
+        return try await writer.write { db in
             guard let binding = try Self.binding(db) else { return nil }
             if depth == binding.historyDepth { return binding }
             try Self.ensurePlan(db, bindingId: binding.id, connectedAt: binding.connectedAt,
