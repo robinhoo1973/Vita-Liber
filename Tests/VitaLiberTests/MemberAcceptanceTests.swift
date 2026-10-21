@@ -33,6 +33,39 @@ final class MemberAcceptanceTests: XCTestCase {
         XCTAssertEqual(added.birthDate, "2012-05")
     }
 
+    func test_voiceStructuredWritesDedupeBySubstanceAndPhone() async throws {
+        let store = try GRDBStore.inMemory()
+        let persistor = GRDBPatientPersistor(store: store)
+        let now = Date().timeIntervalSince1970
+        let owner = LocalOwner(displayName: "本人", createdAt: now)
+        let profile = PatientProfile(displayName: "本人", relation: "本人",
+                                     createdAt: now, updatedAt: now)
+        try await persistor.saveOwner(owner, profile: profile)
+
+        try await persistor.saveVoiceAllergy(patientId: profile.id, substance: "青霉素",
+                                             severity: "轻", reactionTags: ["皮疹"], note: "青霉素过敏")
+        try await persistor.saveVoiceAllergy(patientId: profile.id, substance: "青霉素",
+                                             severity: "重", reactionTags: ["呼吸困难"], note: "青霉素过敏")
+        try await persistor.saveVoiceHealthProblem(patientId: profile.id, name: "高血压")
+        try await persistor.saveVoiceHealthProblem(patientId: profile.id, name: "高血压")
+        try await persistor.saveVoiceEmergencyContact(
+            patientId: profile.id,
+            contact: EmergencyContactDraft(name: "张三", relation: "子女", phone: "13800138000"))
+        try await persistor.saveVoiceMedication(patientId: profile.id, name: "二甲双胍")
+        try await persistor.saveVoiceMedication(patientId: profile.id, name: "二甲双胍")
+
+        let counts = try await store.writer.read { db in
+            (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM allergy_event") ?? 0,
+             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_problem") ?? 0,
+             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM contact") ?? 0,
+             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM medication_plan WHERE status = 'active'") ?? 0)
+        }
+        XCTAssertEqual(counts.0, 1, "同过敏原重复确认只更新，不新增")
+        XCTAssertEqual(counts.1, 1, "同既往史不重复建问题")
+        XCTAssertEqual(counts.2, 1, "同手机号紧急联系人不重复")
+        XCTAssertEqual(counts.3, 1, "同药名不重复建活动计划")
+    }
+
     /// 成员配额：Domain 判定与落库计数一致（4 人内不弹、第 5 人弹）
     /// 原名：test_配额边界与落库一致
     func test_quotaBoundaryMatchesPersistedState() async throws {

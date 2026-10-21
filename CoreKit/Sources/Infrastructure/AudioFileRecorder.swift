@@ -10,6 +10,8 @@ import Protocols
 final class AudioFileRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var file: AVAudioFile?
+    /// 首次写盘失败后闩锁：不在音频线程逐 buffer 重试，也不留下半写文件。
+    private var writeFailed = false
 
     init?(url: URL, format: AVAudioFormat) {
         do {
@@ -31,7 +33,12 @@ final class AudioFileRecorder: @unchecked Sendable {
             }
         }
         lock.lock(); defer { lock.unlock() }
-        try? file?.write(from: buffer)   // try?-ok: 录音旁路失败不阻断识别主链路
+        guard !writeFailed, let file else { return }
+        do { try file.write(from: buffer) }
+        catch {
+            writeFailed = true
+            self.file = nil
+        }
     }
 
     func finish() {

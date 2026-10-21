@@ -114,6 +114,8 @@ extension L10n {
 
     static var voiceguide_micUnavailable: String { t("voiceguide.micUnavailable") }
 
+    static var voiceguide_speechUnavailable: String { t("voiceguide.speechUnavailable") }
+
     static var voiceguide_micPlay: String { t("voiceguide.micPlay") }
 
     static var voiceguide_micPlaying: String { t("voiceguide.micPlaying") }

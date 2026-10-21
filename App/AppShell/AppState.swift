@@ -351,7 +351,12 @@ final class AppState {
     private static let voiceInterviewKeys: Set<String> = MemberProfileCompleteness.voiceInterviewKeys
 
     var voiceInterviewCompleted: Set<String> {
-        Set(voiceInterviewStepsByPatient[currentPatientId.uuidString] ?? [])
+        voiceInterviewCompleted(for: currentPatientId)
+    }
+
+    /// 指定成员的访谈完成键（成员详情/列表入口按被查看成员恢复进度）。
+    func voiceInterviewCompleted(for patientId: UUID) -> Set<String> {
+        Set(voiceInterviewStepsByPatient[patientId.uuidString] ?? [])
             .intersection(Self.voiceInterviewKeys)
     }
 
@@ -362,6 +367,39 @@ final class AppState {
         MemberProfileCompleteness.progress(
             profile: members.first(where: { $0.id == currentPatientId && $0.deletedAt == nil }),
             interviewCompleted: voiceInterviewCompleted)
+    }
+
+    /// FR17.11 结构化落库（过敏/既往史/紧急联系人）：确认后的口语文本做
+    /// 确定性切分后写对应表；无法可靠切分时不写，note 仍保留原文。
+    func persistVoiceStructuredField(_ key: String, value: String, patientId: UUID) async {
+        switch key {
+        case "allergy":
+            for entry in VoiceProfileRules.allergies(from: value) {
+                do {
+                    try await persistor.saveVoiceAllergy(
+                        patientId: patientId, substance: entry.substance,
+                        severity: entry.severity, reactionTags: entry.reactionTags,
+                        note: value)
+                } catch { logger.error("语音过敏结构化写入失败") }
+            }
+        case "pastHistory":
+            for name in VoiceProfileRules.healthProblemNames(from: value) {
+                do { try await persistor.saveVoiceHealthProblem(patientId: patientId, name: name) }
+                catch { logger.error("语音既往史结构化写入失败") }
+            }
+        case "currentMeds":
+            for name in VoiceProfileRules.medicationNames(from: value) {
+                do { try await persistor.saveVoiceMedication(patientId: patientId, name: name) }
+                catch { logger.error("语音当前用药结构化写入失败") }
+            }
+        case "emergencyContact":
+            if let contact = VoiceProfileRules.emergencyContact(from: value) {
+                do { try await persistor.saveVoiceEmergencyContact(patientId: patientId, contact: contact) }
+                catch { logger.error("语音紧急联系人结构化写入失败") }
+            }
+        default:
+            break
+        }
     }
 
     /// 只在档案写入成功后记录，使用该次写入的成员身份而非 await 后的当前成员。

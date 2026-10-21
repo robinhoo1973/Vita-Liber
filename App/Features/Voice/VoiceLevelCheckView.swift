@@ -1,5 +1,6 @@
 import SwiftUI
 import AVFoundation
+import Speech
 import Domain
 import Infrastructure
 import Perception
@@ -36,6 +37,8 @@ struct VoiceLevelCheck: View {
     @State private var playbackFailed = false
     @State private var playbackTask: Task<Void, Never>?
     @State private var playbackSession: AudioSessionCapture.State?
+    /// 语音识别 TCC 与麦克风 TCC 是两件事：自检通过但识别未授权，首步听写仍失败。
+    @State private var speechDenied = false
 
     /// 关怀模式触控目标（常规 44 / 关怀 64，CLAUDE.md UI 纪律）。
     private var touchTarget: CGFloat {
@@ -120,6 +123,17 @@ struct VoiceLevelCheck: View {
                             .frame(minHeight: touchTarget)
                             .accessibilityIdentifier("voice.mic.openSettings")
                     }
+                } else if speechDenied {
+                    VStack(spacing: 6) {
+                        Label(L10n.voiceguide_speechUnavailable, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .multilineTextAlignment(.center)
+                            .accessibilityIdentifier("voice.mic.speechDenied")
+                        Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
+                            .frame(minHeight: touchTarget)
+                            .accessibilityIdentifier("voice.mic.speechSettings")
+                    }
                 } else if tooLow {
                     Label(L10n.voiceguide_micTooLow, systemImage: "exclamationmark.triangle")
                         .font(.caption)
@@ -129,7 +143,7 @@ struct VoiceLevelCheck: View {
 
                 // 规格步骤 0.5 的 [重新检测]：失败（先授权/换路由后重试）与
                 // 持续过低都给出同一重试出口，不必退回上一页。
-                if meter.failure != nil || tooLow || (!meter.isRunning && meter.hasRecording) {
+                if meter.failure != nil || tooLow || speechDenied || (!meter.isRunning && meter.hasRecording) {
                     Button(L10n.voiceguide_micRetry) { restart() }
                         .frame(minHeight: touchTarget)
                         .accessibilityIdentifier("voice.mic.retry")
@@ -179,18 +193,39 @@ struct VoiceLevelCheck: View {
             if abs(rms - level) >= 0.01 { level = rms }
             // 0.25s 节流：达标时刻只需支撑「持续过低」判定，逐 buffer
             // 写 @State 会让整个自检页每秒重算数十次（Efficiency 审查）。
-            if rms >= VoiceLevelMeter.lowThreshold,
+            if rms >= meter.lowThreshold,
                Date().timeIntervalSince(lastAdequateAt) >= 0.25 {
                 lastAdequateAt = Date()
             }
         }
-        startMeter()
-        startLowPoll()
+        Task { @MainActor in
+            guard await Self.ensureSpeechPermission() else {
+                speechDenied = true
+                return
+            }
+            speechDenied = false
+            startMeter()
+            startLowPoll()
+        }
     }
 
     private func restart() {
         finishCheck()
         begin()
+    }
+
+    private static func ensureSpeechPermission() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized: return true
+        case .denied, .restricted: return false
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status == .authorized)
+                }
+            }
+        @unknown default: return false
+        }
     }
 
     private func finishAndPass() { finished = true; finishCheck(); onPass() }
@@ -321,8 +356,17 @@ final class VoiceLevelMeter {
         case sessionFailed
     }
 
-    /// 判定「音量过低」的 RMS 阈值（实测经验值：耳语 ~0.01，正常 ~0.05-0.3）
+    /// 判定「音量过低」的 RMS 基准阈值（内置麦实测经验：耳语 ~0.01，正常 ~0.05-0.3）。
+    /// 蓝牙 HFP/外接麦增益低，按路由下调，避免用户被指向错误的「靠近麦克风」。
     static let lowThreshold: Float = 0.03
+
+    var lowThreshold: Float {
+        switch AVAudioSession.sharedInstance().currentRoute.inputs.first?.portType {
+        case .bluetoothHFP, .bluetoothLE: return 0.012
+        case .headsetMic, .usbAudio: return 0.02
+        default: return Self.lowThreshold
+        }
+    }
 
     var testPhrase: String { L10n.voiceguide_micPhrase }
     var onLevel: (@MainActor (Float) -> Void)?

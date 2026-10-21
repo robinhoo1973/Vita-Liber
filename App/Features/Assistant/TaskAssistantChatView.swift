@@ -174,6 +174,10 @@ struct TaskAssistantChatView: View {
                               allowsMultipleSelection: false,
                               onCompletion: handleImportedFile)
                 .onAppear { routeMonitor.start() }
+                // 任一录音路径开始（含 DictationInteraction 手势）都停止语音消息重放。
+                .onChangeCompat(of: chatDictation?.phase) { _, phase in
+                    if phase == .recording { stopVoicePlayback() }
+                }
                 // 语言/混说设置变化后重建听写模型（与 VoiceDictationButton 同纪律）
                 .task(id: "\(settingsStore.values[.voiceInputLanguages] ?? "")|\(settingsStore.values[.voiceMixedInput] ?? "")") {
                     ChatAudioStore.sweepTemporary()
@@ -372,6 +376,8 @@ struct TaskAssistantChatView: View {
     }
 
     private func playVoice(_ media: MediaInfo, messageID: UUID) {
+        // 播放与录音互斥：正在录音时先停止听写，避免把重放内容录进回答。
+        chatDictation?.stop()
         guard let filename = media.audioFilename,
               let url = ChatAudioStore.fileURL(filename) else { return }
         if playingMessageID == messageID {
@@ -670,6 +676,8 @@ struct TaskAssistantChatView: View {
             .accessibilityIdentifier("assistant.voiceTap")
         } else {
             Button {
+                stopVoicePlayback()
+                app.stopSpeaking()
                 ensureChatDictationModel()
                 chatDictation?.start()
             } label: {

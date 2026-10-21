@@ -131,6 +131,95 @@ public actor GRDBPatientPersistor: PatientPersisting {
         }
     }
 
+    public func saveVoiceAllergy(patientId: UUID, substance: String, severity: String,
+                                 reactionTags: [String], note: String?) async throws {
+        let canonical = SevereReactionRules.canonicalSeverity(severity)
+        let tags = String(data: try JSONEncoder().encode(reactionTags), encoding: .utf8) ?? "[]"
+        try await writer.write { db in
+            let existing = try String.fetchOne(db, sql: """
+                SELECT id FROM allergy_event WHERE patient_id = ? AND substance = ? LIMIT 1
+                """, arguments: [patientId.uuidString, substance])
+            let now = Date().timeIntervalSince1970
+            if let existing {
+                try db.execute(sql: """
+                    UPDATE allergy_event SET reaction_tags = ?, severity = ?, note = ?, updated_at = ?
+                    WHERE id = ?
+                    """, arguments: [tags, canonical, note, now, existing])
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO allergy_event
+                      (id, patient_id, substance, reaction_tags, severity, occurred_at, note,
+                       created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, arguments: [UUID().uuidString, patientId.uuidString, substance, tags,
+                                     canonical, now, note, now, now])
+            }
+        }
+    }
+
+    public func saveVoiceHealthProblem(patientId: UUID, name: String) async throws {
+        try await writer.write { db in
+            let exists = try Bool.fetchOne(db, sql: """
+                SELECT EXISTS(SELECT 1 FROM health_problem
+                              WHERE patient_id = ? AND archived = 0 AND name = ?)
+                """, arguments: [patientId.uuidString, name]) ?? false
+            guard !exists else { return }
+            let now = Date().timeIntervalSince1970
+            try db.execute(sql: """
+                INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
+                VALUES (?, ?, ?, NULL, 0, ?, ?)
+                """, arguments: [UUID().uuidString, patientId.uuidString, name, now, now])
+        }
+    }
+
+    public func saveVoiceEmergencyContact(patientId: UUID,
+                                          contact: EmergencyContactDraft) async throws {
+        try await writer.write { db in
+            let existing = try String.fetchOne(db, sql: """
+                SELECT id FROM contact WHERE patient_id = ? AND phone = ? AND is_emergency = 1 LIMIT 1
+                """, arguments: [patientId.uuidString, contact.phone])
+            let now = Date().timeIntervalSince1970
+            if let existing {
+                try db.execute(sql: """
+                    UPDATE contact SET name = ?, relation = ?, updated_at = ? WHERE id = ?
+                    """, arguments: [contact.name, contact.relation, now, existing])
+            } else {
+                try db.execute(sql: """
+                    INSERT INTO contact
+                      (id, patient_id, name, relation, phone, is_emergency, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                    """, arguments: [UUID().uuidString, patientId.uuidString, contact.name,
+                                     contact.relation, contact.phone, now, now])
+            }
+        }
+    }
+
+    public func saveVoiceMedication(patientId: UUID, name: String) async throws {
+        try await writer.write { db in
+            let existing = try String.fetchOne(db, sql: """
+                SELECT p.id FROM medication_plan p
+                JOIN medication m ON m.id = p.medication_id
+                WHERE p.patient_id = ? AND p.status = 'active' AND m.generic_name = ? LIMIT 1
+                """, arguments: [patientId.uuidString, name])
+            guard existing == nil else { return }
+            let medicationId = UUID().uuidString
+            let planId = UUID().uuidString
+            let now = Date().timeIntervalSince1970
+            try db.execute(sql: """
+                INSERT INTO medication (id, patient_id, generic_name, spec, unit_kind, created_at, updated_at)
+                VALUES (?, ?, ?, NULL, 'tablet', ?, ?)
+                """, arguments: [medicationId, patientId.uuidString, name, now, now])
+            let schedule = String(data: try JSONEncoder().encode(MedicationSchedule.asNeeded),
+                                  encoding: .utf8) ?? "{}"
+            try db.execute(sql: """
+                INSERT INTO medication_plan
+                  (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
+                   dose_plan_units, created_at, updated_at)
+                VALUES (?, ?, ?, 'active', ?, ?, NULL, NULL, ?, ?)
+                """, arguments: [planId, patientId.uuidString, medicationId, schedule, now, now, now])
+        }
+    }
+
     public func saveConsent(_ c: ConsentRecord) async throws {
         // 去重由调用侧按 key 保证（AppState.advanceDisclosure）；此处用普通 INSERT——
         // OR IGNORE 会静默吞掉外键/约束失败（ERR#35 防复发纪律：FK 写入禁用 IGNORE 语义）

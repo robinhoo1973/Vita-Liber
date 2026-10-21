@@ -195,6 +195,26 @@ struct VoiceGuidedProfileView: View {
         ]
     }
 
+    /// 断点续填：基础四项看档案当前值，访谈四项看持久完成键；全部完成时
+    /// 回到第一项供修改（不直接展示完成页）。
+    private var firstIncompleteStep: Int {
+        let target = patientId ?? app.currentPatientId
+        guard let profile = app.members.first(where: { $0.id == target && $0.deletedAt == nil }) else {
+            return 0
+        }
+        let completed = app.voiceInterviewCompleted(for: target)
+        func done(_ key: String) -> Bool {
+            switch key {
+            case "bloodType": return !(profile.bloodType ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            case "birthDate": return !(profile.birthDate ?? "").isEmpty
+            case "idNo": return !(profile.idNo ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            case "insuranceNo": return !(profile.insuranceNo ?? "").trimmingCharacters(in: .whitespaces).isEmpty
+            default: return completed.contains(key)
+            }
+        }
+        return steps.firstIndex(where: { !done($0.key) }) ?? 0
+    }
+
     /// 访谈三阶段（审查修复：此前 consentGiven/micChecked 两布尔构造出
     /// 四态、其中「未同意+已测麦」不可能态靠两处同时置位的约定避免——
     /// 枚举使不可能态不可表达，隐私卡绝不因疏忽被跳过）
@@ -391,8 +411,16 @@ struct VoiceGuidedProfileView: View {
             Spacer()
         }
         .padding(16)
-        // TestFlight 实测修复：提问自动朗读——进入访谈与每次换步都读一遍
-        .onAppear { app.speak(steps[stepIndex].prompt) }
+        // TestFlight 实测修复：提问自动朗读——进入访谈与每次换步都读一遍。
+        // 断点续填：进入时先跳到首个未完成步骤；若已在首步则直接朗读。
+        .onAppear {
+            let resume = firstIncompleteStep
+            if resume != stepIndex {
+                stepIndex = resume          // onChange 负责朗读新步骤
+            } else {
+                app.speak(steps[stepIndex].prompt)
+            }
+        }
         .onChangeCompat(of: stepIndex) { _, newStep in
             app.stopSpeaking()   // 上一题余音不得与新题叠读（更不得被麦克风采入）
             app.speak(steps[newStep].prompt)

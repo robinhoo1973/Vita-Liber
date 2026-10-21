@@ -37,6 +37,8 @@ final class VoiceDictationModel {
     /// 实时归一化 RMS（0…1，2026-10-20 聊天内波形）：由共享旁路录音缓冲计算，
     /// 不额外安装音频 tap（避免顶掉识别引擎的采集）。
     private(set) var audioLevel: Float = 0
+    /// 电平订阅 owner：旧模型 stop 只清自己的 handler，不抢新模型刚注册的。
+    private var levelOwner: UUID?
     /// 最近一次实际识别 locale（FR17.15 能力诚实：方言回落主语言时面板回显）
     private(set) var resolvedLocale: String?
     private(set) var resolvedEngineID: String?
@@ -159,7 +161,8 @@ final class VoiceDictationModel {
         isPreparing = engine is any TranscriptionCaptureReporting
         audioLevel = 0
         let levelSession = request.sessionID
-        AudioLevelMonitor.shared.setHandler { [weak self] level in
+        levelOwner = levelSession
+        AudioLevelMonitor.shared.setHandler(owner: levelSession) { [weak self] level in
             Task { @MainActor [weak self] in
                 guard let self,
                       self.currentID == levelSession || self.recordingID == levelSession else { return }
@@ -188,7 +191,8 @@ final class VoiceDictationModel {
         Haptics.impact(.light)
         recordingID = nil
         phase = .idle
-        AudioLevelMonitor.shared.setHandler(nil)
+        if let owner = levelOwner { AudioLevelMonitor.shared.clearHandler(owner: owner) }
+        levelOwner = nil
         audioLevel = 0
         let precedingControl = controlTask
         let engine = engine
@@ -209,7 +213,8 @@ final class VoiceDictationModel {
         currentID = nil
         recordingID = nil
         phase = .idle
-        AudioLevelMonitor.shared.setHandler(nil)
+        if let owner = levelOwner { AudioLevelMonitor.shared.clearHandler(owner: owner) }
+        levelOwner = nil
         audioLevel = 0
         failureReason = nil
         isPreparing = false            // 残留会让下次会话回显上一轮的「准备中」引擎名

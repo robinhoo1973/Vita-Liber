@@ -76,6 +76,7 @@ struct DisclosureCardsView: View {
 struct AddFamilyStepView: View {
     @Environment(AppState.self) private var app
     @State private var showCreate = false
+    @State private var showVoiceCreate = false
     @State private var addedHint = false
     /// 审查修复：落库失败必须可见（此前无条件弹「已添加」成功文案）
     @State private var addFailed = false
@@ -99,10 +100,15 @@ struct AddFamilyStepView: View {
                     }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("FR21.9.step4.manual")
-                    // P1 方式置灰说明（不假装可用）
-                    Label(L10n.onboardAddFamilyVoiceP1, systemImage: "mic")
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                    // V4.51：语音姓名建档入口（关系/生日仍由表单选择，不假装全语音）。
+                    Button {
+                        showVoiceCreate = true
+                    } label: {
+                        Label(L10n.onboardAddFamilyVoice, systemImage: "mic")
+                            .frame(maxWidth: .infinity, minHeight: 50)
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("FR21.9.step4.voice")
                     Label(L10n.onboardAddFamilyContactsP1, systemImage: "person.crop.rectangle")
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -134,6 +140,19 @@ struct AddFamilyStepView: View {
                             addFailed = true
                         }
                         showCreate = false
+                    }
+                }
+            }
+            .sheet(isPresented: $showVoiceCreate) {
+                MemberCreateSheet(voiceMode: true) { name, relation, birthDate in
+                    Task { @MainActor in
+                        if await app.addMember(name: name, relation: relation, birthDate: birthDate) {
+                            addedCount += 1
+                            addedHint = true
+                        } else {
+                            addFailed = true
+                        }
+                        showVoiceCreate = false
                     }
                 }
             }

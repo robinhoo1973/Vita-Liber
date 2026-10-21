@@ -16,13 +16,15 @@ extension AppState {
         default:
             guard let section = Self.voiceProfileSectionTitle(key) else { return false }
             // 结构化实体尚未接齐的访谈先保存完整原文，不推导医疗结论。
-            let line = "【\(section)】\(value)"
-            profile.note = [profile.note, line]
-                .compactMap { $0?.isEmpty == false ? $0 : nil }
-                .joined(separator: "\n")
+            profile.note = VoiceProfileRules.upsertingSection(
+                in: profile.note, section: section, value: value)
         }
         profile.updatedAt = Date().timeIntervalSince1970
-        return await updateMember(profile, completingVoiceInterviewStep: key, audit: audit)
+        let saved = await updateMember(profile, completingVoiceInterviewStep: key, audit: audit)
+        if saved {
+            await persistVoiceStructuredField(key, value: value, patientId: patientId)
+        }
+        return saved
     }
 
     private static func voiceProfileSectionTitle(_ key: String) -> String? {

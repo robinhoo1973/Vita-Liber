@@ -10,14 +10,27 @@ public final class AudioLevelMonitor: @unchecked Sendable {
 
     private let lock = NSLock()
     private var handler: (@Sendable (Float) -> Void)?
+    private var handlerOwner: UUID?
     private var lastEmit = Date.distantPast
     private var lastValue: Float = -1
 
-    public func setHandler(_ handler: (@Sendable (Float) -> Void)?) {
+    /// 注册电平 handler；`owner` 为会话/模型代次，停止时只清自己的订阅。
+    public func setHandler(owner: UUID? = nil, _ handler: (@Sendable (Float) -> Void)?) {
         lock.lock()
         self.handler = handler
+        self.handlerOwner = owner
         lastEmit = .distantPast
         lastValue = -1
+        lock.unlock()
+    }
+
+    /// 只清匹配 owner 的 handler；旧界面 stop 不会抢走新界面刚注册的订阅。
+    public func clearHandler(owner: UUID) {
+        lock.lock()
+        if handlerOwner == owner {
+            handler = nil
+            handlerOwner = nil
+        }
         lock.unlock()
     }
 

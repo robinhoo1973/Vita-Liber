@@ -1542,6 +1542,7 @@
 "onboard.addFamily.hint" = "幫家人管理檔案（可選，稍後可在設定中隨時新增）";
 "onboard.addFamily.manual" = "手動新增成員";
 "onboard.addFamily.voiceP1" = "語音引導建檔（即將推出）";
+"onboard.addFamily.voice" = "語音輸入姓名建檔";
 "onboard.addFamily.contactsP1" = "從通訊錄匯入（即將推出）";
 "onboard.addFamily.skip" = "跳過，開始使用";
 "onboard.addFamily.finish" = "完成，進入應用";
@@ -1726,6 +1727,7 @@
 "voiceguide.micPass" = "開始訪談";
 "voiceguide.micRetry" = "重新檢測";
 "voiceguide.micUnavailable" = "麥克風無法使用（音訊工作階段啟動失敗），請重試；也可跳過改用鍵盤輸入";
+"voiceguide.speechUnavailable" = "語音辨識未授權，請到系統設定允許，或跳過改用鍵盤輸入";
 "voiceguide.micInputDeviceFmt" = "目前輸入裝置：%@";
 "voiceguide.micPlay" = "播放錄音";
 "voiceguide.micPlaying" = "停止播放";

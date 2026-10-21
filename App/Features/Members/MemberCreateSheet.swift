@@ -3,7 +3,13 @@ import Domain
 import Perception
 
 struct MemberCreateSheet: View {
+    var voiceMode: Bool = false
     let onCreate: (String, String, String?) -> Void
+
+    init(voiceMode: Bool = false, onCreate: @escaping (String, String, String?) -> Void) {
+        self.voiceMode = voiceMode
+        self.onCreate = onCreate
+    }
     @State private var name = ""
     @State private var relation: MemberRelation = .child
     // 业主裁决 3（2026-09-26）：生日从自由文本改为结构控件（DatePicker + 可选开关），
@@ -28,6 +34,13 @@ struct MemberCreateSheet: View {
                 Form {
                     TextField(L10n.member_namePlaceholder, text: $name)
                         .accessibilityIdentifier("FR3.7.create.name")
+                    if voiceMode {
+                        VoiceDictationButton { transcript, _ in
+                            let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !trimmed.isEmpty { name = trimmed }
+                        }
+                        .accessibilityIdentifier("FR3.7.create.nameVoice")
+                    }
                     Picker(L10n.member_relation, selection: $relation) {
                         // 可选集单点 = Domain MemberRelation.creatable（结构轮 2026-09-15）。
                         ForEach(MemberRelation.creatable, id: \.self) { rel in

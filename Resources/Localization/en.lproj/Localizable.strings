@@ -1542,6 +1542,7 @@
 "onboard.addFamily.hint" = "Manage records for your family (optional — add anytime from Settings)";
 "onboard.addFamily.manual" = "Create member manually";
 "onboard.addFamily.voiceP1" = "Voice-guided setup (coming soon)";
+"onboard.addFamily.voice" = "Voice name for new member";
 "onboard.addFamily.contactsP1" = "Import from Contacts (coming soon)";
 "onboard.addFamily.skip" = "Skip, start using";
 "onboard.addFamily.finish" = "Finish and open the app";
@@ -1726,6 +1727,7 @@
 "voiceguide.micPass" = "Start Interview";
 "voiceguide.micRetry" = "Check Again";
 "voiceguide.micUnavailable" = "Microphone unavailable (audio session failed) — try again, or skip and type instead";
+"voiceguide.speechUnavailable" = "Speech recognition is not authorized. Allow it in Settings, or skip and type instead.";
 "voiceguide.micInputDeviceFmt" = "Current input device: %@";
 "voiceguide.micPlay" = "Play recording";
 "voiceguide.micPlaying" = "Stop playback";

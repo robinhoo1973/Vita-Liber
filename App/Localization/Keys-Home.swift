@@ -244,6 +244,8 @@ extension L10n {
 
     static var onboardAddFamilyVoiceP1: String { t("onboard.addFamily.voiceP1") }
 
+    static var onboardAddFamilyVoice: String { t("onboard.addFamily.voice") }
+
     static var onboardAddFamilyContactsP1: String { t("onboard.addFamily.contactsP1") }
 
     static var onboardAddFamilySkip: String { t("onboard.addFamily.skip") }
