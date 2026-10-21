@@ -1722,6 +1722,9 @@
 "voiceguide.micTitle" = "音量自检";
 "voiceguide.micPrompt" = "请用正常音量朗读下方句子，并观察音量条";
 "voiceguide.micPhrase" = "我的生日是三月十六日";
+"voiceguide.micTestPhrase" = "测试句";
+"voiceguide.micListenFirst" = "先听测试句，听到后请朗读";
+"voiceguide.micListening" = "正在聆听，请朗读";
 "voiceguide.micTooLow" = "音量偏低，请靠近麦克风再试";
 "voiceguide.micSkip" = "跳过，手动输入";
 "voiceguide.micPass" = "开始访谈";

@@ -1722,6 +1722,9 @@
 "voiceguide.micTitle" = "Mic Check";
 "voiceguide.micPrompt" = "Read the sentence below in your normal voice and watch the level bar";
 "voiceguide.micPhrase" = "My birthday is March sixteenth";
+"voiceguide.micTestPhrase" = "Test phrase";
+"voiceguide.micListenFirst" = "Listen first, then read it aloud";
+"voiceguide.micListening" = "Listening — read it aloud";
 "voiceguide.micTooLow" = "Volume is low — move closer to the microphone and try again";
 "voiceguide.micSkip" = "Skip, type instead";
 "voiceguide.micPass" = "Start Interview";

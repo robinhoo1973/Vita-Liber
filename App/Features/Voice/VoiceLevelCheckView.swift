@@ -35,10 +35,12 @@ struct VoiceLevelCheck: View {
     @State private var player: AVAudioPlayer?
     @State private var isPlaying = false
     @State private var playbackFailed = false
-    @State private var playbackTask: Task<Void, Never>?
+    @State private var playbackDelegate = MicCheckPlaybackDelegate()
     @State private var playbackSession: AudioSessionCapture.State?
     /// 语音识别 TCC 与麦克风 TCC 是两件事：自检通过但识别未授权，首步听写仍失败。
     @State private var speechDenied = false
+    /// TTS 测试句播完、开始录用户声音后才置 true（试听片段不得含 App 朗读）。
+    @State private var listening = false
 
     /// 关怀模式触控目标（常规 44 / 关怀 64，CLAUDE.md UI 纪律）。
     private var touchTarget: CGFloat {
@@ -47,120 +49,23 @@ struct VoiceLevelCheck: View {
 
     var body: some View {
         WithPerceptionTracking {
-            VStack(spacing: 20) {
-                Image(systemName: "waveform.and.mic")
-                    .font(VLFont.levelDisplay)
-                    .foregroundStyle(tooLow ? Color("semantic-warning", bundle: .main)
-                                           : Color("brand-primary", bundle: .main))
-                Text(L10n.voiceguide_micTitle).font(.title3.bold())
-                Text(L10n.voiceguide_micPrompt)
-                    .font(.footnote).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
-
-                // FR17.11 业主实测：自检必须告诉用户当前用的是哪个输入设备——
-                // 蓝牙耳机/外接麦克风接错时，「靠近麦克风」的提示会让人对着
-                // 手机白喊。路由变化（插拔耳机/蓝牙切换）即时刷新。
-                if !meter.inputDeviceName.isEmpty {
-                    Label(L10n.voiceguideMicInputDevice(meter.inputDeviceName), systemImage: "mic")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("voice.mic.inputDevice")
+            ScrollView {
+                VStack(spacing: 24) {
+                    hero
+                    if !meter.inputDeviceName.isEmpty { deviceChip }
+                    levelRing
+                    phraseCard
+                    statusArea
+                    if meter.hasRecording { replayRow }
+                    actions
                 }
-
-                // 测试句卡片（采集就绪后自动朗读一次——见 startMeter）
-                Text(meter.testPhrase)
-                    .font(.headline)
-                    .padding(.horizontal, 20).padding(.vertical, 14)
-                    .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
-
-                // 实时音量条（RMS 归一化；达标段绿、不足段警示色）
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color("bg-grouped", bundle: .main))
-                        Capsule()
-                            .fill(tooLow ? Color("semantic-warning", bundle: .main)
-                                         : Color("semantic-success", bundle: .main))
-                            .frame(width: max(8, geo.size.width * CGFloat(min(level * 4, 1.0))))
-                    }
-                    .frame(height: 10)
-                }
-                .frame(maxWidth: 280, minHeight: 10)
-
-                // 业主实测：只显示音量条不够——必须能重播刚录到的声音，
-                // 让用户自己判断音量和清晰度。试听即停采集（playback 会话），
-                // 播完/停止/离开页面均还原会话并删除临时文件。
-                if meter.hasRecording {
-                    Button {
-                        if isPlaying { stopPlayback() } else { playRecording() }
-                    } label: {
-                        Label(isPlaying ? L10n.voiceguide_micPlaying : L10n.voiceguide_micPlay,
-                              systemImage: isPlaying ? "stop.circle" : "play.circle")
-                            .frame(minHeight: touchTarget)
-                    }
-                    .accessibilityIdentifier("voice.mic.play")
-                    if playbackFailed {
-                        Label(L10n.voiceguide_micPlaybackFailed, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                            .accessibilityIdentifier("voice.mic.playbackFailed")
-                    }
-                }
-
-                // 失败与低音量必须分型（FR17.6）：权限拒绝/会话失败绝不能说成
-                // 「音量偏低」——用户会照着提示反复靠近麦克风，却永远无法通过。
-                if let failure = meter.failure {
-                    Label(failureMessage(failure), systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                        .accessibilityIdentifier("voice.mic.failure")
-                    // 权限被拒后「重新检测」只会再次读到 .denied——必须给系统设置出口，
-                    // 否则 FR17.6 的手输兜底之外是一条死路。
-                    if failure == .unauthorized {
-                        Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
-                            .frame(minHeight: touchTarget)
-                            .accessibilityIdentifier("voice.mic.openSettings")
-                    }
-                } else if speechDenied {
-                    VStack(spacing: 6) {
-                        Label(L10n.voiceguide_speechUnavailable, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
-                            .multilineTextAlignment(.center)
-                            .accessibilityIdentifier("voice.mic.speechDenied")
-                        Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
-                            .frame(minHeight: touchTarget)
-                            .accessibilityIdentifier("voice.mic.speechSettings")
-                    }
-                } else if tooLow {
-                    Label(L10n.voiceguide_micTooLow, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                        .accessibilityIdentifier("voice.mic.tooLow")
-                }
-
-                // 规格步骤 0.5 的 [重新检测]：失败（先授权/换路由后重试）与
-                // 持续过低都给出同一重试出口，不必退回上一页。
-                if meter.failure != nil || tooLow || speechDenied || (!meter.isRunning && meter.hasRecording) {
-                    Button(L10n.voiceguide_micRetry) { restart() }
-                        .frame(minHeight: touchTarget)
-                        .accessibilityIdentifier("voice.mic.retry")
-                }
-
-                HStack(spacing: 16) {
-                    Button(L10n.voiceguide_micSkip) { finishAndSkip() }
-                        .frame(minHeight: touchTarget)
-                    Button(L10n.voiceguide_micPass) { finishAndPass() }
-                        .buttonStyle(.borderedProminent)
-                        .frame(minHeight: touchTarget)
-                        .accessibilityIdentifier("voice.mic.pass")
-                }
+                .frame(maxWidth: 560)
                 .padding(.horizontal, 24)
-                Spacer()
+                .padding(.top, 28)
+                .padding(.bottom, 32)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.top, 32)
+            .scrollIndicators(.hidden)
             .onAppear {
                 // 隐私设置已关闭语音输入：不得再弹 TCC、开麦或写临时录音——
                 // 直接按「跳过自检」进入键盘可用的访谈（与 VoiceDictationButton 同语义）。
@@ -183,13 +88,167 @@ struct VoiceLevelCheck: View {
         }
     }
 
+    // MARK: - 自检版面
+
+    private var hero: some View {
+        VStack(spacing: 10) {
+            Text(L10n.voiceguide_micTitle)
+                .font(.title2.bold())
+            Text(L10n.voiceguide_micPrompt)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+        }
+    }
+
+    private var deviceChip: some View {
+        Label(L10n.voiceguideMicInputDevice(meter.inputDeviceName), systemImage: "mic")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color("bg-grouped", bundle: .main), in: Capsule())
+            .accessibilityIdentifier("voice.mic.inputDevice")
+    }
+
+    private var levelRing: some View {
+        ZStack {
+            Circle()
+                .stroke(Color("bg-grouped", bundle: .main), lineWidth: 8)
+                .frame(width: 128, height: 128)
+            Circle()
+                .trim(from: 0, to: max(0.02, min(CGFloat(level * 4), 1)))
+                .stroke(levelRingColor, style: StrokeStyle(lineWidth: 8, lineCap: .round))
+                .frame(width: 128, height: 128)
+                .rotationEffect(.degrees(-90))
+            Circle()
+                .fill(Color("brand-primary", bundle: .main).opacity(0.08))
+                .frame(width: 96, height: 96)
+            Image(systemName: "waveform.and.mic")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(levelRingColor)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private var levelRingColor: Color {
+        tooLow ? Color("semantic-warning", bundle: .main)
+               : Color("brand-primary", bundle: .main)
+    }
+
+    private var phraseCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(L10n.voiceguide_micTestPhrase)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "quote.opening")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            Text(meter.testPhrase)
+                .font(.title3.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            Text(listening ? L10n.voiceguide_micListening : L10n.voiceguide_micListenFirst)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .glassCard(cornerRadius: VLCornerRadius.compact)
+    }
+
+    @ViewBuilder
+    private var statusArea: some View {
+        if let failure = meter.failure {
+            statusBanner(failureMessage(failure), symbol: "exclamationmark.triangle",
+                         identifier: "voice.mic.failure")
+            if failure == .unauthorized { settingsButton(identifier: "voice.mic.openSettings") }
+        } else if speechDenied {
+            statusBanner(L10n.voiceguide_speechUnavailable, symbol: "exclamationmark.triangle",
+                         identifier: "voice.mic.speechDenied")
+            settingsButton(identifier: "voice.mic.speechSettings")
+        } else if tooLow {
+            statusBanner(L10n.voiceguide_micTooLow, symbol: "arrow.down.circle",
+                         identifier: "voice.mic.tooLow")
+        }
+        if meter.failure != nil || tooLow || speechDenied
+            || (!meter.isRunning && meter.hasRecording) {
+            Button(L10n.voiceguide_micRetry) { restart() }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity, minHeight: touchTarget)
+                .accessibilityIdentifier("voice.mic.retry")
+        }
+    }
+
+    private func statusBanner(_ text: String, symbol: String, identifier: String) -> some View {
+        Label(text, systemImage: symbol)
+            .font(.caption)
+            .foregroundStyle(Color("semantic-warning", bundle: .main))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background(Color("semantic-warning", bundle: .main).opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
+            .accessibilityIdentifier(identifier)
+    }
+
+    private func settingsButton(identifier: String) -> some View {
+        Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
+            .frame(maxWidth: .infinity, minHeight: touchTarget)
+            .accessibilityIdentifier(identifier)
+    }
+
+    private var replayRow: some View {
+        VStack(spacing: 6) {
+            Button {
+                if isPlaying { stopPlayback() } else { playRecording() }
+            } label: {
+                Label(isPlaying ? L10n.voiceguide_micPlaying : L10n.voiceguide_micPlay,
+                      systemImage: isPlaying ? "stop.circle" : "play.circle")
+                    .frame(maxWidth: .infinity, minHeight: touchTarget)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("voice.mic.play")
+            if playbackFailed {
+                Text(L10n.voiceguide_micPlaybackFailed)
+                    .font(.caption)
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("voice.mic.playbackFailed")
+            }
+        }
+    }
+
+    private var actions: some View {
+        VStack(spacing: 10) {
+            Button(L10n.voiceguide_micPass) { finishAndPass() }
+                .buttonStyle(.borderedProminent)
+                .frame(maxWidth: .infinity, minHeight: touchTarget)
+                .accessibilityIdentifier("voice.mic.pass")
+            Button(L10n.voiceguide_micSkip) { finishAndSkip() }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: touchTarget)
+        }
+    }
+
     private func begin() {
         level = 0
         tooLow = false
         playbackFailed = false
+        listening = false
         lastAdequateAt = Date()
         meter.discardRecording()
         meter.onLevel = { rms in
+            // TTS 测试句播放期间不呈现电平，也不计入达标——试听/通过必须来自用户声音。
+            guard !app.isSpeaking else {
+                if level != 0 { level = 0 }
+                return
+            }
             if abs(rms - level) >= 0.01 { level = rms }
             // 0.25s 节流：达标时刻只需支撑「持续过低」判定，逐 buffer
             // 写 @State 会让整个自检页每秒重算数十次（Efficiency 审查）。
@@ -261,20 +320,14 @@ struct VoiceLevelCheck: View {
         do {
             try AudioSessionCapture.activatePlaybackSession()
             let p = try AVAudioPlayer(contentsOf: url)
+            p.delegate = playbackDelegate
+            playbackDelegate.onFinish = { finishPlayback() }
             p.prepareToPlay()
             player = p
             playbackSession = prior
             isPlaying = true
             playbackFailed = false
             p.play()
-            playbackTask?.cancel()
-            playbackTask = Task { @MainActor in
-                while !Task.isCancelled, let p = player, p.isPlaying {
-                    do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
-                }
-                guard !Task.isCancelled else { return }
-                finishPlayback()
-            }
         } catch {
             AudioSessionCapture.restore(prior)
             player = nil
@@ -290,8 +343,6 @@ struct VoiceLevelCheck: View {
         player?.stop()
         player = nil
         isPlaying = false
-        playbackTask?.cancel()
-        playbackTask = nil
         if let prior = playbackSession {
             AudioSessionCapture.restore(prior)
             playbackSession = nil
@@ -306,9 +357,17 @@ struct VoiceLevelCheck: View {
         startTask = Task { @MainActor in
             await meter.start()
             guard !Task.isCancelled, meter.isRunning else { return }
-            // 宽限从「采集真正就绪」起算：权限弹窗/引擎启动耗时不得计入。
-            lastAdequateAt = Date()
+            // 先播测试句，播完才开录：录音片段只含用户声音，试听不会重放 TTS。
             app.speak(meter.testPhrase)
+            let deadline = Date().addingTimeInterval(8)
+            do { try await Task.sleep(nanoseconds: 150_000_000) } catch { return }   // 等合成器真正进入 speaking
+            while app.isSpeaking, Date() < deadline {
+                do { try await Task.sleep(nanoseconds: 100_000_000) } catch { return }
+            }
+            guard !Task.isCancelled, meter.isRunning else { return }
+            meter.beginRecording()
+            lastAdequateAt = Date()
+            listening = true
         }
     }
 
@@ -325,7 +384,7 @@ struct VoiceLevelCheck: View {
                 }
                 // 采集未就绪（权限弹窗/启动中）不得判定——旧实现从 onAppear
                 // 起算宽限，弹窗停留 3s 就必然先报「音量偏低」（Angle A #1）。
-                if meter.isRunning {
+                if meter.isRunning, listening {
                     let low = Date().timeIntervalSince(lastAdequateAt) >= 2.5
                     if low != tooLow { tooLow = low }
                 } else if tooLow {
@@ -388,7 +447,8 @@ final class VoiceLevelMeter {
     private var tapInstalled = false
     /// 采集前的会话状态快照（拆除时对称还原；采集激活单一出口 AudioSessionCapture）
     private var sessionState: AudioSessionCapture.State?
-    private var recorder: MicCheckRecorder?
+    private var recorder: AudioFileRecorder?
+    private var inputFormat: AVAudioFormat?
     private var routeObserver: NSObjectProtocol?
     private var configObserver: NSObjectProtocol?
     private var interruptionObserver: NSObjectProtocol?
@@ -444,20 +504,13 @@ final class VoiceLevelMeter {
             stop()
             return
         }
-        // 试听片段写到临时目录；创建失败不阻断电平自检（只失去回放能力）。
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("voice-mic-check-\(UUID().uuidString).caf")
-        if let recorder = MicCheckRecorder(url: url, format: format,
-                                           maxFrames: AVAudioFramePosition(format.sampleRate * Self.maxRecordingSeconds)) {
-            self.recorder = recorder
-            recordingURL = url
-        }
-        let recorder = self.recorder
+        // 试听片段在 TTS 播完后才由 beginRecording() 创建（录音不得包含 App 朗读）。
+        inputFormat = format
         // 投递节流：48kHz/1024 ≈ 47 buffer/秒，每个 buffer 都 hop 主线程并
         // 触发视图重算过密——|Δ|<0.01 的微小抖动跳过，归零必达（结束即清零）
         var lastSent: Float = -1
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            recorder?.write(buffer)
+            self?.recorder?.write(buffer)
             guard let channel = buffer.floatChannelData?[0] else { return }
             let n = Int(buffer.frameLength)
             var sum: Float = 0
@@ -497,6 +550,20 @@ final class VoiceLevelMeter {
         refreshInputDevice()
     }
 
+    /// TTS 测试句结束后开始写试听片段；创建失败只失去回放能力。
+    func beginRecording() {
+        guard started, recorder == nil, let format = inputFormat else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("voice-mic-check-\(UUID().uuidString).caf")
+        guard let recorder = AudioFileRecorder(
+            url: url, format: format, emitsLevel: false,
+            maxFrames: AVAudioFramePosition(format.sampleRate * Self.maxRecordingSeconds)) else {
+            return
+        }
+        self.recorder = recorder
+        recordingURL = url
+    }
+
     func stop() {
         guard started || starting || tapInstalled || sessionState != nil || recorder != nil else { return }
         startGeneration &+= 1   // 作废仍在权限弹窗/启动中的旧任务
@@ -510,6 +577,7 @@ final class VoiceLevelMeter {
         // 停写但不删文件：试听需要保留到 finishCheck/离开页面。
         recorder?.finish()
         recorder = nil
+        inputFormat = nil
         for observer in [routeObserver, configObserver, interruptionObserver].compactMap({ $0 }) {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -634,33 +702,15 @@ final class VoiceLevelMeter {
     }
 }
 
-/// 自检片段录制器：只写临时 CAF，不接共享 `AudioLevelMonitor`（其单 handler
-/// 属于听写模型，复用 `AudioFileRecorder` 会抢占电平订阅）。写盘失败只失去
-/// 试听能力，绝不影响音量判定。`@unchecked Sendable` 与 `AudioFileRecorder`
-/// 同口径：`AVAudioFile.write` 由单一音频线程调用，UI 侧仅在引擎停止后释放。
-private final class MicCheckRecorder: @unchecked Sendable {
-    private let file: AVAudioFile
-    private let maxFrames: AVAudioFramePosition
-    private var writtenFrames: AVAudioFramePosition = 0
-
-    init?(url: URL, format: AVAudioFormat, maxFrames: AVAudioFramePosition) {
-        let file: AVAudioFile
-        do { file = try AVAudioFile(forWriting: url, settings: format.settings) }
-        catch { return nil }
-        self.file = file
-        self.maxFrames = maxFrames
+/// 试听结束回调（AVAudioPlayer.delegate 是 weak，由视图侧强持有）。
+private final class MicCheckPlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
+    var onFinish: (@MainActor () -> Void)?
+    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        Task { @MainActor [weak self] in self?.onFinish?() }
     }
-
-    func write(_ buffer: AVAudioPCMBuffer) {
-        guard writtenFrames < maxFrames else { return }
-        do {
-            try file.write(from: buffer)
-            writtenFrames += AVAudioFramePosition(buffer.frameLength)
-        } catch {
-            // 试听是附加能力：磁盘满/格式不支持时保持电平自检可用。
-        }
+    nonisolated func audioPlayerDecodeErrorDidFinish(_ player: AVAudioPlayer, error: Error?) {
+        Task { @MainActor [weak self] in self?.onFinish?() }
     }
-
-    /// AVAudioFile 在释放时收尾文件头；工作线程已停止，主线程释放安全。
-    func finish() {}
 }
+
+

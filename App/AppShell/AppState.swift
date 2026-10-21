@@ -728,6 +728,17 @@ final class AppState {
     func stopSpeaking() {
         speechSynthesizer.stop()
     }
+
+    var isSpeaking: Bool { speechSynthesizer.isSpeaking }
+
+    /// 录音前等待 TTS 真正停止（最多 1s）：`stopSpeaking(at:.immediate)` 返回后
+    /// 引擎可能仍处于停止事务中，紧接激活采集偶发失败或录到尾音。
+    func stopSpeakingAndWait() async {
+        speechSynthesizer.stop()
+        for _ in 0..<20 where speechSynthesizer.isSpeaking {
+            do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
+        }
+    }
     private var voiceFallbackActive = false
 
     /// FR17.16 语音输出语言（六选一）；无对应发声时由合成器回退普通话并轻提示。

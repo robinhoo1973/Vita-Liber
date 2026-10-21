@@ -104,6 +104,12 @@ extension L10n {
 
     static var voiceguide_micPhrase: String { t("voiceguide.micPhrase") }
 
+    static var voiceguide_micTestPhrase: String { t("voiceguide.micTestPhrase") }
+
+    static var voiceguide_micListenFirst: String { t("voiceguide.micListenFirst") }
+
+    static var voiceguide_micListening: String { t("voiceguide.micListening") }
+
     static var voiceguide_micTooLow: String { t("voiceguide.micTooLow") }
 
     static var voiceguide_micSkip: String { t("voiceguide.micSkip") }

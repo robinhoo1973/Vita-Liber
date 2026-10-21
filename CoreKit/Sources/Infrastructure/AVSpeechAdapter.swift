@@ -41,5 +41,7 @@ public final class AVSpeechAdapter: SpeechSynthesizing, @unchecked Sendable {
     public func stop() {
         synthesizer.stopSpeaking(at: .immediate)
     }
+
+    public var isSpeaking: Bool { synthesizer.isSpeaking }
 }
 #endif

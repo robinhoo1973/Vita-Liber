@@ -13,6 +13,12 @@ public protocol SpeechSynthesizing: Sendable {
     @discardableResult
     func speak(_ text: String, localeIdentifier: String) -> SpeechOutcome
     func stop()
+    /// 是否仍有在途播报；默认 false（无完成回调的替身），AV 实现如实返回。
+    var isSpeaking: Bool { get }
+}
+
+public extension SpeechSynthesizing {
+    var isSpeaking: Bool { false }
 }
 
 /// 测试/Preview 替身：把播报记录下来供断言，不发声、不触碰任何系统服务。
