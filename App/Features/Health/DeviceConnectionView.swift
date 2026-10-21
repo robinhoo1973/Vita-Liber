@@ -45,7 +45,10 @@ final class F16DeviceState {
     var ownerPatientID: (@MainActor () -> UUID?)?
     /// 同步谓词由 phase 派生（单一事实源）——旧实现维护并行 syncRunning 布尔，
     /// 两条状态线与 phase 脱钩时会显示「同步中却可再次发起」或反之。
-    var isSyncing: Bool { phase == .syncing }
+    /// 2026-10-21：自动会话跨多个 chunk，chunk 之间 phase 会短暂落回 .done；
+    /// autoSessionActive 让按钮在整个会话期间保持禁用。
+    private var autoSessionActive = false
+    var isSyncing: Bool { phase == .syncing || autoSessionActive }
 
     init(syncService: HealthKitSyncService, dataChange: AppDataChangeCenter,
          settings: AppSettingsStore) {
@@ -104,12 +107,17 @@ final class F16DeviceState {
                          quietEnd: String = "07:00", maxWallTime: Duration = .seconds(900)) async {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
+        autoSessionActive = true
+        defer {
+            autoSessionActive = false
+            if phase == .syncing { phase = .idle }   // 取消/异常退出不留下永久「同步中」
+        }
         let start = ContinuousClock.now
         var idleChunks = 0
         var firstChunk = true
         while start.duration(to: .now) < maxWallTime {
             await sync(authEnabled: true, quietStart: quietStart, quietEnd: quietEnd,
-                       userInitiated: true, wakeAllKinds: firstChunk)
+                       userInitiated: true, wakeAllKinds: firstChunk, autoChunk: true)
             firstChunk = false
             if case .degraded = phase { break }
             guard let last = report, last.hasMore else { break }
@@ -197,9 +205,10 @@ final class F16DeviceState {
     /// continued processing（切后台续跑、系统显示进度、可取消）；回前台自动对账（非用户动作）不得使用该原语。
     func sync(authEnabled: Bool = true, quietStart: String = "22:00", quietEnd: String = "07:00", maxRounds: Int = 20,
               timeBudget: Duration = .seconds(30), userInitiated: Bool = false,
-              wakeAllKinds: Bool = true) async {
+              wakeAllKinds: Bool = true, autoChunk: Bool = false) async {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
-        guard !isSyncing else { return }
+        // autoChunk 是 syncUntilStable 的内部续跑：会话期间 isSyncing 恒真，必须放行。
+        guard autoChunk || !isSyncing else { return }
         // 回前台/手动同步：清掉后台按类别退避；自动 session 的后续 chunk 保留退避。
         if wakeAllKinds { await syncService.wakeAll() }
         phase = .syncing
