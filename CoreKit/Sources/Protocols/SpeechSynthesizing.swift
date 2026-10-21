@@ -13,12 +13,23 @@ public protocol SpeechSynthesizing: Sendable {
     @discardableResult
     func speak(_ text: String, localeIdentifier: String) -> SpeechOutcome
     func stop()
+    /// 停止播报并等到本合成器不再发声。默认实现轮询 `isSpeaking`
+    /// （无完成回调的替身）；AV 实现用 delegate 完成回调，避免
+    /// `stopSpeaking(at:.immediate)` 返回后音频尾音仍被麦克风采入。
+    func stopAndWait() async
     /// 是否仍有在途播报；默认 false（无完成回调的替身），AV 实现如实返回。
     var isSpeaking: Bool { get }
 }
 
 public extension SpeechSynthesizing {
     var isSpeaking: Bool { false }
+
+    func stopAndWait() async {
+        stop()
+        for _ in 0..<20 where isSpeaking {
+            do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
+        }
+    }
 }
 
 /// 测试/Preview 替身：把播报记录下来供断言，不发声、不触碰任何系统服务。

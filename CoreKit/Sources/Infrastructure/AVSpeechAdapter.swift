@@ -11,12 +11,17 @@ import Protocols
 /// 只做两件事：按回退链解析发声 locale（规则来自 Protocols 的 `SpeechFallback`，
 /// 本类不自定义规则），然后交给 `AVSpeechSynthesizer` 播报。
 /// 语速取 FR14.7「默认语速」偏好，未设时用系统默认。
-public final class AVSpeechAdapter: SpeechSynthesizing, @unchecked Sendable {
+public final class AVSpeechAdapter: NSObject, SpeechSynthesizing,
+                                    AVSpeechSynthesizerDelegate, @unchecked Sendable {
     private let synthesizer = AVSpeechSynthesizer()
     private let rateProvider: @Sendable () -> Float?
+    private let stopLock = NSLock()
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
 
     public init(rateProvider: @escaping @Sendable () -> Float? = { nil }) {
         self.rateProvider = rateProvider
+        super.init()
+        synthesizer.delegate = self
     }
 
     /// 平台可发声 locale 集合（探测一次，`AVSpeechSynthesisVoice.speechVoices()`
@@ -42,6 +47,40 @@ public final class AVSpeechAdapter: SpeechSynthesizing, @unchecked Sendable {
         synthesizer.stopSpeaking(at: .immediate)
     }
 
+    /// 先登记等待者再停止：`stopSpeaking` 可能同步触发 didCancel，若先停后
+    /// 登记，delegate 早已回调、等待者永远挂住。空闲时停止不会触发 delegate，
+    /// 由 stop 返回后的 `isSpeaking` 检查兜底 flush。
+    public func stopAndWait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            stopLock.lock()
+            stopWaiters.append(continuation)
+            stopLock.unlock()
+            synthesizer.stopSpeaking(at: .immediate)
+            if !synthesizer.isSpeaking { finishStopWaiters() }
+        }
+    }
+
     public var isSpeaking: Bool { synthesizer.isSpeaking }
+
+    // MARK: - AVSpeechSynthesizerDelegate
+
+    public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                  didFinish utterance: AVSpeechUtterance) {
+        finishStopWaiters()
+    }
+
+    public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
+                                  didCancel utterance: AVSpeechUtterance) {
+        finishStopWaiters()
+    }
+
+    /// 幂等：delegate 与 isSpeaking 兜底可能同时到达，只放行一次。
+    private func finishStopWaiters() {
+        stopLock.lock()
+        let waiters = stopWaiters
+        stopWaiters.removeAll()
+        stopLock.unlock()
+        for waiter in waiters { waiter.resume() }
+    }
 }
 #endif

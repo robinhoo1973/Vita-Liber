@@ -731,13 +731,10 @@ final class AppState {
 
     var isSpeaking: Bool { speechSynthesizer.isSpeaking }
 
-    /// 录音前等待 TTS 真正停止（最多 1s）：`stopSpeaking(at:.immediate)` 返回后
-    /// 引擎可能仍处于停止事务中，紧接激活采集偶发失败或录到尾音。
+    /// 录音前等待 TTS 真正停止：AV 实现以 delegate 完成回调放行，
+    /// 不再用固定 20×50ms 轮询猜测停止事务何时结束。
     func stopSpeakingAndWait() async {
-        speechSynthesizer.stop()
-        for _ in 0..<20 where speechSynthesizer.isSpeaking {
-            do { try await Task.sleep(nanoseconds: 50_000_000) } catch { return }
-        }
+        await speechSynthesizer.stopAndWait()
     }
     private var voiceFallbackActive = false
 
