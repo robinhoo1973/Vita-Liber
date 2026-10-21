@@ -87,18 +87,26 @@ public enum VoiceProfileRules {
     /// （「阿司匹林肠溶片」）——只删除**带数量词**的剂量片段，不再全局删剂型字。
     public static func medicationNames(from value: String) -> [String] {
         let separators = CharacterSet(charactersIn: "、,，;；\n")
-        let noise = ["每天", "每日", "一日", "两次", "三次", "一次", "口服", "饭后", "饭前",
+        let noise = ["每天", "每日", "一日", "两次", "三次", "一次", "饭后", "饭前",
                      "早上", "晚上", "中午", "服用", "吃", "还有", "以及"]
         let dosePattern = #"[0-9０-９一二三四五六七八九十半.]+\s*(?:毫克|mg|克|g|毫升|ml|单位|iu)"#
         let doseRegex: NSRegularExpression?
         do { doseRegex = try NSRegularExpression(pattern: dosePattern, options: [.caseInsensitive]) }
         catch { doseRegex = nil }
+        // 「口服」是服药途径，但「口服液」是剂型/药名的一部分——负向前瞻保留后者。
+        let oralRegex: NSRegularExpression?
+        do { oralRegex = try NSRegularExpression(pattern: #"口服(?!液)"#) }
+        catch { oralRegex = nil }
         var seen = Set<String>()
         return value.components(separatedBy: separators).compactMap { raw in
             var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
             if let doseRegex {
                 text = doseRegex.stringByReplacingMatches(
+                    in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
+            }
+            if let oralRegex {
+                text = oralRegex.stringByReplacingMatches(
                     in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
             }
             for word in noise { text = text.replacingOccurrences(of: word, with: " ") }
