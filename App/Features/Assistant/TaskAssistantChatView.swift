@@ -1,6 +1,5 @@
 import SwiftUI
 import UIKit
-import AVFoundation
 import PhotosUI
 import UniformTypeIdentifiers
 import Perception
@@ -57,9 +56,7 @@ struct TaskAssistantChatView: View {
     @State private var pickedPhoto: PhotosPickerItem?
 
     // 语音消息重放（2026-10-19；2026-10-20 转写文本常显）：本机音频文件。
-    @State private var audioPlayer: AVAudioPlayer?
-    @State private var playingMessageID: UUID?
-    @State private var audioDelegate = ChatAudioPlayerDelegate()
+    // 播放器已上提 AppState.voicePlayback（2026-10-21），页面只读 playingID。
     /// 已写入历史的视图消息 ID（媒体在 OCR 终态才落库，避免 processing 快照）。
     @State private var persistedMessageIDs: Set<UUID> = []
     /// 历史写入串行链：append 必须先于同消息的 update（2026-10-20）。
@@ -330,7 +327,7 @@ struct TaskAssistantChatView: View {
                 Button {
                     playVoice(media, messageID: messageID)
                 } label: {
-                    Image(systemName: playingMessageID == messageID ? "stop.circle.fill" : "play.circle.fill")
+                    Image(systemName: app.voicePlayback.playingID == messageID ? "stop.circle.fill" : "play.circle.fill")
                         .font(.title2)
                         .frame(minWidth: 44, minHeight: 44)
                 }
@@ -370,9 +367,7 @@ struct TaskAssistantChatView: View {
     }
 
     private func stopVoicePlayback() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        playingMessageID = nil
+        app.voicePlayback.stop()
     }
 
     private func playVoice(_ media: MediaInfo, messageID: UUID) {
@@ -380,30 +375,15 @@ struct TaskAssistantChatView: View {
         chatDictation?.stop()
         guard let filename = media.audioFilename,
               let url = ChatAudioStore.fileURL(filename) else { return }
-        if playingMessageID == messageID {
-            audioPlayer?.stop()
-            audioPlayer = nil
-            playingMessageID = nil
+        if app.voicePlayback.playingID == messageID {
+            app.voicePlayback.stop()
             return
         }
-        audioPlayer?.stop()
-        guard let player = try? AVAudioPlayer(contentsOf: url) else {   // try?-ok: 文件缺失/损坏 → 不播
+        // 双向互斥：开始重放前停掉 TTS，避免朗读与语音消息叠音。
+        app.stopSpeaking()
+        if !app.voicePlayback.play(url: url, id: messageID) {
             append(.init(role: .assistant, text: L10n.assistantVoiceReplayFailed, isRefusal: true))
-            return
         }
-        player.delegate = audioDelegate
-        audioDelegate.onFinish = { [messageID] in
-            guard playingMessageID == messageID else { return }
-            audioPlayer = nil
-            playingMessageID = nil
-        }
-        player.prepareToPlay()
-        guard player.play() else {
-            append(.init(role: .assistant, text: L10n.assistantVoiceReplayFailed, isRefusal: true))
-            return
-        }
-        audioPlayer = player
-        playingMessageID = messageID
     }
 
     /// 助手侧信息卡（2026-10-19）：开篇行右侧编辑图标进入修正/确认；完成后显示勾。
@@ -1645,16 +1625,4 @@ private struct ChatVoiceStatusCard: View {
     }
 }
 
-/// 聊天语音重放结束回调（2026-10-20）：AVAudioPlayer.delegate 是 weak，
-/// 必须由视图侧强持有；自然播完/解码失败时复位气泡图标。
-private final class ChatAudioPlayerDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
-    var onFinish: (@MainActor () -> Void)?
 
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor [weak self] in self?.onFinish?() }
-    }
-
-    nonisolated func audioPlayerDecodeErrorDidFinish(_ player: AVAudioPlayer, error: Error?) {
-        Task { @MainActor [weak self] in self?.onFinish?() }
-    }
-}

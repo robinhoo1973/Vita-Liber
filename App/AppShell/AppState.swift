@@ -50,6 +50,8 @@ final class AppState {
 
     /// TTS 端口（FR17.13/17.16）。默认经 EAL 注册表取生产适配器；测试注入 RecordingSpeechSynthesizer。
     let speechSynthesizer: any SpeechSynthesizing
+    /// 语音消息重放的应用级单出口：TTS/录音开始前统一停止，避免叠音与回声。
+    let voicePlayback = VoicePlaybackCoordinator()
     /// FR12.11 图片文字识别端口。默认经 EAL 注册表取生产实现；测试注入桩。
     let imageRecognizer: any ImageTextRecognizing
     /// F17 语音输入引擎端口（ADR-023，经 EAL 接入）。默认经注册表取；测试可注入。
@@ -713,6 +715,7 @@ final class AppState {
     /// 也为了 FR17.16 输出语言指定将来只需改这一处。
     func speak(_ text: String) {
         guard !text.isEmpty else { return }
+        voicePlayback.stop()
         // 审查修复（FR17.16）：回退发生后播报前轻提示当前发声语言——
         // 原实现丢弃 SpeechOutcome(didFallback)，运行时回退提示从不出现。
         // 首次回退后的每次播报先入队提示再入队正文（合成器顺序队列）。
@@ -726,6 +729,7 @@ final class AppState {
     /// （「已回读一半则中断并按当前路由重判定」——决策半场在
     /// ReadbackPolicy，本方法只执行停止动作）。
     func stopSpeaking() {
+        voicePlayback.stop()
         speechSynthesizer.stop()
     }
 
@@ -734,6 +738,7 @@ final class AppState {
     /// 录音前等待 TTS 真正停止：AV 实现以 delegate 完成回调放行，
     /// 不再用固定 20×50ms 轮询猜测停止事务何时结束。
     func stopSpeakingAndWait() async {
+        voicePlayback.stop()
         await speechSynthesizer.stopAndWait()
     }
     private var voiceFallbackActive = false
