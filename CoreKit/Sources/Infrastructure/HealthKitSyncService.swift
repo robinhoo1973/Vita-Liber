@@ -337,7 +337,7 @@ public actor HealthKitSyncService {
             total.cycleCompletedAt = state.completedAt
             total.cycleStableKinds = state.stableKinds.count
             total.cycleTotalKinds = HealthDataKind.allCases.count
-            if !state.isComplete { total.hasMore = true }
+            total.hasMore = !state.isComplete
         }
         // 自动会话未达完成态（到时/无进展/仍有工作）→ hasMore 必须为 true，
         // UI 不得把“暂停”显示成“完成”。
@@ -624,7 +624,8 @@ public actor HealthKitSyncService {
                     if !cycle.isComplete { try await imports.completeCycle(binding: binding) }
                     cycle = try await imports.cycleState(binding: binding)
                 }
-                if !cycle.isComplete { report.hasMore = true }
+                // 周期完成即无待续工作；清掉前面类别留下的瞬时 hasMore。
+                report.hasMore = !cycle.isComplete
             }
             // 审查修复（共享轮次取消不丢进度）：每类页处理完即落盘报告——
             // 创建方被取消（视图拆除 / permissionRevoked → cancelSync）时共享
