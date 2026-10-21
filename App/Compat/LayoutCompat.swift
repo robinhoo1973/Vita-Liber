@@ -53,5 +53,57 @@ struct VLDownloadActivityIcon: View {
         .accessibilityHidden(true)   // 装饰性：进行态由阶段文案/进度值承担（HomeSubviews detailText）
     }
 }
+/// 旋转型进行态图标（同步/检查/刷新）。iOS 16 可用：TimelineView 帧驱动，
+/// 只做 transform，不改变布局；Reduce Motion 时静态。装饰性，语义由文案承担。
+struct VLRotatingActivityIcon: View {
+    var symbol: String
+    var isActive: Bool
+    var font: Font = .body
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if isActive && !reduceMotion {
+                TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+                    let turn = timeline.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 1.2) / 1.2
+                    Image(systemName: symbol)
+                        .rotationEffect(.degrees(turn * 360))
+                }
+            } else {
+                Image(systemName: symbol)
+            }
+        }
+        .font(font)
+        .accessibilityHidden(true)
+    }
+}
+
+/// 脉动型进行态图标（OCR/AI/语音识别）。仅 transform + opacity，Reduce Motion 静态。
+struct VLPulsingActivityIcon: View {
+    var symbol: String
+    var isActive: Bool
+    var font: Font = .body
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Group {
+            if isActive && !reduceMotion {
+                TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+                    let phase = sin(timeline.date.timeIntervalSinceReferenceDate
+                        * 2 * .pi / 1.4)
+                    Image(systemName: symbol)
+                        .opacity(0.62 + 0.38 * (phase + 1) / 2)
+                        .scaleEffect(CGFloat(0.94 + 0.10 * (phase + 1) / 2))
+                }
+            } else {
+                Image(systemName: symbol)
+            }
+        }
+        .font(font)
+        .accessibilityHidden(true)
+    }
+}
+
 enum ContentMarginPlacementCompat { case automatic, scrollContent }   // 不能直接暴露 iOS 17 类型 ContentMarginPlacement
 enum ListSectionSpacingCompat { case `default`, compact }

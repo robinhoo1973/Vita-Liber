@@ -794,7 +794,13 @@ struct SyncStatusSectionView: View {
             Section {
                 switch deviceState.phase {
                 case .idle: EmptyView()
-                case .syncing: ProgressView(L10n.f16Syncing)
+                case .syncing:
+                    HStack(spacing: 8) {
+                        VLRotatingActivityIcon(symbol: "arrow.triangle.2.circlepath",
+                                               isActive: true)
+                        Text(L10n.f16Syncing)
+                    }
+                    .accessibilityIdentifier("SP-29.health.syncRunning")
                 case .done(let count):
                     // report 存在时已同步行数由下方报告块渲染——这里只在
                     // 无报告兜底显示，避免「已同步 N 行」重复两行（round10 实测）。

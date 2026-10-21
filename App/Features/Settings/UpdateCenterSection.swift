@@ -132,9 +132,10 @@ struct UpdateCenterSection: View {
                 Button {
                     center.checkAll()
                 } label: {
-                    HStack {
-                        Label(L10n.updateCenterCheckAll, systemImage: "arrow.triangle.2.circlepath")
-                        if center.isBusy { ProgressView().controlSize(.small) }
+                    HStack(spacing: 8) {
+                        VLRotatingActivityIcon(symbol: "arrow.triangle.2.circlepath",
+                                               isActive: center.isBusy)
+                        Text(L10n.updateCenterCheckAll)
                     }
                     .frame(maxWidth: .infinity, minHeight: 44)
                 }

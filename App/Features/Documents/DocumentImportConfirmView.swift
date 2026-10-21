@@ -400,7 +400,12 @@ private struct ImportReviewSessionView: View {
                         }
                     } else if session.errorMessage != nil {
                         VLUnavailableView(L10n.docImportFailed, systemImage: "exclamationmark.triangle")
-                    } else { ProgressView() }
+                    } else {
+                        HStack(spacing: 8) {
+                            VLPulsingActivityIcon(symbol: "doc.text.magnifyingglass", isActive: true)
+                            ProgressView().controlSize(.small)
+                        }
+                    }
                 }
                 .disabled(session.isPreparing || session.isBulkDeferring)
                 .toolbar {

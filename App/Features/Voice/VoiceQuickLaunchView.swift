@@ -159,7 +159,8 @@ struct VoiceQuickLaunchView: View {
                                 HStack(spacing: 6) {
                                     GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
                                     if refining {
-                                        ProgressView().controlSize(.small)
+                                        VLPulsingActivityIcon(symbol: "sparkles",
+                                                              isActive: true, font: .caption2)
                                     } else if let revision, revision.original == accumulatedText {
                                         switch revision.safety {
                                         case .accepted: Text(L10n.voiceVersionRefinedHint)

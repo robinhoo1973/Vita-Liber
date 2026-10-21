@@ -1611,7 +1611,7 @@ private struct ChatVoiceStatusCard: View {
                         AssistantVoiceWaveform(model: model)
                         Text(model.isPreparing ? L10n.asrPreparing : L10n.assistantVoiceRecording)
                     } else {
-                        ProgressView().controlSize(.small)
+                        VLPulsingActivityIcon(symbol: "waveform", isActive: true, font: .caption)
                         Text(L10n.assistantVoiceRecognizing)
                     }
                     Spacer(minLength: 0)

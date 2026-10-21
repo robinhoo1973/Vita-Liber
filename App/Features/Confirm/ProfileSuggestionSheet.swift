@@ -134,7 +134,9 @@ struct ProfileSuggestionSheet: View {
     @ViewBuilder
     private func statusLabel(_ state: RowState) -> some View {
         switch state {
-        case .busy: ProgressView().controlSize(.small)
+        case .busy:
+            VLRotatingActivityIcon(symbol: "arrow.triangle.2.circlepath",
+                                   isActive: true, font: .caption2)
         case .written: Text(L10n.profileSuggestionApplied).font(.caption).foregroundStyle(.secondary)
         case .existing: Text(L10n.profileSuggestionExisting).font(.caption).foregroundStyle(.secondary)
         case .skipped: Text(L10n.profileSuggestionSkipped).font(.caption).foregroundStyle(.secondary)

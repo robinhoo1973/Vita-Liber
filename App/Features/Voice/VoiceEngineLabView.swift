@@ -76,9 +76,11 @@ struct VoiceEngineLabView: View {
                     LabeledContent(L10n.voiceLabAssetLabel, value: assetLabel)
                     if assetStatus == .downloadable {
                         Button { install() } label: {
-                            Label(installing ? L10n.voiceLabInstalling : L10n.voiceLabInstall,
-                                  systemImage: "arrow.down.circle")
-                                .frame(minHeight: 44)
+                            HStack(spacing: 8) {
+                                VLDownloadActivityIcon(isActive: installing)
+                                Text(installing ? L10n.voiceLabInstalling : L10n.voiceLabInstall)
+                            }
+                            .frame(minHeight: 44)
                         }
                         .disabled(installing)
                         .accessibilityIdentifier("SP-62.asset.install")

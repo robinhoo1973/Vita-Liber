@@ -51,7 +51,8 @@ struct ResourceManagementView: View {
             Section(L10n.resourceActiveTitle) {
                 ForEach(installCenter.active, id: \.id) { install in
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack {
+                        HStack(spacing: 8) {
+                            VLDownloadActivityIcon(isActive: !install.isPaused, font: .caption)
                             Text(L10n.voiceEngineName(install.choice))
                                 .font(.subheadline)
                             Spacer()
@@ -193,10 +194,12 @@ struct ResourceManagementView: View {
     private var remoteRow: some View {
         if case .updateAvailable(let candidate) = catalogState.remoteState {
             VStack(alignment: .leading, spacing: 8) {
-                Label(L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion),
-                      systemImage: "arrow.down.circle")
-                    .font(.subheadline)
-                    .accessibilityIdentifier("SP-64.medicalCatalog.status")
+                HStack(spacing: 8) {
+                    VLDownloadActivityIcon(isActive: catalogState.isUpdating)
+                    Text(L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion))
+                }
+                .font(.subheadline)
+                .accessibilityIdentifier("SP-64.medicalCatalog.status")
                 Text(L10n.resourceCatalogCandidateDetailFmt(
                     String(candidate.dataVersion.prefix(8)),
                     ByteCountFormatter.string(fromByteCount: candidate.packageSize, countStyle: .file)))
@@ -219,7 +222,8 @@ struct ResourceManagementView: View {
 
     private func updateProgressRow(_ progress: MedicalCatalogDownloadProgress) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(spacing: 6) {
+                VLDownloadActivityIcon(isActive: true, font: .caption)
                 Text(catalogPhaseText(progress))
                     .font(.caption)
                     .foregroundStyle(.secondary)

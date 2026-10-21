@@ -270,7 +270,11 @@ struct BackupView: View {
                         .font(.footnote)
                         .accessibilityIdentifier("SP-24.backup.degraded")
                 case .working:
-                    ProgressView().accessibilityIdentifier("SP-24.backup.working")
+                    HStack(spacing: 8) {
+                        VLPulsingActivityIcon(symbol: "icloud.and.arrow.down", isActive: true)
+                        ProgressView().controlSize(.small)
+                    }
+                    .accessibilityIdentifier("SP-24.backup.working")
                 case .idle:
                     EmptyView()
                 }

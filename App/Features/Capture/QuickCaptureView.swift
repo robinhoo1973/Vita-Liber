@@ -215,7 +215,13 @@ struct QuickCaptureView: View {
                             capturePromptCard
                             captureActions
                             if docs.activeImport != nil {
-                                if docs.activeImport?.isPreparing == true { ProgressView() }
+                                if docs.activeImport?.isPreparing == true {
+                                    HStack(spacing: 8) {
+                                        VLPulsingActivityIcon(symbol: "doc.text.magnifyingglass",
+                                                              isActive: true)
+                                        ProgressView().controlSize(.small)
+                                    }
+                                }
                                 Button(L10n.pendingCardResume) { recoverSelection() }.buttonStyle(.borderedProminent)
                             }
                         }

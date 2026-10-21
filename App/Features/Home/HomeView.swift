@@ -810,7 +810,8 @@ struct HomeView: View {
     /// 完成全部类别后消失；不暴露类别明细，仅给稳定进度。
     private var healthSyncIndicator: some View {
         HStack(spacing: 12) {
-            ProgressView()
+            VLRotatingActivityIcon(symbol: "arrow.triangle.2.circlepath",
+                                   isActive: true, font: .body)
             VStack(alignment: .leading, spacing: 2) {
                 Text(L10n.homeHealthSyncActive)
                     .font(.subheadline.weight(.medium))

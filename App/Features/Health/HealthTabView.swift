@@ -178,9 +178,12 @@ struct HealthTabView: View {
                         router.navigate(to: .deviceConnection)
                     }
                 } label: {
-                    Label(deviceState.isSyncing ? L10n.f16Syncing : L10n.f16SyncNow,
-                          systemImage: "arrow.triangle.2.circlepath")
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                    HStack(spacing: 8) {
+                        VLRotatingActivityIcon(symbol: "arrow.triangle.2.circlepath",
+                                               isActive: deviceState.isSyncing)
+                        Text(deviceState.isSyncing ? L10n.f16Syncing : L10n.f16SyncNow)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(deviceState.isSyncing)
