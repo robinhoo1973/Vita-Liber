@@ -48,7 +48,9 @@ public enum VoiceProfileRules {
         var result: [AllergyEntry] = []
         for raw in value.components(separatedBy: separators) {
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty, !text.contains("无过敏"), !text.contains("没有过敏") else { continue }
+            guard !text.isEmpty,
+                  !text.contains("无过敏"), !text.contains("没有过敏"),
+                  !["没有", "无", "没", "不清楚", "不知道"].contains(text) else { continue }
             let severity: String
             if text.contains("重") || text.contains("休克") { severity = "重" }
             else if text.contains("中") { severity = "中" }
@@ -98,9 +100,10 @@ public enum VoiceProfileRules {
         do { oralRegex = try NSRegularExpression(pattern: #"口服(?!液)"#) }
         catch { oralRegex = nil }
         var seen = Set<String>()
+        let negatives: Set<String> = ["没有", "无", "没", "没吃药", "没有吃药", "不吃药", "无用药"]
         return value.components(separatedBy: separators).compactMap { raw in
             var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
+            guard !text.isEmpty, !negatives.contains(text) else { return nil }
             if let doseRegex {
                 text = doseRegex.stringByReplacingMatches(
                     in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")

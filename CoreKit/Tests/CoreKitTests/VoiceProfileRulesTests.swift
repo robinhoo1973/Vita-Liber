@@ -47,6 +47,8 @@ struct VoiceProfileRulesTests {
         #expect(allergies[0].substance == "青霉素")
         #expect(allergies[0].severity == "轻")
         #expect(VoiceProfileRules.allergies(from: "无过敏").isEmpty)
+        #expect(VoiceProfileRules.allergies(from: "没有").isEmpty)
+        #expect(VoiceProfileRules.allergies(from: "不知道").isEmpty)
         #expect(VoiceProfileRules.healthProblemNames(from: "既往史：高血压、糖尿病") == ["高血压", "糖尿病"])
         let contact = VoiceProfileRules.emergencyContact(from: "女儿 张三 13800138000")
         #expect(contact?.name == "张三")
@@ -61,6 +63,8 @@ struct VoiceProfileRulesTests {
         #expect(VoiceProfileRules.medicationNames(from: "维生素B12 片") == ["维生素B12 片"])
         #expect(VoiceProfileRules.medicationNames(from: "和胃整肠丸") == ["和胃整肠丸"])
         #expect(VoiceProfileRules.medicationNames(from: "每天口服阿司匹林") == ["阿司匹林"])
+        #expect(VoiceProfileRules.medicationNames(from: "没有").isEmpty)
+        #expect(VoiceProfileRules.medicationNames(from: "没吃药").isEmpty)
         #expect(VoiceProfileRules.medicationNames(from: "清热解毒口服液") == ["清热解毒口服液"])
     }
 
