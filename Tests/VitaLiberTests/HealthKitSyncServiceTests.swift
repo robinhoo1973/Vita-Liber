@@ -490,6 +490,7 @@ extension HealthKitSyncServiceTests {
         var firstKinds: [HealthDataKind] = []
         var seenCount = 0
         for _ in HealthDataKind.allCases {
+            await sync.wakeAll()
             _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
             let requests = await provider.requests
             guard requests.count > seenCount else {
@@ -527,6 +528,61 @@ extension HealthKitSyncServiceTests {
         let summary = try await imports.dashboard().types.first { $0.kind == .bloodOxygen }
         XCTAssertEqual(summary?.rowCount, 2)
         XCTAssertEqual(summary?.dayCount, 2)
+    }
+}
+
+// 2026-10-21 按类别监控 / 自动稳定 session 回归。
+extension HealthKitSyncServiceTests {
+    private func markAllKindsComplete(_ imports: HealthImportStore,
+                                      binding: HealthImportStore.Binding) async throws {
+        for kind in HealthDataKind.allCases {
+            try await imports.markRecentComplete(kind: kind)
+            try await imports.markHistoryComplete(kind: kind, depth: binding.historyDepth)
+        }
+        _ = try await imports.markInitialCompletedIfCovered()
+    }
+
+    func test_kindQuiesceStopsQueriesAfterThreeIdleRoundsAndWakeRestores() async throws {
+        let (db, imports, binding) = try await makeStore()
+        try await markAllKindsComplete(imports, binding: binding)
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        for _ in 0..<3 {
+            _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+        }
+        let before = await provider.requests.count
+        _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+        let after = await provider.requests.count
+        XCTAssertEqual(after, before, "连续三轮无工作后，下一轮不再询问任何类别")
+        await sync.wakeAll()
+        _ = try await sync.performSync(quietStart: "22:00", quietEnd: "07:00")
+        let afterWake = await provider.requests.count
+        XCTAssertGreaterThan(afterWake, after, "wakeAll 必须恢复查询")
+    }
+
+    func test_kindFilteredSessionOnlyQueriesRequestedKind() async throws {
+        let (db, imports, _) = try await makeStore()
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        _ = try await sync.performSyncAll(quietStart: "22:00", quietEnd: "07:00",
+                                          maxRounds: 1, timeBudget: .seconds(2),
+                                          kinds: [.sleep])
+        let kinds = await provider.requests.map(\.kind)
+        XCTAssertFalse(kinds.isEmpty)
+        XCTAssertEqual(Set(kinds), [.sleep], "类别 session 不得查询其他类别")
+    }
+
+    func test_stopWhenStableCompletesAfterTwoCleanRounds() async throws {
+        let (db, imports, binding) = try await makeStore()
+        try await markAllKindsComplete(imports, binding: binding)
+        let provider = HealthSyncFixtureProvider(kind: .bloodOxygen, pages: [], snapshots: [])
+        let sync = service(db, imports: imports, provider: provider)
+        let report = try await sync.performSyncAll(
+            quietStart: "22:00", quietEnd: "07:00",
+            maxRounds: 20, timeBudget: .seconds(5),
+            stopWhenStable: true, idleLimit: 3)
+        XCTAssertFalse(report.hasMore)
+        XCTAssertLessThanOrEqual(report.rounds ?? 0, 2)
     }
 }
 

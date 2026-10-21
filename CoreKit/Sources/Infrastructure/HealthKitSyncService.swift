@@ -41,6 +41,14 @@ public actor HealthKitSyncService {
     /// 2026-10-20：回填请求去重。旧实现每轮 cancel+submit，earliestBeginDate
     /// 被反复推到 now+60min，活跃设备上 BGProcessing 可能永远排不上。
     private var lastBackfillRequestAt: Date?
+    /// 2026-10-21 业主裁决：按类别退避。连续 3 轮该类别无新行/变更、且无
+    /// pending/repair/失败，才暂停查询 5 分钟；observer/回前台/周期探针重新唤醒。
+    private struct KindIdleState {
+        var idleRounds = 0
+        var quiescedUntil: Date?
+    }
+    private var kindIdleStates: [HealthDataKind: KindIdleState] = [:]
+    private static let kindQuiesceSeconds: TimeInterval = 300
 
     public init(provider: any HealthReadingProvider, writer: (any HealthWritingProvider)? = nil,
                 imports: HealthImportStore, guidelines: GuidelineStore,
@@ -54,6 +62,7 @@ public actor HealthKitSyncService {
         try await provider.requestAuthorization()
         // A completed request says nothing about individual read permissions.
         let binding = try await imports.connect(depth: depth)
+        kindIdleStates.removeAll()
         #if os(iOS)
         await maintainBackgroundAutomation()
         #endif
@@ -67,11 +76,23 @@ public actor HealthKitSyncService {
     /// 手动修复（业主 2026-10-20）：清健康导入派生状态，下一次同步按所选范围完整重扫。
     public func restartImport() async throws {
         try await imports.resetImportStateForRewalk()
+        kindIdleStates.removeAll()
+    }
+
+    /// 按类别唤醒：observer 只唤醒发生变化的类别；周期探针到期也走这里。
+    public func wake(kind: HealthDataKind) {
+        kindIdleStates[kind] = KindIdleState()
+    }
+
+    /// 回前台/手动同步：全部类别重新参与（不沿用后台退避）。
+    public func wakeAll() {
+        kindIdleStates.removeAll()
     }
 
     @discardableResult
     public func setHistoryDepth(_ depth: HealthHistoryDepth) async throws -> HealthImportStore.Binding? {
         let binding = try await imports.setHistoryDepth(depth)
+        kindIdleStates.removeAll()
         #if os(iOS)
         await maintainBackgroundAutomation()
         #endif
@@ -133,16 +154,27 @@ public actor HealthKitSyncService {
                                timeBudget: Duration = .seconds(30),
                                /// 后台投递专用：已有共享轮次时最多等这么久（不杀共享任务）。
                                joinTimeout: Duration? = nil,
+                               /// 2026-10-21：按类别创建监控同步 session；nil = 全部六类。
+                               kinds: [HealthDataKind]? = nil,
+                               /// 2026-10-21 业主裁决：用户会话自动跑到稳定态；后台轮次保持原语义。
+                               /// 稳定 = 增量模式 + 无 pending/repair/失败 + 连续两轮无 hasMore；
+                               /// 另以连续 idleLimit 轮无新增作为无进展兜底，避免空页永远循环。
+                               stopWhenStable: Bool = false,
+                               idleLimit: Int = 3,
                                /// 每轮完成的进度回调（C6 评审修复：iOS 26 continued processing
                                /// 要求全程上报 NSProgress，否则系统优先终止无进度任务）
                                onRound: (@Sendable (Int) -> Void)? = nil) async throws -> SyncReport {
         let start = ContinuousClock.now
         let deadline = start.advanced(by: timeBudget)
         var total: SyncReport?
+        var completeStreak = 0
+        var idleChunks = 0
+        var sessionComplete = false
         for roundIndex in 0..<max(1, maxRounds) {
             try Task.checkCancellation()
             let result = try await performSync(quietStart: quietStart, quietEnd: quietEnd,
-                                               joinTimeout: joinTimeout, deadline: deadline)
+                                               joinTimeout: joinTimeout, deadline: deadline,
+                                               kinds: kinds)
             onRound?(roundIndex + 1)
             if var aggregate = total, aggregate.bindingId == result.bindingId, aggregate.patientId == result.patientId {
                 aggregate.persistedRows += result.persistedRows
@@ -204,11 +236,37 @@ public actor HealthKitSyncService {
             } else {
                 total = result
             }
-            if !result.hasMore || start.duration(to: .now) >= timeBudget { break }
+            if stopWhenStable {
+                // 自动会话：完成态 + pending/repair 才是真停止；行数不增长只作
+                // 无进展兜底（空页/重复页可以连续 0 新增但仍有工作）。
+                var initial = true
+                do { initial = try await imports.importMode().isInitial } catch { initial = true }
+                var pending = true
+                do { pending = try await imports.hasPendingWork() } catch { pending = true }
+                var repairs = 1
+                do { repairs = try await imports.pendingRepairTotal() } catch { repairs = 1 }
+                let complete = !initial && !pending && repairs == 0
+                    && result.failedTypes.isEmpty && !result.hasMore
+                sessionComplete = complete
+                completeStreak = complete ? completeStreak + 1 : 0
+                let worked = result.persistedRows > 0 || result.receivedChanges > 0
+                    || (result.staleReferences ?? 0) > 0
+                idleChunks = (!worked && !pending && repairs == 0 && result.failedTypes.isEmpty)
+                    ? idleChunks + 1 : 0
+                if completeStreak >= 2 || idleChunks >= max(1, idleLimit)
+                    || start.duration(to: .now) >= timeBudget {
+                    break
+                }
+            } else if !result.hasMore || start.duration(to: .now) >= timeBudget {
+                break
+            }
         }
         // maxRounds ≥ 1 时首轮必产出；守卫兜底无绑定（missingOwner 与
         // performSync 内部缺失绑定的失败语义一致）。
         guard var total else { throw HealthImportStore.ImportError.missingOwner }
+        // 自动会话未达完成态（到时/无进展/仍有工作）→ hasMore 必须为 true，
+        // UI 不得把“暂停”显示成“完成”。
+        if stopWhenStable, !sessionComplete { total.hasMore = true }
         // C1-8d：总墙钟时长（诊断「慢」的每唤醒归因；ContinuousClock 起止差）
         let elapsed = start.duration(to: .now)
         total.wallTime = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
@@ -217,7 +275,8 @@ public actor HealthKitSyncService {
 
     public func performSync(quietStart: String, quietEnd: String,
                             joinTimeout: Duration? = nil,
-                            deadline: ContinuousClock.Instant? = nil) async throws -> SyncReport {
+                            deadline: ContinuousClock.Instant? = nil,
+                            kinds: [HealthDataKind]? = nil) async throws -> SyncReport {
         try Task.checkCancellation()
         if let inFlight {
             // C1-5 join 陈旧检测：共享轮次超过阈值仍无终态（疑似 HK 查询悬挂）时，
@@ -244,7 +303,7 @@ public actor HealthKitSyncService {
         inFlightID = id
         inFlightStartedAt = Date()   // C1-5：随新轮次同置（join 支路陈旧检测的时间基准）
         let task = Task { try await self.runAndRecord(id: id, quietStart: quietStart, quietEnd: quietEnd,
-                                                      deadline: deadline) }
+                                                      deadline: deadline, kinds: kinds) }
         inFlight = task
         // Only the creator owns cancellation of shared work. Registration also closes the startup race.
         let report = try await withTaskCancellationHandler {
@@ -293,9 +352,10 @@ public actor HealthKitSyncService {
 
     /// 合并调用者共享整个轮次，含状态落盘；完成后才释放flight，避免反复加入已完成任务。
     private func runAndRecord(id: UUID, quietStart: String, quietEnd: String,
-                              deadline: ContinuousClock.Instant? = nil) async throws -> SyncReport {
+                              deadline: ContinuousClock.Instant? = nil,
+                              kinds: [HealthDataKind]? = nil) async throws -> SyncReport {
         defer { if inFlightID == id { inFlight = nil; inFlightID = nil } }
-        var report = try await run(quietStart: quietStart, quietEnd: quietEnd, deadline: deadline)
+        var report = try await run(quietStart: quietStart, quietEnd: quietEnd, deadline: deadline, kinds: kinds)
         // C1 埋点：每轮累计轮数（必须先 run 再计数——此前写在 let report 声明前，
         // macOS CI 编译报 use of local variable before declaration；Linux 因
         // HealthKit 平台守卫编译桩单元而全盲，属 macOS 可见面型检盲区）
@@ -318,7 +378,8 @@ public actor HealthKitSyncService {
     }
 
     private func run(quietStart: String, quietEnd: String,
-                     deadline: ContinuousClock.Instant? = nil) async throws -> SyncReport {
+                     deadline: ContinuousClock.Instant? = nil,
+                     kinds: [HealthDataKind]? = nil) async throws -> SyncReport {
         try Task.checkCancellation()
         // round2 H3/H-N4：开关关闭是独立失败态，不再与缺本人档案混为 missingOwner（视图三态文案依赖分型）
         guard try await imports.isEnabled() else { throw HealthImportStore.ImportError.disabled }
@@ -333,8 +394,9 @@ public actor HealthKitSyncService {
         // 公平调度（2026-10-20）：固定顺序 + 单一全局 deadline 会让心率等重类型
         // 耗尽预算，睡眠排在最后永远拿不到查询机会。轮转起点 + 按剩余类型均分
         // 每类 deadline，保证每次受限轮次六类都有份额；跨轮转起点分散重活。
-        let orderedKinds = HealthImportScheduling.rotated(HealthDataKind.allCases, startingAt: kindRotationStart)
-        kindRotationStart = (kindRotationStart + 1) % max(1, HealthDataKind.allCases.count)
+        let selectedKinds = kinds ?? HealthDataKind.allCases
+        let orderedKinds = HealthImportScheduling.rotated(selectedKinds, startingAt: kindRotationStart)
+        kindRotationStart = (kindRotationStart + 1) % max(1, selectedKinds.count)
         for (offset, kind) in orderedKinds.enumerated() {
             let now = ContinuousClock.now
             // 全局 deadline：真到点才退出；正常路径下每类已有自己的份额。
@@ -349,6 +411,16 @@ public actor HealthKitSyncService {
                     remaining: now.duration(to: $0),
                     kindsLeft: orderedKinds.count - offset))
             }
+            // 按类别退避：初始全量重扫不暂停；observer 指定类强制唤醒。
+            let forceKind = kinds?.contains(kind) == true
+            if !initialMode, !forceKind,
+               let quiet = kindIdleStates[kind], let until = quiet.quiescedUntil,
+               until > Date() {
+                continue
+            }
+            let rowsBefore = report.persistedRows
+            let changesBefore = report.receivedChanges
+            let staleBefore = report.staleReferences ?? 0
             var hasPending = false
             do {
                 try Task.checkCancellation()
@@ -425,6 +497,36 @@ public actor HealthKitSyncService {
                 let reason = String(String(describing: error).prefix(200))
                 if !reason.isEmpty && !reasons.contains(reason) { reasons.append(reason) }
                 report.failureReasons = reasons
+            }
+            // 每类独立退避：只有“无 work + 无 pending + 无 repair + 无失败 + 非初始”
+            // 连续 3 轮才 quiesce；任何一项不满足立即重置。初始重扫永不暂停。
+            if !initialMode {
+                var pendingLeft = true
+                do {
+                    if try await imports.pendingBatch(binding: binding, kind: kind) != nil {
+                        pendingLeft = true
+                    } else {
+                        pendingLeft = false
+                    }
+                } catch { pendingLeft = true }
+                var repairs = 1
+                do { repairs = try await imports.pendingRepairCount(binding: binding, kind: kind) }
+                catch { repairs = 1 }
+                let worked = report.persistedRows > rowsBefore
+                    || report.receivedChanges > changesBefore
+                    || (report.staleReferences ?? 0) > staleBefore
+                let failed = report.failedTypes.contains(kind)
+                if !pendingLeft, !hasPending, repairs == 0, !failed, !worked {
+                    var quiet = kindIdleStates[kind] ?? KindIdleState()
+                    quiet.idleRounds += 1
+                    if quiet.idleRounds >= 3 {
+                        quiet.idleRounds = 0
+                        quiet.quiescedUntil = Date().addingTimeInterval(Self.kindQuiesceSeconds)
+                    }
+                    kindIdleStates[kind] = quiet
+                } else {
+                    kindIdleStates[kind] = KindIdleState()
+                }
             }
             report.hasMore = report.hasMore || hasPending
             // 审查修复（共享轮次取消不丢进度）：每类页处理完即落盘报告——
@@ -740,7 +842,8 @@ public actor HealthKitSyncService {
     /// 投递唤醒专用执行体（2026-10-04 评审 C1-6：HealthKit 后台投递每次唤醒仅约 15s，
     /// 与 refresh 共用 8 轮/18s 处理器系统性跑不完——分槽后投递走轻量预算
     /// 「先排期 refresh 再受限排空」；缺省回落 backgroundSyncHandler 保测试/装配兼容）。
-    nonisolated(unsafe) public static var backgroundObserverHandler: (@Sendable () async -> Bool)?
+    /// 2026-10-21：observer 逐类别回调，参数是该次投递的 `HealthDataKind`。
+    nonisolated(unsafe) public static var backgroundObserverHandler: (@Sendable (HealthDataKind) async -> Bool)?
     /// 回填执行体（App 装配：读静默时段设置 → `performSyncAll(maxRounds: 按预算, timeBudget: 预算)`）。
     nonisolated(unsafe) public static var backgroundBackfillHandler: (@Sendable (Duration) async -> BackgroundJobOutcome)?
     nonisolated(unsafe) public static var backgroundCancelHandler: (@Sendable () async -> Void)?
@@ -787,10 +890,10 @@ public actor HealthKitSyncService {
         }
         do {
             let enabled = try await canAutomaticallySync()
-            let handler: @Sendable () async -> Bool = {
+            let handler: @Sendable (HealthDataKind) async -> Bool = { kind in
                 Self.lastObserverDeliveryAt = Date()
                 // C1-6：投递唤醒优先走专用轻量处理器；未装配时回落共享处理器（测试/兼容）
-                if let observer = Self.backgroundObserverHandler { return await observer() }
+                if let observer = Self.backgroundObserverHandler { return await observer(kind) }
                 return (await Self.backgroundSyncHandler?()) ?? false
             }
             // 自愈：上次注册不可用，或超过 7 天没有任何投递 → 重建 query。

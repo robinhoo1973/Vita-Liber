@@ -110,6 +110,13 @@ extension HealthImportStore {
         }
     }
 
+    /// 自动同步会话的稳定判据：全库待重算窗口总数（不区分类型）。
+    public func pendingRepairTotal() async throws -> Int {
+        try await writer.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM hk_repair_window") ?? 0
+        }
+    }
+
     public func completeRepairWindow(binding: Binding, kind: HealthDataKind,
                                      window: HealthImportWindow) async throws {
         try await writer.write { db in

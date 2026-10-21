@@ -209,10 +209,9 @@ struct HealthTabView: View {
     /// 手动同步（与 SP-29 同一状态机与参数口径——quiet hours 经 SettingsRules 解析，
     /// userInitiated=true 走 iOS 26 continued processing 后台续跑通道）。
     private func syncNow() async {
-        await deviceState.sync(authEnabled: healthEnabled,
+        await deviceState.syncUntilStable(authEnabled: healthEnabled,
             quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
-            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd),
-            userInitiated: true)
+            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
     }
 
     // MARK: - 检索与总览入口

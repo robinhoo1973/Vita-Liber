@@ -98,6 +98,30 @@ final class F16DeviceState {
         }
     }
 
+    /// 2026-10-21 业主裁决：用户点一次后自动续跑，直到完成/连续无增长/总墙钟上限。
+    /// 每 chunk 仍走既有 continued/foreground 通道；状态持久化，可被系统随时挂起。
+    func syncUntilStable(authEnabled: Bool = true, quietStart: String = "22:00",
+                         quietEnd: String = "07:00", maxWallTime: Duration = .seconds(900)) async {
+        guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
+        guard !isSyncing else { return }
+        let start = ContinuousClock.now
+        var idleChunks = 0
+        var firstChunk = true
+        while start.duration(to: .now) < maxWallTime {
+            await sync(authEnabled: true, quietStart: quietStart, quietEnd: quietEnd,
+                       userInitiated: true, wakeAllKinds: firstChunk)
+            firstChunk = false
+            if case .degraded = phase { break }
+            guard let last = report, last.hasMore else { break }
+            // 持续失败不空转 900s：本轮已有失败类型时如实停下，交后台/用户重试。
+            if !last.failedTypes.isEmpty { break }
+            let worked = last.persistedRows > 0 || last.receivedChanges > 0
+                || (last.staleReferences ?? 0) > 0
+            idleChunks = worked ? 0 : idleChunks + 1
+            if idleChunks >= 3 { break }
+        }
+    }
+
     /// 2026-10-20：清健康导入派生状态并按所选范围完整重扫（权限晚授予/旧洞修复）。
     func restartImport() async {
         guard !isSyncing else { return }
@@ -172,9 +196,12 @@ final class F16DeviceState {
     /// `userInitiated`（round5 Q2）：用户点「立即同步」时为 true——iOS 26 经 `BackgroundWorkScheduler.runContinued` 提交
     /// continued processing（切后台续跑、系统显示进度、可取消）；回前台自动对账（非用户动作）不得使用该原语。
     func sync(authEnabled: Bool = true, quietStart: String = "22:00", quietEnd: String = "07:00", maxRounds: Int = 20,
-              timeBudget: Duration = .seconds(30), userInitiated: Bool = false) async {
+              timeBudget: Duration = .seconds(30), userInitiated: Bool = false,
+              wakeAllKinds: Bool = true) async {
         guard authEnabled else { phase = .degraded(L10n.f16AuthDisabled); return }
         guard !isSyncing else { return }
+        // 回前台/手动同步：清掉后台按类别退避；自动 session 的后续 chunk 保留退避。
+        if wakeAllKinds { await syncService.wakeAll() }
         phase = .syncing
         syncEpoch &+= 1
         let epoch = syncEpoch
@@ -202,8 +229,12 @@ final class F16DeviceState {
         // 用 owner 的合法取消权取消共享轮次并降级呈现（先置 degraded 再取消：
         // 取消路径的 catch 只覆盖 .syncing，不吞已置的降级态）；epoch 守卫防
         // 迟到看门狗误杀下一轮同步。
+        // 2026-10-21 修复：iOS 26 userInitiated 走 300s continued processing，
+        // 旧固定 45s 看门狗会把每次同步在半途取消（业主「每点一次只多一点」的直接原因）。
+        // 看门狗必须覆盖本次预算：userInitiated 360s，普通前台 45s。
+        let watchdogSeconds: Double = userInitiated ? 360 : 45
         let watchdog = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(45))   // try?-ok: 取消即结束
+            try? await Task.sleep(for: .seconds(watchdogSeconds))   // try?-ok: 取消即结束
             guard let self, !Task.isCancelled else { return }
             guard self.syncEpoch == epoch else { return }
             if self.phase == .syncing { self.phase = .degraded(L10n.f16SyncFailed) }
@@ -248,6 +279,7 @@ final class F16DeviceState {
                         let report = try await service.performSyncAll(
                             quietStart: quietStart, quietEnd: quietEnd, maxRounds: rounds,
                             timeBudget: budget,
+                            stopWhenStable: true,
                             onRound: { round in
                                 progressBox.value?.completedUnitCount = Int64(round)
                             })
@@ -669,10 +701,9 @@ struct DeviceConnectionView: View {
         })
     }
     private func sync() async {
-        await deviceState.sync(authEnabled: healthEnabled,
+        await deviceState.syncUntilStable(authEnabled: healthEnabled,
             quietStart: SettingsRules.resolved(settings.values[.quietHoursStart], key: .quietHoursStart),
-            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd),
-            userInitiated: true)
+            quietEnd: SettingsRules.resolved(settings.values[.quietHoursEnd], key: .quietHoursEnd))
     }
 
     // MARK: - 特征型候选（业主 2026-09-17 定）

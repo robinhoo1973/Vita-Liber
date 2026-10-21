@@ -344,18 +344,20 @@ struct VitaLiberApp: App {
         // 切断也有兜底通道）再受限排空（2 轮/10s，Domain 唤醒源分型背板）；积压由
         // backfill 承接。预算依据：HealthKit 后台投递每次唤醒仅约 15s（社区实测，
         // 待 L2 复核）；refresh 作业保持 8 轮/18s 不变。
-        HealthKitSyncService.backgroundObserverHandler = { [dataChange] in
+        HealthKitSyncService.backgroundObserverHandler = { [dataChange] kind in
             do {
                 guard try await bgSync.canAutomaticallySync() else { return false }
                 await bgSync.scheduleBackgroundRefresh()
+                // 2026-10-21 业主裁决：observer 带类别 → 只唤醒/同步该类别，
+                // 不清其他类别的退避状态；预算也只给这一类。
+                await bgSync.wake(kind: kind)
                 let start = try await healthSettings.value(for: .quietHoursStart)
                 let end = try await healthSettings.value(for: .quietHoursEnd)
-                // 2026-10-20：投递只做有界推进；completion 已由 Reader 提前确认，
-                // 撞上共享轮次最多等 2s，不把 15s 投递预算耗在 join 上。
+                // completion 已由 Reader 提前确认；撞共享轮次最多等 2s。
                 let report = try await bgSync.performSyncAll(
                     quietStart: start, quietEnd: end,
-                    maxRounds: 1, timeBudget: .seconds(5),
-                    joinTimeout: .seconds(2))
+                    maxRounds: 2, timeBudget: .seconds(10),
+                    joinTimeout: .seconds(2), kinds: [kind])
                 await MainActor.run {
                     if report.persistedRows > 0 { dataChange.metricsChanged() }
                     dataChange.alertsChanged()
