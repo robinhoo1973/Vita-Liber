@@ -268,7 +268,19 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
             intents[id] = nil
             delegated.insert(id)
             defer { delegated.remove(id) }
-            return try await baselineEngine().transcribe(request, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
+            // 委托轨是**另一个**转写器实例：聊天旁路录音 URL 必须转交，
+            // 否则 chat 语音消息只得到文本、没有音频文件（2026-10-21 审查）。
+            let baseline = baselineEngine()
+            await baseline.setRecordingURL(recordingURL)
+            do {
+                let result = try await baseline.transcribe(request, onPartial: onPartial,
+                                                           onCaptureStarted: onCaptureStarted)
+                await baseline.setRecordingURL(nil)
+                return result
+            } catch {
+                await baseline.setRecordingURL(nil)
+                throw error
+            }
         case .analyzer(let locale):
             return try await runAnalyzer(request: request, locale: locale, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
         }

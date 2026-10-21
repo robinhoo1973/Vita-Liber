@@ -165,14 +165,35 @@ struct VoiceGuidedProfileView: View {
     /// 答案静默丢失而访谈照常前进，用户以为已保存）
     let onCommitField: (_ key: String, _ value: String,
                         _ audit: VoiceExecutionAudit?) async -> Bool
+    /// 访谈建立时绑定的成员（BR-001）。nil = 当前成员（首页/设置入口）。
+    /// 成员详情页传入该成员，避免语音完善写到当前选中的另一人。
+    let patientId: UUID?
 
-    /// 访谈步骤（FR17.11 + FR3.1 紧急联系人基础字段随本条提前至 P0.5）
-    private let steps: [(key: String, prompt: String)] = [
-        ("allergy", L10n.voiceguide_promptAllergy),
-        ("pastHistory", L10n.voiceguide_promptHistory),
-        ("currentMeds", L10n.voiceguide_promptMeds),
-        ("emergencyContact", L10n.voiceguide_promptContact),
-    ]
+    /// 访谈步骤（FR17.11）：先基础信息四项（进度卡 1–4），再访谈四段。
+    /// 基础信息步骤此前完全缺失——成员详情页 1–4 行没有任何语音入口。
+    let steps: [(key: String, label: String, prompt: String)]
+
+    init(patientId: UUID? = nil,
+         steps: [(key: String, label: String, prompt: String)]? = nil,
+         onCommitField: @escaping (_ key: String, _ value: String,
+                                   _ audit: VoiceExecutionAudit?) async -> Bool) {
+        self.patientId = patientId
+        self.steps = steps ?? Self.defaultSteps
+        self.onCommitField = onCommitField
+    }
+
+    private static var defaultSteps: [(key: String, label: String, prompt: String)] {
+        [
+            ("bloodType", L10n.memberBloodType, L10n.voiceguide_promptBloodType),
+            ("birthDate", L10n.member_birthDateLabel, L10n.voiceguide_promptBirthDate),
+            ("idNo", L10n.memberIdNo, L10n.voiceguide_promptIdNo),
+            ("insuranceNo", L10n.memberInsuranceNo, L10n.voiceguide_promptInsuranceNo),
+            ("allergy", L10n.voiceguide_noteAllergy, L10n.voiceguide_promptAllergy),
+            ("pastHistory", L10n.voiceguide_noteHistory, L10n.voiceguide_promptHistory),
+            ("currentMeds", L10n.voiceguide_noteMeds, L10n.voiceguide_promptMeds),
+            ("emergencyContact", L10n.voiceguide_noteContact, L10n.voiceguide_promptContact),
+        ]
+    }
 
     /// 访谈三阶段（审查修复：此前 consentGiven/micChecked 两布尔构造出
     /// 四态、其中「未同意+已测麦」不可能态靠两处同时置位的约定避免——
@@ -252,19 +273,31 @@ struct VoiceGuidedProfileView: View {
                 // V11：意图/患者不匹配即丢弃。
                 if let draft = router.pendingVoiceIntent,
                    draft.intent != VoiceIntentKey.appendProfile.rawValue
-                    || (draft.patientId != nil && draft.patientId != app.currentPatientId) {
+                    || (draft.patientId != nil && draft.patientId != (patientId ?? app.currentPatientId)) {
                     router.pendingVoiceIntent = nil
                 }
                 if let draft = router.pendingVoiceIntent {
                     router.pendingVoiceIntent = nil
                     voiceAudit = draft.executionAudit()
+                    // 预填必须按键落到对应步骤：旧实现取 keyedValues 的第一个值
+                    //（字典序不定）塞进当前步——8 步表首步是 bloodType 时，
+                    //「青霉素过敏」会被写进血型字段（BR-003 数据污染）。
                     if answer.isEmpty,
-                       let v = draft.keyedValues.values.first(where: { !$0.isEmpty }) {
-                        answer = v
+                       let match = steps.enumerated().first(where: {
+                           !(draft.keyedValues[$0.element.key] ?? "").isEmpty
+                       }),
+                       let value = draft.keyedValues[match.element.key] {
+                        stepIndex = match.offset
+                        answer = value
                     }
                 }
             }
-            .onDisappear { routeMonitor.stop() }
+            .onDisappear {
+                routeMonitor.stop()
+                // 退出访谈必须停掉在途提问朗读：排队 TTS 会在下一入口被麦克风
+                // 采到并当成用户回答（BR-003 语音值污染）。
+                app.stopSpeaking()
+            }
         }
     }
 
@@ -302,6 +335,8 @@ struct VoiceGuidedProfileView: View {
         dictationBusy = false
         dictationConfidence = 1
         answer = ""
+        // 本题已落库：停掉提问余音，避免下一步 TTS 排队叠读。
+        app.stopSpeaking()
         // 审查修复（访谈终结态）：末步提交后 stepIndex 恒停 3、同一问题
         // 重新追问——再次回答会向 profile.note 追加第二段同节答案（档案
         // 出现重复条目）。末步完成进入完成态，杜绝重复作答。
@@ -335,6 +370,7 @@ struct VoiceGuidedProfileView: View {
                 .accessibilityIdentifier("FR17.11.answer")
             HStack(spacing: 12) {
                 Button(L10n.voiceguide_skip) {
+                    app.stopSpeaking()
                     dictationScope = UUID()
                     dictationBusy = false
                     dictationConfidence = 1
@@ -358,6 +394,7 @@ struct VoiceGuidedProfileView: View {
         // TestFlight 实测修复：提问自动朗读——进入访谈与每次换步都读一遍
         .onAppear { app.speak(steps[stepIndex].prompt) }
         .onChangeCompat(of: stepIndex) { _, newStep in
+            app.stopSpeaking()   // 上一题余音不得与新题叠读（更不得被麦克风采入）
             app.speak(steps[newStep].prompt)
         }
     }
@@ -400,9 +437,16 @@ struct VoiceGuidedProfileView: View {
             rejection = r
             return
         }
-        // FR17.13-entry: 语音指导 —— 走统一模板，不自建确认逻辑
+        // FR17.13-entry: 语音指导 —— 走统一模板，不自建确认逻辑。
+        // 基础信息（血型/生日/证件/医保）先做机械归一；无法可靠归一时保留
+        // 原文，由确认卡逐字段复核（BR-003：语音值一律 D→C）。
+        let key = steps[stepIndex].key
+        let normalized = VoiceProfileRules.normalizedValue(key: key, value: text) ?? text
         confirmSet = VoiceInputTemplate.confirmationSet(drafts: [
-            FieldDraft(key: steps[stepIndex].key, value: text, confidence: min(0.88, dictationConfidence))
+            FieldDraft(key: key, value: normalized,
+                       confidence: min(0.88, dictationConfidence),
+                       rawText: text,
+                       suggestedLabel: steps[stepIndex].label)
         ])
     }
 }

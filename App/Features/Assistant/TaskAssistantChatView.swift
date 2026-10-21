@@ -1608,7 +1608,8 @@ private struct ChatVoiceStatusCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
                     if model.phase == .recording {
-                        AssistantVoiceWaveform(model: model)
+                        RecordingWaveform(level: model.audioLevel, isActive: true,
+                                          accessibilityID: "assistant.voiceWaveform")
                         Text(model.isPreparing ? L10n.asrPreparing : L10n.assistantVoiceRecording)
                     } else {
                         VLPulsingActivityIcon(symbol: "waveform", isActive: true, font: .caption)
@@ -1635,36 +1636,6 @@ private struct ChatVoiceStatusCard: View {
         }
     }
 }
-
-/// 聊天内录音波形（2026-10-20）：真实 RMS 驱动的滚动条，不安装第二个音频 tap
-/// （电平来自共享 AudioFileRecorder 旁路缓冲）。无电平时保持最小高度。
-private struct AssistantVoiceWaveform: View {
-    let model: VoiceDictationModel
-    @State private var bars: [CGFloat] = Array(repeating: 0.12, count: 28)
-
-    var body: some View {
-        WithPerceptionTracking {
-            let level = model.audioLevel
-            HStack(alignment: .center, spacing: 2) {
-                ForEach(bars.indices, id: \.self) { index in
-                    Capsule()
-                        .fill(Color("semantic-danger", bundle: .main).opacity(0.85))
-                        .frame(width: 3, height: max(4, bars[index] * 26))
-                }
-            }
-            .frame(height: 28)
-            .onChangeCompat(of: level) { _, newValue in
-                var next = bars
-                next.removeFirst()
-                next.append(CGFloat(min(max(newValue * 4, 0), 1)))
-                bars = next
-            }
-            .accessibilityHidden(true)
-            .accessibilityIdentifier("assistant.voiceWaveform")
-        }
-    }
-}
-
 
 /// 聊天语音重放结束回调（2026-10-20）：AVAudioPlayer.delegate 是 weak，
 /// 必须由视图侧强持有；自然播完/解码失败时复位气泡图标。

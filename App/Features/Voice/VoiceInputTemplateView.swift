@@ -536,8 +536,8 @@ struct VoiceConfirmSheetPresenter: ViewModifier {
                         onSpeak: { app.speak($0) },
                         onStopSpeak: { app.stopSpeaking() },
                         onConfirm: onConfirm,
-                        onRetry: { confirmSet = nil },
-                        onCancel: { confirmSet = nil })
+                        onRetry: { app.stopSpeaking(); confirmSet = nil },
+                        onCancel: { app.stopSpeaking(); confirmSet = nil })
                     .presentationDetents([.medium])
                 }
             }

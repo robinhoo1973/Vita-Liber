@@ -392,6 +392,7 @@ struct VoiceDictationButton: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppRouter.self) private var router
     @Environment(M2HubStore.self) private var hub
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 完成回调：文本 + 引擎置信度（落 C 级草稿、低置信强制复核由 FR17.13 模板承担）
     let onTranscript: (String, Double) -> Void
     /// BR-012 横切动作注入（默认仅跳急救卡配置页；承载于 sheet/
@@ -404,6 +405,11 @@ struct VoiceDictationButton: View {
     var lastRecordingURL: Binding<URL?>? = nil
 
     @State private var model: VoiceDictationModel?
+
+    /// 关怀模式触控目标（常规 44 / 关怀 64）。
+    private var touchTarget: CGFloat {
+        (app.careMode ? CareModeMetrics.care : .standard).touchTarget
+    }
 
     var body: some View {
         WithPerceptionTracking {
@@ -418,14 +424,24 @@ struct VoiceDictationButton: View {
                         .accessibilityIdentifier("voice.dictation.authDisabled")
                 } else if let model {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation,
-                              systemImage: model.phase == .recording ? "stop.circle" : "mic")
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .padding(.horizontal, 12)
-                            .foregroundStyle(.white)
-                            .background(Color("brand-primary", bundle: .main), in: RoundedRectangle(cornerRadius: 8))
-                            .accessibilityIdentifier("voice.dictation.start")
-                            .modifier(DictationInteraction(model: model))
+                        HStack(spacing: 8) {
+                            Image(systemName: model.phase == .recording ? "stop.circle" : "mic")
+                                .recordingPulseCompat(isActive: model.phase == .recording && !reduceMotion)
+                            Text(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation)
+                            if model.phase == .recording {
+                                RecordingWaveform(level: model.audioLevel, isActive: true,
+                                                  color: .white, barCount: 7, maxHeight: 18,
+                                                  accessibilityID: "voice.dictation.waveform")
+                                    .transition(.opacity)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: touchTarget)
+                        .padding(.horizontal, 12)
+                        .foregroundStyle(.white)
+                        .background(Color("brand-primary", bundle: .main), in: RoundedRectangle(cornerRadius: 8))
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: model.phase)
+                        .accessibilityIdentifier("voice.dictation.start")
+                        .modifier(DictationInteraction(model: model))
                         if model.phase == .recording && !model.partial.isEmpty {
                             Text(model.partial)
                                 .font(.footnote)

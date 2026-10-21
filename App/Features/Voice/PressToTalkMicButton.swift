@@ -7,6 +7,7 @@ import Perception
 @MainActor
 struct PressToTalkMicButton: View {
     let model: VoiceDictationModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         WithPerceptionTracking {
@@ -27,20 +28,16 @@ struct PressToTalkMicButton: View {
                             .foregroundStyle(model.phase == .recording
                                              ? Color("semantic-danger", bundle: .main)
                                              : Color("brand-primary", bundle: .main))
-                            .recordingPulseCompat(isActive: model.phase == .recording)
+                            .recordingPulseCompat(isActive: model.phase == .recording && !reduceMotion)
                         if model.phase == .recording {
-                            HStack(alignment: .center, spacing: 3) {
-                                ForEach(Array([6.0, 12, 18, 12, 6].enumerated()), id: \.offset) { _, h in
-                                    Capsule()
-                                        .fill(Color("semantic-danger", bundle: .main))
-                                        .frame(width: 3, height: h)
-                                }
-                            }
-                            .transition(.opacity)
+                            RecordingWaveform(level: model.audioLevel, isActive: true,
+                                              barCount: 5, maxHeight: 18, spacing: 3,
+                                              accessibilityID: "SP-55.panel.waveform")
+                                .transition(.opacity)
                         }
                     }
                 }
-                .animation(.easeInOut(duration: 0.25), value: model.phase)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: model.phase)
                 .frame(minWidth: 128, minHeight: 128)   // 触控目标 ≥64pt（关怀模式纪律）
                 .accessibilityIdentifier("SP-55.panel.pressToTalk")
                 .accessibilityLabel(model.phase == .recording ? L10n.voicenoteStop : L10n.voicenoteDictation)

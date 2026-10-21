@@ -114,6 +114,32 @@ extension L10n {
 
     static var voiceguide_micUnavailable: String { t("voiceguide.micUnavailable") }
 
+    static var voiceguide_micPlay: String { t("voiceguide.micPlay") }
+
+    static var voiceguide_micPlaying: String { t("voiceguide.micPlaying") }
+
+    static var voiceguide_micPlaybackFailed: String { t("voiceguide.micPlaybackFailed") }
+
+    static var voiceguide_micDeviceBuiltIn: String { t("voiceguide.micDeviceBuiltIn") }
+
+    static var voiceguide_micDeviceHeadset: String { t("voiceguide.micDeviceHeadset") }
+
+    static var voiceguide_micDeviceBluetooth: String { t("voiceguide.micDeviceBluetooth") }
+
+    static var voiceguide_micDeviceUSB: String { t("voiceguide.micDeviceUSB") }
+
+    static var voiceguide_micDeviceCar: String { t("voiceguide.micDeviceCar") }
+
+    static var voiceguide_micDeviceGeneric: String { t("voiceguide.micDeviceGeneric") }
+
+    static var voiceguide_promptBloodType: String { t("voiceguide.promptBloodType") }
+
+    static var voiceguide_promptBirthDate: String { t("voiceguide.promptBirthDate") }
+
+    static var voiceguide_promptIdNo: String { t("voiceguide.promptIdNo") }
+
+    static var voiceguide_promptInsuranceNo: String { t("voiceguide.promptInsuranceNo") }
+
     static var voiceguide_noteAllergy: String { t("voiceguide.note.allergy") }
 
     static var voiceguide_noteHistory: String { t("voiceguide.note.history") }

@@ -68,10 +68,23 @@ public enum AudioSessionCapture {
     /// 指导」，讨论 F-A7-10：先按 `.record` 采集再朗读，测试句必然听不到）。
     /// `.playAndRecord` + `.defaultToSpeaker`：无耳机时测试句走扬声器；
     /// `.duckOthers` 对该类别合法（仅 playAndRecord/playback/multiRoute 支持 duck）。
+    ///
+    /// mode 必须是 `.default`，不得用 `.measurement`（2026-10-21 业主体感复核）：
+    /// `.measurement` 面向声学测量，关闭自动增益（AGC）与回声消除（AEC），
+    /// 并把输出优先路由到听筒——自检于是「只显示音量偏低」且重播里混入 App
+    /// 自己的测试句。`.default` 保留语音处理链，正常说话 RMS 才与阈值可比。
     /// 快照/还原契约与 `activateRecordSession` 相同。
     public static func activateMicCheckSession() throws {
         try AVAudioSession.sharedInstance().setCategory(
-            .playAndRecord, mode: .measurement, options: [.defaultToSpeaker, .duckOthers])
+            .playAndRecord, mode: .default, options: [.defaultToSpeaker, .duckOthers])
+        try AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    /// 自检录音试听激活：只放音、不采集，避免试听被同一会话再次录进 tap。
+    /// `.playback` 尊重静音开关（系统语音备忘录试听同语义）；快照/还原契约
+    /// 与采集激活相同，调用方必须在播放结束或中断时 `restore`。
+    public static func activatePlaybackSession() throws {
+        try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
         try AVAudioSession.sharedInstance().setActive(true)
     }
 

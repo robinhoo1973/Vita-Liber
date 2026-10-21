@@ -296,6 +296,11 @@ final class AppState {
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
         stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
+        // 注册已保存紧急联系人 = 该访谈步骤已完成；否则首页把「紧急联系人」
+        // 报为缺失、引导用户重答，并在 note 追加第二段同节内容。
+        if contact != nil {
+            markVoiceInterviewStep("emergencyContact", patientId: profile.id)
+        }
         return true
     }
 

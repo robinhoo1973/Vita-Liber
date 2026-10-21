@@ -15,6 +15,8 @@ struct MemberManagementView: View {
     /// 审查修正（F-A1）：addMember 写库失败此前静默关单（quotaHint=nil → 无警报）——
     /// 用户以为已添加而记录实际缺失（四态纪律：写失败必须可见）。
     @State private var addFailed = false
+    /// FR17.11：成员列表顶部 [🎤 语音指导模式]（新建=注册引导、当前成员=完善）。
+    @State private var showVoiceGuide = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -66,6 +68,26 @@ struct MemberManagementView: View {
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
             .navigationTitle(L10n.member_title)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showVoiceGuide = true
+                    } label: {
+                        Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
+                    }
+                    .accessibilityIdentifier("FR17.11.memberList.voiceGuide")
+                }
+            }
+            .sheet(isPresented: $showVoiceGuide) {
+                NavigationStack {
+                    VoiceGuidedProfileRouteView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(L10n.commonClose) { showVoiceGuide = false }
+                            }
+                        }
+                }
+            }
             .task { await app.loadMembers() }
             .sheet(isPresented: $showAdd) {
                 MemberCreateSheet { name, relation, birthDate in

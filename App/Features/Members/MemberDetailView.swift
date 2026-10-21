@@ -34,6 +34,8 @@ struct MemberDetailView: View {
     /// 用户是否主动动过生日控件——未经显式交互的保存绝不改写存量值
     /// （初始 Toggle 关着，只改血型就保存不得顺手清掉存量生日，BR-002）。
     @State private var birthDateEdited = false
+    /// FR17.11：档案相关页面顶部常驻 [🎤 语音指导模式]。
+    @State private var showVoiceGuide = false
 
     init(member: PatientProfile) {
         _current = State(initialValue: member)
@@ -48,6 +50,18 @@ struct MemberDetailView: View {
             get: { current[keyPath: keyPath] ?? "" },
             set: { current[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
         )
+    }
+
+    /// 语音引导落库后刷新本页草稿：`current` 是 init 时的副本，若不回灌，
+    /// 随后的「保存」会用旧副本覆盖语音写入（血型/证件/生日/备注静默回退）。
+    private func syncFromStore() {
+        guard let latest = app.members.first(where: { $0.id == current.id }) else { return }
+        current = latest
+        let stored = latest.birthDate ?? ""
+        hasBirthDate = MemberProfileCompleteness.isValidBirthDate(stored)
+        birthDate = MemberProfileCompleteness.parsedBirthDate(stored) ?? Date()
+        birthDateEdited = false
+        birthDatePicked = false
     }
 
     var body: some View {
@@ -129,6 +143,28 @@ struct MemberDetailView: View {
                 }
             }
             .navigationTitle(current.displayName)
+            // FR17.11：成员详情是「完善档案 1–4」的实际编辑页——顶部常驻
+            // 语音入口，语音步骤包含血型/生日/证件/医保四项基础信息。
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showVoiceGuide = true
+                    } label: {
+                        Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
+                    }
+                    .accessibilityIdentifier("FR17.11.member.voiceGuide")
+                }
+            }
+            .sheet(isPresented: $showVoiceGuide, onDismiss: syncFromStore) {
+                NavigationStack {
+                    VoiceGuidedProfileRouteView(patientId: current.id)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(L10n.commonClose) { showVoiceGuide = false }
+                            }
+                        }
+                }
+            }
             .sheet(isPresented: $showDeleteFlow) {
                 DeleteMemberFlowSheet(member: current, impact: impact ?? MemberDeletionService.Impact(),
                                       choice: $deleteChoice, confirmName: $confirmName) {

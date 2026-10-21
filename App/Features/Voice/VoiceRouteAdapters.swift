@@ -44,18 +44,24 @@ struct VoiceNotePanelRouteView: View {
 /// profile.note（绝不丢数据），过敏/用药/联系人结构化落库登记技术债，
 /// 待 M2 对应 store 接口接齐后迁移。
 struct VoiceGuidedProfileRouteView: View {
+    /// 成员详情页传入正在查看的成员；nil = 当前成员（首页/设置入口）。
+    var patientId: UUID?
     @Environment(AppState.self) private var app
+
+    init(patientId: UUID? = nil) {
+        self.patientId = patientId
+    }
 
     var body: some View {
         WithPerceptionTracking {
-            let patientId = app.currentPatientId
-            VoiceGuidedProfileView { key, value, audit in
-                await app.commitVoiceProfileField(key, value: value, patientId: patientId,
+            let target = patientId ?? app.currentPatientId
+            VoiceGuidedProfileView(patientId: target) { key, value, audit in
+                await app.commitVoiceProfileField(key, value: value, patientId: target,
                                                   audit: audit)
             }
             // 同一无参路由可能留在 Me 栈顶：换人必须重建答案/步骤/确认态，
             // 旧会话在途提交仍只持有上面捕获的原 patientId（BR-001）。
-            .id(patientId)
+            .id(target)
         }
     }
 }
