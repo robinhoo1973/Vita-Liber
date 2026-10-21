@@ -88,7 +88,7 @@ public enum VoiceProfileRules {
     public static func medicationNames(from value: String) -> [String] {
         let separators = CharacterSet(charactersIn: "、,，;；\n")
         let noise = ["每天", "每日", "一日", "两次", "三次", "一次", "口服", "饭后", "饭前",
-                     "早上", "晚上", "中午", "服用", "吃", "还有", "以及", "和"]
+                     "早上", "晚上", "中午", "服用", "吃", "还有", "以及"]
         let dosePattern = #"[0-9０-９一二三四五六七八九十半.]+\s*(?:毫克|mg|克|g|毫升|ml|单位|iu)"#
         let doseRegex: NSRegularExpression?
         do { doseRegex = try NSRegularExpression(pattern: dosePattern, options: [.caseInsensitive]) }

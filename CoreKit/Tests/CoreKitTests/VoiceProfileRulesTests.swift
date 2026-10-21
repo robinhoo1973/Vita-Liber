@@ -59,6 +59,7 @@ struct VoiceProfileRulesTests {
                 == ["阿司匹林肠溶片", "二甲双胍"])
         #expect(VoiceProfileRules.medicationNames(from: "胰岛素注射液") == ["胰岛素注射液"])
         #expect(VoiceProfileRules.medicationNames(from: "维生素B12 片") == ["维生素B12 片"])
+        #expect(VoiceProfileRules.medicationNames(from: "和胃整肠丸") == ["和胃整肠丸"])
     }
 
     @Test func relationMapsOnlyKnownWords() {
