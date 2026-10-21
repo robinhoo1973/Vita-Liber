@@ -218,6 +218,12 @@ public actor GRDBPatientPersistor: PatientPersisting {
                    dose_plan_units, created_at, updated_at)
                 VALUES (?, ?, ?, 'active', ?, ?, NULL, NULL, ?, ?)
                 """, arguments: [planId, patientId.uuidString, medicationId, schedule, now, now, now])
+            // 语音只确认了药名：计划先以按需占位，剂量/频次不得当成事实。
+            // 生命周期事件记录来源，供用药页复核时追溯（FR9.15 append-only）。
+            try db.execute(sql: """
+                INSERT INTO plan_lifecycle_event (id, plan_id, kind, occurred_at, note)
+                VALUES (?, ?, 'started', ?, ?)
+                """, arguments: [UUID().uuidString, planId, now, "语音录入：药名已确认，剂量与频次待用药页复核"])
         }
     }
 

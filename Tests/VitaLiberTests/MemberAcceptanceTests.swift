@@ -84,6 +84,11 @@ final class MemberAcceptanceTests: XCTestCase {
             try String.fetchAll(db, sql: "SELECT unit_kind FROM medication ORDER BY created_at")
         }
         XCTAssertEqual(kinds.sorted(), ["capsule", "patch", "vial"])
+        let notes = try await store.writer.read { db in
+            try String.fetchAll(db, sql: "SELECT note FROM plan_lifecycle_event")
+        }
+        XCTAssertEqual(notes.count, 3, "语音用药计划必须有 started 生命周期事件")
+        XCTAssertTrue(notes.allSatisfy { $0.contains("待用药页复核") })
     }
 
     /// 成员配额：Domain 判定与落库计数一致（4 人内不弹、第 5 人弹）
