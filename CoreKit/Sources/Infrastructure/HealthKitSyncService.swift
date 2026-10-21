@@ -1061,8 +1061,12 @@ public actor HealthKitSyncService {
     /// `backgroundRegistrationFailed`）；系统暂态（后台刷新被关、排队过多）只记
     /// `backgroundScheduleFailed`，提交成功即清除（前台入口重试自愈）。
     @discardableResult
-    public func scheduleBackgroundRefresh() -> Bool {
-        let ok = BackgroundWorkScheduler.shared.submit(Self.bgTaskIdentifier)
+    /// 排期下一次刷新；`after` 为最低延迟（系统仍可延后）。周期已完成时按
+    /// 用户设置的间隔排期，未完成时立即续排，减少无意义唤醒。
+    public func scheduleBackgroundRefresh(after delay: TimeInterval? = nil) -> Bool {
+        let earliest = delay.map { Date().addingTimeInterval($0) }
+        let ok = BackgroundWorkScheduler.shared.submit(Self.bgTaskIdentifier,
+                                                       earliestBeginDate: earliest)
         if ok {
             backgroundScheduleFailed = false
         } else {

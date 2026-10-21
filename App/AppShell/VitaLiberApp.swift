@@ -345,7 +345,8 @@ struct VitaLiberApp: App {
                         totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
                         lastCompletedAt: report.cycleCompletedAt)
                 }
-                await bgSync.scheduleBackgroundRefresh()
+                await bgSync.scheduleBackgroundRefresh(
+                    after: report.cycleCompletedAt != nil ? interval.seconds : nil)
                 return true
             } catch HealthImportStore.ImportError.busy {
                 // 共享轮次在跑：本次唤醒不排队等；不是失败，下一唤醒/回前台继续。
@@ -392,6 +393,8 @@ struct VitaLiberApp: App {
                         totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
                         lastCompletedAt: report.cycleCompletedAt)
                 }
+                await bgSync.scheduleBackgroundRefresh(
+                    after: report.cycleCompletedAt != nil ? interval.seconds : nil)
                 // 投递已确认（Reader 提前 completion）；部分失败由 refresh/backfill 重试。
                 return true
             } catch {
