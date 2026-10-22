@@ -417,6 +417,11 @@ final class TrendAcceptanceTests: XCTestCase {
                   recipient TEXT NOT NULL,
                   status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
                   sent_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v39 对 health_problem 增列——合成老库必须含 v12 期形态，否则整链失败。
+                CREATE TABLE health_problem (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, name TEXT NOT NULL,
+                  kind TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 PRAGMA user_version = 12;
                 """)
         }
@@ -610,6 +615,11 @@ final class TrendAcceptanceTests: XCTestCase {
                   recipient TEXT NOT NULL,
                   status TEXT NOT NULL DEFAULT 'sent' CHECK(status IN ('sent','ackPending','acked','timeout')),
                   sent_at REAL NOT NULL, updated_at REAL NOT NULL);
+                -- v39 对 health_problem 增列——合成老库必须含该表。
+                CREATE TABLE health_problem (
+                  id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, name TEXT NOT NULL,
+                  kind TEXT, archived INTEGER NOT NULL DEFAULT 0,
+                  created_at REAL NOT NULL, updated_at REAL NOT NULL);
                 """)
             try db.execute(sql: "PRAGMA user_version = 12;")
         }
