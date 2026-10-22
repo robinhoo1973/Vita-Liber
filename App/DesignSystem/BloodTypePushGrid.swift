@@ -29,12 +29,6 @@ struct BloodTypePushGrid: View {
         selection == Self.unknownValue || selection == L10n.bloodTypeUnknown
     }
 
-    private var currentRh: String? {
-        if selection.hasSuffix("+") { return "+" }
-        if selection.hasSuffix("−") { return "−" }
-        return nil
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.bloodTypeABO)
