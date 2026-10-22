@@ -6,9 +6,27 @@ struct BloodTypePushGrid: View {
     @Binding var selection: String
 
     private static let abo = ["A", "B", "AB", "O"]
+    /// 稳定哨兵：不把本地化显示文案写进患者档案。
+    static let unknownValue = "unknown"
 
-    private var currentABO: String? {
-        Self.abo.first { selection.hasPrefix($0) }
+    static func aboValue(from selection: String) -> String? {
+        abo.first { value in
+            selection == value || selection == value + "+" || selection == value + "−"
+        }
+    }
+
+    static func rhValue(from selection: String) -> String? {
+        if selection.hasSuffix("+") { return "+" }
+        if selection.hasSuffix("−") { return "−" }
+        return nil
+    }
+
+    private var currentABO: String? { Self.aboValue(from: selection) }
+
+    private var currentRh: String? { Self.rhValue(from: selection) }
+
+    private var unknownSelected: Bool {
+        selection == Self.unknownValue || selection == L10n.bloodTypeUnknown
     }
 
     private var currentRh: String? {
@@ -59,8 +77,8 @@ struct BloodTypePushGrid: View {
             }
 
             HStack(spacing: 8) {
-                button(title: L10n.bloodTypeUnknown, selected: selection == L10n.bloodTypeUnknown) {
-                    selection = L10n.bloodTypeUnknown
+                button(title: L10n.bloodTypeUnknown, selected: unknownSelected) {
+                    selection = Self.unknownValue
                 }
                 .accessibilityIdentifier("bloodType.unknown")
                 button(title: L10n.onboardBloodSpecial, selected: selection == "special") {

@@ -31,8 +31,8 @@ struct EmergencyCardView: View {
                         Text(L10n.emergency_title).font(.title2).bold()
                         Spacer()
                     }
-                    if let bloodType, !bloodType.isEmpty {
-                        CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: bloodType)
+                    if let display = L10n.bloodTypeDisplayName(bloodType) {
+                        CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: display)
                             .accessibilityIdentifier("F15.card.bloodType")
                     }
                     section(L10n.emergency_allergy, items: card.allergies, empty: L10n.emergency_notSet)

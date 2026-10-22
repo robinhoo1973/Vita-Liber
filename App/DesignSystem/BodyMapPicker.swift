@@ -14,6 +14,7 @@ struct BodyMapPicker: View {
 
     @State private var side: AnatomyBodySide = .front
     @State private var zoomedRegionID: String?
+    @AccessibilityFocusState private var zoomedFocus: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedRegion: HealthHistoryCatalog.BodyRegion? {
@@ -80,6 +81,7 @@ struct BodyMapPicker: View {
             Button {
                 withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) {
                     zoomedRegionID = nil
+                    zoomedFocus = nil
                 }
             } label: {
                 Label(L10n.healthHistoryWholeBody, systemImage: "chevron.left")
@@ -89,6 +91,7 @@ struct BodyMapPicker: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color("brand-primary", bundle: .main))
+            .accessibilitySortPriority(3)
             .accessibilityIdentifier("bodyMap.back")
 
             Spacer()
@@ -96,6 +99,8 @@ struct BodyMapPicker: View {
             Text(region.name)
                 .font(.headline)
                 .foregroundStyle(Color("text-primary", bundle: .main))
+                .accessibilitySortPriority(2)
+                .accessibilityFocused($zoomedFocus, equals: Optional(region.id))
             Spacer()
         }
     }
@@ -191,7 +196,7 @@ struct BodyMapPicker: View {
     }
 
     private func selectRegion(_ id: String) {
-        withAnimation(reduceMotion ? nil : .spring(response: 0.40, dampingFraction: 0.86)) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.30, dampingFraction: 0.88)) {
             if id == "back" {
                 side = .back
             } else if ["chest", "abdomen", "pelvis"].contains(id) {
@@ -200,6 +205,9 @@ struct BodyMapPicker: View {
             regionID = id
             organID = nil
             zoomedRegionID = id
+        }
+        DispatchQueue.main.async {
+            zoomedFocus = id
         }
     }
 }

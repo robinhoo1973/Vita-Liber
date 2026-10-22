@@ -262,6 +262,7 @@ struct OwnerSetupView: View {
                     .accessibilityIdentifier("SP-06.owner.birthDay")
             }
             BloodTypePushGrid(selection: $bloodChoice)
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("SP-06.owner.bloodType")
             if bloodChoice == "special" {
                 TextField(L10n.onboardBloodNotePlaceholder, text: $specialBloodNote)

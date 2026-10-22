@@ -293,6 +293,15 @@ extension L10n {
         }
     }
 
+    /// 血型稳定哨兵/旧本地化值 → 当前语言显示；普通血型值原样返回。
+    static func bloodTypeDisplayName(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        if raw == "unknown" || raw == t("bloodType.unknown") {
+            return t("bloodType.unknown")
+        }
+        return raw
+    }
+
     static func memberRelationDisplayName(_ raw: String) -> String {
         switch raw {
         case "本人": return member_relationSelf

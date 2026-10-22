@@ -17,57 +17,58 @@ enum OrganLayout {
         let all: [OrganPlacement]
         switch regionID {
         case "head_neck":
+            // 两列交错，避免 44pt 命中矩形在同一中轴上互相覆盖。
             all = [
-                .init(id: "head", x: 0.50, y: 0.18, width: 0.30, height: 0.18),
-                .init(id: "eye", x: 0.50, y: 0.42, width: 0.36, height: 0.09),
-                .init(id: "ear", x: 0.50, y: 0.47, width: 0.54, height: 0.12),
-                .init(id: "nose_throat", x: 0.50, y: 0.52, width: 0.12, height: 0.14),
-                .init(id: "mouth", x: 0.50, y: 0.60, width: 0.18, height: 0.07),
-                .init(id: "thyroid", x: 0.50, y: 0.70, width: 0.18, height: 0.09),
-                .init(id: "neck", x: 0.50, y: 0.81, width: 0.20, height: 0.12),
+                .init(id: "head", x: 0.50, y: 0.14, width: 0.12, height: 0.12),
+                .init(id: "eye", x: 0.34, y: 0.32, width: 0.10, height: 0.08),
+                .init(id: "ear", x: 0.66, y: 0.32, width: 0.10, height: 0.08),
+                .init(id: "nose_throat", x: 0.50, y: 0.45, width: 0.10, height: 0.10),
+                .init(id: "mouth", x: 0.34, y: 0.60, width: 0.10, height: 0.07),
+                .init(id: "thyroid", x: 0.66, y: 0.60, width: 0.12, height: 0.08),
+                .init(id: "neck", x: 0.50, y: 0.78, width: 0.12, height: 0.10),
             ]
         case "chest":
             all = [
-                .init(id: "esophagus", x: 0.50, y: 0.26, width: 0.06, height: 0.26),
                 .init(id: "lung", x: 0.50, y: 0.40, width: 0.60, height: 0.32),
-                .init(id: "heart", x: 0.43, y: 0.58, width: 0.20, height: 0.22),
-                .init(id: "breast", x: 0.50, y: 0.72, width: 0.56, height: 0.15),
+                .init(id: "breast", x: 0.50, y: 0.80, width: 0.56, height: 0.14),
+                .init(id: "heart", x: 0.34, y: 0.58, width: 0.20, height: 0.22),
+                .init(id: "esophagus", x: 0.50, y: 0.26, width: 0.06, height: 0.26),
             ]
         case "abdomen":
             all = [
                 .init(id: "liver", x: 0.36, y: 0.31, width: 0.34, height: 0.20),
                 .init(id: "stomach", x: 0.64, y: 0.33, width: 0.22, height: 0.16),
-                .init(id: "gallbladder", x: 0.42, y: 0.47, width: 0.09, height: 0.10),
-                .init(id: "pancreas", x: 0.56, y: 0.50, width: 0.30, height: 0.09),
-                .init(id: "spleen", x: 0.78, y: 0.34, width: 0.13, height: 0.14),
+                .init(id: "gallbladder", x: 0.28, y: 0.50, width: 0.08, height: 0.09),
+                .init(id: "pancreas", x: 0.56, y: 0.43, width: 0.30, height: 0.09),
+                .init(id: "spleen", x: 0.84, y: 0.34, width: 0.12, height: 0.14),
                 .init(id: "kidney", x: 0.50, y: 0.60, width: 0.50, height: 0.15),
-                .init(id: "intestine", x: 0.50, y: 0.73, width: 0.38, height: 0.22),
+                .init(id: "intestine", x: 0.50, y: 0.80, width: 0.38, height: 0.20),
             ]
         case "pelvis":
             all = [
-                .init(id: "uterus", x: 0.50, y: 0.40, width: 0.22, height: 0.18),
-                .init(id: "ovary", x: 0.50, y: 0.46, width: 0.38, height: 0.09),
-                .init(id: "prostate", x: 0.50, y: 0.56, width: 0.15, height: 0.10),
-                .init(id: "bladder", x: 0.50, y: 0.66, width: 0.18, height: 0.14),
+                .init(id: "uterus", x: 0.50, y: 0.35, width: 0.20, height: 0.16),
+                .init(id: "ovary", x: 0.50, y: 0.57, width: 0.36, height: 0.09),
+                .init(id: "prostate", x: 0.50, y: 0.57, width: 0.14, height: 0.09),
+                .init(id: "bladder", x: 0.50, y: 0.80, width: 0.16, height: 0.13),
             ]
         case "back":
             all = [
-                .init(id: "spinal_cord", x: 0.44, y: 0.42, width: 0.08, height: 0.28),
-                .init(id: "spine", x: 0.56, y: 0.56, width: 0.12, height: 0.46),
+                .init(id: "spinal_cord", x: 0.36, y: 0.42, width: 0.08, height: 0.28),
+                .init(id: "spine", x: 0.64, y: 0.56, width: 0.12, height: 0.46),
             ]
         case "upper_limb":
             all = [
                 .init(id: "shoulder", x: 0.50, y: 0.14, width: 0.34, height: 0.16),
-                .init(id: "arm", x: 0.50, y: 0.40, width: 0.24, height: 0.28),
-                .init(id: "elbow", x: 0.50, y: 0.58, width: 0.20, height: 0.12),
-                .init(id: "wrist_hand", x: 0.50, y: 0.82, width: 0.26, height: 0.20),
+                .init(id: "arm", x: 0.50, y: 0.38, width: 0.24, height: 0.28),
+                .init(id: "elbow", x: 0.50, y: 0.62, width: 0.20, height: 0.12),
+                .init(id: "wrist_hand", x: 0.50, y: 0.86, width: 0.26, height: 0.18),
             ]
         case "lower_limb":
             all = [
                 .init(id: "hip", x: 0.50, y: 0.14, width: 0.34, height: 0.16),
-                .init(id: "thigh", x: 0.50, y: 0.36, width: 0.26, height: 0.28),
-                .init(id: "knee", x: 0.50, y: 0.58, width: 0.20, height: 0.12),
-                .init(id: "ankle_foot", x: 0.50, y: 0.84, width: 0.26, height: 0.18),
+                .init(id: "thigh", x: 0.50, y: 0.38, width: 0.26, height: 0.28),
+                .init(id: "knee", x: 0.50, y: 0.62, width: 0.20, height: 0.12),
+                .init(id: "ankle_foot", x: 0.50, y: 0.86, width: 0.26, height: 0.18),
             ]
         case "systemic":
             all = [
@@ -527,6 +528,13 @@ private struct OrganHotspot: View {
 
     private var hitWidth: CGFloat { max(44, placement.width * size.width) }
     private var hitHeight: CGFloat { max(44, placement.height * size.height) }
+    private var usesPathHit: Bool {
+        ["heart", "lung", "liver", "stomach", "pancreas", "kidney", "spleen"]
+            .contains(organ.id)
+    }
+    private var hitShape: AnyShape {
+        usesPathHit ? AnyShape(OrganGlyphShape(organID: organ.id)) : AnyShape(Rectangle())
+    }
 
     var body: some View {
         Button(action: action) {
@@ -541,7 +549,7 @@ private struct OrganHotspot: View {
                            height: max(18, placement.height * size.height * 0.82))
             }
             .frame(width: hitWidth, height: hitHeight)
-            .contentShape(Rectangle())
+            .contentShape(hitShape)
         }
         .buttonStyle(.plain)
         .position(x: placement.x * size.width, y: placement.y * size.height)

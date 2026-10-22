@@ -2498,7 +2498,7 @@
 "healthHistory.all" = "全部";
 "healthHistory.front" = "正面";
 "healthHistory.back" = "背面";
-"healthHistory.tapRegion" = "点击身体部位";
+"healthHistory.tapRegion" = "点按身体部位";
 "healthHistory.chooseOrgan" = "选择器官";
 "healthHistory.organHint" = "选择器官，查看对应常见病名";
 "healthHistory.wholeBody" = "返回全身";
