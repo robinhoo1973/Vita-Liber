@@ -1080,8 +1080,6 @@
 "member.detail.basic" = "基本資訊";
 "member.detail.more" = "補充資訊（P0 可補全）";
 "member.bloodType" = "血型";
-"member.idNo" = "證件號";
-"member.insuranceNo" = "醫保號";
 "member.note" = "備註（監護人授權備註等）";
 "member.delete" = "刪除成員";
 "member.selfNoDelete" = "本人檔案是資料歸屬錨點，不可刪除";
@@ -1354,7 +1352,6 @@
 "pref.dateFormatMD" = "9月5日";
 "pref.dateFormatISO" = "2026-09-05";
 "immunization.doseCount" = "已接種 %d 劑";
-"immunization.childPlanComing" = "兒童免疫接種計劃 · 即將推出";
 "help.tutorialTitle" = "使用教學";
 "help.topicGettingStarted" = "入門";
 "help.topicImportOcr" = "匯入與 OCR";
@@ -2519,3 +2516,17 @@
 "healthHistory.confirmedSource" = "本人確認 · C 級來源";
 "healthHistory.addSurgeryTitle" = "新增手術記錄";
 "healthHistory.addChronicTitle" = "新增慢性病記錄";
+"healthHistory.chronicHint" = "高血壓、糖尿病等已確診疾病";
+"healthHistory.surgeryHint" = "做過的手術與部位";
+"healthHistory.allergyHint" = "過敏原與反應";
+"healthHistory.medicationHint" = "正在服用的藥物";
+"healthHistory.vaccineHint" = "接種記錄與按年齡選擇";
+"immunization.scheduleTitle" = "按年齡選疫苗";
+"immunization.scheduleHint" = "僅作國家免疫規劃程序參考，不判定漏種，不提供接種建議。";
+"immunization.onlyAge" = "僅顯示適合當前年齡";
+"immunization.ageUnknown" = "完善出生日期後可按年齡篩選";
+"immunization.sectionNational" = "國家免疫規劃";
+"immunization.sectionOptional" = "可選疫苗";
+"immunization.emptyFiltered" = "沒有符合的疫苗";
+"immunization.searchPrompt" = "搜尋疫苗或疾病";
+"immunization.sourceNote" = "資料來源：國家免疫規劃疫苗兒童免疫程序及說明（2021 年版）；可選疫苗以說明書為準。";

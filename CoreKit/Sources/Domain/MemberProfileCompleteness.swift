@@ -64,12 +64,13 @@ public enum MemberProfileCompleteness {
         return calendar.component(.year, from: Date())
     }
 
-    /// 血型/证件/医保 3 个直接字段（非空即完成）+ 生日（非空且**合法**才完成）= 4 项。
+    /// 血型（非空即完成）+ 生日（非空且**合法**才完成）= 2 项。
+    /// 身份证件号/医保号已按业主 2026-10-22 要求停止收集与显示，不计入档案完善度。
     /// 空白串不计完成（trim 后判空）；nil 表示档案未加载/已不存在——
-    /// 首页不生成虚假的 0/4 提示或占位。
-    public static func progress(profile: PatientProfile?, total: Int = 4) -> (done: Int, total: Int)? {
+    /// 首页不生成虚假的 0/2 提示或占位。
+    public static func progress(profile: PatientProfile?, total: Int = 2) -> (done: Int, total: Int)? {
         guard let profile, profile.deletedAt == nil else { return nil }
-        let done = [profile.bloodType, profile.idNo, profile.insuranceNo].filter {
+        let done = [profile.bloodType].filter {
             !($0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         }.count
         let birthDone = profile.birthDate.map { value in

@@ -56,6 +56,10 @@ struct SettingsView: View {
                     } label: {
                         Label(L10n.profileAssistantRow, systemImage: "sparkles")
                     }
+                    NavigationLink(value: AppRoute.healthHistoryHub) {
+                        Label(L10n.hub_healthRecords, systemImage: "heart.text.square")
+                    }
+                    .accessibilityIdentifier("SP-25.setting.healthHistory")
                     NavigationLink {
                         MemberManagementView()
                     } label: {
@@ -206,18 +210,6 @@ struct SettingsView: View {
                         Text(L10n.immunization_title)
                     }
                     .accessibilityIdentifier("SP-25.settings.immunization")
-                    NavigationLink(L10n.claim_title) {
-                        ClaimHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.claim")
-                    NavigationLink(L10n.fr24_title) {
-                        SentStatusHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.sentStatus")
-                    NavigationLink(L10n.hub_guidelines) {
-                        GuidelineHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.guidelines")
                 }
                 Section(L10n.settings_pro) {
                     NavigationLink(L10n.proOutputTitle) {
@@ -244,6 +236,11 @@ struct SettingsView: View {
                         AuditLogView()
                     }
                     .accessibilityIdentifier("SP-25.settings.audit")
+                    // 2026-10-22 业主：发送状态归入隐私与数据，不再放在健康档案。
+                    NavigationLink(L10n.fr24_title) {
+                        SentStatusHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.sentStatus")
                     Button(L10n.settings_restoreDefaults) {
                         // 审查修复：恢复默认后必须清本地 toggles 影子——get 优先
                         // 读 toggles，不清则开关显示仍停留在用户改过的旧值
@@ -257,6 +254,11 @@ struct SettingsView: View {
                         HelpRootView()
                     }
                     .accessibilityIdentifier("SP-25.settings.help")
+                    // 2026-10-22 业主：参考范围/信源库从健康档案移到关于。
+                    NavigationLink(L10n.hub_guidelines) {
+                        GuidelineHubView()
+                    }
+                    .accessibilityIdentifier("SP-25.settings.guidelines")
                     Text(L10n.settings_disclaimer)
                         .font(.caption)
                         .foregroundStyle(.secondary)

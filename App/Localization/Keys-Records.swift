@@ -158,7 +158,6 @@ extension L10n {
 
     static func immunizationDoseCount(_ n: Int) -> String { t("immunization.doseCount").replacingOccurrences(of: "%d", with: String(n)) }
 
-    static var immunization_childPlanComing: String { t("immunization.childPlanComing") }
 
     static var encounterLinkedCards: String { t("encounter.linkedCards") }
 

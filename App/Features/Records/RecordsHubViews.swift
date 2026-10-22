@@ -158,7 +158,9 @@ struct ImmunizationHubView: View {
         WithPerceptionTracking {
             // 批B（审查 P3#2，BR-001 消费侧门）：装载完成前不外显缓存
             ImmunizationListView(records: hub.isLoaded(for: currentPatientId) ? hub.immunizationRecords : [],
-                                 patientId: currentPatientId) { name, dose, date, provider, lot in
+                                 patientId: currentPatientId,
+                                 birthDate: currentMember?.birthDate,
+                                 sex: currentMember?.gender) { name, dose, date, provider, lot in
                 Task { await hub.createImmunization(patientId: currentPatientId, name: name,
                                                     dose: dose, date: date,
                                                     provider: provider, lot: lot) }
@@ -168,6 +170,12 @@ struct ImmunizationHubView: View {
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
+
+    private var currentMember: PatientProfile? {
+        app.members.first {
+            $0.id == currentPatientId && $0.deletedAt == nil
+        }
+    }
 }
 
 // MARK: - 报销（FR13.7）

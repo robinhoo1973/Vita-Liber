@@ -1,4 +1,5 @@
 import SwiftUI
+import Domain
 import Infrastructure
 
 /// FR4.5/FR4.6 疫苗接种记录（SP-54）：手动录入 + 来源/确认状态徽章。
@@ -8,8 +9,11 @@ import Infrastructure
 struct ImmunizationListView: View {
     let records: [ImmunizationStore.Record]
     let patientId: UUID
+    var birthDate: String?
+    var sex: String?
     var onCreate: ((String, Int, Date?, String, String) -> Void)?
     @State private var showCreate = false
+    @State private var showSchedule = false
 
     /// 按疫苗名分组（保序：首次出现顺序）
     private var groupedRecords: [(name: String, records: [ImmunizationStore.Record])] {
@@ -57,12 +61,10 @@ struct ImmunizationListView: View {
                         }
                     }
                 }
-                // L3 常驻微文案 + 儿童免疫计划置灰占位（§5.31）
+                // L3 常驻微文案（§5.31）；程序参考入口在工具栏，不在此处判定漏种。
                 Section {
                     Text(L10n.immunization_note)
                         .font(.caption2).foregroundStyle(.secondary)
-                    Text(L10n.immunization_childPlanComing)
-                        .font(.caption2).foregroundStyle(.tertiary)
                 }
             }
         }
@@ -70,7 +72,15 @@ struct ImmunizationListView: View {
         .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）
         .navigationTitle(L10n.immunization_title)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showSchedule = true
+                } label: {
+                    Label(L10n.immunizationScheduleTitle,
+                          systemImage: "calendar.badge.clock")
+                        .frame(minHeight: 44)
+                }
+                .accessibilityIdentifier("FR4.5.immunization.schedule")
                 Button {
                     showCreate = true
                 } label: {
@@ -83,6 +93,12 @@ struct ImmunizationListView: View {
             ImmunizationCreateSheet { name, dose, date, provider, lot in
                 onCreate?(name, dose, date, provider, lot)
                 showCreate = false
+            }
+        }
+        .sheet(isPresented: $showSchedule) {
+            ImmunizationScheduleView(birthDate: birthDate, sex: sex) { name, dose, date, provider, lot in
+                onCreate?(name, dose, date, provider, lot)
+                showSchedule = false
             }
         }
     }
@@ -101,6 +117,13 @@ private struct ImmunizationCreateSheet: View {
     @State private var date: Date? = Date()
     @State private var provider = ""
     @State private var lot = ""
+
+    init(initialName: String = "", initialDose: Int = 1,
+         onCreate: @escaping (String, Int, Date?, String, String) -> Void) {
+        self.onCreate = onCreate
+        _name = State(initialValue: initialName)
+        _dose = State(initialValue: max(1, initialDose))
+    }
 
     var body: some View {
         NavigationStack {
@@ -128,5 +151,134 @@ private struct ImmunizationCreateSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - 按年龄/性别选择疫苗（2026-10-22 业主）
+
+/// 从内置官方程序参考目录选择疫苗，按当前成员年龄/性别过滤。
+/// 只做记录入口，不判定漏种、不提供接种建议（FR4.6 边界）。
+struct ImmunizationScheduleView: View {
+    let birthDate: String?
+    let sex: String?
+    let onCreate: (String, Int, Date?, String, String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var includeAllAges = false
+    @State private var query = ""
+    @State private var selected: VaccineCatalog.Item?
+
+    private var ageMonths: Int? {
+        VaccineCatalog.ageMonths(birthDate: birthDate)
+    }
+
+    private var filtered: [VaccineCatalog.Item] {
+        let base = VaccineCatalog.items(ageMonths: ageMonths, sex: sex,
+                                        includeAllAges: includeAllAges)
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return base }
+        return base.filter {
+            $0.name.localizedCaseInsensitiveContains(q)
+                || $0.disease.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    private var national: [VaccineCatalog.Item] {
+        filtered.filter { $0.category == .national }
+    }
+
+    private var optional: [VaccineCatalog.Item] {
+        filtered.filter { $0.category == .optional }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Text(L10n.immunizationScheduleHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if ageMonths == nil {
+                        Text(L10n.immunizationAgeUnknown)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    }
+                    Toggle(isOn: Binding(
+                        get: { !includeAllAges },
+                        set: { includeAllAges = !$0 }
+                    )) {
+                        Text(L10n.immunizationOnlyAge)
+                    }
+                    .disabled(ageMonths == nil)
+                    .accessibilityIdentifier("FR4.5.schedule.onlyAge")
+                }
+
+                if !national.isEmpty {
+                    Section(L10n.immunizationSectionNational) {
+                        ForEach(national) { item in
+                            row(item)
+                        }
+                    }
+                }
+                if !optional.isEmpty {
+                    Section(L10n.immunizationSectionOptional) {
+                        ForEach(optional) { item in
+                            row(item)
+                        }
+                    }
+                }
+                if filtered.isEmpty {
+                    Text(L10n.immunizationEmptyFiltered)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("FR4.5.schedule.empty")
+                }
+
+                Section {
+                    Text(L10n.immunizationSourceNote)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .searchable(text: $query, prompt: L10n.immunizationSearchPrompt)
+            .navigationTitle(L10n.immunizationScheduleTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonClose) { dismiss() }
+                        .accessibilityIdentifier("FR4.5.schedule.close")
+                }
+            }
+        }
+        .sheet(item: $selected) { item in
+            ImmunizationCreateSheet(initialName: item.name,
+                                    initialDose: item.doseNumber) { name, dose, date, provider, lot in
+                onCreate(name, dose, date, provider, lot)
+                selected = nil
+                dismiss()
+            }
+        }
+    }
+
+    private func row(_ item: VaccineCatalog.Item) -> some View {
+        Button {
+            selected = item
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name).font(.subheadline)
+                    Text("\(item.disease) · \(L10n.doseNumber(item.doseNumber))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "plus.circle")
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("FR4.5.schedule.item.\(item.id)")
     }
 }

@@ -5,7 +5,7 @@ import Domain
 import Protocols
 @testable import VitaLiber
 
-/// FR2.1b 档案完善进度：4 个字段（血型/生日/证件/医保），语音访谈已退役。
+/// FR2.1b 档案完善进度：2 个字段（血型/生日）；证件号/医保号已停止收集。
 @MainActor
 final class HomeProfileProgressTests: XCTestCase {
     private func makeApp(profiles: [PatientProfile], defaults: UserDefaults? = nil) -> (AppState, HomeProfilePersistor) {
@@ -43,7 +43,7 @@ final class HomeProfileProgressTests: XCTestCase {
         await app.bootstrap()
         let progress = try XCTUnwrap(app.profileCompletion)
         XCTAssertEqual(progress.done, 0)
-        XCTAssertEqual(progress.total, 4)
+        XCTAssertEqual(progress.total, 2)
     }
 
     func test_memberSwitchInvalidatesObservedProgressWithoutReloadingMembers() async {
@@ -61,13 +61,13 @@ final class HomeProfileProgressTests: XCTestCase {
         await fulfillment(of: [changed], timeout: 5)
     }
 
-    func test_allFourFieldsCompleteTheProfileWithoutOvercounting() async {
+    func test_bloodTypeAndBirthDateCompleteTheProfileWithoutOvercounting() async {
         let profile = PatientProfile(displayName: "本人", birthDate: "1980-01-01",
                                      bloodType: "A", idNo: "test-id", insuranceNo: "test-insurance")
         let (app, _) = makeApp(profiles: [profile])
         await app.bootstrap()
-        XCTAssertEqual(app.profileCompletion?.done, 4)
-        XCTAssertEqual(app.profileCompletion?.total, 4)
+        XCTAssertEqual(app.profileCompletion?.done, 2)
+        XCTAssertEqual(app.profileCompletion?.total, 2)
     }
 }
 

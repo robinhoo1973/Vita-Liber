@@ -580,7 +580,7 @@ struct HomeView: View {
         // 语音引导档案退役（2026-10-22）：进度卡只显示字段完成度，
         // 点击进入成员档案手动完善。
         HomeProfileProgressCard(progress: progress) {
-            router.navigate(to: .memberList)
+            router.navigate(to: .healthHistoryHub)
         }
     }
 

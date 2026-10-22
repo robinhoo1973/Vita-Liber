@@ -556,7 +556,11 @@ struct HealthProblemListView: View {
     @State private var showCreate = false
     @State private var showMerge = false
     @State private var mergePrimary: HealthProblemStore.HealthProblemRow?
-    @State private var kindFilter = "chronic"
+    @State private var kindFilter: String
+
+    init(initialKind: String = "chronic") {
+        _kindFilter = State(initialValue: initialKind)
+    }
 
     private var visibleProblems: [HealthProblemStore.HealthProblemRow] {
         state.problems.filter { kindFilter == "all" || ($0.kind ?? "chronic") == kindFilter }

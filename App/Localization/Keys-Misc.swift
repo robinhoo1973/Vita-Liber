@@ -534,4 +534,18 @@ extension L10n {
     static var healthHistoryConfirmedSource: String { t("healthHistory.confirmedSource") }
     static var healthHistoryAddSurgeryTitle: String { t("healthHistory.addSurgeryTitle") }
     static var healthHistoryAddChronicTitle: String { t("healthHistory.addChronicTitle") }
+    static var healthHistoryChronicHint: String { t("healthHistory.chronicHint") }
+    static var healthHistorySurgeryHint: String { t("healthHistory.surgeryHint") }
+    static var healthHistoryAllergyHint: String { t("healthHistory.allergyHint") }
+    static var healthHistoryMedicationHint: String { t("healthHistory.medicationHint") }
+    static var healthHistoryVaccineHint: String { t("healthHistory.vaccineHint") }
+    static var immunizationScheduleTitle: String { t("immunization.scheduleTitle") }
+    static var immunizationScheduleHint: String { t("immunization.scheduleHint") }
+    static var immunizationOnlyAge: String { t("immunization.onlyAge") }
+    static var immunizationAgeUnknown: String { t("immunization.ageUnknown") }
+    static var immunizationSectionNational: String { t("immunization.sectionNational") }
+    static var immunizationSectionOptional: String { t("immunization.sectionOptional") }
+    static var immunizationEmptyFiltered: String { t("immunization.emptyFiltered") }
+    static var immunizationSearchPrompt: String { t("immunization.searchPrompt") }
+    static var immunizationSourceNote: String { t("immunization.sourceNote") }
 }

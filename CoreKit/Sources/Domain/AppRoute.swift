@@ -121,6 +121,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case sentStatusHub                   // SP-56 发送状态
 
     // ---- 评审批 H15：补登记曾缺失的活跃页面（路由注册表必须覆盖全部 SP）----
+    case healthHistoryHub                // 健康档案总览（慢性病/手术史/过敏/用药）
     case healthProblemList               // SP-49 健康问题列表
     case immunizationList                // SP-54 疫苗记录列表
     case helpPermissionDiagnostics       // SP-45 权限诊断
@@ -143,7 +144,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .observationCreate, .observationDetail, .doctorShowcase,
              .allergyList, .allergyCreate,
              .caregiverTasks, .voiceNotePanel,
-             .healthProblemList, .immunizationList:
+             .healthHistoryHub, .healthProblemList, .immunizationList:
             return .records
         case .medicationPlan, .medicationPlanForm, .stockLotDetail, .stockLotEdit,
              .medicationCabinet, .reminderToday, .appointmentList, .appointmentDetail,

@@ -175,6 +175,8 @@ struct RouteDestinationView: View {
 
             // ---- 评审批 H15：补登记曾缺失的活跃页面（§5.45 注册表必须覆盖全部 SP；
             // 此前仅内联 NavigationLink 可达 → 通知深链/跨启动恢复均落空） ----
+            case .healthHistoryHub:
+                HealthHistoryHubView()
             case .healthProblemList:
                 HealthProblemListView()
             case .immunizationList:

@@ -1080,8 +1080,6 @@
 "member.detail.basic" = "Basic Info";
 "member.detail.more" = "More (fill in anytime)";
 "member.bloodType" = "Blood type";
-"member.idNo" = "ID number";
-"member.insuranceNo" = "Insurance number";
 "member.note" = "Note (guardian authorization note, etc.)";
 "member.delete" = "Delete Member";
 "member.selfNoDelete" = "Your own profile is the data anchor and cannot be deleted";
@@ -1354,7 +1352,6 @@
 "pref.dateFormatMD" = "Sep 5";
 "pref.dateFormatISO" = "2026-09-05";
 "immunization.doseCount" = "%d doses received";
-"immunization.childPlanComing" = "Child immunization plan · Coming soon";
 "help.tutorialTitle" = "Guides";
 "help.topicGettingStarted" = "Getting started";
 "help.topicImportOcr" = "Import & OCR";
@@ -2519,3 +2516,17 @@
 "healthHistory.confirmedSource" = "Self-confirmed · Source C";
 "healthHistory.addSurgeryTitle" = "Add a surgery record";
 "healthHistory.addChronicTitle" = "Add a condition record";
+"healthHistory.chronicHint" = "Diagnosed conditions such as hypertension or diabetes";
+"healthHistory.surgeryHint" = "Past surgeries and body areas";
+"healthHistory.allergyHint" = "Allergens and reactions";
+"healthHistory.medicationHint" = "Medicines you are taking";
+"healthHistory.vaccineHint" = "Records and age-based selection";
+"immunization.scheduleTitle" = "Choose by age";
+"immunization.scheduleHint" = "Reference only for the national immunization schedule. It does not determine missed doses or recommend vaccination.";
+"immunization.onlyAge" = "Show only what fits the current age";
+"immunization.ageUnknown" = "Add a birth date to filter by age";
+"immunization.sectionNational" = "National immunization schedule";
+"immunization.sectionOptional" = "Optional vaccines";
+"immunization.emptyFiltered" = "No matching vaccines";
+"immunization.searchPrompt" = "Search vaccine or disease";
+"immunization.sourceNote" = "Source: National Immunization Program schedule for children (2021); optional vaccines follow their package inserts.";

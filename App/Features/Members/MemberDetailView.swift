@@ -5,8 +5,9 @@ import Perception
 
 // MARK: - FR3.1 成员详情/编辑 + FR3.4 删除流 + FR3.5 重新归属
 
-/// 成员详情：FR3.1 字段（血型/证件号/医保号/备注）+ 删除流（影响清单 →
+/// 成员详情：FR3.1 字段（血型/生日/备注）+ 删除流（影响清单 →
 /// 姓名二次确认 → 计划「删除/停用归档」选择）+ 重新归属说明。
+/// 2026-10-22 业主：身份证件号/医保号停止收集与显示。
 ///
 /// 2026-09-26 结构修复（原子性时限轮）：此前 `member` + `current` 双副本 + 四个镜像
 /// @State 字符串 + onAppear 整体回灌 + 保存时空串→nil 翻译三处锁步——回灌会静默
@@ -68,7 +69,7 @@ struct MemberDetailView: View {
                         }
                     }
                 }
-                // FR3.1 字段补全（P0：血型/证件号/医保号）+ 生日补录
+                // FR3.1 字段补全（血型/备注）+ 生日补录；证件号/医保号已移除。
                 Section(L10n.memberDetailMore) {
                     Toggle(L10n.member_birthDateLabel, isOn: $hasBirthDate)
                         .accessibilityIdentifier("FR3.1.member.birthDateToggle")
@@ -81,8 +82,6 @@ struct MemberDetailView: View {
                             .onChangeCompat(of: birthDate) { _, _ in birthDatePicked = true }   // 零参闭包 onChange 为 iOS 17 专用形态，走 Compat 垫片
                     }
                     TextField(L10n.memberBloodType, text: optionalField(\.bloodType))
-                    TextField(L10n.memberIdNo, text: optionalField(\.idNo))
-                    TextField(L10n.memberInsuranceNo, text: optionalField(\.insuranceNo))
                     TextField(L10n.memberNote, text: optionalField(\.note), axis: .vertical)
                     Button(L10n.reminder_save) {
                         if birthDateEdited || birthDatePicked {
@@ -102,6 +101,14 @@ struct MemberDetailView: View {
                         }
                     }
                     .accessibilityIdentifier("FR3.1.member.update")
+                }
+                if current.id == app.currentPatientId {
+                    Section(L10n.hub_healthRecords) {
+                        NavigationLink(value: AppRoute.healthHistoryHub) {
+                            Label(L10n.hub_healthRecords, systemImage: "heart.text.square")
+                        }
+                        .accessibilityIdentifier("FR3.1.member.healthHistory")
+                    }
                 }
                 // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
                 // 审查修复：删除保护闸门改按 ID 判定本人——原以显示串

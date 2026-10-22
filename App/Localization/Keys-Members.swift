@@ -58,10 +58,6 @@ extension L10n {
 
     static var memberBloodType: String { t("member.bloodType") }
 
-    static var memberIdNo: String { t("member.idNo") }
-
-    static var memberInsuranceNo: String { t("member.insuranceNo") }
-
     static var memberNote: String { t("member.note") }
 
     static var memberDelete: String { t("member.delete") }

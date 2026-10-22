@@ -1080,8 +1080,6 @@
 "member.detail.basic" = "基本信息";
 "member.detail.more" = "补充信息（P0 可补全）";
 "member.bloodType" = "血型";
-"member.idNo" = "证件号";
-"member.insuranceNo" = "医保号";
 "member.note" = "备注（监护人授权备注等）";
 "member.delete" = "删除成员";
 "member.selfNoDelete" = "本人档案是数据归属锚点，不可删除";
@@ -1354,7 +1352,6 @@
 "pref.dateFormatMD" = "9月5日";
 "pref.dateFormatISO" = "2026-09-05";
 "immunization.doseCount" = "已接种 %d 剂";
-"immunization.childPlanComing" = "儿童免疫接种计划 · 即将推出";
 "help.tutorialTitle" = "使用教程";
 "help.topicGettingStarted" = "入门";
 "help.topicImportOcr" = "导入与 OCR";
@@ -2519,3 +2516,17 @@
 "healthHistory.confirmedSource" = "本人确认 · C 级来源";
 "healthHistory.addSurgeryTitle" = "添加手术记录";
 "healthHistory.addChronicTitle" = "添加慢性病记录";
+"healthHistory.chronicHint" = "高血压、糖尿病等已确诊疾病";
+"healthHistory.surgeryHint" = "做过的手术与部位";
+"healthHistory.allergyHint" = "过敏原与反应";
+"healthHistory.medicationHint" = "正在服用的药物";
+"healthHistory.vaccineHint" = "接种记录与按年龄选择";
+"immunization.scheduleTitle" = "按年龄选疫苗";
+"immunization.scheduleHint" = "仅作国家免疫规划程序参考，不判定漏种，不提供接种建议。";
+"immunization.onlyAge" = "仅显示适合当前年龄";
+"immunization.ageUnknown" = "完善出生日期后可按年龄筛选";
+"immunization.sectionNational" = "国家免疫规划";
+"immunization.sectionOptional" = "可选疫苗";
+"immunization.emptyFiltered" = "没有匹配的疫苗";
+"immunization.searchPrompt" = "搜索疫苗或疾病";
+"immunization.sourceNote" = "资料来源：国家免疫规划疫苗儿童免疫程序及说明（2021 年版）；可选疫苗以说明书为准。";
