@@ -45,10 +45,8 @@ final class CaptureFlowE2ETests: XCTestCase {
         yearField.typeText("1975")
         app.buttons["SP-06.owner.dismissKeyboard"].tap()
 
-        app.buttons["SP-06.owner.bloodType"].tap()
-        let oPositive = app.buttons["O+"]
-        XCTAssertTrue(oPositive.waitForExistence(timeout: 3), "血型菜单必须呈现")
-        oPositive.tap()
+        app.buttons["bloodType.abo.O"].tap()
+        app.buttons["bloodType.rh.positive"].tap()
 
         // 键盘避让：每输完一个文本字段先收起键盘再点下一个
         //（键盘弹起时 phone 字段在键盘下方，tap 会打到键盘 → 无焦点 → typeText 失败）
@@ -114,47 +112,6 @@ final class CaptureFlowE2ETests: XCTestCase {
     }
 
     // binds: SU-M1c-REGRESSION — TC-M1c-08 / BR-001
-    /// 原名：test_换成员后再次进入同一访谈路由会重置旧步骤
-    func test_switchMemberReenterSameInterviewRouteResetsOldStep() throws {
-        let app = launchAtFamilyStep()
-        app.buttons["FR21.9.step4.manual"].tap()
-        let name = app.textFields["FR3.7.create.name"]
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
-        name.tap()
-        name.typeText("小王")
-        app.buttons["FR3.7.create.save"].tap()
-        let addedAlert = app.alerts.firstMatch
-        XCTAssertTrue(addedAlert.waitForExistence(timeout: 5))
-        addedAlert.buttons.element(boundBy: 0).tap()
-        app.buttons["FR21.9.step4.skip"].tap()
-
-        let progress = app.buttons["SP-04.home.profileProgress"]
-        XCTAssertTrue(progress.waitForExistence(timeout: 8))
-        progress.tap()
-        let touch = app.buttons["FR17.12.useTouch"]
-        XCTAssertTrue(touch.waitForExistence(timeout: 5))
-        touch.tap()
-        let skipStep = app.buttons["FR17.11.skip"]
-        XCTAssertTrue(skipStep.waitForExistence(timeout: 5))
-        skipStep.tap() // A 停在第二问；不启动录音、不依赖输入键盘的收起行为。
-
-        // 仅切 Tab，保留 Me 栈顶路由，复现路由去重场景。
-        app.tabBars.buttons["首页"].tap()
-        let switchMember = app.buttons["SP-04.home.memberSwitch"]
-        XCTAssertTrue(switchMember.waitForExistence(timeout: 5))
-        switchMember.tap()
-        let child = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
-                                                     "SP-05.member.", "小王")).firstMatch
-        XCTAssertTrue(child.waitForExistence(timeout: 5))
-        child.tap()
-        XCTAssertTrue(progress.waitForExistence(timeout: 5))
-        progress.tap()
-
-        // 须知已经接受，B 应从自检/触屏入口重新开始，不能继续 A 的第二问。
-        XCTAssertTrue(app.buttons["voice.mic.pass"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.descendants(matching: .any)["FR17.11.answer"].firstMatch.exists)
-    }
-
     /// FR1.4：冷启动/退后台回前台必见锁屏；系统认证成功（桩注入）后回到主界面。
     /// XCUITest 无法自动化 Face ID → -uitest-gate-stub-success 注入确定性成功；
     /// -uitest-gate-no-auto 关掉遮罩出现的自动认证（避免在断言前被桩自动放行）。

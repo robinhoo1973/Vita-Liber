@@ -43,16 +43,19 @@ struct BloodTypePushGrid: View {
                     selection = abo + "+"
                 }
                 .disabled(currentABO == nil)
+                .accessibilityIdentifier("bloodType.rh.positive")
                 button(title: L10n.bloodTypeNegative, selected: currentRh == "−") {
                     guard let abo = currentABO else { return }
                     selection = abo + "−"
                 }
                 .disabled(currentABO == nil)
+                .accessibilityIdentifier("bloodType.rh.negative")
                 button(title: L10n.bloodTypeRhUnknown, selected: currentABO != nil && currentRh == nil) {
                     guard let abo = currentABO else { return }
                     selection = abo
                 }
                 .disabled(currentABO == nil)
+                .accessibilityIdentifier("bloodType.rh.unknown")
             }
 
             HStack(spacing: 8) {
