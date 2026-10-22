@@ -152,7 +152,7 @@ struct HomeProfileProgressCard: View {
                             .font(.subheadline.bold()).foregroundStyle(.primary)
                         Spacer(minLength: 8)
                         Text(progress.done >= progress.total
-                             ? L10n.hub_healthRecords
+                             ? L10n.homeProfileOpen
                              : L10n.homeProfileContinue)
                             .font(.caption).foregroundStyle(Color("brand-primary", bundle: .main))
                     }
@@ -174,7 +174,7 @@ struct HomeProfileProgressCard: View {
                             : L10n.homeProfileProgressTitle)
         .accessibilityValue(accessibilityValueText)
         .accessibilityHint(progress.done >= progress.total
-                           ? L10n.hub_healthRecords
+                           ? L10n.homeProfileOpen
                            : L10n.homeProfileContinue)
         .accessibilityIdentifier("SP-04.home.profileProgress")
     }

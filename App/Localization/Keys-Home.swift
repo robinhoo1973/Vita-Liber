@@ -165,6 +165,7 @@ extension L10n {
     static var homeModelDownloadGroupCollapsedValue: String { t("home.model.downloadGroupCollapsedValue") }
 
     static var homeProfileContinue: String { t("home.profileContinue") }
+    static var homeProfileOpen: String { t("home.profileOpen") }
 
     static var homeDisclaimer: String { t("home.disclaimer") }
 

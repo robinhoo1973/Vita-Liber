@@ -1718,6 +1718,7 @@
 "home.model.downloadGroupCollapsedValue" = "已摺疊";
 "home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
 "home.profileContinue" = "繼續完善";
+"home.profileOpen" = "查看";
 "home.profileMissingFmt" = "缺：%1$@ · 補全後急救卡可用";
 "home.profileMissingMoreFmt" = "等 %1$d 項";
 "home.disclaimer" = "本機醫療檔案 · 不聯網 · 不診斷";

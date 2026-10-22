@@ -1718,6 +1718,7 @@
 "home.model.downloadGroupCollapsedValue" = "Collapsed";
 "home.profileProgressFmt" = "%1$d of %2$d items completed";
 "home.profileContinue" = "Continue";
+"home.profileOpen" = "View";
 "home.profileMissingFmt" = "Missing: %1$@ · complete them to enable the emergency card";
 "home.profileMissingMoreFmt" = "and %1$d more";
 "home.disclaimer" = "On-device medical records · Offline · No diagnosis";

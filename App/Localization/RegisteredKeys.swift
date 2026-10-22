@@ -1062,6 +1062,7 @@ extension L10n {
         "home.capture.shoot",
         "home.disclaimer",
         "home.profileContinue",
+        "home.profileOpen",
         "home.profileProgress", "home.profileMissingFmt", "home.profileMissingMoreFmt",
         "home.model.downloadTitle", "home.model.downloadView", "home.model.downloadGroupFmt",
         // 2026-10-05 业主反馈修复批（第 1 项）：全完成组卡标题。
