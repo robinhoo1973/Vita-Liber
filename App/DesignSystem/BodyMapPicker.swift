@@ -103,21 +103,17 @@ struct BodyMapPicker: View {
         }
     }
 
-    private func regionShape<S: Shape>(region: String, label: String,
-                                       @ViewBuilder shape: () -> S) -> some View {
+    private func regionShape<Content: View>(region: String, label: String,
+                                            @ViewBuilder shape: () -> Content) -> some View {
         Button {
             regionID = region
             organID = nil
         } label: {
             shape()
-                .fill(regionID == region
-                      ? Color("brand-primary", bundle: .main).opacity(0.28)
-                      : Color.clear)
-                .overlay(
-                    shape().stroke(regionID == region
-                                   ? Color("brand-primary", bundle: .main)
-                                   : Color.clear, lineWidth: 2))
-                .contentShape(shape())
+                .foregroundStyle(regionID == region
+                                 ? Color("brand-primary", bundle: .main).opacity(0.30)
+                                 : Color.clear)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
