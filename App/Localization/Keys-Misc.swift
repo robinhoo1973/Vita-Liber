@@ -532,4 +532,6 @@ extension L10n {
     static var healthHistoryDetailSurgeryHint: String { t("healthHistory.detailSurgeryHint") }
     static var healthHistoryDetailChronicHint: String { t("healthHistory.detailChronicHint") }
     static var healthHistoryConfirmedSource: String { t("healthHistory.confirmedSource") }
+    static var healthHistoryAddSurgeryTitle: String { t("healthHistory.addSurgeryTitle") }
+    static var healthHistoryAddChronicTitle: String { t("healthHistory.addChronicTitle") }
 }

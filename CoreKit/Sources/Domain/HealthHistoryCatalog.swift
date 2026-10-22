@@ -102,15 +102,14 @@ public enum HealthHistoryCatalog {
         commonConditions.filter { $0.regionID == regionID }
     }
 
-    /// 部位 + 器官两层过滤：选中器官时优先给该器官的常见病；
-    /// 无专属条目时回落到部位级条目，仍无则回落整个部位（不隐藏可用信息）。
+    /// 部位 + 器官两层过滤：选中器官时只给该器官的常见病；
+    /// 无专属条目时回落到部位级（organID == nil），否则为空——
+    /// 不把其他器官的疾病当成该器官的常见项（语义准确性优先）。
     public static func conditions(in regionID: String, organID: String?) -> [CommonCondition] {
         let inRegion = conditions(in: regionID)
         guard let organID else { return inRegion }
         let matched = inRegion.filter { $0.organID == organID }
-        if !matched.isEmpty { return matched }
-        let regionLevel = inRegion.filter { $0.organID == nil }
-        return regionLevel.isEmpty ? inRegion : regionLevel
+        return matched.isEmpty ? inRegion.filter { $0.organID == nil } : matched
     }
 
     // MARK: - Common surgeries
@@ -155,14 +154,12 @@ public enum HealthHistoryCatalog {
         commonSurgeries.filter { $0.regionID == regionID }
     }
 
-    /// 部位 + 器官两层过滤；无器官专属条目时回落到部位级，再回落到整个部位。
+    /// 部位 + 器官两层过滤；无专属条目时回落到部位级（organID == nil）。
     public static func surgeries(in regionID: String, organID: String?) -> [CommonSurgery] {
         let inRegion = surgeries(in: regionID)
         guard let organID else { return inRegion }
         let matched = inRegion.filter { $0.organID == organID }
-        if !matched.isEmpty { return matched }
-        let regionLevel = inRegion.filter { $0.organID == nil }
-        return regionLevel.isEmpty ? inRegion : regionLevel
+        return matched.isEmpty ? inRegion.filter { $0.organID == nil } : matched
     }
 
     // MARK: - Common allergens

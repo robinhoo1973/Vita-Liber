@@ -2517,3 +2517,5 @@
 "healthHistory.detailSurgeryHint" = "手术名 + 器官，就是一条完整记录。";
 "healthHistory.detailChronicHint" = "病名 + 部位，就是一条完整记录。";
 "healthHistory.confirmedSource" = "本人确认 · C 级来源";
+"healthHistory.addSurgeryTitle" = "添加手术记录";
+"healthHistory.addChronicTitle" = "添加慢性病记录";

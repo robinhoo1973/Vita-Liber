@@ -224,10 +224,15 @@ struct ProblemCreateSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(isSurgery
-                         ? L10n.healthHistoryDetailSurgeryHint
-                         : L10n.healthHistoryDetailChronicHint)
+                         ? L10n.healthHistoryAddSurgeryTitle
+                         : L10n.healthHistoryAddChronicTitle)
                         .font(.title2.weight(.bold))
                         .foregroundStyle(Color("text-primary", bundle: .main))
+                    Text(isSurgery
+                         ? L10n.healthHistoryDetailSurgeryHint
+                         : L10n.healthHistoryDetailChronicHint)
+                        .font(.subheadline)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
 
                     selectedLocationCard
                     searchField

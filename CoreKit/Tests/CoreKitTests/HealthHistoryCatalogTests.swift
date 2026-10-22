@@ -44,8 +44,7 @@ struct HealthHistoryCatalogTests {
         #expect(liver.allSatisfy { $0.organID == "liver" })
 
         let spleen = HealthHistoryCatalog.conditions(in: "abdomen", organID: "spleen")
-        #expect(!spleen.isEmpty)
-        #expect(spleen.count > 1)
+        #expect(spleen.isEmpty, "脾无常见病条目时应为空，不混入肝胆疾病")
     }
 
     @Test func commonConditionsCoverOfficialFourGroups() {

@@ -419,6 +419,8 @@ extension L10n {
         "healthHistory.detailSurgeryHint",
         "healthHistory.detailChronicHint",
         "healthHistory.confirmedSource",
+        "healthHistory.addSurgeryTitle",
+        "healthHistory.addChronicTitle",
         "help.versionFormat",
         "ai.aiBadge", "ai.askDoctor", "ai.citations",
         "ai.conclusion",

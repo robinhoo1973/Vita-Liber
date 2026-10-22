@@ -18,7 +18,7 @@ enum OrganLayout {
         switch regionID {
         case "head_neck":
             all = [
-                .init(id: "brain", x: 0.50, y: 0.30, width: 0.30, height: 0.22),
+                .init(id: "head", x: 0.50, y: 0.18, width: 0.30, height: 0.18),
                 .init(id: "eye", x: 0.50, y: 0.42, width: 0.36, height: 0.09),
                 .init(id: "ear", x: 0.50, y: 0.47, width: 0.54, height: 0.12),
                 .init(id: "nose_throat", x: 0.50, y: 0.52, width: 0.12, height: 0.14),

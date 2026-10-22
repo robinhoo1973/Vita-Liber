@@ -45,6 +45,7 @@ struct BodyMapPicker: View {
                         organID = organ.id
                     }
                 }
+                .transition(.scale(scale: 0.86, anchor: .center).combined(with: .opacity))
                 organChips(region)
             } else {
                 HStack {
@@ -57,6 +58,7 @@ struct BodyMapPicker: View {
                 FullBodyAnatomyView(side: side, selectedRegionID: regionID) { id in
                     selectRegion(id)
                 }
+                .transition(.scale(scale: 1.05, anchor: .center).combined(with: .opacity))
                 regionChips
             }
 
@@ -113,7 +115,7 @@ struct BodyMapPicker: View {
                     Text(item.title)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 12)
-                        .frame(minHeight: 36)
+                        .frame(minHeight: 44)
                         .background(side == item
                                     ? Color("brand-primary", bundle: .main).opacity(0.14)
                                     : Color.clear,
@@ -170,7 +172,7 @@ struct BodyMapPicker: View {
                 .foregroundStyle(Color("text-secondary", bundle: .main))
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(region.organs) { organ in
+                    ForEach(visibleOrgans(region)) { organ in
                         OrganChip(organ: organ, selected: organID == organ.id) {
                             withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                                 organID = organ.id
@@ -180,6 +182,12 @@ struct BodyMapPicker: View {
                 }
             }
         }
+    }
+
+    private func visibleOrgans(_ region: HealthHistoryCatalog.BodyRegion)
+        -> [HealthHistoryCatalog.BodyOrgan] {
+        let ids = Set(OrganLayout.placements(regionID: region.id, gender: gender).map(\.id))
+        return region.organs.filter { ids.contains($0.id) }
     }
 
     private func selectRegion(_ id: String) {

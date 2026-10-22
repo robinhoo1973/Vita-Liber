@@ -2517,3 +2517,5 @@
 "healthHistory.detailSurgeryHint" = "手術名 + 器官，就是一條完整記錄。";
 "healthHistory.detailChronicHint" = "病名 + 部位，就是一條完整記錄。";
 "healthHistory.confirmedSource" = "本人確認 · C 級來源";
+"healthHistory.addSurgeryTitle" = "新增手術記錄";
+"healthHistory.addChronicTitle" = "新增慢性病記錄";

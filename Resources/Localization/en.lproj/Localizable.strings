@@ -2517,3 +2517,5 @@
 "healthHistory.detailSurgeryHint" = "Surgery name + organ makes one complete record.";
 "healthHistory.detailChronicHint" = "Condition name + body area makes one complete record.";
 "healthHistory.confirmedSource" = "Self-confirmed · Source C";
+"healthHistory.addSurgeryTitle" = "Add a surgery record";
+"healthHistory.addChronicTitle" = "Add a condition record";
