@@ -643,6 +643,7 @@ public enum SchemaV2 {
     CREATE TABLE health_problem (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       name TEXT NOT NULL, kind TEXT,
+      body_region TEXT, body_site TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_health_problem_patient ON health_problem(patient_id);
