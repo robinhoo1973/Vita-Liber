@@ -20,6 +20,8 @@ struct ProblemCreateSheet: View {
     @State private var organID: String?
     @State private var selectedItems: [String: CatalogItem] = [:]
     @State private var saveFailed = false
+    /// 保存中重入守卫：连点 [保存] 会并发两次 createProblems，写入重复病名行
+    @State private var isSaving = false
 
     init(defaultKind: String) {
         _kind = State(initialValue: defaultKind)
@@ -108,6 +110,13 @@ struct ProblemCreateSheet: View {
                     .transition(.opacity)
                 }
                 .animation(.easeInOut(duration: 0.20), value: step)
+                // 切换 慢性病/手术史 时清空已选常见项：否则上一目录选项会带
+                // 另一 kind 落库（列表按 kind 过滤后「消失」）
+                .onChangeCompat(of: kind) { _, _ in
+                    selectedItems.removeAll()
+                    name = ""
+                    query = ""
+                }
                 .background(Color("bg-grouped", bundle: .main).ignoresSafeArea())
                 .navigationTitle(navigationTitle)
                 .navigationBarTitleDisplayMode(.inline)
@@ -253,7 +262,12 @@ struct ProblemCreateSheet: View {
                     if !selectedList.isEmpty {
                         selectedSummary
                     }
-                    selectedLocationCard
+                    // 常见项各自带部位；只有自由文本才使用当前人体图选择。
+                    // 避免「选了胸部 + 勾了全身性高血压」时卡片把整批写成胸部。
+                    if selectedItems.isEmpty
+                        || !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        selectedLocationCard
+                    }
                     searchField
                     if !filteredItems.isEmpty {
                         sectionLabel(L10n.healthHistoryCommon)
@@ -298,11 +312,12 @@ struct ProblemCreateSheet: View {
                         Text(item.name)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                         Image(systemName: "xmark.circle.fill")
                             .font(.caption2)
                     }
                     .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .background(Color("brand-primary", bundle: .main).opacity(0.14),
                                 in: Capsule())
                     .overlay(Capsule().stroke(
@@ -481,20 +496,29 @@ struct ProblemCreateSheet: View {
     }
 
     private func save() {
+        guard !isSaving else { return }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var problems = selectedList.map {
             HealthProblemStore.NewProblem(name: $0.name, kind: kind,
                                           bodyRegion: $0.region, bodySite: $0.organ)
         }
-        if !trimmed.isEmpty, !problems.contains(where: { $0.name == trimmed }) {
+        // 去重折叠与「资料建议接受流」同一条 Domain 规则（大小写/空白归一），
+        // 否则手填「高血压」与常见项「高血压」大小写不同会写成两行
+        let folded = trimmed.isEmpty ? "" : ProfileSuggestionExtractor.fold(trimmed, kind: .chronicCondition)
+        if !folded.isEmpty,
+           !problems.contains(where: {
+               ProfileSuggestionExtractor.fold($0.name, kind: .chronicCondition) == folded
+           }) {
             problems.append(.init(name: trimmed, kind: kind,
                                   bodyRegion: regionID, bodySite: organID))
         }
         guard !problems.isEmpty else { return }
+        isSaving = true
         Task {
             if await state.createProblems(patientId: app.currentPatientId, problems: problems) {
                 dismiss()
             } else {
+                isSaving = false
                 saveFailed = true
             }
         }

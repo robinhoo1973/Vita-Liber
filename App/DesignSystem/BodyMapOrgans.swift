@@ -432,11 +432,14 @@ enum OrganStyle {
     }
 
     /// 专业解剖插图（Servier Medical Art, CC BY 4.0）——优先于手绘 Shape。
+    /// 目录里「精神/心理」的器官 id 是 `mental`，素材名仍按解剖命名 `anatomy-brain`。
     static func anatomyAsset(_ id: String) -> String? {
         switch id {
         case "heart", "liver", "lung", "kidney", "spleen", "stomach",
-             "pancreas", "intestine", "brain", "bladder":
+             "pancreas", "intestine", "bladder":
             return "anatomy-\(id)"
+        case "mental":
+            return "anatomy-brain"
         default:
             return nil
         }
@@ -539,9 +542,11 @@ private struct OrganHotspot: View {
 
     private var hitWidth: CGFloat { max(44, placement.width * size.width) }
     private var hitHeight: CGFloat { max(44, placement.height * size.height) }
+    /// 只有仍用矢量 Shape 绘制器官才按字形命中；有解剖插图的器官（心/肝/肺/
+    /// 肾/脾/胃/胰/肠）可见图形与 `OrganGlyphShape` 不再重合（如肾的双瓣
+    /// 中间空隙正好落在缩小后的位图中心），按矩形命中才不至于点图无效。
     private var usesPathHit: Bool {
-        ["heart", "lung", "liver", "stomach", "pancreas", "kidney", "spleen"]
-            .contains(organ.id)
+        OrganStyle.anatomyAsset(organ.id) == nil && OrganGlyphShape.hasGlyph(organ.id)
     }
     private var hitShape: AnyShape {
         usesPathHit ? AnyShape(OrganGlyphShape(organID: organ.id)) : AnyShape(Rectangle())
@@ -582,7 +587,6 @@ struct OrganGlyph: View {
                 Image(anatomy)
                     .resizable()
                     .scaledToFit()
-                    .shadow(color: selected ? tint.opacity(0.35) : .clear, radius: 6, y: 2)
             } else if OrganGlyphShape.hasGlyph(organ.id) {
                 if organ.id == "intestine" {
                     IntestineLineShape()

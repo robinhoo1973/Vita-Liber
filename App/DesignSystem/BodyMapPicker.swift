@@ -5,7 +5,8 @@ import Domain
 ///
 /// 两级交互：全身剪影点部位 → 该部位放大 + 器官/组织热点。
 /// 只帮助用户找到**已确诊的病名/做过的手术**，不做症状判断、不做疾病推断。
-/// 全部为 SwiftUI 矢量 Shape，无第三方依赖、无网络、无位图缩放失真。
+/// 底图为模板着色的 PDF 剪影（anatomy-body-front，CC0），热区为 SwiftUI
+/// `AnatomyHitShape` 矢量 Shape；无第三方依赖、无网络。
 struct BodyMapPicker: View {
     @Binding var regionID: String?
     @Binding var organID: String?
@@ -141,9 +142,13 @@ struct BodyMapPicker: View {
         .overlay(Capsule().stroke(Color("text-primary", bundle: .main).opacity(0.06), lineWidth: 1))
     }
 
-    /// 竖排名条：给人体图留出完整高度，避免横排 chips 压缩画布。
+    /// 部位名条：两列并排放在人体图右侧。单列 8 行 × 44pt 会超出 344pt 画布，
+    /// 两列既保住 ≥44pt 触点与 ≥8pt 间距，又不需要隐藏滚动。
     private var regionRail: some View {
-        VStack(spacing: 4) {
+        LazyVGrid(columns: [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8),
+        ], spacing: 8) {
             ForEach(HealthHistoryCatalog.bodyRegions) { region in
                 Button {
                     selectRegion(region.id)
@@ -153,8 +158,8 @@ struct BodyMapPicker: View {
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.8)
                         .lineLimit(2)
-                        .padding(.horizontal, 6)
-                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .padding(.horizontal, 4)
+                        .frame(maxWidth: .infinity, minHeight: 44)
                         .background(regionID == region.id
                                     ? Color("brand-primary", bundle: .main).opacity(0.14)
                                     : Color("bg-grouped", bundle: .main),
@@ -174,10 +179,12 @@ struct BodyMapPicker: View {
                 .accessibilityAddTraits(regionID == region.id
                                         ? AccessibilityTraits.isButton.union(.isSelected)
                                         : .isButton)
-                .accessibilityIdentifier("bodyMap.region.\(region.id)")
+                // 与剪影热点（bodyMap.region.<id>）区分：两者同屏且同标签，
+                // 同标识会让 XCUITest 命中多元素、VoiceOver 重复朗读
+                .accessibilityIdentifier("bodyMap.rail.\(region.id)")
             }
         }
-        .frame(width: 78)
+        .frame(width: 164)
     }
 
     private func organChips(_ region: HealthHistoryCatalog.BodyRegion) -> some View {
@@ -228,10 +235,12 @@ struct FullBodyAnatomyView: View {
     let selectedRegionID: String?
     let onSelect: (String) -> Void
 
+    /// 顺序即 Z 序：大块先画、小块后画，重叠带（颈/胸、盆腔/下肢）由小块
+    /// 胜出，避免可见部位被相邻区域的命中框抢走。
     private var hotspotIDs: [String] {
         side == .front
-            ? ["head_neck", "chest", "abdomen", "pelvis", "upper_limb", "lower_limb"]
-            : ["head_neck", "back", "upper_limb", "lower_limb"]
+            ? ["chest", "abdomen", "upper_limb", "lower_limb", "pelvis", "head_neck"]
+            : ["back", "upper_limb", "lower_limb", "head_neck"]
     }
 
     var body: some View {
@@ -253,12 +262,24 @@ struct FullBodyAnatomyView: View {
                     .renderingMode(.template)
                     .scaledToFit()
                     .foregroundStyle(LinearGradient(colors: [
-                        Color("text-primary", bundle: .main).opacity(0.16),
-                        Color("text-primary", bundle: .main).opacity(0.08),
+                        // PDF 剪影本身带 37.5% 填充透明度，模板着色再乘一层；
+                        // 0.42/0.24 才能还原旧矢量剪影 ≈0.14/0.08 的观感
+                        Color("text-primary", bundle: .main).opacity(0.42),
+                        Color("text-primary", bundle: .main).opacity(0.24),
                     ], startPoint: .top, endPoint: .bottom))
                     .shadow(color: Color("text-primary", bundle: .main).opacity(0.10),
                             radius: 10, y: 4)
                     .scaleEffect(x: side == .back ? -1 : 1, y: 1)
+                    .accessibilityHidden(true)   // 纯装饰底图：VoiceOver 只报部位热点
+
+                if side == .back {
+                    // 背面视觉线索：脊柱虚线；镜像后的正面剪影否则与正面无差别。
+                    Rectangle()
+                        .fill(Color("text-primary", bundle: .main).opacity(0.20))
+                        .frame(width: 1, height: size.height * 0.40)
+                        .position(x: size.width / 2, y: size.height * 0.44)
+                        .accessibilityHidden(true)
+                }
 
                 ForEach(hotspotIDs, id: \.self) { id in
                     Button {
@@ -324,7 +345,8 @@ struct AnatomyHitShape: Shape {
                                 cornerSize: CGSize(width: 18, height: 18))
         case "pelvis":
             guard side == .front else { return Path() }
-            path.addRoundedRect(in: box(0.29, 0.55, 0.42, 0.10),
+            // 高 0.14（≈48pt）保证 ≥44pt 触点；与腹部/下肢的重叠由 Z 序让盆腔胜出
+            path.addRoundedRect(in: box(0.29, 0.53, 0.42, 0.14),
                                 cornerSize: CGSize(width: 14, height: 14))
         case "back":
             guard side == .back else { return Path() }

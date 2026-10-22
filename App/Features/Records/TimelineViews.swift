@@ -131,20 +131,6 @@ final class TimelineViewState {
         transientExpansion = [:]
     }
 
-    /// 返回是否写入成功——调用侧据此决定 dismiss 或呈现错误
-    @discardableResult
-    func createProblem(patientId: UUID, name: String) async -> Bool {
-        await createProblem(patientId: patientId, name: name, kind: nil,
-                            bodyRegion: nil, bodySite: nil)
-    }
-
-    func createProblem(patientId: UUID, name: String, kind: String?,
-                       bodyRegion: String?, bodySite: String?) async -> Bool {
-        await createProblems(patientId: patientId,
-                             problems: [.init(name: name, kind: kind,
-                                              bodyRegion: bodyRegion, bodySite: bodySite)])
-    }
-
     /// 多选保存：一次事务写入全部条目，再刷新一次列表。
     func createProblems(patientId: UUID,
                         problems: [HealthProblemStore.NewProblem]) async -> Bool {

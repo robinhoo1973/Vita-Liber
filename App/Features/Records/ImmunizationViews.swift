@@ -112,6 +112,8 @@ struct ImmunizationListView: View {
 
 private struct ImmunizationCreateSheet: View {
     let onCreate: (String, Int, Date?, String, String) -> Void
+    /// 打开时的疫苗名/剂次快照：改选别的疫苗后剂次随之复位，避免沿用上一疫苗的序号
+    private let initialName: String
     @State private var name = ""
     @State private var dose = 1
     @State private var date: Date? = Date()
@@ -122,6 +124,7 @@ private struct ImmunizationCreateSheet: View {
     init(initialName: String = "", initialDose: Int = 1,
          onCreate: @escaping (String, Int, Date?, String, String) -> Void) {
         self.onCreate = onCreate
+        self.initialName = initialName
         _name = State(initialValue: initialName)
         _dose = State(initialValue: max(1, initialDose))
     }
@@ -161,7 +164,9 @@ private struct ImmunizationCreateSheet: View {
             }
             .navigationTitle(L10n.immunizationCreateTitle)
             .sheet(isPresented: $showVaccinePicker) {
-                VaccineNamePickerView(selection: $name)
+                VaccineNamePickerView(selection: $name) { picked in
+                    if picked != initialName { dose = 1 }
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -305,41 +310,53 @@ struct ImmunizationScheduleView: View {
 
 private struct VaccineNamePickerView: View {
     @Binding var selection: String
+    /// 选中回调（外层据此复位剂次等派生状态）
+    var onPick: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
 
     private var names: [String] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         var seen = Set<String>()
         return VaccineCatalog.allItems.compactMap { item in
             guard !seen.contains(item.name) else { return nil }
             seen.insert(item.name)
             return item.name
         }.filter {
-            query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || $0.localizedCaseInsensitiveContains(query)
+            q.isEmpty || $0.localizedCaseInsensitiveContains(q)
         }
     }
 
     var body: some View {
         NavigationStack {
-            List(names, id: \.self) { name in
-                Button {
-                    selection = name
-                    dismiss()
-                } label: {
-                    HStack {
-                        Text(name)
-                        Spacer()
-                        if selection == name {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color("brand-primary", bundle: .main))
+            List {
+                if names.isEmpty {
+                    Text(L10n.immunizationEmptyFiltered)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("FR4.5.create.vaccine.empty")
+                } else {
+                    ForEach(names, id: \.self) { name in
+                        Button {
+                            selection = name
+                            onPick(name)
+                            dismiss()
+                        } label: {
+                            HStack {
+                                Text(name)
+                                Spacer()
+                                if selection == name {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                                }
+                            }
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("FR4.5.create.vaccine.\(name)")
                     }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("FR4.5.create.vaccine.\(name)")
             }
             .searchable(text: $query, prompt: L10n.immunizationSearchVaccine)
             .navigationTitle(L10n.immunizationVaccinePickerTitle)

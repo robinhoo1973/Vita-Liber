@@ -30,9 +30,11 @@ public actor HealthProblemStore {
 
     public func list(patientId: UUID, includeArchived: Bool = false) async throws -> [HealthProblemRow] {
         try await writer.read { db in
+            // 多选保存（createMany）整批共享同一 created_at，缺 tiebreaker 时
+            // 批内顺序由 SQLite 实现决定；rowid 让「同一时刻」也有稳定顺序
             let sql = includeArchived
-                ? "SELECT * FROM health_problem WHERE patient_id = ? ORDER BY created_at DESC"
-                : "SELECT * FROM health_problem WHERE patient_id = ? AND archived = 0 ORDER BY created_at DESC"
+                ? "SELECT * FROM health_problem WHERE patient_id = ? ORDER BY created_at DESC, rowid DESC"
+                : "SELECT * FROM health_problem WHERE patient_id = ? AND archived = 0 ORDER BY created_at DESC, rowid DESC"
             return try Row.fetchAll(db, sql: sql, arguments: [patientId.uuidString]).map { row in
                 HealthProblemRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: patientId,

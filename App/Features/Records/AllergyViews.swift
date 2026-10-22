@@ -158,9 +158,11 @@ struct AllergyCreateView: View {
                                         HStack(spacing: 8) {
                                             Image(systemName: allergyKindIcon(kind))
                                                 .font(.body.weight(.semibold))
+                                                .accessibilityHidden(true)   // 装饰图标，标签由文字给出
                                             Text(L10n.allergyKindName(kind))
                                                 .font(.subheadline.weight(.semibold))
                                                 .lineLimit(1)
+                                                .minimumScaleFactor(0.8)
                                             Spacer(minLength: 0)
                                         }
                                         .padding(.horizontal, 12)
