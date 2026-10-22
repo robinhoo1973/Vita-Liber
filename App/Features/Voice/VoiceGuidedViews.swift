@@ -434,6 +434,14 @@ struct VoiceGuidedProfileView: View {
                     .accessibilityIdentifier("FR17.11.suggestion")
                 }
 
+                if key == "emergencyContact" {
+                    // FR15.1：语音只把联系人写入候选；急救卡展示仍需逐项勾选。
+                    Label(L10n.voiceguide_contactSelectionHint, systemImage: "info.circle")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 HStack(spacing: 12) {
                     Button(L10n.voiceguide_skip) {
                         app.stopSpeaking()

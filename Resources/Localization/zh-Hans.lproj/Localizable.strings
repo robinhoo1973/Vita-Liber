@@ -1739,6 +1739,7 @@
 "voiceguide.continue" = "继续语音完善";
 "voiceguide.suggestion" = "建议填写";
 "voiceguide.confirmHint" = "确认后保存";
+"voiceguide.contactSelectionHint" = "保存后可在急救卡中勾选展示";
 "voiceguide.micPrivacy" = "录音仅用于本次自检，不保存、不上传";
 "voiceguide.speechUnavailable" = "语音识别未授权，请到系统设置允许，或跳过改用键盘输入";
 "voiceguide.micInputDeviceFmt" = "当前输入设备：%@";

@@ -95,6 +95,7 @@ extension L10n {
     static var voiceguide_replayPrompt: String { t("voiceguide.replayPrompt") }
     static var voiceguide_suggestion: String { t("voiceguide.suggestion") }
     static var voiceguide_confirmHint: String { t("voiceguide.confirmHint") }
+    static var voiceguide_contactSelectionHint: String { t("voiceguide.contactSelectionHint") }
 
     static var voiceguide_skip: String { t("voiceguide.skip") }
 

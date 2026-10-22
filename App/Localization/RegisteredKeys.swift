@@ -1085,6 +1085,7 @@ extension L10n {
         "voiceguide.replayPrompt",
         "voiceguide.suggestion",
         "voiceguide.confirmHint",
+        "voiceguide.contactSelectionHint",
         "voiceguide.micPhrase",
         "voiceguide.micPrivacy",
         "voiceguide.micTestPhrase",
