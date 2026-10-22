@@ -1,163 +1,276 @@
 import SwiftUI
 import Domain
 
-/// 既往史人体图索引（2026-10-22）。
+/// 既往史人体图索引（2026-10-22 第二版）。
 ///
-/// 只帮助用户**找到已确诊的病名/做过的手术**，不做症状判断、不做疾病推断。
-/// 一级部位点击 → 二级器官/组织；「背部/全身系统」作为图形外快捷入口。
+/// 两级交互：全身剪影点部位 → 该部位放大 + 器官/组织热点。
+/// 只帮助用户找到**已确诊的病名/做过的手术**，不做症状判断、不做疾病推断。
+/// 全部为 SwiftUI 矢量 Shape，无第三方依赖、无网络、无位图缩放失真。
 struct BodyMapPicker: View {
     @Binding var regionID: String?
     @Binding var organID: String?
+    /// male/female/other；已知性别时盆腔只显示对应器官。
+    var gender: String? = nil
+
+    @State private var side: AnatomyBodySide = .front
+    @State private var zoomedRegionID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var selectedRegion: HealthHistoryCatalog.BodyRegion? {
         HealthHistoryCatalog.bodyRegions.first { $0.id == regionID }
     }
 
+    private var zoomedRegion: HealthHistoryCatalog.BodyRegion? {
+        guard let zoomedRegionID else { return nil }
+        return HealthHistoryCatalog.bodyRegions.first { $0.id == zoomedRegionID }
+    }
+
+    private var selectedName: String? {
+        if let region = selectedRegion, let organID,
+           let organ = region.organs.first(where: { $0.id == organID }) {
+            return organ.name
+        }
+        return selectedRegion?.name
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.healthHistoryChooseRegion)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-
-            ZStack {
-                silhouette
-                regionButtons
+            if let region = zoomedRegion {
+                zoomHeader(region)
+                Text(L10n.healthHistoryOrganHint)
+                    .font(.caption)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                RegionAnatomyView(region: region, organID: $organID, gender: gender) { organ in
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                        organID = organ.id
+                    }
+                }
+                organChips(region)
+            } else {
+                HStack {
+                    Text(L10n.healthHistoryTapRegion)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                    Spacer()
+                    sideToggle
+                }
+                FullBodyAnatomyView(side: side, selectedRegionID: regionID) { id in
+                    selectRegion(id)
+                }
+                regionChips
             }
-            .frame(width: 240, height: 320)
-            .frame(maxWidth: .infinity)
 
+            if let selectedName {
+                Label(String(format: L10n.healthHistorySelectedFmt, selectedName),
+                      systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                    .accessibilityIdentifier("bodyMap.selected")
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: zoomedRegionID)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("bodyMap.picker")
+    }
+
+    private func zoomHeader(_ region: HealthHistoryCatalog.BodyRegion) -> some View {
+        HStack(spacing: 10) {
+            Button {
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) {
+                    zoomedRegionID = nil
+                }
+            } label: {
+                Label(L10n.healthHistoryWholeBody, systemImage: "chevron.left")
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color("brand-primary", bundle: .main))
+            .accessibilityIdentifier("bodyMap.back")
+
+            Spacer()
+
+            Text(region.name)
+                .font(.headline)
+                .foregroundStyle(Color("text-primary", bundle: .main))
+            Spacer()
+        }
+    }
+
+    private var sideToggle: some View {
+        HStack(spacing: 0) {
+            ForEach(AnatomyBodySide.allCases) { item in
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.22)) {
+                        side = item
+                        if item == .back, ["chest", "abdomen", "pelvis"].contains(regionID) {
+                            regionID = "back"
+                            organID = nil
+                        }
+                    }
+                } label: {
+                    Text(item.title)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 36)
+                        .background(side == item
+                                    ? Color("brand-primary", bundle: .main).opacity(0.14)
+                                    : Color.clear,
+                                    in: Capsule())
+                        .foregroundStyle(side == item
+                                         ? Color("brand-primary", bundle: .main)
+                                         : Color("text-secondary", bundle: .main))
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(side == item ? AccessibilityTraits.isButton.union(.isSelected) : .isButton)
+                .accessibilityIdentifier("bodyMap.side.\(item.rawValue)")
+            }
+        }
+        .padding(3)
+        .background(Color("bg-grouped", bundle: .main), in: Capsule())
+        .overlay(Capsule().stroke(Color("text-primary", bundle: .main).opacity(0.06), lineWidth: 1))
+    }
+
+    private var regionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip(L10n.healthHistorySystemic, id: "systemic", icon: "figure.arms.open")
-                chip(regionName("back"), id: "back", icon: "figure.stand")
+                ForEach(HealthHistoryCatalog.bodyRegions) { region in
+                    Button {
+                        selectRegion(region.id)
+                    } label: {
+                        Text(region.name)
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 44)
+                            .background(regionID == region.id
+                                        ? Color("brand-primary", bundle: .main).opacity(0.14)
+                                        : Color("bg-grouped", bundle: .main),
+                                        in: Capsule())
+                            .overlay(Capsule().stroke(regionID == region.id
+                                                      ? Color("brand-primary", bundle: .main).opacity(0.65)
+                                                      : Color("text-primary", bundle: .main).opacity(0.06),
+                                                      lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(regionID == region.id
+                                     ? Color("brand-primary", bundle: .main)
+                                     : Color("text-primary", bundle: .main))
+                    .accessibilityAddTraits(regionID == region.id ? AccessibilityTraits.isButton.union(.isSelected) : .isButton)
+                    .accessibilityIdentifier("bodyMap.region.\(region.id)")
+                }
             }
+        }
+    }
 
-            if let region = selectedRegion {
-                Text(region.name)
-                    .font(.subheadline.weight(.semibold))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(region.organs) { organ in
-                            Button {
+    private func organChips(_ region: HealthHistoryCatalog.BodyRegion) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.healthHistoryChooseOrgan)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color("text-secondary", bundle: .main))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(region.organs) { organ in
+                        OrganChip(organ: organ, selected: organID == organ.id) {
+                            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                                 organID = organ.id
-                            } label: {
-                                Text(organ.name)
-                                    .font(.caption)
-                                    .padding(.horizontal, 10)
-                                    .frame(minHeight: 36)
                             }
-                            .buttonStyle(.bordered)
-                            .tint(organID == organ.id
-                                  ? Color("brand-primary", bundle: .main) : nil)
-                            .accessibilityIdentifier("bodyMap.organ.\(organ.id)")
                         }
                     }
                 }
             }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("bodyMap.picker")
     }
 
-    private var silhouette: some View {
-        ZStack {
-            Circle().frame(width: 52, height: 52).offset(y: -126)
-            Capsule().frame(width: 24, height: 34).offset(y: -94)
-            RoundedRectangle(cornerRadius: 26).frame(width: 92, height: 128).offset(y: -20)
-            Capsule().frame(width: 22, height: 118).offset(x: -66, y: -25)
-            Capsule().frame(width: 22, height: 118).offset(x: 66, y: -25)
-            Capsule().frame(width: 28, height: 128).offset(x: -24, y: 108)
-            Capsule().frame(width: 28, height: 128).offset(x: 24, y: 108)
-        }
-        .foregroundStyle(Color("text-primary", bundle: .main).opacity(0.10))
-        .accessibilityHidden(true)
-    }
-
-    private var regionButtons: some View {
-        ZStack {
-            regionShape(region: "head_neck", label: regionName("head_neck")) {
-                Circle().frame(width: 58, height: 58).offset(y: -126)
+    private func selectRegion(_ id: String) {
+        withAnimation(reduceMotion ? nil : .spring(response: 0.40, dampingFraction: 0.86)) {
+            if id == "back" {
+                side = .back
+            } else if ["chest", "abdomen", "pelvis"].contains(id) {
+                side = .front
             }
-            regionShape(region: "chest", label: regionName("chest")) {
-                RoundedRectangle(cornerRadius: 20).frame(width: 92, height: 64).offset(y: -46)
-            }
-            regionShape(region: "abdomen", label: regionName("abdomen")) {
-                RoundedRectangle(cornerRadius: 18).frame(width: 88, height: 58).offset(y: 16)
-            }
-            regionShape(region: "pelvis", label: regionName("pelvis")) {
-                RoundedRectangle(cornerRadius: 16).frame(width: 78, height: 38).offset(y: 62)
-            }
-            limbRegion(region: "upper_limb", label: regionName("upper_limb")) {
-                HStack(spacing: 110) {
-                    Capsule().frame(width: 30, height: 118)
-                    Capsule().frame(width: 30, height: 118)
-                }
-                .offset(y: -25)
-            }
-            limbRegion(region: "lower_limb", label: regionName("lower_limb")) {
-                HStack(spacing: 20) {
-                    Capsule().frame(width: 36, height: 128)
-                    Capsule().frame(width: 36, height: 128)
-                }
-                .offset(y: 108)
-            }
-        }
-    }
-
-    private func regionShape<Content: View>(region: String, label: String,
-                                            @ViewBuilder shape: () -> Content) -> some View {
-        Button {
-            regionID = region
+            regionID = id
             organID = nil
-        } label: {
-            shape()
-                .foregroundStyle(regionID == region
-                                 ? Color("brand-primary", bundle: .main).opacity(0.30)
-                                 : Color.clear)
-                .contentShape(Rectangle())
+            zoomedRegionID = id
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(regionID == region ? .isSelected : [])
-        .accessibilityIdentifier("bodyMap.region.\(region)")
+    }
+}
+
+/// 全身剪影 + 一级部位命中区。
+struct FullBodyAnatomyView: View {
+    let side: AnatomyBodySide
+    let selectedRegionID: String?
+    let onSelect: (String) -> Void
+
+    private var hotspotIDs: [String] {
+        side == .front
+            ? ["head_neck", "chest", "abdomen", "pelvis", "upper_limb", "lower_limb"]
+            : ["head_neck", "back", "upper_limb", "lower_limb"]
     }
 
-    /// 上下肢由左右两条 Capsule 组成，不能用单一 Shape 的 contentShape；
-    /// 用矩形命中区包住整组，选中态以半透明底表达。
-    private func limbRegion<Content: View>(region: String, label: String,
-                                           @ViewBuilder content: () -> Content) -> some View {
-        Button {
-            regionID = region
-            organID = nil
-        } label: {
-            content()
-                .background(regionID == region
-                            ? Color("brand-primary", bundle: .main).opacity(0.16)
-                            : Color.clear,
-                            in: Rectangle())
-                .contentShape(Rectangle())
+    var body: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(LinearGradient(colors: [
+                        Color("surface-tint-start", bundle: .main).opacity(0.58),
+                        Color("surface-tint-end", bundle: .main).opacity(0.28),
+                    ], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(Color("text-primary", bundle: .main).opacity(0.05), lineWidth: 1)
+                    )
+
+                HumanBodyShape(side: side)
+                    .fill(LinearGradient(colors: [
+                        Color("text-primary", bundle: .main).opacity(0.14),
+                        Color("text-primary", bundle: .main).opacity(0.07),
+                    ], startPoint: .top, endPoint: .bottom))
+                    .overlay(
+                        HumanBodyShape(side: side)
+                            .stroke(Color.white.opacity(0.55), lineWidth: 0.8)
+                    )
+                    .shadow(color: Color("text-primary", bundle: .main).opacity(0.10),
+                            radius: 10, y: 4)
+
+                BodySurfaceDetails(side: side)
+                    .stroke(Color("text-primary", bundle: .main).opacity(0.18),
+                            style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+
+                ForEach(hotspotIDs, id: \.self) { id in
+                    Button {
+                        onSelect(id)
+                    } label: {
+                        BodyRegionShape(regionID: id, side: side)
+                            .fill(selectedRegionID == id
+                                  ? Color("brand-primary", bundle: .main).opacity(0.20)
+                                  : Color.clear)
+                            .overlay(
+                                BodyRegionShape(regionID: id, side: side)
+                                    .stroke(selectedRegionID == id
+                                            ? Color("brand-primary", bundle: .main)
+                                            : Color.clear,
+                                            lineWidth: 1.5)
+                            )
+                            .contentShape(BodyRegionShape(regionID: id, side: side))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(regionName(id))
+                    .accessibilityHint(L10n.healthHistoryTapRegion)
+                    .accessibilityAddTraits(selectedRegionID == id
+                                            ? AccessibilityTraits.isButton.union(.isSelected)
+                                            : .isButton)
+                    .accessibilityIdentifier("bodyMap.region.\(id)")
+                }
+            }
+            .frame(width: min(size.width, size.height * 0.66), height: size.height)
+            .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(regionID == region ? .isSelected : [])
-        .accessibilityIdentifier("bodyMap.region.\(region)")
+        .frame(height: 292)
     }
 
     private func regionName(_ id: String) -> String {
         HealthHistoryCatalog.bodyRegions.first { $0.id == id }?.name ?? id
-    }
-
-    private func chip(_ title: String, id: String, icon: String) -> some View {
-        Button {
-            regionID = id
-            organID = nil
-        } label: {
-            Label(title, systemImage: icon)
-                .font(.caption)
-                .padding(.horizontal, 10)
-                .frame(minHeight: 36)
-        }
-        .buttonStyle(.bordered)
-        .tint(regionID == id ? Color("brand-primary", bundle: .main) : nil)
-        .accessibilityIdentifier("bodyMap.region.\(id)")
     }
 }

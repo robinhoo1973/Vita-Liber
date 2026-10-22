@@ -20,6 +20,34 @@ struct HealthHistoryCatalogTests {
         }
     }
 
+    @Test func catalogOrganReferencesResolveInsideRegion() {
+        for region in HealthHistoryCatalog.bodyRegions {
+            let organIDs = Set(region.organs.map(\.id))
+            for condition in HealthHistoryCatalog.conditions(in: region.id) {
+                if let organID = condition.organID {
+                    #expect(organIDs.contains(organID),
+                            "\(condition.id) 的器官 \(organID) 不在 \(region.id)")
+                }
+            }
+            for surgery in HealthHistoryCatalog.surgeries(in: region.id) {
+                if let organID = surgery.organID {
+                    #expect(organIDs.contains(organID),
+                            "\(surgery.id) 的器官 \(organID) 不在 \(region.id)")
+                }
+            }
+        }
+    }
+
+    @Test func organFilterFallsBackToRegionLevel() {
+        let liver = HealthHistoryCatalog.conditions(in: "abdomen", organID: "liver")
+        #expect(liver.contains { $0.id == "fatty_liver" })
+        #expect(liver.allSatisfy { $0.organID == "liver" })
+
+        let spleen = HealthHistoryCatalog.conditions(in: "abdomen", organID: "spleen")
+        #expect(!spleen.isEmpty)
+        #expect(spleen.count > 1)
+    }
+
     @Test func commonConditionsCoverOfficialFourGroups() {
         let names = Set(HealthHistoryCatalog.commonConditions.map(\.name))
         #expect(names.contains("高血压"))

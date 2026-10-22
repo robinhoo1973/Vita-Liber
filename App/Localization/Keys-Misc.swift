@@ -511,4 +511,25 @@ extension L10n {
     static var healthHistoryOrgan: String { t("healthHistory.organ") }
     static var healthHistoryOther: String { t("healthHistory.other") }
     static var healthHistoryAll: String { t("healthHistory.all") }
+    static var healthHistoryFront: String { t("healthHistory.front") }
+    static var healthHistoryBack: String { t("healthHistory.back") }
+    static var healthHistoryTapRegion: String { t("healthHistory.tapRegion") }
+    static var healthHistoryChooseOrgan: String { t("healthHistory.chooseOrgan") }
+    static var healthHistoryOrganHint: String { t("healthHistory.organHint") }
+    static var healthHistoryWholeBody: String { t("healthHistory.wholeBody") }
+    static var healthHistorySelectedFmt: String { t("healthHistory.selectedFmt") }
+    static var healthHistoryChooseChronicTitle: String { t("healthHistory.chooseChronicTitle") }
+    static var healthHistoryChooseSurgeryTitle: String { t("healthHistory.chooseSurgeryTitle") }
+    static var healthHistoryChooseHint: String { t("healthHistory.chooseHint") }
+    static var healthHistorySearchChronic: String { t("healthHistory.searchChronic") }
+    static var healthHistorySearchSurgery: String { t("healthHistory.searchSurgery") }
+    static var healthHistoryByBody: String { t("healthHistory.byBody") }
+    static var healthHistorySurgeryWhere: String { t("healthHistory.surgeryWhere") }
+    static var healthHistoryChronicWhere: String { t("healthHistory.chronicWhere") }
+    static var healthHistoryRegionStepHint: String { t("healthHistory.regionStepHint") }
+    static var healthHistoryNextOrgan: String { t("healthHistory.nextOrgan") }
+    static var healthHistoryNextDetail: String { t("healthHistory.nextDetail") }
+    static var healthHistoryDetailSurgeryHint: String { t("healthHistory.detailSurgeryHint") }
+    static var healthHistoryDetailChronicHint: String { t("healthHistory.detailChronicHint") }
+    static var healthHistoryConfirmedSource: String { t("healthHistory.confirmedSource") }
 }

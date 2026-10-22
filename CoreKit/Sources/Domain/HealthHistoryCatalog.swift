@@ -36,7 +36,7 @@ public enum HealthHistoryCatalog {
         ]),
         .init(id: "abdomen", name: "腹部", organs: [
             BodyOrgan(id: "stomach", name: "胃"), BodyOrgan(id: "liver", name: "肝"), BodyOrgan(id: "gallbladder", name: "胆囊"), BodyOrgan(id: "pancreas", name: "胰腺"),
-            BodyOrgan(id: "intestine", name: "肠道"), BodyOrgan(id: "kidney", name: "肾"),
+            BodyOrgan(id: "intestine", name: "肠道"), BodyOrgan(id: "kidney", name: "肾"), BodyOrgan(id: "spleen", name: "脾"),
         ]),
         .init(id: "pelvis", name: "盆腔", organs: [
             BodyOrgan(id: "bladder", name: "膀胱"), BodyOrgan(id: "uterus", name: "子宫"), BodyOrgan(id: "ovary", name: "卵巢"), BodyOrgan(id: "prostate", name: "前列腺"),
@@ -63,8 +63,10 @@ public enum HealthHistoryCatalog {
         public let name: String
         /// 对应部位 id；systemic 表示全身/系统性疾病。
         public let regionID: String
-        public init(id: String, name: String, regionID: String) {
-            self.id = id; self.name = name; self.regionID = regionID
+        /// 对应器官/组织 id（可选）；用于人体图二级层面的相关性过滤。
+        public let organID: String?
+        public init(id: String, name: String, regionID: String, organID: String? = nil) {
+            self.id = id; self.name = name; self.regionID = regionID; self.organID = organID
         }
     }
 
@@ -73,31 +75,42 @@ public enum HealthHistoryCatalog {
         .init(id: "hypertension", name: "高血压", regionID: "systemic"),
         .init(id: "dyslipidemia", name: "高血脂", regionID: "systemic"),
         .init(id: "type2_diabetes", name: "2 型糖尿病", regionID: "systemic"),
-        .init(id: "coronary_heart_disease", name: "冠心病", regionID: "chest"),
-        .init(id: "stroke", name: "脑卒中", regionID: "head_neck"),
-        .init(id: "chronic_heart_failure", name: "慢性心力衰竭", regionID: "chest"),
-        .init(id: "copd", name: "慢性阻塞性肺疾病", regionID: "chest"),
-        .init(id: "asthma", name: "哮喘", regionID: "chest"),
-        .init(id: "chronic_kidney_disease", name: "慢性肾病", regionID: "abdomen"),
-        .init(id: "hepatitis_b", name: "慢性乙型肝炎", regionID: "abdomen"),
-        .init(id: "hepatitis_c", name: "慢性丙型肝炎", regionID: "abdomen"),
-        .init(id: "fatty_liver", name: "脂肪肝", regionID: "abdomen"),
-        .init(id: "cirrhosis", name: "肝硬化", regionID: "abdomen"),
-        .init(id: "chronic_gastritis", name: "慢性胃炎", regionID: "abdomen"),
-        .init(id: "peptic_ulcer", name: "消化性溃疡", regionID: "abdomen"),
-        .init(id: "hyperthyroidism", name: "甲状腺功能亢进", regionID: "head_neck"),
-        .init(id: "hypothyroidism", name: "甲状腺功能减退", regionID: "head_neck"),
-        .init(id: "rheumatoid_arthritis", name: "类风湿关节炎", regionID: "systemic"),
-        .init(id: "gout", name: "痛风/高尿酸血症", regionID: "systemic"),
-        .init(id: "osteoporosis", name: "骨质疏松", regionID: "systemic"),
-        .init(id: "depression", name: "抑郁症", regionID: "systemic"),
-        .init(id: "anxiety", name: "焦虑症", regionID: "systemic"),
-        .init(id: "oral_disease", name: "口腔疾病", regionID: "head_neck"),
+        .init(id: "coronary_heart_disease", name: "冠心病", regionID: "chest", organID: "heart"),
+        .init(id: "stroke", name: "脑卒中", regionID: "head_neck", organID: "head"),
+        .init(id: "chronic_heart_failure", name: "慢性心力衰竭", regionID: "chest", organID: "heart"),
+        .init(id: "copd", name: "慢性阻塞性肺疾病", regionID: "chest", organID: "lung"),
+        .init(id: "asthma", name: "哮喘", regionID: "chest", organID: "lung"),
+        .init(id: "chronic_kidney_disease", name: "慢性肾病", regionID: "abdomen", organID: "kidney"),
+        .init(id: "hepatitis_b", name: "慢性乙型肝炎", regionID: "abdomen", organID: "liver"),
+        .init(id: "hepatitis_c", name: "慢性丙型肝炎", regionID: "abdomen", organID: "liver"),
+        .init(id: "fatty_liver", name: "脂肪肝", regionID: "abdomen", organID: "liver"),
+        .init(id: "cirrhosis", name: "肝硬化", regionID: "abdomen", organID: "liver"),
+        .init(id: "chronic_gastritis", name: "慢性胃炎", regionID: "abdomen", organID: "stomach"),
+        .init(id: "peptic_ulcer", name: "消化性溃疡", regionID: "abdomen", organID: "stomach"),
+        .init(id: "hyperthyroidism", name: "甲状腺功能亢进", regionID: "head_neck", organID: "thyroid"),
+        .init(id: "hypothyroidism", name: "甲状腺功能减退", regionID: "head_neck", organID: "thyroid"),
+        .init(id: "rheumatoid_arthritis", name: "类风湿关节炎", regionID: "systemic", organID: "skeletal"),
+        .init(id: "gout", name: "痛风/高尿酸血症", regionID: "systemic", organID: "skeletal"),
+        .init(id: "osteoporosis", name: "骨质疏松", regionID: "systemic", organID: "skeletal"),
+        .init(id: "depression", name: "抑郁症", regionID: "systemic", organID: "mental"),
+        .init(id: "anxiety", name: "焦虑症", regionID: "systemic", organID: "mental"),
+        .init(id: "oral_disease", name: "口腔疾病", regionID: "head_neck", organID: "mouth"),
         .init(id: "cancer", name: "肿瘤（按部位）", regionID: "systemic"),
     ]
 
     public static func conditions(in regionID: String) -> [CommonCondition] {
         commonConditions.filter { $0.regionID == regionID }
+    }
+
+    /// 部位 + 器官两层过滤：选中器官时优先给该器官的常见病；
+    /// 无专属条目时回落到部位级条目，仍无则回落整个部位（不隐藏可用信息）。
+    public static func conditions(in regionID: String, organID: String?) -> [CommonCondition] {
+        let inRegion = conditions(in: regionID)
+        guard let organID else { return inRegion }
+        let matched = inRegion.filter { $0.organID == organID }
+        if !matched.isEmpty { return matched }
+        let regionLevel = inRegion.filter { $0.organID == nil }
+        return regionLevel.isEmpty ? inRegion : regionLevel
     }
 
     // MARK: - Common surgeries
@@ -106,35 +119,50 @@ public enum HealthHistoryCatalog {
         public let id: String
         public let name: String
         public let regionID: String
+        /// 对应器官/组织 id（可选）；用于人体图二级层面的相关性过滤。
+        public let organID: String?
+        public init(id: String, name: String, regionID: String, organID: String? = nil) {
+            self.id = id; self.name = name; self.regionID = regionID; self.organID = organID
+        }
     }
 
     public static let commonSurgeries: [CommonSurgery] = [
-        .init(id: "thyroidectomy", name: "甲状腺切除术", regionID: "head_neck"),
-        .init(id: "tonsillectomy", name: "扁桃体/腺样体切除术", regionID: "head_neck"),
-        .init(id: "cataract", name: "白内障手术", regionID: "head_neck"),
-        .init(id: "coronary_stent", name: "心脏支架植入", regionID: "chest"),
-        .init(id: "cabg", name: "冠脉搭桥术", regionID: "chest"),
-        .init(id: "lung_resection", name: "肺叶切除术", regionID: "chest"),
-        .init(id: "breast_surgery", name: "乳腺手术", regionID: "chest"),
-        .init(id: "appendectomy", name: "阑尾切除术", regionID: "abdomen"),
-        .init(id: "cholecystectomy", name: "胆囊切除术", regionID: "abdomen"),
+        .init(id: "thyroidectomy", name: "甲状腺切除术", regionID: "head_neck", organID: "thyroid"),
+        .init(id: "tonsillectomy", name: "扁桃体/腺样体切除术", regionID: "head_neck", organID: "nose_throat"),
+        .init(id: "cataract", name: "白内障手术", regionID: "head_neck", organID: "eye"),
+        .init(id: "coronary_stent", name: "心脏支架植入", regionID: "chest", organID: "heart"),
+        .init(id: "cabg", name: "冠脉搭桥术", regionID: "chest", organID: "heart"),
+        .init(id: "lung_resection", name: "肺叶切除术", regionID: "chest", organID: "lung"),
+        .init(id: "breast_surgery", name: "乳腺手术", regionID: "chest", organID: "breast"),
+        .init(id: "appendectomy", name: "阑尾切除术", regionID: "abdomen", organID: "intestine"),
+        .init(id: "cholecystectomy", name: "胆囊切除术", regionID: "abdomen", organID: "gallbladder"),
         .init(id: "hernia_repair", name: "疝修补术", regionID: "abdomen"),
-        .init(id: "gastrectomy", name: "胃切除术", regionID: "abdomen"),
-        .init(id: "bowel_resection", name: "肠切除/吻合术", regionID: "abdomen"),
-        .init(id: "cesarean", name: "剖宫产", regionID: "pelvis"),
-        .init(id: "hysterectomy", name: "子宫切除术", regionID: "pelvis"),
-        .init(id: "ovarian_cystectomy", name: "卵巢囊肿手术", regionID: "pelvis"),
-        .init(id: "prostatectomy", name: "前列腺手术", regionID: "pelvis"),
-        .init(id: "spine_fusion", name: "脊柱融合/椎间盘手术", regionID: "back"),
-        .init(id: "fracture_fixation_upper", name: "上肢骨折内固定", regionID: "upper_limb"),
-        .init(id: "carpal_tunnel", name: "腕管松解术", regionID: "upper_limb"),
-        .init(id: "hip_replacement", name: "髋关节置换", regionID: "lower_limb"),
-        .init(id: "knee_replacement", name: "膝关节置换", regionID: "lower_limb"),
-        .init(id: "fracture_fixation_lower", name: "下肢骨折内固定", regionID: "lower_limb"),
+        .init(id: "gastrectomy", name: "胃切除术", regionID: "abdomen", organID: "stomach"),
+        .init(id: "bowel_resection", name: "肠切除/吻合术", regionID: "abdomen", organID: "intestine"),
+        .init(id: "cesarean", name: "剖宫产", regionID: "pelvis", organID: "uterus"),
+        .init(id: "hysterectomy", name: "子宫切除术", regionID: "pelvis", organID: "uterus"),
+        .init(id: "ovarian_cystectomy", name: "卵巢囊肿手术", regionID: "pelvis", organID: "ovary"),
+        .init(id: "prostatectomy", name: "前列腺手术", regionID: "pelvis", organID: "prostate"),
+        .init(id: "spine_fusion", name: "脊柱融合/椎间盘手术", regionID: "back", organID: "spine"),
+        .init(id: "fracture_fixation_upper", name: "上肢骨折内固定", regionID: "upper_limb", organID: "arm"),
+        .init(id: "carpal_tunnel", name: "腕管松解术", regionID: "upper_limb", organID: "wrist_hand"),
+        .init(id: "hip_replacement", name: "髋关节置换", regionID: "lower_limb", organID: "hip"),
+        .init(id: "knee_replacement", name: "膝关节置换", regionID: "lower_limb", organID: "knee"),
+        .init(id: "fracture_fixation_lower", name: "下肢骨折内固定", regionID: "lower_limb", organID: "thigh"),
     ]
 
     public static func surgeries(in regionID: String) -> [CommonSurgery] {
         commonSurgeries.filter { $0.regionID == regionID }
+    }
+
+    /// 部位 + 器官两层过滤；无器官专属条目时回落到部位级，再回落到整个部位。
+    public static func surgeries(in regionID: String, organID: String?) -> [CommonSurgery] {
+        let inRegion = surgeries(in: regionID)
+        guard let organID else { return inRegion }
+        let matched = inRegion.filter { $0.organID == organID }
+        if !matched.isEmpty { return matched }
+        let regionLevel = inRegion.filter { $0.organID == nil }
+        return regionLevel.isEmpty ? inRegion : regionLevel
     }
 
     // MARK: - Common allergens
