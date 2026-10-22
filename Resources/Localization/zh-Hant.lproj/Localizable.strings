@@ -722,6 +722,7 @@
 "help.data.noBackup" = "無備份記錄";
 "help.data.title" = "數據健康";
 "help.about.licenses" = "開源許可";
+"help.about.anatomyAttribution" = "解剖插圖改編自 Servier Medical Art（smart.servier.com），依 CC BY 4.0 授權，已作裁剪與重新著色。人體剪影來自 Wikimedia Commons（公有領域）。";
 "caregiver.title" = "幫家人處理";
 "caregiver.empty" = "無待處理事項";
 "caregiver.emptyHint" = "所有家人的提醒已處理";
@@ -2519,3 +2520,6 @@
 "immunization.emptyFiltered" = "沒有符合的疫苗";
 "immunization.searchPrompt" = "搜尋疫苗或疾病";
 "immunization.sourceNote" = "資料來源：國家免疫規劃疫苗兒童免疫程序及說明（2021 年版）；可選疫苗以說明書為準。";
+"immunization.selectVaccine" = "選擇疫苗名稱";
+"immunization.vaccinePickerTitle" = "選擇疫苗名稱";
+"immunization.searchVaccine" = "搜尋疫苗";

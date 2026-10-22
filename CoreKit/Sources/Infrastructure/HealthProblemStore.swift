@@ -52,6 +52,17 @@ public actor HealthProblemStore {
                          bodyRegion: nil, bodySite: nil, now: now)
     }
 
+    public struct NewProblem: Sendable, Equatable {
+        public var name: String
+        public var kind: String?
+        public var bodyRegion: String?
+        public var bodySite: String?
+        public init(name: String, kind: String?, bodyRegion: String?, bodySite: String?) {
+            self.name = name; self.kind = kind
+            self.bodyRegion = bodyRegion; self.bodySite = bodySite
+        }
+    }
+
     /// 新建健康史条目：kind = chronic/surgery；bodyRegion/bodySite 来自
     /// HealthHistoryCatalog 的稳定 id/显示名，自由文本条目可留空。
     @discardableResult
@@ -60,15 +71,39 @@ public actor HealthProblemStore {
                        now: Date = Date()) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
-            try db.execute(sql: """
-                INSERT INTO health_problem
-                  (id, patient_id, name, kind, archived, body_region, body_site, created_at, updated_at)
-                VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
-                """, arguments: [id.uuidString, patientId.uuidString, name, kind,
-                                 bodyRegion, bodySite,
-                                 now.timeIntervalSince1970, now.timeIntervalSince1970])
+            try Self.insert(id: id, patientId: patientId,
+                            problem: NewProblem(name: name, kind: kind,
+                                                bodyRegion: bodyRegion, bodySite: bodySite),
+                            now: now, db: db)
         }
         return id
+    }
+
+    /// 多选一次保存：同一事务，任一失败整体回滚（不产生半批记录）。
+    @discardableResult
+    public func createMany(patientId: UUID, problems: [NewProblem],
+                           now: Date = Date()) async throws -> [UUID] {
+        guard !problems.isEmpty else { return [] }
+        return try await writer.write { db in
+            var ids: [UUID] = []
+            for problem in problems {
+                let id = UUID()
+                try Self.insert(id: id, patientId: patientId, problem: problem, now: now, db: db)
+                ids.append(id)
+            }
+            return ids
+        }
+    }
+
+    private static func insert(id: UUID, patientId: UUID, problem: NewProblem,
+                               now: Date, db: Database) throws {
+        try db.execute(sql: """
+            INSERT INTO health_problem
+              (id, patient_id, name, kind, archived, body_region, body_site, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+            """, arguments: [id.uuidString, patientId.uuidString, problem.name, problem.kind,
+                             problem.bodyRegion, problem.bodySite,
+                             now.timeIntervalSince1970, now.timeIntervalSince1970])
     }
 
     public func rename(id: UUID, to name: String, now: Date = Date()) async throws {

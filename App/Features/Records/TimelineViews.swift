@@ -140,9 +140,17 @@ final class TimelineViewState {
 
     func createProblem(patientId: UUID, name: String, kind: String?,
                        bodyRegion: String?, bodySite: String?) async -> Bool {
+        await createProblems(patientId: patientId,
+                             problems: [.init(name: name, kind: kind,
+                                              bodyRegion: bodyRegion, bodySite: bodySite)])
+    }
+
+    /// 多选保存：一次事务写入全部条目，再刷新一次列表。
+    func createProblems(patientId: UUID,
+                        problems: [HealthProblemStore.NewProblem]) async -> Bool {
+        guard !problems.isEmpty else { return false }
         do {
-            _ = try await problemStore.create(patientId: patientId, name: name, kind: kind,
-                                              bodyRegion: bodyRegion, bodySite: bodySite)
+            _ = try await problemStore.createMany(patientId: patientId, problems: problems)
             await load(patientId: patientId)
             return true
         } catch {

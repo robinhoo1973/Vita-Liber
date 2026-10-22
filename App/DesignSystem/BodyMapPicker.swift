@@ -56,11 +56,13 @@ struct BodyMapPicker: View {
                     Spacer()
                     sideToggle
                 }
-                FullBodyAnatomyView(side: side, selectedRegionID: regionID) { id in
-                    selectRegion(id)
+                HStack(alignment: .top, spacing: 10) {
+                    FullBodyAnatomyView(side: side, selectedRegionID: regionID) { id in
+                        selectRegion(id)
+                    }
+                    .transition(.scale(scale: 1.05, anchor: .center).combined(with: .opacity))
+                    regionRail
                 }
-                .transition(.scale(scale: 1.05, anchor: .center).combined(with: .opacity))
-                regionChips
             }
 
             if let selectedName {
@@ -139,35 +141,43 @@ struct BodyMapPicker: View {
         .overlay(Capsule().stroke(Color("text-primary", bundle: .main).opacity(0.06), lineWidth: 1))
     }
 
-    private var regionChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(HealthHistoryCatalog.bodyRegions) { region in
-                    Button {
-                        selectRegion(region.id)
-                    } label: {
-                        Text(region.name)
-                            .font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12)
-                            .frame(minHeight: 44)
-                            .background(regionID == region.id
-                                        ? Color("brand-primary", bundle: .main).opacity(0.14)
-                                        : Color("bg-grouped", bundle: .main),
-                                        in: Capsule())
-                            .overlay(Capsule().stroke(regionID == region.id
-                                                      ? Color("brand-primary", bundle: .main).opacity(0.65)
-                                                      : Color("text-primary", bundle: .main).opacity(0.06),
-                                                      lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(regionID == region.id
-                                     ? Color("brand-primary", bundle: .main)
-                                     : Color("text-primary", bundle: .main))
-                    .accessibilityAddTraits(regionID == region.id ? AccessibilityTraits.isButton.union(.isSelected) : .isButton)
-                    .accessibilityIdentifier("bodyMap.region.\(region.id)")
+    /// 竖排名条：给人体图留出完整高度，避免横排 chips 压缩画布。
+    private var regionRail: some View {
+        VStack(spacing: 4) {
+            ForEach(HealthHistoryCatalog.bodyRegions) { region in
+                Button {
+                    selectRegion(region.id)
+                } label: {
+                    Text(region.name)
+                        .font(.caption.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .minimumScaleFactor(0.8)
+                        .lineLimit(2)
+                        .padding(.horizontal, 6)
+                        .frame(maxWidth: .infinity, minHeight: 40)
+                        .background(regionID == region.id
+                                    ? Color("brand-primary", bundle: .main).opacity(0.14)
+                                    : Color("bg-grouped", bundle: .main),
+                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(regionID == region.id
+                                        ? Color("brand-primary", bundle: .main).opacity(0.65)
+                                        : Color("text-primary", bundle: .main).opacity(0.06),
+                                        lineWidth: 1)
+                        )
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(regionID == region.id
+                                 ? Color("brand-primary", bundle: .main)
+                                 : Color("text-primary", bundle: .main))
+                .accessibilityAddTraits(regionID == region.id
+                                        ? AccessibilityTraits.isButton.union(.isSelected)
+                                        : .isButton)
+                .accessibilityIdentifier("bodyMap.region.\(region.id)")
             }
         }
+        .frame(width: 78)
     }
 
     private func organChips(_ region: HealthHistoryCatalog.BodyRegion) -> some View {
@@ -238,38 +248,34 @@ struct FullBodyAnatomyView: View {
                             .stroke(Color("text-primary", bundle: .main).opacity(0.05), lineWidth: 1)
                     )
 
-                HumanBodyShape(side: side)
-                    .fill(LinearGradient(colors: [
-                        Color("text-primary", bundle: .main).opacity(0.14),
-                        Color("text-primary", bundle: .main).opacity(0.07),
+                Image("anatomy-body-front")
+                    .resizable()
+                    .renderingMode(.template)
+                    .scaledToFit()
+                    .foregroundStyle(LinearGradient(colors: [
+                        Color("text-primary", bundle: .main).opacity(0.16),
+                        Color("text-primary", bundle: .main).opacity(0.08),
                     ], startPoint: .top, endPoint: .bottom))
-                    .overlay(
-                        HumanBodyShape(side: side)
-                            .stroke(Color.white.opacity(0.55), lineWidth: 0.8)
-                    )
                     .shadow(color: Color("text-primary", bundle: .main).opacity(0.10),
                             radius: 10, y: 4)
-
-                BodySurfaceDetails(side: side)
-                    .stroke(Color("text-primary", bundle: .main).opacity(0.18),
-                            style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    .scaleEffect(x: side == .back ? -1 : 1, y: 1)
 
                 ForEach(hotspotIDs, id: \.self) { id in
                     Button {
                         onSelect(id)
                     } label: {
-                        BodyRegionShape(regionID: id, side: side)
+                        AnatomyHitShape(regionID: id, side: side)
                             .fill(selectedRegionID == id
                                   ? Color("brand-primary", bundle: .main).opacity(0.20)
                                   : Color.clear)
                             .overlay(
-                                BodyRegionShape(regionID: id, side: side)
+                                AnatomyHitShape(regionID: id, side: side)
                                     .stroke(selectedRegionID == id
                                             ? Color("brand-primary", bundle: .main)
                                             : Color.clear,
                                             lineWidth: 1.5)
                             )
-                            .contentShape(BodyRegionShape(regionID: id, side: side))
+                            .contentShape(AnatomyHitShape(regionID: id, side: side))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(regionName(id))
@@ -280,13 +286,63 @@ struct FullBodyAnatomyView: View {
                     .accessibilityIdentifier("bodyMap.region.\(id)")
                 }
             }
-            .frame(width: min(size.width, size.height * 0.66), height: size.height)
+            .frame(width: min(size.width, size.height * 0.44), height: size.height)
             .frame(maxWidth: .infinity)
         }
-        .frame(height: 292)
+        .frame(height: 344)
     }
 
     private func regionName(_ id: String) -> String {
         HealthHistoryCatalog.bodyRegions.first { $0.id == id }?.name ?? id
+    }
+}
+
+/// 资产剪影（CC0，Wikimedia Commons）上的近似一级部位命中区。
+/// 只用于选择范围；精确器官选择在放大层，由竖排名条兜底。
+struct AnatomyHitShape: Shape {
+    let regionID: String
+    var side: AnatomyBodySide = .front
+
+    func path(in rect: CGRect) -> Path {
+        func box(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+            CGRect(x: rect.minX + x * rect.width,
+                   y: rect.minY + y * rect.height,
+                   width: w * rect.width,
+                   height: h * rect.height)
+        }
+        var path = Path()
+        switch regionID {
+        case "head_neck":
+            path.addEllipse(in: box(0.34, 0.015, 0.32, 0.20))
+        case "chest":
+            guard side == .front else { return Path() }
+            path.addRoundedRect(in: box(0.24, 0.20, 0.52, 0.20),
+                                cornerSize: CGSize(width: 24, height: 24))
+        case "abdomen":
+            guard side == .front else { return Path() }
+            path.addRoundedRect(in: box(0.27, 0.40, 0.46, 0.15),
+                                cornerSize: CGSize(width: 18, height: 18))
+        case "pelvis":
+            guard side == .front else { return Path() }
+            path.addRoundedRect(in: box(0.29, 0.55, 0.42, 0.10),
+                                cornerSize: CGSize(width: 14, height: 14))
+        case "back":
+            guard side == .back else { return Path() }
+            path.addRoundedRect(in: box(0.24, 0.20, 0.52, 0.42),
+                                cornerSize: CGSize(width: 28, height: 28))
+        case "upper_limb":
+            path.addRoundedRect(in: box(0.02, 0.22, 0.26, 0.40),
+                                cornerSize: CGSize(width: 18, height: 18))
+            path.addRoundedRect(in: box(0.72, 0.22, 0.26, 0.40),
+                                cornerSize: CGSize(width: 18, height: 18))
+        case "lower_limb":
+            path.addRoundedRect(in: box(0.28, 0.62, 0.21, 0.36),
+                                cornerSize: CGSize(width: 18, height: 18))
+            path.addRoundedRect(in: box(0.51, 0.62, 0.21, 0.36),
+                                cornerSize: CGSize(width: 18, height: 18))
+        default:
+            return Path()
+        }
+        return path
     }
 }

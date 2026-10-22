@@ -361,6 +361,9 @@ struct HelpAboutView: View {
                 Section(L10n.helpAboutLicenses) {
                     Text("GRDB.swift — MIT License")
                     Text("ZIPFoundation — MIT License")
+                    Text(L10n.helpAnatomyAttribution)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
                 Section(L10n.helpSection) {
                     Text(L10n.help_faqPlaceholder)

@@ -147,9 +147,45 @@ struct AllergyCreateView: View {
                 Form {
                     if step == 1 {
                         Section(L10n.allergyStep1) {
-                            Picker(L10n.allergyKind, selection: $allergenKind) {
-                                // 第七轮修复：显示名经 L10n 词表（存储值仍是 Domain 词表原文）
-                                ForEach(kinds, id: \.self) { Text(L10n.allergyKindName($0)) }
+                            LazyVGrid(columns: [
+                                GridItem(.flexible(), spacing: 8),
+                                GridItem(.flexible(), spacing: 8),
+                            ], spacing: 8) {
+                                ForEach(kinds, id: \.self) { kind in
+                                    Button {
+                                        allergenKind = kind
+                                    } label: {
+                                        HStack(spacing: 8) {
+                                            Image(systemName: allergyKindIcon(kind))
+                                                .font(.body.weight(.semibold))
+                                            Text(L10n.allergyKindName(kind))
+                                                .font(.subheadline.weight(.semibold))
+                                                .lineLimit(1)
+                                            Spacer(minLength: 0)
+                                        }
+                                        .padding(.horizontal, 12)
+                                        .frame(maxWidth: .infinity, minHeight: 52)
+                                        .background(allergenKind == kind
+                                                    ? Color("brand-primary", bundle: .main).opacity(0.14)
+                                                    : Color("bg-grouped", bundle: .main),
+                                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .stroke(allergenKind == kind
+                                                        ? Color("brand-primary", bundle: .main).opacity(0.65)
+                                                        : Color("text-primary", bundle: .main).opacity(0.06),
+                                                        lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(allergenKind == kind
+                                                     ? Color("brand-primary", bundle: .main)
+                                                     : Color("text-primary", bundle: .main))
+                                    .accessibilityAddTraits(allergenKind == kind
+                                                            ? AccessibilityTraits.isButton.union(.isSelected)
+                                                            : .isButton)
+                                    .accessibilityIdentifier("SP-50.allergy.kind.\(kind)")
+                                }
                             }
                         }
                     } else if step == 2 {
@@ -238,6 +274,15 @@ struct AllergyCreateView: View {
                     Text(L10n.allergyEmergencyBody)
                 }
             }
+        }
+    }
+
+    private func allergyKindIcon(_ kind: String) -> String {
+        switch SevereReactionRules.allergenKinds.firstIndex(of: kind) {
+        case 0: return "pills.fill"
+        case 1: return "fork.knife"
+        case 2: return "leaf.fill"
+        default: return "ellipsis.circle.fill"
         }
     }
 

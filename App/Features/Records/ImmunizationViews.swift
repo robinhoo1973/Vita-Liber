@@ -117,6 +117,7 @@ private struct ImmunizationCreateSheet: View {
     @State private var date: Date? = Date()
     @State private var provider = ""
     @State private var lot = ""
+    @State private var showVaccinePicker = false
 
     init(initialName: String = "", initialDose: Int = 1,
          onCreate: @escaping (String, Int, Date?, String, String) -> Void) {
@@ -128,6 +129,22 @@ private struct ImmunizationCreateSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                Button {
+                    showVaccinePicker = true
+                } label: {
+                    HStack {
+                        Text(name.isEmpty ? L10n.immunizationSelectVaccine : name)
+                            .foregroundStyle(name.isEmpty
+                                             ? Color("text-secondary", bundle: .main)
+                                             : Color("text-primary", bundle: .main))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color("text-tertiary", bundle: .main))
+                    }
+                    .frame(minHeight: 44)
+                }
+                .accessibilityIdentifier("FR4.5.create.chooseName")
                 TextField(L10n.immunizationVaccineName, text: $name)
                     .accessibilityIdentifier("FR4.5.create.name")
                 Stepper(L10n.doseNumber(dose), value: $dose, in: 1...20)
@@ -143,6 +160,9 @@ private struct ImmunizationCreateSheet: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             .navigationTitle(L10n.immunizationCreateTitle)
+            .sheet(isPresented: $showVaccinePicker) {
+                VaccineNamePickerView(selection: $name)
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.commonSave) { onCreate(name, dose, date, provider, lot) }
@@ -280,5 +300,55 @@ struct ImmunizationScheduleView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("FR4.5.schedule.item.\(item.id)")
+    }
+}
+
+private struct VaccineNamePickerView: View {
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
+
+    private var names: [String] {
+        var seen = Set<String>()
+        return VaccineCatalog.allItems.compactMap { item in
+            guard !seen.contains(item.name) else { return nil }
+            seen.insert(item.name)
+            return item.name
+        }.filter {
+            query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || $0.localizedCaseInsensitiveContains(query)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(names, id: \.self) { name in
+                Button {
+                    selection = name
+                    dismiss()
+                } label: {
+                    HStack {
+                        Text(name)
+                        Spacer()
+                        if selection == name {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(Color("brand-primary", bundle: .main))
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("FR4.5.create.vaccine.\(name)")
+            }
+            .searchable(text: $query, prompt: L10n.immunizationSearchVaccine)
+            .navigationTitle(L10n.immunizationVaccinePickerTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonClose) { dismiss() }
+                }
+            }
+        }
     }
 }

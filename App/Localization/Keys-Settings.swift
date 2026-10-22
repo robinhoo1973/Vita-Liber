@@ -515,6 +515,8 @@ extension L10n {
 
     static var helpAboutLicenses: String { t("help.about.licenses") }
 
+    static var helpAnatomyAttribution: String { t("help.about.anatomyAttribution") }
+
     static var helpAboutSection: String { t("help.about.section") }
 
     static var helpLegalSection: String { t("help.legal.section") }

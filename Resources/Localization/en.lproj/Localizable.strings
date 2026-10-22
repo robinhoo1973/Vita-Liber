@@ -722,6 +722,7 @@
 "help.data.noBackup" = "No backup yet";
 "help.data.title" = "Data Health";
 "help.about.licenses" = "Open Source Licenses";
+"help.about.anatomyAttribution" = "Anatomical illustrations adapted from Servier Medical Art (smart.servier.com), licensed under CC BY 4.0, cropped and recoloured. Body silhouette from Wikimedia Commons (public domain).";
 "caregiver.title" = "Help Family";
 "caregiver.empty" = "Nothing to handle";
 "caregiver.emptyHint" = "All family reminders are handled";
@@ -2519,3 +2520,6 @@
 "immunization.emptyFiltered" = "No matching vaccines";
 "immunization.searchPrompt" = "Search vaccine or disease";
 "immunization.sourceNote" = "Source: National Immunization Program schedule for children (2021); optional vaccines follow their package inserts.";
+"immunization.selectVaccine" = "Choose a vaccine name";
+"immunization.vaccinePickerTitle" = "Choose a vaccine";
+"immunization.searchVaccine" = "Search vaccines";

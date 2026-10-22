@@ -431,6 +431,17 @@ enum OrganStyle {
         }
     }
 
+    /// 专业解剖插图（Servier Medical Art, CC BY 4.0）——优先于手绘 Shape。
+    static func anatomyAsset(_ id: String) -> String? {
+        switch id {
+        case "heart", "liver", "lung", "kidney", "spleen", "stomach",
+             "pancreas", "intestine", "brain", "bladder":
+            return "anatomy-\(id)"
+        default:
+            return nil
+        }
+    }
+
     static func assetName(_ id: String) -> String? {
         switch id {
         case "head": return "skull"
@@ -567,7 +578,12 @@ struct OrganGlyph: View {
 
     var body: some View {
         Group {
-            if OrganGlyphShape.hasGlyph(organ.id) {
+            if let anatomy = OrganStyle.anatomyAsset(organ.id) {
+                Image(anatomy)
+                    .resizable()
+                    .scaledToFit()
+                    .shadow(color: selected ? tint.opacity(0.35) : .clear, radius: 6, y: 2)
+            } else if OrganGlyphShape.hasGlyph(organ.id) {
                 if organ.id == "intestine" {
                     IntestineLineShape()
                         .stroke(tint, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
@@ -640,7 +656,12 @@ private struct OrganMiniIcon: View {
     var body: some View {
         let tint = OrganStyle.tint(organ.id)
         Group {
-            if OrganGlyphShape.hasGlyph(organ.id) {
+            if let anatomy = OrganStyle.anatomyAsset(organ.id) {
+                Image(anatomy)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            } else if OrganGlyphShape.hasGlyph(organ.id) {
                 if organ.id == "intestine" {
                     IntestineLineShape()
                         .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))

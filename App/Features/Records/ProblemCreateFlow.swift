@@ -1,6 +1,7 @@
 import SwiftUI
 import Perception
 import Domain
+import Infrastructure
 
 /// FR11.4 新建健康史条目（2026-10-22 按设计稿改三步流）。
 ///
@@ -17,6 +18,7 @@ struct ProblemCreateSheet: View {
     @State private var query = ""
     @State private var regionID: String?
     @State private var organID: String?
+    @State private var selectedItems: [String: CatalogItem] = [:]
     @State private var saveFailed = false
 
     init(defaultKind: String) {
@@ -83,6 +85,14 @@ struct ProblemCreateSheet: View {
         return scopedItems.filter { $0.name.localizedCaseInsensitiveContains(q) }
     }
 
+    private var selectedList: [CatalogItem] {
+        selectedItems.values.sorted { $0.name < $1.name }
+    }
+
+    private var hasDraft: Bool {
+        !selectedList.isEmpty || !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         WithPerceptionTracking {
             NavigationStack {
@@ -132,7 +142,8 @@ struct ProblemCreateSheet: View {
     // MARK: - Step 1
 
     private var chooseStep: some View {
-        ScrollView {
+        VStack(spacing: 0) {
+            ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text(isSurgery
                      ? L10n.healthHistoryChooseSurgeryTitle
@@ -189,6 +200,11 @@ struct ProblemCreateSheet: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
+            }
+            bottomCTA(title: L10n.healthHistoryNextDetail,
+                      disabled: selectedItems.isEmpty) {
+                step = .detail
+            }
         }
     }
 
@@ -211,7 +227,7 @@ struct ProblemCreateSheet: View {
                 .padding(.vertical, 16)
             }
             bottomCTA(title: L10n.healthHistoryNextDetail,
-                      disabled: regionID == nil) {
+                      disabled: regionID == nil && selectedItems.isEmpty) {
                 step = .detail
             }
         }
@@ -234,6 +250,9 @@ struct ProblemCreateSheet: View {
                         .font(.subheadline)
                         .foregroundStyle(Color("text-secondary", bundle: .main))
 
+                    if !selectedList.isEmpty {
+                        selectedSummary
+                    }
                     selectedLocationCard
                     searchField
                     if !filteredItems.isEmpty {
@@ -262,8 +281,38 @@ struct ProblemCreateSheet: View {
                 .padding(.vertical, 16)
             }
             bottomCTA(title: L10n.reminder_save,
-                      disabled: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                      disabled: !hasDraft) {
                 save()
+            }
+        }
+    }
+
+    private var selectedSummary: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)],
+                  alignment: .leading, spacing: 8) {
+            ForEach(selectedList) { item in
+                Button {
+                    selectedItems.removeValue(forKey: item.id)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(item.name)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(1)
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption2)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(Color("brand-primary", bundle: .main).opacity(0.14),
+                                in: Capsule())
+                    .overlay(Capsule().stroke(
+                        Color("brand-primary", bundle: .main).opacity(0.55), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+                .accessibilityLabel(String(format: L10n.healthHistorySelectedFmt, item.name))
+                .accessibilityHint(L10n.commonCancel)
+                .accessibilityIdentifier("SP-49.problem.selected.\(item.id)")
             }
         }
     }
@@ -344,7 +393,7 @@ struct ProblemCreateSheet: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)],
                   alignment: .leading, spacing: 8) {
             ForEach(items) { item in
-                let selected = name == item.name
+                let selected = selectedItems[item.id] != nil
                 Button {
                     action(item)
                 } label: {
@@ -413,10 +462,11 @@ struct ProblemCreateSheet: View {
     // MARK: - Actions
 
     private func chooseItem(_ item: CatalogItem) {
-        name = item.name
-        regionID = item.region
-        organID = item.organ
-        step = .detail
+        if selectedItems[item.id] != nil {
+            selectedItems.removeValue(forKey: item.id)
+        } else {
+            selectedItems[item.id] = item
+        }
     }
 
     private func goBack() {
@@ -432,13 +482,17 @@ struct ProblemCreateSheet: View {
 
     private func save() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        var problems = selectedList.map {
+            HealthProblemStore.NewProblem(name: $0.name, kind: kind,
+                                          bodyRegion: $0.region, bodySite: $0.organ)
+        }
+        if !trimmed.isEmpty, !problems.contains(where: { $0.name == trimmed }) {
+            problems.append(.init(name: trimmed, kind: kind,
+                                  bodyRegion: regionID, bodySite: organID))
+        }
+        guard !problems.isEmpty else { return }
         Task {
-            if await state.createProblem(patientId: app.currentPatientId,
-                                         name: trimmed,
-                                         kind: kind,
-                                         bodyRegion: regionID,
-                                         bodySite: organID) {
+            if await state.createProblems(patientId: app.currentPatientId, problems: problems) {
                 dismiss()
             } else {
                 saveFailed = true

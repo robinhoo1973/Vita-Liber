@@ -722,6 +722,7 @@
 "help.data.noBackup" = "无备份记录";
 "help.data.title" = "数据健康";
 "help.about.licenses" = "开源许可";
+"help.about.anatomyAttribution" = "解剖插图改编自 Servier Medical Art（smart.servier.com），依 CC BY 4.0 授权，已作裁剪与重新着色。人体剪影来自 Wikimedia Commons（公有领域）。";
 "caregiver.title" = "帮家人处理";
 "caregiver.empty" = "无待处理事项";
 "caregiver.emptyHint" = "所有家人的提醒已处理";
@@ -2519,3 +2520,6 @@
 "immunization.emptyFiltered" = "没有匹配的疫苗";
 "immunization.searchPrompt" = "搜索疫苗或疾病";
 "immunization.sourceNote" = "资料来源：国家免疫规划疫苗儿童免疫程序及说明（2021 年版）；可选疫苗以说明书为准。";
+"immunization.selectVaccine" = "选择疫苗名称";
+"immunization.vaccinePickerTitle" = "选择疫苗名称";
+"immunization.searchVaccine" = "搜索疫苗";

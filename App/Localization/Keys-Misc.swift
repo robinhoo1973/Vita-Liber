@@ -548,4 +548,7 @@ extension L10n {
     static var immunizationEmptyFiltered: String { t("immunization.emptyFiltered") }
     static var immunizationSearchPrompt: String { t("immunization.searchPrompt") }
     static var immunizationSourceNote: String { t("immunization.sourceNote") }
+    static var immunizationSelectVaccine: String { t("immunization.selectVaccine") }
+    static var immunizationVaccinePickerTitle: String { t("immunization.vaccinePickerTitle") }
+    static var immunizationSearchVaccine: String { t("immunization.searchVaccine") }
 }
