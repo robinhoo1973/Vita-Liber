@@ -71,7 +71,7 @@ private final class VoicePlaybackDelegate: NSObject, AVAudioPlayerDelegate, @unc
         Task { @MainActor [weak self] in self?.onFinish?() }
     }
 
-    nonisolated func audioPlayerDecodeErrorDidFinish(_ player: AVAudioPlayer, error: Error?) {
+    nonisolated func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
         Task { @MainActor [weak self] in self?.onFinish?() }
     }
 }

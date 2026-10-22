@@ -171,7 +171,9 @@ struct HomeProfileProgressCard: View {
         .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 
-
+    private var accessibilityValueText: String {
+        L10n.homeProfileProgressFmt(progress.done, progress.total)
+    }
 }
 
 /// FR2.1c 筛选空态：当前窗口/类别无结果 ≠ 全局无数据（不得误报

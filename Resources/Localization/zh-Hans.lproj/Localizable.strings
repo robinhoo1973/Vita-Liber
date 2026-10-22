@@ -1403,6 +1403,7 @@
 "allergy.severity.轻" = "轻";
 "allergy.kind.药品" = "药品";
 "allergy.kind.食物" = "食物";
+"allergy.kind.环境" = "环境";
 "allergy.kind.其他" = "其他";
 "allergy.tag.皮疹" = "皮疹";
 "allergy.tag.荨麻疹" = "荨麻疹";
@@ -2484,3 +2485,14 @@
 "profile.membersRow" = "常用成员";
 "profile.data" = "数据与存储";
 "profile.chatHistory" = "对话历史";
+"healthHistory.kind" = "类型";
+"healthHistory.chronic" = "慢性病";
+"healthHistory.surgery" = "手术史";
+"healthHistory.bodyRegion" = "身体部位";
+"healthHistory.chooseRegion" = "选择部位";
+"healthHistory.systemic" = "全身/系统";
+"healthHistory.common" = "常见";
+"healthHistory.freeText" = "找不到？直接输入";
+"healthHistory.organ" = "器官/组织";
+"healthHistory.other" = "其他";
+"healthHistory.all" = "全部";

@@ -1403,6 +1403,7 @@
 "allergy.severity.轻" = "輕";
 "allergy.kind.药品" = "藥品";
 "allergy.kind.食物" = "食物";
+"allergy.kind.环境" = "環境";
 "allergy.kind.其他" = "其他";
 "allergy.tag.皮疹" = "皮疹";
 "allergy.tag.荨麻疹" = "蕁麻疹";
@@ -2484,3 +2485,14 @@
 "profile.membersRow" = "常用成員";
 "profile.data" = "資料與儲存";
 "profile.chatHistory" = "對話歷史";
+"healthHistory.kind" = "類型";
+"healthHistory.chronic" = "慢性病";
+"healthHistory.surgery" = "手術史";
+"healthHistory.bodyRegion" = "身體部位";
+"healthHistory.chooseRegion" = "選擇部位";
+"healthHistory.systemic" = "全身/系統";
+"healthHistory.common" = "常見";
+"healthHistory.freeText" = "找不到？直接輸入";
+"healthHistory.organ" = "器官/組織";
+"healthHistory.other" = "其他";
+"healthHistory.all" = "全部";

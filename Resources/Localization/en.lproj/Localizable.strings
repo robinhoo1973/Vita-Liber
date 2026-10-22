@@ -1403,6 +1403,7 @@
 "allergy.severity.轻" = "Mild";
 "allergy.kind.药品" = "Medicine";
 "allergy.kind.食物" = "Food";
+"allergy.kind.环境" = "Environmental";
 "allergy.kind.其他" = "Other";
 "allergy.tag.皮疹" = "Rash";
 "allergy.tag.荨麻疹" = "Hives";
@@ -2484,3 +2485,14 @@
 "profile.membersRow" = "Primary member";
 "profile.data" = "Data & storage";
 "profile.chatHistory" = "Chat history";
+"healthHistory.kind" = "Type";
+"healthHistory.chronic" = "Chronic condition";
+"healthHistory.surgery" = "Surgery history";
+"healthHistory.bodyRegion" = "Body region";
+"healthHistory.chooseRegion" = "Choose a region";
+"healthHistory.systemic" = "Whole body / system";
+"healthHistory.common" = "Common";
+"healthHistory.freeText" = "Not listed? Type it";
+"healthHistory.organ" = "Organ / tissue";
+"healthHistory.other" = "Other";
+"healthHistory.all" = "All";

@@ -993,6 +993,13 @@ public enum SchemaMigrations {
           stable_kinds TEXT NOT NULL DEFAULT '',
           updated_at REAL NOT NULL);
         """),
+        // v39：既往史按部位索引（2026-10-22 业主裁决）。
+        // - health_problem.body_region/body_site：慢性病/手术史的部位与器官
+        // 旧行不迁移；仅 ADD COLUMN，读取侧 nil 兼容。
+        Step(version: 39, name: "health-history-body-region", sql: """
+        ALTER TABLE health_problem ADD COLUMN body_region TEXT;
+        ALTER TABLE health_problem ADD COLUMN body_site TEXT;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

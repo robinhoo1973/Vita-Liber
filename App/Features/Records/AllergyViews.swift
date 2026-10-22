@@ -154,6 +154,16 @@ struct AllergyCreateView: View {
                         }
                     } else if step == 2 {
                         Section(L10n.allergyStep2) {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(HealthHistoryCatalog.allergens(kind: allergenKind)) { item in
+                                        Button(item.name) { substance = item.name }
+                                            .buttonStyle(.bordered)
+                                            .frame(minHeight: 44)
+                                            .accessibilityIdentifier("SP-50.allergy.common.\(item.id)")
+                                    }
+                                }
+                            }
                             TextField(L10n.allergySubstancePlaceholder, text: $substance)
                             // 反应标签 chips 多选 + 自由输入（显示名经 L10n 词表）
                             ForEach(reactionTags, id: \.self) { tag in

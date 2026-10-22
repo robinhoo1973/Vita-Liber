@@ -31,7 +31,7 @@ public enum SevereReactionRules {
     }
 
     // FR23.1 选项常量（数据词汇，落库原值；视图禁止内联中文——单一来源在 Domain）
-    public static let allergenKinds = ["药品", "食物", "其他"]
+    public static let allergenKinds = ["药品", "食物", "环境", "其他"]
     public static let severityValues = ["轻", "中", "重"]
     public static let reactionTagOptions = [
         "皮疹", "荨麻疹", "恶心呕吐", "腹泻", "呼吸困难",

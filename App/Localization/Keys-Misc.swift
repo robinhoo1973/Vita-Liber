@@ -498,4 +498,17 @@ extension L10n {
         return nil
     }
 
+
+    // 健康史（2026-10-22）：手术史/慢性病 + 人体图索引
+    static var healthHistoryKind: String { t("healthHistory.kind") }
+    static var healthHistoryChronic: String { t("healthHistory.chronic") }
+    static var healthHistorySurgery: String { t("healthHistory.surgery") }
+    static var healthHistoryBodyRegion: String { t("healthHistory.bodyRegion") }
+    static var healthHistoryChooseRegion: String { t("healthHistory.chooseRegion") }
+    static var healthHistorySystemic: String { t("healthHistory.systemic") }
+    static var healthHistoryCommon: String { t("healthHistory.common") }
+    static var healthHistoryFreeText: String { t("healthHistory.freeText") }
+    static var healthHistoryOrgan: String { t("healthHistory.organ") }
+    static var healthHistoryOther: String { t("healthHistory.other") }
+    static var healthHistoryAll: String { t("healthHistory.all") }
 }

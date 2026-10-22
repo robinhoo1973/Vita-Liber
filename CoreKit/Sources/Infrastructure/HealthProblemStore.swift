@@ -18,8 +18,13 @@ public actor HealthProblemStore {
         public var patientId: UUID
         public var name: String
         public var archived: Bool
-        public init(id: UUID, patientId: UUID, name: String, archived: Bool) {
+        public var kind: String?
+        public var bodyRegion: String?
+        public var bodySite: String?
+        public init(id: UUID, patientId: UUID, name: String, archived: Bool,
+                    kind: String? = nil, bodyRegion: String? = nil, bodySite: String? = nil) {
             self.id = id; self.patientId = patientId; self.name = name; self.archived = archived
+            self.kind = kind; self.bodyRegion = bodyRegion; self.bodySite = bodySite
         }
     }
 
@@ -32,7 +37,10 @@ public actor HealthProblemStore {
                 HealthProblemRow(id: UUID(uuidString: row["id"] as String) ?? UUID(),
                     patientId: patientId,
                     name: row["name"] as String,
-                    archived: (row["archived"] as Int) == 1)
+                    archived: (row["archived"] as Int) == 1,
+                    kind: row["kind"] as String?,
+                    bodyRegion: row["body_region"] as String?,
+                    bodySite: row["body_site"] as String?)
             }
         }
     }
@@ -40,12 +48,24 @@ public actor HealthProblemStore {
     /// 新建/懒创建（FR11.4：可从文档/观察/就诊懒创建或手动新建）
     @discardableResult
     public func create(patientId: UUID, name: String, now: Date = Date()) async throws -> UUID {
+        try await create(patientId: patientId, name: name, kind: nil,
+                         bodyRegion: nil, bodySite: nil, now: now)
+    }
+
+    /// 新建健康史条目：kind = chronic/surgery；bodyRegion/bodySite 来自
+    /// HealthHistoryCatalog 的稳定 id/显示名，自由文本条目可留空。
+    @discardableResult
+    public func create(patientId: UUID, name: String, kind: String?,
+                       bodyRegion: String?, bodySite: String?,
+                       now: Date = Date()) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
             try db.execute(sql: """
-                INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
-                VALUES (?, ?, ?, NULL, 0, ?, ?)
-                """, arguments: [id.uuidString, patientId.uuidString, name,
+                INSERT INTO health_problem
+                  (id, patient_id, name, kind, archived, body_region, body_site, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+                """, arguments: [id.uuidString, patientId.uuidString, name, kind,
+                                 bodyRegion, bodySite,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
         }
         return id

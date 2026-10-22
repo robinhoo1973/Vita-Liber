@@ -134,8 +134,15 @@ final class TimelineViewState {
     /// 返回是否写入成功——调用侧据此决定 dismiss 或呈现错误
     @discardableResult
     func createProblem(patientId: UUID, name: String) async -> Bool {
+        await createProblem(patientId: patientId, name: name, kind: nil,
+                            bodyRegion: nil, bodySite: nil)
+    }
+
+    func createProblem(patientId: UUID, name: String, kind: String?,
+                       bodyRegion: String?, bodySite: String?) async -> Bool {
         do {
-            _ = try await problemStore.create(patientId: patientId, name: name)
+            _ = try await problemStore.create(patientId: patientId, name: name, kind: kind,
+                                              bodyRegion: bodyRegion, bodySite: bodySite)
             await load(patientId: patientId)
             return true
         } catch {
@@ -549,18 +556,38 @@ struct HealthProblemListView: View {
     @State private var showCreate = false
     @State private var showMerge = false
     @State private var mergePrimary: HealthProblemStore.HealthProblemRow?
+    @State private var kindFilter = "chronic"
+
+    private var visibleProblems: [HealthProblemStore.HealthProblemRow] {
+        state.problems.filter { kindFilter == "all" || ($0.kind ?? "chronic") == kindFilter }
+    }
 
     var body: some View {
         WithPerceptionTracking {
             List {
-                if state.problems.isEmpty {
+                Section {
+                    Picker(L10n.healthHistoryKind, selection: $kindFilter) {
+                        Text(L10n.healthHistoryChronic).tag("chronic")
+                        Text(L10n.healthHistorySurgery).tag("surgery")
+                        Text(L10n.healthHistoryAll).tag("all")
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("SP-49.problem.kindFilter")
+                }
+                if visibleProblems.isEmpty {
                     VLUnavailableView(L10n.problemEmpty, systemImage: "cross.case",
                                            description: Text(L10n.problemEmptyHint))
                         .accessibilityIdentifier("SP-49.problem.empty")
                 } else {
-                    ForEach(state.problems) { problem in
+                    ForEach(visibleProblems) { problem in
                         HStack {
-                            Text(problem.name).font(.subheadline)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(problem.name).font(.subheadline)
+                                if let region = problem.bodyRegion,
+                                   let node = HealthHistoryCatalog.bodyRegions.first(where: { $0.id == region }) {
+                                    Text(node.name).font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
                             Spacer()
                             Button {
                                 showMerge = true
@@ -599,7 +626,7 @@ struct HealthProblemListView: View {
                 }
             }
             .sheet(isPresented: $showCreate) {
-                ProblemCreateSheet()
+                ProblemCreateSheet(defaultKind: kindFilter == "surgery" ? "surgery" : "chronic")
             }
             .confirmationDialog(L10n.problemMergeTitle, isPresented: $showMerge,
                                 titleVisibility: .visible) {
@@ -632,14 +659,96 @@ private struct ProblemCreateSheet: View {
     @Environment(AppState.self) private var app
     @Environment(TimelineViewState.self) private var state
     @Environment(\.dismiss) private var dismiss
+    @State private var kind: String
     @State private var name = ""
+    @State private var query = ""
+    @State private var regionID: String?
+    @State private var organID: String?
     @State private var saveFailed = false
+
+    init(defaultKind: String) {
+        _kind = State(initialValue: defaultKind)
+    }
+
+    private struct CatalogItem: Identifiable {
+        let id: String
+        let name: String
+        let region: String
+    }
+
+    private var commonItems: [CatalogItem] {
+        if kind == "surgery" {
+            return HealthHistoryCatalog.commonSurgeries.map {
+                CatalogItem(id: $0.id, name: $0.name, region: $0.regionID)
+            }
+        }
+        return HealthHistoryCatalog.commonConditions.map {
+            CatalogItem(id: $0.id, name: $0.name, region: $0.regionID)
+        }
+    }
+
+    private var filteredItems: [CatalogItem] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return commonItems }
+        return commonItems.filter { $0.name.localizedCaseInsensitiveContains(q) }
+    }
+
+    private var selectedRegionName: String? {
+        guard let regionID else { return nil }
+        return HealthHistoryCatalog.bodyRegions.first { $0.id == regionID }?.name
+    }
+
+    private var selectedOrganName: String? {
+        guard let regionID, let organID else { return nil }
+        return HealthHistoryCatalog.bodyRegions.first { $0.id == regionID }?
+            .organs.first { $0.id == organID }?.name
+    }
 
     var body: some View {
         WithPerceptionTracking {
             NavigationStack {
                 Form {
-                    TextField(L10n.problemNamePlaceholder, text: $name)
+                    Section(L10n.healthHistoryKind) {
+                        Picker(L10n.healthHistoryKind, selection: $kind) {
+                            Text(L10n.healthHistoryChronic).tag("chronic")
+                            Text(L10n.healthHistorySurgery).tag("surgery")
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                    Section(L10n.healthHistoryCommon) {
+                        TextField(L10n.problemNamePlaceholder, text: $query)
+                            .textInputAutocapitalization(.never)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(filteredItems, id: \.id) { item in
+                                    Button(item.name) {
+                                        name = item.name
+                                        regionID = item.region
+                                        organID = nil
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .frame(minHeight: 44)
+                                    .accessibilityIdentifier("SP-49.problem.common.\(item.id)")
+                                }
+                            }
+                        }
+                    }
+                    Section(L10n.healthHistoryBodyRegion) {
+                        BodyMapPicker(regionID: $regionID, organID: $organID)
+                            .frame(minHeight: 380)
+                        if let selectedRegionName {
+                            LabeledContent(L10n.healthHistoryBodyRegion, value: selectedRegionName)
+                        }
+                        if let selectedOrganName {
+                            LabeledContent(L10n.healthHistoryOrgan, value: selectedOrganName)
+                        }
+                    }
+                    Section {
+                        TextField(L10n.problemNamePlaceholder, text: $name)
+                            .accessibilityIdentifier("SP-49.problem.name")
+                    } footer: {
+                        Text(L10n.healthHistoryFreeText)
+                    }
                 }
                 .navigationTitle(L10n.problemCreateTitle)
                 .saveFailedAlert(title: L10n.encounterSaveFailed,
@@ -649,8 +758,10 @@ private struct ProblemCreateSheet: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(L10n.reminder_save) {
                             Task {
-                                // 写库失败保留输入并提示——此前吞错后无条件 dismiss
-                                if await state.createProblem(patientId: app.currentPatientId, name: name) {
+                                if await state.createProblem(
+                                    patientId: app.currentPatientId,
+                                    name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                                    kind: kind, bodyRegion: regionID, bodySite: organID) {
                                     dismiss()
                                 } else {
                                     saveFailed = true
