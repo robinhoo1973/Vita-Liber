@@ -102,14 +102,6 @@ struct MemberDetailView: View {
                     }
                     .accessibilityIdentifier("FR3.1.member.update")
                 }
-                if current.id == app.currentPatientId {
-                    Section(L10n.hub_healthRecords) {
-                        NavigationLink(value: AppRoute.healthHistoryHub) {
-                            Label(L10n.hub_healthRecords, systemImage: "heart.text.square")
-                        }
-                        .accessibilityIdentifier("FR3.1.member.healthHistory")
-                    }
-                }
                 // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
                 // 审查修复：删除保护闸门改按 ID 判定本人——原以显示串
                 // 「本人」比较，zh-Hant/未来多语言下闸门失效

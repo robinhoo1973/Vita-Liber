@@ -146,10 +146,14 @@ struct HomeProfileProgressCard: View {
                     .frame(width: 36)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(L10n.homeProfileProgressTitle)
+                        Text(progress.done >= progress.total
+                             ? L10n.hub_healthRecords
+                             : L10n.homeProfileProgressTitle)
                             .font(.subheadline.bold()).foregroundStyle(.primary)
                         Spacer(minLength: 8)
-                        Text(L10n.homeProfileContinue)
+                        Text(progress.done >= progress.total
+                             ? L10n.hub_healthRecords
+                             : L10n.homeProfileContinue)
                             .font(.caption).foregroundStyle(Color("brand-primary", bundle: .main))
                     }
                     Text(L10n.homeProfileProgressFmt(progress.done, progress.total))
@@ -165,9 +169,13 @@ struct HomeProfileProgressCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressScaleButtonStyle())   // 按压反馈统一（§3.3 V4.05）
-        .accessibilityLabel(L10n.homeProfileProgressTitle)
+        .accessibilityLabel(progress.done >= progress.total
+                            ? L10n.hub_healthRecords
+                            : L10n.homeProfileProgressTitle)
         .accessibilityValue(accessibilityValueText)
-        .accessibilityHint(L10n.homeProfileContinue)
+        .accessibilityHint(progress.done >= progress.total
+                           ? L10n.hub_healthRecords
+                           : L10n.homeProfileContinue)
         .accessibilityIdentifier("SP-04.home.profileProgress")
     }
 

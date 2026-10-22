@@ -123,7 +123,9 @@ enum ReminderHubLoader {
     static let profileProgressKind = "profile_progress"
 
     static func systemItems(done: Int, total: Int, memberId: UUID) -> [AggregatedReminderItem] {
-        guard total > 0, done >= 0, done < total else { return [] }
+        // 2026-10-22：证件号/医保号移除后，注册完成即 2/2；首页仍需保留
+        // 健康档案入口（不再是「未完善」才出现）。title 由卡片按完成态切换。
+        guard total > 0, done >= 0 else { return [] }
         return [AggregatedReminderItem(
             id: .init(kind: profileProgressKind, sourceId: memberId.uuidString),
             aggregationKind: .system,
