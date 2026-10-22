@@ -61,7 +61,6 @@ struct AppContainer {
     let guidelines: GuidelineStore
     let emergencyCards: EmergencyCardStore
     let immunizations: ImmunizationStore
-    let claims: ClaimStore
     let messages: MessageDeliveryStore
     /// F4 就诊事件（SP-08）
     let encounters: EncounterStore
@@ -275,7 +274,6 @@ struct AppContainer {
         let guidelines = GuidelineStore(writer: store.writer)
         let emergencyCards = EmergencyCardStore(writer: store.writer)
         let immunizations = ImmunizationStore(writer: store.writer)
-        let claims = ClaimStore(writer: store.writer)
         let messages = MessageDeliveryStore(writer: store.writer)
         let encounters = EncounterStore(writer: store.writer)
         let healthExams = HealthExamStore(writer: store.writer)
@@ -347,7 +345,6 @@ struct AppContainer {
                             guidelines: guidelines,
                             emergencyCards: emergencyCards,
                             immunizations: immunizations,
-                            claims: claims,
                             messages: messages,
                             encounters: encounters,
                             healthExams: healthExams,

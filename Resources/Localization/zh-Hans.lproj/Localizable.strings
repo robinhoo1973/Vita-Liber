@@ -147,11 +147,6 @@
 "care.parameters.valueAskEachTime" = "每次询问";
 "care.parameters.valueDefaultOn" = "默认开启";
 "care.parameters.sosValue" = "长按 %ld 秒 + 二次确认";
-"claim.title" = "报销票据";
-"claim.empty" = "还没有报销票据";
-"claim.totalsFmt" = "共 %d 笔，合计 %@";
-"claim.emptyHint" = "录入发票/费用/收据，按就诊整理";
-"claim.add" = "新增";
 "claim.type.invoice" = "发票";
 "claim.type.fee" = "费用";
 "claim.type.receipt" = "收据";
@@ -589,6 +584,7 @@
 "immunization.createTitle" = "新增疫苗记录";
 "immunization.lot" = " · 批号 %@";
 "common.save" = "保存";
+"common.add" = "添加";
 "common.yes" = "是";
 "common.no" = "否";
 "common.cancel" = "取消";
@@ -1753,13 +1749,6 @@
 "startup.databaseMissing" = "本地数据库文件缺失，但检测到已有资料原件。为避免覆盖，已停止加载：请从备份恢复，或联系支持。";
 "startup.loadFailed" = "本地数据库加载失败。";
 "startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";
-"claim.amount" = "金额";
-"claim.date" = "日期";
-"claim.merchant" = "机构/商家";
-"claim.summary" = "摘要";
-"claim.createTitle" = "新增票据";
-"claim.save" = "保存";
-"claim.type" = "类型";
 "helpcard.defaultFilename" = "配药清单";
 "f19.sendA11y" = "发送指令";
 "plan.unreadable" = "计划数据损坏";

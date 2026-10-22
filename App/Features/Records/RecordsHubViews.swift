@@ -178,30 +178,6 @@ struct ImmunizationHubView: View {
     }
 }
 
-// MARK: - 报销（FR13.7）
-
-struct ClaimHubView: View {
-    @Environment(AppState.self) private var app
-    @Environment(M2HubStore.self) private var hub
-
-    var body: some View {
-        WithPerceptionTracking {
-            // 批B（审查 P3#2，BR-001 消费侧门）：装载完成前不显缓存
-            ClaimListView(rows: hub.isLoaded(for: currentPatientId) ? hub.claimRows : [],
-                          totals: hub.isLoaded(for: currentPatientId)
-                              ? hub.claimTotals
-                              : ClaimStore.Totals(totalAmount: 0, itemCount: 0, currency: "CNY")) { type, amount, date, merchant, summary in
-                Task { await hub.createClaim(patientId: currentPatientId, type: type,
-                                             amount: amount, date: date,
-                                             merchant: merchant, summary: summary) }
-            }
-            .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
-        }
-    }
-
-    private var currentPatientId: UUID { app.currentPatientId }
-}
-
 // MARK: - 发送状态（FR24.2）
 
 struct SentStatusHubView: View {

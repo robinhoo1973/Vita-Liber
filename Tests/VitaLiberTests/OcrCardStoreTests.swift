@@ -720,8 +720,6 @@ final class OcrCardStoreTests: XCTestCase {
         let detail = try await store.detail(kind: "claim_item", entityId: headerId, patientId: patient)
         XCTAssertEqual(detail.sources.count, 1)
         XCTAssertEqual(detail.fields.first { $0.key == "invoice_no" }?.value, "No.001")
-        let totals = try await ClaimStore(writer: db.writer).totals(patientId: patient)
-        XCTAssertEqual(totals.itemCount, 1)   // 明细行不重复计入票面合计（FR13.7 纯事实）
     }
 
     func test_claimCardWithoutFeeLinesKeepsHeaderReceipt() async throws {

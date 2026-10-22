@@ -121,6 +121,10 @@ public struct GRDBStore {
                     // v34 patient-fk-repair（2026-10-10 收口批 F⑤②）：患者域 FK 补齐，
                     // 只影响升级库；全新库基线已带 REFERENCES。
                     try Self.repairPatientReferences(db)
+                case 40:
+                    // v40 drop-id-insurance（2026-10-22 业主）：列存在才删，
+                    // 兼容老库/合成夹具缺列；彻底移除历史证件号/医保号。
+                    try Self.dropLegacyProfileColumns(db)
                 case 25:
                     // v25 recognition-fact-lines：DDL/ocr_card_commit 重建 + FK 校验 +
                     // 回执确定性回填（GRDBStore+V25Backfill）+ 版本推进同一事务——
@@ -264,6 +268,19 @@ public struct GRDBStore {
     /// 增列无感）→ 删旧 → 换名；重放以终态探测续跑（暂存表在而正式表缺 =
     /// 上次停在换名前，直接续完换名并补索引）。必填无默认列若不在旧表列集内，
     /// 响亮失败交由降级链（绝不半搬运）。两表索引随重建按基线名单重建。
+    /// v40：条件删除 patient_profile 的历史证件号/医保号列。
+    /// 合成夹具/极老库可能本就没有这两列；SQLite 无 DROP COLUMN IF EXISTS。
+    private static func dropLegacyProfileColumns(_ db: Database) throws {
+        for column in ["id_no", "insurance_no"] {
+            let exists = (try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM pragma_table_info('patient_profile') WHERE name = ?",
+                arguments: [column]) ?? 0) > 0
+            guard exists else { continue }
+            try db.execute(sql: "ALTER TABLE patient_profile DROP COLUMN \(column)")
+        }
+    }
+
     private static func repairPatientReferences(_ db: Database) throws {
         try rebuildPatientScopedTable(
             db, table: "alert_event",
@@ -617,22 +634,20 @@ public struct GRDBStore {
             try db.execute(
                 sql: """
                 INSERT INTO patient_profile
-                  (id, display_name, relation, gender, birth_date, blood_type, id_no,
-                   insurance_no, note, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, display_name, relation, gender, birth_date, blood_type,
+                   note, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     profile.id.uuidString, profile.displayName, profile.relation,
                     profile.gender, profile.birthDate, profile.bloodType,
-                    profile.idNo, profile.insuranceNo, profile.note,
-                    profile.createdAt, profile.updatedAt,
+                    profile.note, profile.createdAt, profile.updatedAt,
                 ])
         }
     }
 
     /// patient_profile 行 → PatientProfile 的**唯一**映射（全仓共享：成员列表 / 备份导出
-    /// 同用此映射——第六轮全仓审查修复「血型/证件号/医保号未映射→备份恢复静默清零」
-    /// 曾只修了 ExportService 一份，members() 若另行维护会再次分叉）。
+    /// 同用此映射）。证件号/医保号列已于 2026-10-22 由 v40 删除。
     /// 未 SELECT 的列（如软删成员投影不含 deleted_at）下标读取为 nil，映射仍安全。
     static func profileRow(_ row: Row) -> PatientProfile {
         PatientProfile(id: UUID(uuidString: row["id"] as String) ?? UUID(),
@@ -641,8 +656,6 @@ public struct GRDBStore {
                        gender: row["gender"] as String?,
                        birthDate: row["birth_date"] as String?,
                        bloodType: row["blood_type"] as String?,
-                       idNo: row["id_no"] as String?,
-                       insuranceNo: row["insurance_no"] as String?,
                        note: row["note"] as String?,
                        createdAt: row["created_at"] as Double,
                        updatedAt: row["updated_at"] as Double,

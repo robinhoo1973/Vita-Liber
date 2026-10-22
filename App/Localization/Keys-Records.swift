@@ -4,13 +4,7 @@ import Foundation
 import Domain
 
 extension L10n {
-    static var claim_title: String { t("claim.title") }
-
-    static var claim_empty: String { t("claim.empty") }
-
-    static var claim_emptyHint: String { t("claim.emptyHint") }
-
-    static var claim_add: String { t("claim.add") }
+    static var commonAdd: String { t("common.add") }
 
     static var claim_type_invoice: String { t("claim.type.invoice") }
 
@@ -29,20 +23,6 @@ extension L10n {
     static var immunization_pending: String { t("immunization.pending") }
 
     static var immunization_note: String { t("immunization.note") }
-
-    static var claim_type: String { t("claim.type") }
-
-    static var claim_amount: String { t("claim.amount") }
-
-    static var claim_date: String { t("claim.date") }
-
-    static var claim_merchant: String { t("claim.merchant") }
-
-    static var claim_summary: String { t("claim.summary") }
-
-    static var claim_createTitle: String { t("claim.createTitle") }
-
-    static var claim_save: String { t("claim.save") }
 
     static var immunizationVaccineName: String { t("immunization.vaccineName") }
 

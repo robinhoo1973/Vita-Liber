@@ -38,7 +38,7 @@ final class HomeProfileProgressTests: XCTestCase {
 
     func test_whitespaceFieldsDoNotCountAsCompletedInformation() async throws {
         let profile = PatientProfile(displayName: "本人", birthDate: " \n",
-                                     bloodType: " ", idNo: "\t", insuranceNo: "  ")
+                                     bloodType: " ")
         let (app, _) = makeApp(profiles: [profile])
         await app.bootstrap()
         let progress = try XCTUnwrap(app.profileCompletion)
@@ -63,7 +63,7 @@ final class HomeProfileProgressTests: XCTestCase {
 
     func test_bloodTypeAndBirthDateCompleteTheProfileWithoutOvercounting() async {
         let profile = PatientProfile(displayName: "本人", birthDate: "1980-01-01",
-                                     bloodType: "A", idNo: "test-id", insuranceNo: "test-insurance")
+                                     bloodType: "A")
         let (app, _) = makeApp(profiles: [profile])
         await app.bootstrap()
         XCTAssertEqual(app.profileCompletion?.done, 2)

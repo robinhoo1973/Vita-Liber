@@ -7,10 +7,8 @@ public struct PatientProfile: Sendable, Equatable, Codable, Identifiable {
     public var relation: String
     public var gender: String?
     public var birthDate: String?
-    /// FR3.1 P0 字段：血型 / 证件号 / 医保号（头像 P1 可选）
+    /// FR3.1 P0 字段：血型（证件号/医保号已于 2026-10-22 彻底移除；头像 P1 可选）
     public var bloodType: String?
-    public var idNo: String?
-    public var insuranceNo: String?
     public var note: String?
     public var createdAt: TimeInterval
     public var updatedAt: TimeInterval
@@ -19,13 +17,13 @@ public struct PatientProfile: Sendable, Equatable, Codable, Identifiable {
     public var deletedAt: TimeInterval?
     public init(id: UUID = UUID(), displayName: String, relation: String = "本人",
                 gender: String? = nil, birthDate: String? = nil,
-                bloodType: String? = nil, idNo: String? = nil, insuranceNo: String? = nil,
+                bloodType: String? = nil,
                 note: String? = nil,
                 createdAt: TimeInterval = 0, updatedAt: TimeInterval = 0,
                 deletedAt: TimeInterval? = nil) {
         self.id = id; self.displayName = displayName; self.relation = relation
         self.gender = gender; self.birthDate = birthDate
-        self.bloodType = bloodType; self.idNo = idNo; self.insuranceNo = insuranceNo
+        self.bloodType = bloodType
         self.note = note
         self.createdAt = createdAt; self.updatedAt = updatedAt
         self.deletedAt = deletedAt

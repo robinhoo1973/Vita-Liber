@@ -127,7 +127,7 @@ struct VitaLiberApp: App {
         _voiceNoteState = State(initialValue: VoiceNoteState(store: container.voiceNotes))
         _m2Hub = State(initialValue: M2HubStore(
             meds: container.meds, emergency: container.emergencyCards,
-            immunizations: container.immunizations, claims: container.claims,
+            immunizations: container.immunizations,
             messages: container.messages, guidelines: container.guidelines,
             audit: container.audit))
         _searchState = State(initialValue: SearchViewState(search: container.search))

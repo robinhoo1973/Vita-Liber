@@ -32,10 +32,6 @@ extension L10n {
         String(format: t("care.parameters.sosValue"), seconds)
     }
 
-    static func claimTotals(_ count: Int, _ amount: String) -> String {
-        String(format: t("claim.totalsFmt"), count, amount)
-    }
-
     static func voicePromptText(_ p: SpeechPrompt) -> String {
         switch p {
         case .repeatHint: return t("voice.prompt.repeatHint")

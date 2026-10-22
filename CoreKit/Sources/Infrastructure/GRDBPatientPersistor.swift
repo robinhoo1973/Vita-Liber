@@ -103,7 +103,7 @@ public actor GRDBPatientPersistor: PatientPersisting {
         }
     }
 
-    /// FR3.1 成员字段更新（血型/证件号/医保号/备注等补全）
+    /// FR3.1 成员字段更新（血型/备注等补全；证件号/医保号已移除）
     public func updateMember(_ profile: PatientProfile) async throws {
         try await updateMember(profile, audit: nil)
     }
@@ -118,11 +118,10 @@ public actor GRDBPatientPersistor: PatientPersisting {
             try db.execute(sql: """
                 UPDATE patient_profile
                 SET display_name = ?, relation = ?, gender = ?, birth_date = ?,
-                    blood_type = ?, id_no = ?, insurance_no = ?, note = ?, updated_at = ?
+                    blood_type = ?, note = ?, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """, arguments: [profile.displayName, profile.relation, profile.gender,
-                                   profile.birthDate, profile.bloodType, profile.idNo,
-                                   profile.insuranceNo, profile.note,
+                                   profile.birthDate, profile.bloodType, profile.note,
                                    profile.updatedAt, profile.id.uuidString])
             if let audit {
                 try VoiceExecutionAuditWriter.record(audit, entityType: "patient_profile",

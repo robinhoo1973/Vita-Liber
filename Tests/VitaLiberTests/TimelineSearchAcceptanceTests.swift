@@ -83,14 +83,13 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
                                  Date().timeIntervalSince1970, Date().timeIntervalSince1970])
         }
 
-        // 第七轮全仓审查修复的回归锚点：血型/证件/医保号 + 软删成员随包往返——
-        // 原种子全 nil、无软删成员，round-6 的 profileRow 字段映射与
-        // 「不再过滤软删成员」零测试守护，回退即静默丢急救卡血型、复活
-        // 软删成员
+        // 第七轮全仓审查修复的回归锚点：血型 + 软删成员随包往返——
+        // 证件号/医保号已于 2026-10-22 v40 彻底移除；回退即静默丢急救卡血型、
+        // 复活软删成员
         let deletedAtValue = Date().timeIntervalSince1970 - 3600
         try await storeA.writer.write { db in
             try db.execute(sql: """
-                UPDATE patient_profile SET blood_type = 'A', id_no = '110101199001011234', insurance_no = 'SI-9001'
+                UPDATE patient_profile SET blood_type = 'A'
                 WHERE id = ?
                 """, arguments: [profile.id.uuidString])
             try db.execute(sql: """
@@ -107,8 +106,6 @@ final class TimelineSearchAcceptanceTests: XCTestCase {
         XCTAssertEqual(envelope.metrics.count, 1)
         // round-6 字段映射回归锚点
         XCTAssertEqual(envelope.selfProfile?.bloodType, "A", "血型必须随包")
-        XCTAssertEqual(envelope.selfProfile?.idNo, "110101199001011234", "证件号必须随包")
-        XCTAssertEqual(envelope.selfProfile?.insuranceNo, "SI-9001", "医保号必须随包")
         // 种子库的「测试患者」无 local_owner 关联（非本人档案）→ 普通成员 + 软删成员
         XCTAssertEqual(envelope.members?.count, 2, "普通成员+软删成员必须随包导出（FR13.5 换机恢复）")
         let softDeleted = envelope.members?.first { $0.displayName == "已删除成员" }

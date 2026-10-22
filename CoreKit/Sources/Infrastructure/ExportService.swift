@@ -1873,13 +1873,12 @@ private struct ImportSession {
                 case .adopt:
                     try db.execute(sql: """
                         UPDATE patient_profile SET display_name = ?, relation = ?, gender = ?,
-                          birth_date = ?, blood_type = ?, id_no = ?, insurance_no = ?,
-                          note = ?, created_at = ?, updated_at = ?, deleted_at = ? WHERE id = ?
+                          birth_date = ?, blood_type = ?, note = ?, created_at = ?,
+                          updated_at = ?, deleted_at = ? WHERE id = ?
                         """, arguments: [profile.displayName, profile.relation, profile.gender,
-                                         profile.birthDate, profile.bloodType, profile.idNo,
-                                         profile.insuranceNo, profile.note, profile.createdAt,
-                                         profile.updatedAt, profile.deletedAt,
-                                         profile.id.uuidString])
+                                         profile.birthDate, profile.bloodType, profile.note,
+                                         profile.createdAt, profile.updatedAt,
+                                         profile.deletedAt, profile.id.uuidString])
                     return
                 case .coexist:
                     break   // 落到下方 INSERT（新 id）
@@ -1888,13 +1887,12 @@ private struct ImportSession {
             try db.execute(sql: """
                 INSERT INTO patient_profile
                   (id, owner_local_id, display_name, relation, gender, birth_date,
-                   blood_type, id_no, insurance_no, note, created_at, updated_at, deleted_at)
-                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   blood_type, note, created_at, updated_at, deleted_at)
+                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [targetId.uuidString, profile.displayName,
                                    profile.relation, profile.gender, profile.birthDate,
-                                   profile.bloodType, profile.idNo, profile.insuranceNo,
-                                   profile.note, profile.createdAt, profile.updatedAt,
-                                   profile.deletedAt])
+                                   profile.bloodType, profile.note, profile.createdAt,
+                                   profile.updatedAt, profile.deletedAt])
         }
         if let profile = envelope.selfProfile {
             try putProfile(profile)

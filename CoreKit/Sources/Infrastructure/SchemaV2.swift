@@ -45,7 +45,7 @@ public enum SchemaV2 {
       display_name TEXT NOT NULL,
       relation TEXT NOT NULL,
       gender TEXT, birth_date TEXT, blood_type TEXT,
-      id_no TEXT, insurance_no TEXT, avatar_asset_id TEXT REFERENCES asset(id),
+      avatar_asset_id TEXT REFERENCES asset(id),
       note TEXT, deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_patient_owner ON patient_profile(owner_local_id);
 
@@ -777,7 +777,7 @@ public enum SchemaV2 {
       confirmed INTEGER NOT NULL DEFAULT 0,
       created_at REAL NOT NULL, updated_at REAL NOT NULL,
       -- v25（子项目 D §C.7）：票面支付三分（统筹/个人现金/个人账户，打印数）、票据号（FR5.6 重复检测）、
-      -- 医保类型打印文本。ClaimStore.totals 仍只对 amount 求和（FR13.7 纯事实，不用行反推）。
+      -- 医保类型打印文本。报销汇总模块已退役（2026-10-22）；票据行仅作文档派生记录。
       reimbursed_amount REAL, out_of_pocket REAL, personal_account_amount REAL, invoice_no TEXT, insurance_type_text TEXT);
     CREATE INDEX idx_claim_patient_encounter ON claim_item(patient_id, encounter_id, date);
 

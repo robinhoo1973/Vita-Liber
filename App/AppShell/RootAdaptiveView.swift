@@ -355,7 +355,6 @@ private struct PreviewRoot: View {
                 .environment(M2HubStore(meds: container.meds,
                                         emergency: container.emergencyCards,
                                         immunizations: container.immunizations,
-                                        claims: container.claims,
                                         messages: container.messages,
                                         guidelines: container.guidelines,
                                         audit: container.audit))

@@ -8,7 +8,7 @@ import Perception
 
 /// M2 各页共用的装配状态仓（@Observable，@MainActor）。
 ///
-/// 把 M2 新增仓储（药箱/急救卡/疫苗/报销/发送状态/信源库）统一加载与写入，
+/// 把 M2 新增仓储（药箱/急救卡/疫苗/发送状态/信源库）统一加载与写入，
 /// 让 SettingsView 的「健康档案」入口可以真正挂上数据——**特性可达才有验收**。
 /// 本仓不做任何业务判定：判定全在 Domain（InventoryRules/EmergencyCardService/
 /// MessageStatusRules…），这里只做加载与透传。
@@ -24,9 +24,6 @@ final class M2HubStore {
     private(set) var bloodType: String?
     // 疫苗
     private(set) var immunizationRecords: [ImmunizationStore.Record] = []
-    // 报销
-    private(set) var claimRows: [ClaimStore.ClaimRow] = []
-    private(set) var claimTotals = ClaimStore.Totals(totalAmount: 0, itemCount: 0, currency: "CNY")
     // 发送状态
     private(set) var sentMessages: [SentMessage] = []    // 信源库
     private(set) var guidelineEntries: [GuidelineEntry] = []
@@ -37,7 +34,6 @@ final class M2HubStore {
     private let meds: MedicationStore
     private let emergency: EmergencyCardStore
     private let immunizations: ImmunizationStore
-    private let claims: ClaimStore
     private let messages: MessageDeliveryStore
     private let guidelines: GuidelineStore
     /// FR9.13a/FR24.2 药品信息外发审计（FR14.2 审计清单之一）
@@ -57,13 +53,12 @@ final class M2HubStore {
     private var lastLoadHadFailure = false
 
     init(meds: MedicationStore, emergency: EmergencyCardStore,
-         immunizations: ImmunizationStore, claims: ClaimStore,
+         immunizations: ImmunizationStore,
          messages: MessageDeliveryStore, guidelines: GuidelineStore,
          audit: AuditLogWriter) {
         self.meds = meds
         self.emergency = emergency
         self.immunizations = immunizations
-        self.claims = claims
         self.messages = messages
         self.guidelines = guidelines
         self.audit = audit
@@ -106,8 +101,6 @@ final class M2HubStore {
         emergencySelectedIds = []
         bloodType = nil
         immunizationRecords = []
-        claimRows = []
-        claimTotals = ClaimStore.Totals(totalAmount: 0, itemCount: 0, currency: "CNY")
         sentMessages = []
         guidelineEntries = []
         alertEvents = []
@@ -154,20 +147,10 @@ final class M2HubStore {
         async let s3: Void = loadSection(patientId: patientId, label: "疫苗加载失败",
             fetch: { try await immunizations.list(patientId: patientId) },
             commit: { immunizationRecords = $0 })
-        async let s4: Void = loadSection(patientId: patientId, label: "报销加载失败",
-            fetch: {
-                async let l = claims.list(patientId: patientId)
-                async let t = claims.totals(patientId: patientId)
-                return try await (l, t)
-            },
-            commit: { values in
-                claimRows = values.0
-                claimTotals = values.1
-            })
-        async let s5: Void = loadSection(patientId: patientId, label: "发送状态加载失败",
+        async let s4: Void = loadSection(patientId: patientId, label: "发送状态加载失败",
             fetch: { try await messages.list(patientId: patientId) },
             commit: { sentMessages = $0 })
-        async let s6: Void = loadSection(patientId: patientId, label: "信源库/预警加载失败",
+        async let s5: Void = loadSection(patientId: patientId, label: "信源库/预警加载失败",
             fetch: {
                 async let e = guidelines.all()
                 async let h = guidelines.history(patientId: patientId)
@@ -179,7 +162,7 @@ final class M2HubStore {
                 alertEvents = values.1
                 qualifiedAlertEvents = values.2
             })
-        _ = await (s1, s2, s3, s4, s5, s6)
+        _ = await (s1, s2, s3, s4, s5)
         // 全部节提交完毕才盖章成员代际——加载窗口内 loadedPatientId 仍指向
         // 旧成员，消费侧（首页聚合/全局搜索）据此拒取陈旧缓存
         guard loadingPatientId == patientId else { return }
@@ -283,9 +266,9 @@ final class M2HubStore {
         }
     }
 
-    // MARK: - 疫苗 / 报销
+    // MARK: - 疫苗
 
-    /// 写后刷新单一出口（疫苗/报销/发送状态/送达状态四段共用）：写失败与刷新
+    /// 写后刷新单一出口（疫苗/发送状态/送达状态三段共用）：写失败与刷新
     /// 失败分别记账——刷新失败绝不把「已写入」回传成失败（BR-004 真实性）；
     /// BR-001 成员隔离经 loadSection（fetch → 代际守卫 → 提交，杜绝成员切换竞态窗口）。
     /// 写失败日志经调用侧 logger 闭包注入（L10n 单出口纪律：中文文案只出现在 logger 调用位）。
@@ -312,21 +295,6 @@ final class M2HubStore {
             },
             fetch: { try await self.immunizations.list(patientId: patientId) },
             commit: { self.immunizationRecords = $0 })
-    }
-
-    func createClaim(patientId: UUID, type: String, amount: Double,
-                     date: Date, merchant: String, summary: String) async {
-        await writeThenRefresh(patientId: patientId, logWriteFailure: { logger.error("报销票据失败: \($0)") }, refreshLabel: "报销写后刷新失败",
-            write: {
-                try await self.claims.create(patientId: patientId, itemType: type, amount: amount,
-                                             date: date, merchant: merchant, summary: summary)
-            },
-            fetch: {
-                async let r = self.claims.list(patientId: patientId)
-                async let t = self.claims.totals(patientId: patientId)
-                return try await (r, t)
-            },
-            commit: { self.claimRows = $0.0; self.claimTotals = $0.1 })
     }
 
     // MARK: - 发送状态（FR24.2）

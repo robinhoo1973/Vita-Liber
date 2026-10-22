@@ -147,11 +147,6 @@
 "care.parameters.valueAskEachTime" = "Ask each time";
 "care.parameters.valueDefaultOn" = "On by default";
 "care.parameters.sosValue" = "Hold %ld s + confirm again";
-"claim.title" = "Reimbursement items";
-"claim.empty" = "No reimbursement items yet";
-"claim.totalsFmt" = "%d items, total %@";
-"claim.emptyHint" = "Add invoices, fees or receipts, organized by visit";
-"claim.add" = "Add";
 "claim.type.invoice" = "Invoice";
 "claim.type.fee" = "Fee";
 "claim.type.receipt" = "Receipt";
@@ -589,6 +584,7 @@
 "immunization.createTitle" = "New vaccine record";
 "immunization.lot" = " · Lot %@";
 "common.save" = "Save";
+"common.add" = "Add";
 "common.yes" = "Yes";
 "common.no" = "No";
 "common.cancel" = "Cancel";
@@ -1753,13 +1749,6 @@
 "startup.databaseMissing" = "The local database file is missing while existing attachments were found. Loading has stopped to avoid overwriting — restore from a backup or contact support.";
 "startup.loadFailed" = "The local database failed to load.";
 "startup.degradedBodyFmt" = "Your local data could not be opened (%@). Nothing has been modified; please restart the app, or contact support if this persists.";
-"claim.amount" = "Amount";
-"claim.date" = "Date";
-"claim.merchant" = "Merchant";
-"claim.summary" = "Summary";
-"claim.createTitle" = "New Claim";
-"claim.save" = "Save";
-"claim.type" = "Type";
 "helpcard.defaultFilename" = "Medication List";
 "f19.sendA11y" = "Send command";
 "plan.unreadable" = "Plan data corrupted";

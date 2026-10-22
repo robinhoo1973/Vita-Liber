@@ -1000,6 +1000,10 @@ public enum SchemaMigrations {
         ALTER TABLE health_problem ADD COLUMN body_region TEXT;
         ALTER TABLE health_problem ADD COLUMN body_site TEXT;
         """),
+        // v40：业主 2026-10-22 要求彻底移除证件号/医保号（含历史数据）。
+        // 代码迁移（GRDBStore.dropLegacyProfileColumns）：列存在才 DROP，兼容
+        // 老库/合成夹具缺列；sql 置空仅作占位。破坏性：历史值随列删除。
+        Step(version: 40, name: "drop-id-insurance", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号
