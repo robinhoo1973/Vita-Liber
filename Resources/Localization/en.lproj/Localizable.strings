@@ -296,7 +296,7 @@
 "privacyAuth.sharing.sub" = "Off: export/share wizard is disabled";
 "privacyAuth.backup.title" = "Cloud backup";
 "privacyAuth.backup.sub" = "Off: iCloud backup item shows a disabled note (local export unaffected)";
-"privacyAuth.health.title" = "Apple Health import";
+"privacyAuth.health.title" = "Apple Health data";
 "privacyAuth.health.sub" = "Off pauses import in this app; manage system read permissions in the Health app";
 "privacyAuth.voice.title" = "Voice dictation";
 "privacyAuth.voice.sub" = "Off: voice dictation falls back to manual input";
@@ -1473,7 +1473,7 @@
 "auth.sharing" = "Sharing";
 "auth.cloudBackup" = "Cloud backup";
 "auth.anonymized" = "Anonymized improvement";
-"auth.health" = "Apple Health import";
+"auth.health" = "Apple Health data";
 "auth.voiceDictation" = "Voice dictation";
 "settings.dataLifecycle" = "Data Lifecycle";
 "pref.group.reminders" = "Reminders";
@@ -1628,7 +1628,7 @@
 "f16.authHint" = "Requests read-only access to sleep, heart rate, resting heart rate, blood oxygen, respiratory rate and steps for on-device display. Apple Health does not reveal read authorization for individual types to this app. Completing a request or configuring a connection does not mean all types are authorized. Manage read permissions in the Health app.";
 "f16.requestAuth" = "Connect & request read access";
 "f16.authGranted" = "Connection configured (not proof of read access)";
-"f16.authDisabled" = "Apple Health import is off in this app. Enable it in the app settings authorization panel.";
+"f16.authDisabled" = "Apple Health data is off in this app. Enable it on the Apple Health Data page.";
 "f16.authFailed" = "Apple Health connection is temporarily unavailable. Retry; this does not indicate read permission status.";
 "f16.syncSection" = "Data Sync";
 "f16.syncHint" = "Processes readable changes, including updates and removals. Background sync is scheduled by the system on a best-effort basis, not guaranteed hourly; you can sync manually. Only applicable, medically reviewed rules can generate alerts and schedule notifications. Device data may have errors and is not a diagnosis.";

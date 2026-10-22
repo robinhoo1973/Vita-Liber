@@ -296,7 +296,7 @@
 "privacyAuth.sharing.sub" = "關閉後匯出/分享精靈不可用";
 "privacyAuth.backup.title" = "雲端備份";
 "privacyAuth.backup.sub" = "關閉後 iCloud 備份項呈停用說明（本機匯出不受影響）";
-"privacyAuth.health.title" = "Apple 健康匯入";
+"privacyAuth.health.title" = "Apple 健康資料";
 "privacyAuth.health.sub" = "關閉即暫停本應用匯入；系統讀取權限需在健康 App 中管理";
 "privacyAuth.voice.title" = "語音速記辨識";
 "privacyAuth.voice.sub" = "關閉後語音轉寫回落到手輸";
@@ -1473,7 +1473,7 @@
 "auth.sharing" = "分享";
 "auth.cloudBackup" = "雲端備份";
 "auth.anonymized" = "匿名化改善";
-"auth.health" = "Apple 健康匯入";
+"auth.health" = "Apple 健康資料";
 "auth.voiceDictation" = "語音速記識別";
 "settings.dataLifecycle" = "資料生命週期";
 "pref.group.reminders" = "提醒";
@@ -1628,7 +1628,7 @@
 "f16.authHint" = "請求唯讀存取睡眠、心率、靜息心率、血氧、呼吸率與步數，在本機顯示。Apple 健康不會向本應用透露各類型的讀取授權狀態；完成請求或建立連線不代表所有類型均已授權。可在健康 App 中管理讀取權限。";
 "f16.requestAuth" = "連線並請求讀取權限";
 "f16.authGranted" = "已建立連線（不代表所有類型已授權）";
-"f16.authDisabled" = "Apple 健康匯入已在本應用設定中關閉，可在授權面板重新開啟。";
+"f16.authDisabled" = "Apple 健康資料已在本應用設定中關閉，可在「Apple 健康資料」頁重新開啟。";
 "f16.authFailed" = "Apple 健康連線暫不可用，請重試；無法據此判斷讀取權限。";
 "f16.syncSection" = "資料同步";
 "f16.syncHint" = "僅處理可讀取的資料變更，包括更新和移除。背景同步由系統盡力排程，不保證每小時執行；可手動同步。只有通過醫學審核的適用規則才可產生預警並安排通知。裝置資料可能有誤，不構成診斷。";
