@@ -539,6 +539,8 @@ extension L10n {
     static var healthHistoryAllergyHint: String { t("healthHistory.allergyHint") }
     static var healthHistoryMedicationHint: String { t("healthHistory.medicationHint") }
     static var healthHistoryVaccineHint: String { t("healthHistory.vaccineHint") }
+    static var healthHistoryEmergencyHint: String { t("healthHistory.emergencyHint") }
+    static var healthHistoryInventoryHint: String { t("healthHistory.inventoryHint") }
     static var immunizationScheduleTitle: String { t("immunization.scheduleTitle") }
     static var immunizationScheduleHint: String { t("immunization.scheduleHint") }
     static var immunizationOnlyAge: String { t("immunization.onlyAge") }

@@ -213,7 +213,7 @@
 "fr24.statusAckPending" = "等待回执";
 "fr24.statusAcked" = "已回执";
 "fr24.statusTimeout" = "超时";
-"hub.healthRecords" = "健康档案";
+"hub.healthRecords" = "健康履历";
 "hub.guidelines" = "参考范围来源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授权（独立开关，关掉即停）";
@@ -722,7 +722,7 @@
 "help.data.noBackup" = "无备份记录";
 "help.data.title" = "数据健康";
 "help.about.licenses" = "开源许可";
-"help.about.anatomyAttribution" = "解剖插图改编自 Servier Medical Art（smart.servier.com），依 CC BY 4.0 授权，已作裁剪与重新着色。人体剪影来自 Wikimedia Commons（公有领域）。";
+"help.about.anatomyAttribution" = "解剖插图源自 Servier Medical Art（smart.servier.com，经 Bioicons 提供矢量版本），依 CC BY 3.0 授权，已重新栅格化。人体剪影来自 Wikimedia Commons（公有领域）。";
 "caregiver.title" = "帮家人处理";
 "caregiver.empty" = "无待处理事项";
 "caregiver.emptyHint" = "所有家人的提醒已处理";
@@ -1993,7 +1993,7 @@
 "field.administered_at" = "接种日期";
 "field.provider" = "接种单位";
 "field.lot_number" = "批号";
-"health.settingsTitle" = "Apple 健康导入";
+"health.settingsTitle" = "Apple 健康数据";
 "health.candidate.section" = "Apple 健康档案候选";
 "health.candidate.hint" = "来自 Apple 健康的数据逐项候选呈现，确认后写入本人档案；已有值不覆盖。";
 "health.candidate.adopt" = "采用";
@@ -2511,6 +2511,8 @@
 "healthHistory.allergyHint" = "过敏原与反应";
 "healthHistory.medicationHint" = "正在服用的药物";
 "healthHistory.vaccineHint" = "接种记录与按年龄选择";
+"healthHistory.emergencyHint" = "急救卡与紧急联系人";
+"healthHistory.inventoryHint" = "家庭药箱与库存";
 "immunization.scheduleTitle" = "按年龄选疫苗";
 "immunization.scheduleHint" = "仅作国家免疫规划程序参考，不判定漏种，不提供接种建议。";
 "immunization.onlyAge" = "仅显示适合当前年龄";

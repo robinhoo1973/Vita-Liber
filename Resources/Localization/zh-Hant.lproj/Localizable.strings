@@ -213,7 +213,7 @@
 "fr24.statusAckPending" = "等待回執";
 "fr24.statusAcked" = "已回執";
 "fr24.statusTimeout" = "逾時";
-"hub.healthRecords" = "健康檔案";
+"hub.healthRecords" = "健康履歷";
 "hub.guidelines" = "參考範圍來源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授權（獨立開關，關掉即停）";
@@ -722,7 +722,7 @@
 "help.data.noBackup" = "無備份記錄";
 "help.data.title" = "數據健康";
 "help.about.licenses" = "開源許可";
-"help.about.anatomyAttribution" = "解剖插圖改編自 Servier Medical Art（smart.servier.com），依 CC BY 4.0 授權，已作裁剪與重新著色。人體剪影來自 Wikimedia Commons（公有領域）。";
+"help.about.anatomyAttribution" = "解剖插圖源自 Servier Medical Art（smart.servier.com，經 Bioicons 提供向量版本），依 CC BY 3.0 授權，已重新柵格化。人體剪影來自 Wikimedia Commons（公有領域）。";
 "caregiver.title" = "幫家人處理";
 "caregiver.empty" = "無待處理事項";
 "caregiver.emptyHint" = "所有家人的提醒已處理";
@@ -1993,7 +1993,7 @@
 "field.administered_at" = "接種日期";
 "field.provider" = "接種單位";
 "field.lot_number" = "批號";
-"health.settingsTitle" = "Apple 健康匯入";
+"health.settingsTitle" = "Apple 健康資料";
 "health.candidate.section" = "Apple 健康檔案候選";
 "health.candidate.hint" = "來自 Apple 健康的資料逐項候選呈現，確認後寫入本人檔案；已有值不覆寫。";
 "health.candidate.adopt" = "採用";
@@ -2511,6 +2511,8 @@
 "healthHistory.allergyHint" = "過敏原與反應";
 "healthHistory.medicationHint" = "正在服用的藥物";
 "healthHistory.vaccineHint" = "接種記錄與按年齡選擇";
+"healthHistory.emergencyHint" = "急救卡與緊急聯絡人";
+"healthHistory.inventoryHint" = "家庭藥箱與庫存";
 "immunization.scheduleTitle" = "按年齡選疫苗";
 "immunization.scheduleHint" = "僅作國家免疫規劃程序參考，不判定漏種，不提供接種建議。";
 "immunization.onlyAge" = "僅顯示適合當前年齡";

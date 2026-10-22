@@ -66,23 +66,18 @@ struct SettingsView: View {
                         LabeledContent(L10n.profileMembersRow, value: "\(app.members.count)")
                     }
                 }
-                // 2026-10-03 呈现评审（V4.13）：独立「离线说明」Section 为 mock 对齐残留，
-                // 降级为关于区页尾轻行（信任声明不占首屏权重）。
-                Section(L10n.settings_authTitle) {
-                    ForEach(authKeys, id: \.rawValue) { key in
-                        Toggle(isOn: binding(for: key)) {
-                            Text(label(for: key))
-                        }
-                        .accessibilityIdentifier("SP-25.setting.\(key.rawValue)")
-                    }
-                }
-                // FR14.4 外观与主题（§5.12.1：三段选择器 + 高对比度开关；位置对齐 mock 我的页）
+                // FR14.4 外观与主题（§5.12.1：三段选择器 + 高对比度/关怀模式；位置对齐 mock 我的页）
                 Section {
                     ThemeSegmentedPicker(selection: themeBinding)
                     Toggle(isOn: binding(for: .highContrastEnabled)) {
                         Text(L10n.settings_highContrast)
                     }
                     .accessibilityIdentifier("SP-25.setting.highContrast")
+                    // 2026-10-23 业主：关怀模式并入外观与主题，不再放在授权区。
+                    Toggle(isOn: binding(for: .careModeEnable)) {
+                        Text(L10n.settings_careMode)
+                    }
+                    .accessibilityIdentifier("SP-25.setting.careModeEnable")
                     // FR14.5 显示语言（§5.12.2）+ FR17.15/16 语音语言（§5.12.3）
                     NavigationLink {
                         LanguageSettingsView()
@@ -163,20 +158,7 @@ struct SettingsView: View {
                         Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
                     }
                     .accessibilityIdentifier("SP-25.settings.appleHealth")
-                    // 2026-10-21 业主裁决：后台同步间隔。HealthKit 最短可靠小时级；
-                    // 更大档在小时投递之上节流（系统仍可能因电量/使用习惯延后）。
-                    Picker(selection: Binding(
-                        get: { String(HealthSyncInterval.resolved(
-                            settings.values[.healthSyncIntervalMinutes]).rawValue) },
-                        set: { raw in Task { await settings.set(raw, for: .healthSyncIntervalMinutes) } }
-                    )) {
-                        ForEach(HealthSyncInterval.allCases, id: \.self) { interval in
-                            Text(L10n.healthSyncInterval(interval)).tag(String(interval.rawValue))
-                        }
-                    } label: {
-                        Text(L10n.healthSyncIntervalTitle)
-                    }
-                    .accessibilityIdentifier("SP-25.setting.healthSyncInterval")
+                    // 同步间隔已并入 Apple 健康数据二级页（2026-10-23 业主）。
                     // SP-64 统一资源管理页入口（2026-09-27 业主定案）
                     NavigationLink(value: AppRoute.resourceManagement) {
                         Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
@@ -184,32 +166,6 @@ struct SettingsView: View {
                     .accessibilityIdentifier("SP-64.settings.resources")
                 } header: {
                     Text(L10n.settings_dataAndResources)
-                } footer: {
-                    Text(L10n.healthSyncIntervalHint)
-                }
-                Section(L10n.hub_healthRecords) {
-                    NavigationLink(L10n.member_title) {
-                        MemberManagementView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.members")
-                    // F23 过敏与不良反应（SP-50 入口）
-                    NavigationLink(L10n.allergyTitle) {
-                        AllergyListView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.allergy")
-                    NavigationLink(L10n.inventory_title) {
-                        InventoryHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.inventory")
-                    NavigationLink(L10n.emergency_title) {
-                        EmergencyCardHubView()
-                    }
-                    .accessibilityIdentifier("SP-25.settings.emergencyCard")
-                    // 评审修正 H15：走类型安全路由（注册表覆盖 SP-54，通知深链可直达）
-                    NavigationLink(value: AppRoute.immunizationList) {
-                        Text(L10n.immunization_title)
-                    }
-                    .accessibilityIdentifier("SP-25.settings.immunization")
                 }
                 Section(L10n.settings_pro) {
                     NavigationLink(L10n.proOutputTitle) {
@@ -288,10 +244,6 @@ struct SettingsView: View {
     /// 匿名改进/语音速记）此前全仓零消费点——「可调但无效果」的开关违反
     /// FR14.7 与 BR-010「撤回即时生效」承诺，与 PreferencesViews 同纪律移除，
     /// 接线后恢复（撤回立即生效的实现需消费端在权限检查点读取本键）。
-    private var authKeys: [AppSettingKey] {
-        [.authHealthRead, .careModeEnable, .voiceEntryVisible]
-    }
-
     private func binding(for key: AppSettingKey) -> Binding<Bool> {
         Binding(
             get: {
@@ -299,7 +251,6 @@ struct SettingsView: View {
                 // 运行时真源 = AppState.careMode（驱动 CareModeMetrics/触点放大等）；
                 // DB 键为镜像。读回实际状态，避免开关显示与行为脱节（split-brain 修复）
                 case .careModeEnable: return toggles[key] ?? app.careMode
-                case .authHealthRead: return SettingsRules.resolved(settings.values[key], key: key) == "true"
                 // 审查修复（口径统一）：布尔读一律与键默认值比较——
                 // `!= "false"` 与 `== "true"` 在 values 未装载（nil）时对
                 // 同一键显示相反状态（本页开/外观页关）；统一口径收敛
@@ -348,22 +299,6 @@ struct SettingsView: View {
         app.owner?.displayName ?? app.members.first?.displayName ?? L10n.help_appName
     }
 
-    private func label(for key: AppSettingKey) -> String {
-        switch key {
-        case .careModeEnable: return L10n.settings_careMode
-        case .voiceEntryVisible: return L10n.settings_voiceEntry
-        case .highContrastEnabled: return L10n.settings_highContrast
-        case .authOcr: return L10n.authOcrLabel
-        case .authAI: return L10n.authAILabel
-        case .authFamilyAccess: return L10n.authFamilyLabel
-        case .authSharing: return L10n.authSharingLabel
-        case .authCloudBackup: return L10n.authCloudBackupLabel
-        case .authAnonymizedImprovement: return L10n.authAnonymizedLabel
-        case .authHealthRead: return L10n.authHealthLabel
-        case .authVoiceDictation: return L10n.authVoiceDictationLabel
-        default: return key.rawValue
-        }
-    }
 }
 
 /// 审计记录页（FR14.2）：append-only 事实列表

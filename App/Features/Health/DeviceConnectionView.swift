@@ -550,7 +550,28 @@ struct DeviceConnectionView: View {
             Toggle(L10n.authHealthLabel, isOn: preference(.authHealthRead))
             Toggle(L10n.healthAutoImport, isOn: preference(.healthAutoImport))
                 .disabled(!healthEnabled)
-        } header: { Text(L10n.healthImportSettingsTitle) } footer: { Text(L10n.healthReadPermissionHint) }
+            // 2026-10-23 业主：同步间隔从「我的」根级移入 Apple 健康数据二级页。
+            // HealthKit 最短可靠小时级；更大档在小时投递之上节流。
+            Picker(selection: Binding(
+                get: { String(HealthSyncInterval.resolved(
+                    settings.values[.healthSyncIntervalMinutes]).rawValue) },
+                set: { raw in Task { await settings.set(raw, for: .healthSyncIntervalMinutes) } }
+            )) {
+                ForEach(HealthSyncInterval.allCases, id: \.self) { interval in
+                    Text(L10n.healthSyncInterval(interval)).tag(String(interval.rawValue))
+                }
+            } label: {
+                Text(L10n.healthSyncIntervalTitle)
+            }
+            .accessibilityIdentifier("SP-25.setting.healthSyncInterval")
+        } header: {
+            Text(L10n.healthImportSettingsTitle)
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(L10n.healthReadPermissionHint)
+                Text(L10n.healthSyncIntervalHint)
+            }
+        }
     }
 
     private var authorizationSection: some View {

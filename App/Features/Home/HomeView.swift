@@ -5,7 +5,7 @@ import Perception
 
 /// F2 首页（SP-04 · ui-ux §5.2）：统一提醒聚合中心（FR2.1，V3.57 术语）。
 ///
-/// 布局（FR2.1）：①紧凑成员切换条②顶部快捷工具组（🎤/相机/🔔）
+/// 布局（FR2.1）：①紧凑成员切换条②顶部快捷工具组（AI 助手/SOS/🔔）
 /// ③聚合列表（全部类型提醒时间倒序，统一不再分"行动/观察"子区）
 /// ④类别图标过滤 chips ⑤时间窗 Menu（默认过去 7 日/未来 14 日，
 /// FR2.1a；@AppStorage 键 actionFeedWindow——tech §5.33 冻结键名）。
@@ -25,7 +25,6 @@ struct HomeView: View {
     @Environment(ObservationStoreState.self) private var observationState
     @Environment(PendingCardCenterState.self) private var pendingCenter
     @Environment(AppRouter.self) private var router
-    @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(DocumentsState.self) private var docs
     @Environment(AppDataChangeCenter.self) private var dataChange
     @Environment(NotificationCenterState.self) private var notificationState
@@ -35,7 +34,6 @@ struct HomeView: View {
     @Environment(F16DeviceState.self) private var healthSyncState
     @State private var showMemberPicker = false
     @State private var showSOS = false
-    @State private var showVoicePanel = false
     @State private var showAssistantChat = false
     @State private var notifDenied = false
     /// FR2.1⑦ 首页滑动处置底部条（round2 U2/U3）：撤销（写成功）/ 重试（写失败）双态，
@@ -306,16 +304,6 @@ struct HomeView: View {
                     .accessibilityIdentifier("SP-04.home.memberSwitch")
                 }
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    // FR17.9 全局语音入口（FR14.7 voiceEntryVisible 可隐藏）→ 语音速记面板 SP-55
-                    if settingsVoiceEntryVisible {
-                        Button {
-                            showVoicePanel = true
-                        } label: {
-                            Image(systemName: "mic.fill")
-                        }
-                        .accessibilityLabel(L10n.homeVoice)
-                        .accessibilityIdentifier("SP-04.home.mic")
-                    }
                     // 2026-10-18 业主指令：OCR/ASR 图标旁新增 AI 聊天入口。
                     // 定位=有据任务型助手（意图→补槽→确认→执行），非自由医疗问答。
                     // B1 定标门：未通过脚本金样定标前入口不可见（FR17.4 不变量）。
@@ -328,16 +316,17 @@ struct HomeView: View {
                         .accessibilityLabel(L10n.homeAssistant)
                         .accessibilityIdentifier("SP-04.home.assistant")
                     }
-                    // FR2.1② 相机 OCR/资料识别入口（V3.61 单入口）：单击直接进采集页，
-                    // 文档类型在识别后由共享理解层判定（FR5.5/FR6.2/ADR-029 不前置指定）；
-                    // 症状录入走语音面板意图与记录页观察创建，不再挂在相机图标下
+                    // 2026-10-23 业主：主页撤下语音与拍摄入口，改为常驻 SOS。
+                    // 采集仍可从资料页「拍照导入」与首页未完成导入的续传卡进入。
+                    // BR-012：SOS 不经过安全门。
                     Button {
-                        showQuickCapture = true
+                        showSOS = true
                     } label: {
-                        Image(systemName: "camera.fill")
+                        Image(systemName: "sos")
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
                     }
-                    .accessibilityLabel(L10n.homeQuickCapture)
-                    .accessibilityIdentifier("SP-04.home.capture")
+                    .accessibilityLabel(L10n.sosHelpTitle)
+                    .accessibilityIdentifier("SP-04.home.sos")
                     // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
                     NavigationLink(value: AppRoute.notificationCenter) {
                         Image(systemName: "bell")
@@ -352,8 +341,6 @@ struct HomeView: View {
                     .presentationDetents([.medium])
             }
             .sheet(isPresented: $showSOS) { SOSHelpView() }
-            // SP-55 全屏工作台
-            .fullScreenCover(isPresented: $showVoicePanel) { VoiceQuickLaunchView() }
             // AI 聊天入口（任务型助手；环境由根注入继承）
             .fullScreenCover(isPresented: $showAssistantChat) { TaskAssistantChatView() }
             .sheet(isPresented: $showQuickCapture) {
@@ -721,11 +708,9 @@ struct HomeView: View {
         // 渲染原子已分解至 HomeNewUserGuide（2026-09-26 原子结构轮第二批）。
         HomeNewUserGuide(
             memberDone: !app.members.isEmpty,
-            captureDone: !docs.documents.isEmpty,
             medDone: !reminderStore.todaySlots.isEmpty,
             healthDone: healthGuideVisited,
             onNavigateMembers: { router.navigate(to: .memberList) },
-            onQuickCapture: { showQuickCapture = true },
             onNavigateMedForm: { router.navigate(to: .medicationPlanForm(nil)) },
             onVisitHealth: {
                 healthGuideVisited = true
@@ -753,8 +738,9 @@ struct HomeView: View {
                 if dataChange.healthSyncActive { healthSyncIndicator }
                 pendingImportRecovery
                 pendingLoadFailure
-                // FR18.5 极简导航：四大卡（今日服药/续药/拍摄记录/呼救）
-                // 语义令牌映射（2026-10-03 信息卡片评审 R1-1）：裸系统色 .blue/.orange/.green/.red
+                // FR18.5 极简导航：三大卡（今日服药/续药/呼救）。
+                // 2026-10-23 业主：语音与拍摄入口从首页撤下，SOS 常驻。
+                // 语义令牌映射（2026-10-03 信息卡片评审 R1-1）：裸系统色 .blue/.orange/.red
                 // 违反本仓 token-only 纪律（HealthTabView.swift:20 头注释同族先例）；
                 // 蓝→brand-primary / 橙→semantic-warning / 绿→semantic-success / 红→semantic-danger
                 // （Assets 值近同原色，深浅模式随令牌重映射）。严格 §3.1 的全 brand 方案待业主。
@@ -763,9 +749,6 @@ struct HomeView: View {
                 }
                 BigCareCard(icon: "pills.circle.fill", title: L10n.homeCareRefill, tint: Color("semantic-warning", bundle: .main)) {
                     router.navigate(to: .medicationCabinet)
-                }
-                BigCareCard(icon: "camera.fill", title: L10n.homeCareCapture, tint: Color("semantic-success", bundle: .main)) {
-                    router.navigate(to: .scanCapture(nil))
                 }
                 // 评审修正 U7：§7.1 防误触——SOS 大卡按住 600ms 才进入。
                 // S-1（第九轮审查 U2#5）：裸 LongPressGesture 无进度反馈、无完成
@@ -797,8 +780,6 @@ struct HomeView: View {
                         installCenter.cancel(active.choice)
                     }
                 }
-                // FR19.1：关怀模式首页大卡 [开始语音]
-                VoiceSessionLaunchCard()
             }
             .padding(20)
         }
@@ -867,11 +848,6 @@ struct HomeView: View {
         let name = app.members.first(where: { $0.id == app.currentPatientId })?.displayName
             ?? app.owner?.displayName ?? L10n.help_appName
         return L10n.homeGreeting(name)
-    }
-
-    /// FR14.7 语音入口显示开关（审查修复：原硬编码 true——设置页开关零效果）
-    private var settingsVoiceEntryVisible: Bool {
-        settingsStore.values[.voiceEntryVisible] != "false"
     }
 
     private func load() async {

@@ -2,11 +2,10 @@ import SwiftUI
 import Domain
 import Perception
 
-/// 健康档案总览（SP-49 家族入口，2026-10-22）。
-///
-/// 首页「档案完善进度」与「我的 › 个人档案」统一落到这里：
-/// 基本信息、慢性病、手术史、过敏、当前用药各有一个明确入口。
-/// 所有入口都只读/记录用户自报事实，不做诊断或症状推断。
+/// 健康履历总览（SP-49 家族入口，2026-10-22；2026-10-23 改名，避免与
+/// 「健康档案」主 Tab 同名）。首页「档案完善进度」与「我的 › 个人资料」
+/// 统一落到这里：慢性病、手术史、过敏、当前用药、疫苗、急救卡与药箱
+/// 各有一个明确入口。所有入口都只读/记录用户自报事实，不做诊断或症状推断。
 struct HealthHistoryHubView: View {
     @Environment(AppState.self) private var app
 
@@ -29,7 +28,8 @@ struct HealthHistoryHubView: View {
                     }
                 }
 
-                Section(L10n.hub_healthRecords) {
+                // 区块不重复页面名：导航栏已显示「健康履历」。
+                Section {
                     NavigationLink {
                         HealthProblemListView(initialKind: "chronic")
                     } label: {
@@ -76,6 +76,26 @@ struct HealthHistoryHubView: View {
                             systemImage: "syringe")
                     }
                     .accessibilityIdentifier("SP-49.hub.immunization")
+
+                    // 2026-10-23：根级「健康记录」区块移除后，急救卡与药箱在
+                    // 健康履历内保留明确入口。
+                    NavigationLink {
+                        EmergencyCardHubView()
+                    } label: {
+                        row(title: L10n.emergency_title,
+                            subtitle: L10n.healthHistoryEmergencyHint,
+                            systemImage: "cross.case")
+                    }
+                    .accessibilityIdentifier("SP-49.hub.emergency")
+
+                    NavigationLink {
+                        InventoryHubView()
+                    } label: {
+                        row(title: L10n.inventory_title,
+                            subtitle: L10n.healthHistoryInventoryHint,
+                            systemImage: "shippingbox")
+                    }
+                    .accessibilityIdentifier("SP-49.hub.inventory")
                 }
 
                 if let member {

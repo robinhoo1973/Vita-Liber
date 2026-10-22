@@ -208,14 +208,13 @@ struct HomeEmptyAggregation: View {
     }
 }
 
-/// FR21.x 首日引导四卡（完成态与动作全部由父级给出）。
+/// FR21.x 首日引导三卡（完成态与动作全部由父级给出）。
+/// 2026-10-23 业主：拍摄入口从首页撤下，引导不再显示「拍摄第一份资料」。
 struct HomeNewUserGuide: View {
     let memberDone: Bool
-    let captureDone: Bool
     let medDone: Bool
     let healthDone: Bool
     let onNavigateMembers: () -> Void
-    let onQuickCapture: () -> Void
     let onNavigateMedForm: () -> Void
     let onVisitHealth: () -> Void
 
@@ -223,9 +222,6 @@ struct HomeNewUserGuide: View {
         VStack(alignment: .leading, spacing: 12) {
             GuideTaskCard(icon: "person.crop.circle.badge.plus", title: L10n.homeGuide1, done: memberDone) {
                 onNavigateMembers()
-            }
-            GuideTaskCard(icon: "camera.fill", title: L10n.homeGuide2, done: captureDone) {
-                onQuickCapture()
             }
             GuideTaskCard(icon: "bell.badge.fill", title: L10n.homeGuide3, done: medDone) {
                 onNavigateMedForm()

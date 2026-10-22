@@ -431,7 +431,7 @@ enum OrganStyle {
         }
     }
 
-    /// 专业解剖插图（Servier Medical Art, CC BY 4.0）——优先于手绘 Shape。
+    /// 专业解剖插图（Servier Medical Art，经 Bioicons 矢量版，CC BY 3.0）——优先于手绘 Shape。
     /// 目录里「精神/心理」的器官 id 是 `mental`，素材名仍按解剖命名 `anatomy-brain`。
     static func anatomyAsset(_ id: String) -> String? {
         switch id {
@@ -507,9 +507,9 @@ struct RegionAnatomyView: View {
                     ], startPoint: .topLeading, endPoint: .bottomTrailing))
                 if region.id != "systemic" {
                     RegionOutlineShape(regionID: region.id)
-                        .fill(Color("text-primary", bundle: .main).opacity(0.055))
+                        .fill(Color("text-primary", bundle: .main).opacity(0.045))
                     RegionOutlineShape(regionID: region.id)
-                        .stroke(Color("text-primary", bundle: .main).opacity(0.09), lineWidth: 1)
+                        .stroke(Color("text-primary", bundle: .main).opacity(0.07), lineWidth: 1)
                 }
                 if region.id == "back" {
                     BodySurfaceDetails(side: .back)
@@ -527,7 +527,7 @@ struct RegionAnatomyView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
-        .frame(height: 238)
+        .frame(height: 288)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bodyMap.regionLayer.\(region.id)")
     }
@@ -561,8 +561,8 @@ private struct OrganHotspot: View {
                         .frame(width: hitWidth + 14, height: hitWidth + 14)
                 }
                 OrganGlyph(organ: organ, selected: selected)
-                    .frame(width: max(18, placement.width * size.width * 0.82),
-                           height: max(18, placement.height * size.height * 0.82))
+                    .frame(width: max(20, placement.width * size.width * 0.90),
+                           height: max(20, placement.height * size.height * 0.90))
             }
             .frame(width: hitWidth, height: hitHeight)
             .contentShape(hitShape)
@@ -586,6 +586,8 @@ struct OrganGlyph: View {
             if let anatomy = OrganStyle.anatomyAsset(organ.id) {
                 Image(anatomy)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .scaledToFit()
             } else if OrganGlyphShape.hasGlyph(organ.id) {
                 if organ.id == "intestine" {
@@ -663,6 +665,8 @@ private struct OrganMiniIcon: View {
             if let anatomy = OrganStyle.anatomyAsset(organ.id) {
                 Image(anatomy)
                     .resizable()
+                    .interpolation(.high)
+                    .antialiased(true)
                     .scaledToFit()
                     .frame(width: 18, height: 18)
             } else if OrganGlyphShape.hasGlyph(organ.id) {

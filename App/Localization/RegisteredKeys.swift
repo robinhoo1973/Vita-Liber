@@ -425,6 +425,8 @@ extension L10n {
         "healthHistory.allergyHint",
         "healthHistory.medicationHint",
         "healthHistory.vaccineHint",
+        "healthHistory.emergencyHint",
+        "healthHistory.inventoryHint",
         "immunization.scheduleTitle",
         "immunization.scheduleHint",
         "immunization.onlyAge",
