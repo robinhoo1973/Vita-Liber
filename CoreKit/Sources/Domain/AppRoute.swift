@@ -101,7 +101,6 @@ public enum AppRoute: Hashable, Sendable, Codable {
 
     // ---- F18 关怀 ----
     case careModeConfig                  // SP-32
-    case voiceGuideProfile               // SP-58 档案语音引导
     case voiceReminderDraft              // FR17.10 语音提醒设定（SP-55 目标）
     case questionList                    // FR10.5 问诊问题列表
     case voiceNotePanel                  // FR17.14 语音速记面板（任意文本目标）
@@ -158,7 +157,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .privacyAuthorization, .languageSettings,
              .voiceLanguageSettings, .voiceEngineLab, .emergencyCardConfig, .deviceConnection,
               .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
-             .voiceGuideProfile, .voiceReminderDraft, .helpCenter, .feedbackReport, .resourceManagement,
+             .voiceReminderDraft, .helpCenter, .feedbackReport, .resourceManagement,
              .exportWizard, .backupRestore, .paywall,
              .helpPermissionDiagnostics, .helpReminderDiagnostics, .termsAndPrivacy:
             return .me

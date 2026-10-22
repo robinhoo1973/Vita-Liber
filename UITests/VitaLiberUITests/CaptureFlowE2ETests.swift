@@ -138,7 +138,7 @@ final class CaptureFlowE2ETests: XCTestCase {
         XCTAssertTrue(skipStep.waitForExistence(timeout: 5))
         skipStep.tap() // A 停在第二问；不启动录音、不依赖输入键盘的收起行为。
 
-        // 仅切 Tab，故意保留 Me 栈顶 .voiceGuideProfile，复现路由去重场景。
+        // 仅切 Tab，保留 Me 栈顶路由，复现路由去重场景。
         app.tabBars.buttons["首页"].tap()
         let switchMember = app.buttons["SP-04.home.memberSwitch"]
         XCTAssertTrue(switchMember.waitForExistence(timeout: 5))

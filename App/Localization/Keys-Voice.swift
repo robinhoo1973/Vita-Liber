@@ -42,19 +42,12 @@ extension L10n {
 
     static var voiceReminderSaveFailed: String { t("voice.reminder.saveFailed") }
 
-    static var voicePrivacyTitle: String { t("voice.privacy.title") }
 
-    static var voicePrivacyPoint1: String { t("voice.privacy.p1") }
 
-    static var voicePrivacyPoint2: String { t("voice.privacy.p2") }
 
-    static var voicePrivacyPoint3: String { t("voice.privacy.p3") }
 
-    static var voicePrivacyPoint4: String { t("voice.privacy.p4") }
 
-    static var voicePrivacyAccept: String { t("voice.privacy.accept") }
 
-    static var voicePrivacyUseTouch: String { t("voice.privacy.useTouch") }
 
     static var f19_sessionTitle: String { t("f19.sessionTitle") }
 
@@ -88,80 +81,41 @@ extension L10n {
 
     static var voiceguide_buildDraft: String { t("voiceguide.buildDraft") }
 
-    static var voiceguide_stepOf: String { t("voiceguide.stepOf") }
 
     /// 访谈步骤设计稿（2026-10-22）
-    static var voiceguide_continue: String { t("voiceguide.continue") }
-    static var voiceguide_replayPrompt: String { t("voiceguide.replayPrompt") }
-    static var voiceguide_suggestion: String { t("voiceguide.suggestion") }
-    static var voiceguide_confirmHint: String { t("voiceguide.confirmHint") }
-    static var voiceguide_contactSelectionHint: String { t("voiceguide.contactSelectionHint") }
 
-    static var voiceguide_skip: String { t("voiceguide.skip") }
 
-    static var voiceguide_next: String { t("voiceguide.next") }
 
-    static var voiceguide_answerHint: String { t("voiceguide.answerHint") }
 
-    static var voiceguide_profileTitle: String { t("voiceguide.profileTitle") }
 
-    static var voiceguide_micTitle: String { t("voiceguide.micTitle") }
 
-    static var voiceguide_micPrompt: String { t("voiceguide.micPrompt") }
 
-    static var voiceguide_micPhrase: String { t("voiceguide.micPhrase") }
 
-    static var voiceguide_micTestPhrase: String { t("voiceguide.micTestPhrase") }
 
-    static var voiceguide_micListenFirst: String { t("voiceguide.micListenFirst") }
 
-    static var voiceguide_micListening: String { t("voiceguide.micListening") }
 
-    static var voiceguide_micTooLow: String { t("voiceguide.micTooLow") }
 
-    static var voiceguide_micSkip: String { t("voiceguide.micSkip") }
 
-    static var voiceguide_micPass: String { t("voiceguide.micPass") }
 
-    static var voiceguide_micRetry: String { t("voiceguide.micRetry") }
 
-    static var voiceguide_micUnavailable: String { t("voiceguide.micUnavailable") }
 
-    static var voiceguide_speechUnavailable: String { t("voiceguide.speechUnavailable") }
 
-    static var voiceguide_micPlay: String { t("voiceguide.micPlay") }
 
-    static var voiceguide_micPlaying: String { t("voiceguide.micPlaying") }
 
-    static var voiceguide_micPlaybackFailed: String { t("voiceguide.micPlaybackFailed") }
 
-    static var voiceguide_micDeviceBuiltIn: String { t("voiceguide.micDeviceBuiltIn") }
 
-    static var voiceguide_micDeviceHeadset: String { t("voiceguide.micDeviceHeadset") }
 
-    static var voiceguide_micDeviceBluetooth: String { t("voiceguide.micDeviceBluetooth") }
 
-    static var voiceguide_micDeviceUSB: String { t("voiceguide.micDeviceUSB") }
 
-    static var voiceguide_micDeviceCar: String { t("voiceguide.micDeviceCar") }
 
-    static var voiceguide_micDeviceGeneric: String { t("voiceguide.micDeviceGeneric") }
 
-    static var voiceguide_promptBloodType: String { t("voiceguide.promptBloodType") }
 
-    static var voiceguide_promptBirthDate: String { t("voiceguide.promptBirthDate") }
 
-    static var voiceguide_promptIdNo: String { t("voiceguide.promptIdNo") }
 
-    static var voiceguide_promptInsuranceNo: String { t("voiceguide.promptInsuranceNo") }
 
-    static var voiceguide_noteAllergy: String { t("voiceguide.note.allergy") }
 
-    static var voiceguide_noteHistory: String { t("voiceguide.note.history") }
 
-    static var voiceguide_noteMeds: String { t("voiceguide.note.meds") }
 
-    static var voiceguide_noteContact: String { t("voiceguide.note.contact") }
 
     static var voiceFieldDate: String { t("voice.field.date") }
 
@@ -177,25 +131,15 @@ extension L10n {
 
     static var voiceguide_saved: String { t("voiceguide.saved") }
 
-    static var voiceguide_profileDoneHint: String { t("voiceguide.profileDoneHint") }
 
-    static var voiceguide_profileDoneTitle: String { t("voiceguide.profileDoneTitle") }
 
     /// 自检环中心短状态与底部隐私行（2026-10-22 设计稿落地）
-    static var voiceguide_micLevelReady: String { t("voiceguide.micLevelReady") }
-    static var voiceguide_micLevelGood: String { t("voiceguide.micLevelGood") }
-    static var voiceguide_micLevelLow: String { t("voiceguide.micLevelLow") }
-    static var voiceguide_micPrivacy: String { t("voiceguide.micPrivacy") }
 
     static var f19_sendA11y: String { t("f19.sendA11y") }
 
-    static var voiceguide_promptAllergy: String { t("voiceguide.promptAllergy") }
 
-    static var voiceguide_promptHistory: String { t("voiceguide.promptHistory") }
 
-    static var voiceguide_promptMeds: String { t("voiceguide.promptMeds") }
 
-    static var voiceguide_promptContact: String { t("voiceguide.promptContact") }
 
     static func f19RepeatObject(_ obj: String) -> String {
         t("f19.repeatObject").replacingOccurrences(of: "%@", with: obj)

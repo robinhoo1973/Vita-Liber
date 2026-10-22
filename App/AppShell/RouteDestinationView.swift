@@ -138,8 +138,6 @@ struct RouteDestinationView: View {
                 HealthImportedDataView(kind: kind, patientId: patientId)
 
             // ---- F17 语音挂载（SP-55 目标落点；FR17.13 模板确认在视图内） ----
-            case .voiceGuideProfile:
-                VoiceGuidedProfileRouteView()
             case .voiceReminderDraft:
                 VoiceReminderDraftRouteView()
             case .voiceNotePanel:

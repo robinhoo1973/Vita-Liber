@@ -33,7 +33,7 @@ struct MemberCreateSheet: View {
     /// 一句话语音 → 姓名/关系/生日三个表单状态。只应用解析成功的字段；
     /// 全空才提示重说，部分命中时让用户看到已填项并补齐其余项。
     private func applyVoiceDraft(_ transcript: String) {
-        let draft = VoiceProfileRules.memberDraft(from: transcript)
+        let draft = MemberDraftRules.memberDraft(from: transcript)
         if let parsed = draft.name { name = parsed }
         if let parsed = draft.relation { relation = parsed }
         if let raw = draft.birthDate,

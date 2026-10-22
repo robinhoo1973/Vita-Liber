@@ -24,6 +24,14 @@ extension L10n {
 
     static var member_relation: String { t("member.relation") }
 
+    /// 血型 push button（2026-10-22）：ABO/Rh 分行，不保留下拉菜单。
+    static var bloodTypeABO: String { t("bloodType.abo") }
+    static var bloodTypeRh: String { t("bloodType.rh") }
+    static var bloodTypePositive: String { t("bloodType.positive") }
+    static var bloodTypeNegative: String { t("bloodType.negative") }
+    static var bloodTypeRhUnknown: String { t("bloodType.rhUnknown") }
+    static var bloodTypeUnknown: String { t("bloodType.unknown") }
+
     static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
 
     /// 业主裁决 3（2026-09-26）：生日结构控件标签（DatePicker/Toggle 共用）

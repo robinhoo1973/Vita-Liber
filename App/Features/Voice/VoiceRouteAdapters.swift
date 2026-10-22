@@ -33,35 +33,3 @@ struct VoiceNotePanelRouteView: View {
         }
     }
 }
-
-/// FR17.11 语音引导式档案完善/修改（挂载适配）：
-/// 每步确认字段 → 更新当前成员档案（修改走 FR6.4 修订历史语义——
-/// 成员字段更新前在 AppState 保留旧值审计）。
-///
-/// TestFlight 实测修复：访谈步骤 key（allergy/pastHistory/currentMeds/
-/// emergencyContact）原与可写字段零匹配，`default: break` 把用户答案
-/// 静默丢弃——「语音完善」形同虚设。现访谈四步一律以结构化段落追加进
-/// profile.note（绝不丢数据），过敏/用药/联系人结构化落库登记技术债，
-/// 待 M2 对应 store 接口接齐后迁移。
-struct VoiceGuidedProfileRouteView: View {
-    /// 成员详情页传入正在查看的成员；nil = 当前成员（首页/设置入口）。
-    var patientId: UUID?
-    @Environment(AppState.self) private var app
-
-    init(patientId: UUID? = nil) {
-        self.patientId = patientId
-    }
-
-    var body: some View {
-        WithPerceptionTracking {
-            let target = patientId ?? app.currentPatientId
-            VoiceGuidedProfileView(patientId: target) { key, value, audit in
-                await app.commitVoiceProfileField(key, value: value, patientId: target,
-                                                  audit: audit)
-            }
-            // 同一无参路由可能留在 Me 栈顶：换人必须重建答案/步骤/确认态，
-            // 旧会话在途提交仍只持有上面捕获的原 patientId（BR-001）。
-            .id(target)
-        }
-    }
-}

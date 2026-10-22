@@ -679,7 +679,7 @@ struct VoiceQuickLaunchView: View {
         case .question: router.navigate(to: .questionList)
         case .reminder: router.navigate(to: .voiceReminderDraft)
         case .appointment: router.navigate(to: .appointmentForm(nil))
-        case .profile: router.navigate(to: .voiceGuideProfile)
+        case .profile: router.navigate(to: .memberList)
         case .anyText: router.navigate(to: .voiceNotePanel)
         }
     }

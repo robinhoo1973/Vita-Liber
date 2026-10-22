@@ -34,11 +34,6 @@ struct MemberDetailView: View {
     /// 用户是否主动动过生日控件——未经显式交互的保存绝不改写存量值
     /// （初始 Toggle 关着，只改血型就保存不得顺手清掉存量生日，BR-002）。
     @State private var birthDateEdited = false
-    /// FR17.11：档案相关页面顶部常驻 [🎤 语音指导模式]。
-    @State private var showVoiceGuide = false
-    /// 打开语音指导前的草稿快照：关闭时只合并语音真正改过的字段，
-    /// 不用整份 store 副本覆盖用户尚未保存的手工编辑。
-    @State private var voiceGuideBaseline: PatientProfile?
 
     init(member: PatientProfile) {
         _current = State(initialValue: member)
@@ -55,67 +50,9 @@ struct MemberDetailView: View {
         )
     }
 
-    /// 语音引导落库后刷新本页草稿：`current` 是 init 时的副本，若不回灌，
-    /// 随后的「保存」会用旧副本覆盖语音写入（血型/证件/生日/备注静默回退）。
-    /// 但整份 `current = latest` 也会丢弃用户在打开语音前已手工修改、尚未
-    /// 保存的字段——按「相对打开时快照是否被语音改动」逐字段合并。
-    private func syncFromStore() {
-        guard let latest = app.members.first(where: { $0.id == current.id }) else { return }
-        let baseline = voiceGuideBaseline ?? current
-        voiceGuideBaseline = nil
-        var merged = current
-        if latest.bloodType != baseline.bloodType { merged.bloodType = latest.bloodType }
-        if latest.idNo != baseline.idNo { merged.idNo = latest.idNo }
-        if latest.insuranceNo != baseline.insuranceNo { merged.insuranceNo = latest.insuranceNo }
-        if latest.note != baseline.note { merged.note = latest.note }
-        if latest.birthDate != baseline.birthDate {
-            merged.birthDate = latest.birthDate
-            let stored = latest.birthDate ?? ""
-            hasBirthDate = MemberProfileCompleteness.isValidBirthDate(stored)
-            birthDate = MemberProfileCompleteness.parsedBirthDate(stored) ?? Date()
-            birthDateEdited = false
-            birthDatePicked = false
-        }
-        current = merged
-    }
-
-    private var voiceProfileProgress: (done: Int, total: Int)? {
-        let target = app.members.first(where: { $0.id == current.id }) ?? current
-        return MemberProfileCompleteness.progress(
-            profile: target,
-            interviewCompleted: app.voiceInterviewCompleted(for: target.id))
-    }
-
     var body: some View {
         WithPerceptionTracking {
             Form {
-                if let progress = voiceProfileProgress {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(alignment: .firstTextBaseline) {
-                                Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
-                                    .font(.subheadline.weight(.semibold))
-                                Spacer()
-                                Text("\(progress.done)/\(progress.total)")
-                                    .font(.caption.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                            ProgressView(value: Double(progress.done),
-                                         total: Double(max(progress.total, 1)))
-                                .tint(Color("brand-primary", bundle: .main))
-                            Button {
-                                voiceGuideBaseline = current
-                                showVoiceGuide = true
-                            } label: {
-                                Label(L10n.voiceguide_continue, systemImage: "mic")
-                                    .frame(maxWidth: .infinity, minHeight: 44)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .accessibilityIdentifier("FR17.11.member.voiceGuideCard")
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
                 Section(L10n.memberDetailBasic) {
                     LabeledContent(L10n.member_namePlaceholder, value: current.displayName)
                     LabeledContent(L10n.member_relation,
@@ -192,29 +129,6 @@ struct MemberDetailView: View {
                 }
             }
             .navigationTitle(current.displayName)
-            // FR17.11：成员详情是「完善档案 1–4」的实际编辑页——顶部常驻
-            // 语音入口，语音步骤包含血型/生日/证件/医保四项基础信息。
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        voiceGuideBaseline = current
-                        showVoiceGuide = true
-                    } label: {
-                        Label(L10n.voiceguide_profileTitle, systemImage: "waveform.and.mic")
-                    }
-                    .accessibilityIdentifier("FR17.11.member.voiceGuide")
-                }
-            }
-            .sheet(isPresented: $showVoiceGuide, onDismiss: syncFromStore) {
-                NavigationStack {
-                    VoiceGuidedProfileRouteView(patientId: current.id)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button(L10n.commonClose) { showVoiceGuide = false }
-                            }
-                        }
-                }
-            }
             .sheet(isPresented: $showDeleteFlow) {
                 DeleteMemberFlowSheet(member: current, impact: impact ?? MemberDeletionService.Impact(),
                                       choice: $deleteChoice, confirmName: $confirmName) {

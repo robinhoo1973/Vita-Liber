@@ -30,8 +30,7 @@ struct MemberProfileCompletenessTests {
     @Test func completenessCountsBirthOnlyWhenValid() {
         func done(_ birth: String?) -> Int {
             MemberProfileCompleteness.progress(
-                profile: PatientProfile(displayName: "A", relation: "本人", birthDate: birth, bloodType: "A+"),
-                interviewCompleted: [])!.done
+                profile: PatientProfile(displayName: "A", relation: "本人", birthDate: birth, bloodType: "A+"))!.done
         }
         #expect(done(nil) == 1)                     // 仅血型
         #expect(done("") == 1)                      // 空串不计
@@ -46,7 +45,7 @@ struct MemberProfileCompletenessTests {
     @Test func deletedProfileYieldsNoProgress() {
         var profile = PatientProfile(displayName: "A", relation: "本人")
         profile.deletedAt = 123
-        #expect(MemberProfileCompleteness.progress(profile: profile, interviewCompleted: []) == nil)
+        #expect(MemberProfileCompleteness.progress(profile: profile) == nil)
     }
 
     @Test func birthDateStringRoundTripsAsValid() {
@@ -80,15 +79,5 @@ struct MemberProfileCompletenessTests {
         #expect(MemberProfileCompleteness.isValidBirthDate(today, in: shanghai))
     }
 
-    @Test func missingVoiceInterviewStepsListsInFixedSemanticOrder() {
-        // 2026-10-03 评审 R2-1：缺项行数据源——固定 FR17.11 列序，未完成才出现。
-        let empty = MemberProfileCompleteness.missingVoiceInterviewSteps(interviewCompleted: [])
-        #expect(empty == ["allergy", "pastHistory", "currentMeds", "emergencyContact"])
-        let partial = MemberProfileCompleteness.missingVoiceInterviewSteps(
-            interviewCompleted: ["allergy", "emergencyContact"])
-        #expect(partial == ["pastHistory", "currentMeds"])
-        let done = MemberProfileCompleteness.missingVoiceInterviewSteps(
-            interviewCompleted: ["allergy", "pastHistory", "currentMeds", "emergencyContact"])
-        #expect(done.isEmpty, "四段齐备时缺项行为空——卡片不渲染该行")
-    }
+
 }

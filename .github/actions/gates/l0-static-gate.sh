@@ -571,7 +571,7 @@ fi
 
 # ---------- [9] FR17.13 语音输入模板复用 ----------
 section "9/20" "FR17.13 模板复用 —— 四处确认入口必须走同一模板，禁止自建确认逻辑（TC-M15-03）"
-# function-spec FR17.13：语音指导每步(FR17.11)/语音速记(FR17.9)/语音提醒设定(FR17.10)/
+# function-spec FR17.13：语音速记(FR17.9)/语音提醒设定(FR17.10)/
 # 观察语音速记(FR8.9) 一律调用标准模板，**禁止各功能自建独立确认逻辑**。
 # 两条断言：
 #   (a) 硬约束——OcrConfirmationSet 只允许在 Domain 的定义处与模板工厂里构造；
@@ -597,7 +597,7 @@ if [ -n "$t_hits" ]; then
   printf '    自建确认逻辑（Domain 外直接构造 OcrConfirmationSet，且无 // confirm-ok: 豁免）:\n'
   printf '%s' "$t_hits" | head -5 | sed 's/^/      /'
 fi
-t_entries_expected='语音速记 观察速记 提醒草稿 语音指导 task-assistant'
+t_entries_expected='语音速记 观察速记 提醒草稿 task-assistant'
 t_missing_entry=''
 for t_e in $t_entries_expected; do
   t_files=$(grep -rl --include='*.swift' -F "FR17.13-entry: $t_e" "$APP/App" "$APP/CoreKit/Sources" 2>/dev/null || true)

@@ -261,14 +261,8 @@ struct OwnerSetupView: View {
                     .frame(maxWidth: 64)
                     .accessibilityIdentifier("SP-06.owner.birthDay")
             }
-            Picker(L10n.memberBloodType, selection: $bloodChoice) {
-                Text(L10n.onboardNotSelected).tag("")
-                ForEach(RegistrationPrefill.standardBloodTypes, id: \.self) { type in
-                    Text(type).tag(type)
-                }
-                Text(L10n.onboardBloodSpecial).tag("special")
-            }
-            .accessibilityIdentifier("SP-06.owner.bloodType")
+            BloodTypePushGrid(selection: $bloodChoice)
+                .accessibilityIdentifier("SP-06.owner.bloodType")
             if bloodChoice == "special" {
                 TextField(L10n.onboardBloodNotePlaceholder, text: $specialBloodNote)
                     .focused($focusedField, equals: .bloodNote)

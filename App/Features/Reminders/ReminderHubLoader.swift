@@ -130,7 +130,7 @@ enum ReminderHubLoader {
             occurredAt: Date(),
             title: L10n.homeProfileProgressTitle,
             patientID: memberId,
-            routeKey: "voiceGuideProfile")]
+            routeKey: "memberList")]
     }
 
     /// notifyId（dose-{planId}-{epochSlot}）→ planId；解析失败返回 nil

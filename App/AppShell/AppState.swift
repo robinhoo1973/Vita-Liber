@@ -113,7 +113,6 @@ final class AppState {
         // 它在 EAL resolve 之后把结果覆盖回具体实现，注册表解析成为死代码，
         // ADR-027「调用方永不直接 import 具体引擎类型」名存实亡（半重构残留）。
         self.defaults = defaults
-        self.voiceInterviewStepsByPatient = defaults.dictionary(forKey: "voiceInterviewStepsByPatient") as? [String: [String]] ?? [:]
         // 审查修复：-uitest-* 旁路（门禁直通/清态/种子完成）只在 DEBUG 生效——
         // 发布构建即使被注入启动参数也不执行任何测试旁路（FR1.1 门禁强度
         // 不得依赖「启动参数不可信」的假设）
@@ -132,7 +131,6 @@ final class AppState {
         if self.launchArgs.contains("-uitest-reset") {
             defaults.removePersistentDomain(forName: Bundle.main.bundleIdentifier ?? "com.vitaliber.VitaLiber")
             self.onboardingFinished = false
-            self.voiceInterviewStepsByPatient = [:]
         }
         // V3.22 门禁改造：应用内 PIN 整体退役。旧哈希不再有验证入口，直接清除
         // （不做任何迁移——系统设备所有者认证严格强于 6 位应用 PIN）
@@ -345,76 +343,11 @@ final class AppState {
 
     private static let sessionFallbackPatientId = UUID()
 
-    /// FR17.11/BR-001：语言无关的访谈完成步骤按成员持久化。
-    /// 旧 voiceInterviewSteps 无成员身份，保留原键但不猜测归属、不计入完成。
-    private var voiceInterviewStepsByPatient: [String: [String]]
-    /// 访谈步骤键单一事实源 = MemberProfileCompleteness.voiceInterviewKeys（Domain，
-    /// 结构轮 2026-09-15：进度计算与键表一同迁入 Domain 纯函数）。
-    private static let voiceInterviewKeys: Set<String> = MemberProfileCompleteness.voiceInterviewKeys
-
-    var voiceInterviewCompleted: Set<String> {
-        voiceInterviewCompleted(for: currentPatientId)
-    }
-
-    /// 指定成员的访谈完成键（成员详情/列表入口按被查看成员恢复进度）。
-    func voiceInterviewCompleted(for patientId: UUID) -> Set<String> {
-        Set(voiceInterviewStepsByPatient[patientId.uuidString] ?? [])
-            .intersection(Self.voiceInterviewKeys)
-    }
-
-    /// 档案完善进度（首页进度卡 · mock 对齐项）：字段集合与计数语义为 Domain
-    /// 规则（MemberProfileCompleteness.progress）；nil = 档案未加载/已不存在，
-    /// 首页不生成虚假的 0/8 提示或占位。
+    /// 档案完善进度：出生日期合法 + 血型/证件/医保非空，共 4 项。
+    /// 语音引导档案流程已退役（2026-10-22），不再计访谈完成键。
     var profileCompletion: (done: Int, total: Int)? {
         MemberProfileCompleteness.progress(
-            profile: members.first(where: { $0.id == currentPatientId && $0.deletedAt == nil }),
-            interviewCompleted: voiceInterviewCompleted)
-    }
-
-    /// FR17.11 结构化落库（过敏/既往史/紧急联系人）：确认后的口语文本做
-    /// 确定性切分后写对应表；无法可靠切分时不写，note 仍保留原文。
-    func persistVoiceStructuredField(_ key: String, value: String, patientId: UUID) async -> Bool {
-        var allOK = true
-        switch key {
-        case "allergy":
-            for entry in VoiceProfileRules.allergies(from: value) {
-                do {
-                    guard let severity = entry.severity else { continue }
-                    try await persistor.saveVoiceAllergy(
-                        patientId: patientId, substance: entry.substance,
-                        severity: severity, reactionTags: entry.reactionTags,
-                        note: value)
-                } catch { allOK = false; logger.error("语音过敏结构化写入失败") }
-            }
-        case "pastHistory":
-            for name in VoiceProfileRules.healthProblemNames(from: value) {
-                do { try await persistor.saveVoiceHealthProblem(patientId: patientId, name: name) }
-                catch { allOK = false; logger.error("语音既往史结构化写入失败") }
-            }
-        case "currentMeds":
-            for name in VoiceProfileRules.medicationNames(from: value) {
-                do { try await persistor.saveVoiceMedication(patientId: patientId, name: name) }
-                catch { allOK = false; logger.error("语音当前用药结构化写入失败") }
-            }
-        case "emergencyContact":
-            if let contact = VoiceProfileRules.emergencyContact(from: value) {
-                do { try await persistor.saveVoiceEmergencyContact(patientId: patientId, contact: contact) }
-                catch { allOK = false; logger.error("语音紧急联系人结构化写入失败") }
-            }
-        default:
-            break
-        }
-        return allOK
-    }
-
-    /// 只在档案写入成功后记录，使用该次写入的成员身份而非 await 后的当前成员。
-    private func markVoiceInterviewStep(_ key: String, patientId: UUID) {
-        guard Self.voiceInterviewKeys.contains(key) else { return }
-        var completed = Set(voiceInterviewStepsByPatient[patientId.uuidString] ?? [])
-            .intersection(Self.voiceInterviewKeys)
-        completed.insert(key)
-        voiceInterviewStepsByPatient[patientId.uuidString] = completed.sorted()
-        defaults.set(voiceInterviewStepsByPatient, forKey: "voiceInterviewStepsByPatient")
+            profile: members.first(where: { $0.id == currentPatientId && $0.deletedAt == nil }))
     }
 
     func setCurrentPatient(_ id: UUID) {
@@ -430,13 +363,10 @@ final class AppState {
     // MARK: - FR3.1 字段补全 / FR3.4 删除 / FR3.5 重新归属
 
     /// FR3.1 成员字段更新（血型/证件号/医保号等补全）
-    func updateMember(_ profile: PatientProfile, completingVoiceInterviewStep: String? = nil,
+    func updateMember(_ profile: PatientProfile,
                       audit: VoiceExecutionAudit? = nil) async -> Bool {
         do {
             try await persistor.updateMember(profile, audit: audit)
-            if let completingVoiceInterviewStep {
-                markVoiceInterviewStep(completingVoiceInterviewStep, patientId: profile.id)
-            }
             await loadMembers()
             return true
         } catch {
@@ -617,10 +547,7 @@ final class AppState {
         owner = nil
         consentRecords = []
         members = []
-        voiceInterviewStepsByPatient = [:]
         // 身份锚点（BR-001）：不清则 currentPatientId 仍返回已删除成员的 UUID
-        defaults.removeObject(forKey: "voiceInterviewStepsByPatient")
-        defaults.removeObject(forKey: "voiceInterviewSteps")
         defaults.removeObject(forKey: "currentPatientId")
         defaults.removeObject(forKey: "selfPatientId")
         defaults.removeObject(forKey: "disclosureProgress")

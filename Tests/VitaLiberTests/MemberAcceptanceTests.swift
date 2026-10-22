@@ -33,68 +33,6 @@ final class MemberAcceptanceTests: XCTestCase {
         XCTAssertEqual(added.birthDate, "2012-05")
     }
 
-    func test_voiceStructuredWritesDedupeBySubstanceAndPhone() async throws {
-        let store = try GRDBStore.inMemory()
-        let persistor = GRDBPatientPersistor(store: store)
-        let now = Date().timeIntervalSince1970
-        let owner = LocalOwner(displayName: "本人", createdAt: now)
-        let profile = PatientProfile(displayName: "本人", relation: "本人",
-                                     createdAt: now, updatedAt: now)
-        try await persistor.saveOwner(owner, profile: profile)
-
-        try await persistor.saveVoiceAllergy(patientId: profile.id, substance: "青霉素",
-                                             severity: "轻", reactionTags: ["皮疹"], note: "青霉素过敏")
-        try await persistor.saveVoiceAllergy(patientId: profile.id, substance: "青霉素",
-                                             severity: "重", reactionTags: ["呼吸困难"], note: "青霉素过敏")
-        try await persistor.saveVoiceHealthProblem(patientId: profile.id, name: "高血压")
-        try await persistor.saveVoiceHealthProblem(patientId: profile.id, name: "高血压")
-        try await persistor.saveVoiceEmergencyContact(
-            patientId: profile.id,
-            contact: EmergencyContactDraft(name: "张三", relation: "子女", phone: "13800138000"))
-        try await persistor.saveVoiceMedication(patientId: profile.id, name: "二甲双胍")
-        try await persistor.saveVoiceMedication(patientId: profile.id, name: "二甲双胍")
-
-        let counts = try await store.writer.read { db in
-            (try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM allergy_event") ?? 0,
-             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM health_problem") ?? 0,
-             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM contact") ?? 0,
-             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM medication_plan WHERE status = 'active'") ?? 0)
-        }
-        XCTAssertEqual(counts.0, 1, "同过敏原重复确认只更新，不新增")
-        let severity = try await store.writer.read { db in
-            try String.fetchOne(db, sql: "SELECT severity FROM allergy_event")
-        }
-        XCTAssertEqual(severity, "severe", "语音未提严重度时不得把既有重度过敏降级为轻")
-        XCTAssertEqual(counts.1, 1, "同既往史不重复建问题")
-        XCTAssertEqual(counts.2, 1, "同手机号紧急联系人不重复")
-        XCTAssertEqual(counts.3, 1, "同药名不重复建活动计划")
-    }
-
-    /// 语音药名 → 库存单位：胶囊/贴/注射按药名剂型字落库，不再一律 tablet。
-    func test_voiceMedicationUnitKindFollowsName() async throws {
-        let store = try GRDBStore.inMemory()
-        let persistor = GRDBPatientPersistor(store: store)
-        let now = Date().timeIntervalSince1970
-        let owner = LocalOwner(displayName: "本人", createdAt: now)
-        let profile = PatientProfile(displayName: "本人", relation: "本人",
-                                     createdAt: now, updatedAt: now)
-        try await persistor.saveOwner(owner, profile: profile)
-
-        try await persistor.saveVoiceMedication(patientId: profile.id, name: "奥美拉唑胶囊")
-        try await persistor.saveVoiceMedication(patientId: profile.id, name: "芬太尼贴")
-        try await persistor.saveVoiceMedication(patientId: profile.id, name: "胰岛素注射液")
-
-        let kinds = try await store.writer.read { db in
-            try String.fetchAll(db, sql: "SELECT unit_kind FROM medication ORDER BY created_at")
-        }
-        XCTAssertEqual(kinds.sorted(), ["capsule", "patch", "vial"])
-        let notes = try await store.writer.read { db in
-            try String.fetchAll(db, sql: "SELECT note FROM plan_lifecycle_event")
-        }
-        XCTAssertEqual(notes.count, 3, "语音用药计划必须有 started 生命周期事件")
-        XCTAssertTrue(notes.allSatisfy { $0.contains("待用药页复核") })
-    }
-
     /// 成员配额：Domain 判定与落库计数一致（4 人内不弹、第 5 人弹）
     /// 原名：test_配额边界与落库一致
     func test_quotaBoundaryMatchesPersistedState() async throws {

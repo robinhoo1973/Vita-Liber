@@ -173,10 +173,6 @@ struct VoiceConfirmSheet: View {
         case "hour": return L10n.voiceFieldHour
         case "repeat": return L10n.voiceFieldRepeat
         case "content", "body", "note": return L10n.voiceFieldContent
-        case "allergy": return L10n.voiceguide_noteAllergy
-        case "pastHistory": return L10n.voiceguide_noteHistory
-        case "currentMeds": return L10n.voiceguide_noteMeds
-        case "emergencyContact": return L10n.voiceguide_noteContact
         // 2026-10-18 B1 新槽位：避免确认卡/回读念出英文 Domain 键。
         case "description": return L10n.voiceSlotLabel("voiceSlot.description")
         case "observationType": return L10n.voiceSlotLabel("voiceSlot.observationType")
@@ -426,58 +422,6 @@ struct VoiceConfirmSheet: View {
 // MARK: - FR17.12 语音指导隐私与耳机提示
 
 /// 进入语音指导模式前的一次性须知卡；确认后写入 ConsentRecord（F20.5 判定重展）。
-struct VoicePrivacyHeadphoneCard: View {
-    var onAccept: () -> Void
-    var onUseTouch: () -> Void
-
-    private var points: [String] {
-        [L10n.voicePrivacyPoint1, L10n.voicePrivacyPoint2,
-         L10n.voicePrivacyPoint3, L10n.voicePrivacyPoint4]
-    }
-
-    var body: some View {
-        WithPerceptionTracking {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    Image(systemName: "headphones")
-                        .font(.title2)
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                        .frame(width: 44, height: 44)
-                        .background(Color("brand-primary", bundle: .main).opacity(0.08),
-                                    in: RoundedRectangle(cornerRadius: 14))
-                    Text(L10n.voicePrivacyTitle).font(.title3.bold())
-                }
-                ForEach(points, id: \.self) { p in
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-success", bundle: .main))
-                            .padding(.top, 2)
-                        Text(p).font(.subheadline)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-                HStack(spacing: 12) {
-                    Button(L10n.voicePrivacyUseTouch, action: onUseTouch)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("FR17.12.useTouch")
-                    Spacer()
-                    Button(L10n.voicePrivacyAccept, action: onAccept)
-                        .buttonStyle(.borderedProminent)
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("FR17.12.accept")
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: 560, alignment: .leading)
-            .glassCard(cornerRadius: VLCornerRadius.card)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("FR17.12.card")
-        }
-    }
-}
-
 // MARK: - 语音受限修改拒绝卡（BR-003/006）
 
 /// 剂量 / 频次 / 停用 —— 语音一律拒绝，改指触屏路径。

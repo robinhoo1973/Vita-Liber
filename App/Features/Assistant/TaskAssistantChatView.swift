@@ -1462,7 +1462,8 @@ struct TaskAssistantChatView: View {
         case .createReminder:
             route(.voiceReminderDraft, plan: plan, action: action, set: set)
         case .appendProfile:
-            route(.voiceGuideProfile, plan: plan, action: action, set: set)
+            // 语音引导档案已退役（2026-10-22）：只跳转成员档案，由用户手动完善。
+            router.navigate(to: .memberList)
         case .recordObservation:
             route(.observationCreate, plan: plan, action: action, set: set)
         case .createAppointment:

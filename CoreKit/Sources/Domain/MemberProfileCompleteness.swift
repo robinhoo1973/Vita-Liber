@@ -5,10 +5,6 @@ import Foundation
 /// 此前内联在 @MainActor AppState，测试必须组装整个 App 状态才能断言；
 /// 迁移后以纯函数单测（P7）。
 public enum MemberProfileCompleteness {
-    /// 语音访谈四段（过敏/既往史/当前用药/紧急联系人）——FR17.11/BR-001
-    /// 按成员持久化的完成步骤键，与 AppState 持久化键同源。
-    public static let voiceInterviewKeys: Set<String> = ["allergy", "pastHistory", "currentMeds", "emergencyContact"]
-
     /// 生日精度下限（2026-09-26 业主裁决 3）：结构控件只允许 1900-01-01 起。
     /// 与本类型同源的公历日历（每访问取当前时区——静态缓存会冻结到首次访问时的时区，
     /// 跨时区变更后渲染出旧日的日期；与 `EntityCardProjection.canonicalDateText` 同口径）。
@@ -71,9 +67,7 @@ public enum MemberProfileCompleteness {
     /// 血型/证件/医保 3 个直接字段（非空即完成）+ 生日（非空且**合法**才完成）+ 语音访谈四段 = 8 项。
     /// 空白串不计完成（trim 后判空）；nil 表示档案未加载/已不存在——
     /// 首页不生成虚假的 0/8 提示或占位。
-    public static func progress(profile: PatientProfile?,
-                                interviewCompleted: Set<String>,
-                                total: Int = 8) -> (done: Int, total: Int)? {
+    public static func progress(profile: PatientProfile?, total: Int = 4) -> (done: Int, total: Int)? {
         guard let profile, profile.deletedAt == nil else { return nil }
         let done = [profile.bloodType, profile.idNo, profile.insuranceNo].filter {
             !($0?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
@@ -81,13 +75,8 @@ public enum MemberProfileCompleteness {
         let birthDone = profile.birthDate.map { value in
             !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && isValidBirthDate(value)
         } ?? false
-        return (done + (birthDone ? 1 : 0) + interviewCompleted.intersection(voiceInterviewKeys).count, total)
+        return (done + (birthDone ? 1 : 0), total)
     }
 
-    /// 缺失的语音访谈步骤键（2026-10-03 评审 R2-1：档案完善卡缺项行数据源——
-    /// 固定语义序（过敏/既往史/当前用药/紧急联系人，FR17.11 列序），
-    /// 供首页一行纯事实提示「缺：… · 补全后急救卡可用」（FR2.1b V4.11 增补口径）。
-    public static func missingVoiceInterviewSteps(interviewCompleted: Set<String>) -> [String] {
-        ["allergy", "pastHistory", "currentMeds", "emergencyContact"].filter { !interviewCompleted.contains($0) }
-    }
+
 }

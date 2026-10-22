@@ -87,15 +87,6 @@ extension L10n {
 
         static func doseNumber(_ n: Int) -> String { String(format: t("dose.number"), n) }
 
-    static func voiceguide_profileDonePartial(_ written: Int, _ skipped: Int) -> String { String(format: t("voiceguide.profileDonePartial"), written, skipped) }
-
-    static func voiceguideStep(_ a: Int, _ b: Int) -> String {
-        String(format: t("voiceguide.stepOf"), a, b)
-    }
-
-    static func voiceguideMicInputDevice(_ device: String) -> String {
-        String(format: t("voiceguide.micInputDeviceFmt"), device)
-    }
 
     static func trendBandAccessibility(_ source: String, _ lo: String, _ hi: String) -> String {
         String(format: t("trend.band.accessibility"), source, lo, hi)   // %1$@ %2$@ %3$@
