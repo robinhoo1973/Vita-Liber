@@ -65,6 +65,9 @@ struct SettingsView: View {
                     } label: {
                         LabeledContent(L10n.profileMembersRow, value: "\(app.members.count)")
                     }
+                    // 保留既有 XCUITest 锚点：入口从根级「健康记录」区块迁到个人资料后，
+                    // MemberViewsPresentationUITests 仍按此标识定位。
+                    .accessibilityIdentifier("SP-25.settings.members")
                 }
                 // FR14.4 外观与主题（§5.12.1：三段选择器 + 高对比度/关怀模式；位置对齐 mock 我的页）
                 Section {
