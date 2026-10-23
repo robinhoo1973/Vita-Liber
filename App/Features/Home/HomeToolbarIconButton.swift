@@ -7,7 +7,7 @@ import SwiftUI
 /// 着色圆。无常态阴影（§3.3 阴影收敛），边界由着色描边承担；SOS 文字色
 /// 取系统背景色，浅色模式=白、深色模式=黑，保证两种模式下的对比度。
 struct HomeToolbarIconButton: View {
-    enum Emphasis {
+    enum Emphasis: Equatable {
         /// 低透明度着色圆 + 彩色符号（AI 助手、通知）。
         case tinted
         /// 语义色实心圆 + 反色符号（SOS，唯一强调项）。
