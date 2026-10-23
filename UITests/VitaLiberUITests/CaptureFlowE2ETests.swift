@@ -78,14 +78,15 @@ final class CaptureFlowE2ETests: XCTestCase {
         XCTAssertTrue(guide.waitForExistence(timeout: 8),
                       "完成向导后必须呈现首页空态引导卡（首日引导改由首页承载）")
 
-        // FR2.1b/SP-04 回归：注册后的可选档案进度可见，不能吞掉首日引导。
-        let progress = app.buttons["SP-04.home.profileProgress"]
-        XCTAssertTrue(progress.waitForExistence(timeout: 5), "资料未完善时必须有可操作的进度入口")
+        // FR2.1b/SP-04 回归（2026-10-23）：血型+生日均已在首启登记 → 首页
+        // 登记卡必须消失；首日引导仍在，不能因登记卡消失吞掉引导。
+        XCTAssertFalse(app.buttons["SP-04.home.profileProgress"].exists,
+                       "全部登记后首页不再显示登记卡")
         let memberSwitch = app.buttons["SP-04.home.memberSwitch"]
         XCTAssertTrue(memberSwitch.waitForExistence(timeout: 5))
         // 以实际成员按钮为锚点，覆盖空 large-title 区；不硬编码状态栏/刘海高度。
-        XCTAssertLessThanOrEqual(progress.frame.minY - memberSwitch.frame.maxY, 48,
-                                 "工具栏与首个内容间不应保留空白大标题或空进度容器")
+        XCTAssertLessThanOrEqual(guide.frame.minY - memberSwitch.frame.maxY, 48,
+                                 "工具栏与首个内容间不应保留空白大标题或空登记卡")
 
         // 回归护栏：向导内绝不再出现强制拍摄步（M1a 切片残留）——
         // 置于首页断言之后用零成本 exists 判定：若拍摄步被错误加回向导，
