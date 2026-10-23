@@ -78,8 +78,9 @@ struct RouteDestinationView: View {
                 InventoryHubView()
             case .medicationPlan(let id):
                 MedicationPlanDetailView(planId: id)
-            case .medicationPlanForm:
-                MedicationPlanFormView()
+            case .medicationPlanForm(let id):
+                // v42：计划 = 时段模板（无药品）；id 存在时编辑该模板
+                MedicationScheduleFormRouteView(templateId: id)
             case .reminderToday:
                 RemindersView()
 

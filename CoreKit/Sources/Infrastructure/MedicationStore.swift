@@ -20,18 +20,22 @@ public actor MedicationStore: DoseSource {
     public func createPlan(planId: UUID, patientId: UUID, medicationId: UUID,
                            schedule: MedicationSchedule, status: PlanStatus,
                            startDate: Date, endDate: Date?,
-                           doseUnits: Double? = nil) async throws {
+                           doseUnits: Double? = nil,
+                           scheduleId: UUID? = nil) async throws {
         try await writer.write { db in
             let scheduleJSON = String(data: try JSONEncoder().encode(schedule), encoding: .utf8) ?? "{}"
+            // v42：绑定行指向时段模板（用药提醒 = 药品 × 计划）。模板存在性在
+            // FK 上强制（外键开启）；模板被引用时不可删除，见 MedicationScheduleStore。
             try db.execute(
                 sql: """
                 INSERT INTO medication_plan
-                  (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
-                   dose_plan_units, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, medication_id, schedule_id, status, schedule_json,
+                   start_date, end_date, dose_plan_units, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [planId.uuidString, patientId.uuidString, medicationId.uuidString,
-                            status.rawValue, scheduleJSON, startDate.timeIntervalSince1970,
+                            scheduleId?.uuidString, status.rawValue, scheduleJSON,
+                            startDate.timeIntervalSince1970,
                             endDate?.timeIntervalSince1970, doseUnits, Date().timeIntervalSince1970,
                             Date().timeIntervalSince1970])
         }

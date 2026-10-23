@@ -541,11 +541,11 @@ final class ReminderStore {
     /// data-flow-spec line 463）——此前表单收集的剂量被静默丢弃、物化行恒为 1.0。
     func createPlan(patientId: UUID, medicationId: UUID, name: String, spec: String,
                     schedule: MedicationSchedule, startDate: Date,
-                    doseUnits: Double = 1) async throws {
+                    doseUnits: Double = 1, scheduleId: UUID? = nil) async throws {
         try await meds.createPlan(planId: UUID(), patientId: patientId, medicationId: medicationId,
                                   schedule: schedule, status: .active,
                                   startDate: startDate, endDate: nil,
-                                  doseUnits: doseUnits)
+                                  doseUnits: doseUnits, scheduleId: scheduleId)
         await requestNotificationAuthorization()
         await refresh(patientId: patientId)
     }
@@ -619,9 +619,11 @@ final class ReminderStore {
     /// FR9.1-9.3 处方→计划五表原子创建（§4.2 参考模板；BR-003 未确认拒绝）
     func createPlanFromPrescription(prescription: Prescription,
                                     plan: MedicationPlanDraft,
-                                    initialLot: StockLotDraft) async throws {
+                                    initialLot: StockLotDraft,
+                                    scheduleId: UUID? = nil) async throws {
         _ = try await composer.createMedicationPlan(prescription: prescription,
-                                                    plan: plan, initialLot: initialLot)
+                                                    plan: plan, initialLot: initialLot,
+                                                    scheduleId: scheduleId)
     }
 
     /// 返回是否创建成功——审查修复（响亮失败纪律）：此前 catch 只记日志、

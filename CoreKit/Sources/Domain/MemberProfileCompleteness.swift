@@ -58,6 +58,26 @@ public enum MemberProfileCompleteness {
         return String(format: "%04d-%02d-%02d", parts.year ?? 1970, parts.month ?? 1, parts.day ?? 1)
     }
 
+    /// 完整出生日期（`yyyy-MM-dd`，精度足够）→ 周岁；只有年份的档案返回
+    /// nil（FR3.1：年龄仅在日期精度足够时计算，急救页否则仅显示出生年份）。
+    public static func ageYears(birthDate: String?, now: Date = Date(),
+                                calendar: Calendar = .current) -> Int? {
+        guard let birthDate, let birth = parsedBirthDate(birthDate),
+              birth >= birthDateEarliest, birth <= now else { return nil }
+        guard let years = calendar.dateComponents([.year], from: birth, to: now).year,
+              years >= 0 else { return nil }
+        return years
+    }
+
+    /// 出生年份（`yyyy` 或 `yyyy-MM-dd`）——年龄不可算时急救页展示的替代事实。
+    /// 非空但非法的存量值返回 nil（读时忽略，不臆断）。
+    public static func birthYear(_ birthDate: String?, in timeZone: TimeZone? = nil) -> Int? {
+        guard let birthDate else { return nil }
+        let trimmed = birthDate.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidBirthDate(trimmed, in: timeZone) else { return nil }
+        return Int(trimmed.prefix(4))
+    }
+
     private static func currentYear(in timeZone: TimeZone? = nil) -> Int {
         var calendar = Calendar.current
         if let timeZone { calendar.timeZone = timeZone }

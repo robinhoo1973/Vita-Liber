@@ -88,6 +88,17 @@ struct HealthHistoryHubView: View {
                     }
                     .accessibilityIdentifier("SP-49.hub.emergency")
 
+                    // 2026-10-23 业主：紧急联系人属医疗档案既有数据，须有独立
+                    // 补录/修改入口（注册流之外）；新增后成为急救卡候选。
+                    NavigationLink {
+                        EmergencyContactListView()
+                    } label: {
+                        row(title: L10n.emergencySectionContacts,
+                            subtitle: L10n.emergencyContactsHubHint,
+                            systemImage: "person.crop.circle.badge.exclamationmark")
+                    }
+                    .accessibilityIdentifier("SP-49.hub.emergencyContacts")
+
                     NavigationLink {
                         InventoryHubView()
                     } label: {

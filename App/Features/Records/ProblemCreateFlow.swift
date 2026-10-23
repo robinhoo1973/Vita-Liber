@@ -19,11 +19,13 @@ struct ProblemCreateSheet: View {
     @State private var regionID: String?
     @State private var organID: String?
     @State private var selectedItems: [String: CatalogItem] = [:]
-    /// 每条目的发生年份（item.id → 四位数字字符串）；「不详」独立标记。
-    @State private var yearByItem: [String: String] = [:]
+    /// 每条目的发生年份（item.id → 年份，来自滚轮的可选范围）；「不详」独立标记。
+    @State private var yearByItem: [String: Int] = [:]
     @State private var unknownYearItems: Set<String> = []
-    @State private var freeYear = ""
+    @State private var freeYear: Int?
     @State private var freeYearUnknown = false
+    /// 当前打开滚轮的条目（item.id 或 "free"）。
+    @State private var wheelTarget: YearWheelTarget?
     @State private var saveFailed = false
     /// 保存中重入守卫：连点 [保存] 会并发两次 createProblems，写入重复病名行
     @State private var isSaving = false
@@ -43,6 +45,11 @@ struct ProblemCreateSheet: View {
         let name: String
         let region: String?
         let organ: String?
+    }
+
+    /// 滚轮目标：已选条目 id 或自由文本 "free"。
+    private struct YearWheelTarget: Identifiable, Equatable {
+        let id: String
     }
 
     private var isSurgery: Bool { kind == "surgery" }
@@ -102,17 +109,13 @@ struct ProblemCreateSheet: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// 年份解析走 Domain 单一事实源（编辑流/列表病程共用同一规则）。
-    private func parsedYear(_ raw: String) -> Int? {
-        HealthProblemRules.parseYear(raw)
-    }
-
     /// 每条已选条目与自由文本都必须有年份或显式「不详」才可保存。
+    /// 年份已由滚轮限定在 Domain 合法范围，这里只判「是否已选」。
     private var allYearsComplete: Bool {
         let selectedComplete = selectedList.allSatisfy {
-            unknownYearItems.contains($0.id) || parsedYear(yearByItem[$0.id] ?? "") != nil
+            unknownYearItems.contains($0.id) || yearByItem[$0.id] != nil
         }
-        let freeComplete = freeName.isEmpty || freeYearUnknown || parsedYear(freeYear) != nil
+        let freeComplete = freeName.isEmpty || freeYearUnknown || freeYear != nil
         return selectedComplete && freeComplete
     }
 
@@ -137,7 +140,7 @@ struct ProblemCreateSheet: View {
                     selectedItems.removeAll()
                     yearByItem.removeAll()
                     unknownYearItems.removeAll()
-                    freeYear = ""
+                    freeYear = nil
                     freeYearUnknown = false
                     name = ""
                     query = ""
@@ -165,6 +168,10 @@ struct ProblemCreateSheet: View {
                         .accessibilityLabel(L10n.commonCancel)
                         .accessibilityIdentifier("SP-49.problem.close")
                     }
+                }
+                .sheet(item: $wheelTarget) { target in
+                    YearWheelPickerSheet(year: target.id == "free"
+                                         ? freeYearBinding : yearBinding(for: target.id))
                 }
                 .saveFailedAlert(title: L10n.encounterSaveFailed,
                                  hint: L10n.problemSaveFailedHint,
@@ -316,7 +323,7 @@ struct ProblemCreateSheet: View {
                     if !freeName.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             sectionLabel(L10n.healthHistoryYearTitle)
-                            yearRow(title: freeName, id: "free", text: freeYearBinding,
+                            yearRow(title: freeName, id: "free", year: freeYearBinding,
                                     unknown: $freeYearUnknown)
                             Text(L10n.healthHistoryYearHint)
                                 .font(.caption)
@@ -374,7 +381,7 @@ struct ProblemCreateSheet: View {
             sectionLabel(L10n.healthHistoryYearTitle)
             ForEach(selectedList) { item in
                 yearRow(title: item.name, id: item.id,
-                        text: yearBinding(for: item.id),
+                        year: yearBinding(for: item.id),
                         unknown: unknownBinding(for: item.id))
             }
             Text(L10n.healthHistoryYearHint)
@@ -383,8 +390,9 @@ struct ProblemCreateSheet: View {
         }
     }
 
-    /// 年份行：四位数字输入 + 「不详」。未知是显式选择，不以空值冒充。
-    private func yearRow(title: String, id: String, text: Binding<String>,
+    /// 年份行：滚轮选择 + 「不详」。未知是显式选择，不以空值冒充。
+    /// 滚轮范围由 Domain `HealthProblemRules.yearRange` 收口（2026-10-23 业主）。
+    private func yearRow(title: String, id: String, year: Binding<Int?>,
                          unknown: Binding<Bool>) -> some View {
         HStack(spacing: 10) {
             Text(title)
@@ -396,12 +404,25 @@ struct ProblemCreateSheet: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Color("text-secondary", bundle: .main))
             } else {
-                TextField(L10n.healthHistoryYearPlaceholder, text: text)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 64)
-                    .accessibilityLabel(L10n.healthHistoryYearPlaceholder)
-                    .accessibilityIdentifier("SP-49.problem.year.\(id)")
+                Button {
+                    wheelTarget = YearWheelTarget(id: id)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(year.wrappedValue.map { String($0) } ?? L10n.healthHistoryYearPlaceholder)
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .foregroundStyle(year.wrappedValue == nil
+                                             ? Color("text-tertiary", bundle: .main)
+                                             : Color("text-primary", bundle: .main))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color("text-tertiary", bundle: .main))
+                    }
+                    .frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.healthHistoryYearPlaceholder)
+                .accessibilityValue(year.wrappedValue.map { String($0) } ?? L10n.problemNotSet)
+                .accessibilityIdentifier("SP-49.problem.year.\(id)")
                 if !L10n.healthHistoryYearUnit.isEmpty {
                     Text(L10n.healthHistoryYearUnit)
                         .font(.subheadline)
@@ -410,7 +431,7 @@ struct ProblemCreateSheet: View {
             }
             Button {
                 unknown.wrappedValue.toggle()
-                if unknown.wrappedValue { text.wrappedValue = "" }
+                if unknown.wrappedValue { year.wrappedValue = nil }
             } label: {
                 Text(L10n.healthHistoryYearUnknown)
                     .font(.caption.weight(.semibold))
@@ -442,10 +463,10 @@ struct ProblemCreateSheet: View {
         )
     }
 
-    private func yearBinding(for id: String) -> Binding<String> {
+    private func yearBinding(for id: String) -> Binding<Int?> {
         Binding(
-            get: { yearByItem[id] ?? "" },
-            set: { yearByItem[id] = String($0.filter { $0.isNumber }.prefix(4)) }
+            get: { yearByItem[id] },
+            set: { yearByItem[id] = $0 }
         )
     }
 
@@ -455,7 +476,7 @@ struct ProblemCreateSheet: View {
             set: { unknown in
                 if unknown {
                     unknownYearItems.insert(id)
-                    yearByItem[id] = ""
+                    yearByItem[id] = nil
                 } else {
                     unknownYearItems.remove(id)
                 }
@@ -463,10 +484,10 @@ struct ProblemCreateSheet: View {
         )
     }
 
-    private var freeYearBinding: Binding<String> {
+    private var freeYearBinding: Binding<Int?> {
         Binding(
             get: { freeYear },
-            set: { freeYear = String($0.filter { $0.isNumber }.prefix(4)) }
+            set: { freeYear = $0 }
         )
     }
 
@@ -641,7 +662,7 @@ struct ProblemCreateSheet: View {
         var problems = selectedList.map {
             HealthProblemStore.NewProblem(name: $0.name, kind: kind,
                                           bodyRegion: $0.region, bodySite: $0.organ,
-                                          year: parsedYear(yearByItem[$0.id] ?? ""))
+                                          year: yearByItem[$0.id])
         }
         // 去重折叠与「资料建议接受流」同一条 Domain 规则（大小写/空白归一），
         // 否则手填「高血压」与常见项「高血压」大小写不同会写成两行
@@ -652,7 +673,7 @@ struct ProblemCreateSheet: View {
            }) {
             problems.append(.init(name: trimmed, kind: kind,
                                   bodyRegion: regionID, bodySite: organID,
-                                  year: freeYearUnknown ? nil : parsedYear(freeYear)))
+                                  year: freeYearUnknown ? nil : freeYear))
         }
         guard !problems.isEmpty else { return }
         isSaving = true
@@ -678,10 +699,11 @@ struct ProblemEditSheet: View {
 
     @State private var name: String
     @State private var kind: String
-    @State private var yearText: String
+    @State private var yearValue: Int?
     @State private var yearUnknown: Bool
     @State private var regionID: String?
     @State private var organID: String?
+    @State private var showYearWheel = false
     @State private var saveFailed = false
     @State private var isSaving = false
 
@@ -689,7 +711,7 @@ struct ProblemEditSheet: View {
         self.problem = problem
         _name = State(initialValue: problem.name)
         _kind = State(initialValue: problem.kind ?? "chronic")
-        _yearText = State(initialValue: problem.year.map(String.init) ?? "")
+        _yearValue = State(initialValue: problem.year)
         // 旧数据 year 为 nil = 未登记（含显式「不详」）——编辑时保持「不详」，
         // 不强迫用户补年份才能保存其他修正。
         _yearUnknown = State(initialValue: problem.year == nil)
@@ -701,12 +723,8 @@ struct ProblemEditSheet: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var yearInvalid: Bool {
-        !yearUnknown && (yearText.isEmpty || HealthProblemRules.parseYear(yearText) == nil)
-    }
-
     private var canSave: Bool {
-        !trimmedName.isEmpty && (yearUnknown || HealthProblemRules.parseYear(yearText) != nil) && !isSaving
+        !trimmedName.isEmpty && (yearUnknown || yearValue != nil) && !isSaving
     }
 
     private var selectedRegion: HealthHistoryCatalog.BodyRegion? {
@@ -730,15 +748,28 @@ struct ProblemEditSheet: View {
                     }
                     Section {
                         if !yearUnknown {
-                            TextField(L10n.healthHistoryYearPlaceholder, text: $yearText)
-                                .keyboardType(.numberPad)
+                            Button {
+                                showYearWheel = true
+                            } label: {
+                                HStack {
+                                    Text(L10n.healthHistoryYearPlaceholder)
+                                        .foregroundStyle(Color("text-primary", bundle: .main))
+                                    Spacer()
+                                    Text(yearValue.map { String($0) } ?? L10n.problemNotSet)
+                                        .font(.body.monospacedDigit())
+                                        .foregroundStyle(yearValue == nil
+                                                         ? Color("text-secondary", bundle: .main)
+                                                         : Color("text-primary", bundle: .main))
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(Color("text-tertiary", bundle: .main))
+                                }
+                                .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("SP-49.problem.edit.year")
                         }
                         Toggle(L10n.healthHistoryYearUnknown, isOn: $yearUnknown)
-                        if yearInvalid {
-                            Text(L10n.healthHistoryYearHint)
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-danger", bundle: .main))
-                        }
                     } header: {
                         Text(L10n.healthHistoryYearTitle)
                     }
@@ -780,6 +811,9 @@ struct ProblemEditSheet: View {
                         .first { $0.id == newRegion }?.organs.map(\.id) ?? []
                     if let organID, !organs.contains(organID) { self.organID = nil }
                 }
+                .sheet(isPresented: $showYearWheel) {
+                    YearWheelPickerSheet(year: $yearValue)
+                }
                 .saveFailedAlert(title: L10n.encounterSaveFailed,
                                  hint: L10n.problemSaveFailedHint,
                                  isPresented: $saveFailed)
@@ -789,13 +823,7 @@ struct ProblemEditSheet: View {
 
     private func save() {
         guard canSave else { return }
-        let year: Int?
-        if yearUnknown {
-            year = nil
-        } else {
-            guard let parsed = HealthProblemRules.parseYear(yearText) else { return }
-            year = parsed
-        }
+        let year: Int? = yearUnknown ? nil : yearValue
         isSaving = true
         Task {
             let ok = await state.updateProblem(

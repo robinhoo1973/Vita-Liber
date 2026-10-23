@@ -122,6 +122,11 @@ struct EmergencyCardHubView: View {
                 card: hub.isLoaded(for: currentPatientId)
                     ? hub.emergencySelected : EmergencyCard(patientId: currentPatientId),
                 bloodType: hub.isLoaded(for: currentPatientId) ? hub.bloodType : nil,
+                // 2026-10-23 业主：档案已有的人别事实（姓名/年龄或出生年份/性别）
+                // 必须出现在急救卡上——施救者先认人再读病史。
+                patientName: currentMember?.displayName,
+                birthDate: currentMember?.birthDate,
+                gender: currentMember?.gender,
                 // 系统健康 App 引导经 SystemLinks 单一出口（此前带 https 死回退，与零网络纪律相悖）
                 onGuideMedicalID: { SystemLinks.openHealthApp() },
                 onOpenSelector: readOnly ? nil : { showSelector = true },
@@ -146,6 +151,13 @@ struct EmergencyCardHubView: View {
     }
 
     private var currentPatientId: UUID { app.currentPatientId }
+
+    /// 当前成员档案（只取未软删行）——急救卡人别行的事实源。
+    private var currentMember: PatientProfile? {
+        app.members.first {
+            $0.id == currentPatientId && $0.deletedAt == nil
+        }
+    }
 }
 
 // MARK: - 疫苗（FR4.5）

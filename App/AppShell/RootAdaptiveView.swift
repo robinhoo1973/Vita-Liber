@@ -341,6 +341,9 @@ private struct PreviewRoot: View {
                                            // 对账/取消互不可见，预览无法充当接线回归探针）
                                            scheduler: container.reminderScheduler,
                                             composer: container.composer))
+                // v42 用药计划模板（计划 = 时段，与药品解耦；绑定在用药提醒）。
+                // actor 非 Observable，走自定义 EnvironmentKey 注入。
+                .environment(\.medicationScheduleStore, container.scheduleTemplates)
                 .environment(settingsStore)
                 .environment(medicalCatalogState)
                 .environment(updateAdviceState)

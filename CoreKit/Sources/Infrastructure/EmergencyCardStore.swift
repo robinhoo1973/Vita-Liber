@@ -157,5 +157,66 @@ public actor EmergencyCardStore {
                 """, arguments: [patientId.uuidString])
         }
     }
+
+    // MARK: - 紧急联系人管理（F3 P1 字段基础能力：写入/管理/成员页展示）
+
+    /// 新增/编辑紧急联系人（`id == nil` = 新增）。校验复用 Domain
+    /// `EmergencyContactDraft.isValid`——注册流与后期补录只有一套号码规则。
+    /// 返回落库后的联系人 id（新增时为新生成的 id）。
+    @discardableResult
+    public func saveContact(patientId: UUID, id: UUID? = nil,
+                            draft: EmergencyContactDraft,
+                            now: Date = Date()) async throws -> UUID {
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let relation = draft.relation.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phone = draft.phone.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !relation.isEmpty,
+              EmergencyContactDraft.validPhone(phone) else {
+            throw StoreError.invalidContact
+        }
+        let stamp = now.timeIntervalSince1970
+        if let id {
+            try await writer.write { db in
+                try db.execute(sql: """
+                    UPDATE contact
+                       SET name = ?, relation = ?, phone = ?, is_emergency = 1, updated_at = ?
+                     WHERE id = ? AND patient_id = ?
+                    """, arguments: [name, relation, phone, stamp,
+                                     id.uuidString, patientId.uuidString])
+                guard db.changesCount > 0 else { throw StoreError.notFound(id) }
+            }
+            return id
+        }
+        let newId = UUID()
+        try await writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO contact
+                  (id, patient_id, name, relation, phone, is_emergency, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+                """, arguments: [newId.uuidString, patientId.uuidString, name, relation, phone,
+                                 stamp, stamp])
+        }
+        return newId
+    }
+
+    /// 删除紧急联系人：同事务清掉急救卡选择行——否则残留的 selection
+    /// 会在下次聚合时以孤立 id 存在（不可见但永不清除，用户已删除的
+    /// 联系人仍占据选择集合）。
+    public func deleteContact(patientId: UUID, id: UUID) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                DELETE FROM emergency_card_selection WHERE patient_id = ? AND item_id = ?
+                """, arguments: [patientId.uuidString, id.uuidString])
+            try db.execute(sql: "DELETE FROM contact WHERE id = ? AND patient_id = ?",
+                           arguments: [id.uuidString, patientId.uuidString])
+            guard db.changesCount > 0 else { throw StoreError.notFound(id) }
+        }
+    }
+
+    public enum StoreError: Error, LocalizedError {
+        case invalidContact
+        case notFound(UUID)
+        public var errorDescription: String? { "紧急联系人操作失败: \(self)" }
+    }
 }
 #endif

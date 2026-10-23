@@ -14,6 +14,12 @@ import Perception
 struct EmergencyCardView: View {
     let card: EmergencyCard
     var bloodType: String?
+    /// 施救者第一眼需要的人别事实（2026-10-23 业主：医疗档案里已存在的
+    /// 信息要反映到急救卡）。姓名来自成员档案；年龄仅在出生日期精度足够时
+    /// 显示，否则显示出生年份（FR3.1），性别经 L10n 单一出口本地化。
+    var patientName: String?
+    var birthDate: String?
+    var gender: String?
     var onGuideMedicalID: (() -> Void)?
     var onOpenSelector: (() -> Void)?
     /// 审查修复：关怀模式透传 SOS 门槛参数（原 SOSButton() 硬编码 careMode=false，
@@ -30,6 +36,21 @@ struct EmergencyCardView: View {
                         VLIcon.emergencyCard.resizable().frame(width: 28, height: 28)
                         Text(L10n.emergency_title).font(.title2).bold()
                         Spacer()
+                    }
+                    if let identity = identityLine {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(identity.name)
+                                .font(.title3.weight(.semibold))
+                            if let detail = identity.detail {
+                                Text(detail)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(minHeight: 44, alignment: .leading)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("F15.card.identity")
                     }
                     if let display = L10n.bloodTypeDisplayName(bloodType) {
                         CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: display)
@@ -69,6 +90,23 @@ struct EmergencyCardView: View {
                 SOSHelpView()
             }
         }
+    }
+
+    /// 人别行：姓名必填才显示；年龄优先、出生年份兜底（FR3.1），性别随档案。
+    /// 每一段都是档案既有事实，本层不推断（例如缺生日不估算年龄）。
+    private var identityLine: (name: String, detail: String?)? {
+        let name = patientName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else { return nil }
+        var parts: [String] = []
+        if let age = MemberProfileCompleteness.ageYears(birthDate: birthDate) {
+            parts.append(L10n.emergencyAgeFmt(age))
+        } else if let year = MemberProfileCompleteness.birthYear(birthDate) {
+            parts.append(L10n.emergencyBirthYearFmt(year))
+        }
+        if let gender, !gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(L10n.healthGenderValue(gender))
+        }
+        return (name, parts.isEmpty ? nil : parts.joined(separator: " · "))
     }
 
     private func section(_ title: String, items: [EmergencyCardItem], empty: String) -> some View {
@@ -202,6 +240,22 @@ struct EmergencyCardSelectorView: View {
                 selectorSection(L10n.emergencySectionMeds, items: candidates.medications)
                 selectorSection(L10n.emergencySectionHealth, items: candidates.healthProblems)
                 selectorSection(L10n.emergencySectionContacts, items: candidates.contacts)
+                // 2026-10-23 业主：联系人不能只在注册流录入——选择页直达管理，
+                // 新增后立即成为候选（M2HubStore 写后刷新候选与已选）。
+                if onToggle != nil {
+                    Section {
+                        NavigationLink {
+                            EmergencyContactListView()
+                        } label: {
+                            Label(L10n.emergencyContactsManage,
+                                  systemImage: "person.crop.circle.badge.plus")
+                                .frame(minHeight: 44)
+                        }
+                        .accessibilityIdentifier("F15.selector.manageContacts")
+                    } footer: {
+                        Text(L10n.emergencyContactsHint)
+                    }
+                }
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出
             .tintedCanvas()   // 渐变直挂本容器（根级背景会被 TabView/导航栈系统底色覆盖，V4.06 修正）

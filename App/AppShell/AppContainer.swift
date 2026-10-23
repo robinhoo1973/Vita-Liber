@@ -19,6 +19,8 @@ struct AppContainer {
     let audit: AuditLogWriter
     let persistor: GRDBPatientPersistor
     let meds: MedicationStore
+    /// v42 用药计划模板（计划 = 时段；药品绑定由用药提醒创建）
+    let scheduleTemplates: MedicationScheduleStore
     let apts: AppointmentStore
     let reconciler: ReminderReconciler
     /// 第八轮全仓审查修复（通道假宣告遗留面）：组装根唯一经 FR9.18 投递门
@@ -258,6 +260,7 @@ struct AppContainer {
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
         EngineRegistry.shared.registerDefaultEngines()
         let meds = MedicationStore(writer: store.writer)
+        let scheduleTemplates = MedicationScheduleStore(writer: store.writer)
         let apts = AppointmentStore(writer: store.writer, scheduler: scheduler)
         let reconciler = ReminderReconciler(scheduler: scheduler, source: meds)
         let auditWriter = AuditLogWriter(writer: store.writer)
@@ -306,6 +309,7 @@ struct AppContainer {
                             audit: auditWriter,
                             persistor: GRDBPatientPersistor(store: store),
                             meds: meds,
+                            scheduleTemplates: scheduleTemplates,
                             apts: apts,
                             reconciler: reconciler,
                             reminderScheduler: scheduler,

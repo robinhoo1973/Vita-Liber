@@ -1008,6 +1008,19 @@ public enum SchemaMigrations {
         Step(version: 41, name: "health-history-year", sql: """
         ALTER TABLE health_problem ADD COLUMN year INTEGER;
         """),
+        // v42：用药计划与药品解耦（2026-10-23 业主）——计划 = 时段模板，
+        // 药品绑定行保留在 medication_plan.schedule_id。既有计划由代码迁移
+        // 回填模板（GRDBStore.backfillScheduleTemplates），DDL 只建表/加列。
+        Step(version: 42, name: "medication-schedule-template", sql: """
+        CREATE TABLE IF NOT EXISTS medication_schedule (
+          id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+          name TEXT,
+          times_json TEXT NOT NULL,
+          created_at REAL NOT NULL, updated_at REAL NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_medication_schedule_patient ON medication_schedule(patient_id);
+        ALTER TABLE medication_plan ADD COLUMN schedule_id TEXT REFERENCES medication_schedule(id);
+        CREATE INDEX IF NOT EXISTS idx_plan_schedule ON medication_plan(schedule_id);
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

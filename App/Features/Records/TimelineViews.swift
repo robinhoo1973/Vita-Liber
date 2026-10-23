@@ -740,9 +740,10 @@ struct HealthProblemListView: View {
                             Button(L10n.problemMergeInto(other.name)) {
                                 Task {
                                     // 「合并到哪个问题？」——被点选的问题为主问题（存活），
-                                    // 长按发起的问题并入归档（ui-ux §5.25：选择主问题，
-                                    // 两问题历史并入主问题下）。此前参数颠倒：按钮承诺
-                                    // 「并入「B」」而实际归档 B 保留 A。
+                                    // 长按发起的问题归档（ui-ux §5.25 V4.61：被合并问题
+                                    // 归档，其历史仍保留，可随时取消归档；本版**不**迁移
+                                    // 关联行）。此前参数颠倒：按钮承诺「并入「B」」而实际
+                                    // 归档 B 保留 A。
                                     let ok = await state.mergeProblems(primary: other.id, secondary: primary.id)
                                     actionFailed = !ok
                                 }

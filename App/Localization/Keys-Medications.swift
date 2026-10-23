@@ -196,6 +196,24 @@ extension L10n {
 
     static var planBackfillNoBaseline: String { t("plan.backfill.noBaseline") }
 
+    // v42 用药计划 = 时段模板（2026-10-23 业主裁决）
+    static var planScheduleNamePlaceholder: String { t("plan.schedule.namePlaceholder") }
+    static var planScheduleNone: String { t("plan.schedule.none") }
+    static var planScheduleEmpty: String { t("plan.schedule.empty") }
+    static var planScheduleEmptyHint: String { t("plan.schedule.emptyHint") }
+    static var planScheduleUntitled: String { t("plan.schedule.untitled") }
+    static func planScheduleBoundFmt(_ count: Int) -> String {
+        String(format: t("plan.schedule.boundFmt"), count)
+    }
+    static var planScheduleBindings: String { t("plan.schedule.bindings") }
+    static var planScheduleNoBindings: String { t("plan.schedule.noBindings") }
+    static var planScheduleBindDrug: String { t("plan.schedule.bindDrug") }
+    static var planScheduleBindingTitle: String { t("plan.schedule.bindingTitle") }
+    static var planScheduleDelete: String { t("plan.schedule.delete") }
+    static var planScheduleDeleteBlocked: String { t("plan.schedule.deleteBlocked") }
+    static var planScheduleEdit: String { t("plan.schedule.edit") }
+    static var planScheduleEditTitle: String { t("plan.schedule.editTitle") }
+    static var planScheduleLoadFailed: String { t("plan.schedule.loadFailed") }
     static var planFormSaveFailed: String { t("plan.form.saveFailed") }
 
     static var planFormSaveFailedHint: String { t("plan.form.saveFailedHint") }

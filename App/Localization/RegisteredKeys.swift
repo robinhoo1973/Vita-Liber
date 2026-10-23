@@ -864,6 +864,21 @@ extension L10n {
         "reminder.forgot", "reminder.discomfort", "reminder.discomfortPlaceholder",
         "reminder.skipReason.none", "reminder.skipReason.forgot", "reminder.skipReason.doctor",
         "reminder.skipReason.other", "reminder.moreActions",
+        "plan.schedule.namePlaceholder",
+        "plan.schedule.none",
+        "plan.schedule.empty",
+        "plan.schedule.emptyHint",
+        "plan.schedule.untitled",
+        "plan.schedule.boundFmt",
+        "plan.schedule.bindings",
+        "plan.schedule.noBindings",
+        "plan.schedule.bindDrug",
+        "plan.schedule.bindingTitle",
+        "plan.schedule.delete",
+        "plan.schedule.deleteBlocked",
+        "plan.schedule.edit",
+        "plan.schedule.editTitle",
+        "plan.schedule.loadFailed",
         "plan.listTitle", "plan.detailTitle", "plan.notFound", "plan.weekStrip",
         "plan.todayDoses", "plan.noTodayDose", "plan.adviceText", "plan.adviceSource",
         "plan.pause", "plan.resume", "plan.end", "plan.endedNote", "plan.history",
@@ -1342,6 +1357,13 @@ extension L10n {
         "updateCenter.title", "updateCenter.checkAll",
         "updateCenter.row.idle", "updateCenter.row.checking", "updateCenter.row.updating",
         "updateCenter.asrUpdatesHint", "updateCenter.asrBusyHint", "updateCenter.medicalUpdatesHint",
-        "updateCenter.checkAllHint", "updateCenter.adviceA11yPrefix"
+        "updateCenter.checkAllHint", "updateCenter.adviceA11yPrefix",
+        // 急救卡人别行 + 紧急联系人管理（2026-10-23 业主）
+        "emergency.ageFmt", "emergency.birthYearFmt",
+        "emergency.contacts.hubHint", "emergency.contacts.manage", "emergency.contacts.empty",
+        "emergency.contacts.add", "emergency.contacts.edit", "emergency.contacts.hint",
+        "emergency.contacts.phoneHint", "emergency.contacts.deleteTitle",
+        "emergency.contacts.deleteHint", "emergency.contacts.actionFailed",
+        "common.delete"
     ]
 }

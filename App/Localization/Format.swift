@@ -28,6 +28,10 @@ extension L10n {
 
     static func emergencySeverity(_ s: String) -> String { String(format: t("emergency.severityFmt"), s) }
 
+    /// 急救卡人别行：年龄（出生日期精度足够时）与出生年份（FR3.1 回退）。
+    static func emergencyAgeFmt(_ years: Int) -> String { String(format: t("emergency.ageFmt"), years) }
+    static func emergencyBirthYearFmt(_ year: Int) -> String { String(format: t("emergency.birthYearFmt"), year) }
+
     static func careParametersSOSValue(seconds: Int) -> String {
         String(format: t("care.parameters.sosValue"), seconds)
     }

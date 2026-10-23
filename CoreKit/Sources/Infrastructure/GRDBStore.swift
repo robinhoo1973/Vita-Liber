@@ -125,6 +125,13 @@ public struct GRDBStore {
                     // v40 drop-id-insurance（2026-10-22 业主）：列存在才删，
                     // 兼容老库/合成夹具缺列；彻底移除历史证件号/医保号。
                     try Self.dropLegacyProfileColumns(db)
+                case 42:
+                    // v42 medication-schedule-template（2026-10-23 业主）：计划与药品
+                    // 解耦。DDL 建模板表 + 加列后，代码回填把每个既有计划的固定时刻
+                    // 抄成模板并回写 schedule_id；非 fixed 调度（interval/meal/按需）
+                    // 建空模板，计划自身 schedule_json 仍是排程唯一事实源。
+                    try Self.applyTransactional(db, step, then: Self.backfillScheduleTemplates)
+                    continue
                 case 25:
                     // v25 recognition-fact-lines：DDL/ocr_card_commit 重建 + FK 校验 +
                     // 回执确定性回填（GRDBStore+V25Backfill）+ 版本推进同一事务——
@@ -150,6 +157,42 @@ public struct GRDBStore {
             guard (try Int.fetchOne(db, sql: "PRAGMA foreign_keys")) == 1 else {
                 throw MigrationError.foreignKeysNotReenabled
             }
+        }
+    }
+
+    /// v42 代码回填：既有计划 → 时段模板。
+    /// - fixed 调度：times 直接抄入模板（模板成为后续编辑的入口）。
+    /// - interval/meal/asNeeded/cycle/taper：建空 times 模板（界面显示「自定义排程」），
+    ///   计划自身 schedule_json 不被改写——迁移绝不改变既有提醒行为。
+    /// 幂等：只处理 `schedule_id IS NULL` 的行，重放安全。
+    private static func backfillScheduleTemplates(_ db: Database) throws {
+        let rows = try Row.fetchAll(db, sql: """
+            SELECT id, patient_id, schedule_json, created_at, updated_at
+              FROM medication_plan WHERE schedule_id IS NULL
+            """)
+        let decoder = JSONDecoder()
+        for row in rows {
+            let planId: String = row["id"]
+            let patientId: String = row["patient_id"]
+            let json: String = row["schedule_json"]
+            let createdAt: Double = row["created_at"]
+            let updatedAt: Double = row["updated_at"]
+            var times: [String] = []
+            if let data = json.data(using: .utf8),
+               let schedule = try? decoder.decode(MedicationSchedule.self, from: data),   // try?-ok: 旧/损坏 schedule_json 降级为空 times 模板，绝不阻断升级
+               case .fixed(let fixedTimes) = schedule {
+                times = MedicationScheduleTemplateRules.normalize(fixedTimes)
+            }
+            let templateId = UUID().uuidString
+            let timesJSON = String(data: (try? JSONEncoder().encode(times)) ?? Data("[]".utf8),   // try?-ok: [String] 编码不会失败；nil 回落 []
+                                   encoding: .utf8) ?? "[]"
+            try db.execute(sql: """
+                INSERT INTO medication_schedule
+                  (id, patient_id, name, times_json, created_at, updated_at)
+                VALUES (?, ?, NULL, ?, ?, ?)
+                """, arguments: [templateId, patientId, timesJSON, createdAt, updatedAt])
+            try db.execute(sql: "UPDATE medication_plan SET schedule_id = ? WHERE id = ?",
+                           arguments: [templateId, planId])
         }
     }
 

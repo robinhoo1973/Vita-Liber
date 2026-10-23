@@ -117,6 +117,9 @@ extension L10n {
     /// S-1（第九轮审查 U1#6）：关怀模式 ≥64pt 常驻返回钮的无障碍标签/文案。
     static var commonBack: String { t("common.back") }
 
+    /// 通用删除动作（紧急联系人等条目管理面；与具体业务域的 delete 键分开）。
+    static var commonDelete: String { t("common.delete") }
+
     /// S-5（第九轮审查，权重重判定案）：表单打开时绑定成员，保存时已切换即
     /// 拦截——已录入内容不得静默落到另一成员名下（MetricEntry/VoiceNote 共用）。
     static var commonMemberChanged: String { t("common.memberChanged") }

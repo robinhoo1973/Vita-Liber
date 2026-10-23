@@ -42,6 +42,32 @@ struct MemberProfileCompletenessTests {
         #expect(done("1962-03") == 1)               // 非规范格式不计
     }
 
+    /// 2026-10-23 业主：急救卡需要档案既有的人别事实。FR3.1：年龄只在
+    /// 出生日期精度足够时计算；只有年份的档案回退为出生年份。
+    @Test func ageAndBirthYearDeriveOnlyFromValidArchiveFacts() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 23, hour: 12))!
+        #expect(MemberProfileCompleteness.ageYears(birthDate: "1990-05-12",
+                                                   now: now, calendar: calendar) == 36)
+        #expect(MemberProfileCompleteness.ageYears(birthDate: "1990",
+                                                   now: now, calendar: calendar) == nil)
+        #expect(MemberProfileCompleteness.ageYears(birthDate: "abc",
+                                                   now: now, calendar: calendar) == nil)
+        #expect(MemberProfileCompleteness.ageYears(birthDate: "1899-01-01",
+                                                   now: now, calendar: calendar) == nil)
+        #expect(MemberProfileCompleteness.ageYears(birthDate: "2999-01-01",
+                                                   now: now, calendar: calendar) == nil)
+        #expect(MemberProfileCompleteness.ageYears(birthDate: nil,
+                                                   now: now, calendar: calendar) == nil)
+
+        #expect(MemberProfileCompleteness.birthYear("1990") == 1990)
+        #expect(MemberProfileCompleteness.birthYear("1990-05-12") == 1990)
+        #expect(MemberProfileCompleteness.birthYear(" 1990 ") == 1990)
+        #expect(MemberProfileCompleteness.birthYear("abc") == nil)
+        #expect(MemberProfileCompleteness.birthYear(nil) == nil)
+    }
+
     @Test func deletedProfileYieldsNoProgress() {
         var profile = PatientProfile(displayName: "A", relation: "本人")
         profile.deletedAt = 123

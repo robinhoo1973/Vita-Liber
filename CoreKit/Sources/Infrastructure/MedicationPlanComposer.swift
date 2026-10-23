@@ -65,6 +65,7 @@ public actor MedicationPlanComposer {
                                      plan: MedicationPlanDraft,
                                      initialLot: StockLotDraft,
                                      prescriptionLineId: UUID? = nil,
+                                     scheduleId: UUID? = nil,
                                      now: Date = Date()) async throws -> (UUID, UUID, UUID, UUID) {
         // BR-003 闸门在 Domain（PlanGate 语义），本层拒绝未确认处方
         guard PrescriptionConfirmation.isFullyConfirmed(prescription) else {
@@ -125,11 +126,12 @@ public actor MedicationPlanComposer {
             // ③ 用药计划（schedule_json §5.4 schema）
             try db.execute(sql: """
                 INSERT INTO medication_plan
-                  (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
-                   dose_plan_units, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, medication_id, schedule_id, status, schedule_json,
+                   start_date, end_date, dose_plan_units, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [planId.uuidString, prescription.patientId.uuidString,
-                                 medId.uuidString, plan.status.rawValue, scheduleJSON,
+                                 medId.uuidString, scheduleId?.uuidString,
+                                 plan.status.rawValue, scheduleJSON,
                                  plan.startDate.timeIntervalSince1970,
                                  plan.endDate?.timeIntervalSince1970,
                                  // 评审修正 D1：dose_plan_units = 每剂剂量（安全线

@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Infrastructure
 import Perception
 
 /// 提醒模块（SP 系列 M1b 切片）：今日时段聚合卡 + 服药三选动作 + 预约列表。
@@ -158,7 +159,7 @@ struct RemindersView: View {
                 }
             }
             .sheet(isPresented: $showNewPlan) {
-                NewPlanSheet { name, spec, timeText, kind, units in
+                NewPlanSheet { name, spec, timeText, kind, units, template in
                     Task {
                         do {
                             let medId = try await reminders.createMedication(
@@ -168,12 +169,24 @@ struct RemindersView: View {
                             // 时刻解析失败（计划零剂量），选「餐锚/按需」同样静默
                             // 丢弃。kind → 真实调度映射收敛 NewPlanScheduleMapper
                             // （与 NewPlanSheet.canSave 同一闸门，规则一处维护）。
-                            guard let schedule = NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) else { return }
+                            // v42：固定时刻取所选用药计划的时段（计划与药品解耦）；
+                            // 其余类型（间隔/餐锚/按需）仍按映射器解析。
+                            let schedule: MedicationSchedule
+                            if kind == "fixed" {
+                                guard let template else { return }
+                                let times = MedicationScheduleTemplateRules.normalize(template.times)
+                                guard !times.isEmpty else { return }
+                                schedule = .fixed(times: times)
+                            } else {
+                                guard let mapped = NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) else { return }
+                                schedule = mapped
+                            }
                             try await reminders.createPlan(
                                 patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
                                 schedule: schedule,
                                 startDate: Calendar.current.startOfDay(for: Date()),
-                                doseUnits: units)   // D1：每剂剂量落 dose_plan_units，不得丢弃
+                                doseUnits: units,   // D1：每剂剂量落 dose_plan_units，不得丢弃
+                                scheduleId: kind == "fixed" ? template?.id : nil)
                             // 创建成功才关闭 sheet；失败保留表单（用户已填内容不丢）
                             showNewPlan = false
                         } catch {
@@ -245,7 +258,11 @@ enum NewPlanScheduleMapper {
 
 /// 用药计划创建（评审修正 P0：提醒链用户起点——处方→计划 UI 此前缺失）
 struct NewPlanSheet: View {
-    let onCreate: (String, String, String, String, Double) -> Void
+    /// v42（2026-10-23 业主裁决）：用药提醒 = 把药品绑定到「用药计划」（时段模板）。
+    /// 固定时刻分支必须选择一个已存在的计划；计划本身不含药品。
+    let onCreate: (String, String, String, String, Double, MedicationScheduleStore.TemplateRow?) -> Void
+    @Environment(AppState.self) private var app
+    @Environment(\.medicationScheduleStore) private var schedules
     @State private var name = ""
     @State private var spec = ""
     @State private var timeText = DoseTimeSlot.beforeBreakfast.defaultTime
@@ -253,9 +270,9 @@ struct NewPlanSheet: View {
     /// FR9.4 调度类型（V3.72）：fixed/interval/meal/asNeeded 可建；
     /// cycle（注射周期）/taper（递增递减表）多段编辑器随 W4 余项登记
     @State private var scheduleKind = "fixed"
-    /// FR9.4（2026-10-23 业主）：固定时刻走「服药时段」选择，快速新建同样
-    /// 不再要求手输 HH:mm；精确调整在完整计划表单内完成。
-    @State private var selectedSlot: DoseTimeSlot = .beforeBreakfast
+    /// v42：固定时刻分支选择「用药计划」（时段模板）；模板在用药计划页维护。
+    @State private var templates: [MedicationScheduleStore.TemplateRow] = []
+    @State private var selectedTemplateId: UUID?
 
     var body: some View {
         WithPerceptionTracking {
@@ -277,24 +294,27 @@ struct NewPlanSheet: View {
                     // 简单输入映射：fixed=服药时段（默认时刻可再调）；interval=分钟数
                     // （如 480）；meal=餐锚（早/午/晚/睡前 前缀）；asNeeded 无排程仅按需
                     if scheduleKind == "fixed" {
-                        Picker(L10n.planFormSlots, selection: $selectedSlot) {
-                            ForEach(DoseTimeSlot.allCases, id: \.self) { slot in
-                                Text(slot.localizedTitle).tag(slot)
+                        if templates.isEmpty {
+                            Text(L10n.planScheduleEmptyHint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Picker(L10n.planListTitle, selection: $selectedTemplateId) {
+                                Text(L10n.planScheduleNone).tag(UUID?.none)
+                                ForEach(templates) { template in
+                                    Text(template.name ?? MedicationScheduleTemplateRules.summary(template.times))
+                                        .tag(UUID?.some(template.id))
+                                }
                             }
+                            .accessibilityIdentifier("SP-09.plan.template")
                         }
-                        .accessibilityIdentifier("SP-09.plan.slot")
-                        DatePicker(L10n.planFormSlotTime, selection: slotTimeBinding,
-                                   displayedComponents: .hourAndMinute)
-                            .accessibilityIdentifier("SP-09.plan.time")
                     } else {
                         TextField(scheduleHint, text: $timeText)
                             .accessibilityIdentifier("SP-09.plan.time")
                     }
                 }
                 .navigationTitle(L10n.reminder_planNew)
-                .onChangeCompat(of: selectedSlot) { _, slot in
-                    timeText = slot.defaultTime
-                }
+                .task { await loadTemplates() }
                 .onChangeCompat(of: scheduleKind) { _, kind in
                     // 切换类型时若当前输入不被新类型接受，填入该类型的可用
                     // 默认值：否则残留值（如 interval 的 "480"/餐锚中文被
@@ -302,7 +322,6 @@ struct NewPlanSheet: View {
                     // 保存键恒灰，而表单没有任何说明。
                     guard NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) == nil else { return }
                     switch kind {
-                    case "fixed": timeText = selectedSlot.defaultTime
                     case "interval": timeText = "480"
                     case "meal": timeText = DoseScheduleEngine.MealAnchorRules.defaultInput
                     default: break
@@ -310,7 +329,9 @@ struct NewPlanSheet: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.reminder_save) { onCreate(name, spec, timeText, scheduleKind, units) }
+                        Button(L10n.reminder_save) {
+                            onCreate(name, spec, timeText, scheduleKind, units, selectedTemplate)
+                        }
                             .disabled(!canSave)
                             .accessibilityIdentifier("SP-09.plan.save")
                     }
@@ -319,11 +340,15 @@ struct NewPlanSheet: View {
         }
     }
 
-    /// 固定时刻的 DatePicker 绑定（字符串 ↔ Date 转换在 Domain 单一事实源）。
-    private var slotTimeBinding: Binding<Date> {
-        Binding(
-            get: { DoseTimeSlotRules.date(for: timeText) ?? Date() },
-            set: { timeText = DoseTimeSlotRules.timeString(from: $0) })
+    private var selectedTemplate: MedicationScheduleStore.TemplateRow? {
+        guard let selectedTemplateId else { return nil }
+        return templates.first { $0.id == selectedTemplateId }
+    }
+
+    private func loadTemplates() async {
+        guard let schedules else { return }
+        templates = (try? await schedules.list(patientId: app.currentPatientId)) ?? []   // try?-ok: 读失败按空列表呈现，用户可见空态提示
+        if selectedTemplateId == nil { selectedTemplateId = templates.first?.id }
     }
 
     /// 排程参数输入提示（按类型）
@@ -344,6 +369,8 @@ struct NewPlanSheet: View {
     /// 计划以零剂量静默建成）。
     private var canSave: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        // v42：固定时刻必须绑定一个已存在的用药计划（计划提供时刻，提醒提供药品）。
+        if scheduleKind == "fixed" { return selectedTemplate != nil }
         return NewPlanScheduleMapper.schedule(kind: scheduleKind, timeText: timeText) != nil
     }
 }

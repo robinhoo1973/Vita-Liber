@@ -91,6 +91,40 @@ final class M2HubStore {
     /// currentPatientId` 手写判据同源，收敛为一处，壳只调本方法）。
     func isLoaded(for patientId: UUID) -> Bool { loadedPatientId == patientId }
 
+    // MARK: - 急救卡聚合（首次装载 / 写后刷新单一取数出口）
+
+    /// 候选 + 已选 + 血型三读同一入口：`load` 与选择/联系人写后刷新共用，
+    /// 避免两条路径各拼一次查询、快照口径漂移。
+    private func fetchEmergency(patientId: UUID) async throws
+        -> (candidates: EmergencyCard, selected: EmergencyCard,
+            selectedIds: Set<UUID>, blood: String?) {
+        async let c = emergency.candidates(patientId: patientId)
+        async let s = emergency.selected(patientId: patientId)
+        async let b = emergency.bloodType(patientId: patientId)
+        let (candidates, selected, blood) = try await (c, s, b)
+        let ids = Set((selected.allergies + selected.medications
+                       + selected.healthProblems + selected.contacts).map(\.id))
+        return (candidates, selected, ids, blood)
+    }
+
+    private func commitEmergency(_ values: (candidates: EmergencyCard, selected: EmergencyCard,
+                                           selectedIds: Set<UUID>, blood: String?)) {
+        emergencyCandidates = values.candidates
+        emergencySelected = values.selected
+        emergencySelectedIds = values.selectedIds
+        bloodType = values.blood
+    }
+
+    /// 急救卡写后刷新（选择/联系人增删改共用）。走 loadSection 的
+    /// 「取回 → 成员代际守卫 → 提交」惯用法——成员切换窗口内不落旧成员数据。
+    private func refreshEmergency(patientId: UUID) async {
+        // 日志标签保持 ASCII：L10n 门禁只豁免 logger 调用内文案，
+        // 传参型中文字面量会被判为硬编码（CI L0 §10）。
+        await loadSection(patientId: patientId, label: "emergency refresh failed",
+                          fetch: { try await fetchEmergency(patientId: patientId) },
+                          commit: { commitEmergency($0) })
+    }
+
     /// 切人清零：请求成员 != 已加载成员时立即清空全部投影（BR-001 纵深防御——
     /// 消费侧门之外，sheet 逃逸闭包/dispenseCSV/求助卡联系人等未加门的读取路径
     /// 在切换窗口同样拿不到上一成员缓存）。
@@ -129,20 +163,9 @@ final class M2HubStore {
             fetch: { try await meds.inventorySummary(patientId: patientId, now: Date()) },
             commit: { inventoryItems = $0 })
         async let s2: Void = loadSection(patientId: patientId, label: "急救卡加载失败",
-            fetch: {
-                async let c = emergency.candidates(patientId: patientId)
-                async let s = emergency.selected(patientId: patientId)
-                async let b = emergency.bloodType(patientId: patientId)
-                let (candidates, selected, blood) = try await (c, s, b)
-                let ids = Set((selected.allergies + selected.medications
-                               + selected.healthProblems + selected.contacts).map(\.id))
-                return (candidates, selected, ids, blood)
-            },
+            fetch: { try await fetchEmergency(patientId: patientId) },
             commit: { values in
-                emergencyCandidates = values.0
-                emergencySelected = values.1
-                emergencySelectedIds = values.2
-                bloodType = values.3
+                commitEmergency(values)
             })
         async let s3: Void = loadSection(patientId: patientId, label: "疫苗加载失败",
             fetch: { try await immunizations.list(patientId: patientId) },
@@ -246,23 +269,62 @@ final class M2HubStore {
             } else {
                 try await emergency.deselect(patientId: patientId, itemId: item.id)
             }
-            // BR-001 成员隔离：写后回读经 loadSection 单一出口（fetch →
+            // BR-001 成员隔离：写后回读经 refreshEmergency（fetch →
             // 代际守卫 → 提交）——此前 guard 在读前、提交在读后：成员在
             // 读取 await 期间切换时，旧成员行仍会覆盖新成员刚提交的投影
-            await loadSection(patientId: patientId, label: "急救卡写后刷新失败",
-                fetch: { try await emergency.selected(patientId: patientId) },
-                commit: { selectedNow in
-                    emergencySelected = selectedNow
-                    emergencySelectedIds = Set((selectedNow.allergies + selectedNow.medications
-                                                + selectedNow.healthProblems + selectedNow.contacts)
-                                                .map(\.id))
-                })
+            await refreshEmergency(patientId: patientId)
             // FR15.4 卡片内容变更写审计（select/deselect 均记录）
             try await audit.record(action: "update", entityType: "emergency_card",
                                    entityId: item.id.uuidString, actorLocal: "owner",
                                    meta: "\(selected ? "select" : "deselect") kind=\(item.kind)")
         } catch {
             logger.error("急救卡选择失败: \(error)")
+        }
+    }
+
+    /// 紧急联系人新增/编辑（2026-10-23 业主：急救卡联系人须能从医疗档案补录）。
+    /// 写失败返回 false 由调用侧提示；成功后刷新候选与已选（新联系人成为候选）。
+    @discardableResult
+    func saveEmergencyContact(patientId: UUID, id: UUID?,
+                              draft: EmergencyContactDraft) async -> Bool {
+        do {
+            let contactId = try await emergency.saveContact(patientId: patientId, id: id,
+                                                            draft: draft)
+            await refreshEmergency(patientId: patientId)
+            // 审计尽力而为：写库已成功，审计失败若回抛会让保存表单停在原地，
+            // 用户重试会重复新增同一联系人（BR-004 真实性——已写入不得报失败）。
+            do {
+                try await audit.record(action: id == nil ? "create" : "update",
+                                       entityType: "emergency_contact",
+                                       entityId: contactId.uuidString, actorLocal: "owner",
+                                       meta: nil)
+            } catch {
+                logger.error("紧急联系人审计失败: \(error)")
+            }
+            return true
+        } catch {
+            logger.error("紧急联系人保存失败: \(error)")
+            return false
+        }
+    }
+
+    /// 删除紧急联系人（同事务清急救卡选择行）。失败返回 false 由调用侧提示。
+    @discardableResult
+    func deleteEmergencyContact(patientId: UUID, id: UUID) async -> Bool {
+        do {
+            try await emergency.deleteContact(patientId: patientId, id: id)
+            await refreshEmergency(patientId: patientId)
+            // 同 saveEmergencyContact：删除已生效，审计失败只记日志。
+            do {
+                try await audit.record(action: "delete", entityType: "emergency_contact",
+                                       entityId: id.uuidString, actorLocal: "owner", meta: nil)
+            } catch {
+                logger.error("紧急联系人审计失败: \(error)")
+            }
+            return true
+        } catch {
+            logger.error("紧急联系人删除失败: \(error)")
+            return false
         }
     }
 

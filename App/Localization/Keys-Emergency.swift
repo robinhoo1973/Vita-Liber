@@ -74,4 +74,17 @@ static var medicalIDTitle: String { t("medicalID.title") }
     static var medicalIDStep3Hint: String { t("medicalID.step3Hint") }
     static var medicalIDOpenHealth: String { t("medicalID.openHealth") }
     static var medicalIDNote: String { t("medicalID.note") }
+
+    // MARK: - 紧急联系人管理（2026-10-23 业主：档案既有联系人须可补录入卡）
+
+    static var emergencyContactsHubHint: String { t("emergency.contacts.hubHint") }
+    static var emergencyContactsManage: String { t("emergency.contacts.manage") }
+    static var emergencyContactsEmpty: String { t("emergency.contacts.empty") }
+    static var emergencyContactsAdd: String { t("emergency.contacts.add") }
+    static var emergencyContactsEdit: String { t("emergency.contacts.edit") }
+    static var emergencyContactsHint: String { t("emergency.contacts.hint") }
+    static var emergencyContactsPhoneHint: String { t("emergency.contacts.phoneHint") }
+    static var emergencyContactsDeleteTitle: String { t("emergency.contacts.deleteTitle") }
+    static var emergencyContactsDeleteHint: String { t("emergency.contacts.deleteHint") }
+    static var emergencyContactsActionFailed: String { t("emergency.contacts.actionFailed") }
 }

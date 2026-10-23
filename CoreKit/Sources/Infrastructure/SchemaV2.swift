@@ -247,10 +247,19 @@ public enum SchemaV2 {
       drug_key TEXT,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
 
-    -- 用药计划（F9.15 / ADR-020 状态机）
+    -- 用药计划模板（v42，2026-10-23 业主：计划 = 一天中的服药时段，与药品无关）
+    CREATE TABLE medication_schedule (
+      id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
+      name TEXT,
+      times_json TEXT NOT NULL,
+      created_at REAL NOT NULL, updated_at REAL NOT NULL);
+    CREATE INDEX idx_medication_schedule_patient ON medication_schedule(patient_id);
+
+    -- 用药提醒绑定（F9.15 / ADR-020 状态机）：药品 × 计划模板
     CREATE TABLE medication_plan (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       medication_id TEXT NOT NULL REFERENCES medication(id),
+      schedule_id TEXT REFERENCES medication_schedule(id),
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','ended')),
       schedule_json TEXT NOT NULL,
       start_date REAL NOT NULL, end_date REAL,
@@ -258,6 +267,7 @@ public enum SchemaV2 {
       paused_at REAL, ended_at REAL, ended_reason TEXT,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_plan_patient_status ON medication_plan(patient_id, status);
+    CREATE INDEX idx_plan_schedule ON medication_plan(schedule_id);
 
     -- 计划生命周期历史（FR9.15：append-only，与状态变更同事务）
     CREATE TABLE plan_lifecycle_event (
