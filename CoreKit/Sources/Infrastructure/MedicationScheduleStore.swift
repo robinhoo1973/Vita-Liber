@@ -21,12 +21,15 @@ public actor MedicationScheduleStore {
         public var id: UUID
         public var patientId: UUID
         public var name: String?
-        public var times: [String]
+        /// 条目（时段身份 + 时刻 + 常用提醒范围）；`time` 是唯一排程事实。
+        public var entries: [MedicationScheduleEntry]
         public var boundPlanCount: Int
-        public init(id: UUID, patientId: UUID, name: String?, times: [String],
-                    boundPlanCount: Int) {
+        /// 兼容派生：提醒时刻集合。
+        public var times: [String] { MedicationScheduleEntryRules.times(entries) }
+        public init(id: UUID, patientId: UUID, name: String?,
+                    entries: [MedicationScheduleEntry], boundPlanCount: Int) {
             self.id = id; self.patientId = patientId; self.name = name
-            self.times = times; self.boundPlanCount = boundPlanCount
+            self.entries = entries; self.boundPlanCount = boundPlanCount
         }
     }
 
@@ -45,23 +48,23 @@ public actor MedicationScheduleStore {
     public enum StoreError: Error, LocalizedError {
         case notFound(UUID)
         case inUse(UUID, count: Int)
-        case invalidTimes(MedicationScheduleTemplateRules.ValidationError)
+        case invalidEntries(MedicationScheduleEntryRules.ValidationError)
         public var errorDescription: String? { "用药计划操作失败: \(self)" }
     }
 
     @discardableResult
-    public func create(patientId: UUID, name: String?, times: [String],
+    public func create(patientId: UUID, name: String?, entries: [MedicationScheduleEntry],
                        now: Date = Date()) async throws -> UUID {
-        if let error = MedicationScheduleTemplateRules.validate(times) {
-            throw StoreError.invalidTimes(error)
+        if let error = MedicationScheduleEntryRules.validate(entries) {
+            throw StoreError.invalidEntries(error)
         }
-        let normalized = MedicationScheduleTemplateRules.normalize(times)
+        let normalized = MedicationScheduleEntryRules.normalize(entries)
         let id = UUID()
         let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         try await writer.write { db in
             try db.execute(sql: """
                 INSERT INTO medication_schedule
-                  (id, patient_id, name, times_json, created_at, updated_at)
+                  (id, patient_id, name, entries_json, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """, arguments: [id.uuidString, patientId.uuidString,
                                  (trimmedName?.isEmpty == false) ? trimmedName : nil,
@@ -84,7 +87,7 @@ public actor MedicationScheduleStore {
                 TemplateRow(id: UUID(uuidString: row["id"]) ?? UUID(),
                             patientId: patientId,
                             name: row["name"] as String?,
-                            times: Self.decode(row["times_json"] as String? ?? "[]"),
+                            entries: Self.decode(row["entries_json"] as String? ?? "[]"),
                             boundPlanCount: row["bound_count"] as Int? ?? 0)
             }
         }
@@ -103,23 +106,23 @@ public actor MedicationScheduleStore {
             return TemplateRow(id: id,
                                patientId: UUID(uuidString: row["patient_id"]) ?? UUID(),
                                name: row["name"] as String?,
-                               times: Self.decode(row["times_json"] as String? ?? "[]"),
+                               entries: Self.decode(row["entries_json"] as String? ?? "[]"),
                                boundPlanCount: row["bound_count"] as Int? ?? 0)
         }
     }
 
     /// 全字段更新；行不存在抛 notFound（UPDATE 0 行不得静默成功）。
-    public func update(id: UUID, name: String?, times: [String],
+    public func update(id: UUID, name: String?, entries: [MedicationScheduleEntry],
                        now: Date = Date()) async throws {
-        if let error = MedicationScheduleTemplateRules.validate(times) {
-            throw StoreError.invalidTimes(error)
+        if let error = MedicationScheduleEntryRules.validate(entries) {
+            throw StoreError.invalidEntries(error)
         }
-        let normalized = MedicationScheduleTemplateRules.normalize(times)
+        let normalized = MedicationScheduleEntryRules.normalize(entries)
         let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE medication_schedule
-                   SET name = ?, times_json = ?, updated_at = ?
+                   SET name = ?, entries_json = ?, updated_at = ?
                  WHERE id = ?
                 """, arguments: [(trimmedName?.isEmpty == false) ? trimmedName : nil,
                                  Self.encode(normalized), now.timeIntervalSince1970,
@@ -164,15 +167,22 @@ public actor MedicationScheduleStore {
         }
     }
 
-    private static func encode(_ times: [String]) -> String {
-        guard let data = try? JSONEncoder().encode(times) else { return "[]" }   // try?-ok: [String] 编码不会失败
+    private static func encode(_ entries: [MedicationScheduleEntry]) -> String {
+        guard let data = try? JSONEncoder().encode(entries) else { return "[]" }   // try?-ok: 条目数组编码不会失败
         return String(data: data, encoding: .utf8) ?? "[]"
     }
 
-    private static func decode(_ json: String) -> [String] {
-        guard let data = json.data(using: .utf8),
-              let times = try? JSONDecoder().decode([String].self, from: data) else { return [] }   // try?-ok: 损坏 times_json 按空模板降级（读侧显示为未配置）
-        return MedicationScheduleTemplateRules.normalize(times)
+    /// 宽容解码：条目数组 → 逐条；旧版 `[String]` → 按时段默认时刻认领；损坏 → []。
+    private static func decode(_ json: String) -> [MedicationScheduleEntry] {
+        guard let data = json.data(using: .utf8) else { return [] }
+        if let entries = try? JSONDecoder().decode([MedicationScheduleEntry].self, from: data) {   // try?-ok: 格式探测；失败走旧格式
+            return MedicationScheduleEntryRules.normalize(entries)
+        }
+        if let times = try? JSONDecoder().decode([String].self, from: data) {   // try?-ok: 旧 times_json 兼容读取
+            return MedicationScheduleEntryRules.normalize(
+                MedicationScheduleEntryRules.entries(fromLegacyTimes: times))
+        }
+        return []
     }
 }
 #endif

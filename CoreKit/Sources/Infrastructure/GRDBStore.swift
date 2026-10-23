@@ -125,6 +125,11 @@ public struct GRDBStore {
                     // v40 drop-id-insurance（2026-10-22 业主）：列存在才删，
                     // 兼容老库/合成夹具缺列；彻底移除历史证件号/医保号。
                     try Self.dropLegacyProfileColumns(db)
+                case 43:
+                    // v43 medication-schedule-entries（2026-10-23 业主）：常用提醒范围
+                    // 与时段身份。RENAME + 行重写同一事务；time 原样保留，绝不改既有提醒。
+                    try Self.applyTransactional(db, step, then: Self.rewriteScheduleEntries)
+                    continue
                 case 42:
                     // v42 medication-schedule-template（2026-10-23 业主）：计划与药品
                     // 解耦。DDL 建模板表 + 加列后，代码回填把每个既有计划的固定时刻
@@ -193,6 +198,41 @@ public struct GRDBStore {
                 """, arguments: [templateId, patientId, timesJSON, createdAt, updatedAt])
             try db.execute(sql: "UPDATE medication_plan SET schedule_id = ? WHERE id = ?",
                            arguments: [templateId, planId])
+        }
+    }
+
+    /// v43 代码迁移：`times_json` → `entries_json`（条目数组），既有行按
+    /// 「时刻精确等于某时段默认值才认领身份，否则自定义」转换；范围补默认值。
+    /// 幂等：列已改名则跳过；已是条目数组的行直接跳过；任何异常整体回滚。
+    private static func rewriteScheduleEntries(_ db: Database) throws {
+        let columns = try db.columns(in: "medication_schedule").map(\.name)
+        if columns.contains("times_json") && !columns.contains("entries_json") {
+            try db.execute(sql: """
+                ALTER TABLE medication_schedule RENAME COLUMN times_json TO entries_json
+                """)
+        }
+        guard try db.columns(in: "medication_schedule").contains(where: { $0.name == "entries_json" })
+        else { return }
+        let rows = try Row.fetchAll(db, sql: "SELECT id, entries_json FROM medication_schedule")
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        for row in rows {
+            let id: String = row["id"]
+            let json: String = row["entries_json"] ?? "[]"
+            guard let data = json.data(using: .utf8) else { continue }
+            // 已是条目数组：不重写（重放安全）。
+            if (try? decoder.decode([MedicationScheduleEntry].self, from: data)) != nil { continue }   // try?-ok: 已是条目数组则不重写（重放安全）
+            var times: [String] = []
+            if let decoded = try? decoder.decode([String].self, from: data) {   // try?-ok: 损坏行保持原样，不阻断升级
+                times = decoded
+            }
+            let entries = MedicationScheduleEntryRules.normalize(
+                MedicationScheduleEntryRules.entries(fromLegacyTimes: times))
+            let encoded = (try? encoder.encode(entries)).flatMap { String(data: $0, encoding: .utf8) }   // try?-ok: 条目编码不会失败；nil 回落 []
+                ?? "[]"
+            try db.execute(sql: "UPDATE medication_schedule SET entries_json = ? WHERE id = ?",
+                           arguments: [encoded, id])
         }
     }
 

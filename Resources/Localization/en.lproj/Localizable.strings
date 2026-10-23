@@ -873,6 +873,17 @@
 "plan.backfill.actualTime" = "Actual time taken";
 "plan.backfill.noBaseline" = "This plan has no per-dose baseline, so a safe backfill is not possible; add the dose first.";
 "plan.schedule.none" = "No plan";
+"plan.form.custom.section" = "Custom time windows";
+"plan.form.custom.add" = "Add custom window";
+"plan.form.custom.delete" = "Delete this custom window";
+"plan.form.custom.time" = "Reminder time";
+"plan.form.range.start" = "Range start";
+"plan.form.range.end" = "Range end";
+"plan.form.range.reset" = "Reset to usual";
+"plan.form.range.customize" = "Customize range";
+"plan.form.range.fmt" = "Usual reminder range %@–%@";
+"plan.form.range.notice" = "The reminder time is outside the usual range. The range is only a reference; reminders still fire at the time.";
+"plan.form.range.invalid" = "Range start must be earlier than end (cross-midnight is not supported).";
 "plan.schedule.namePlaceholder" = "Plan name (e.g. after breakfast & dinner)";
 "plan.schedule.empty" = "No medication plans yet";
 "plan.schedule.emptyHint" = "A medication plan only defines the times of day for reminders; medicines are linked in Medication Reminders";

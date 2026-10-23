@@ -173,6 +173,8 @@ public enum DoseScheduleEngine {
 
         private static let tokenMap: [String: String] = [
             "早": "beforeBreakfast", "早上": "beforeBreakfast",
+            // 空腹 → beforeBreakfast 仅为排程分组近似，非医学等价（空腹常为餐前 1h/餐后 2h；
+            // 默认时刻可能需用户提前，界面不得宣称「空腹 = 早餐前」）。
             "早餐前": "beforeBreakfast", "早饭前": "beforeBreakfast", "空腹": "beforeBreakfast",
             "早饭后": "afterBreakfast", "早餐后": "afterBreakfast",
             "午": "beforeLunch", "中午": "beforeLunch",

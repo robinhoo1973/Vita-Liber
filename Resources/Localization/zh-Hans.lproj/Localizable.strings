@@ -873,6 +873,17 @@
 "plan.backfill.actualTime" = "实际服用时间";
 "plan.backfill.noBaseline" = "该计划缺少单剂基线剂量，无法安全补记；请先在计划中补充剂量信息";
 "plan.schedule.none" = "不绑定计划";
+"plan.form.custom.section" = "自定义时段";
+"plan.form.custom.add" = "添加自定义时段";
+"plan.form.custom.delete" = "删除这个自定义时段";
+"plan.form.custom.time" = "提醒时刻";
+"plan.form.range.start" = "范围开始";
+"plan.form.range.end" = "范围结束";
+"plan.form.range.reset" = "恢复常用";
+"plan.form.range.customize" = "自定义范围";
+"plan.form.range.fmt" = "常用提醒范围 %@–%@";
+"plan.form.range.notice" = "提醒时刻不在常用范围内；范围只作参考，提醒仍按时刻发出。";
+"plan.form.range.invalid" = "范围开始需早于结束（不支持跨午夜）。";
 "plan.schedule.namePlaceholder" = "计划名称（如：早晚餐后）";
 "plan.schedule.empty" = "还没有用药计划";
 "plan.schedule.emptyHint" = "用药计划只约定一天中的服药时段，不绑定药品；绑定药品在用药提醒中完成";

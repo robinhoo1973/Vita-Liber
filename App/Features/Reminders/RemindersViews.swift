@@ -348,7 +348,7 @@ struct NewPlanSheet: View {
     private func loadTemplates() async {
         guard let schedules else { return }
         templates = (try? await schedules.list(patientId: app.currentPatientId)) ?? []   // try?-ok: 读失败按空列表呈现，用户可见空态提示
-        if selectedTemplateId == nil { selectedTemplateId = templates.first?.id }
+        // 不默认选中：未看就绑错计划的风险高于多点一次（审查修正）。
     }
 
     /// 排程参数输入提示（按类型）

@@ -251,7 +251,9 @@ public enum SchemaV2 {
     CREATE TABLE medication_schedule (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       name TEXT,
-      times_json TEXT NOT NULL,
+      -- v43：条目数组 [{slot?, time, rangeStart?, rangeEnd?}]；time 是唯一排程事实，
+      -- rangeStart/rangeEnd 是「常用提醒范围」展示元数据（半开区间，不驱动调度）。
+      entries_json TEXT NOT NULL,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_medication_schedule_patient ON medication_schedule(patient_id);
 

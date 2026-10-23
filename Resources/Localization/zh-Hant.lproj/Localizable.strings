@@ -873,6 +873,17 @@
 "plan.backfill.actualTime" = "實際服用時間";
 "plan.backfill.noBaseline" = "該計劃缺少單劑基線劑量，無法安全補記；請先在計劃中補充劑量信息";
 "plan.schedule.none" = "不綁定計畫";
+"plan.form.custom.section" = "自訂時段";
+"plan.form.custom.add" = "新增自訂時段";
+"plan.form.custom.delete" = "刪除這個自訂時段";
+"plan.form.custom.time" = "提醒時刻";
+"plan.form.range.start" = "範圍開始";
+"plan.form.range.end" = "範圍結束";
+"plan.form.range.reset" = "恢復常用";
+"plan.form.range.customize" = "自訂範圍";
+"plan.form.range.fmt" = "常用提醒範圍 %@–%@";
+"plan.form.range.notice" = "提醒時刻不在常用範圍內；範圍僅供參考，提醒仍按時刻發出。";
+"plan.form.range.invalid" = "範圍開始需早於結束（不支援跨午夜）。";
 "plan.schedule.namePlaceholder" = "計畫名稱（例如：早晚餐後）";
 "plan.schedule.empty" = "還沒有用藥計畫";
 "plan.schedule.emptyHint" = "用藥計畫只約定一天中的服藥時段，不綁定藥品；綁定藥品在用藥提醒中完成";

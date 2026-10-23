@@ -199,6 +199,22 @@ extension L10n {
     // v42 用药计划 = 时段模板（2026-10-23 业主裁决）
     static var planScheduleNamePlaceholder: String { t("plan.schedule.namePlaceholder") }
     static var planScheduleNone: String { t("plan.schedule.none") }
+
+    // v43 常用提醒范围（2026-10-23 业主；展示元数据，非医学建议）
+    static var planFormCustomSection: String { t("plan.form.custom.section") }
+    static var planFormCustomAdd: String { t("plan.form.custom.add") }
+    static var planFormCustomDelete: String { t("plan.form.custom.delete") }
+    static var planFormCustomTime: String { t("plan.form.custom.time") }
+    static var planFormRangeStart: String { t("plan.form.range.start") }
+    static var planFormRangeEnd: String { t("plan.form.range.end") }
+    static var planFormRangeReset: String { t("plan.form.range.reset") }
+    static var planFormRangeCustomize: String { t("plan.form.range.customize") }
+    static func planFormRangeFmt(_ start: String, _ end: String) -> String {
+        String(format: t("plan.form.range.fmt"), start, end)
+    }
+    static var planFormRangeNotice: String { t("plan.form.range.notice") }
+    static var planFormRangeInvalid: String { t("plan.form.range.invalid") }
+
     static var planScheduleEmpty: String { t("plan.schedule.empty") }
     static var planScheduleEmptyHint: String { t("plan.schedule.emptyHint") }
     static var planScheduleUntitled: String { t("plan.schedule.untitled") }

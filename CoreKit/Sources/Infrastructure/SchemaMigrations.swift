@@ -1021,6 +1021,10 @@ public enum SchemaMigrations {
         ALTER TABLE medication_plan ADD COLUMN schedule_id TEXT REFERENCES medication_schedule(id);
         CREATE INDEX IF NOT EXISTS idx_plan_schedule ON medication_plan(schedule_id);
         """),
+        // v43：常用提醒范围与时段身份（2026-10-23 业主：标准时段 + 可用范围 + 自定义）。
+        // 列改名与行重写都在代码迁移里做（RENAME COLUMN 幂等守卫），sql 置空。
+        // 语义：time 仍是唯一排程事实；范围只展示，不驱动物化/通知/安全线。
+        Step(version: 43, name: "medication-schedule-entries", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

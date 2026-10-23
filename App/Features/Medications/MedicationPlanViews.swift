@@ -560,8 +560,12 @@ struct MedicationPlanFormView: View {
     /// 混合关系（如早餐前 + 晚餐后）不静默归并成一个串——逐时刻关系仍由
     /// `mealRelation(for:)` 在冲突检查中分别使用。
     private var derivedMealRelation: String? {
-        let tokens = Set(selectedSlotList.compactMap(\.mealRelation))
-        return tokens.count == 1 ? tokens.first : nil
+        // 审查修正（产品席）：原先 compactMap 丢掉 nil，使「起床后(nil) + 早餐前」
+        // 被判为一致并回填 beforeBreakfast——但其中一剂并无餐食语义。
+        // 只有全部时段都有且只有一个相同关系时才回填。
+        let tokens = selectedSlotList.map(\.mealRelation)
+        guard tokens.allSatisfy({ $0 != nil }), let first = tokens.first ?? nil else { return nil }
+        return tokens.allSatisfy({ $0 == first }) ? first : nil
     }
 
     /// 绑定模板时以模板时刻为准；否则用表单时段。
