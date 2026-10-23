@@ -2516,7 +2516,7 @@
 "healthHistory.vaccineHint" = "Records and age-based selection";
 "healthHistory.yearTitle" = "Year";
 "healthHistory.yearPlaceholder" = "Year";
-"healthHistory.yearUnit" = "";
+"healthHistory.yearUnit" = "yr";
 "healthHistory.yearUnknown" = "Unknown";
 "healthHistory.yearHint" = "Enter the year, or choose Unknown if you cannot recall it.";
 "healthHistory.yearFmt" = "%d";
