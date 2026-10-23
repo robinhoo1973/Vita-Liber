@@ -21,10 +21,14 @@ public actor HealthProblemStore {
         public var kind: String?
         public var bodyRegion: String?
         public var bodySite: String?
+        /// 发生/确诊年份（v41）。nil = 用户明确「不详」或旧数据未登记。
+        public var year: Int?
         public init(id: UUID, patientId: UUID, name: String, archived: Bool,
-                    kind: String? = nil, bodyRegion: String? = nil, bodySite: String? = nil) {
+                    kind: String? = nil, bodyRegion: String? = nil, bodySite: String? = nil,
+                    year: Int? = nil) {
             self.id = id; self.patientId = patientId; self.name = name; self.archived = archived
             self.kind = kind; self.bodyRegion = bodyRegion; self.bodySite = bodySite
+            self.year = year
         }
     }
 
@@ -42,7 +46,8 @@ public actor HealthProblemStore {
                     archived: (row["archived"] as Int) == 1,
                     kind: row["kind"] as String?,
                     bodyRegion: row["body_region"] as String?,
-                    bodySite: row["body_site"] as String?)
+                    bodySite: row["body_site"] as String?,
+                    year: row["year"] as Int?)
             }
         }
     }
@@ -59,9 +64,12 @@ public actor HealthProblemStore {
         public var kind: String?
         public var bodyRegion: String?
         public var bodySite: String?
-        public init(name: String, kind: String?, bodyRegion: String?, bodySite: String?) {
+        public var year: Int?
+        public init(name: String, kind: String?, bodyRegion: String?, bodySite: String?,
+                    year: Int? = nil) {
             self.name = name; self.kind = kind
             self.bodyRegion = bodyRegion; self.bodySite = bodySite
+            self.year = year
         }
     }
 
@@ -101,10 +109,10 @@ public actor HealthProblemStore {
                                now: Date, db: Database) throws {
         try db.execute(sql: """
             INSERT INTO health_problem
-              (id, patient_id, name, kind, archived, body_region, body_site, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)
+              (id, patient_id, name, kind, archived, body_region, body_site, year, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
             """, arguments: [id.uuidString, patientId.uuidString, problem.name, problem.kind,
-                             problem.bodyRegion, problem.bodySite,
+                             problem.bodyRegion, problem.bodySite, problem.year,
                              now.timeIntervalSince1970, now.timeIntervalSince1970])
     }
 

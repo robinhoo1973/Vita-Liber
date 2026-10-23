@@ -213,7 +213,7 @@
 "fr24.statusAckPending" = "等待回執";
 "fr24.statusAcked" = "已回執";
 "fr24.statusTimeout" = "逾時";
-"hub.healthRecords" = "健康履歷";
+"hub.healthRecords" = "醫療檔案";
 "hub.guidelines" = "參考範圍來源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授權（獨立開關，關掉即停）";
@@ -1186,7 +1186,7 @@
 "gradebadge.e" = "AI 解釋";
 "gradebadge.pending" = "待確認";
 "settings.gateGrace" = "安全";
-"settings.autoLock" = "退後台自動鎖定寬限";
+"settings.autoLock" = "自動鎖定";
 "settings.graceSecondsFmt" = "%d 秒";
 "ai.quickGlucose" = "最近血糖";
 "ai.quickNext" = "下次覆診";
@@ -1706,7 +1706,7 @@
 "home.capture.shoot" = "開始拍攝";
 "home.capture.saved" = "已存入資料庫";
 "doc.type.prescription" = "處方箋";
-"home.profileProgress" = "檔案完善進度";
+"home.profileProgress" = "檔案登記進度";
 "home.model.downloadTitle" = "正在下載語音模型";
 "home.model.downloadView" = "檢視下載";
 "home.model.downloadGroupFmt" = "%1$d 個下載任務";
@@ -1716,8 +1716,8 @@
 "home.model.downloadHide" = "隱藏";
 "home.model.downloadGroupExpandedValue" = "已展開";
 "home.model.downloadGroupCollapsedValue" = "已摺疊";
-"home.profileProgressFmt" = "已完善 %1$d/%2$d 項";
-"home.profileContinue" = "繼續完善";
+"home.profileProgressFmt" = "已登記 %1$d/%2$d 項";
+"home.profileContinue" = "繼續登記";
 "home.profileOpen" = "查看";
 "home.profileMissingFmt" = "缺：%1$@ · 補全後急救卡可用";
 "home.profileMissingMoreFmt" = "等 %1$d 項";
@@ -2514,6 +2514,12 @@
 "healthHistory.allergyHint" = "過敏原與反應";
 "healthHistory.medicationHint" = "正在服用的藥物";
 "healthHistory.vaccineHint" = "接種記錄與按年齡選擇";
+"healthHistory.yearTitle" = "發生年份";
+"healthHistory.yearPlaceholder" = "年份";
+"healthHistory.yearUnit" = "年";
+"healthHistory.yearUnknown" = "不詳";
+"healthHistory.yearHint" = "請填寫年份；確實記不清可選擇「不詳」。";
+"healthHistory.yearFmt" = "%d 年";
 "healthHistory.emergencyHint" = "急救卡與緊急聯絡人";
 "healthHistory.inventoryHint" = "家庭藥箱與庫存";
 "immunization.scheduleTitle" = "按年齡選疫苗";

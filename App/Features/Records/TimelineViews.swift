@@ -311,14 +311,8 @@ struct TimelineFullView: View {
                         }
                     }
                 }
-                // 评审修正 H15：走类型安全路由（注册表覆盖 SP-49）
-                NavigationLink(value: AppRoute.healthProblemList) {
-                    Text(L10n.timelineProblemsFilter)
-                        .font(.caption)
-                        .padding(.horizontal, 10)
-                        .frame(minHeight: 44)   // 审查修复：触点 ≥44pt
-                        .background(Capsule().fill(Color("bg-grouped", bundle: .main)))   // 语义令牌（token-only 纪律，不用系统调色板）
-                }
+                // 2026-10-23 业主：慢性病/手术史归「医疗档案」总览，
+                // 不再在健康档案信息流中展示（含筛选入口）。
                 // §5.35 时间轴成员切换（V3.72）：此前时间轴无成员切换入口
                 Menu {
                     ForEach(app.members) { m in
@@ -581,9 +575,15 @@ struct HealthProblemListView: View {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(problem.name).font(.subheadline)
-                                if let region = problem.bodyRegion,
-                                   let node = HealthHistoryCatalog.bodyRegions.first(where: { $0.id == region }) {
-                                    Text(node.name).font(.caption2).foregroundStyle(.secondary)
+                                let regionName = problem.bodyRegion.flatMap { region in
+                                    HealthHistoryCatalog.bodyRegions.first { $0.id == region }?.name
+                                }
+                                let details = [problem.year.map(L10n.healthHistoryYearFmt), regionName]
+                                    .compactMap { $0 }
+                                if !details.isEmpty {
+                                    Text(details.joined(separator: " · "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                             Spacer()

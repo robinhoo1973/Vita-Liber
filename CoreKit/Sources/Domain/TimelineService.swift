@@ -23,8 +23,11 @@ public enum TimelineEntryKind: String, Sendable, Equatable, Codable, CaseIterabl
         allCases.filter(\.appearsInRecordsArchive)
     }
 
-    /// 是否属健康档案（记录页）投影（当前唯一例外：设备汇入 `.healthData`）。
-    public var appearsInRecordsArchive: Bool { self != .healthData }
+    /// 是否属健康档案（记录页）投影。
+    /// 例外：设备汇入 `.healthData` 归「健康数据」Tab；慢性病/手术史
+    /// `.healthProblem` 归「医疗档案」总览，2026-10-23 业主裁定不进入
+    /// 健康档案信息流（填写内容与被索引的资料分栏展示）。
+    public var appearsInRecordsArchive: Bool { self != .healthData && self != .healthProblem }
 }
 
 public struct TimelineEntry: Sendable, Equatable, Identifiable {

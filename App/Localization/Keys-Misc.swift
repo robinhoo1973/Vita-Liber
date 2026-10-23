@@ -539,6 +539,11 @@ extension L10n {
     static var healthHistoryAllergyHint: String { t("healthHistory.allergyHint") }
     static var healthHistoryMedicationHint: String { t("healthHistory.medicationHint") }
     static var healthHistoryVaccineHint: String { t("healthHistory.vaccineHint") }
+    static var healthHistoryYearTitle: String { t("healthHistory.yearTitle") }
+    static var healthHistoryYearPlaceholder: String { t("healthHistory.yearPlaceholder") }
+    static var healthHistoryYearUnit: String { t("healthHistory.yearUnit") }
+    static var healthHistoryYearUnknown: String { t("healthHistory.yearUnknown") }
+    static var healthHistoryYearHint: String { t("healthHistory.yearHint") }
     static var healthHistoryEmergencyHint: String { t("healthHistory.emergencyHint") }
     static var healthHistoryInventoryHint: String { t("healthHistory.inventoryHint") }
     static var immunizationScheduleTitle: String { t("immunization.scheduleTitle") }

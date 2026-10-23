@@ -213,7 +213,7 @@
 "fr24.statusAckPending" = "Awaiting receipt";
 "fr24.statusAcked" = "Received";
 "fr24.statusTimeout" = "Timed out";
-"hub.healthRecords" = "Health history";
+"hub.healthRecords" = "Medical record";
 "hub.guidelines" = "Reference ranges";
 "hub.helpCardOpen" = "Help card";
 "settings.authTitle" = "Permissions (independent toggles)";
@@ -1186,7 +1186,7 @@
 "gradebadge.e" = "AI";
 "gradebadge.pending" = "Pending";
 "settings.gateGrace" = "Security";
-"settings.autoLock" = "Auto-lock grace after leaving app";
+"settings.autoLock" = "Auto-lock";
 "settings.graceSecondsFmt" = "%d seconds";
 "ai.quickGlucose" = "Recent glucose";
 "ai.quickNext" = "Next visit";
@@ -1716,7 +1716,7 @@
 "home.model.downloadHide" = "Hide";
 "home.model.downloadGroupExpandedValue" = "Expanded";
 "home.model.downloadGroupCollapsedValue" = "Collapsed";
-"home.profileProgressFmt" = "%1$d of %2$d items completed";
+"home.profileProgressFmt" = "%1$d of %2$d items registered";
 "home.profileContinue" = "Continue";
 "home.profileOpen" = "View";
 "home.profileMissingFmt" = "Missing: %1$@ · complete them to enable the emergency card";
@@ -2514,6 +2514,12 @@
 "healthHistory.allergyHint" = "Allergens and reactions";
 "healthHistory.medicationHint" = "Medicines you are taking";
 "healthHistory.vaccineHint" = "Records and age-based selection";
+"healthHistory.yearTitle" = "Year";
+"healthHistory.yearPlaceholder" = "Year";
+"healthHistory.yearUnit" = "";
+"healthHistory.yearUnknown" = "Unknown";
+"healthHistory.yearHint" = "Enter the year, or choose Unknown if you cannot recall it.";
+"healthHistory.yearFmt" = "%d";
 "healthHistory.emergencyHint" = "Emergency card and contacts";
 "healthHistory.inventoryHint" = "Home medicine cabinet";
 "immunization.scheduleTitle" = "Choose by age";

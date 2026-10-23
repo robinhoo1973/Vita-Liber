@@ -297,43 +297,53 @@ struct HomeView: View {
                         showMemberPicker = true
                     } label: {
                         HStack(spacing: 4) {
-                            Text(headerTitle).font(.headline)
+                            Text(headerTitle)
+                                .font(.headline)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
                             Image(systemName: "chevron.down").font(.caption2)
                         }
                     }
                     .accessibilityIdentifier("SP-04.home.memberSwitch")
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    // 2026-10-18 业主指令：OCR/ASR 图标旁新增 AI 聊天入口。
-                    // 定位=有据任务型助手（意图→补槽→确认→执行），非自由医疗问答。
-                    // B1 定标门：未通过脚本金样定标前入口不可见（FR17.4 不变量）。
-                    if FeatureFlags.voiceDeterministicEnabled {
-                        Button {
-                            showAssistantChat = true
-                        } label: {
-                            Image(systemName: "sparkles")
+                ToolbarItem(placement: .topBarTrailing) {
+                    // 2026-10-23 业主：三个首页工具统一为 32pt 着色圆 + 44pt
+                    // 命中区；SOS 是唯一实心项。原先裸 SF Symbol 在玻璃导航栏上
+                    // 大小/重量不一致，观感零散。
+                    HStack(spacing: 4) {
+                        // 2026-10-18 业主指令：AI 任务助手入口。
+                        // B1 定标门：未通过脚本金样定标前入口不可见（FR17.4 不变量）。
+                        if FeatureFlags.voiceDeterministicEnabled {
+                            HomeToolbarIconButton(
+                                systemImage: "sparkles",
+                                tint: Color("brand-primary", bundle: .main),
+                                label: L10n.homeAssistant,
+                                identifier: "SP-04.home.assistant"
+                            ) {
+                                showAssistantChat = true
+                            }
                         }
-                        .accessibilityLabel(L10n.homeAssistant)
-                        .accessibilityIdentifier("SP-04.home.assistant")
+                        // BR-012：SOS 不经过安全门。
+                        HomeToolbarIconButton(
+                            systemImage: "sos",
+                            tint: Color("semantic-danger", bundle: .main),
+                            emphasis: .filled,
+                            label: L10n.sosHelpTitle,
+                            identifier: "SP-04.home.sos"
+                        ) {
+                            showSOS = true
+                        }
+                        // FR14.8 通知中心（角标不显示病名药名，§5 通知隐私）
+                        HomeToolbarIconButton(
+                            systemImage: "bell.fill",
+                            tint: Color("text-primary", bundle: .main),
+                            badgeCount: reminderStore.pendingCount,
+                            label: L10n.notificationCenterTitle,
+                            identifier: "SP-04.home.bell"
+                        ) {
+                            router.navigate(to: .notificationCenter)
+                        }
                     }
-                    // 2026-10-23 业主：主页撤下语音与拍摄入口，改为常驻 SOS。
-                    // 采集仍可从资料页「拍照导入」与首页未完成导入的续传卡进入。
-                    // BR-012：SOS 不经过安全门。
-                    Button {
-                        showSOS = true
-                    } label: {
-                        Image(systemName: "sos")
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                    }
-                    .accessibilityLabel(L10n.sosHelpTitle)
-                    .accessibilityIdentifier("SP-04.home.sos")
-                    // FR14.8 通知中心铃铛（未读角标不显示病名药名，§5 通知隐私）
-                    NavigationLink(value: AppRoute.notificationCenter) {
-                        Image(systemName: "bell")
-                    }
-                    .accessibilityLabel(L10n.notificationCenterTitle)
-                    .accessibilityIdentifier("SP-04.home.bell")
-                    .badge(reminderStore.pendingCount > 0 ? reminderStore.pendingCount : 0)
                 }
             }
             .sheet(isPresented: $showMemberPicker) {

@@ -213,7 +213,7 @@
 "fr24.statusAckPending" = "等待回执";
 "fr24.statusAcked" = "已回执";
 "fr24.statusTimeout" = "超时";
-"hub.healthRecords" = "健康履历";
+"hub.healthRecords" = "医疗档案";
 "hub.guidelines" = "参考范围来源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授权（独立开关，关掉即停）";
@@ -1186,7 +1186,7 @@
 "gradebadge.e" = "AI 解释";
 "gradebadge.pending" = "待确认";
 "settings.gateGrace" = "安全";
-"settings.autoLock" = "退后台自动锁定宽限";
+"settings.autoLock" = "自动锁定";
 "settings.graceSecondsFmt" = "%d 秒";
 "ai.quickGlucose" = "最近血糖";
 "ai.quickNext" = "下次复诊";
@@ -1706,7 +1706,7 @@
 "home.capture.shoot" = "开始拍摄";
 "home.capture.saved" = "已存入资料库";
 "doc.type.prescription" = "处方单";
-"home.profileProgress" = "档案完善进度";
+"home.profileProgress" = "档案登记进度";
 "home.model.downloadTitle" = "正在下载语音模型";
 "home.model.downloadView" = "查看下载";
 "home.model.downloadGroupFmt" = "%1$d 个下载任务";
@@ -1716,8 +1716,8 @@
 "home.model.downloadHide" = "隐藏";
 "home.model.downloadGroupExpandedValue" = "已展开";
 "home.model.downloadGroupCollapsedValue" = "已折叠";
-"home.profileProgressFmt" = "已完善 %1$d/%2$d 项";
-"home.profileContinue" = "继续完善";
+"home.profileProgressFmt" = "已登记 %1$d/%2$d 项";
+"home.profileContinue" = "继续登记";
 "home.profileOpen" = "查看";
 "home.profileMissingFmt" = "缺：%1$@ · 补全后急救卡可用";
 "home.profileMissingMoreFmt" = "等 %1$d 项";
@@ -2514,6 +2514,12 @@
 "healthHistory.allergyHint" = "过敏原与反应";
 "healthHistory.medicationHint" = "正在服用的药物";
 "healthHistory.vaccineHint" = "接种记录与按年龄选择";
+"healthHistory.yearTitle" = "发生年份";
+"healthHistory.yearPlaceholder" = "年份";
+"healthHistory.yearUnit" = "年";
+"healthHistory.yearUnknown" = "不详";
+"healthHistory.yearHint" = "请填写年份；确实记不清可选择「不详」。";
+"healthHistory.yearFmt" = "%d 年";
 "healthHistory.emergencyHint" = "急救卡与紧急联系人";
 "healthHistory.inventoryHint" = "家庭药箱与库存";
 "immunization.scheduleTitle" = "按年龄选疫苗";

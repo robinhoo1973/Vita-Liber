@@ -19,6 +19,11 @@ struct ProblemCreateSheet: View {
     @State private var regionID: String?
     @State private var organID: String?
     @State private var selectedItems: [String: CatalogItem] = [:]
+    /// 每条目的发生年份（item.id → 四位数字字符串）；「不详」独立标记。
+    @State private var yearByItem: [String: String] = [:]
+    @State private var unknownYearItems: Set<String> = []
+    @State private var freeYear = ""
+    @State private var freeYearUnknown = false
     @State private var saveFailed = false
     /// 保存中重入守卫：连点 [保存] 会并发两次 createProblems，写入重复病名行
     @State private var isSaving = false
@@ -91,8 +96,26 @@ struct ProblemCreateSheet: View {
         selectedItems.values.sorted { $0.name < $1.name }
     }
 
-    private var hasDraft: Bool {
-        !selectedList.isEmpty || !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private var hasDraft: Bool { !selectedList.isEmpty || !freeName.isEmpty }
+
+    private var freeName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func parsedYear(_ raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 4, let year = Int(trimmed),
+              year >= 1900, year <= Calendar.current.component(.year, from: Date()) else { return nil }
+        return year
+    }
+
+    /// 每条已选条目与自由文本都必须有年份或显式「不详」才可保存。
+    private var allYearsComplete: Bool {
+        let selectedComplete = selectedList.allSatisfy {
+            unknownYearItems.contains($0.id) || parsedYear(yearByItem[$0.id] ?? "") != nil
+        }
+        let freeComplete = freeName.isEmpty || freeYearUnknown || parsedYear(freeYear) != nil
+        return selectedComplete && freeComplete
     }
 
     var body: some View {
@@ -114,6 +137,10 @@ struct ProblemCreateSheet: View {
                 // 另一 kind 落库（列表按 kind 过滤后「消失」）
                 .onChangeCompat(of: kind) { _, _ in
                     selectedItems.removeAll()
+                    yearByItem.removeAll()
+                    unknownYearItems.removeAll()
+                    freeYear = ""
+                    freeYearUnknown = false
                     name = ""
                     query = ""
                 }
@@ -261,6 +288,7 @@ struct ProblemCreateSheet: View {
 
                     if !selectedList.isEmpty {
                         selectedSummary
+                        yearSection
                     }
                     // 常见项各自带部位；只有自由文本才使用当前人体图选择。
                     // 避免「选了胸部 + 勾了全身性高血压」时卡片把整批写成胸部。
@@ -287,6 +315,17 @@ struct ProblemCreateSheet: View {
                         )
                         .accessibilityIdentifier("SP-49.problem.name")
 
+                    if !freeName.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionLabel(L10n.healthHistoryYearTitle)
+                            yearRow(title: freeName, id: "free", text: freeYearBinding,
+                                    unknown: $freeYearUnknown)
+                            Text(L10n.healthHistoryYearHint)
+                                .font(.caption)
+                                .foregroundStyle(Color("text-secondary", bundle: .main))
+                        }
+                    }
+
                     Label(L10n.healthHistoryConfirmedSource, systemImage: "checkmark.seal")
                         .font(.caption)
                         .foregroundStyle(Color("text-secondary", bundle: .main))
@@ -295,7 +334,7 @@ struct ProblemCreateSheet: View {
                 .padding(.vertical, 16)
             }
             bottomCTA(title: L10n.reminder_save,
-                      disabled: !hasDraft) {
+                      disabled: !hasDraft || !allYearsComplete) {
                 save()
             }
         }
@@ -330,6 +369,107 @@ struct ProblemCreateSheet: View {
                 .accessibilityIdentifier("SP-49.problem.selected.\(item.id)")
             }
         }
+    }
+
+    private var yearSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionLabel(L10n.healthHistoryYearTitle)
+            ForEach(selectedList) { item in
+                yearRow(title: item.name, id: item.id,
+                        text: yearBinding(for: item.id),
+                        unknown: unknownBinding(for: item.id))
+            }
+            Text(L10n.healthHistoryYearHint)
+                .font(.caption)
+                .foregroundStyle(Color("text-secondary", bundle: .main))
+        }
+    }
+
+    /// 年份行：四位数字输入 + 「不详」。未知是显式选择，不以空值冒充。
+    private func yearRow(title: String, id: String, text: Binding<String>,
+                         unknown: Binding<Bool>) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if unknown.wrappedValue {
+                Text(L10n.healthHistoryYearUnknown)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+            } else {
+                TextField(L10n.healthHistoryYearPlaceholder, text: text)
+                    .keyboardType(.numberPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 64)
+                    .accessibilityLabel(L10n.healthHistoryYearPlaceholder)
+                    .accessibilityIdentifier("SP-49.problem.year.\(id)")
+                if !L10n.healthHistoryYearUnit.isEmpty {
+                    Text(L10n.healthHistoryYearUnit)
+                        .font(.subheadline)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                }
+            }
+            Button {
+                unknown.wrappedValue.toggle()
+                if unknown.wrappedValue { text.wrappedValue = "" }
+            } label: {
+                Text(L10n.healthHistoryYearUnknown)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .frame(minHeight: 44)
+                    .foregroundStyle(unknown.wrappedValue
+                                     ? Color("brand-primary", bundle: .main)
+                                     : Color("text-secondary", bundle: .main))
+                    .background(unknown.wrappedValue
+                                ? Color("brand-primary", bundle: .main).opacity(0.14)
+                                : Color("bg-grouped", bundle: .main),
+                                in: Capsule())
+                    .overlay(Capsule().stroke(
+                        unknown.wrappedValue
+                        ? Color("brand-primary", bundle: .main).opacity(0.55)
+                        : Color("text-primary", bundle: .main).opacity(0.08), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(unknown.wrappedValue ? .isSelected : [])
+            .accessibilityIdentifier("SP-49.problem.yearUnknown.\(id)")
+        }
+        .padding(.horizontal, 16)
+        .frame(minHeight: 56)
+        .background(Color("bg-grouped", bundle: .main),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color("text-primary", bundle: .main).opacity(0.06), lineWidth: 1)
+        )
+    }
+
+    private func yearBinding(for id: String) -> Binding<String> {
+        Binding(
+            get: { yearByItem[id] ?? "" },
+            set: { yearByItem[id] = String($0.filter { $0.isNumber }.prefix(4)) }
+        )
+    }
+
+    private func unknownBinding(for id: String) -> Binding<Bool> {
+        Binding(
+            get: { unknownYearItems.contains(id) },
+            set: { unknown in
+                if unknown {
+                    unknownYearItems.insert(id)
+                    yearByItem[id] = ""
+                } else {
+                    unknownYearItems.remove(id)
+                }
+            }
+        )
+    }
+
+    private var freeYearBinding: Binding<String> {
+        Binding(
+            get: { freeYear },
+            set: { freeYear = String($0.filter { $0.isNumber }.prefix(4)) }
+        )
     }
 
     private var selectedLocationCard: some View {
@@ -479,6 +619,8 @@ struct ProblemCreateSheet: View {
     private func chooseItem(_ item: CatalogItem) {
         if selectedItems[item.id] != nil {
             selectedItems.removeValue(forKey: item.id)
+            yearByItem.removeValue(forKey: item.id)
+            unknownYearItems.remove(item.id)
         } else {
             selectedItems[item.id] = item
         }
@@ -500,7 +642,8 @@ struct ProblemCreateSheet: View {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var problems = selectedList.map {
             HealthProblemStore.NewProblem(name: $0.name, kind: kind,
-                                          bodyRegion: $0.region, bodySite: $0.organ)
+                                          bodyRegion: $0.region, bodySite: $0.organ,
+                                          year: parsedYear(yearByItem[$0.id] ?? ""))
         }
         // 去重折叠与「资料建议接受流」同一条 Domain 规则（大小写/空白归一），
         // 否则手填「高血压」与常见项「高血压」大小写不同会写成两行
@@ -510,7 +653,8 @@ struct ProblemCreateSheet: View {
                ProfileSuggestionExtractor.fold($0.name, kind: .chronicCondition) == folded
            }) {
             problems.append(.init(name: trimmed, kind: kind,
-                                  bodyRegion: regionID, bodySite: organID))
+                                  bodyRegion: regionID, bodySite: organID,
+                                  year: freeYearUnknown ? nil : parsedYear(freeYear)))
         }
         guard !problems.isEmpty else { return }
         isSaving = true

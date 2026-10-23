@@ -1004,6 +1004,10 @@ public enum SchemaMigrations {
         // 代码迁移（GRDBStore.dropLegacyProfileColumns）：列存在才 DROP，兼容
         // 老库/合成夹具缺列；sql 置空仅作占位。破坏性：历史值随列删除。
         Step(version: 40, name: "drop-id-insurance", sql: ""),
+        // v41：手术/慢性病登记年份（2026-10-23 业主）。旧行 NULL = 年份未登记。
+        Step(version: 41, name: "health-history-year", sql: """
+        ALTER TABLE health_problem ADD COLUMN year INTEGER;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

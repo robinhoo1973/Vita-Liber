@@ -81,6 +81,18 @@ struct SettingsView: View {
                         Text(L10n.settings_careMode)
                     }
                     .accessibilityIdentifier("SP-25.setting.careModeEnable")
+                    // 2026-10-23 业主：原「安全」组改名「自动锁定」并并入本组。
+                    Picker(selection: Binding(
+                        get: { SettingsRules.resolved(settings.values[.gateGraceSeconds], key: .gateGraceSeconds) },
+                        set: { v in Task { await settings.set(v, for: .gateGraceSeconds) } }
+                    )) {
+                        ForEach(SettingsRules.gateGraceSecondsLegalValues.map(Int.init), id: \.self) { value in
+                            Text(L10n.settings_graceSeconds(value)).tag("\(value)")
+                        }
+                    } label: {
+                        Text(L10n.settings_autoLock)
+                    }
+                    .accessibilityIdentifier("SP-25.setting.gateGraceSeconds")
                     // FR14.5 显示语言（§5.12.2）+ FR17.15/16 语音语言（§5.12.3）
                     NavigationLink {
                         LanguageSettingsView()
@@ -103,22 +115,6 @@ struct SettingsView: View {
                     // 关怀模式强制叠加高对比度的「明示当前生效层」注记随迁此处（原页 footer）。
                     Text(app.careMode ? L10n.settings_highContrastForced
                                       : L10n.settings_highContrastFooter)
-                }
-                // §5.12 安全（自动锁定）组（FR1.4 宽限 5/15/60 秒；选项由
-                // Domain 合法集单一事实源生成——业主 2026-09-19：最低宽限 5 秒，
-                // 0 档（立即锁）与系统认证浮层的 transient inactive 叠加形成
-                // 人脸识别循环，退出合法域）
-                Section(L10n.settings_gateGrace) {
-                    Picker(selection: Binding(
-                        get: { SettingsRules.resolved(settings.values[.gateGraceSeconds], key: .gateGraceSeconds) },
-                        set: { v in Task { await settings.set(v, for: .gateGraceSeconds) } }
-                    )) {
-                        ForEach(SettingsRules.gateGraceSecondsLegalValues.map(Int.init), id: \.self) { value in
-                            Text(L10n.settings_graceSeconds(value)).tag("\(value)")
-                        }
-                    } label: {
-                        Text(L10n.settings_autoLock)
-                    }
                 }
                 // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
                 // 首页铃铛是唯一路径；提醒触达设置页亦缺失）

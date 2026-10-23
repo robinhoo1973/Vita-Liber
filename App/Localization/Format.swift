@@ -220,6 +220,10 @@ extension L10n {
 
     static func homePendingOcrCount(_ n: Int) -> String { String(format: t("home.pendingOcrCountFmt"), n) }
 
+    static func healthHistoryYearFmt(_ year: Int) -> String {
+        String(format: t("healthHistory.yearFmt"), year)
+    }
+
     static func homeProfileProgressFmt(_ done: Int, _ total: Int) -> String {
         String(format: t("home.profileProgressFmt"), done, total)   // 位置参数 %1$d / %2$d
     }

@@ -101,14 +101,6 @@ public actor TimelineQueryStore {
                       AND (occurred_at < ? OR (occurred_at = ? AND id < ?))
                     """)
             }
-            if kinds.contains(.healthProblem) {
-                branch(sql: """
-                    SELECT id AS id, created_at AS d, name AS title, NULL AS summary, 'C' AS grade, 'healthProblem' AS kind, NULL AS metric_key
-                    FROM health_problem
-                    WHERE patient_id = ? AND archived = 0
-                      AND (created_at < ? OR (created_at = ? AND id < ?))
-                    """)
-            }
             // 资料（F5 文档）：唯一携带真实来源徽章的分支——机器识别未确认 = 'D'
             if kinds.contains(.document) {
                 branch(sql: """

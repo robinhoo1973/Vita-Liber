@@ -14,8 +14,8 @@ final class HealthProblemStoreTests: XCTestCase {
         let store = HealthProblemStore(writer: dbStore.writer)
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let ids = try await store.createMany(patientId: patient, problems: [
-            .init(name: "高血压", kind: "chronic", bodyRegion: "systemic", bodySite: nil),
-            .init(name: "阑尾切除术", kind: "surgery", bodyRegion: "abdomen", bodySite: "intestine"),
+            .init(name: "高血压", kind: "chronic", bodyRegion: "systemic", bodySite: nil, year: 2018),
+            .init(name: "阑尾切除术", kind: "surgery", bodyRegion: "abdomen", bodySite: "intestine", year: 2012),
         ], now: now)
         XCTAssertEqual(ids.count, 2)
         XCTAssertEqual(Set(ids).count, 2, "每条记录独立 id")
@@ -26,6 +26,8 @@ final class HealthProblemStoreTests: XCTestCase {
         XCTAssertEqual(surgery.kind, "surgery")
         XCTAssertEqual(surgery.bodyRegion, "abdomen")
         XCTAssertEqual(surgery.bodySite, "intestine")
+        XCTAssertEqual(surgery.year, 2012)
+        XCTAssertEqual(rows.first { $0.name == "高血压" }?.year, 2018)
 
         // 同批共享同一个 now（列表按 created_at 排序的前提）
         let stamps = try await dbStore.writer.read { db in
