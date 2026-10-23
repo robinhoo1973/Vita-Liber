@@ -42,6 +42,15 @@ struct DoseTimeSlotTests {
         #expect(invalid.isEmpty)
     }
 
+    @Test("同一分钟的不同写法视为同一时刻（08:30 与 8:30）")
+    func dedupeUsesMinutesNotRawStrings() {
+        let times = DoseTimeSlotRules.times([.beforeBreakfast, .beforeLunch],
+                                            overrides: [.beforeBreakfast: "8:30",
+                                                        .beforeLunch: "08:30"])
+        #expect(times.count == 1)
+        #expect(DoseTimeSlotRules.minutes(times[0]) == 8 * 60 + 30)
+    }
+
     @Test("DatePicker 互转：合法时刻往返、非法时刻不猜")
     func dateRoundTrip() throws {
         let calendar = Calendar(identifier: .gregorian)

@@ -1032,7 +1032,7 @@
 "problem.title" = "健康問題";
 "problem.empty" = "還沒有健康問題";
 "problem.emptyHint" = "健康問題由就診、觀察和資料自動歸類，也可手動建立";
-"problem.emptyArchivedHint" = "有已封存的健康問題，開啟「顯示已封存」可查看或還原";
+"problem.emptyArchivedHint" = "有已歸檔的健康問題，開啟「顯示已歸檔」可查看或恢復";
 "problem.createTitle" = "新增健康問題";
 "problem.saveFailedHint" = "操作失敗，請重試";
 "problem.namePlaceholder" = "問題名稱（如：高血壓）";

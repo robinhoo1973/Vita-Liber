@@ -636,8 +636,11 @@ struct HealthProblemListView: View {
                 if visibleProblems.isEmpty {
                     // 归档行始终在数据源里（load 用 includeArchived: true）；若只是
                     // 被「显示已归档」开关或类型筛选挡住，空态不能谎称「还没有健康问题」
-                    // （审查修正）。有归档行时给可操作的提示。
-                    let hasArchived = state.problems.contains { $0.archived }
+                    // （审查修正）。有归档行时给可操作的提示；归档行须与当前类型筛选
+                    // 同口径——否则打开开关仍看不到任何行，提示指向无效操作。
+                    let hasArchived = state.problems.contains {
+                        $0.archived && (kindFilter == "all" || ($0.kind ?? "chronic") == kindFilter)
+                    }
                     VLUnavailableView(L10n.problemEmpty, systemImage: "cross.case",
                                            description: Text(hasArchived && !showArchived
                                                              ? L10n.problemEmptyArchivedHint
@@ -674,7 +677,9 @@ struct HealthProblemListView: View {
                                     Label(problem.archived ? L10n.problemUnarchive : L10n.problemArchive,
                                           systemImage: problem.archived ? "tray.and.arrow.up" : "archivebox")
                                 }
-                                .tint(.orange)
+                                // ui-ux §3.1 / V4.29 D-3：主行动（编辑）用品牌色，
+                                // 其余动作中性（`.orange/.indigo` 字面量已退役）。
+                                .tint(Color("text-secondary", bundle: .main))
                                 // 已归档条目不能作为合并起点：Store.merge 两侧都要求
                                 // archived = 0，点了只会 notFound（审查修正）。
                                 if !problem.archived {
@@ -684,7 +689,7 @@ struct HealthProblemListView: View {
                                     } label: {
                                         Label(L10n.problemMerge, systemImage: "arrow.triangle.merge")
                                     }
-                                    .tint(.indigo)
+                                    .tint(Color("text-secondary", bundle: .main))
                                 }
                             }
                     }

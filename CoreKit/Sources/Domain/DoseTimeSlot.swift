@@ -50,16 +50,17 @@ public enum DoseTimeSlot: String, CaseIterable, Sendable, Codable, Hashable {
 /// 时段 → 时刻序列（纯函数，Linux 可单测）：
 /// - 用户覆盖时刻优先于默认时刻；
 /// - 非法时刻丢弃（绝不静默落成 08:00——与 fixed 保存闸门同纪律）；
-/// - 同一时刻去重（同义时段不生成重复剂量）；
+/// - 同一时刻去重（同义时段不生成重复剂量）；按**分钟**比较，
+///   "08:30" 与 "8:30" 视为同一时刻（与表单重复闸门口径一致）；
 /// - 结果按分钟升序（调度引擎与冲突提示均期望有序输入）。
 public enum DoseTimeSlotRules {
     public static func times(_ slots: [DoseTimeSlot],
                              overrides: [DoseTimeSlot: String] = [:]) -> [String] {
-        var seen = Set<String>()
+        var seen = Set<Int>()
         return slots
             .map { overrides[$0] ?? $0.defaultTime }
             .filter { DoseScheduleEngine.isValidTime($0) }
-            .filter { seen.insert($0).inserted }
+            .filter { seen.insert(minutes($0)).inserted }
             .sorted { minutes($0) < minutes($1) }
     }
 

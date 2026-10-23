@@ -601,11 +601,13 @@ struct MedicationPlanFormView: View {
     }
 
     /// 最终提醒时刻：时段 + 自定义，去重、丢弃非法项、按分钟升序。
+    /// 时段侧已由 Domain `DoseTimeSlotRules.times` 完成覆盖/过滤/去重/排序；
+    /// 此处只为并入自定义时刻再按分钟去重一次（去重口径与重复闸门一致）。
     private var allTimes: [String] {
-        var seen = Set<String>()
+        var seen = Set<Int>()
         return (slotTimes + customTimeList)
             .filter { DoseScheduleEngine.isValidTime($0) }
-            .filter { seen.insert($0).inserted }
+            .filter { seen.insert(DoseTimeSlotRules.minutes($0)).inserted }
             .sorted { DoseTimeSlotRules.minutes($0) < DoseTimeSlotRules.minutes($1) }
     }
 
@@ -636,8 +638,10 @@ struct MedicationPlanFormView: View {
         guard !isAsNeeded else { return false }
         // 按分钟比较：`isValidTime` 接受 "8:30"，若按原始字符串去重，
         // "08:30" 与 "8:30" 会各排一剂（同一分钟两次提醒，审查修正）。
+        // 非法自定义时刻返回 nil 被剔除——它们由 `invalidCustomTime` 单独报错，
+        // 不能在这里塌缩成 0 分而误报「重复时刻」（审查修正）。
         let minutes = (selectedSlotList.map { slotTimeTexts[$0] ?? $0.defaultTime } + customTimeList)
-            .compactMap { DoseTimeSlotRules.minutes($0) }
+            .compactMap { DoseScheduleEngine.minutes($0) }
         return Set(minutes).count != minutes.count
     }
 
@@ -744,8 +748,11 @@ struct MedicationPlanFormView: View {
                     }
                 }
                 .navigationTitle(L10n.planFormTitle)
-                // FR9.19（V4.04）的频率推荐表已由时段默认时刻承接：时段默认值
-                // 与 DoseScheduleAdvisor 的清醒窗铺开一致，且不再覆盖用户手改。
+                // FR9.19（V4.48）：计划表单改由固定时段承载提醒时刻，默认时刻取
+                // 医院常用锚点（与 `DoseScheduleEngine.mealDefaultTime` 同源），
+                // 不再按频率预填、也不覆盖用户手改。`DoseScheduleAdvisor` 的推荐表
+                // 仍按其登记裁决保留给其他入口——其 08:00/20:00 等铺开值与时段默认
+                // 并不相同，两者不得互相冒充（审查修正：原注释称「一致」不实）。
                 .saveFailedAlert(title: L10n.planFormSaveFailed,
                                  hint: L10n.planFormSaveFailedHint,
                                  isPresented: $saveFailed)
