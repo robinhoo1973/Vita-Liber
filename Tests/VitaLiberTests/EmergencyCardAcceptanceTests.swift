@@ -18,9 +18,9 @@ final class M2EmergCardAcceptanceTests: XCTestCase {
         return (store, EmergencyCardStore(writer: store.writer), patient)
     }
 
-    /// FR15.1 核心语义：**数据存在 ≠ 入卡**。只有用户逐项选择的条目才入卡。
+    /// 2026-10-24 业主语义（v44）：档案已确认条目默认入卡，显式退选才排除。
     /// 原名：test_未选择不入卡_选择后才入卡
-    func test_unselectedExcluded_selectedIncluded() async throws {
+    func test_defaultIncluded_deselectExcluded() async throws {
         let (store, cards, patient) = try await makeStore()
         let allergyId = UUID()
         try await store.writer.write { db in
@@ -31,22 +31,49 @@ final class M2EmergCardAcceptanceTests: XCTestCase {
                 """, arguments: [allergyId.uuidString, patient.uuidString])
         }
         var card = try await cards.selected(patientId: patient)
-        XCTAssertTrue(card.allergies.isEmpty,
-                      "FR15.1：未逐项选择的过敏不得入卡（数据存在≠同意入卡）")
-
-        try await cards.select(patientId: patient, itemId: allergyId, kind: "allergy")
-        card = try await cards.selected(patientId: patient)
-        XCTAssertEqual(card.allergies.count, 1)
+        XCTAssertEqual(card.allergies.count, 1,
+                       "档案已有过敏必须默认出现在急救卡（v44 业主裁决）")
         XCTAssertEqual(card.allergies[0].title, "青霉素")
 
-        // 退选 = 删选择行，原始数据不动
+        // 显式退选只记 deselected=1，原始数据不动
         try await cards.deselect(patientId: patient, itemId: allergyId)
         card = try await cards.selected(patientId: patient)
         XCTAssertTrue(card.allergies.isEmpty)
         let rawCount = try await store.writer.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM allergy_event") ?? 0
         }
-        XCTAssertEqual(rawCount, 1, "退选只删选择，不删数据源")
+        XCTAssertEqual(rawCount, 1, "退选只改选择记录，不删数据源")
+
+        // 重新纳入恢复入卡
+        try await cards.select(patientId: patient, itemId: allergyId, kind: "allergy")
+        card = try await cards.selected(patientId: patient)
+        XCTAssertEqual(card.allergies.count, 1)
+    }
+
+    /// 业主 2026-10-24：慢性病/手术史与紧急联系人同样默认入卡。
+    func test_healthProblemsAndEmergencyContactsIncludedByDefault() async throws {
+        let (store, cards, patient) = try await makeStore()
+        try await store.writer.write { db in
+            try db.execute(sql: """
+                INSERT INTO health_problem
+                  (id, patient_id, name, kind, archived, created_at, updated_at)
+                VALUES (?, ?, '高血压', 'chronic', 0, 0, 0)
+                """, arguments: [UUID().uuidString, patient.uuidString])
+            try db.execute(sql: """
+                INSERT INTO health_problem
+                  (id, patient_id, name, kind, archived, created_at, updated_at)
+                VALUES (?, ?, '胆囊切除术', 'surgery', 0, 0, 0)
+                """, arguments: [UUID().uuidString, patient.uuidString])
+            try db.execute(sql: """
+                INSERT INTO contact
+                  (id, patient_id, name, relation, phone, is_emergency, created_at, updated_at)
+                VALUES (?, ?, '李四', '配偶', '13800000000', 1, 0, 0)
+                """, arguments: [UUID().uuidString, patient.uuidString])
+        }
+        let card = try await cards.selected(patientId: patient)
+        XCTAssertEqual(Set(card.healthProblems.map(\.title)), ["高血压", "胆囊切除术"])
+        XCTAssertEqual(card.contacts.count, 1)
+        XCTAssertEqual(card.contacts[0].title, "李四")
     }
 
     /// BR-003：聚合入口的 confirmed=false 项一律不入卡（Domain 判据半场）

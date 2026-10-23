@@ -9,13 +9,9 @@ struct RemindersView: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminders
     @State private var showNewAppointment = false
-    @State private var showNewPlan = false
     /// 审查修复（响亮失败纪律）：预约创建失败可见告警——此前 createAppointment
     /// 吞错、sheet 无条件关闭，创建失败呈现为成功（预约与分级提醒实际不存在）
     @State private var appointmentSaveFailed = false
-    /// 审查修复（计划创建静默吞错）：创建失败保留 sheet 并弹可见告警——
-    /// 原实现空 catch 后无条件关闭 sheet：用户以为计划已建，实际零落库。
-    @State private var planSaveFailed = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -63,10 +59,12 @@ struct RemindersView: View {
                         Label(L10n.planListTitle, systemImage: "list.bullet.clipboard")
                     }
                     .accessibilityIdentifier("SP-15.plan.list")
-                    Button {
-                        showNewPlan = true
+                    // 2026-10-24 业主：不再有独立的「添加用药计划」表单；
+                    // 「新建用药计划」页（时段模板）取代之。
+                    NavigationLink {
+                        MedicationScheduleFormRouteView(templateId: nil)
                     } label: {
-                        Label(L10n.reminder_addPlan, systemImage: "plus")
+                        Label(L10n.reminder_planNew, systemImage: "plus")
                     }
                     .accessibilityIdentifier("SP-09.plan.add")
                 }
@@ -158,48 +156,6 @@ struct RemindersView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showNewPlan) {
-                NewPlanSheet { name, spec, timeText, kind, units, template in
-                    Task {
-                        do {
-                            let medId = try await reminders.createMedication(
-                                patientId: currentPatientId, name: name, spec: spec, unitKind: "tablet")
-                            // 第六轮全仓审查修复：调度类型此前只换提示文案、实际
-                            // 恒建 fixed——选「间隔」输入 480 会把 "480" 当 HH:mm
-                            // 时刻解析失败（计划零剂量），选「餐锚/按需」同样静默
-                            // 丢弃。kind → 真实调度映射收敛 NewPlanScheduleMapper
-                            // （与 NewPlanSheet.canSave 同一闸门，规则一处维护）。
-                            // v42：固定时刻取所选用药计划的时段（计划与药品解耦）；
-                            // 其余类型（间隔/餐锚/按需）仍按映射器解析。
-                            let schedule: MedicationSchedule
-                            if kind == "fixed" {
-                                guard let template else { return }
-                                let times = MedicationScheduleTemplateRules.normalize(template.times)
-                                guard !times.isEmpty else { return }
-                                schedule = .fixed(times: times)
-                            } else {
-                                guard let mapped = NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) else { return }
-                                schedule = mapped
-                            }
-                            try await reminders.createPlan(
-                                patientId: currentPatientId, medicationId: medId, name: name, spec: spec,
-                                schedule: schedule,
-                                startDate: Calendar.current.startOfDay(for: Date()),
-                                doseUnits: units,   // D1：每剂剂量落 dose_plan_units，不得丢弃
-                                scheduleId: kind == "fixed" ? template?.id : nil)
-                            // 创建成功才关闭 sheet；失败保留表单（用户已填内容不丢）
-                            showNewPlan = false
-                        } catch {
-                            // 审查修复（响亮失败纪律）：保留 sheet + 可见告警——
-                            // 原实现空吞错误并关闭 sheet，用户以为计划已建。
-                            planSaveFailed = true
-                        }
-                    }
-                }
-            }
-            .alert(L10n.reminder_planSaveFailed, isPresented: $planSaveFailed) {
-                Button(L10n.commonConfirm, role: .cancel) { }
-            }
             .alert(L10n.reminder_apptSaveFailed, isPresented: $appointmentSaveFailed) {
                 Button(L10n.commonConfirm, role: .cancel) { }
             }
@@ -227,153 +183,6 @@ struct RemindersView: View {
     }
 }
 
-/// FR9.4 表单 → MedicationSchedule 映射（纯函数）：fixed/interval/meal/asNeeded。
-/// 可保存判定（canSave）与提交映射（RemindersView 创建闭包）共用同一闸门——
-/// 两处同款校验此前各写一份，interval 下限/餐锚解析/fixed 时刻任一规则漏改即漂移。
-/// 返回 nil = 非法输入（调用方保留表单；表单侧另以同名判定禁用保存按钮）。
-enum NewPlanScheduleMapper {
-    static func schedule(kind: String, timeText: String) -> MedicationSchedule? {
-        switch kind {
-        case "interval":
-            // 第七轮修复：间隔设下限 60 分钟（<60 分钟的 8 天预排窗口物化过万
-            // dose_log 行，且远超 iOS 64 pending 上限——更细频次应走固定时刻）
-            guard let minutes = Int(timeText), minutes >= 60 else { return nil }
-            return .interval(everyMinutes: minutes, start: "00:00")
-        case "meal":
-            // 第七轮修复：餐锚经 MealAnchorRules 中文词表解析（原样传中文 token
-            // 全部落到 mealDefaultTime 的 default 08:00）；全未知 token 拒绝保存
-            let relations = DoseScheduleEngine.MealAnchorRules.parse(timeText)
-            guard !relations.isEmpty else { return nil }
-            return .meal(relations: relations)
-        case "asNeeded":
-            return .asNeeded
-        default:
-            // 审查修复（fixed 零剂量纵深防御）：闸门与引擎共用 Domain
-            // isValidTime 单一事实源，不可解析时刻绝不落库
-            guard DoseScheduleEngine.isValidTime(timeText) else { return nil }
-            return .fixed(times: [timeText])
-        }
-    }
-}
-
-/// 用药计划创建（评审修正 P0：提醒链用户起点——处方→计划 UI 此前缺失）
-struct NewPlanSheet: View {
-    /// v42（2026-10-23 业主裁决）：用药提醒 = 把药品绑定到「用药计划」（时段模板）。
-    /// 固定时刻分支必须选择一个已存在的计划；计划本身不含药品。
-    let onCreate: (String, String, String, String, Double, MedicationScheduleStore.TemplateRow?) -> Void
-    @Environment(AppState.self) private var app
-    @Environment(\.medicationScheduleStore) private var schedules
-    @State private var name = ""
-    @State private var spec = ""
-    @State private var timeText = DoseTimeSlot.beforeBreakfast.defaultTime
-    @State private var units = 1.0
-    /// FR9.4 调度类型（V3.72）：fixed/interval/meal/asNeeded 可建；
-    /// cycle（注射周期）/taper（递增递减表）多段编辑器随 W4 余项登记
-    @State private var scheduleKind = "fixed"
-    /// v42：固定时刻分支选择「用药计划」（时段模板）；模板在用药计划页维护。
-    @State private var templates: [MedicationScheduleStore.TemplateRow] = []
-    @State private var selectedTemplateId: UUID?
-
-    var body: some View {
-        WithPerceptionTracking {
-            NavigationStack {
-                Form {
-                    TextField(L10n.reminder_planName, text: $name)
-                        .accessibilityIdentifier("SP-09.plan.name")
-                    TextField(L10n.reminder_planSpec, text: $spec)
-                        .accessibilityIdentifier("SP-09.plan.spec")
-                    Section(L10n.reminder_planScheduleKind) {
-                        Picker("", selection: $scheduleKind) {
-                            Text(L10n.reminder_planKindFixed).tag("fixed")
-                            Text(L10n.reminder_planKindInterval).tag("interval")
-                            Text(L10n.reminder_planKindMeal).tag("meal")
-                            Text(L10n.reminder_planKindAsNeeded).tag("asNeeded")
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                    // 简单输入映射：fixed=服药时段（默认时刻可再调）；interval=分钟数
-                    // （如 480）；meal=餐锚（早/午/晚/睡前 前缀）；asNeeded 无排程仅按需
-                    if scheduleKind == "fixed" {
-                        if templates.isEmpty {
-                            Text(L10n.planScheduleEmptyHint)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Picker(L10n.planListTitle, selection: $selectedTemplateId) {
-                                Text(L10n.planScheduleNone).tag(UUID?.none)
-                                ForEach(templates) { template in
-                                    Text(template.name ?? MedicationScheduleTemplateRules.summary(template.times))
-                                        .tag(UUID?.some(template.id))
-                                }
-                            }
-                            .accessibilityIdentifier("SP-09.plan.template")
-                        }
-                    } else {
-                        TextField(scheduleHint, text: $timeText)
-                            .accessibilityIdentifier("SP-09.plan.time")
-                    }
-                }
-                .navigationTitle(L10n.reminder_planNew)
-                .task { await loadTemplates() }
-                .onChangeCompat(of: scheduleKind) { _, kind in
-                    // 切换类型时若当前输入不被新类型接受，填入该类型的可用
-                    // 默认值：否则残留值（如 interval 的 "480"/餐锚中文被
-                    // fixed 闸门拒绝，或 fixed 的 "07:30" 当 interval 用）让
-                    // 保存键恒灰，而表单没有任何说明。
-                    guard NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) == nil else { return }
-                    switch kind {
-                    case "interval": timeText = "480"
-                    case "meal": timeText = DoseScheduleEngine.MealAnchorRules.defaultInput
-                    default: break
-                    }
-                }
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.reminder_save) {
-                            onCreate(name, spec, timeText, scheduleKind, units, selectedTemplate)
-                        }
-                            .disabled(!canSave)
-                            .accessibilityIdentifier("SP-09.plan.save")
-                    }
-                }
-            }
-        }
-    }
-
-    private var selectedTemplate: MedicationScheduleStore.TemplateRow? {
-        guard let selectedTemplateId else { return nil }
-        return templates.first { $0.id == selectedTemplateId }
-    }
-
-    private func loadTemplates() async {
-        guard let schedules else { return }
-        templates = (try? await schedules.list(patientId: app.currentPatientId)) ?? []   // try?-ok: 读失败按空列表呈现，用户可见空态提示
-        // 不默认选中：未看就绑错计划的风险高于多点一次（审查修正）。
-    }
-
-    /// 排程参数输入提示（按类型）
-    private var scheduleHint: String {
-        switch scheduleKind {
-        case "interval": return L10n.reminder_planKindIntervalHint
-        case "meal": return L10n.reminder_planKindMealHint
-        case "asNeeded": return L10n.reminder_planKindAsNeededHint
-        default: return L10n.reminder_planTime
-        }
-    }
-
-    /// 可保存判定：名字非空；排程参数经 NewPlanScheduleMapper 同一闸门
-    /// （与提交路径规则同源——表单禁用态与提交拒绝永不分叉）。
-    /// 间隔类 ≥60 整数分钟（第七轮修复：无下限时 1 分钟间隔会在 8 天
-    /// 预排窗口物化 ~1.1 万 dose_log 行）；餐锚须至少解析出一个引擎关系词；
-    /// fixed 时刻走 Domain isValidTime（审查修复：任意字符串可保存 →
-    /// 计划以零剂量静默建成）。
-    private var canSave: Bool {
-        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
-        // v42：固定时刻必须绑定一个已存在的用药计划（计划提供时刻，提醒提供药品）。
-        if scheduleKind == "fixed" { return selectedTemplate != nil }
-        return NewPlanScheduleMapper.schedule(kind: scheduleKind, timeText: timeText) != nil
-    }
-}
 
 /// 时段卡（评审修正批 + FR9.5/FR9.17 全量）：
 /// - 药名/规格可区分、≥44pt 触点、逐钮带药名的无障碍标签；

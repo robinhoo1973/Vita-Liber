@@ -1025,6 +1025,13 @@ public enum SchemaMigrations {
         // 列改名与行重写都在代码迁移里做（RENAME COLUMN 幂等守卫），sql 置空。
         // 语义：time 仍是唯一排程事实；范围只展示，不驱动物化/通知/安全线。
         Step(version: 43, name: "medication-schedule-entries", sql: ""),
+        // v44：急救卡默认收录档案条目（2026-10-24 业主：急救卡必须显示过敏/
+        // 慢性病与手术史/紧急联系人，不再要求逐项勾选）。语义从「选中才入卡」
+        // 翻转为「档案已确认条目默认入卡，显式退选才排除」；旧选择行
+        // deselected=0 = 仍入卡，兼容升级前用户已选内容。
+        Step(version: 44, name: "emergency-card-default-include", sql: """
+        ALTER TABLE emergency_card_selection ADD COLUMN deselected INTEGER NOT NULL DEFAULT 0;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

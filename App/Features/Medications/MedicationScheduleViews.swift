@@ -119,7 +119,6 @@ struct MedicationScheduleFormView: View {
     let onSaved: () async -> Void
 
     @State private var name = ""
-    @State private var selectedSlots: Set<DoseTimeSlot> = []
     @State private var slotTimeTexts: [DoseTimeSlot: String] = [:]
     /// 用户改过的范围；缺省 = 该时段默认范围（=`[defaultTime, defaultTime+30)`）。
     @State private var slotRangeTexts: [DoseTimeSlot: [String]] = [:]
@@ -127,14 +126,13 @@ struct MedicationScheduleFormView: View {
     @State private var saveFailed = false
     @State private var isSaving = false
 
-    private var selectedSlotList: [DoseTimeSlot] {
-        DoseTimeSlot.allCases.filter { selectedSlots.contains($0) }
-    }
+    /// 2026-10-24 业主：所有标准时段默认启用，不再提供逐时段开关。
+    private var activeSlots: [DoseTimeSlot] { DoseTimeSlot.allCases }
 
     /// 未规范化的原始条目：校验必须看它——normalize 会去重，
     /// 先 normalize 再 validate 会让「重复时刻」永远抓不到。
     private var rawEntries: [MedicationScheduleEntry] {
-        var list = selectedSlotList.map { slot -> MedicationScheduleEntry in
+        var list = activeSlots.map { slot -> MedicationScheduleEntry in
             let range = slotRangeTexts[slot]
             return MedicationScheduleEntry(
                 slot: slot,
@@ -230,44 +228,42 @@ struct MedicationScheduleFormView: View {
 
     @ViewBuilder
     private func slotRow(_ slot: DoseTimeSlot) -> some View {
-        let enabled = selectedSlots.contains(slot)
         let range = effectiveRange(slot)
         VStack(alignment: .leading, spacing: 4) {
-            Toggle(slot.localizedTitle, isOn: slotBinding(slot))
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("SP-15.schedule.form.slot.\(slot.rawValue)")
+            Text(slot.localizedTitle)
+                .font(.subheadline.weight(.semibold))
             Text(L10n.planFormRangeFmt(range.start, range.end))
                 .font(.caption)
                 .foregroundStyle(Color("text-secondary", bundle: .main))
-            if enabled {
-                DatePicker(L10n.planFormSlotTimeFmt(slot.localizedTitle),
-                           selection: slotTimeBinding(slot),
-                           displayedComponents: .hourAndMinute)
-                    .accessibilityIdentifier("SP-15.schedule.form.slot.time.\(slot.rawValue)")
-                if let rangeTexts = slotRangeTexts[slot] {
-                    HStack {
-                        DatePicker(L10n.planFormRangeStart,
-                                   selection: rangeBinding(slot, isStart: true),
-                                   displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                        Text("–").foregroundStyle(.secondary)
-                        DatePicker(L10n.planFormRangeEnd,
-                                   selection: rangeBinding(slot, isStart: false),
-                                   displayedComponents: .hourAndMinute)
-                            .labelsHidden()
-                        Button(L10n.planFormRangeReset) { slotRangeTexts[slot] = nil }
-                            .font(.caption)
-                    }
-                    .accessibilityIdentifier("SP-15.schedule.form.slot.range.\(slot.rawValue)")
-                } else {
-                    Button(L10n.planFormRangeCustomize) {
-                        slotRangeTexts[slot] = [range.start, range.end]
-                    }
-                    .font(.caption)
-                    .accessibilityIdentifier("SP-15.schedule.form.slot.range.customize.\(slot.rawValue)")
+            DatePicker(L10n.planFormSlotTimeFmt(slot.localizedTitle),
+                       selection: slotTimeBinding(slot),
+                       displayedComponents: .hourAndMinute)
+                .accessibilityIdentifier("SP-15.schedule.form.slot.time.\(slot.rawValue)")
+            if slotRangeTexts[slot] != nil {
+                HStack {
+                    DatePicker(L10n.planFormRangeStart,
+                               selection: rangeBinding(slot, isStart: true),
+                               displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                    Text("–").foregroundStyle(.secondary)
+                    DatePicker(L10n.planFormRangeEnd,
+                               selection: rangeBinding(slot, isStart: false),
+                               displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                    Button(L10n.planFormRangeReset) { slotRangeTexts[slot] = nil }
+                        .font(.caption)
                 }
+                .accessibilityIdentifier("SP-15.schedule.form.slot.range.\(slot.rawValue)")
+            } else {
+                Button(L10n.planFormRangeCustomize) {
+                    slotRangeTexts[slot] = [range.start, range.end]
+                }
+                .font(.caption)
+                .accessibilityIdentifier("SP-15.schedule.form.slot.range.customize.\(slot.rawValue)")
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-15.schedule.form.slot.\(slot.rawValue)")
     }
 
     @ViewBuilder
@@ -330,7 +326,7 @@ struct MedicationScheduleFormView: View {
     }
 
     private func seed() {
-        guard case .edit(let row) = mode, name.isEmpty, selectedSlots.isEmpty,
+        guard case .edit(let row) = mode, name.isEmpty,
               slotTimeTexts.isEmpty, customEntries.isEmpty else { return }
         name = row.name ?? ""
         // 条目模型优先；旧的仅 times 行（v42）按时段默认时刻认领，其余自定义。
@@ -339,7 +335,6 @@ struct MedicationScheduleFormView: View {
             : row.entries
         for entry in seeded {
             if let slot = entry.slot {
-                selectedSlots.insert(slot)
                 slotTimeTexts[slot] = entry.time
                 if let start = entry.rangeStart, let end = entry.rangeEnd {
                     slotRangeTexts[slot] = [start, end]
@@ -348,11 +343,8 @@ struct MedicationScheduleFormView: View {
                 customEntries.append(entry)
             }
         }
-        // 编辑态绝不默认勾选（旧 seed 会给纯自定义模板强塞早餐前 → 静默多一剂）。
-        // 仅新建表单给一个可执行的起点。
-        if !isEditing && selectedSlots.isEmpty && customEntries.isEmpty {
-            selectedSlots = [.beforeBreakfast]
-        }
+        // 2026-10-24 业主：所有标准时段默认展示且启用；未在旧模板中出现的
+        // 时段沿用默认时刻（slotTimeTexts 缺省即 slot.defaultTime），不再隐藏。
     }
 
     private func save() {
@@ -382,14 +374,6 @@ struct MedicationScheduleFormView: View {
     }
 
     // MARK: 绑定
-
-    private func slotBinding(_ slot: DoseTimeSlot) -> Binding<Bool> {
-        Binding(
-            get: { selectedSlots.contains(slot) },
-            set: { isOn in
-                if isOn { selectedSlots.insert(slot) } else { selectedSlots.remove(slot) }
-            })
-    }
 
     private func slotTimeBinding(_ slot: DoseTimeSlot) -> Binding<Date> {
         Binding(

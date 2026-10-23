@@ -224,10 +224,10 @@ private struct MedicalIDGuideSheet: View {
     }
 }
 
-// MARK: - 卡片内容选择（FR15.1 逐项选择，不静默加入）
+// MARK: - 卡片内容选择（FR15.1 默认收录，显式退选才排除）
 
-/// 候选清单 → 用户逐项勾选。勾选状态由 `EmergencyCardStore.selected` 提供，
-/// 本视图只负责呈现与调用选择/退选——**数据存在 ≠ 同意入卡**。
+/// 候选清单 → 用户逐项退选/恢复。勾选状态由 `EmergencyCardStore.selected` 提供，
+/// 本视图只负责呈现与调用选择/退选——档案已确认条目默认入卡（v44）。
 struct EmergencyCardSelectorView: View {
     let candidates: EmergencyCard
     let selectedIds: Set<UUID>
@@ -619,6 +619,14 @@ private extension EmergencyCardItem {
                 return "\(L10n.memberRelationDisplayName(relation)) · \(phone)"
             }
             return detail
+        case "healthProblem":
+            // 慢性病/手术史 kind 为 canonical 英文（chronic/surgery），
+            // 展示层经 L10n 单一出口；未知值原样返回，不猜。
+            switch detail {
+            case "chronic": return L10n.healthHistoryChronic
+            case "surgery": return L10n.healthHistorySurgery
+            default: return detail
+            }
         default:
             return detail
         }

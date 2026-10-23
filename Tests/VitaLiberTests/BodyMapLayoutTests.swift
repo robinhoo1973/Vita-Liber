@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 import Domain
 @testable import VitaLiber
 
@@ -36,6 +37,20 @@ final class BodyMapLayoutTests: XCTestCase {
                 XCTAssertGreaterThan(placement.width, 0.0)
                 XCTAssertGreaterThan(placement.height, 0.0)
             }
+        }
+    }
+
+    /// 二级剪影裁切窗口必须落在全身图内（越界会在放大层露出空白/错位）。
+    func testRegionCropsStayInsideBodySilhouette() {
+        for region in HealthHistoryCatalog.bodyRegions where region.id != "systemic" {
+            guard let crop = BodySilhouette.crop(for: region.id) else {
+                XCTFail("\(region.id) 缺少剪影裁切窗口")
+                continue
+            }
+            XCTAssertGreaterThanOrEqual(crop.minX, 0)
+            XCTAssertGreaterThanOrEqual(crop.minY, 0)
+            XCTAssertLessThanOrEqual(crop.maxX, 1)
+            XCTAssertLessThanOrEqual(crop.maxY, 1)
         }
     }
 }

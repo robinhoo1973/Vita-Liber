@@ -8,43 +8,49 @@ import Domain
 /// F15 紧急信息卡仓储（actor）。
 ///
 /// 三数据源 + 联系人：
-/// - 过敏 = allergy_event（F23 一等事件；`consulted_doctor=0` 且无医生确认
-///   的条目仍可入卡吗？不——FR15.1 数据源是 F3 P1 字段 + F23 事件**且用户逐项确认**。
-///   确认语义 = 用户显式选择（`emergency_card_selection`），不由来源推断）
+/// - 过敏 = allergy_event（F23 一等事件，用户手录即确认）
 /// - 用药 = 已确认且当前有效（`medication_plan.status='active'`）的计划
-/// - 健康问题 = `health_problem`（未归档）
+/// - 健康问题 = `health_problem`（未归档，含慢性病与手术史）
 /// - 联系人 = `contact.is_emergency=1`
 ///
-/// **FR15.1 的「逐项选择」是可执行语义，不是文案**：只有出现在
-/// `emergency_card_selection` 里的条目才入卡。聚合查询直接 JOIN 数据表，
-/// 就是把「数据存在」当成「用户同意入卡」——静默行为的温床。
+/// **2026-10-24 业主裁决（v44）**：档案内已确认条目**默认入卡**，不再要求
+/// 用户逐项勾选；`emergency_card_selection` 只记录显式退选（deselected=1），
+/// 重新勾选写回 deselected=0。急救卡必须开箱即含过敏/慢性病与手术史/
+/// 紧急联系人——「数据已在档案、卡上却空白」是不可接受的失效模式。
 public actor EmergencyCardStore {
     private let writer: any DatabaseWriter
 
     public init(writer: any DatabaseWriter) { self.writer = writer }
 
-    // MARK: - 选择（FR15.1 逐项选择）
+    // MARK: - 选择（默认入卡；本表只记显式退选）
 
     public func select(patientId: UUID, itemId: UUID, kind: String) async throws {
         try await writer.write { db in
             try db.execute(sql: """
-                INSERT INTO emergency_card_selection (patient_id, item_id, item_kind, selected_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(patient_id, item_id) DO UPDATE SET selected_at = excluded.selected_at
+                INSERT INTO emergency_card_selection
+                  (patient_id, item_id, item_kind, selected_at, deselected)
+                VALUES (?, ?, ?, ?, 0)
+                ON CONFLICT(patient_id, item_id)
+                DO UPDATE SET selected_at = excluded.selected_at, deselected = 0
                 """, arguments: [patientId.uuidString, itemId.uuidString, kind,
                                  Date().timeIntervalSince1970])
         }
     }
 
-    public func deselect(patientId: UUID, itemId: UUID) async throws {
+    public func deselect(patientId: UUID, itemId: UUID, kind: String = "") async throws {
         try await writer.write { db in
             try db.execute(sql: """
-                DELETE FROM emergency_card_selection WHERE patient_id = ? AND item_id = ?
-                """, arguments: [patientId.uuidString, itemId.uuidString])
+                INSERT INTO emergency_card_selection
+                  (patient_id, item_id, item_kind, selected_at, deselected)
+                VALUES (?, ?, ?, ?, 1)
+                ON CONFLICT(patient_id, item_id)
+                DO UPDATE SET selected_at = excluded.selected_at, deselected = 1
+                """, arguments: [patientId.uuidString, itemId.uuidString, kind,
+                                 Date().timeIntervalSince1970])
         }
     }
 
-    // MARK: - 聚合（只聚合已选条目；BR-003 未确认不入卡）
+    // MARK: - 聚合（默认全收；显式退选与 BR-003 未确认项除外）
 
     /// 全部候选（供选择页展示）——**不含**选择状态，选择页自行标出。
     public func candidates(patientId: UUID) async throws -> EmergencyCard {
@@ -58,23 +64,22 @@ public actor EmergencyCardStore {
         }
     }
 
-    /// 已选集合（急救卡展示内容）
+    /// 入卡集合（急救卡展示内容）：档案已确认条目默认全收，减去显式退选。
     public func selected(patientId: UUID) async throws -> EmergencyCard {
-        // 审查修复：候选与选择集此前分两次读事务——中间提交的选中/取消
-        // 被静默忽略或应用于陈旧候选（急救卡展示用户刚移除的条目）。
-        // 同一读事务内取齐，快照一致。
+        // 审查修复：候选与排除集同读事务取齐，快照一致。
         try await writer.read { db in
             var all = EmergencyCard(patientId: patientId)
             all.allergies = try Self.allergyCandidates(db, patientId: patientId)
             all.medications = try Self.medicationCandidates(db, patientId: patientId)
             all.healthProblems = try Self.healthProblemCandidates(db, patientId: patientId)
             all.contacts = try Self.contactCandidates(db, patientId: patientId)
-            let chosen = try String.fetchAll(db, sql: """
-                SELECT item_id FROM emergency_card_selection WHERE patient_id = ?
+            let excludedRows = try String.fetchAll(db, sql: """
+                SELECT item_id FROM emergency_card_selection
+                WHERE patient_id = ? AND deselected = 1
                 """, arguments: [patientId.uuidString])
-            let ids = Set(chosen.compactMap { UUID(uuidString: $0) })
+            let excluded = Set(excludedRows.compactMap { UUID(uuidString: $0) })
             let filter: ([EmergencyCardItem]) -> [EmergencyCardItem] = { items in
-                items.filter { ids.contains($0.id) && $0.confirmed }
+                items.filter { !excluded.contains($0.id) && $0.confirmed }
             }
             return EmergencyCard(patientId: patientId,
                                  allergies: filter(all.allergies),

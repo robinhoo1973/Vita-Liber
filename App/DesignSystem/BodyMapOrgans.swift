@@ -19,7 +19,7 @@ enum OrganLayout {
         case "head_neck":
             // 两列交错，避免 44pt 命中矩形在同一中轴上互相覆盖。
             all = [
-                .init(id: "head", x: 0.50, y: 0.14, width: 0.12, height: 0.12),
+                .init(id: "head", x: 0.50, y: 0.36, width: 0.13, height: 0.13),
                 .init(id: "eye", x: 0.34, y: 0.32, width: 0.10, height: 0.08),
                 .init(id: "ear", x: 0.66, y: 0.32, width: 0.10, height: 0.08),
                 .init(id: "nose_throat", x: 0.50, y: 0.45, width: 0.10, height: 0.10),
@@ -30,7 +30,7 @@ enum OrganLayout {
         case "chest":
             all = [
                 .init(id: "lung", x: 0.50, y: 0.40, width: 0.60, height: 0.32),
-                .init(id: "breast", x: 0.50, y: 0.80, width: 0.56, height: 0.14),
+                .init(id: "breast", x: 0.50, y: 0.45, width: 0.40, height: 0.22),
                 .init(id: "heart", x: 0.34, y: 0.58, width: 0.20, height: 0.22),
                 .init(id: "esophagus", x: 0.50, y: 0.26, width: 0.06, height: 0.26),
             ]
@@ -53,15 +53,16 @@ enum OrganLayout {
             ]
         case "back":
             all = [
-                .init(id: "spinal_cord", x: 0.36, y: 0.42, width: 0.08, height: 0.28),
-                .init(id: "spine", x: 0.64, y: 0.56, width: 0.12, height: 0.46),
+                .init(id: "spinal_cord", x: 0.50, y: 0.36, width: 0.07, height: 0.30),
+                .init(id: "spine", x: 0.50, y: 0.56, width: 0.14, height: 0.46),
             ]
         case "upper_limb":
             all = [
-                .init(id: "shoulder", x: 0.50, y: 0.14, width: 0.34, height: 0.16),
-                .init(id: "arm", x: 0.50, y: 0.38, width: 0.24, height: 0.28),
-                .init(id: "elbow", x: 0.50, y: 0.62, width: 0.20, height: 0.12),
-                .init(id: "wrist_hand", x: 0.50, y: 0.86, width: 0.26, height: 0.18),
+                // 剪影放大窗口取左臂；命中点沿上臂自然下垂方向排列。
+                .init(id: "shoulder", x: 0.70, y: 0.14, width: 0.30, height: 0.16),
+                .init(id: "arm", x: 0.64, y: 0.38, width: 0.24, height: 0.28),
+                .init(id: "elbow", x: 0.56, y: 0.62, width: 0.20, height: 0.12),
+                .init(id: "wrist_hand", x: 0.42, y: 0.86, width: 0.28, height: 0.18),
             ]
         case "lower_limb":
             all = [
@@ -431,12 +432,15 @@ enum OrganStyle {
         }
     }
 
-    /// 专业解剖插图（Servier Medical Art，经 Bioicons 矢量版，CC BY 3.0）——优先于手绘 Shape。
+    /// 专业解剖插图（Servier Medical Art，CC BY 4.0；来源 SMART 素材库
+    /// https://smart.servier.com）——优先于手绘 Shape。新增甲状腺/子宫/
+    /// 卵巢/乳腺四枚，消除这些常见病种退化成「首字圆形」的问题。
     /// 目录里「精神/心理」的器官 id 是 `mental`，素材名仍按解剖命名 `anatomy-brain`。
     static func anatomyAsset(_ id: String) -> String? {
         switch id {
         case "heart", "liver", "lung", "kidney", "spleen", "stomach",
-             "pancreas", "intestine", "bladder":
+             "pancreas", "intestine", "bladder", "thyroid",
+             "uterus", "ovary", "breast":
             return "anatomy-\(id)"
         case "mental":
             return "anatomy-brain"
@@ -499,6 +503,7 @@ struct RegionAnatomyView: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
+            let displayed = displayedPlacements(in: size)
             ZStack {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(LinearGradient(colors: [
@@ -506,17 +511,9 @@ struct RegionAnatomyView: View {
                         Color("bg-grouped", bundle: .main).opacity(0.92),
                     ], startPoint: .topLeading, endPoint: .bottomTrailing))
                 if region.id != "systemic" {
-                    RegionOutlineShape(regionID: region.id)
-                        .fill(Color("text-primary", bundle: .main).opacity(0.045))
-                    RegionOutlineShape(regionID: region.id)
-                        .stroke(Color("text-primary", bundle: .main).opacity(0.07), lineWidth: 1)
+                    BodySilhouetteBackdrop(regionID: region.id)
                 }
-                if region.id == "back" {
-                    BodySurfaceDetails(side: .back)
-                        .stroke(Color("text-primary", bundle: .main).opacity(0.18),
-                                style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                }
-                ForEach(placements, id: \.id) { placement in
+                ForEach(displayed, id: \.id) { placement in
                     if let organ = organs.first(where: { $0.id == placement.id }) {
                         OrganHotspot(organ: organ, placement: placement,
                                      selected: organID == organ.id, size: size) {
@@ -530,6 +527,23 @@ struct RegionAnatomyView: View {
         .frame(height: 288)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bodyMap.regionLayer.\(region.id)")
+    }
+
+    /// 器官热点与剪影使用同一裁切换算：器官位置随真实人体缩放，
+    /// 不再以卡片宽高直接铺坐标（旧版会与放大后的身体错位）。
+    private func displayedPlacements(in size: CGSize) -> [OrganPlacement] {
+        guard let crop = BodySilhouette.crop(for: region.id),
+              size.width > 0, size.height > 0 else { return placements }
+        let layout = BodySilhouette.layout(crop: crop, in: size)
+        let rect = BodySilhouette.displayedCrop(crop, layout: layout)
+        return placements.map { placement in
+            OrganPlacement(
+                id: placement.id,
+                x: (rect.minX + placement.x * rect.width) / size.width,
+                y: (rect.minY + placement.y * rect.height) / size.height,
+                width: placement.width * rect.width / size.width,
+                height: placement.height * rect.height / size.height)
+        }
     }
 }
 

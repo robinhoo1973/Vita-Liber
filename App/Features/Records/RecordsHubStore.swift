@@ -267,7 +267,7 @@ final class M2HubStore {
             if selected {
                 try await emergency.select(patientId: patientId, itemId: item.id, kind: item.kind)
             } else {
-                try await emergency.deselect(patientId: patientId, itemId: item.id)
+                try await emergency.deselect(patientId: patientId, itemId: item.id, kind: item.kind)
             }
             // BR-001 成员隔离：写后回读经 refreshEmergency（fetch →
             // 代际守卫 → 提交）——此前 guard 在读前、提交在读后：成员在

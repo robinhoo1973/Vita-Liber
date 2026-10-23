@@ -829,13 +829,15 @@ public enum SchemaV2 {
       sent_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_sent_message_patient ON sent_message(patient_id, sent_at);
 
-    -- F15 急救卡用户选择（V3.48 / 迁移 v4）：FR15.1「必须由用户逐项选择，
-    -- 不能静默加入」。只记选择，数据仍在原表；退选=删行。
+    -- F15 急救卡选择记录（V3.48 / 迁移 v4；v44 语义翻转）：
+    -- 档案已确认条目默认入卡；本表只记显式退选（deselected=1）与重新纳入
+    -- （deselected=0）。数据仍在原表，退选不删数据。
     CREATE TABLE emergency_card_selection (
       patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       item_id TEXT NOT NULL,
       item_kind TEXT NOT NULL,
       selected_at REAL NOT NULL,
+      deselected INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY(patient_id, item_id));
 
     -- 同意记录（ADR-014/FR20.5/FR17.12）
