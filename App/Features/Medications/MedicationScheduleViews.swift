@@ -184,7 +184,8 @@ struct MedicationScheduleFormView: View {
                             customEntryRow($entry)
                         }
                         Button {
-                            customEntries.append(MedicationScheduleEntry(slot: nil, time: "12:00"))
+                            customEntries.append(MedicationScheduleEntry(
+                                slot: nil, time: "12:00", rangeStart: "12:00", rangeEnd: "12:30"))
                         } label: {
                             Label(L10n.planFormCustomAdd, systemImage: "plus.circle")
                         }
@@ -277,12 +278,12 @@ struct MedicationScheduleFormView: View {
                        displayedComponents: .hourAndMinute)
             HStack {
                 DatePicker(L10n.planFormRangeStart,
-                           selection: timeBinding(entry.rangeStart, fallback: entry.wrappedValue.time),
+                           selection: customRangeBinding(entry, isStart: true),
                            displayedComponents: .hourAndMinute)
                     .labelsHidden()
                 Text("–").foregroundStyle(.secondary)
                 DatePicker(L10n.planFormRangeEnd,
-                           selection: timeBinding(entry.rangeEnd, fallback: entry.wrappedValue.time),
+                           selection: customRangeBinding(entry, isStart: false),
                            displayedComponents: .hourAndMinute)
                     .labelsHidden()
                 Spacer()
@@ -414,6 +415,33 @@ struct MedicationScheduleFormView: View {
         Binding(
             get: { DoseTimeSlotRules.date(for: text.wrappedValue.isEmpty ? fallback : text.wrappedValue) ?? Date() },
             set: { text.wrappedValue = DoseTimeSlotRules.timeString(from: $0) })
+    }
+
+    /// 自定义条目的范围绑定：两侧可空；用户先动任一端时自动补齐另一端
+    /// （`validate` 要求范围两端齐全，半截范围会被拒绝）。
+    private func customRangeBinding(_ entry: Binding<MedicationScheduleEntry>,
+                                    isStart: Bool) -> Binding<Date> {
+        Binding(
+            get: {
+                let value = isStart ? entry.wrappedValue.rangeStart : entry.wrappedValue.rangeEnd
+                return DoseTimeSlotRules.date(for: value ?? entry.wrappedValue.time) ?? Date()
+            },
+            set: { date in
+                let value = DoseTimeSlotRules.timeString(from: date)
+                var copy = entry.wrappedValue
+                if copy.rangeStart == nil || copy.rangeEnd == nil {
+                    let startMin = DoseScheduleEngine.minutes(value) ?? 0
+                    let endMin = min(startMin + 30, 24 * 60 - 1)
+                    let end = String(format: "%02d:%02d", endMin / 60, endMin % 60)
+                    copy.rangeStart = isStart ? value : (copy.rangeStart ?? value)
+                    copy.rangeEnd = isStart ? end : value
+                } else if isStart {
+                    copy.rangeStart = value
+                } else {
+                    copy.rangeEnd = value
+                }
+                entry.wrappedValue = copy
+            })
     }
 }
 
@@ -563,5 +591,47 @@ struct MedicationBindingFormView: View {
 
     var body: some View {
         MedicationPlanFormView(scheduleTemplate: template)
+    }
+}
+
+
+// MARK: - 路由入口（深链/首页卡片「新建用药计划」）
+
+/// 按 id 加载模板后进入编辑；无 id 直接进入新建。
+struct MedicationScheduleFormRouteView: View {
+    @Environment(\.medicationScheduleStore) private var schedules
+    let templateId: UUID?
+
+    @State private var loaded: MedicationScheduleStore.TemplateRow?
+    @State private var loadFailed = false
+
+    var body: some View {
+        Group {
+            if let templateId {
+                if let loaded {
+                    MedicationScheduleFormView(mode: .edit(loaded)) { }
+                } else if loadFailed {
+                    VStack(spacing: 12) {
+                        Text(L10n.planScheduleLoadFailed)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                        Button(L10n.retry) { Task { await load() } }
+                    }
+                } else {
+                    ProgressView().task { await load() }
+                }
+            } else {
+                MedicationScheduleFormView(mode: .create) { }
+            }
+        }
+    }
+
+    private func load() async {
+        guard let templateId, let schedules else { return }
+        do {
+            loaded = try await schedules.template(id: templateId)
+            loadFailed = false
+        } catch {
+            loadFailed = true
+        }
     }
 }
