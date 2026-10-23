@@ -31,6 +31,9 @@ struct SchemaChainGoldenTests {
         "health_exam", "clinical_conclusion", "surgery", "treatment_record",
         "ocr_card_commit", "pending_card", "hk_import_status",
         "lexicon_term",
+        // v42/v43：用药计划模板与条目（时段身份 + 常用提醒范围）——
+        // 此前清单未收录，v42 新表与 v43 改名没有 macOS 金样覆盖。
+        "medication", "medication_plan", "medication_schedule",
     ]
 
     /// v1 老库：冻结快照 + `PRAGMA user_version = 1`（**必须为 1**——`pending(from:)` 取
