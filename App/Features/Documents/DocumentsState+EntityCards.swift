@@ -49,8 +49,65 @@ extension DocumentsState {
         return DocumentTypeClassifierFallback.hasVisitEvidence(in: fields) ? "outpatient_record" : nil
     }
 
+    /// 跨页共用字段（2026-10-23 业主「多附件 OCR 融会贯通」）：
+    /// 一份多页文档只在**值唯一**时把表头字段补给缺字段的页——同键出现
+    /// 两个不同值即视为不同单据，绝不猜。补入字段无原文锚点（nil rawText /
+    /// sourceLineIndex）、置信封顶 0.5、恒 D 级：用户仍须在共用信息步确认。
+    static let crossPageTextKeys: Set<String> = ["hospital", "department", "doctor", "org_name", "lab_name"]
+
+    private static func uniqueValue(_ fields: [FieldDraft], key: String) -> FieldDraft? {
+        let hits = fields.filter {
+            $0.key == key && $0.grade != .rejected
+                && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard let first = hits.first else { return nil }
+        let value = first.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hits.allSatisfy({ $0.value.trimmingCharacters(in: .whitespacesAndNewlines) == value }) else { return nil }
+        return hits.max { $0.confidence < $1.confidence } ?? first
+    }
+
+    static func crossPageSharedFields(pages: [PageAnalysis]) -> [String: FieldDraft] {
+        guard pages.count > 1 else { return [:] }
+        let fields = pages.filter { $0.status == "ok" }.flatMap(\.fields)
+        var shared: [String: FieldDraft] = [:]
+        for key in crossPageTextKeys {
+            if let field = uniqueValue(fields, key: key) { shared[key] = field }
+        }
+        if let date = uniqueValue(fields, key: "report_date") { shared["report_date"] = date }
+        return shared
+    }
+
+    /// 把跨页表头补到卡级共享面；只补该卡类放行且当前缺席的键。
+    /// 日期按卡类 `dateKey` 落键（检验=measured_at 等），不直接塞 report_date。
+    static func applyingCrossPageShared(_ cards: [MatchedCard], pages: [PageAnalysis]) -> [MatchedCard] {
+        let shared = crossPageSharedFields(pages: pages)
+        guard !shared.isEmpty else { return cards }
+        return cards.map { original in
+            guard let entry = CardKindRegistry.entry(for: original.kind) else { return original }
+            var card = original
+            var present = Set(card.shared.map(\.key))
+            func copy(_ source: FieldDraft, as key: String) -> FieldDraft {
+                FieldDraft(key: key, value: source.value, unit: source.unit,
+                           confidence: min(source.confidence, 0.5),
+                           rawText: nil, source: source.source, grade: .ocrUnconfirmed,
+                           sourceLineIndex: nil)
+            }
+            for key in crossPageTextKeys {
+                guard let source = shared[key], entry.sharedAllowed.contains(key),
+                      !present.contains(key) else { continue }
+                card.shared.append(copy(source, as: key))
+                present.insert(key)
+            }
+            if let dateKey = entry.dateKey, !present.contains(dateKey),
+               let source = shared["report_date"] {
+                card.shared.append(copy(source, as: dateKey))
+            }
+            return card
+        }
+    }
+
     static func matchPages(_ pages: [PageAnalysis], manualTypeKey: String?) -> [MatchedCard] {
-        pages.flatMap { page -> [MatchedCard] in
+        let cards = pages.flatMap { page -> [MatchedCard] in
             guard page.status == "ok" else { return [] }
             let fields = page.fields.filter { $0.grade != .rejected && !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             // 用户手选类型优先于页判定：三新卡（住院 / 诊断 / 检查）与就诊 kind、diagnosis_type、report_type 的派生默认均由此键驱动。
@@ -81,6 +138,7 @@ extension DocumentsState {
                 return matches
             }
         }
+        return applyingCrossPageShared(cards, pages: pages)
     }
 
     /// Rebase changed document values onto the original card fields, preserving provenance and IDs.

@@ -52,6 +52,8 @@ extension L10n {
     "assistant.voiceTap", "assistant.voiceStop", "assistant.mediaOpen", "assistant.voiceReplayFailed", "assistant.voiceRecording", "assistant.voiceRecognizing",
     "assistant.attach",
     "assistant.attachPhotos",
+    "assistant.attachmentBatchFmt",
+    "assistant.attachmentTruncated",
     "assistant.attachCamera",
     "assistant.attachPDF",
     "assistant.captureQueued",

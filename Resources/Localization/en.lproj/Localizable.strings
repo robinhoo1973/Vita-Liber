@@ -2428,6 +2428,8 @@
 "assistant.voiceRecognizing" = "Transcribing…";
 "assistant.attach" = "Add attachment";
 "assistant.attachPhotos" = "Photos";
+"assistant.attachmentBatchFmt" = "%d attachments";
+"assistant.attachmentTruncated" = "More than 50 pages were selected; only the first 50 pages were imported.";
 "assistant.attachCamera" = "Camera";
 "assistant.attachPDF" = "PDF file";
 "assistant.captureQueued" = "Submitted for recognition — review it in Pending Cards";

@@ -2428,6 +2428,8 @@
 "assistant.voiceRecognizing" = "识别中…";
 "assistant.attach" = "添加附件";
 "assistant.attachPhotos" = "照片";
+"assistant.attachmentBatchFmt" = "%d 份附件";
+"assistant.attachmentTruncated" = "附件超过 50 页，本次仅导入前 50 页。";
 "assistant.attachCamera" = "拍照";
 "assistant.attachPDF" = "PDF 文件";
 "assistant.captureQueued" = "已提交识别，请在待确认卡片中核对";

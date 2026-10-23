@@ -563,20 +563,31 @@ final class DocumentsState {
     }
 
     func importPDF(patientId: UUID, url: URL, docType: String?, isSensitive: Bool = true) async -> ImportDraft? {
-        guard let session = preparationSession(patientId: patientId) else { return nil }
-        defer { session.isPreparing = false }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            let pending = PendingDocument(patientId: patientId, originalData: data, processedData: data,
-                mimeType: "application/pdf", docType: docType, title: url.lastPathComponent,
-                sha256: "pdf:" + Self.hash(data), isSensitive: isSensitive, origin: "import")
-            return await prepare(pending, in: session, checkDuplicates: true)
+            return await importPDFData(patientId: patientId, data: data,
+                                       title: url.lastPathComponent, docType: docType,
+                                       isSensitive: isSensitive, origin: "import")
         } catch {
-            session.errorMessage = L10n.docPDFImportFailed; lastImportError = session.errorMessage
+            activeImport?.errorMessage = L10n.docPDFImportFailed
+            lastImportError = activeImport?.errorMessage
             return nil
         }
+    }
+
+    /// 多附件合并后的 PDF 直接进入同一 OCR 会话（2026-10-23 业主：
+    /// 图片/文件多选后识别内容要融会贯通——一份多页文档，共用字段与
+    /// 卡级结果跨页归并，而不是每张图各成一份互不相干的档案）。
+    func importPDFData(patientId: UUID, data: Data, title: String?, docType: String? = nil,
+                       isSensitive: Bool = true, origin: String = "import") async -> ImportDraft? {
+        guard let session = preparationSession(patientId: patientId) else { return nil }
+        defer { session.isPreparing = false }
+        let pending = PendingDocument(patientId: patientId, originalData: data, processedData: data,
+            mimeType: "application/pdf", docType: docType, title: title,
+            sha256: "pdf:" + Self.hash(data), isSensitive: isSensitive, origin: origin)
+        return await prepare(pending, in: session, checkDuplicates: true)
     }
 
     private func prepare(_ input: PendingDocument, in session: ImportSession, checkDuplicates: Bool) async -> ImportDraft? {
@@ -714,7 +725,11 @@ final class DocumentsState {
 
     private func assembleDraft(_ input: PendingDocument, pages: [PageAnalysis], qualityTags: [String]) -> ImportDraft {
         let keys = pages.compactMap(\.documentTypeKey)
-        let first = keys.first
+        // 多页文档 2026-10-23：类型取**多数页**判定（并列取最早页）——
+        // 首张图是封面/目录时，文件类型不再被单页噪声带偏。
+        let counts = keys.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        let top = counts.values.max()
+        let first = keys.first { counts[$0] == top }
         let label = input.docType ?? first.flatMap(Self.docTypeLabel(forStableKey:))
         var draft = ImportDraft(patientId: input.patientId, docType: label ?? Self.unresolvedDocTypePlaceholder,
             title: input.title, isSensitive: input.isSensitive, origin: input.origin, sha256: input.sha256,

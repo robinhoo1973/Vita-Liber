@@ -74,6 +74,8 @@ extension L10n {
     static var assistantVoiceRecognizing: String { t("assistant.voiceRecognizing") }
     static var assistantAttach: String { t("assistant.attach") }
     static var assistantAttachPhotos: String { t("assistant.attachPhotos") }
+    static var assistantAttachmentBatchFmt: String { t("assistant.attachmentBatchFmt") }
+    static var assistantAttachmentTruncated: String { t("assistant.attachmentTruncated") }
     static var assistantAttachCamera: String { t("assistant.attachCamera") }
     static var assistantAttachPDF: String { t("assistant.attachPDF") }
     static var assistantCaptureQueued: String { t("assistant.captureQueued") }

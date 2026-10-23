@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import PDFKit
 import UniformTypeIdentifiers
 import Perception
 import Domain
@@ -53,7 +54,8 @@ struct TaskAssistantChatView: View {
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var showFileImporter = false
-    @State private var pickedPhoto: PhotosPickerItem?
+    /// 多选（2026-10-23 业主）：一次可选多张照片，合并为一份多页文档后统一识别。
+    @State private var pickedPhotos: [PhotosPickerItem] = []
 
     // 语音消息重放（2026-10-19；2026-10-20 转写文本常显）：本机音频文件。
     // 播放器已上提 AppState.voicePlayback（2026-10-21），页面只读 playingID。
@@ -161,15 +163,16 @@ struct TaskAssistantChatView: View {
                 .sheet(item: $activeSheet) { sheet in
                     sheetContent(sheet)
                 }
-                .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
-                .onChangeCompat(of: pickedPhoto) { _, item in handlePickedPhoto(item) }
+                .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhotos,
+                              maxSelectionCount: 9, matching: .images)
+                .onChangeCompat(of: pickedPhotos) { _, items in handlePickedPhotos(items) }
                 .fullScreenCover(isPresented: $showCamera) {
                     CameraPicker { image in handleCameraImage(image) }
                 }
                 .fileImporter(isPresented: $showFileImporter,
                               allowedContentTypes: [.pdf, .image],
-                              allowsMultipleSelection: false,
-                              onCompletion: handleImportedFile)
+                              allowsMultipleSelection: true,
+                              onCompletion: handleImportedFiles)
                 .onAppear { routeMonitor.start() }
                 // 任一录音路径开始（含 DictationInteraction 手势）都停止语音消息重放。
                 .onChangeCompat(of: chatDictation?.phase) { _, phase in
@@ -940,11 +943,24 @@ struct TaskAssistantChatView: View {
     /// 媒体/语音消息状态与转写变化后重写历史快照（2026-10-20）。
     /// 只更新已落库的消息；未落库（历史写入失败/旧会话）时静默跳过。
     private func persistUpdate(_ messageID: UUID) {
-        guard let conversationID,
-              let message = messages.first(where: { $0.id == messageID }),
+        // 2026-10-23 修复（历史图片打不开的根因）：首条消息的 append 异步创建
+        // 会话；若 OCR 很快完成，旧的 `guard let conversationID` 会在会话 id
+        // 回填前静默放弃终态快照——历史里只剩 processing 且无 documentId 的
+        // 媒体行，气泡不可点。终态更新改走持久化串行链，在执行时再取/建会话。
+        guard let message = messages.first(where: { $0.id == messageID }),
               let payload = encode(message) else { return }
+        let capturedConversation = conversationID
+        let generation = conversationGeneration
         enqueuePersistence {
-            await chatHistory.updateMessagePayload(conversationId: conversationID,
+            let id: UUID
+            if let capturedConversation {
+                id = capturedConversation
+            } else {
+                guard generation == conversationGeneration,
+                      let created = await ensureConversationID() else { return }
+                id = created
+            }
+            await chatHistory.updateMessagePayload(conversationId: id,
                                                    clientId: messageID,
                                                    payloadJSON: payload)
         }
@@ -1132,15 +1148,34 @@ struct TaskAssistantChatView: View {
 
     // MARK: - 媒体采集 → 全图 OCR → 信息卡（2026-10-19 业主指令）
 
-    private func handlePickedPhoto(_ item: PhotosPickerItem?) {
-        guard let item else { return }
-        pickedPhoto = nil
+    /// 多选照片（2026-10-23 业主）：单张保持原图路径；多张按选择顺序
+    /// 合并为一份多页 PDF，只起一个 OCR 会话，跨页内容统一归并。
+    private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        pickedPhotos = []
         Task {
-            guard let data = try? await item.loadTransferable(type: Data.self) else {   // try?-ok: 相册读取失败统一提示
+            var datas: [Data] = []
+            for item in items {
+                if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 逐张跳过读取失败
+                    datas.append(data)
+                }
+            }
+            guard !datas.isEmpty else {
                 append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
                 return
             }
-            await importImage(data, filename: L10n.assistantAttachPhotos, origin: "photoLibrary")
+            if datas.count == 1, let data = datas.first {
+                await importImage(data, filename: L10n.assistantAttachPhotos, origin: "photoLibrary")
+                return
+            }
+            let images = datas.compactMap { UIImage(data: $0) }
+            guard images.count == datas.count else {
+                append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+                return
+            }
+            await importMerged(images: images, pdfs: [],
+                               filename: String(format: L10n.assistantAttachmentBatchFmt, images.count),
+                               kind: .image, origin: "photoLibrary")
         }
     }
 
@@ -1153,10 +1188,69 @@ struct TaskAssistantChatView: View {
         Task { await importImage(data, filename: L10n.assistantAttachCamera, origin: "camera") }
     }
 
-    private func handleImportedFile(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, let url = urls.first else { return }
-        let kind: MediaInfo.Kind = url.pathExtension.lowercased() == "pdf" ? .pdf : .image
-        Task { await importURL(url, filename: url.lastPathComponent, kind: kind) }
+    private func handleImportedFiles(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, !urls.isEmpty else { return }
+        if urls.count == 1, let url = urls.first {
+            let kind: MediaInfo.Kind = url.pathExtension.lowercased() == "pdf" ? .pdf : .image
+            Task { await importURL(url, filename: url.lastPathComponent, kind: kind) }
+            return
+        }
+        Task { await importFiles(urls) }
+    }
+
+    /// 多文件（图片 + PDF 混合）：保持文件/页顺序，合并为一份多页 PDF。
+    private func importFiles(_ urls: [URL]) async {
+        var scopes: [URL] = []
+        for url in urls where url.startAccessingSecurityScopedResource() {
+            scopes.append(url)
+        }
+        defer { for url in scopes { url.stopAccessingSecurityScopedResource() } }
+
+        var images: [UIImage] = []
+        var pdfs: [PDFDocument] = []
+        for url in urls {
+            if url.pathExtension.lowercased() == "pdf" {
+                if let document = PDFDocument(url: url) { pdfs.append(document) }
+            } else if let data = try? Data(contentsOf: url),   // try?-ok: 逐份跳过不可读文件
+                      let image = UIImage(data: data) {
+                images.append(image)
+            }
+        }
+        for url in scopes { url.stopAccessingSecurityScopedResource() }
+        scopes.removeAll()
+        guard !images.isEmpty || !pdfs.isEmpty else {
+            append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+            return
+        }
+        let kind: MediaInfo.Kind = pdfs.isEmpty ? .image : .pdf
+        await importMerged(images: images, pdfs: pdfs,
+                           filename: String(format: L10n.assistantAttachmentBatchFmt, urls.count),
+                           kind: kind, origin: "import")
+    }
+
+    private func importMerged(images: [UIImage], pdfs: [PDFDocument],
+                              filename: String, kind: MediaInfo.Kind, origin: String) async {
+        var payloads: [ChatAttachmentMerger.Payload] = []
+        payloads.append(contentsOf: images.map { ChatAttachmentMerger.Payload.image($0) })
+        payloads.append(contentsOf: pdfs.map { ChatAttachmentMerger.Payload.pdf($0) })
+        guard let merged = ChatAttachmentMerger.merge(payloads) else {
+            append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+            return
+        }
+        guard let messageID = appendMedia(filename: filename, kind: kind) else { return }
+        importing = true
+        defer { importing = false }
+        guard let session = startChatSession() else {
+            failMedia(messageID, text: L10n.assistantImportBusy)
+            return
+        }
+        let draft = await docs.importPDFData(patientId: session.patientId, data: merged.data,
+                                             title: filename, isSensitive: true, origin: origin)
+        await finishImport(draft, session: session, messageID: messageID)
+        if merged.truncated {
+            append(.init(role: .assistant, text: L10n.assistantAttachmentTruncated,
+                         isRefusal: true))
+        }
     }
 
     /// 全图识别：originalData == processedData，跳过区域/遮挡选择（业主 2026-10-19）。
