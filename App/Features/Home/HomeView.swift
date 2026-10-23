@@ -411,6 +411,16 @@ struct HomeView: View {
             Group {
                 pendingImportRecovery
                 pendingLoadFailure
+                // 2026-10-23 业主：同步状态放在「提醒」标题与 AI 聊天工具条之前，
+                // 单行占用（标题 + 已完成类别数同一行），把纵向空间留给提醒列表。
+                // 审查修正：导入中断的「继续/重试」是可操作横幅，优先级高于
+                // 纯信息性的同步行，因此同步行排在这两条之后、标题之前。
+                if dataChange.healthSyncActive {
+                    healthSyncIndicator
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(plainRowInsets)
+                }
                 if showsGuide {
                     if filterKind != nil { filterHeader }
                     if filterKind != nil && items.isEmpty { emptyAggregation }
@@ -423,12 +433,6 @@ struct HomeView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
             .listRowInsets(plainRowInsets)
-            if dataChange.healthSyncActive {
-                healthSyncIndicator
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(plainRowInsets)
-            }
             aggregationRows(items, profileCompletion: progress)
             Group {
                 if showsGuide { newUserGuide }
@@ -745,9 +749,9 @@ struct HomeView: View {
     private var careModeHome: some View {
         ScrollView {
             VStack(spacing: 20) {
-                if dataChange.healthSyncActive { healthSyncIndicator }
                 pendingImportRecovery
                 pendingLoadFailure
+                if dataChange.healthSyncActive { healthSyncIndicator }
                 // FR18.5 极简导航：三大卡（今日服药/续药/呼救）。
                 // 2026-10-23 业主：语音与拍摄入口从首页撤下，SOS 常驻。
                 // 语义令牌映射（2026-10-03 信息卡片评审 R1-1）：裸系统色 .blue/.orange/.red
@@ -799,24 +803,28 @@ struct HomeView: View {
     /// 首页后台健康同步提示（2026-10-21 业主裁决）：周期未完成时持续可见，
     /// 完成全部类别后消失；不暴露类别明细，仅给稳定进度。
     private var healthSyncIndicator: some View {
-        HStack(spacing: 12) {
+        // 2026-10-23 业主：标题与「0/6 类已完成」同处一行，不再叠两行；
+        // 行内边距压到最小，保持 44pt 触控/可读高度即可。
+        HStack(spacing: 8) {
             VLRotatingActivityIcon(symbol: "arrow.triangle.2.circlepath",
                                    isActive: true, font: .body)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.homeHealthSyncActive)
-                    .font(.subheadline.weight(.medium))
-                if dataChange.healthSyncTotalKinds > 0 {
-                    Text(L10n.homeHealthSyncProgress(
-                        dataChange.healthSyncStableKinds,
-                        dataChange.healthSyncTotalKinds))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            Text(L10n.homeHealthSyncActive)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+            if dataChange.healthSyncTotalKinds > 0 {
+                Text(L10n.homeHealthSyncProgress(
+                    dataChange.healthSyncStableKinds,
+                    dataChange.healthSyncTotalKinds))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
+        .minimumScaleFactor(0.85)
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
         .background(Color("bg-grouped", bundle: .main), in: RoundedRectangle(cornerRadius: VLCornerRadius.card))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("SP-04.home.healthSync")

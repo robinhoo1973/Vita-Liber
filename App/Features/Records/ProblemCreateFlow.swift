@@ -102,11 +102,9 @@ struct ProblemCreateSheet: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// 年份解析走 Domain 单一事实源（编辑流/列表病程共用同一规则）。
     private func parsedYear(_ raw: String) -> Int? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count == 4, let year = Int(trimmed),
-              year >= 1900, year <= Calendar.current.component(.year, from: Date()) else { return nil }
-        return year
+        HealthProblemRules.parseYear(raw)
     }
 
     /// 每条已选条目与自由文本都必须有年份或显式「不详」才可保存。
@@ -665,6 +663,147 @@ struct ProblemCreateSheet: View {
                 isSaving = false
                 saveFailed = true
             }
+        }
+    }
+}
+
+/// FR11.4 后期修改健康史条目（2026-10-23 业主：「慢性病/手术没有提供后期修改的入口」）。
+/// 只改用户自报的字段（名称/类型/部位/年份），不动关联的医疗事实行；
+/// 年份解析与新建流共用 Domain `HealthProblemRules`。
+struct ProblemEditSheet: View {
+    @Environment(TimelineViewState.self) private var state
+    @Environment(\.dismiss) private var dismiss
+
+    private let problem: HealthProblemStore.HealthProblemRow
+
+    @State private var name: String
+    @State private var kind: String
+    @State private var yearText: String
+    @State private var yearUnknown: Bool
+    @State private var regionID: String?
+    @State private var organID: String?
+    @State private var saveFailed = false
+    @State private var isSaving = false
+
+    init(problem: HealthProblemStore.HealthProblemRow) {
+        self.problem = problem
+        _name = State(initialValue: problem.name)
+        _kind = State(initialValue: problem.kind ?? "chronic")
+        _yearText = State(initialValue: problem.year.map(String.init) ?? "")
+        // 旧数据 year 为 nil = 未登记（含显式「不详」）——编辑时保持「不详」，
+        // 不强迫用户补年份才能保存其他修正。
+        _yearUnknown = State(initialValue: problem.year == nil)
+        _regionID = State(initialValue: problem.bodyRegion)
+        _organID = State(initialValue: problem.bodySite)
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var yearInvalid: Bool {
+        !yearUnknown && (yearText.isEmpty || HealthProblemRules.parseYear(yearText) == nil)
+    }
+
+    private var canSave: Bool {
+        !trimmedName.isEmpty && (yearUnknown || HealthProblemRules.parseYear(yearText) != nil) && !isSaving
+    }
+
+    private var selectedRegion: HealthHistoryCatalog.BodyRegion? {
+        guard let regionID else { return nil }
+        return HealthHistoryCatalog.bodyRegions.first { $0.id == regionID }
+    }
+
+    var body: some View {
+        WithPerceptionTracking {
+            NavigationStack {
+                Form {
+                    Section(L10n.problemEditTitle) {
+                        TextField(L10n.problemNamePlaceholder, text: $name)
+                            .accessibilityIdentifier("SP-49.problem.edit.name")
+                        Picker(L10n.healthHistoryKind, selection: $kind) {
+                            Text(L10n.healthHistoryChronic).tag("chronic")
+                            Text(L10n.healthHistorySurgery).tag("surgery")
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("SP-49.problem.edit.kind")
+                    }
+                    Section {
+                        if !yearUnknown {
+                            TextField(L10n.healthHistoryYearPlaceholder, text: $yearText)
+                                .keyboardType(.numberPad)
+                        }
+                        Toggle(L10n.healthHistoryYearUnknown, isOn: $yearUnknown)
+                        if yearInvalid {
+                            Text(L10n.healthHistoryYearHint)
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                        }
+                    } header: {
+                        Text(L10n.healthHistoryYearTitle)
+                    }
+                    Section {
+                        Picker(L10n.healthHistoryBodyRegion, selection: $regionID) {
+                            Text(L10n.problemNotSet).tag(String?.none)
+                            ForEach(HealthHistoryCatalog.bodyRegions) { region in
+                                Text(region.name).tag(Optional(region.id))
+                            }
+                        }
+                        .accessibilityIdentifier("SP-49.problem.edit.region")
+                        if let region = selectedRegion, !region.organs.isEmpty {
+                            Picker(L10n.healthHistoryOrgan, selection: $organID) {
+                                Text(L10n.problemNotSet).tag(String?.none)
+                                ForEach(region.organs) { organ in
+                                    Text(organ.name).tag(Optional(organ.id))
+                                }
+                            }
+                            .accessibilityIdentifier("SP-49.problem.edit.organ")
+                        }
+                    }
+                }
+                .navigationTitle(L10n.problemEditTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.reminder_save) { save() }
+                            .disabled(!canSave)
+                            .accessibilityIdentifier("SP-49.problem.edit.save")
+                    }
+                }
+                // 换部位后旧器官不再属于该部位：清空，避免保存出跨部位组合。
+                .onChangeCompat(of: regionID) { _, newRegion in
+                    guard let newRegion else { organID = nil; return }
+                    let organs = HealthHistoryCatalog.bodyRegions
+                        .first { $0.id == newRegion }?.organs.map(\.id) ?? []
+                    if let organID, !organs.contains(organID) { self.organID = nil }
+                }
+                .saveFailedAlert(title: L10n.encounterSaveFailed,
+                                 hint: L10n.problemSaveFailedHint,
+                                 isPresented: $saveFailed)
+            }
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        let year: Int?
+        if yearUnknown {
+            year = nil
+        } else {
+            guard let parsed = HealthProblemRules.parseYear(yearText) else { return }
+            year = parsed
+        }
+        isSaving = true
+        Task {
+            let ok = await state.updateProblem(
+                id: problem.id,
+                update: .init(name: trimmedName, kind: kind, bodyRegion: regionID,
+                              bodySite: organID, year: year))
+            isSaving = false
+            if ok { dismiss() } else { saveFailed = true }
         }
     }
 }

@@ -248,11 +248,14 @@ struct NewPlanSheet: View {
     let onCreate: (String, String, String, String, Double) -> Void
     @State private var name = ""
     @State private var spec = ""
-    @State private var timeText = "08:00"
+    @State private var timeText = DoseTimeSlot.beforeBreakfast.defaultTime
     @State private var units = 1.0
     /// FR9.4 调度类型（V3.72）：fixed/interval/meal/asNeeded 可建；
     /// cycle（注射周期）/taper（递增递减表）多段编辑器随 W4 余项登记
     @State private var scheduleKind = "fixed"
+    /// FR9.4（2026-10-23 业主）：固定时刻走「服药时段」选择，快速新建同样
+    /// 不再要求手输 HH:mm；精确调整在完整计划表单内完成。
+    @State private var selectedSlot: DoseTimeSlot = .beforeBreakfast
 
     var body: some View {
         WithPerceptionTracking {
@@ -271,12 +274,40 @@ struct NewPlanSheet: View {
                         }
                         .pickerStyle(.segmented)
                     }
-                    // 简单输入映射：fixed=时刻；interval=分钟数（如 480）；meal=餐锚
-                    // （早/午/晚/睡前 前缀）；asNeeded 无排程仅按需
-                    TextField(scheduleHint, text: $timeText)
-                        .accessibilityIdentifier("SP-09.plan.time")
+                    // 简单输入映射：fixed=服药时段（默认时刻可再调）；interval=分钟数
+                    // （如 480）；meal=餐锚（早/午/晚/睡前 前缀）；asNeeded 无排程仅按需
+                    if scheduleKind == "fixed" {
+                        Picker(L10n.planFormSlots, selection: $selectedSlot) {
+                            ForEach(DoseTimeSlot.allCases, id: \.self) { slot in
+                                Text(slot.localizedTitle).tag(slot)
+                            }
+                        }
+                        .accessibilityIdentifier("SP-09.plan.slot")
+                        DatePicker(L10n.planFormSlotTime, selection: slotTimeBinding,
+                                   displayedComponents: .hourAndMinute)
+                            .accessibilityIdentifier("SP-09.plan.time")
+                    } else {
+                        TextField(scheduleHint, text: $timeText)
+                            .accessibilityIdentifier("SP-09.plan.time")
+                    }
                 }
                 .navigationTitle(L10n.reminder_planNew)
+                .onChangeCompat(of: selectedSlot) { _, slot in
+                    timeText = slot.defaultTime
+                }
+                .onChangeCompat(of: scheduleKind) { _, kind in
+                    // 切换类型时若当前输入不被新类型接受，填入该类型的可用
+                    // 默认值：否则残留值（如 interval 的 "480"/餐锚中文被
+                    // fixed 闸门拒绝，或 fixed 的 "07:30" 当 interval 用）让
+                    // 保存键恒灰，而表单没有任何说明。
+                    guard NewPlanScheduleMapper.schedule(kind: kind, timeText: timeText) == nil else { return }
+                    switch kind {
+                    case "fixed": timeText = selectedSlot.defaultTime
+                    case "interval": timeText = "480"
+                    case "meal": timeText = DoseScheduleEngine.MealAnchorRules.defaultInput
+                    default: break
+                    }
+                }
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
                         Button(L10n.reminder_save) { onCreate(name, spec, timeText, scheduleKind, units) }
@@ -286,6 +317,13 @@ struct NewPlanSheet: View {
                 }
             }
         }
+    }
+
+    /// 固定时刻的 DatePicker 绑定（字符串 ↔ Date 转换在 Domain 单一事实源）。
+    private var slotTimeBinding: Binding<Date> {
+        Binding(
+            get: { DoseTimeSlotRules.date(for: timeText) ?? Date() },
+            set: { timeText = DoseTimeSlotRules.timeString(from: $0) })
     }
 
     /// 排程参数输入提示（按类型）

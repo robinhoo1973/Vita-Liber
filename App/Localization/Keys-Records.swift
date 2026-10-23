@@ -179,6 +179,7 @@ extension L10n {
 static var problemTitle: String { t("problem.title") }
     static var problemEmpty: String { t("problem.empty") }
     static var problemEmptyHint: String { t("problem.emptyHint") }
+    static var problemEmptyArchivedHint: String { t("problem.emptyArchivedHint") }
     static var problemCreateTitle: String { t("problem.createTitle") }
     static var problemSaveFailedHint: String { t("problem.saveFailedHint") }
     static var problemNamePlaceholder: String { t("problem.namePlaceholder") }
@@ -187,6 +188,16 @@ static var problemTitle: String { t("problem.title") }
     static var problemMergeHint: String { t("problem.mergeHint") }
     static var problemArchive: String { t("problem.archive") }
     static var problemUnarchive: String { t("problem.unarchive") }
+    static var problemEdit: String { t("problem.edit") }
+    static var problemDelete: String { t("problem.delete") }
+    static var problemDeleteTitle: String { t("problem.deleteTitle") }
+    static var problemDeleteHint: String { t("problem.deleteHint") }
+    static var problemShowArchived: String { t("problem.showArchived") }
+    static var problemArchived: String { t("problem.archived") }
+    static var problemEditTitle: String { t("problem.editTitle") }
+    static var problemNotSet: String { t("problem.notSet") }
+    static var problemDurationChronicRecent: String { t("problem.duration.chronicRecent") }
+    static var problemDurationSurgeryRecent: String { t("problem.duration.surgeryRecent") }
     static var problemAdd: String { t("problem.add") }
     static var healthExamTitle: String { t("healthExam.title") }
     static var healthExamHeader: String { t("healthExam.header") }

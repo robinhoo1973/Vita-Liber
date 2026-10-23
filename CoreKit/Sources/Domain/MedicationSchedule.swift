@@ -167,6 +167,10 @@ public enum DoseScheduleEngine {
                 .filter { seen.insert($0).inserted }
         }
 
+        /// 快速新建切到「餐锚」时的默认输入（两次/日：早、晚）。词表在
+        /// Domain，视图不得自带中文锚词（L10n 单出口 + 词表单一事实源）。
+        public static let defaultInput = "早,晚"
+
         private static let tokenMap: [String: String] = [
             "早": "beforeBreakfast", "早上": "beforeBreakfast",
             "早餐前": "beforeBreakfast", "早饭前": "beforeBreakfast", "空腹": "beforeBreakfast",
@@ -234,6 +238,13 @@ public enum DoseScheduleEngine {
     /// 在 fixed 通道漏网。
     public static func isValidTime(_ time: String) -> Bool {
         hourMinute(time) != nil
+    }
+
+    /// "HH:mm" → 当日分钟数（DoseTimeSlotRules 排序/DatePicker 绑定共用——
+    /// 时刻解析语义仍只有 `hourMinute` 一处，不在视图层复制）。
+    public static func minutes(_ time: String) -> Int? {
+        guard let (hour, minute) = hourMinute(time) else { return nil }
+        return hour * 60 + minute
     }
 
     static func date(day: Int, time: String, startDate: Date, calendar: Calendar) -> Date? {

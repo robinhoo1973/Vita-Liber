@@ -260,6 +260,15 @@ extension L10n {
 
     static func problemMergeInto(_ name: String) -> String { String(format: t("problem.mergeIntoFmt"), name) }
 
+    /// 病程时长（2026-10-23 业主：显示慢性病多久了）；0 年由调用方改用 Recent 静态键。
+    static func problemDurationChronicFmt(_ years: Int) -> String {
+        String(format: t("problem.duration.chronicFmt"), years)
+    }
+
+    static func problemDurationSurgeryFmt(_ years: Int) -> String {
+        String(format: t("problem.duration.surgeryFmt"), years)
+    }
+
     static func prepDaysLeft(_ n: Int) -> String { String(format: t("prep.daysLeftFmt"), n) }
 
     static func apptFollowUpDays(_ n: Int) -> String { String(format: t("appt.followUpDaysFmt"), n) }

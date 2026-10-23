@@ -64,7 +64,9 @@ final class TimelineViewState {
             // （旧注释称「保留供搜索/健康问题页复用」，实际搜索走 FTS、问题页走 problems），
             // 却让本页每次加载（首屏/切筛选/切成员/保存文档）都多跑一条九分支 UNION ALL。
             async let hubPage = store.hubPage(patientId: patientId, filter: filter, limit: Self.pageSize)
-            async let probs = problemStore.list(patientId: patientId)
+            // 2026-10-23 业主：归档条目必须可见才能取消归档/恢复——
+            // 列表侧按「显示已归档」开关过滤，数据源始终含归档行。
+            async let probs = problemStore.list(patientId: patientId, includeArchived: true)
             let (h, pr) = try await (hubPage, probs)
             guard loadingPatientId == patientId, loadingFilter == filter else { return }
             hubs = h.entries
@@ -145,22 +147,50 @@ final class TimelineViewState {
         }
     }
 
-    func setArchived(problemId: UUID, archived: Bool) async {
+    @discardableResult
+    func setArchived(problemId: UUID, archived: Bool) async -> Bool {
         do {
             try await problemStore.setArchived(id: problemId, archived: archived)
             if let patientId = loadingPatientId { await load(patientId: patientId) }
+            return true
         } catch {
-            // 同上
+            // 错误经调用侧呈现（行内提示）
+            return false
+        }
+    }
+
+    /// 后期修改健康史条目（名称/类型/部位/年份）。失败返回 false 由调用侧提示。
+    func updateProblem(id: UUID, update: HealthProblemStore.ProblemUpdate) async -> Bool {
+        do {
+            try await problemStore.update(id: id, update)
+            if let patientId = loadingPatientId { await load(patientId: patientId) }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 删除健康史条目（关联诊断/观察保留，仅解引用——BR-002）。
+    func deleteProblem(id: UUID) async -> Bool {
+        do {
+            try await problemStore.delete(id: id)
+            if let patientId = loadingPatientId { await load(patientId: patientId) }
+            return true
+        } catch {
+            return false
         }
     }
 
     /// FR11.4 合并：主问题保留、被合并问题归档（各自历史不丢）
-    func mergeProblems(primary: UUID, secondary: UUID) async {
+    @discardableResult
+    func mergeProblems(primary: UUID, secondary: UUID) async -> Bool {
         do {
             try await problemStore.merge(primary: primary, into: secondary)
             if let patientId = loadingPatientId { await load(patientId: patientId) }
+            return true
         } catch {
-            // 同上
+            // 错误经调用侧呈现（行内提示）
+            return false
         }
     }
 }
@@ -541,17 +571,44 @@ struct HealthProblemListView: View {
     @Environment(AppState.self) private var app
     @Environment(TimelineViewState.self) private var state
     @Environment(AppDataChangeCenter.self) private var dataChange
-    @State private var showCreate = false
+    @State private var activeSheet: ActiveSheet?
     @State private var showMerge = false
     @State private var mergePrimary: HealthProblemStore.HealthProblemRow?
+    /// 删除二次确认（行右滑 → 删除）。
+    @State private var deleteTarget: HealthProblemStore.HealthProblemRow?
+    /// 操作失败的行内提示——不与删除确认/合并弹窗抢同一展示位。
+    @State private var actionFailed = false
+    @State private var showArchived = false
     @State private var kindFilter: String
+
+    /// 单一 sheet 槽位：SwiftUI 同层多 `.sheet` 只有最后一个生效，
+    /// 新建与编辑必须共用一个 item 驱动（否则编辑入口静默不弹）。
+    private enum ActiveSheet: Identifiable {
+        case create(defaultKind: String)
+        case edit(HealthProblemStore.HealthProblemRow)
+
+        var id: String {
+            switch self {
+            case .create: return "create"
+            case .edit(let problem): return problem.id.uuidString
+            }
+        }
+    }
 
     init(initialKind: String = "chronic") {
         _kindFilter = State(initialValue: initialKind)
     }
 
     private var visibleProblems: [HealthProblemStore.HealthProblemRow] {
-        state.problems.filter { kindFilter == "all" || ($0.kind ?? "chronic") == kindFilter }
+        state.problems.filter {
+            (kindFilter == "all" || ($0.kind ?? "chronic") == kindFilter)
+                && (showArchived || !$0.archived)
+        }
+    }
+
+    private var deleteBinding: Binding<Bool> {
+        Binding(get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } })
     }
 
     var body: some View {
@@ -565,47 +622,71 @@ struct HealthProblemListView: View {
                     }
                     .pickerStyle(.segmented)
                     .accessibilityIdentifier("SP-49.problem.kindFilter")
+                    // 归档条目默认隐藏，但必须可找回（取消归档入口只在可见时存在）。
+                    Toggle(L10n.problemShowArchived, isOn: $showArchived)
+                        .accessibilityIdentifier("SP-49.problem.showArchived")
+                }
+                if actionFailed {
+                    Section {
+                        Text(L10n.problemSaveFailedHint)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    }
                 }
                 if visibleProblems.isEmpty {
+                    // 归档行始终在数据源里（load 用 includeArchived: true）；若只是
+                    // 被「显示已归档」开关或类型筛选挡住，空态不能谎称「还没有健康问题」
+                    // （审查修正）。有归档行时给可操作的提示。
+                    let hasArchived = state.problems.contains { $0.archived }
                     VLUnavailableView(L10n.problemEmpty, systemImage: "cross.case",
-                                           description: Text(L10n.problemEmptyHint))
+                                           description: Text(hasArchived && !showArchived
+                                                             ? L10n.problemEmptyArchivedHint
+                                                             : L10n.problemEmptyHint))
                         .accessibilityIdentifier("SP-49.problem.empty")
                 } else {
                     ForEach(visibleProblems) { problem in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(problem.name).font(.subheadline)
-                                let regionName = problem.bodyRegion.flatMap { region in
-                                    HealthHistoryCatalog.bodyRegions.first { $0.id == region }?.name
+                        problemRow(problem)
+                            .accessibilityElement(children: .contain)
+                            .accessibilityIdentifier("SP-49.problem.row.\(problem.id.uuidString)")
+                            // 左滑：编辑（入口不再依赖行内常驻按钮，省一行空间）
+                            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                Button {
+                                    activeSheet = .edit(problem)
+                                } label: {
+                                    Label(L10n.problemEdit, systemImage: "pencil")
                                 }
-                                let details = [problem.year.map(L10n.healthHistoryYearFmt), regionName]
-                                    .compactMap { $0 }
-                                if !details.isEmpty {
-                                    Text(details.joined(separator: " · "))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                .tint(Color("brand-primary", bundle: .main))
+                            }
+                            // 右滑：删除 / 归档 / 合并（均需二次确认或可逆）
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    deleteTarget = problem
+                                } label: {
+                                    Label(L10n.problemDelete, systemImage: "trash")
+                                }
+                                Button {
+                                    Task {
+                                        let ok = await state.setArchived(problemId: problem.id,
+                                                                          archived: !problem.archived)
+                                        actionFailed = !ok
+                                    }
+                                } label: {
+                                    Label(problem.archived ? L10n.problemUnarchive : L10n.problemArchive,
+                                          systemImage: problem.archived ? "tray.and.arrow.up" : "archivebox")
+                                }
+                                .tint(.orange)
+                                // 已归档条目不能作为合并起点：Store.merge 两侧都要求
+                                // archived = 0，点了只会 notFound（审查修正）。
+                                if !problem.archived {
+                                    Button {
+                                        showMerge = true
+                                        mergePrimary = problem
+                                    } label: {
+                                        Label(L10n.problemMerge, systemImage: "arrow.triangle.merge")
+                                    }
+                                    .tint(.indigo)
                                 }
                             }
-                            Spacer()
-                            Button {
-                                showMerge = true
-                                mergePrimary = problem
-                            } label: {
-                                Text(L10n.problemMerge)
-                                    .font(.caption)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                            Button(problem.archived ? L10n.problemUnarchive : L10n.problemArchive) {
-                                Task { await state.setArchived(problemId: problem.id,
-                                                               archived: !problem.archived) }
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .frame(minHeight: 44)   // 触点≥44pt（审查修复）
-                        }
-                        .accessibilityIdentifier("SP-49.problem.row.\(problem.id.uuidString)")
                     }
                 }
             }
@@ -615,7 +696,7 @@ struct HealthProblemListView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        showCreate = true
+                        activeSheet = .create(defaultKind: kindFilter == "surgery" ? "surgery" : "chronic")
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -623,8 +704,27 @@ struct HealthProblemListView: View {
                     .accessibilityIdentifier("SP-49.problem.add")
                 }
             }
-            .sheet(isPresented: $showCreate) {
-                ProblemCreateSheet(defaultKind: kindFilter == "surgery" ? "surgery" : "chronic")
+            // 单一 sheet：新建/编辑共用（同层多 sheet 只有最后一个生效）。
+            .sheet(item: $activeSheet) { sheet in
+                switch sheet {
+                case .create(let defaultKind):
+                    ProblemCreateSheet(defaultKind: defaultKind)
+                case .edit(let problem):
+                    ProblemEditSheet(problem: problem)
+                }
+            }
+            .alert(L10n.problemDeleteTitle, isPresented: deleteBinding,
+                   presenting: deleteTarget) { target in
+                Button(L10n.problemDelete, role: .destructive) {
+                    Task {
+                        let ok = await state.deleteProblem(id: target.id)
+                        actionFailed = !ok
+                        deleteTarget = nil
+                    }
+                }
+                Button(L10n.commonCancel, role: .cancel) { deleteTarget = nil }
+            } message: { _ in
+                Text(L10n.problemDeleteHint)
             }
             .confirmationDialog(L10n.problemMergeTitle, isPresented: $showMerge,
                                 titleVisibility: .visible) {
@@ -638,7 +738,8 @@ struct HealthProblemListView: View {
                                     // 长按发起的问题并入归档（ui-ux §5.25：选择主问题，
                                     // 两问题历史并入主问题下）。此前参数颠倒：按钮承诺
                                     // 「并入「B」」而实际归档 B 保留 A。
-                                    await state.mergeProblems(primary: other.id, secondary: primary.id)
+                                    let ok = await state.mergeProblems(primary: other.id, secondary: primary.id)
+                                    actionFailed = !ok
                                 }
                             }
                         }
@@ -650,6 +751,50 @@ struct HealthProblemListView: View {
             }
             .task(id: app.currentPatientId) { await state.load(patientId: app.currentPatientId) }
         }
+    }
+
+    /// 行内容：名称 + 归档徽章 + 年份/病程/部位（2026-10-23 业主：显示慢性病多久了）。
+    @ViewBuilder
+    private func problemRow(_ problem: HealthProblemStore.HealthProblemRow) -> some View {
+        let regionName = problem.bodyRegion.flatMap { region in
+            HealthHistoryCatalog.bodyRegions.first { $0.id == region }?.name
+        }
+        let details = [problem.year.map(L10n.healthHistoryYearFmt),
+                       durationText(for: problem),
+                       regionName].compactMap { $0 }
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text(problem.name).font(.subheadline)
+                if problem.archived {
+                    Text(L10n.problemArchived)
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color("text-tertiary", bundle: .main).opacity(0.12),
+                                    in: Capsule())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if !details.isEmpty {
+                Text(details.joined(separator: " · "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: 44)   // 触点≥44pt
+    }
+
+    /// 病程时长（Domain 纯函数；年份未知/非法 → 不显示，绝不编造）。
+    private func durationText(for problem: HealthProblemStore.HealthProblemRow) -> String? {
+        guard let years = HealthProblemRules.durationYears(since: problem.year) else { return nil }
+        let isSurgery = (problem.kind ?? "chronic") == "surgery"
+        if years == 0 {
+            return isSurgery ? L10n.problemDurationSurgeryRecent : L10n.problemDurationChronicRecent
+        }
+        return isSurgery
+            ? L10n.problemDurationSurgeryFmt(years)
+            : L10n.problemDurationChronicFmt(years)
     }
 }
 

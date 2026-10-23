@@ -224,6 +224,38 @@ extension L10n {
 
     static var planFormFixedTimes: String { t("plan.form.fixedTimes") }
 
+    static var planFormSlots: String { t("plan.form.slots") }
+
+    static var planFormSlotTime: String { t("plan.form.slotTime") }
+
+    static func planFormSlotTimeFmt(_ name: String) -> String {
+        String(format: t("plan.form.slotTimeFmt"), name)
+    }
+
+    static var planFormSlotsHint: String { t("plan.form.slots.hint") }
+
+    static var planFormSlotMissing: String { t("plan.form.slot.missing") }
+
+    static var planFormCustomTimesInvalid: String { t("plan.form.customTimesInvalid") }
+
+    static var planFormSlotDuplicate: String { t("plan.form.slot.duplicate") }
+
+    static var slotAfterWake: String { t("slot.afterWake") }
+
+    static var slotBeforeBreakfast: String { t("slot.beforeBreakfast") }
+
+    static var slotAfterBreakfast: String { t("slot.afterBreakfast") }
+
+    static var slotBeforeLunch: String { t("slot.beforeLunch") }
+
+    static var slotAfterLunch: String { t("slot.afterLunch") }
+
+    static var slotBeforeDinner: String { t("slot.beforeDinner") }
+
+    static var slotAfterDinner: String { t("slot.afterDinner") }
+
+    static var slotBeforeSleep: String { t("slot.beforeSleep") }
+
     static var planFormAsNeeded: String { t("plan.form.asNeeded") }
 
     static var planFormStartDate: String { t("plan.form.startDate") }

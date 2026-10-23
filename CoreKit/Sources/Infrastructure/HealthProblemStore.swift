@@ -123,6 +123,59 @@ public actor HealthProblemStore {
         }
     }
 
+    /// 用户后期修改（2026-10-23 业主：慢性病/手术需提供修改入口）。
+    public struct ProblemUpdate: Sendable, Equatable {
+        public var name: String
+        public var kind: String?
+        public var bodyRegion: String?
+        public var bodySite: String?
+        public var year: Int?
+        public init(name: String, kind: String?, bodyRegion: String?,
+                    bodySite: String?, year: Int?) {
+            self.name = name; self.kind = kind
+            self.bodyRegion = bodyRegion; self.bodySite = bodySite; self.year = year
+        }
+    }
+
+    /// 全字段更新：行不存在必须抛错（UPDATE 0 行曾静默「成功」）。
+    public func update(id: UUID, _ update: ProblemUpdate, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE health_problem
+                   SET name = ?, kind = ?, body_region = ?, body_site = ?, year = ?, updated_at = ?
+                 WHERE id = ?
+                """, arguments: [update.name, update.kind, update.bodyRegion,
+                                  update.bodySite, update.year,
+                                  now.timeIntervalSince1970, id.uuidString])
+            guard db.changesCount > 0 else { throw StoreError.notFound(id) }
+        }
+    }
+
+    /// 硬删除用户自报的健康史条目（表无 deleted_at，见 §4.3 DDL）。
+    /// BR-002：只删标签，不删医疗事实——关联的 `diagnosis`/`observation`
+    /// 行保留，仅把 `health_problem_id` 置空（外键无 ON DELETE，必须先解引用，
+    /// 否则 DELETE 触发 FK 约束失败）。同一事务内完成，不产生半删除状态。
+    public func delete(id: UUID, now: Date = Date()) async throws {
+        try await writer.write { db in
+            guard try Row.fetchOne(db, sql: "SELECT id FROM health_problem WHERE id = ?",
+                                   arguments: [id.uuidString]) != nil else {
+                throw StoreError.notFound(id)
+            }
+            let stamp = now.timeIntervalSince1970
+            try db.execute(sql: """
+                UPDATE diagnosis SET health_problem_id = NULL, updated_at = ?
+                 WHERE health_problem_id = ?
+                """, arguments: [stamp, id.uuidString])
+            try db.execute(sql: """
+                UPDATE observation SET health_problem_id = NULL, updated_at = ?
+                 WHERE health_problem_id = ?
+                """, arguments: [stamp, id.uuidString])
+            try db.execute(sql: "DELETE FROM health_problem WHERE id = ?",
+                           arguments: [id.uuidString])
+            guard db.changesCount > 0 else { throw StoreError.notFound(id) }
+        }
+    }
+
     /// 归档/取消归档（FR11.4：归档问题不出现在默认筛选；取消归档可恢复）
     public func setArchived(id: UUID, archived: Bool, now: Date = Date()) async throws {
         try await writer.write { db in
