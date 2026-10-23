@@ -58,9 +58,10 @@ enum ChatAttachmentMerger {
 
             case .pdf(let document):
                 containsPDF = true
-                for page in document.pages ?? [] {
+                for index in 0..<document.pageCount {
                     if pages >= maxPages { truncated = true; break }
-                    let bounds = page.bounds(for: .mediaBox)
+                    guard let page = document.page(at: index) else { continue }
+                    let bounds = page.bounds(for: PDFDisplayBox.mediaBox)
                     guard bounds.width > 0, bounds.height > 0, let pageRef = page.pageRef else { continue }
                     let rect = aspectFit(bounds.size, into: content)
                     context.beginPDFPage(nil)
