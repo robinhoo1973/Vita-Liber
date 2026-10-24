@@ -62,7 +62,7 @@
 "voice.reminder.timeUnclear" = "时间不够明确，请补充具体日期或时间";
 "voice.reminder.timeUnheard" = "没听清提醒时间，请再说一次或手动选择时间";
 "voice.reminder.saveFailed" = "提醒设置失败，请重试。";
-"backup.title" = "iCloud 备份";
+"backup.title" = "备份与恢复";
 "backup.create" = "创建备份";
 "backup.restore" = "从备份恢复";
 "backup.degrade.notSignedIn" = "未登录 iCloud，无法备份到 iCloud Drive。你仍可导出到本机文件。";
@@ -205,7 +205,7 @@
 "f19.contactAmbiguous" = "未找到「%1$@」的精确匹配；相近联系人「%2$@」。为避免拨错（急救安全），请说出其完整姓名后重试";
 "f19.repeatObject" = "将拨打 %@。请确认。";
 "f19.executed" = "已执行：%@";
-"fr24.title" = "发送状态";
+"fr24.title" = "发送记录";
 "fr24.empty" = "还没有发送记录";
 "fr24.emptyHint" = "分享求助卡后会在这里看到发送状态";
 "fr24.recipient" = "收件人：";
@@ -216,10 +216,10 @@
 "fr24.statusAcked" = "已回执";
 "fr24.statusTimeout" = "超时";
 "hub.healthRecords" = "医疗档案";
-"hub.guidelines" = "参考范围来源";
+"hub.guidelines" = "参考范围与来源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授权（独立开关，关掉即停）";
-"settings.resourceManagement" = "模型与数据资源";
+"settings.resourceManagement" = "离线资源与更新";
 "settings.resource.active" = "进行中";
 "settings.resource.catalog" = "资源清单";
 "settings.resource.catalogRow" = "医疗数据目录";
@@ -279,10 +279,11 @@
 "settings.resource.catalog.updateHint" = "下载并安装新目录；安装期间本机目录保持可用";
 "settings.resource.catalog.cancelHint" = "停止更新并保留当前目录";
 "settings.resource.catalog.cancelCheckHint" = "停止检查";
-"settings.habits" = "常用习惯";
-"settings.pro" = "Pro";
-"settings.privacy" = "隐私与数据";
-"privacyAuth.title" = "分目的授权";
+"settings.habits" = "显示与朗读";
+"settings.notificationsGroup" = "通知与提醒";
+"settings.pro" = "Pro 与订阅";
+"settings.privacy" = "隐私与安全";
+"privacyAuth.title" = "隐私授权";
 "privacyAuth.footer" = "关闭开关只停止后续处理，不删除已有数据。";
 "privacyAuth.explainers" = "不可开关（隐私承诺）";
 "privacyAuth.storageNote" = "数据仅保存在本机（永久免费承诺）。";
@@ -313,15 +314,15 @@
 "privacyAuth.voice.disabled" = "语音速记已关闭——请手输";
 "privacyAuth.backup.disabled" = "云备份授权已关闭——本地导出不受影响";
 
-"settings.about" = "关于";
+"settings.about" = "关于与帮助";
 "settings.remindAdvance" = "提醒提前量：%@ 分钟";
 "settings.snooze" = "稍后时长：%@ 分钟";
 "settings.quietHours" = "安静时段：%1$@ - %2$@";
 "settings.disclaimer" = "本 App 不是医疗设备，不下诊断、不给治疗方案建议。";
-"settings.proUpgrade" = "Pro 升级与恢复";
-"settings.audit" = "审计记录";
+"settings.proUpgrade" = "升级 Pro";
+"settings.audit" = "活动记录";
 "settings.restoreDefaults" = "恢复默认设置";
-"settings.help" = "帮助与关于";
+"settings.help" = "帮助中心";
 "settings.careMode" = "关怀模式";
 "settings.voiceEntry" = "语音快速入口";
 "security.unlockTitle" = "解锁青囊书";
@@ -330,7 +331,7 @@
 "security.unlockReason" = "验证以解锁青囊书";
 "security.unlockFailed" = "验证未通过，请重试";
 "sensitive.unlockReason" = "验证以查看敏感内容";
-"settings.appearance" = "外观与主题";
+"settings.appearance" = "外观与语言";
 "settings.themeLight" = "浅色";
 "settings.themeDark" = "深色";
 "settings.themeSystem" = "跟随系统";
@@ -424,7 +425,7 @@
 "help.disclaimer" = "本 App 不是医疗设备：不下诊断、不给治疗方案建议、不替代医生。紧急情况请直接拨打 120 或前往医院。";
 "help.version" = "版本 1.0.0（构建自源码）";
 "help.versionFormat" = "版本 %1$@ · 构建 %2$@ · 代码哈希 %3$@";
-"help.privacyPlaceholder" = "隐私政策与服务条款全文（M1.5 接入正式文本与版本号/生效日期）";
+"help.privacyPlaceholder" = "隐私政策与服务条款全文将在正式版本提供。";
 "pay.busy" = "处理中…";
 "pay.restore" = "恢复购买";
 "paywall.purchaseFailed" = "购买未完成（可能已取消或网络不可用），可稍后重试。";
@@ -697,7 +698,7 @@
 "help.diag.dataHealth" = "数据与存储健康";
 "help.diag.system" = "系统诊断";
 "help.diag.systemHint" = "检查权限状态、提醒调度和存储健康状况";
-"help.about.legal" = "关于与法律声明";
+"help.about.legal" = "版本与法律";
 "help.perm.section" = "权限状态";
 "help.perm.camera" = "相机";
 "help.perm.mic" = "麦克风";
@@ -739,7 +740,7 @@
 // F22 关于页（SP-48）
 "help.about.section" = "关于";
 "help.legal.section" = "法律与免责声明";
-"help.terms.title" = "隐私政策与服务条款（SP-47）";
+"help.terms.title" = "隐私政策与服务条款";
 "help.section" = "帮助";
 "backup.unlockReason" = "验证以导出或恢复备份";
 "backup.exportConfirm.title" = "导出确认";
@@ -782,7 +783,7 @@
 "home.care.capture" = "拍摄记录";
 "home.care.sos" = "呼救";
 "home.doseSlot" = "服药时段";
-"nc.title" = "通知中心";
+"nc.title" = "通知收件箱";
 "nc.section.pending" = "待处理";
 "nc.section.appointment" = "预约";
 "nc.section.expiry" = "药品临期";
@@ -1208,7 +1209,7 @@
 "showcase.exit" = "退出展示";
 "showcase.empty" = "暂无观察记录";
 "showcase.unlockReason" = "进入就诊展示模式";
-"remch.title" = "提醒触达";
+"remch.title" = "提醒方式";
 "remch.sectionHint" = "每类提醒的触达方式";
 "remch.sectionFooter" = "响铃直到确认需要系统特殊权限，将在后续版本申请后生效；「静音仅横幅」目前仅对用药剂量与时段提醒生效，其余类别暂按系统提醒投递（应用内横幅通道就绪后逐类生效）";
 "remch.meds" = "用药";
@@ -1535,7 +1536,7 @@
 "auth.anonymized" = "匿名化改进";
 "auth.health" = "Apple 健康数据";
 "auth.voiceDictation" = "语音速记识别";
-"settings.dataLifecycle" = "数据生命周期";
+"settings.dataLifecycle" = "管理与删除数据";
 "pref.group.reminders" = "提醒";
 "pref.group.display" = "显示与单位";
 "pref.group.voice" = "语音与关怀";
@@ -1784,7 +1785,7 @@
 "home.profileMissingMoreFmt" = "等 %1$d 项";
 "home.disclaimer" = "本地医疗档案 · 不联网 · 不诊断";
 "timeline.quickEntry" = "快捷入口";
-"settings.offlineNote" = "本机离线模式 · 未注册云账户";
+"settings.offlineNote" = "本机模式 · 数据仅存此设备";
 "voice.field.date" = "日期";
 "voice.field.hour" = "时间";
 "voice.field.repeat" = "重复";
@@ -1827,7 +1828,7 @@
 "pay.addonPack" = "追加包";
 "pay.addonPrice" = "单独定价";
 "pay.addonDetail" = "核保资料包 · 自定义预警阈值 · 配药清单高级模板";
-"pro.outputTitle" = "Pro 产出包";
+"pro.outputTitle" = "Pro 功能";
 "pro.outputPreview" = "产出预览";
 "pro.featureDoctorSummary" = "医生摘要定制模板";
 "pro.featureDoctorSummaryDesc" = "按就诊生成可定制的医生沟通摘要";
@@ -2413,11 +2414,11 @@
 "health.connectDevice" = "连接设备以查看健康数据";
 "health.connectButton" = "连接设备";
 
-"settings.dataAndResources" = "数据与资源";
+"settings.dataAndResources" = "数据与存储";
 
 "voice.langInputFooter" = "点击切换选择，首位为主语言；语言资源不可选时，到「模型与数据资源」页下载。";
 "voiceLab.building" = "正在构建识别引擎…";
-"settings.auditEmpty" = "暂无审计记录";
+"settings.auditEmpty" = "暂无活动记录";
 
 "updateAdvice.title" = "更新通告";
 "updateAdvice.note" = "通告信息，未在本机校验；更新结论只能由本机检查产出。";

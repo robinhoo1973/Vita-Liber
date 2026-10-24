@@ -62,7 +62,7 @@
 "voice.reminder.timeUnclear" = "時間不夠明確，請補充具體日期或時間";
 "voice.reminder.timeUnheard" = "沒聽清提醒時間，請再說一次或手動選擇時間";
 "voice.reminder.saveFailed" = "提醒設定失敗，請重試。";
-"backup.title" = "iCloud 備份";
+"backup.title" = "備份與恢復";
 "backup.create" = "建立備份";
 "backup.restore" = "從備份還原";
 "backup.degrade.notSignedIn" = "未登入 iCloud，無法備份到 iCloud Drive。你仍可匯出到本機檔案。";
@@ -205,7 +205,7 @@
 "f19.contactAmbiguous" = "未找到「%1$@」的精確匹配；相近聯絡人「%2$@」。為避免撥錯（急救安全），請說出其完整姓名後重試";
 "f19.repeatObject" = "將撥打 %@。請確認。";
 "f19.executed" = "已執行：%@";
-"fr24.title" = "發送狀態";
+"fr24.title" = "傳送記錄";
 "fr24.empty" = "還沒有發送記錄";
 "fr24.emptyHint" = "分享求助卡後會在這裡看到發送狀態";
 "fr24.recipient" = "收件人：";
@@ -216,10 +216,10 @@
 "fr24.statusAcked" = "已回執";
 "fr24.statusTimeout" = "逾時";
 "hub.healthRecords" = "醫療檔案";
-"hub.guidelines" = "參考範圍來源";
+"hub.guidelines" = "參考範圍與來源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授權（獨立開關，關掉即停）";
-"settings.resourceManagement" = "模型與資料資源";
+"settings.resourceManagement" = "離線資源與更新";
 "settings.resource.active" = "進行中";
 "settings.resource.catalog" = "資源清單";
 "settings.resource.catalogRow" = "醫療資料目錄";
@@ -279,10 +279,11 @@
 "settings.resource.catalog.updateHint" = "下載並安裝新目錄；安裝期間本機目錄保持可用";
 "settings.resource.catalog.cancelHint" = "停止更新並保留目前目錄";
 "settings.resource.catalog.cancelCheckHint" = "停止檢查";
-"settings.habits" = "常用習慣";
-"settings.pro" = "Pro";
-"settings.privacy" = "隱私與資料";
-"privacyAuth.title" = "分目的授權";
+"settings.habits" = "顯示與朗讀";
+"settings.notificationsGroup" = "通知與提醒";
+"settings.pro" = "Pro 與訂閱";
+"settings.privacy" = "隱私與安全";
+"privacyAuth.title" = "隱私授權";
 "privacyAuth.footer" = "關閉開關只停止後續處理，不刪除已有資料。";
 "privacyAuth.explainers" = "不可開關（隱私承諾）";
 "privacyAuth.storageNote" = "資料僅儲存在本機（永久免費承諾）。";
@@ -313,15 +314,15 @@
 "privacyAuth.voice.disabled" = "語音速記已關閉——請手輸";
 "privacyAuth.backup.disabled" = "雲端備份授權已關閉——本機匯出不受影響";
 
-"settings.about" = "關於";
+"settings.about" = "關於與說明";
 "settings.remindAdvance" = "提醒提前量：%@ 分鐘";
 "settings.snooze" = "稍後時長：%@ 分鐘";
 "settings.quietHours" = "安靜時段：%1$@ - %2$@";
 "settings.disclaimer" = "本 App 不是醫療設備，不下診斷、不給治療方案建議。";
-"settings.proUpgrade" = "Pro 升級與恢復";
-"settings.audit" = "稽核記錄";
+"settings.proUpgrade" = "升級 Pro";
+"settings.audit" = "活動記錄";
 "settings.restoreDefaults" = "恢復預設設定";
-"settings.help" = "說明與關於";
+"settings.help" = "說明中心";
 "settings.careMode" = "關懷模式";
 "settings.voiceEntry" = "語音快速入口";
 "security.unlockTitle" = "解鎖青囊書";
@@ -330,7 +331,7 @@
 "security.unlockReason" = "驗證以解鎖青囊書";
 "security.unlockFailed" = "驗證未通過，請重試";
 "sensitive.unlockReason" = "驗證以查看敏感內容";
-"settings.appearance" = "外觀與主題";
+"settings.appearance" = "外觀與語言";
 "settings.themeLight" = "淺色";
 "settings.themeDark" = "深色";
 "settings.themeSystem" = "跟隨系統";
@@ -424,7 +425,7 @@
 "help.disclaimer" = "本 App 不是醫療設備：不下診斷、不給治療方案建議、不替代醫生。緊急情況請直接撥打 120 或前往醫院。";
 "help.version" = "版本 1.0.0（構建自源碼）";
 "help.versionFormat" = "版本 %1$@ · 建置 %2$@ · 程式碼雜湊 %3$@";
-"help.privacyPlaceholder" = "隱私政策與服務條款全文（M1.5 接入正式文本與版本號/生效日期）";
+"help.privacyPlaceholder" = "隱私政策與服務條款全文將於正式版本提供。";
 "pay.busy" = "處理中…";
 "pay.restore" = "恢復購買";
 "paywall.purchaseFailed" = "購買未完成（可能已取消或網路不可用），可稍後重試。";
@@ -697,7 +698,7 @@
 "help.diag.dataHealth" = "數據與存儲健康";
 "help.diag.system" = "系統診斷";
 "help.diag.systemHint" = "檢查權限狀態、提醒調度和存儲健康狀況";
-"help.about.legal" = "關於與法律聲明";
+"help.about.legal" = "版本與法律";
 "help.perm.section" = "權限狀態";
 "help.perm.camera" = "相機";
 "help.perm.mic" = "麥克風";
@@ -739,7 +740,7 @@
 // F22 关于页（SP-48）
 "help.about.section" = "關於";
 "help.legal.section" = "法律與免責聲明";
-"help.terms.title" = "隱私政策與服務條款（SP-47）";
+"help.terms.title" = "隱私政策與服務條款";
 "help.section" = "說明";
 "backup.unlockReason" = "驗證以匯出或還原備份";
 "backup.exportConfirm.title" = "匯出確認";
@@ -782,7 +783,7 @@
 "home.care.capture" = "拍攝記錄";
 "home.care.sos" = "呼救";
 "home.doseSlot" = "服藥時段";
-"nc.title" = "通知中心";
+"nc.title" = "通知收件匣";
 "nc.section.pending" = "待處理";
 "nc.section.appointment" = "預約";
 "nc.section.expiry" = "藥品臨期";
@@ -1208,7 +1209,7 @@
 "showcase.exit" = "退出展示";
 "showcase.empty" = "暫無觀察記錄";
 "showcase.unlockReason" = "進入就診展示模式";
-"remch.title" = "提醒觸達";
+"remch.title" = "提醒方式";
 "remch.sectionHint" = "每類提醒的觸達方式";
 "remch.sectionFooter" = "響鈴直到確認需要系統特殊權限，將在後續版本申請後生效；「靜音僅橫幅」目前僅對用藥劑量與時段提醒生效，其餘類別暫按系統提醒投遞（應用內橫幅通道就緒後逐類生效）";
 "remch.meds" = "用藥";
@@ -1535,7 +1536,7 @@
 "auth.anonymized" = "匿名化改善";
 "auth.health" = "Apple 健康資料";
 "auth.voiceDictation" = "語音速記識別";
-"settings.dataLifecycle" = "資料生命週期";
+"settings.dataLifecycle" = "管理與刪除資料";
 "pref.group.reminders" = "提醒";
 "pref.group.display" = "顯示與單位";
 "pref.group.voice" = "語音與關懷";
@@ -1784,7 +1785,7 @@
 "home.profileMissingMoreFmt" = "等 %1$d 項";
 "home.disclaimer" = "本機醫療檔案 · 不聯網 · 不診斷";
 "timeline.quickEntry" = "快捷入口";
-"settings.offlineNote" = "本機離線模式 · 未註冊雲端帳號";
+"settings.offlineNote" = "本機模式 · 資料僅存此裝置";
 "voice.field.date" = "日期";
 "voice.field.hour" = "時間";
 "voice.field.repeat" = "重複";
@@ -1827,7 +1828,7 @@
 "pay.addonPack" = "追加包";
 "pay.addonPrice" = "單獨定價";
 "pay.addonDetail" = "核保資料包 · 自定義預警閾值 · 配藥清單高級模板";
-"pro.outputTitle" = "Pro 產出包";
+"pro.outputTitle" = "Pro 功能";
 "pro.outputPreview" = "產出預覽";
 "pro.featureDoctorSummary" = "醫生摘要定製模板";
 "pro.featureDoctorSummaryDesc" = "按就診生成可定製的醫生溝通摘要";
@@ -2413,11 +2414,11 @@
 "health.connectDevice" = "連線裝置以查看健康資料";
 "health.connectButton" = "連線裝置";
 
-"settings.dataAndResources" = "數據與資源";
+"settings.dataAndResources" = "資料與儲存";
 
 "voice.langInputFooter" = "點擊切換選擇，首位為主語言；語言資源不可選時，到「模型與數據資源」頁下載。";
 "voiceLab.building" = "正在構建識別引擎…";
-"settings.auditEmpty" = "暫無審計記錄";
+"settings.auditEmpty" = "暫無活動記錄";
 
 "updateAdvice.title" = "更新通告";
 "updateAdvice.note" = "通告資訊，未在本機校驗；更新結論只能由本機檢查產出。";

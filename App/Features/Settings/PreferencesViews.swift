@@ -4,8 +4,8 @@ import Perception
 
 // MARK: - FR14.7 常用习惯设置（SP-26 · ui-ux §5.19）
 
-/// 偏好中心：提醒/显示与单位/语音与关怀分组，每项显示当前值、
-/// 影响范围标签（仅新建 / 全局生效——FR14.7 追溯语义）与 [恢复默认]。
+/// 显示与朗读偏好：无耳机回读 / 日期格式 / 默认语速，
+/// 每项显示当前值与影响范围标签（仅新建 / 全局生效——FR14.7 追溯语义）。
 struct PreferencesView: View {
     @Environment(AppSettingsStore.self) private var settings
     @Environment(AppState.self) private var app
@@ -88,12 +88,6 @@ struct PreferencesView: View {
                 } footer: {
                     Text(L10n.prefSpeechRateHint)
                 }
-                // 恢复默认（逐项）
-                Section {
-                    Button(L10n.prefRestoreAll) {
-                        Task { await settings.restoreDefaults() }
-                    }
-                }
             }
                         .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
             .tintedCanvas()
@@ -125,8 +119,9 @@ struct PreferencesView: View {
 
 // MARK: - FR14.3 数据生命周期页（四级删除语义 + 影响清单）
 
-/// 数据生命周期：删除单条 / 删除成员 / 清空全部 / 注销（P1 账户化）——
+/// 数据生命周期：删除单条 / 删除成员 / 清空全部三级——
 /// 每级明示活动数据、缓存、备份、日志的处理状态；执行前展示影响清单。
+/// 设置恢复默认并入本页并保留二次确认；云端注销为 P1 能力，不设占位行。
 struct DataLifecycleView: View {
     @Environment(AppState.self) private var app
     @Environment(ObservationStoreState.self) private var observationState
@@ -166,10 +161,6 @@ struct DataLifecycleView: View {
                         showResetConfirm = true
                     }
                     .accessibilityIdentifier("FR14.3.resetSettings")
-                }
-                Section(L10n.lifecycleLogout) {
-                    Text(L10n.lifecycleLogoutHint)
-                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出

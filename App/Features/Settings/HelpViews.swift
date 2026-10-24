@@ -76,12 +76,6 @@ struct HelpRootView: View {
                 }
 
                 Section {
-                    // 评审修正 H15：走类型安全路由（注册表覆盖 SP-47/48）
-                    NavigationLink(value: AppRoute.termsAndPrivacy) {
-                        Label(L10n.helpAboutLegal, systemImage: "info.circle")
-                    }
-                    .accessibilityIdentifier("FR22.8.about")
-
                     // 2026-10-03 信息架构评审（方案 C）：反馈入口接线（SP-46 已注册
                     // 但此前零入口的死路由）——反馈是隐私优先产品的信任资产，落帮助中心。
                     NavigationLink(value: AppRoute.feedbackReport) {

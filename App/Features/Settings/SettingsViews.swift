@@ -2,8 +2,8 @@ import SwiftUI
 import Domain
 import Perception
 
-/// F14 设置中心（SP 系列 M1c 切片）：分目的授权九开关（FR14.1 独立开关语义）、
-/// 常用习惯（FR14.7）、审计与关于入口。
+/// F14 设置中心（SP-25）：个人资料 / 通知与提醒 / 外观与语言 / 数据与存储 /
+/// 隐私与安全 / Pro 与订阅 / 关于与帮助七组（V4.70 业主收口）。
 struct SettingsView: View {
     @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settings
@@ -74,11 +74,6 @@ struct SettingsView: View {
                 }
                 Section(L10n.profilePersonal) {
                     NavigationLink {
-                        AvatarSettingsView()
-                    } label: {
-                        Label(L10n.profileAvatarRow, systemImage: "person.crop.circle")
-                    }
-                    NavigationLink {
                         AssistantAppearanceView()
                     } label: {
                         Label(L10n.profileAssistantRow, systemImage: "sparkles")
@@ -108,6 +103,22 @@ struct SettingsView: View {
                     // 保留既有 XCUITest 锚点：入口从根级「健康记录」区块迁到个人资料后，
                     // MemberViewsPresentationUITests 仍按此标识定位。
                     .accessibilityIdentifier("SP-25.settings.members")
+                }
+                // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
+                // 首页铃铛是唯一路径；提醒触达设置页亦缺失）
+                Section(L10n.settings_notificationsGroup) {
+                    NavigationLink {
+                        NotificationCenterView()
+                    } label: {
+                        Label(L10n.ncTitle, systemImage: "bell")
+                    }
+                    .accessibilityIdentifier("SP-26.notificationCenter")
+                    NavigationLink {
+                        ReminderChannelSettingsView()
+                    } label: {
+                        Label(L10n.remchTitle, systemImage: "bell.badge")
+                    }
+                    .accessibilityIdentifier("SP-26.remch.entry")
                 }
                 // FR14.4 外观与主题（§5.12.1：三段选择器 + 高对比度/关怀模式；位置对齐 mock 我的页）
                 Section {
@@ -156,6 +167,13 @@ struct SettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("SP-25.setting.voiceLanguage")
+                    // FR14.7 常用习惯：显示格式与朗读语速并入「外观与语言」。
+                    NavigationLink {
+                        PreferencesView()
+                    } label: {
+                        Label(L10n.settings_habits, systemImage: "slider.horizontal.3")
+                    }
+                    .accessibilityIdentifier("SP-26.preferences")
                 } header: {
                     Text(L10n.settings_appearance)
                 } footer: {
@@ -164,37 +182,13 @@ struct SettingsView: View {
                     Text(app.careMode ? L10n.settings_highContrastForced
                                       : L10n.settings_highContrastFooter)
                 }
-                // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
-                // 首页铃铛是唯一路径；提醒触达设置页亦缺失）
-                Section(L10n.ncTitle) {
-                    NavigationLink {
-                        NotificationCenterView()
-                    } label: {
-                        Label(L10n.ncTitle, systemImage: "bell")
+                // 2026-10-24 业主：数据导入/导出/备份/资源/删除收敛为「数据与存储」。
+                Section {
+                    NavigationLink(value: AppRoute.deviceConnection) {
+                        Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
                     }
-                    .accessibilityIdentifier("SP-26.notificationCenter")
-                    NavigationLink {
-                        ReminderChannelSettingsView()
-                    } label: {
-                        Label(L10n.remchTitle, systemImage: "bell.badge")
-                    }
-                    .accessibilityIdentifier("SP-26.remch.entry")
-                }
-                Section(L10n.settings_habits) {
-                    // FR14.7 常用习惯：可编辑偏好中心（含「仅新建/全局生效」标签）
-                    NavigationLink {
-                        PreferencesView()
-                    } label: {
-                        Label(L10n.settings_habits, systemImage: "slider.horizontal.3")
-                    }
-                    .accessibilityIdentifier("SP-26.preferences")
-                    // FR14.3 数据生命周期页（四级删除语义 + 影响清单）
-                    NavigationLink {
-                        DataLifecycleView()
-                    } label: {
-                        Label(L10n.settings_dataLifecycle, systemImage: "clock.arrow.circlepath")
-                    }
-                    .accessibilityIdentifier("FR14.3.dataLifecycle")
+                    .accessibilityIdentifier("SP-25.settings.appleHealth")
+                    // 同步间隔已并入 Apple 健康数据二级页（2026-10-23 业主）。
                     // FR13.1/13.2 导出向导
                     NavigationLink {
                         ExportWizardView()
@@ -208,23 +202,42 @@ struct SettingsView: View {
                         Label(L10n.backupTitle, systemImage: "externaldrive")
                     }
                     .accessibilityIdentifier("SP-23.backup.entry")
-                }
-                // 2026-10-03 信息架构评审（方案 C，ui-ux V4.12）：原 12 入口「健康记录」
-                // 大区拆分——「数据与资源」= 数据导入/资源下载同域聚合；其余档案与记录
-                // 管理入口归「健康记录」。入口集合不变，仅分组。
-                Section {
-                    NavigationLink(value: AppRoute.deviceConnection) {
-                        Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
-                    }
-                    .accessibilityIdentifier("SP-25.settings.appleHealth")
-                    // 同步间隔已并入 Apple 健康数据二级页（2026-10-23 业主）。
                     // SP-64 统一资源管理页入口（2026-09-27 业主定案）
                     NavigationLink(value: AppRoute.resourceManagement) {
                         Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
                     }
                     .accessibilityIdentifier("SP-64.settings.resources")
+                    // FR14.3 数据生命周期页（三级删除语义 + 影响清单）——删除入口置底。
+                    NavigationLink {
+                        DataLifecycleView()
+                    } label: {
+                        Label(L10n.settings_dataLifecycle, systemImage: "clock.arrow.circlepath")
+                    }
+                    .accessibilityIdentifier("FR14.3.dataLifecycle")
                 } header: {
                     Text(L10n.settings_dataAndResources)
+                }
+                Section(L10n.settings_privacy) {
+                    // FR14.1 分目的授权面板入口
+                    NavigationLink {
+                        PrivacyAuthorizationView()
+                    } label: {
+                        Label(L10n.privacyAuthTitle, systemImage: "hand.raised")
+                    }
+                    .accessibilityIdentifier("SP-25.settings.privacyAuth")
+                    // 2026-10-22 业主：发送状态归入隐私与安全，不再放在健康档案。
+                    NavigationLink {
+                        SentStatusHubView()
+                    } label: {
+                        Label(L10n.fr24_title, systemImage: "paperplane")
+                    }
+                    .accessibilityIdentifier("SP-25.settings.sentStatus")
+                    NavigationLink {
+                        AuditLogView()
+                    } label: {
+                        Label(L10n.settings_audit, systemImage: "list.bullet.rectangle")
+                    }
+                    .accessibilityIdentifier("SP-25.settings.audit")
                 }
                 Section(L10n.settings_pro) {
                     NavigationLink {
@@ -247,37 +260,6 @@ struct SettingsView: View {
                     }
                     .accessibilityIdentifier("SP-25.settings.restorePurchases")
                 }
-                Section(L10n.settings_privacy) {
-                    // FR14.1 分目的授权面板入口
-                    NavigationLink {
-                        PrivacyAuthorizationView()
-                    } label: {
-                        Label(L10n.privacyAuthTitle, systemImage: "hand.raised")
-                    }
-                    .accessibilityIdentifier("SP-25.settings.privacyAuth")
-                    NavigationLink {
-                        AuditLogView()
-                    } label: {
-                        Label(L10n.settings_audit, systemImage: "list.bullet.rectangle")
-                    }
-                    .accessibilityIdentifier("SP-25.settings.audit")
-                    // 2026-10-22 业主：发送状态归入隐私与数据，不再放在健康档案。
-                    NavigationLink {
-                        SentStatusHubView()
-                    } label: {
-                        Label(L10n.fr24_title, systemImage: "paperplane")
-                    }
-                    .accessibilityIdentifier("SP-25.settings.sentStatus")
-                    Button {
-                        // 审查修复：恢复默认后必须清本地 toggles 影子——get 优先
-                        // 读 toggles，不清则开关显示仍停留在用户改过的旧值
-                        // （隐私开关虚显示），离开重进才自愈。
-                        toggles = [:]
-                        Task { await settings.restoreDefaults() }
-                    } label: {
-                        Label(L10n.settings_restoreDefaults, systemImage: "arrow.counterclockwise")
-                    }
-                }
                 Section(L10n.settings_about) {
                     NavigationLink {
                         HelpRootView()
@@ -292,6 +274,11 @@ struct SettingsView: View {
                         Label(L10n.hub_guidelines, systemImage: "book")
                     }
                     .accessibilityIdentifier("SP-25.settings.guidelines")
+                    // FR22.8 版本与法律（自帮助中心上移；帮助中心不再重复入口）。
+                    NavigationLink(value: AppRoute.termsAndPrivacy) {
+                        Label(L10n.helpAboutLegal, systemImage: "info.circle")
+                    }
+                    .accessibilityIdentifier("SP-25.settings.aboutLegal")
                     Text(L10n.settings_disclaimer)
                         .font(.caption)
                         .foregroundStyle(.secondary)

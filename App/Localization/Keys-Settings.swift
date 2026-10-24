@@ -66,6 +66,9 @@ extension L10n {
 
         static var settings_authTitle: String { t("settings.authTitle") }
 
+    /// 设置主面「通知与提醒」分组标题（2026-10-24 信息架构收口）
+    static var settings_notificationsGroup: String { t("settings.notificationsGroup") }
+    /// 显示格式与朗读偏好（原「常用习惯」，2026-10-24 收口）
     static var settings_habits: String { t("settings.habits") }
     // SP-64 统一「模型与数据资源」管理页（2026-09-27 业主定案）
     static var resourceManagementTitle: String { t("settings.resourceManagement") }

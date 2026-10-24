@@ -62,7 +62,7 @@
 "voice.reminder.timeUnclear" = "The time isn't specific enough. Please add an exact date or time.";
 "voice.reminder.timeUnheard" = "I didn't catch the reminder time. Please say it again or pick a time manually.";
 "voice.reminder.saveFailed" = "Failed to set the reminder. Please try again.";
-"backup.title" = "iCloud backup";
+"backup.title" = "Backup & Restore";
 "backup.create" = "Create backup";
 "backup.restore" = "Restore from backup";
 "backup.degrade.notSignedIn" = "Not signed in to iCloud, so iCloud Drive backup is unavailable. You can still export to local files.";
@@ -205,7 +205,7 @@
 "f19.contactAmbiguous" = "No exact match for \"%1$@\"; closest contact \"%2$@\". To avoid dialing the wrong person, say the full name and try again";
 "f19.repeatObject" = "Will call %@. Please confirm.";
 "f19.executed" = "Done: %@";
-"fr24.title" = "Sent status";
+"fr24.title" = "Sent Items";
 "fr24.empty" = "No messages sent yet";
 "fr24.emptyHint" = "After sharing a help card, its status appears here";
 "fr24.recipient" = "To: ";
@@ -216,10 +216,10 @@
 "fr24.statusAcked" = "Received";
 "fr24.statusTimeout" = "Timed out";
 "hub.healthRecords" = "Medical record";
-"hub.guidelines" = "Reference ranges";
+"hub.guidelines" = "Reference Ranges & Sources";
 "hub.helpCardOpen" = "Help card";
 "settings.authTitle" = "Permissions (independent toggles)";
-"settings.resourceManagement" = "Models & Data Resources";
+"settings.resourceManagement" = "Offline Resources & Updates";
 "settings.resource.active" = "In Progress";
 "settings.resource.catalog" = "Resources";
 "settings.resource.catalogRow" = "Medical data catalog";
@@ -279,10 +279,11 @@
 "settings.resource.catalog.updateHint" = "Downloads and installs the new catalog; the local catalog stays available during installation";
 "settings.resource.catalog.cancelHint" = "Stops the update and keeps the current catalog";
 "settings.resource.catalog.cancelCheckHint" = "Stops the check";
-"settings.habits" = "Preferences";
-"settings.pro" = "Pro";
-"settings.privacy" = "Privacy & data";
-"privacyAuth.title" = "Per-purpose authorizations";
+"settings.habits" = "Display & Speech";
+"settings.notificationsGroup" = "Notifications & Reminders";
+"settings.pro" = "Pro & Subscription";
+"settings.privacy" = "Privacy & Security";
+"privacyAuth.title" = "Privacy Permissions";
 "privacyAuth.footer" = "Turning a switch off only stops future processing — existing data is kept.";
 "privacyAuth.explainers" = "Not switchable (privacy commitments)";
 "privacyAuth.storageNote" = "Data is stored only on this device (permanently free commitment).";
@@ -313,15 +314,15 @@
 "privacyAuth.voice.disabled" = "Voice dictation is off — type instead";
 "privacyAuth.backup.disabled" = "Cloud backup authorization is off — local export still works";
 
-"settings.about" = "About";
+"settings.about" = "About & Help";
 "settings.remindAdvance" = "Reminder lead: %@ min";
 "settings.snooze" = "Snooze: %@ min";
 "settings.quietHours" = "Quiet hours: %1$@ – %2$@";
 "settings.disclaimer" = "This app is not a medical device; it does not diagnose or advise treatment.";
-"settings.proUpgrade" = "Pro upgrade & restore";
-"settings.audit" = "Audit log";
+"settings.proUpgrade" = "Upgrade to Pro";
+"settings.audit" = "Activity Log";
 "settings.restoreDefaults" = "Restore defaults";
-"settings.help" = "Help & about";
+"settings.help" = "Help Center";
 "settings.careMode" = "Care mode";
 "settings.voiceEntry" = "Voice quick entry";
 "security.unlockTitle" = "Unlock Vita Liber";
@@ -330,7 +331,7 @@
 "security.unlockReason" = "Unlock Vita Liber";
 "security.unlockFailed" = "Verification failed. Please try again.";
 "sensitive.unlockReason" = "Verify to view sensitive content";
-"settings.appearance" = "Appearance & Theme";
+"settings.appearance" = "Appearance & Language";
 "settings.themeLight" = "Light";
 "settings.themeDark" = "Dark";
 "settings.themeSystem" = "Follow System";
@@ -424,7 +425,7 @@
 "help.disclaimer" = "This app is not a medical device: no diagnosis, no treatment advice, no substitute for a doctor. In an emergency call 120 or go to a hospital.";
 "help.version" = "Version 1.0.0 (built from source)";
 "help.versionFormat" = "Version %1$@ Build %2$@ Code Hash %3$@";
-"help.privacyPlaceholder" = "Privacy policy and terms (full text to be wired)";
+"help.privacyPlaceholder" = "Full privacy policy and terms will be provided in the release version.";
 "pay.busy" = "Processing…";
 "pay.restore" = "Restore purchases";
 "paywall.purchaseFailed" = "Purchase did not complete (cancelled or offline). You can retry later.";
@@ -697,7 +698,7 @@
 "help.diag.dataHealth" = "Data & Storage Health";
 "help.diag.system" = "System Diagnostics";
 "help.diag.systemHint" = "Check permission status, reminder scheduling, and storage health";
-"help.about.legal" = "About & Legal";
+"help.about.legal" = "Version & Legal";
 "help.perm.section" = "Permission Status";
 "help.perm.camera" = "Camera";
 "help.perm.mic" = "Microphone";
@@ -739,7 +740,7 @@
 // F22 关于页（SP-48）
 "help.about.section" = "About";
 "help.legal.section" = "Legal & Disclaimer";
-"help.terms.title" = "Privacy Policy & Terms (SP-47)";
+"help.terms.title" = "Privacy Policy & Terms";
 "help.section" = "Help";
 "backup.unlockReason" = "Verify to export or restore backup";
 "backup.exportConfirm.title" = "Confirm Export";
@@ -782,7 +783,7 @@
 "home.care.capture" = "Capture Records";
 "home.care.sos" = "SOS";
 "home.doseSlot" = "Dose Slot";
-"nc.title" = "Notification Center";
+"nc.title" = "Notification Inbox";
 "nc.section.pending" = "Pending";
 "nc.section.appointment" = "Appointments";
 "nc.section.expiry" = "Expiring Soon";
@@ -1208,7 +1209,7 @@
 "showcase.exit" = "Exit";
 "showcase.empty" = "No observations yet";
 "showcase.unlockReason" = "Enter doctor showcase mode";
-"remch.title" = "Reminder Delivery";
+"remch.title" = "Reminder Methods";
 "remch.sectionHint" = "Delivery style for each reminder type";
 "remch.sectionFooter" = "Ring-until-confirmed requires a special system permission; it takes effect after approval in a later version. \"Mute, banner only\" currently applies only to medication dose and slot reminders; other categories still deliver as system notifications until in-app banner channels land.";
 "remch.meds" = "Medications";
@@ -1535,7 +1536,7 @@
 "auth.anonymized" = "Anonymized improvement";
 "auth.health" = "Apple Health data";
 "auth.voiceDictation" = "Voice dictation";
-"settings.dataLifecycle" = "Data Lifecycle";
+"settings.dataLifecycle" = "Manage & Delete Data";
 "pref.group.reminders" = "Reminders";
 "pref.group.display" = "Display & units";
 "pref.group.voice" = "Voice & care";
@@ -1784,7 +1785,7 @@
 "home.profileMissingMoreFmt" = "and %1$d more";
 "home.disclaimer" = "On-device medical records · Offline · No diagnosis";
 "timeline.quickEntry" = "Shortcuts";
-"settings.offlineNote" = "On-device mode · No cloud account";
+"settings.offlineNote" = "On-device mode · Data stays on this device";
 "voice.field.date" = "Date";
 "voice.field.hour" = "Time";
 "voice.field.repeat" = "Repeat";
@@ -1827,7 +1828,7 @@
 "pay.addonPack" = "Add-on Pack";
 "pay.addonPrice" = "Separate pricing";
 "pay.addonDetail" = "Insurance pack · Custom alert thresholds · Advanced dispensing templates";
-"pro.outputTitle" = "Pro Output";
+"pro.outputTitle" = "Pro Features";
 "pro.outputPreview" = "Output Preview";
 "pro.featureDoctorSummary" = "Doctor Summary Template";
 "pro.featureDoctorSummaryDesc" = "Generate customizable doctor communication summaries per visit";
@@ -2413,11 +2414,11 @@
 "health.connectDevice" = "Connect a device to view health data";
 "health.connectButton" = "Connect Device";
 
-"settings.dataAndResources" = "Data & Resources";
+"settings.dataAndResources" = "Data & Storage";
 
 "voice.langInputFooter" = "Tap to select; the first language is the primary one. If a language pack isn't available, download it from Model & Data Resources.";
 "voiceLab.building" = "Building transcription engine…";
-"settings.auditEmpty" = "No audit records yet";
+"settings.auditEmpty" = "No activity yet";
 
 "updateAdvice.title" = "Update notice";
 "updateAdvice.note" = "Notice information, not verified on this device; update conclusions come only from on-device checks.";

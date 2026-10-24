@@ -631,6 +631,7 @@ extension L10n {
         "settings.about",
         "settings.audit", "settings.auditEmpty", "settings.authTitle", "settings.careMode", "settings.disclaimer",
         "settings.habits",
+        "settings.notificationsGroup",
         "settings.resourceManagement",
         "settings.dataAndResources",
         "settings.resource.active",
