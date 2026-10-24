@@ -746,6 +746,9 @@ extension L10n {
 
     static var helpcardRecipientPlaceholder: String { t("helpcard.recipientPlaceholder") }
 
+    /// 急救联系人读取失败时收件人选择器的说明（失败≠没有联系人，可手输）。
+    static var helpcardRecipientContactsUnavailable: String { t("helpcard.recipientContactsUnavailable") }
+
     static var helpcard_photoPending: String { t("helpcard.photoPending") }
 static var lifecycleSingle: String { t("lifecycle.single") }
     static var lifecycleSingleHint: String { t("lifecycle.singleHint") }

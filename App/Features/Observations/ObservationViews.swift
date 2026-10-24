@@ -48,7 +48,7 @@ final class ObservationStoreState {
     private let store: ObservationStore
     private let allergyStore: AllergyStore
     /// F8.4/§5.10 敏感媒体资产仓（BR-007/008）——保存照片时写入资产并返回 id。
-    /// internal：同文件视图（LockedMediaStrip）需读 blur 缩略图（private 跨类型不可见）。
+    /// internal：同文件视图（ObservationMediaStrip）需读照片缩略图（private 跨类型不可见）。
     let mediaAssets: any SensitiveAssetStoring
     private let logger = Logger(subsystem: "com.vitaliber", category: "observations")
 
@@ -302,41 +302,39 @@ final class ObservationStoreState {
 }
 
 
-/// 列表行内的敏感媒体条（BR-007/008）：只渲染 blur 缩略图（§5.10 锁定 UI 永远只读 blur 版），
-/// 原图 URL/数据绝不进入本视图。blur 本身不可辨识，故此处不再套解锁容器——
-/// 解锁查看原图属全屏查看器职责（tech §11 清偿表）。
-struct LockedMediaStrip: View {
+/// 列表行内的观察照片条。2026-10-24 业主裁决 B：敏感标记只约束对外
+/// 分享/导出，App 内直接显示原图（降采样缩略图，避免大图 OOM）；
+/// 点击进入全屏查看器查看原图并留查看审计。
+struct ObservationMediaStrip: View {
     let assetIds: [String]
     let memberId: UUID
     @Environment(ObservationStoreState.self) private var state
-    @State private var blurImages: [UIImage] = []
-    /// 2026-10-03 评审修复（错位照片）：blur 解码失败项被静默丢弃后数组压缩，
+    @State private var thumbImages: [UIImage] = []
+    /// 2026-10-03 评审修复（错位照片）：解码失败项被静默丢弃后数组压缩，
     /// 点击回调按渲染位置取 `assetIds[index]` 会打开**相邻照片**的原图——
     /// 保留与 assetIds 对齐的真实下标（非类型化 (index, images) 耦合的显式化）。
-    @State private var blurAssetIndices: [Int] = []
-    /// 评审修正 U3：点击解锁查看原图（§5.7.1）——此前媒体条无任何手势，
-    /// 原图在 UI 层不可达（SensitiveMediaOriginalView 零调用方，违背
-    /// 永久免费「原图/离线访问」红线）。查看器承载逐次认证 + 30s 空闲重锁。
+    @State private var thumbAssetIndices: [Int] = []
+    /// 点击查看原图（§5.7.1）。查看器负责降采样与查看审计（FR14.2）。
     @State private var viewer: MediaViewerPayload?
-    /// 解码缓存：行回收重建时跳过重复解码（blur Data 已在仓内缓存）
+    /// 解码缓存：行回收重建时跳过重复解码
     private static let imageCache = NSCache<NSString, UIImage>()
 
     struct MediaViewerPayload: Identifiable {
         let assetId: UUID
         let caption: String
-        /// 认证通过后由查看器回调拉取原图（BR-007：认证前原图字节不得进内存）
+        /// 查看器按需拉取原图字节
         let originalLoader: () async -> Data?
         var id: UUID { assetId }
     }
 
     var body: some View {
         WithPerceptionTracking {
-            MediaThumbRow(images: blurImages, size: 56) { index in
+            MediaThumbRow(images: thumbImages, size: 56) { index in
                 // 逐张打开原图（审查修复：原条级点击只开第一张，其余资产不可达）
                 // 2026-10-03 评审修复（错位照片）：渲染位置 → 真实 assetIds 下标
-                guard blurAssetIndices.indices.contains(index),
-                      assetIds.indices.contains(blurAssetIndices[index]),
-                      let assetId = UUID(uuidString: assetIds[blurAssetIndices[index]]) else { return }
+                guard thumbAssetIndices.indices.contains(index),
+                      assetIds.indices.contains(thumbAssetIndices[index]),
+                      let assetId = UUID(uuidString: assetIds[thumbAssetIndices[index]]) else { return }
                 openOriginal(assetId: assetId)
             }
                 .frame(height: 64)
@@ -375,9 +373,9 @@ struct LockedMediaStrip: View {
                         return succeeded.sorted()
                     }
                     guard !Task.isCancelled else { return }
-                    blurAssetIndices = indices
+                    thumbAssetIndices = indices
                     // 静态成员经 Self 前缀（实例上下文引用 static 成员 L1 编译错，CI #643 注解实证）
-                    blurImages = indices.compactMap { Self.imageCache.object(forKey: ids[$0] as NSString) }
+                    thumbImages = indices.compactMap { Self.imageCache.object(forKey: ids[$0] as NSString) }
                 }
         }
     }
@@ -386,16 +384,14 @@ struct LockedMediaStrip: View {
     private static func thumb(id: String, memberId: UUID, state: ObservationStoreState) async -> UIImage? {
         guard let uuid = UUID(uuidString: id) else { return nil }   // 损坏 id 跳过该张，不做无谓查询
         if let cached = imageCache.object(forKey: id as NSString) { return cached }
-        guard let data = try? await state.mediaAssets.blurData(for: uuid, memberId: memberId), // try?-ok: 单张 blur 读取失败跳过该张，不阻断列表（§7 显式降级）
-              let img = UIImage(data: data) else { return nil }
+        guard let data = try? await state.mediaAssets.originalData(for: uuid, memberId: memberId), // try?-ok: 单张读取失败跳过该张，不阻断列表（§7 显式降级）
+              let img = ImageIOImageLoader.downsample(data: data, maxDimension: 160) else { return nil }
         imageCache.setObject(img, forKey: id as NSString)
         return img
     }
 
-    /// 点击解锁流程（§5.7.1）：全屏查看器（逐次设备所有者认证 +
-    /// 30s 空闲重锁，BR-007/008 由查看器自身执行）。
-    /// 评审修正第二轮：原图字节不在点击时预取——loader 由查看器在**认证通过后**
-    /// 回调，认证取消的用户从未让原图进内存（BR-007 读取时序）。
+    /// 点击查看原图（§5.7.1）：全屏查看器按需拉取原图字节，
+    /// 降采样渲染并写查看审计（FR14.2）。
     private func openOriginal(assetId: UUID) {
         let media = state.mediaAssets
         let member = memberId
@@ -611,8 +607,8 @@ struct ObservationCreateSheet: View {
         }
     }
 
-    /// SP-14 步骤2：拍摄/选择媒体——照片属敏感媒体（BR-007/008）：
-    /// 锁定占位只含锁图标与计数（无可辨识内容），解锁后才是缩略图。
+    /// SP-14 步骤2：拍摄/选择媒体。敏感标记只约束对外分享/导出
+    /// （2026-10-24 业主裁决 B），App 内直接显示缩略图。
     private var mediaSection: some View {
         Section(L10n.observationMediaSection) {
             PhotosPicker(selection: $pickerItems, maxSelectionCount: maxPhotos, matching: .images) {
@@ -630,21 +626,9 @@ struct ObservationCreateSheet: View {
             }
             .accessibilityIdentifier("SP-14.observation.camera")
             if !previews.isEmpty {
-                SensitiveMediaContainer { _ in
-                    // 锁定态占位：绝不含可识别内容（BR-007）
-                    HStack(spacing: 12) {
-                        VLIcon.lock.resizable().frame(width: 32, height: 32)
-                        Text(L10n.observationMediaCount(photoData.count))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 72)
-                } content: { _ in
-                    MediaThumbRow(images: previews, size: 72)
-                }
-                .frame(height: 96)
-                .contentShape(Rectangle())   // 空白区也参与点击命中（解锁手势不落空）
-                .accessibilityIdentifier("SP-14.observation.mediaPreview")
+                MediaThumbRow(images: previews, size: 72)
+                    .frame(height: 96)
+                    .accessibilityIdentifier("SP-14.observation.mediaPreview")
             }
             // FR8.3 专项文案（V3.72）：大小便等敏感类型拍摄页固定提示——
             // 照片颜色受光线/白平衡/容器影响，不能用于自我诊断（BR-006 防线）

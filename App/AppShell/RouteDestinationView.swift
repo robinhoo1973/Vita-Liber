@@ -78,9 +78,14 @@ struct RouteDestinationView: View {
                 InventoryHubView()
             case .medicationPlan(let id):
                 MedicationPlanDetailView(planId: id)
-            case .medicationPlanForm:
-                // v45：旧「新建用药计划」深链落到用药提醒表单（时段在该表单内选择）
-                MedicationPlanFormView()
+            case .medicationPlanForm(let planId):
+                // v45：旧「新建用药计划」深链落到用药提醒表单（时段在该表单内选择）。
+                // 带 id 的编辑深链不得静默新建一条：落到该提醒详情（表单暂无编辑态）。
+                if let planId {
+                    MedicationPlanDetailView(planId: planId)
+                } else {
+                    MedicationPlanFormView()
+                }
             case .reminderToday:
                 RemindersView()
 

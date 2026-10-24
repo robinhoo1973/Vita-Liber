@@ -871,10 +871,19 @@ struct VisitPrepView: View {
                         }
                     }
                     // 过敏高亮（BR-001 门控：同上方判据——成员切换期间不得
-                    // 在新成员姓名下渲染上一成员的过敏高亮）
-                    let allergies = hub.loadedPatientId == app.currentPatientId
+                    // 在新成员姓名下渲染上一成员的过敏高亮）。
+                    // 急救卡读取失败时 loadedPatientId 仍会盖章，但过敏为空是
+                    // 「未知」而非「无过敏」——给医生看的准备包不得把失败静默
+                    // 变成阴性事实。
+                    let emergencyFailed = hub.loadedPatientId == app.currentPatientId
+                        && hub.emergencyLoadFailed
+                    let allergies = hub.loadedPatientId == app.currentPatientId && !emergencyFailed
                         ? hub.emergencySelected.allergies : []
-                    if !allergies.isEmpty {
+                    if emergencyFailed {
+                        Label(L10n.emergencyLoadFailed, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    } else if !allergies.isEmpty {
                         ForEach(allergies) { a in
                             HStack {
                                 Image(systemName: "exclamationmark.triangle.fill")

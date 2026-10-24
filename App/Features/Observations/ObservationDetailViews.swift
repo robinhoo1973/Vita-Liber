@@ -5,7 +5,7 @@ import Perception
 
 /// FR8.11 观察详情页（SP-14 契约 §5.7.1）：四入口直达（首页待办/全局搜索/
 /// 时间轴/随访通知深链）。FR8.2 已存字段全量呈现；媒体条走 FR8.4 敏感链
-/// （LockedMediaStrip）；「补充信息」行内编辑（FR8.7 事后补字段）；删除走
+/// （ObservationMediaStrip）；「补充信息」行内编辑（FR8.7 事后补字段）；删除走
 /// FR8.8 三问明示；底部 [设置随访提醒]（FR8.10）。
 struct ObservationDetailView: View {
     let observationId: UUID
@@ -121,7 +121,7 @@ struct ObservationDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header(event)
                 if !event.mediaAssetIds.isEmpty {
-                    LockedMediaStrip(assetIds: event.mediaAssetIds, memberId: event.memberId)
+                    ObservationMediaStrip(assetIds: event.mediaAssetIds, memberId: event.memberId)
                 }
                 fields(event)
                 bottomActions(event)

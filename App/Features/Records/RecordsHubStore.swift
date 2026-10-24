@@ -21,6 +21,9 @@ final class M2HubStore {
     private(set) var emergencyCandidates = EmergencyCard(patientId: UUID())
     private(set) var emergencySelected = EmergencyCard(patientId: UUID())
     private(set) var emergencySelectedIds: Set<UUID> = []
+    /// 急救卡三读（候选/已选/血型）失败：与「空卡」区分——失败时显示可重试
+    /// 错误，不把加载失败渲染成「全部未配置」的既成事实（2026-10-24）。
+    private(set) var emergencyLoadFailed = false
     private(set) var bloodType: String?
     // 疫苗
     private(set) var immunizationRecords: [ImmunizationStore.Record] = []
@@ -72,6 +75,7 @@ final class M2HubStore {
     /// Store actor 的挂起点，主线程只承担提交。
     @MainActor
     private func loadSection<T>(patientId: UUID, label: String,
+                                onFailure: @MainActor () -> Void = {},
                                 fetch: () async throws -> T,
                                 commit: @MainActor (T) -> Void) async {
         do {
@@ -83,6 +87,8 @@ final class M2HubStore {
             // 批B（复用守卫配套，审查 C3#4 修正）：记录本节失败——一次瞬时
             // DB 错误不得被复用守卫锁死（见 load 内 lastLoadHadFailure）。
             sectionFailureCount += 1
+            guard loadingPatientId == patientId else { return }
+            onFailure()
         }
     }
 
@@ -113,6 +119,7 @@ final class M2HubStore {
         emergencySelected = values.selected
         emergencySelectedIds = values.selectedIds
         bloodType = values.blood
+        emergencyLoadFailed = false
     }
 
     /// 急救卡写后刷新（选择/联系人增删改共用）。走 loadSection 的
@@ -121,6 +128,7 @@ final class M2HubStore {
         // 日志标签保持 ASCII：L10n 门禁只豁免 logger 调用内文案，
         // 传参型中文字面量会被判为硬编码（CI L0 §10）。
         await loadSection(patientId: patientId, label: "emergency refresh failed",
+                          onFailure: { emergencyLoadFailed = true },
                           fetch: { try await fetchEmergency(patientId: patientId) },
                           commit: { commitEmergency($0) })
     }
@@ -133,6 +141,7 @@ final class M2HubStore {
         emergencyCandidates = EmergencyCard(patientId: patientId)
         emergencySelected = EmergencyCard(patientId: patientId)
         emergencySelectedIds = []
+        emergencyLoadFailed = false
         bloodType = nil
         immunizationRecords = []
         sentMessages = []
@@ -154,6 +163,8 @@ final class M2HubStore {
             loadedPatientId = nil
         }
         sectionFailureCount = 0
+        // emergencyLoadFailed 不在重试开始时清空：成功提交时才清（commitEmergency），
+        // 否则重试窗口会把旧失败卡闪回成「未配置」空卡。
         loadingPatientId = patientId
         // 先全部取回本地变量，再一次性提交。逐项直接赋值的话，成员切换会让
         // 甲的药箱和乙的急救卡同时出现在界面上（跨成员脏读，BR-001 成员隔离）。
@@ -163,6 +174,7 @@ final class M2HubStore {
             fetch: { try await meds.inventorySummary(patientId: patientId, now: Date()) },
             commit: { inventoryItems = $0 })
         async let s2: Void = loadSection(patientId: patientId, label: "急救卡加载失败",
+            onFailure: { emergencyLoadFailed = true },
             fetch: { try await fetchEmergency(patientId: patientId) },
             commit: { values in
                 commitEmergency(values)

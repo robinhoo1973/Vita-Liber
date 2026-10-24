@@ -4,100 +4,56 @@ import Domain
 import Perception
 
 /// §5.10 敏感媒体原始视图：ImageIO 降采样渲染，避免大图 OOM。
-/// FR1.9 逐次解锁（V3.72）：解锁态为本视图私有——每次查看原图都是一次
-/// 独立系统认证，无会话级顺带解锁（与 SensitiveMediaContainer 同纪律；
-/// MediaUnlockSession 会话令牌仅保留给 DoctorShowcase 300s 专场景）。
+/// 2026-10-24 业主裁决 B：App 内直接显示，敏感标记只约束对外分享/导出；
+/// 快照遮罩（privacySensitive）与查看审计（FR14.2）保留。
 struct SensitiveMediaOriginalView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppState.self) private var app
 
-    /// 评审修正第二轮（BR-007 读取时序）：原图字节必须在**设备所有者认证通过后**
-    /// 才落内存——此前调用方在认证前预取原图并持有（认证取消仍驻留）。
-    /// 有 loader 时走「认证后拉取」路径（imageData 可为 nil）；无 loader 的
-    /// 调用方（演示/预览）仍可直接传入 imageData。
+    /// 调用方可直接传入原图字节；有 loader 时优先从存储按需拉取。
     let imageData: Data?
     let caption: String
-    /// 资产锚点（评审修正）：解锁成功后的审计锚点；nil = 无资产来源（如演示场景）
+    /// 资产锚点：查看留痕锚点；nil = 无资产来源（如演示场景）
     var assetId: UUID?
-    /// 认证通过后按需拉取原图字节的加载器（LockedMediaStrip 注入；nil = 用 imageData）
+    /// 按需拉取原图字节的加载器（ObservationMediaStrip 注入；nil = 用 imageData）
     var originalLoader: (() async -> Data?)?
 
     @State private var image: UIImage?
     @State private var displayData: Data?
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
-    // 2026-10-24 业主裁决 B：原图在 App 内直接显示。
-    @State private var unlocked = true
-    /// 第七轮修复：加载失败态（loader 返回 nil/空 = 文件不可读/已清理）——
-    /// 原实现 unlocked=true 但 image/displayData 均 nil，永远转圈无出口
+    /// 加载失败态（loader 返回 nil/空 = 文件不可读/已清理）——不得永远转圈。
     @State private var loadFailed = false
-    /// 空闲重锁计时器（计时/在途解锁双句柄，共享 MediaRelockTimer 机制）
-    @State private var relockTimer = MediaRelockTimer()
-    /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（二次并发
-    /// LAContext 求值必败且可能双弹认证层）
-    @State private var unlocking = false
-    /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
-    @State private var unlockedAt: Date?
-    /// 2026-10-03 评审修复：解锁后是否已回到 .active（宽限锚定，同容器）
-    @State private var hasReturnedToActive = false
-    /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）：
-    /// 缩放/拖动事件 60–120Hz 送达，逐事件重启计时任务 = 每帧 Task 分配/取消
-    @State private var lastActivity: Date?
+    @State private var loadTask: Task<Void, Never>?
+    @State private var didAuditViewing = false
 
     var body: some View {
         WithPerceptionTracking {
-            Group {
-                if unlocked {
-                    unlockedContent
-                } else {
-                    lockedPlaceholder
+            content
+                .navigationTitle(L10n.sensitiveMedia_originalTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button(L10n.commonCancel) { dismiss() }
+                    }
                 }
-            }
-            .navigationTitle(L10n.sensitiveMedia_originalTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.commonCancel) { dismiss() }
+                // BR-008：任务切换器快照仍遮罩（对外边界，不随 App 内直接显示退役）。
+                .privacySensitive(scenePhase != .active)
+                .onAppear {
+                    guard loadTask == nil, image == nil, !loadFailed else { return }
+                    loadTask = Task { await load() }
                 }
-            }
-            // 2026-10-03 评审修复（BR-008 纵深）：本视图经 fullScreenCover 呈现，
-            // 根遮罩跨 presentation 宿主的传播无测试证据——自挂快照红化，
-            // 与 DocSource 页级同款（一行纵深，渲染/交互零影响）。
-            .privacySensitive(scenePhase != .active)
-            .onAppear {
-                // 第七轮修复（BR-007 时序）：预传 imageData 的路径也把**解码**推迟到
-                // 认证通过之后——原实现在 onAppear 即降采样渲染，认证取消时解码图
-                // 仍驻留内存（文件头契约「认证通过后才落内存」对非 loader 路径失效）
-                displayData = imageData
-                if unlocked { Task { _ = await authenticateAndUnlock() } }
-            }
-            // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
-            // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
-            // 仍展示已解锁原图（AppRootView 遮罩提交与系统快照竞态）。
-            // 审查修复（2026-09-19，业主「认证后立即被自己的浮层重锁」）：
-            // background = 真离开恒立即重锁；inactive 可能是认证浮层收起
-            // 瞬态——解锁后 5 秒内不重锁（MediaUnlockPolicy.
-            // shouldRelockOnInactive，最低认证要求 ≥5 秒），浮层期间重锁
-            // 会形成「认证完成即锁回 → 再点再认证」循环。
-            .onChangeCompat(of: scenePhase) { _, phase in
-                if phase == .background { return }
-                else if phase == .active, unlocked { hasReturnedToActive = true }
-                else if phase != .active, unlocked,
-                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
-                                                                 now: Date(),
-                                                                 hasReturnedToActive: hasReturnedToActive) {
-                    relock()
+                // 离开即取消读盘/解码：大文件任务不得在视图销毁后继续占用内存、
+                // 更不得为未看到的原图写「已查看」审计。
+                .onDisappear {
+                    loadTask?.cancel()
+                    loadTask = nil
                 }
-            }
-            // 与 SensitiveMediaContainer 同纪律：离开即重锁并取消空闲计时——
-            // 原视图弹出销毁后 relockTask 仍持有解码图至 30s TTL（BR-007
-            // 「重锁 = 回到认证前内存态」对离开场景失效）
-            .onDisappear { }
         }
     }
 
-    private var unlockedContent: some View {
+    private var content: some View {
         GeometryReader { geo in
             if let image {
                 Image(uiImage: image)
@@ -107,18 +63,12 @@ struct SensitiveMediaOriginalView: View {
                     .offset(offset)
                     .gesture(
                         MagnificationGesture()
-                            .onChanged {
-                                scale = $0
-                                scheduleRelock()   // 缩放亦属活跃，否则持续缩放 >30s 被中途重锁
-                            }
+                            .onChanged { scale = $0 }
                             .onEnded { scale = max(1, $0) }
                     )
                     .gesture(
                         DragGesture()
-                            .onChanged {
-                                offset = $0.translation
-                                scheduleRelock()
-                            }
+                            .onChanged { offset = $0.translation }
                             .onEnded { _ in
                                 // 超过边界回弹
                                 let maxX = (geo.size.width * (scale - 1)) / 2
@@ -128,11 +78,8 @@ struct SensitiveMediaOriginalView: View {
                             }
                     )
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .onTapGesture { scheduleRelock() }
             } else if loadFailed {
-                // 2026-10-03 评审修复（黑屏）：失败卡此前渲染在黑底之上，
-                // 浅色模式下系统色文字黑字黑底 = 认证成功后纯黑屏——失败态
-                // 给不透明浅底（bg-grouped 令牌），黑底只留给图片内容。
+                // 失败卡给不透明浅底（bg-grouped 令牌），黑底只留给图片内容。
                 VLUnavailableView(L10n.sensitiveMedia_loadFailed,
                                        systemImage: "exclamationmark.triangle")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -144,109 +91,30 @@ struct SensitiveMediaOriginalView: View {
         .background(Color.black.ignoresSafeArea())
     }
 
-    private var lockedPlaceholder: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "lock.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.secondary)
-            Text(L10n.sensitiveMedia_unlockToView)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color("bg-grouped", bundle: .main))   // 语义令牌（token-only 纪律）
-        .onTapGesture { triggerUnlockFromPlaceholder() }
-        // 2026-10-03 评审修复（VoiceOver）：tap 手势无辅助功能语义——
-        // 补 accessibilityAction 使解锁动作在 VoiceOver 下可达。
-        .accessibilityAction { triggerUnlockFromPlaceholder() }
-    }
-
-    private func triggerUnlockFromPlaceholder() {
-        guard !unlocking else { return }   // 解锁在途守卫（连点只认证一次）
-        unlocking = true
-        // 占位视图仅在 !unlocked 时渲染，故此处无需再查 unlocked——
-        // authenticateAndUnlock 内部有取消检查，relock() 会取消本任务。
-        let task = Task {
-            _ = await authenticateAndUnlock()
-            unlocking = false
-        }
-        relockTimer.trackUnlock(task)
-    }
-
-    private func authenticateAndUnlock() async -> Bool {
-        // 2026-10-24 业主裁决 B：App 使用者默认有权查看，不再做应用内认证；
-        // 敏感标记仅约束对外分享/导出。
-        _ = app
-        // 认证途中视图已离开（relock 取消了本任务）：不得继续——原图字节、
-        // 30s TTL 与「已查看」审计都不能在用户从未看到内容的场景下复活。
-        guard !Task.isCancelled else { return false }
-        // BR-007 时序：认证通过后才拉取原图字节（loader 路径）——取消认证
-        // 的用户从未让原图进内存。加载失败回落直接传入的 imageData（若有）；
-        // 两者皆无 = 加载失败态（第七轮修复：明示失败，不再永远转圈）。
+    private func load() async {
         loadFailed = false
+        var bytes = imageData
         if let originalLoader {
             if let loaded = await originalLoader(), !loaded.isEmpty {
-                // 读盘期间视图已离开：同样不得复活解码与审计
-                guard !Task.isCancelled else { return false }
-                displayData = loaded
-                image = nil
-                loadDownsampled()
-            } else if displayData == nil {
-                loadFailed = true
+                bytes = loaded
             }
-        } else if displayData == nil {
-            // 预传 imageData 路径：空闲重锁已把 displayData 镜像清空（BR-007
-            // 清内存），重新解锁须从不可变的 imageData 源重建——否则
-            // loadDownsampled 的 guard 落空，解锁后永久转圈无出口
-            displayData = imageData
-            if imageData == nil { loadFailed = true }
         }
-        unlocked = true
-        unlockedAt = Date()
-        lastActivity = Date()
-        if !loadFailed, image == nil { loadDownsampled() }   // 预传 imageData 路径的解码（认证后）
-        // 2026-09-20 修复（BR-007，同 DocumentSourcePageView）：解锁后**必武装**
-        // 30s 空闲自动重锁——旧实现走 scheduleRelock()，其活跃信号合并（<1s 丢弃）
-        // 恰把解锁后的第一次武装吞掉（lastActivity 刚刷新），不触碰屏幕即无限期解锁。
-        relockTimer.schedule(onExpiry: { relock() })
-        // FR14.2 审计：敏感原图查看留痕（评审修正——原视图零审计锚点）
-        if let assetId { app.auditViewSensitiveOriginal(documentId: assetId, title: caption) }
-        return true
-    }
-
-    private func scheduleRelock() {
-        // 活跃信号合并：缩放/拖动 60–120Hz 事件流只落 1 秒窗口内的首个
-        // 信号（MediaUnlockPolicy.activityCoalescingWindow），避免逐帧
-        // 取消/重建计时任务。解锁完成路径已预置 lastActivity，首个
-        // 手势信号仍按窗口判定（解锁后 1 秒内的手势与解锁同一窗口）。
-        let now = Date()
-        if let lastActivity, !MediaUnlockPolicy.shouldRecordActivity(lastInteraction: lastActivity, now: now) { return }
-        self.lastActivity = now
-        // 2026-10-24 业主裁决 B：不再武装空闲重锁。
-    }
-
-    private func relock() {
-        // 2026-10-24 业主裁决 B：App 内不再重锁。
-        return
-        // 取消在途解锁（离开/重锁后认证结果不得复活解码与审计）——句柄管理
-        // 共享 MediaRelockTimer（第十一轮审查语义不变）
-        relockTimer.cancelAll()
-        unlocking = false      // 立即释放守卫：被取消任务的复位有调度延迟，置位可避免回场首击被吞
-        unlocked = false
-        unlockedAt = nil
-        hasReturnedToActive = false
-        lastActivity = nil
-        // 第六轮全仓审查修复：重锁必须把已解码的降采样字节一并清出——
-        // 原实现只翻转 unlocked，解码图仍驻留内存（下次解锁直接从内存
-        // 渲染），「重锁 = 回到认证前内存态」的 BR-007 快照防护语义
-        // 名存实亡
+        // 读盘期间视图已离开：不得复活解码与审计。
+        guard !Task.isCancelled else { return }
+        guard let bytes, !bytes.isEmpty else {
+            loadFailed = true
+            return
+        }
+        displayData = bytes
         image = nil
-        displayData = nil
-        // 审查修复：缩放/平移态跨解锁周期泄漏——30 秒空闲重锁后再次解锁，
-        // 原图按上一次的 3x 缩放与角落位移渲染（下一位认证用户看到上一人
-        // 的取景位置）。重锁必须回到初始适配视图。
-        scale = 1
-        offset = .zero
+        loadDownsampled()
+        guard !Task.isCancelled else { return }
+        guard !loadFailed else { return }
+        // FR14.2 审计：敏感原图查看留痕（直接显示后仍保留）。
+        if let assetId, !didAuditViewing {
+            app.auditViewSensitiveOriginal(documentId: assetId, title: caption)
+            didAuditViewing = true
+        }
     }
 
     private func loadDownsampled() {

@@ -75,7 +75,10 @@ struct InventoryHubView: View {
                 // sheet 内容闭包逃逸：同步读 hub.emergencySelected，须自行包裹（子项目 I）
                 WithPerceptionTracking {
                     HelpCardSendHost(text: shareText,
-                                     contacts: (hub.isLoaded(for: currentPatientId) ? hub.emergencySelected.contacts : []).map(\.title)) { recipient in
+                                     contacts: (hub.isLoaded(for: currentPatientId) ? hub.emergencySelected.contacts : []).map(\.title),
+                                     // 读取失败≠没有联系人：选择器给说明，不伪装成空候选。
+                                     contactsUnavailable: hub.isLoaded(for: currentPatientId)
+                                         && hub.emergencyLoadFailed) { recipient in
                         Task {
                             await hub.recordSent(patientId: currentPatientId,
                                                  kind: "helpCard", recipient: recipient)
@@ -129,8 +132,14 @@ struct EmergencyCardHubView: View {
                 gender: currentMember?.gender,
                 // 系统健康 App 引导经 SystemLinks 单一出口（此前带 https 死回退，与零网络纪律相悖）
                 onGuideMedicalID: { SystemLinks.openHealthApp() },
-                onOpenSelector: readOnly ? nil : { showSelector = true },
-                careMode: app.careMode)
+                // 读取失败时选择器只有空候选：先重试，不进入假空态。
+                onOpenSelector: readOnly || hub.emergencyLoadFailed ? nil : { showSelector = true },
+                careMode: app.careMode,
+                // 装载态与内容态同门：装载完成前显示加载卡，不把空卡渲染成
+                // 「全部未配置」的既成事实（2026-10-24 呈现重设计）。
+                isLoading: !hub.isLoaded(for: currentPatientId),
+                loadFailed: hub.isLoaded(for: currentPatientId) && hub.emergencyLoadFailed,
+                onRetry: { Task { await hub.load(patientId: currentPatientId, force: true) } })
             .task(id: currentPatientId) { await hub.load(patientId: currentPatientId) }
             .sheet(isPresented: $showSelector) {
                 // sheet 内容闭包逃逸：同步读 hub.emergencyCandidates / emergencySelectedIds，须自行包裹（子项目 I）
@@ -335,6 +344,8 @@ struct GuidelineHubView: View {
 struct HelpCardSendHost: View {
     let text: String
     let contacts: [String]
+    /// 急救联系人读取失败（候选为空是失败而非「未配置」）。
+    var contactsUnavailable = false
     let onSend: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var confirmed = false
@@ -343,7 +354,9 @@ struct HelpCardSendHost: View {
         WithPerceptionTracking {
             Group {
                 if confirmed {
-                    HelpCardRecipientSheet(text: text, contacts: contacts, onSent: onSend)
+                    HelpCardRecipientSheet(text: text, contacts: contacts,
+                                           contactsUnavailable: contactsUnavailable,
+                                           onSent: onSend)
                 } else {
                     NavigationStack {
                         ScrollView {

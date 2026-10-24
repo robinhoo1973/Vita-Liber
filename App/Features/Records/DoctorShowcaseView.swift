@@ -7,9 +7,9 @@ import Perception
 /// 时间顺序的照片+描述+自述标记+用药背景，给医生看的「一眼版」。
 /// 15 分钟剩余时间环 + [退出展示]；退出或超时自动重锁。
 ///
-/// FR1.9 裁决后的会话令牌专用场景：进入需一次设备所有者认证，
-/// 之后经 MediaUnlockSession（300s TTL）会话级解锁展示内容；
-/// 敏感媒体逐容器认证（SensitiveMediaContainer）不受此影响。
+/// 展示模式是对外呈现边界（给线下医生看）：进入需一次设备所有者认证，
+/// 之后经 MediaUnlockSession（300s TTL）会话级授权展示内容，退出或超时
+/// 自动重锁。App 内常规查看不受此门约束（2026-10-24 业主裁决 B）。
 struct DoctorShowcaseView: View {
     let patientId: UUID
     @Environment(AppState.self) private var app
@@ -208,7 +208,7 @@ private struct ShowcasePage: View {
                             .foregroundStyle(Color("semantic-warning", bundle: .main))
                     }
                     if !latest.mediaAssetIds.isEmpty {
-                        LockedMediaStrip(assetIds: latest.mediaAssetIds, memberId: latest.memberId)
+                        ObservationMediaStrip(assetIds: latest.mediaAssetIds, memberId: latest.memberId)
                     }
                 }
                 Spacer()

@@ -821,6 +821,16 @@ struct VoiceSessionView: View {
         // 语音原话而非解析出的联系人名——唯一子串命中（「妈妈的姐姐」
         // 含「妈妈」）仍会拨错人。急救路径拨错人代价不对称：非精确名
         // 一律不拨号，播报相近联系人的完整姓名引导用户复述精确名。
+        // 成员门：急救卡尚未装载/读取失败时「未找到联系人」是假阴性
+        // （BR-012 路径不得把未知说成不存在）。
+        guard hub.isLoaded(for: app.currentPatientId) else {
+            app.speak(L10n.emergencyLoading)
+            return
+        }
+        guard !hub.emergencyLoadFailed else {
+            app.speak(L10n.emergencyLoadFailed)
+            return
+        }
         let contacts = hub.emergencySelected.contacts
         guard let contact = contacts.first(where: { $0.title == object }) else {
             let candidates = contacts.filter { $0.title.contains(object) }

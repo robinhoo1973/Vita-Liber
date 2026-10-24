@@ -31,7 +31,7 @@
 "voice.rejectWhat.discontinue" = "停用藥物";
 "voice.rejectTitle" = "語音不能修改%@";
 "voice.rejectBody" = "為避免辨識誤差造成用藥差錯，%@的修改只能在螢幕上手動完成。你剛才說的內容沒有被儲存。";
-"voice.rejectAction" = "去用藥計畫修改";
+"voice.rejectAction" = "去用藥提醒修改";
 "dispense.header.name" = "藥品名";
 "dispense.header.spec" = "規格";
 "dispense.header.unit" = "單位";
@@ -84,9 +84,9 @@
 "backup.conflict.kind.record" = "健康記錄";
 "inventory.title" = "藥箱與庫存";
 "inventory.empty" = "藥箱還沒有記錄";
-"inventory.emptyHint" = "建立用藥計畫或補充批次後，餘量與效期會出現在這裡";
+"inventory.emptyHint" = "建立用藥提醒或補充批次後，餘量與效期會出現在這裡";
 "inventory.approxDays" = "約剩 %d 天 · 按計畫估算";
-"inventory.noPlanHint" = "無進行中的用藥計畫，無法估算剩餘天數";
+"inventory.noPlanHint" = "無進行中的用藥提醒，無法估算剩餘天數";
 "inventory.fixCount" = "修正餘量";
 "lot.detail.loadFailed" = "這條批次載入失敗";
 "lot.discard.title" = "廢棄這個批次？";
@@ -131,6 +131,8 @@
 "emergency.health" = "健康問題";
 "emergency.contacts" = "緊急聯絡人";
 "emergency.notSet" = "未配置";
+"emergency.loading" = "正在載入急救資訊…";
+"emergency.loadFailed" = "急救資訊載入失敗，請重試。";
 "emergency.sos.hold" = "緊急求助（長按）";
 "emergency.sos.confirmPrompt" = "確認真要發出求助？";
 "emergency.sos.confirm" = "確認求助";
@@ -649,11 +651,11 @@
 "observation.kind.swelling" = "腫脹外觀";
 "observation.kind.generic" = "非圖像症狀";
 "observation.kind.custom" = "自定義";
-"observation.media.section" = "照片（敏感保護）";
+"observation.media.section" = "照片";
 "observation.media.addAlbum" = "從相簿選擇";
 "observation.media.addCamera" = "拍攝";
-"observation.media.count" = "已選 %1$d 張照片（預設鎖定，點擊解鎖查看）";
-"observation.media.unlockHint" = "點擊解鎖查看原圖（需裝置擁有者認證）";
+"observation.media.count" = "%1$d 張照片";
+"observation.media.unlockHint" = "點擊檢視原圖";
 "voicenote.dictation" = "語音速記";
 "voicenote.saved" = "已存入語音速記";
 "voicenote.view" = "查看";
@@ -670,7 +672,7 @@
 "observation.kindSection" = "類型";
 "observation.description" = "描述";
 "observation.selfMark" = "自評";
-"observation.mediaBadge" = "含 %1$d 張照片 · 已鎖定";
+"observation.mediaBadge" = "含 %1$d 張照片";
 "observation.saveFailed" = "觀察記錄儲存失敗";
 "observation.saveFailedHint" = "觀察記錄未能儲存，請重試";
 "doc.titleSection" = "文件資訊";
@@ -839,7 +841,7 @@
 "plan.slots.saved" = "已儲存";
 "plan.slots.linkedFmt" = "%d 個用藥提醒使用這些時段";
 "plan.slots.propagate.title" = "更新用藥時段？";
-"plan.slots.propagate.body" = "將更新 %d 個用藥提醒的未來提醒時刻；已服記錄與過去提醒不變。";
+"plan.slots.propagate.body" = "將更新跟隨時段的用藥提醒的未來提醒時刻；未綁定時段的舊提醒保持不變。已服記錄與過去提醒不變。";
 "plan.slots.propagate.confirm" = "一起更新";
 "plan.slots.saveOnly" = "僅儲存時段";
 "plan.reminder.listTitle" = "用藥提醒";
@@ -850,7 +852,7 @@
 "plan.reminder.editSlots" = "編輯用藥時段";
 "plan.reminder.slots.header" = "用藥時段（可多選）";
 "plan.reminder.slots.hint" = "選擇這種藥需要提醒的時段；不選不會產生提醒。";
-"plan.reminder.slotMissing" = "請至少選擇一個用藥時段，或標記為需要時服用";
+"plan.reminder.slotMissing" = "請至少選擇一個用藥時段，或將用藥方式設為需要時服用";
 "plan.listTitle" = "用藥提醒";
 "plan.detailTitle" = "用藥提醒詳情";
 "plan.notFound" = "計畫不存在或已被刪除";
@@ -891,7 +893,6 @@
 "plan.backfill.title" = "補記已服用";
 "plan.backfill.actualTime" = "實際服用時間";
 "plan.backfill.noBaseline" = "該計劃缺少單劑基線劑量，無法安全補記；請先在計劃中補充劑量信息";
-"plan.schedule.none" = "不綁定計畫";
 "plan.form.custom.section" = "自訂時段";
 "plan.form.custom.add" = "新增自訂時段";
 "plan.form.custom.delete" = "刪除這個自訂時段";
@@ -903,22 +904,8 @@
 "plan.form.range.fmt" = "常用提醒範圍 %@–%@";
 "plan.form.range.notice" = "提醒時刻不在常用範圍內；範圍僅供參考，提醒仍按時刻發出。";
 "plan.form.range.invalid" = "範圍開始需早於結束（不支援跨午夜）。";
-"plan.schedule.namePlaceholder" = "計畫名稱（例如：早晚餐後）";
-"plan.schedule.empty" = "還沒有用藥計畫";
-"plan.schedule.emptyHint" = "用藥計畫只約定一天中的服藥時段，不綁定藥品；綁定藥品在用藥提醒中完成";
-"plan.schedule.untitled" = "未命名計畫";
-"plan.schedule.boundFmt" = "%d 個用藥提醒";
-"plan.schedule.bindings" = "已綁定的用藥提醒";
-"plan.schedule.noBindings" = "還沒有綁定藥品";
-"plan.schedule.bindDrug" = "關聯藥品";
-"plan.schedule.bindingTitle" = "將綁定到";
-"plan.schedule.delete" = "刪除計畫";
-"plan.schedule.deleteBlocked" = "該計畫已被用藥提醒引用，請先結束或刪除對應提醒";
-"plan.schedule.edit" = "編輯";
-"plan.schedule.editTitle" = "編輯用藥計畫";
-"plan.schedule.loadFailed" = "用藥計畫讀取失敗，請重試";
 "plan.form.saveFailed" = "儲存失敗";
-"plan.form.saveFailedHint" = "用藥計劃未能建立，請重試；若持續失敗請檢查裝置儲存空間";
+"plan.form.saveFailedHint" = "儲存失敗，請重試；若持續失敗請檢查裝置儲存空間";
 "plan.form.title" = "新增用藥提醒";
 "plan.form.medication" = "藥品資訊";
 "plan.form.genericName" = "藥品通用名";
@@ -1159,7 +1146,7 @@
 "member.delete.impactPlans" = "用藥提醒";
 "member.delete.impactAppts" = "預約";
 "member.delete.keepDocs" = "資料與觀察記錄不會被刪除，僅清除歸屬標記，可在「未歸屬」篩選下找回。";
-"member.delete.planChoice" = "計畫與提醒處置";
+"member.delete.planChoice" = "用藥提醒處置";
 "member.delete.plans" = "一併刪除";
 "member.archivePlans" = "停用歸檔";
 "member.delete.confirm" = "二次確認";
@@ -1562,7 +1549,7 @@
 "pref.channel" = "提醒觸達方式";
 "pref.channel.notifyOnly" = "僅通知";
 "pref.channel.ringUntilConfirm" = "通知+響鈴直到確認";
-"pref.channel.silentBanner" = "静音僅横幅";
+"pref.channel.silentBanner" = "靜音僅橫幅";
 "pref.notifPreviewMed" = "鎖定畫面通知顯示藥名";
 "pref.remindScopeNote" = "安靜時段與通知預覽影響全部未讀通知；通道偏好影響下一次提醒的送達通道選擇。";
 "pref.weekStart" = "週起始日（1=週一）";
@@ -1596,7 +1583,7 @@
 "lifecycle.resetSettings" = "恢復預設設定";
 "lifecycle.resetSettingsHint" = "重置通知偏好、顯示主題、TTL 等設定項為出廠預設值。已有的資料和備份不受影響。";
 "lifecycle.resetSettingsImpact" = "恢復預設設定後，您的通知偏好、顯示主題等將被重置。";
-"lifecycle.logout" = "註銷（P1 账户化）";
+"lifecycle.logout" = "註銷（P1 帳戶化）";
 "lifecycle.logoutHint" = "雲端帳戶註銷需雲端服務就緒後提供；本地模式無帳戶可註銷。";
 "onboard.addFamily.title" = "新增家人";
 "onboard.addFamily.hint" = "幫家人管理檔案（可選，稍後可在設定中隨時新增）";
@@ -1629,6 +1616,7 @@
 "helpcard.recipient" = "收件人";
 "helpcard.recipientOther" = "其他（手動輸入）";
 "helpcard.recipientPlaceholder" = "輸入收件人稱呼";
+"helpcard.recipientContactsUnavailable" = "緊急聯絡人讀取失敗，可直接輸入收件人。";
 "metric.entry.title" = "記錄指標";
 "metric.step1" = "第 1 步 · 選擇指標";
 "metric.step2" = "第 2 步 · 錄入數值";
@@ -1743,7 +1731,7 @@
 "f19.metricInvalidValue" = "這個數值似乎無效，請再說一次（例如「血糖 5.6」）";
 "f19.metricNotSupportedFmt" = "暫不支援記錄「%@」類指標，請在趨勢頁手動輸入";
 "f19.stockRemainingFmt" = "%@ 約剩 %d 天 · 按計畫估算";
-"f19.stockNoPlanFmt" = "%@：無進行中的用藥計畫，無法估算剩餘天數";
+"f19.stockNoPlanFmt" = "%@：無進行中的用藥提醒，無法估算剩餘天數";
 "f19.noStock" = "藥箱還沒有記錄";
 "f19.stockLocationFmt" = "%@：%@";
 "f19.locationUnknown" = "未登記存放位置";
@@ -2585,7 +2573,7 @@
 "healthHistory.chronicHint" = "高血壓、糖尿病等已確診疾病";
 "healthHistory.surgeryHint" = "做過的手術與部位";
 "healthHistory.allergyHint" = "過敏原與反應";
-"healthHistory.medicationHint" = "正在服用的藥物";
+"healthHistory.medicationSlotsHint" = "設定每天的服藥時刻與常用提醒範圍";
 "healthHistory.vaccineHint" = "接種記錄與按年齡選擇";
 "healthHistory.yearTitle" = "發生年份";
 "healthHistory.yearPlaceholder" = "年份";

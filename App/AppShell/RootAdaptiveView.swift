@@ -147,8 +147,8 @@ struct RootAdaptiveView: View {
             .withPaywallHost()   // 五时机弹墙统一宿主（comercial §3 / M2 收尾）
             // 评审修正第二轮（会话令牌退后台）：MediaUnlockSession.onBackground 此前
             // 零调用方——展示模式等会话级解锁退后台不重锁（BR-007 快照防护缺口）；
-            // 逐视图的 SensitiveMediaContainer/OriginalView 已自行重锁，此处补
-            // 会话级统一钩子（含 300s showcase 会话的退后台终止）。
+            // 会话级统一钩子：退后台终止 300s showcase 会话（App 内常规查看
+            // 不再有解锁态，2026-10-24 业主裁决 B）。
             .onChangeCompat(of: scenePhase) { _, phase in
                 // 2026-10-03 评审修复（展示模式「认证成功即秒回锁」）：
                 // background = 真离开恒立即重锁（BR-007 不松）；

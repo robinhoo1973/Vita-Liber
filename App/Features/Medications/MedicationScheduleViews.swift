@@ -26,6 +26,10 @@ struct MedicationScheduleView: View {
     @Environment(\.medicationScheduleStore) private var schedules
     @Environment(ReminderStore.self) private var reminders
 
+    /// 保存成功回调：提醒表单内嵌本页时，返回后据此重载时段列表
+    /// （否则表单仍持旧时刻/旧键，保存会把新时段又写回旧时刻）。
+    var onSaved: (() -> Void)?
+
     @State private var row: MedicationScheduleStore.ScheduleRow?
     @State private var slotTimeTexts: [DoseTimeSlot: String] = [:]
     @State private var slotRangeTexts: [DoseTimeSlot: [String]] = [:]
@@ -66,7 +70,11 @@ struct MedicationScheduleView: View {
         return entries != MedicationScheduleEntryRules.normalize(row.entries)
     }
 
-    private var canSave: Bool { !isSaving && row != nil && validationError == nil }
+    private var canSave: Bool {
+        // 成员切换竞态：只允许保存与当前成员一致的已装载文档
+        // （此前仅判 row != nil——切人后仍可把 A 的时段写进 B）。
+        !isSaving && row?.patientId == app.currentPatientId && validationError == nil
+    }
 
     var body: some View {
         WithPerceptionTracking {
@@ -154,7 +162,7 @@ struct MedicationScheduleView: View {
                 Button(L10n.planSlotsSaveOnly) { save(propagate: false) }
                 Button(L10n.commonCancel, role: .cancel) { }
             } message: {
-                Text(L10n.planSlotsPropagateBody(row?.boundPlanCount ?? 0))
+                Text(L10n.planSlotsPropagateBody)
             }
         }
     }
@@ -252,12 +260,23 @@ struct MedicationScheduleView: View {
     }
 
     private func load() async {
-        guard let schedules else { return }
+        // 先清空，避免切人后短暂把上一成员的时段当作当前成员可保存内容。
+        row = nil
+        loadFailed = false
+        guard let schedules else {
+            // 环境未注入不得表现为永久转圈（生产注入缺失时至少给出可重试错误）。
+            loadFailed = true
+            return
+        }
         do {
-            let loaded = try await schedules.ensureDefaultSchedule(patientId: app.currentPatientId)
+            let patientId = app.currentPatientId
+            let loaded = try await schedules.ensureDefaultSchedule(patientId: patientId)
+            // 装载期间再次切人：丢弃过期结果，下一次 .task(id:) 会重载。
+            guard loaded.patientId == app.currentPatientId else { return }
             row = loaded
             seed(loaded)
             loadFailed = false
+            saveFailed = false
         } catch {
             loadFailed = true
         }
@@ -280,7 +299,7 @@ struct MedicationScheduleView: View {
     }
 
     private func requestSave() {
-        guard let row, canSave else { return }
+        guard let row, canSave, row.patientId == app.currentPatientId else { return }
         if row.boundPlanCount > 0 {
             showPropagateConfirm = true
         } else {
@@ -289,19 +308,37 @@ struct MedicationScheduleView: View {
     }
 
     private func save(propagate: Bool) {
-        guard let schedules else { return }
+        guard let schedules, let currentRow = row,
+              currentRow.patientId == app.currentPatientId else { return }
         guard validationError == nil else { return }
+        // 捕获保存目标的成员，防止 Task 执行期间切人后把 A 的时段写进 B。
+        let patientId = currentRow.patientId
         isSaving = true
+        saveFailed = false
         let normalized = entries
         Task {
             do {
                 _ = try await schedules.updateDefaultEntries(
-                    patientId: app.currentPatientId, entries: normalized, propagate: propagate)
+                    patientId: patientId, entries: normalized, propagate: propagate)
                 if propagate {
                     // 对账通知：清掉旧 id、按新时刻重排未来提醒。
-                    await reminders.refresh(patientId: app.currentPatientId)
+                    await reminders.refresh(patientId: patientId)
                 }
-                row = try await schedules.defaultSchedule(patientId: app.currentPatientId)
+                let updated = try await schedules.defaultSchedule(patientId: patientId)
+                guard patientId == app.currentPatientId else {
+                    isSaving = false
+                    return
+                }
+                guard let updated else {
+                    // 更新成功后文档必须存在；缺失按保存失败处理，
+                    // 不保留旧行冒充已保存。
+                    saveFailed = true
+                    isSaving = false
+                    return
+                }
+                row = updated
+                seed(updated)
+                onSaved?()
                 savedNotice = true
                 isSaving = false
                 try? await Task.sleep(nanoseconds: 1_500_000_000)   // try?-ok: 提示计时
@@ -351,11 +388,24 @@ struct MedicationScheduleView: View {
                 let value = DoseTimeSlotRules.timeString(from: date)
                 var copy = entry.wrappedValue
                 if copy.rangeStart == nil || copy.rangeEnd == nil {
-                    let startMin = DoseScheduleEngine.minutes(value) ?? 0
-                    let endMin = min(startMin + 30, 24 * 60 - 1)
-                    let end = String(format: "%02d:%02d", endMin / 60, endMin % 60)
-                    copy.rangeStart = isStart ? value : (copy.rangeStart ?? value)
-                    copy.rangeEnd = isStart ? end : value
+                    // 缺一端时按编辑顺序补另一端：先改起始 → 结束取 +30 分；
+                    // 先改结束 → 起始取 -30 分。旧实现把两端都置成同一个值，
+                    // 校验恒报 range 非法（先改结束永远存不了）。
+                    let anchor = DoseScheduleEngine.minutes(value) ?? 0
+                    func fmt(_ mins: Int) -> String {
+                        String(format: "%02d:%02d", mins / 60, mins % 60)
+                    }
+                    if isStart {
+                        copy.rangeStart = value
+                        if copy.rangeEnd == nil {
+                            copy.rangeEnd = fmt(min(anchor + 30, 24 * 60 - 1))
+                        }
+                    } else {
+                        copy.rangeEnd = value
+                        if copy.rangeStart == nil {
+                            copy.rangeStart = fmt(max(anchor - 30, 0))
+                        }
+                    }
                 } else if isStart {
                     copy.rangeStart = value
                 } else {

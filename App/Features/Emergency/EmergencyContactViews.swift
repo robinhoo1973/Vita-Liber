@@ -28,7 +28,30 @@ struct EmergencyContactListView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                if contacts.isEmpty {
+                if !hub.isLoaded(for: patientId) {
+                    Section {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L10n.emergencyLoading)
+                                .font(.subheadline)
+                                .foregroundStyle(Color("text-secondary", bundle: .main))
+                        }
+                        .accessibilityIdentifier("F15.contacts.loading")
+                    }
+                } else if hub.emergencyLoadFailed {
+                    // 读取失败不等于「尚未添加联系人」：给可重试出口。
+                    Section {
+                        Text(L10n.emergencyLoadFailed)
+                            .font(.subheadline)
+                            .foregroundStyle(Color("text-secondary", bundle: .main))
+                        Button(L10n.retry) {
+                            Task { await hub.load(patientId: patientId, force: true) }
+                        }
+                        .accessibilityIdentifier("F15.contacts.retry")
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("F15.contacts.loadFailed")
+                } else if contacts.isEmpty {
                     Section {
                         Text(L10n.emergencyContactsEmpty)
                             .font(.subheadline)

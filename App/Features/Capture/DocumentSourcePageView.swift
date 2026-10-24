@@ -68,24 +68,14 @@ struct DocumentSourcePageView: View {
     @State private var image: UIImage?
     @State private var loading = true
     @State private var failed = false
-    // 2026-10-24 业主裁决 B：页内媒体直接显示。
-    @State private var unlocked = true
-    @State private var unlocking = false
+    /// 2026-10-24 业主裁决 B：敏感标记只约束对外分享/导出，页内媒体直接显示。
+    @State private var didAuditViewing = false
     @State private var scale: CGFloat = 1
     @State private var operation: Task<Void, Never>?
     /// prepareMetadata 已取到的文档行（2026-09-20 修复：loadMedia 不再二次 fetch——）
     /// 敏感解锁路径此前每开一次页面查两遍同一行，且解锁后重查窗口内文档可被
     /// 并发归档/删除致解锁即失败）
     @State private var loadedDocument: DocumentStore.DocumentRow?
-    /// 空闲重锁计时器（审查修复：第四份手写 relockTask 脚手架收敛进共享
-    /// MediaRelockTimer——改 TTL 语义/取消纪律只此一处机制）
-    @State private var relockTimer = MediaRelockTimer()
-    /// 认证成功时刻（inactive 重锁宽限锚点，MediaUnlockPolicy 判定用）
-    @State private var unlockedAt: Date?
-    /// 2026-10-03 评审修复：解锁后是否已回到 .active（宽限锚定，同敏感媒体族）
-    @State private var hasReturnedToActive = false
-    /// 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）
-    @State private var lastActivity: Date?
     /// 原文行高亮区（归一化 0…1，来自识别层实测 bbox；nil = 不画）。
     /// 框级锚定三纪律：测量来源 / fail-closed（匹配不上不画）/
     /// 归一化坐标——越界即不画，绝不伪造。
@@ -119,11 +109,6 @@ struct DocumentSourcePageView: View {
                         VLUnavailableView {
                             Label(L10n.sensitiveMedia_loadFailed, systemImage: "exclamationmark.triangle")
                         } actions: { Button(L10n.retry) { startLoad() } }
-                    } else if sensitive && !unlocked {
-                        Button { unlock() } label: {
-                            Label(L10n.sensitiveMedia_unlockToView, systemImage: "lock.fill")
-                                .frame(maxWidth: .infinity, minHeight: 64)
-                        }.disabled(unlocking)
                     } else if let image {
                         GeometryReader { geometry in
                             ScrollView([.horizontal, .vertical]) {
@@ -149,8 +134,7 @@ struct DocumentSourcePageView: View {
                                     }
                                     .accessibilityIdentifier("OCR.source.page.\(pageIndex)")
                             }
-                            .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)); scheduleRelock() })
-                            .simultaneousGesture(DragGesture(minimumDistance: 0).onChanged { _ in scheduleRelock() })
+                            .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)) })
                         }
                         Stepper(L10n.entityCardHeaderPage(pageIndex + 1, pageCount), value: $pageIndex, in: 0...max(0, pageCount - 1))
                             .padding(.horizontal)
@@ -165,21 +149,8 @@ struct DocumentSourcePageView: View {
             }
             .privacySensitive(scenePhase != .active)
             .task { await prepareMetadata() }
-            .onChangeCompat(of: pageIndex) { _, _ in Task { await renderPage() }; scheduleRelock() }
-            .onChangeCompat(of: scenePhase) { _, phase in
-                // background = 真离开恒立即重锁；inactive 可能是认证浮层
-                // 收起瞬态——2026-10-03 评审修复：宽限锚定「首次回 active」
-                // + 绝对兜底（Domain 谓词），慢收起/瞬态 inactive 不再秒回锁。
-                if phase == .background { return }
-                else if phase == .active, unlocked { hasReturnedToActive = true }
-                else if phase != .active, unlocked,
-                        MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
-                                                                 now: Date(),
-                                                                 hasReturnedToActive: hasReturnedToActive) {
-                    relock()
-                }
-            }
-            .onDisappear { operation?.cancel(); relock() }
+            .onChangeCompat(of: pageIndex) { _, _ in Task { await renderPage() } }
+            .onDisappear { operation?.cancel(); operation = nil }
         }
     }
 
@@ -200,53 +171,13 @@ struct DocumentSourcePageView: View {
                 loadedDocument = doc
             }
             loading = false
-            if !sensitive { await loadMedia() }
+            await loadMedia()
         } catch { loading = false; failed = true }
     }
 
     private func startLoad() {
         operation?.cancel()
-        operation = Task {
-            await prepareMetadata()
-            if sensitive && unlocked && !failed {
-                await loadMedia()
-                // 第九轮审查修复（BR-007 同族）：重试路径此前不武装空闲重锁。
-                // 首次解锁时 loadMedia 失败（unlock() 内 232 行守卫在武装计时器
-                // 之前 return），用户点 [重试] 后重新装载成功——原图在屏、计时器
-                // 却从未武装，不触碰屏幕即无限期解锁（恰是 233 行注释声称已修的
-                // 形态）。装载成功与解锁路径同款补武装。
-                guard !Task.isCancelled, !failed else { return }
-                relockTimer.schedule(onExpiry: { relock() })
-            }
-        }
-    }
-
-    private func unlock() {
-        guard !unlocking else { return }
-        unlocking = true
-        let task = Task {
-            let allowed = await app.requestUnlock(reason: L10n.sensitive_unlockReason)
-            // 2026-09-20 修复：取消路径必须复位在途守卫（SensitiveMediaContainer 同族修复）——
-            // 旧实现 return 前置 unlocking 恒 true，无 relock 兜底的取消源会把解锁按钮永久禁用
-            guard !Task.isCancelled else { unlocking = false; return }
-            unlocking = false
-            guard allowed else { return }
-            unlocked = true
-            unlockedAt = Date()
-            lastActivity = Date()
-            // 2026-10-03 评审修复（审计口径统一）：与 SensitiveMediaOriginalView
-            // 对齐——认证通过即留痕（保守侧），不再受后续装载成败影响
-            // （此前 !failed 前置:装载失败时认证成功无痕,两视图口径分裂）。
-            if case .document(let id, _) = source { app.auditViewSensitiveOriginal(documentId: id, title: "") }
-            await loadMedia()
-            guard !Task.isCancelled, !failed else { return }
-            // 2026-09-20 修复（BR-007）：解锁后**必武装** 30s 空闲自动重锁——旧实现走
-            // scheduleRelock()，其活跃信号合并（<1s 丢弃）恰把解锁后的第一次武装吞掉：
-            // 不触碰屏幕即无限期解锁。此处直接武装（合并守卫只服务手势热路径）。
-            relockTimer.schedule(onExpiry: { relock() })
-        }
-        operation = task
-        relockTimer.trackUnlock(task)
+        operation = Task { await prepareMetadata() }
     }
 
     private func loadMedia() async {
@@ -260,10 +191,6 @@ struct DocumentSourcePageView: View {
                 // 此前二次 fetch 同一行；且解锁后重查窗口内文档可被并发归档致解锁即失败）
                 guard let document = loadedDocument else { throw DocumentSourceRenderer.Failure.unreadable }
                 guard !Task.isCancelled else { return }
-                if document.isSensitive && !unlocked {
-                    sensitive = true; image = nil; data = nil; loading = false
-                    return
-                }
                 guard let originalPath else { throw DocumentSourceRenderer.Failure.unreadable }
                 // 大文件读取 + PDF 页数解析移出主 actor（2026-09-20 修复：旧实现
                 // Data(contentsOf:) 数十 MB + PDFDocument 整册解析在 Face ID 解锁后
@@ -281,6 +208,12 @@ struct DocumentSourcePageView: View {
             guard !Task.isCancelled else { return }
             data = bytes
             await renderPage()
+            // FR14.2：敏感原图直接可看，但查看留痕不因取消应用内认证而消失。
+            if case .document(let id, _) = source, sensitive, !failed, image != nil,
+               !didAuditViewing {
+                app.auditViewSensitiveOriginal(documentId: id, title: "")
+                didAuditViewing = true
+            }
             loading = false
         } catch { loading = false; failed = true }
     }
@@ -291,7 +224,7 @@ struct DocumentSourcePageView: View {
     /// 代次守卫防快速翻页时迟到的旧页结果覆盖新页。
     @State private var renderGeneration = 0
     private func renderPage() async {
-        guard !sensitive || unlocked, let data else { return }
+        guard let data else { return }
         let mime = mimeType
         let bytes = data
         let target = min(pageIndex, max(0, pageCount - 1))
@@ -310,28 +243,4 @@ struct DocumentSourcePageView: View {
         }
     }
 
-    private func scheduleRelock() {
-        guard sensitive && unlocked else { return }
-        // 活跃信号合并（MediaUnlockPolicy.activityCoalescingWindow）
-        let now = Date()
-        if let lastActivity, !MediaUnlockPolicy.shouldRecordActivity(lastInteraction: lastActivity, now: now) { return }
-        self.lastActivity = now
-        relockTimer.schedule(onExpiry: { relock() })
-    }
-
-    private func relock() {
-        // 2026-10-24 业主裁决 B：App 内不再重锁。
-        return
-        relockTimer.cancelAll()
-        operation?.cancel(); operation = nil
-        unlocked = false; unlocking = false; data = nil; image = nil
-        // 审查修复（缩放跨解锁周期泄漏）：重锁必须回到初始适配视图——
-        // 下一位认证用户不得看到上一人的取景位置（SensitiveMediaOriginalView
-        // 同族修复，本视图此前漏修）。
-        scale = 1
-        unlockedAt = nil
-        hasReturnedToActive = false
-        lastActivity = nil
-        loading = false
-    }
 }

@@ -126,6 +126,8 @@ struct HelpCardShareHost: UIViewControllerRepresentable {
 struct HelpCardRecipientSheet: View {
     let text: String
     let contacts: [String]
+    /// 紧急联系人读取失败：候选空不是「未配置」，给一句说明（可手输）。
+    var contactsUnavailable = false
     let onSent: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var recipient = ""
@@ -154,6 +156,12 @@ struct HelpCardRecipientSheet: View {
                     Text(L10n.helpcardRecipientOther).tag("__custom__")
                 }
                 .pickerStyle(.menu)
+                if contactsUnavailable {
+                    Text(L10n.helpcardRecipientContactsUnavailable)
+                        .font(.caption)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if recipient == "__custom__" {
                     TextField(L10n.helpcardRecipientPlaceholder, text: $customRecipient)
                         .textFieldStyle(.roundedBorder)

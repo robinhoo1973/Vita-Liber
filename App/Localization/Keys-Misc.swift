@@ -540,7 +540,7 @@ extension L10n {
     static var healthHistoryChronicHint: String { t("healthHistory.chronicHint") }
     static var healthHistorySurgeryHint: String { t("healthHistory.surgeryHint") }
     static var healthHistoryAllergyHint: String { t("healthHistory.allergyHint") }
-    static var healthHistoryMedicationHint: String { t("healthHistory.medicationHint") }
+    static var healthHistoryMedicationSlotsHint: String { t("healthHistory.medicationSlotsHint") }
     static var healthHistoryVaccineHint: String { t("healthHistory.vaccineHint") }
     static var healthHistoryYearTitle: String { t("healthHistory.yearTitle") }
     static var healthHistoryYearPlaceholder: String { t("healthHistory.yearPlaceholder") }

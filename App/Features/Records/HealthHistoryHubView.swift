@@ -2,9 +2,9 @@ import SwiftUI
 import Domain
 import Perception
 
-/// 健康履历总览（SP-49 家族入口，2026-10-22；2026-10-23 改名，避免与
+/// 医疗档案总览（SP-49 家族入口，2026-10-22；2026-10-23 改名，避免与
 /// 「健康档案」主 Tab 同名）。首页「档案完善进度」与「我的 › 个人资料」
-/// 统一落到这里：慢性病、手术史、过敏、当前用药、疫苗、急救卡与药箱
+/// 统一落到这里：慢性病、手术史、过敏、用药时段、疫苗、急救卡与药箱
 /// 各有一个明确入口。所有入口都只读/记录用户自报事实，不做诊断或症状推断。
 struct HealthHistoryHubView: View {
     @Environment(AppState.self) private var app
@@ -59,14 +59,16 @@ struct HealthHistoryHubView: View {
                     }
                     .accessibilityIdentifier("SP-49.hub.allergy")
 
+                    // 2026-10-24 业主：医疗档案入口语义是「用药时段」（提醒时刻
+                    // 模板），不是用药提醒清单；清单仍从提醒模块进入。
                     NavigationLink {
-                        MedicationPlanListView()
+                        MedicationScheduleView()
                     } label: {
-                        row(title: L10n.planListTitle,
-                            subtitle: L10n.healthHistoryMedicationHint,
-                            systemImage: "pills")
+                        row(title: L10n.planSlotsTitle,
+                            subtitle: L10n.healthHistoryMedicationSlotsHint,
+                            systemImage: "clock")
                     }
-                    .accessibilityIdentifier("SP-49.hub.medication")
+                    .accessibilityIdentifier("SP-49.hub.medicationSlots")
 
                     NavigationLink {
                         ImmunizationHubView()

@@ -18,6 +18,12 @@ extension L10n {
 
     static var emergency_notSet: String { t("emergency.notSet") }
 
+    /// 装载态：成员数据未完成前不把空卡呈现成「未配置」。
+    static var emergencyLoading: String { t("emergency.loading") }
+
+    /// 装载失败态：与「空卡」区分，可重试。
+    static var emergencyLoadFailed: String { t("emergency.loadFailed") }
+
     static var emergency_sos_hold: String { t("emergency.sos.hold") }
 
     static var emergency_sos_confirmPrompt: String { t("emergency.sos.confirmPrompt") }

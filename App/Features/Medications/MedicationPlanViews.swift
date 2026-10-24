@@ -11,6 +11,8 @@ struct MedicationPlanListView: View {
     @Environment(AppState.self) private var app
     @Environment(ReminderStore.self) private var reminders
     @State private var plans: [MedicationStore.PlanRow] = []
+    /// 已装载列表对应的成员：切人时据此清空，避免跨成员残留（BR-001）。
+    @State private var loadedPatientId: UUID?
     @State private var showForm = false
     @State private var loadFailed = false
 
@@ -66,8 +68,14 @@ struct MedicationPlanListView: View {
                     .accessibilityIdentifier("SP-15.reminders.add")
                 }
             }
-            .sheet(isPresented: $showForm) {
-                MedicationPlanFormView()
+            .sheet(isPresented: $showForm, onDismiss: {
+                // 新建成功即 dismiss：本列表原本只在成员变化时重载，
+                // 首条提醒会停在空态直到离开页面（审查发现）。
+                Task { await load() }
+            }) {
+                // 表单自身不嵌导航栈（push/路由语境复用外层栈）；只有 sheet
+                // 缺栈，故在呈现场景补一层——否则双导航栏或 sheet 无标题栏。
+                NavigationStack { MedicationPlanFormView() }
             }
             .task(id: app.currentPatientId) { await load() }
         }
@@ -86,11 +94,23 @@ struct MedicationPlanListView: View {
     }
 
     private func load() async {
+        // 成员门（BR-001）：切人先清上一成员的列表，且 await 后自证成员
+        // 未变——慢读/失败不得让 A 的提醒行留在 B 身份下。
+        let patientId = app.currentPatientId
+        if loadedPatientId != patientId {
+            plans = []
+            loadFailed = false
+            loadedPatientId = nil
+        }
         do {
-            plans = try await reminders.plans(patientId: app.currentPatientId)
+            let loaded = try await reminders.plans(patientId: patientId)
+            guard patientId == app.currentPatientId else { return }
+            plans = loaded
+            loadedPatientId = patientId
             loadFailed = false
         } catch {
-            loadFailed = true   // 保留旧列表，不渲染假空态
+            guard patientId == app.currentPatientId else { return }
+            loadFailed = true   // 保留同一成员的旧列表，不渲染假空态
         }
     }
 }
@@ -116,7 +136,9 @@ struct MedicationPlanDetailView: View {
     var body: some View {
         WithPerceptionTracking {
             List {
-                if let plan {
+                // 成员门（BR-001）：plan 尚未按当前成员校验前不得渲染——
+                // 切人瞬间旧计划的药名/剂量会留在 B 页（load 的 await 之后才换）。
+                if let plan, plan.patientId == app.currentPatientId {
                     Section {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
@@ -177,6 +199,12 @@ struct MedicationPlanDetailView: View {
 
                     // FR9.15 计划历史时间轴（开始/调整/暂停/恢复/结束）
                     historySection()
+                } else if plan != nil {
+                    // 成员切换中：旧计划已隐藏、新一轮 load 未回——
+                    // 此时既不能渲染 A 的事实，也不得谎称「计划不存在」。
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("SP-15.detail.switching")
                 } else {
                     emptyState()
                 }
@@ -186,7 +214,7 @@ struct MedicationPlanDetailView: View {
             .navigationTitle(L10n.planDetailTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if let plan {
+                if let plan, plan.patientId == app.currentPatientId {
                     ToolbarItem(placement: .topBarTrailing) {
                         // FR9.9 药品知识卡入口
                         NavigationLink {
@@ -322,17 +350,24 @@ struct MedicationPlanDetailView: View {
     }
 
     private func load() async {
+        // 成员切换竞态：计划按 id 读取、不由存储层过滤成员，故此处必须
+        // 自证 plan.patientId == 当前成员，且各 await 后丢弃过期结果
+        // （否则切人后 B 页仍渲染 A 的计划与剂量记录，BR-001）。
+        let patientId = app.currentPatientId
         do {
             let fetched = try await reminders.plan(id: planId)
-            // 真不存在（已删除）→ 「计划不存在」；取回成功才继续副表
-            guard let fetched else {
+            guard patientId == app.currentPatientId else { return }
+            // 真不存在（已删除/不属于当前成员）→ 「计划不存在」；取回成功才继续副表
+            guard let fetched, fetched.patientId == patientId else {
                 plan = nil
                 loadFailed = false
                 return
             }
             plan = fetched
             loadFailed = false
-            history = try await reminders.lifecycleEvents(planId: planId)
+            let events = try await reminders.lifecycleEvents(planId: planId)
+            guard patientId == app.currentPatientId else { return }
+            history = events
             let cal = Calendar.current
             // DST 纪律：日历加一天，禁止固定 86400 秒（切换日 ±1 小时漂移）
             // 第八轮修复：统一经 DayArithmetic 出口
@@ -342,9 +377,12 @@ struct MedicationPlanDetailView: View {
             let weekEnd = DayArithmetic.offset(days: 7,
                                                from: cal.startOfDay(for: Date()),
                                                calendar: cal)
-            weekLog = try await reminders.doseLog(planId: planId, from: weekStart,
+            let log = try await reminders.doseLog(planId: planId, from: weekStart,
                                                   to: weekEnd)
+            guard patientId == app.currentPatientId else { return }
+            weekLog = log
         } catch {
+            guard patientId == app.currentPatientId else { return }
             // 瞬态读失败：清空并呈现重试态——不得把存在的计划渲染成
             // 「计划不存在」，也不得带着半载数据（history/weekLog 部分
             // 写入）冒充完整详情。plan 必须置 nil：loadFailed 只在
@@ -598,6 +636,11 @@ struct MedicationPlanFormView: View {
     @State private var selectedKeys: Set<String> = []
     @State private var scheduleId: UUID?
     @State private var scheduleLoadFailed = false
+    /// 时段列表已装载的成员（nil = 尚无成功装载）：区分「加载中」与
+    /// 「装载成功但时段为空」，并给切人清空提供锚点。
+    @State private var loadedSchedulePatientId: UUID?
+    /// 保存进行中：防连点重复建计划（同一动作两次 Task 会建两套处方/批次）。
+    @State private var isSaving = false
     // FR9.10 初始批次
     @State private var lotUnits = 30.0
     @State private var lotUnitKind = "tablet"
@@ -644,144 +687,152 @@ struct MedicationPlanFormView: View {
 
     var body: some View {
         WithPerceptionTracking {
-            NavigationStack {
-                Form {
-                    Section(L10n.planFormMedication) {
-                        TextField(L10n.planFormGenericName, text: $genericName)
-                        TextField(L10n.planFormBrandName, text: $brandName)
-                        TextField(L10n.planFormSpec, text: $spec)
-                        TextField(L10n.planFormDosePerTake, text: $dosePerTake)
-                        // 第八轮全仓审查修复（响亮拒绝）：非空但不可解析的剂量
-                        // 文本（"1/2"/"半"曾可解析，反例 "abc"）就地报错并禁用
-                        // 保存——绝不静默落 NULL 后被安全线按 1.0/次扣账
-                        if doseParseFailed {
-                            Text(L10n.planFormDoseParseError)
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-danger", bundle: .main))
-                        }
-                        TextField(L10n.planFormRoute, text: $route)
-                        TextField(L10n.planFormMeal, text: $mealRelation)
+            Form {
+                Section(L10n.planFormMedication) {
+                    TextField(L10n.planFormGenericName, text: $genericName)
+                    TextField(L10n.planFormBrandName, text: $brandName)
+                    TextField(L10n.planFormSpec, text: $spec)
+                    TextField(L10n.planFormDosePerTake, text: $dosePerTake)
+                    // 第八轮全仓审查修复（响亮拒绝）：非空但不可解析的剂量
+                    // 文本（"1/2"/"半"曾可解析，反例 "abc"）就地报错并禁用
+                    // 保存——绝不静默落 NULL 后被安全线按 1.0/次扣账
+                    if doseParseFailed {
+                        Text(L10n.planFormDoseParseError)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
                     }
-                    // v45（2026-10-24 业主）：从「用药时段」里选择本次提醒要用的时刻。
-                    // 时刻只读展示，修改入口在用药时段页；默认 0 选中。
-                    Section {
-                        if scheduleLoadFailed {
-                            Text(L10n.planSlotsLoadFailed)
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-danger", bundle: .main))
-                            Button(L10n.retry) { Task { await loadSchedule() } }
-                        } else if scheduleEntries.isEmpty {
-                            ProgressView()
-                        } else if !isAsNeeded {
-                            ForEach(scheduleEntries) { entry in
-                                Button {
-                                    toggle(entry)
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Image(systemName: isSelected(entry)
-                                              ? "checkmark.circle.fill" : "circle")
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(entry.slot?.localizedTitle ?? entry.time)
-                                                .foregroundStyle(.primary)
-                                            Text(entry.slot == nil
-                                                 ? MedicationScheduleEntryRules.range(of: entry)
-                                                     .map { L10n.planFormRangeFmt($0.start, $0.end) } ?? ""
-                                                 : "\(entry.time) · " + (MedicationScheduleEntryRules
-                                                     .range(of: entry)
-                                                     .map { L10n.planFormRangeFmt($0.start, $0.end) } ?? ""))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        Spacer()
+                    TextField(L10n.planFormRoute, text: $route)
+                    TextField(L10n.planFormMeal, text: $mealRelation)
+                }
+                // v45（2026-10-24 业主）：从「用药时段」里选择本次提醒要用的时刻。
+                // 时刻只读展示，修改入口在用药时段页；默认 0 选中。
+                Section {
+                    if scheduleLoadFailed {
+                        Text(L10n.planSlotsLoadFailed)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                        Button(L10n.retry) { Task { await loadSchedule() } }
+                    } else if scheduleEntries.isEmpty
+                                && loadedSchedulePatientId != app.currentPatientId {
+                        // 仅「尚未装载成功」算加载中；装载成功但时段为空
+                        // （旧库空模板被收养）必须落到可选行+编辑入口，
+                        // 否则页面永远转圈且无路可走（审查发现）。
+                        ProgressView()
+                    } else if !isAsNeeded {
+                        ForEach(scheduleEntries) { entry in
+                            Button {
+                                toggle(entry)
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: isSelected(entry)
+                                          ? "checkmark.circle.fill" : "circle")
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(entry.slot?.localizedTitle ?? entry.time)
+                                            .foregroundStyle(.primary)
+                                        Text(entry.slot == nil
+                                             ? MedicationScheduleEntryRules.range(of: entry)
+                                                 .map { L10n.planFormRangeFmt($0.start, $0.end) } ?? ""
+                                             : "\(entry.time) · " + (MedicationScheduleEntryRules
+                                                 .range(of: entry)
+                                                 .map { L10n.planFormRangeFmt($0.start, $0.end) } ?? ""))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
                                     }
+                                    Spacer()
                                 }
-                                .buttonStyle(.plain)
-                                .accessibilityIdentifier("SP-15.reminder.slot.\(entry.id)")
                             }
-                            NavigationLink(L10n.planReminderEditSlots) {
-                                MedicationScheduleView()
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("SP-15.reminder.slot.\(entry.id)")
+                        }
+                        NavigationLink(L10n.planReminderEditSlots) {
+                            // 内嵌编辑返回后立即重载：时段可能改名/增删/改时刻，
+                            // 旧列表会让本次保存写回过期时刻与悬空键。
+                            MedicationScheduleView {
+                                Task { await loadSchedule() }
                             }
-                            if missingScheduleTime {
-                                Text(L10n.planReminderSlotMissing)
-                                    .font(.caption)
-                                    .foregroundStyle(Color("semantic-danger", bundle: .main))
-                            }
                         }
-                        LabeledContent(L10n.planFormTimesPerDay,
-                                       value: isAsNeeded ? "—" : "\(effectiveTimes.count)")
-                        Toggle(L10n.planFormAsNeeded, isOn: $isAsNeeded)
-                        DatePicker(L10n.planFormStartDate, selection: $startDate, displayedComponents: .date)
-                        Toggle(L10n.planFormHasEndDate, isOn: $hasEndDate)
-                        if hasEndDate {
-                            DatePicker(L10n.planFormEndDate, selection: $endDate, displayedComponents: .date)
+                        if missingScheduleTime {
+                            Text(L10n.planReminderSlotMissing)
+                                .font(.caption)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
                         }
-                        Toggle(L10n.planFormLongTerm, isOn: $isLongTerm)
-                    } header: {
-                        Text(L10n.planReminderSlotsHeader)
-                    } footer: {
-                        Text(L10n.planReminderSlotsHint)
                     }
-                    Section(L10n.planFormSource) {
-                        TextField(L10n.planFormHospital, text: $hospital)
-                        TextField(L10n.planFormDoctor, text: $doctor)
-                        TextField(L10n.planFormAdvice, text: $adviceText, axis: .vertical)
-                            .lineLimit(3...6)
+                    LabeledContent(L10n.planFormTimesPerDay,
+                                   value: isAsNeeded ? "—" : "\(effectiveTimes.count)")
+                    Toggle(L10n.planFormAsNeeded, isOn: $isAsNeeded)
+                    DatePicker(L10n.planFormStartDate, selection: $startDate, displayedComponents: .date)
+                    Toggle(L10n.planFormHasEndDate, isOn: $hasEndDate)
+                    if hasEndDate {
+                        DatePicker(L10n.planFormEndDate, selection: $endDate, displayedComponents: .date)
                     }
-                    // FR9.10：录入时必须询问失效日期与存储位置（未知进待办队列）
-                    Section {
-                        Stepper(L10n.planFormLotUnits(Double(Int(lotUnits))), value: $lotUnits, in: 1...1000)
-                        Picker(L10n.planFormLotUnit, selection: $lotUnitKind) {
-                            Text(L10n.lotUnitTablet).tag("tablet")
-                            Text(L10n.lotUnitCapsule).tag("capsule")
-                            Text(L10n.lotUnitPatch).tag("patch")
-                            Text(L10n.lotUnitVial).tag("vial")
-                        }
-                        Toggle(L10n.planFormExpireUnknown, isOn: $lotExpireUnknown)
-                        if !lotExpireUnknown {
-                            DatePicker(L10n.planFormExpireDate, selection: $lotExpireDate, displayedComponents: .date)
-                        }
-                        TextField(L10n.planFormStorageNote, text: $storageNote)
-                    } header: {
-                        Text(L10n.planFormLotSection)
-                    } footer: {
-                        Text(L10n.planFormLotHint)
-                    }
+                    Toggle(L10n.planFormLongTerm, isOn: $isLongTerm)
+                } header: {
+                    Text(L10n.planReminderSlotsHeader)
+                } footer: {
+                    Text(L10n.planReminderSlotsHint)
                 }
-                .navigationTitle(L10n.planFormTitle)
-                .task(id: app.currentPatientId) { await loadSchedule() }
-                // FR9.19（V4.48）：计划表单改由固定时段承载提醒时刻，默认时刻取
-                // 医院常用锚点（与 `DoseScheduleEngine.mealDefaultTime` 同源），
-                // 不再按频率预填、也不覆盖用户手改。`DoseScheduleAdvisor` 的推荐表
-                // 仍按其登记裁决保留给其他入口——其 08:00/20:00 等铺开值与时段默认
-                // 并不相同，两者不得互相冒充（审查修正：原注释称「一致」不实）。
-                .saveFailedAlert(title: L10n.planFormSaveFailed,
-                                 hint: L10n.planFormSaveFailedHint,
-                                 isPresented: $saveFailed)
-                // E③（FR9.19）：排程冲突提示——非阻断（[仍要保存] 继续；[取消] 返回修改）
-                .alert(L10n.planConflictTitle, isPresented: Binding(
-                    get: { !pendingConflicts.isEmpty },
-                    set: { if !$0 { pendingConflicts = [] } })) {
-                    Button(L10n.planConflictProceed) {
-                        conflictAcknowledged = true
-                        pendingConflicts = []
-                        performSave()
-                    }
-                    Button(L10n.commonCancel, role: .cancel) { pendingConflicts = [] }
-                } message: {
-                    Text(pendingConflicts.map(conflictText).joined(separator: "\n"))
+                Section(L10n.planFormSource) {
+                    TextField(L10n.planFormHospital, text: $hospital)
+                    TextField(L10n.planFormDoctor, text: $doctor)
+                    TextField(L10n.planFormAdvice, text: $adviceText, axis: .vertical)
+                        .lineLimit(3...6)
                 }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(L10n.commonCancel) { dismiss() }
+                // FR9.10：录入时必须询问失效日期与存储位置（未知进待办队列）
+                Section {
+                    Stepper(L10n.planFormLotUnits(Double(Int(lotUnits))), value: $lotUnits, in: 1...1000)
+                    Picker(L10n.planFormLotUnit, selection: $lotUnitKind) {
+                        Text(L10n.lotUnitTablet).tag("tablet")
+                        Text(L10n.lotUnitCapsule).tag("capsule")
+                        Text(L10n.lotUnitPatch).tag("patch")
+                        Text(L10n.lotUnitVial).tag("vial")
                     }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.reminder_save) { save() }
-                            .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty
-                                      || doseParseFailed
-                                      || missingScheduleTime
-                                      || scheduleLoadFailed)
-                            .accessibilityIdentifier("SP-15.form.save")
+                    Toggle(L10n.planFormExpireUnknown, isOn: $lotExpireUnknown)
+                    if !lotExpireUnknown {
+                        DatePicker(L10n.planFormExpireDate, selection: $lotExpireDate, displayedComponents: .date)
                     }
+                    TextField(L10n.planFormStorageNote, text: $storageNote)
+                } header: {
+                    Text(L10n.planFormLotSection)
+                } footer: {
+                    Text(L10n.planFormLotHint)
+                }
+            }
+            .navigationTitle(L10n.planFormTitle)
+            .task(id: app.currentPatientId) { await loadSchedule() }
+            // FR9.19（V4.48）：计划表单改由固定时段承载提醒时刻，默认时刻取
+            // 医院常用锚点（与 `DoseScheduleEngine.mealDefaultTime` 同源），
+            // 不再按频率预填、也不覆盖用户手改。`DoseScheduleAdvisor` 的推荐表
+            // 仍按其登记裁决保留给其他入口——其 08:00/20:00 等铺开值与时段默认
+            // 并不相同，两者不得互相冒充（审查修正：原注释称「一致」不实）。
+            .saveFailedAlert(title: L10n.planFormSaveFailed,
+                             hint: L10n.planFormSaveFailedHint,
+                             isPresented: $saveFailed)
+            // E③（FR9.19）：排程冲突提示——非阻断（[仍要保存] 继续；[取消] 返回修改）
+            .alert(L10n.planConflictTitle, isPresented: Binding(
+                get: { !pendingConflicts.isEmpty },
+                set: { if !$0 { pendingConflicts = [] } })) {
+                Button(L10n.planConflictProceed) {
+                    conflictAcknowledged = true
+                    pendingConflicts = []
+                    performSave()
+                }
+                Button(L10n.commonCancel, role: .cancel) { pendingConflicts = [] }
+            } message: {
+                Text(pendingConflicts.map(conflictText).joined(separator: "\n"))
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonCancel) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.reminder_save) { save() }
+                        .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || doseParseFailed
+                                  || missingScheduleTime
+                                  // 按需计划不挂时段：时段读失败不应连带禁保存
+                                  || (!isAsNeeded && scheduleLoadFailed)
+                                  || isSaving)
+                        .accessibilityIdentifier("SP-15.form.save")
                 }
             }
         }
@@ -852,19 +903,41 @@ struct MedicationPlanFormView: View {
 
     /// 加载默认用药时段（懒创建 8 个标准时段）。
     private func loadSchedule() async {
-        guard let schedules else { return }
+        guard let schedules else {
+            // 环境未注入不得表现为永久转圈。
+            scheduleLoadFailed = true
+            return
+        }
+        let patientId = app.currentPatientId
+        // 切人先作废上一成员的条目与勾选；同一成员的重载（内嵌编辑页
+        // 返回）保留勾选，仅剔除已删除时段留下的悬空键。
+        if loadedSchedulePatientId != patientId {
+            scheduleEntries = []
+            selectedKeys = []
+            scheduleId = nil
+            loadedSchedulePatientId = nil
+        }
         do {
-            let schedule = try await schedules.ensureDefaultSchedule(
-                patientId: app.currentPatientId)
+            let schedule = try await schedules.ensureDefaultSchedule(patientId: patientId)
+            guard patientId == app.currentPatientId else { return }
             scheduleEntries = schedule.entries
             scheduleId = schedule.id
+            // 已选键必须仍存在于当前时段：删除自定义时段后不得保留悬空键
+            // （否则保存写 slot_keys_json 指向不存在条目，传播时被当 legacy）。
+            let available = Set(schedule.entries.map { MedicationScheduleSlotKey.key(for: $0) })
+            selectedKeys.formIntersection(available)
+            loadedSchedulePatientId = patientId
             scheduleLoadFailed = false
         } catch {
+            guard patientId == app.currentPatientId else { return }
             scheduleLoadFailed = true
         }
     }
 
     private func performSave() {
+        // 连点闸门：同一动作重入会并发建两套处方/计划/批次与重复提醒。
+        guard !isSaving else { return }
+        isSaving = true
         let times = effectiveTimes
         // 非按需计划的空时刻在 save() 已被拒绝；此兜底只防程序路径绕过 UI 闸门
         // （固定时刻 08:00 与 DoseScheduleAdvisor qd 默认一致）。
@@ -914,6 +987,7 @@ struct MedicationPlanFormView: View {
                 // 保存失败必须可见（响亮拒绝纪律）——此前仅注释吞错，按钮
                 // 无响应、无提示，用户以为计划已建而提醒从未排期
                 saveFailed = true
+                isSaving = false
             }
         }
     }

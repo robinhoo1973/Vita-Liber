@@ -196,9 +196,6 @@ extension L10n {
 
     static var planBackfillNoBaseline: String { t("plan.backfill.noBaseline") }
 
-    // v42 用药计划 = 时段模板（2026-10-23 业主裁决）
-    static var planScheduleNamePlaceholder: String { t("plan.schedule.namePlaceholder") }
-    static var planScheduleNone: String { t("plan.schedule.none") }
     // v45（2026-10-24 业主）：用药时段（单页）/ 用药提醒（药品×时段）
     static var planSlotsTitle: String { t("plan.slots.title") }
     static var planSlotsHint: String { t("plan.slots.hint") }
@@ -209,9 +206,9 @@ extension L10n {
         String(format: t("plan.slots.linkedFmt"), count)
     }
     static var planSlotsPropagateTitle: String { t("plan.slots.propagate.title") }
-    static func planSlotsPropagateBody(_ count: Int) -> String {
-        String(format: t("plan.slots.propagate.body"), count)
-    }
+    /// 不带数量：`boundPlanCount` 含无 `slot_keys_json` 的旧格式提醒，
+    /// 它们不会跟随时段改写——按总数承诺更新是假事实。
+    static var planSlotsPropagateBody: String { t("plan.slots.propagate.body") }
     static var planSlotsPropagateConfirm: String { t("plan.slots.propagate.confirm") }
     static var planSlotsSaveOnly: String { t("plan.slots.saveOnly") }
     static var planReminderListTitle: String { t("plan.reminder.listTitle") }
@@ -240,21 +237,6 @@ extension L10n {
     static var planFormRangeNotice: String { t("plan.form.range.notice") }
     static var planFormRangeInvalid: String { t("plan.form.range.invalid") }
 
-    static var planScheduleEmpty: String { t("plan.schedule.empty") }
-    static var planScheduleEmptyHint: String { t("plan.schedule.emptyHint") }
-    static var planScheduleUntitled: String { t("plan.schedule.untitled") }
-    static func planScheduleBoundFmt(_ count: Int) -> String {
-        String(format: t("plan.schedule.boundFmt"), count)
-    }
-    static var planScheduleBindings: String { t("plan.schedule.bindings") }
-    static var planScheduleNoBindings: String { t("plan.schedule.noBindings") }
-    static var planScheduleBindDrug: String { t("plan.schedule.bindDrug") }
-    static var planScheduleBindingTitle: String { t("plan.schedule.bindingTitle") }
-    static var planScheduleDelete: String { t("plan.schedule.delete") }
-    static var planScheduleDeleteBlocked: String { t("plan.schedule.deleteBlocked") }
-    static var planScheduleEdit: String { t("plan.schedule.edit") }
-    static var planScheduleEditTitle: String { t("plan.schedule.editTitle") }
-    static var planScheduleLoadFailed: String { t("plan.schedule.loadFailed") }
     static var planFormSaveFailed: String { t("plan.form.saveFailed") }
 
     static var planFormSaveFailedHint: String { t("plan.form.saveFailedHint") }

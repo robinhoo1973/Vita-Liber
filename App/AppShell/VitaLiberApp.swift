@@ -443,6 +443,11 @@ struct VitaLiberApp: App {
         })
             .environment(appState)
             .environment(reminderStore)
+            // v42 用药时段 actor 非 Observable，经自定义 EnvironmentKey 注入。
+            // 审查修复（2026-10-24）：此前只在 PreviewRoot 注入，生产根缺失——
+            // 医疗档案 → 用药时段、提醒页 SP-15.slots.entry、提醒表单时段选择
+            // 全部拿 nil 而永久转圈（预览通过掩盖了生产断链）。
+            .environment(\.medicationScheduleStore, container.scheduleTemplates)
             .environment(settingsStore)
             .environment(avatarState)
             .environment(observationState)

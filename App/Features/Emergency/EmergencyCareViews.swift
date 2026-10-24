@@ -25,71 +25,295 @@ struct EmergencyCardView: View {
     /// 审查修复：关怀模式透传 SOS 门槛参数（原 SOSButton() 硬编码 careMode=false，
     /// 设置页展示的「SOS 门槛提升」在急救卡入口从未生效）
     var careMode: Bool = false
+    /// 成员门尚未装载完成：不把「空卡」渲染成「未配置」事实（2026-10-24 呈现重设计）。
+    var isLoading: Bool = false
+    /// 急救卡三读失败：与「空卡」区分，显示可重试错误（2026-10-24）。
+    var loadFailed: Bool = false
+    var onRetry: (() -> Void)?
     /// SOS 确认后呈现求助页（第六轮全仓审查修复：急救卡 SOS 死控件接线）
     @State private var showSOSHelp = false
+
+    private var metrics: CareModeMetrics {
+        careMode ? .care : .standard
+    }
+
+    private var bloodTypeDisplay: String? {
+        L10n.bloodTypeDisplayName(bloodType)
+    }
 
     var body: some View {
         WithPerceptionTracking {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 8) {
-                        VLIcon.emergencyCard.resizable().frame(width: 28, height: 28)
-                        Text(L10n.emergency_title).font(.title2).bold()
-                        Spacer()
-                    }
-                    if let identity = identityLine {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(identity.name)
-                                .font(.title3.weight(.semibold))
-                            if let detail = identity.detail {
-                                Text(detail)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
+                VStack(alignment: .leading, spacing: careMode ? 16 : 12) {
+                    identityHero
+                    if isLoading {
+                        loadingCard
+                    } else {
+                        if loadFailed {
+                            loadFailureCard
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .frame(minHeight: 44, alignment: .leading)
-                        .accessibilityElement(children: .combine)
-                        .accessibilityIdentifier("F15.card.identity")
-                    }
-                    if let display = L10n.bloodTypeDisplayName(bloodType) {
-                        CardRow(icon: VLIcon.bloodDrop, title: L10n.emergency_bloodType, value: display)
-                            .accessibilityIdentifier("F15.card.bloodType")
-                    }
-                    section(L10n.emergency_allergy, items: card.allergies, empty: L10n.emergency_notSet)
-                    section(L10n.emergency_meds, items: card.medications, empty: L10n.emergency_notSet)
-                    section(L10n.emergency_health, items: card.healthProblems, empty: L10n.emergency_notSet)
-                    section(L10n.emergency_contacts, items: card.contacts, empty: L10n.emergency_notSet)
-
-                    // 审查修复（FR15.1 死锁）：引导卡与 [管理] 曾用 else-if 互斥，
-                    // 而 medicalIDGuideNeeded == 四节全空 == 全新安装的唯一状态。
-                    // 于是新用户只看到「写入系统医疗急救卡」引导卡，永远拿不到
-                    // 唯一的选择入口（F15.card.manage），四节永远填不上——鸡生蛋死锁，
-                    // 急救卡（BR-012 唯一免门禁路径）恒为空。§5.16 要求两者并存。
-                    if EmergencyCardService.medicalIDGuideNeeded(card: card) {
-                        GuideCard(onGuide: onGuideMedicalID)
-                    }
-                    if let onOpenSelector {
-                        Button {
-                            onOpenSelector()
-                        } label: {
-                            Label(L10n.emergency_manageCard, systemImage: "pencil").frame(minHeight: 44)
+                        // 失败且无缓存内容时不再画四节「未配置」——那会把读取
+                        // 失败说成事实（BR-003 同源纪律：未确认/未知不得冒充）。
+                        if !loadFailed || !EmergencyCardService.medicalIDGuideNeeded(card: card) {
+                            clinicalSummaryCard
                         }
-                        .accessibilityIdentifier("F15.card.manage")
+                        // 审查修复（FR15.1 死锁）：引导卡与 [管理] 曾用 else-if 互斥，
+                        // 而 medicalIDGuideNeeded == 四节全空 == 全新安装的唯一状态。
+                        // 于是新用户只看到「写入系统医疗急救卡」引导卡，永远拿不到
+                        // 唯一的选择入口（F15.card.manage），四节永远填不上——鸡生蛋死锁，
+                        // 急救卡（BR-012 唯一免门禁路径）恒为空。§5.16 要求两者并存。
+                        if !loadFailed, EmergencyCardService.medicalIDGuideNeeded(card: card) {
+                            GuideCard(careMode: careMode, onGuide: onGuideMedicalID)
+                        }
+                        if let onOpenSelector {
+                            manageButton(onOpenSelector)
+                        }
                     }
                     // 第六轮全仓审查修复：SOSButton 此前无 onTrigger 接线——
                     // 按住确认后执行 nil 闭包，急救卡上的 SOS 是死控件
-                    // （BR-012 唯一可达路径只剩关怀悬浮球）
+                    // （BR-012 唯一可达路径只剩关怀悬浮球）。SOS 不随装载态隐藏。
                     SOSButton(careMode: careMode) { showSOSHelp = true }
-                    Spacer()
+                    Spacer(minLength: 0)
                 }
                 .padding(16)
+                .frame(maxWidth: 672)   // ui-ux §4.4 / ADR-021：iPad 内容宽 ≤672pt
             }
+            .tintedCanvas()   // ui-ux §3.0：渐变直挂容器，玻璃卡才有可感知物
             .navigationTitle(L10n.emergency_title)
             .fullScreenCover(isPresented: $showSOSHelp) {
                 SOSHelpView()
             }
         }
+    }
+
+    // MARK: 人别与血型（施救者第一眼）
+
+    /// 人别卡：姓名/年龄或出生年份/性别 + 血型。血型独立成块并保持
+    /// `F15.card.bloodType` 锚点——急救场景的第一优先事实，不与正文混排。
+    @ViewBuilder
+    private var identityHero: some View {
+        if let identity = identityLine {
+            HStack(alignment: .center, spacing: 14) {
+                monogram(identity.name)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(identity.name)
+                        .font(.title2.weight(.bold))
+                        .lineLimit(2)
+                    if let detail = identity.detail {
+                        Text(detail)
+                            .font(.subheadline)
+                            .foregroundStyle(Color("text-secondary", bundle: .main))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("F15.card.identity")
+                bloodTypeTile
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard()
+        } else if bloodTypeDisplay != nil || isLoading || loadFailed {
+            // 无姓名时仍保留血型事实（不凭空补人别字段）。
+            HStack {
+                Spacer(minLength: 0)
+                bloodTypeTile
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .glassCard()
+        }
+    }
+
+    private func monogram(_ name: String) -> some View {
+        Text(String(name.prefix(1)).uppercased())
+            .font(.title2.weight(.bold))
+            .foregroundStyle(Color("brand-primary", bundle: .main))
+            .frame(width: careMode ? 64 : 56, height: careMode ? 64 : 56)
+            .background(Color("brand-primary", bundle: .main).opacity(0.12), in: Circle())
+            .overlay(Circle().stroke(Color("brand-primary", bundle: .main).opacity(0.18),
+                                     lineWidth: 1))
+            .accessibilityHidden(true)
+    }
+
+    /// 血型块：标签 + 大数字（§3.2 metricTileValue）。未配置也显式呈现，
+    /// 避免把一个空缺读成「没有血型记录」还是「页面没加载」的歧义。
+    @ViewBuilder
+    private var bloodTypeTile: some View {
+        VStack(spacing: 3) {
+            HStack(spacing: 4) {
+                VLIcon.bloodDrop.resizable().frame(width: 13, height: 13)
+                Text(L10n.emergency_bloodType)
+                    .font(.caption2)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+            }
+            if let display = bloodTypeDisplay {
+                Text(display)
+                    .font(VLFont.metricTileValue)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+            } else if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(height: 34)
+            } else if loadFailed {
+                // 读取失败不等于「未配置」：显示占位破折号，不冒充事实。
+                Text("—")
+                    .font(VLFont.metricTileValue)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                    .frame(height: 34)
+            } else {
+                Text(L10n.emergency_notSet)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                    .frame(height: 34)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minWidth: careMode ? 104 : 88, minHeight: careMode ? 76 : 68)
+        .background(Color("brand-primary", bundle: .main).opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: VLCornerRadius.compact, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: VLCornerRadius.compact, style: .continuous)
+                .stroke(Color("brand-primary", bundle: .main).opacity(0.22), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("F15.card.bloodType")
+    }
+
+    // MARK: 临床摘要（单卡分组，玻璃层 ≤5）
+
+    private var clinicalSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            section(L10n.emergencySectionAllergy, icon: "allergens",
+                    items: card.allergies, emptyId: "allergy")
+            sectionDivider
+            section(L10n.emergencySectionMeds, icon: "pills.fill",
+                    items: card.medications, emptyId: "meds")
+            sectionDivider
+            section(L10n.emergencySectionHealth, icon: "heart.text.square.fill",
+                    items: card.healthProblems, emptyId: "health")
+            sectionDivider
+            section(L10n.emergencySectionContacts,
+                    icon: "person.crop.circle.badge.exclamationmark",
+                    items: card.contacts, emptyId: "contacts")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard()
+    }
+
+    private var sectionDivider: some View {
+        Divider().opacity(0.6)
+    }
+
+    private func section(_ title: String, icon: String,
+                         items: [EmergencyCardItem], emptyId: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color("brand-primary", bundle: .main))
+                    .frame(width: 24, height: 24)
+                    .background(Color("brand-primary", bundle: .main).opacity(0.12),
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                if items.isEmpty {
+                    PillBadge(text: L10n.emergency_notSet, style: .neutral, size: .regular)
+                        .accessibilityIdentifier("F15.card.empty.\(emptyId)")
+                } else {
+                    // 入卡条目全部为已确认事实（EmergencyCardStore 只收 confirmed，
+                    // FR15.1/BR-003）——节级 C 徽章，不逐行重复。
+                    GradeBadge(grade: GradeBadge.gradeConfirmed)
+                }
+            }
+            if !items.isEmpty {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 {
+                        Divider().opacity(0.35)
+                    }
+                    itemRow(item)
+                }
+            }
+        }
+        .padding(.vertical, careMode ? 12 : 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func itemRow(_ item: EmergencyCardItem) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(item.title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.primary)
+            if !item.displayDetail.isEmpty {
+                Text(item.displayDetail)
+                    .font(.caption)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, careMode ? 4 : 3)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("F15.card.item")
+    }
+
+    private var loadingCard: some View {
+        HStack(spacing: 12) {
+            ProgressView()
+            Text(L10n.emergencyLoading)
+                .font(.subheadline)
+                .foregroundStyle(Color("text-secondary", bundle: .main))
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .glassCard()
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("F15.card.loading")
+    }
+
+    private var loadFailureCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .accessibilityHidden(true)
+                Text(L10n.emergencyLoadFailed)
+                    .font(.subheadline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let onRetry {
+                Button(L10n.retry, action: onRetry)
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .frame(maxWidth: .infinity, minHeight: metrics.touchTarget)
+                    .accessibilityIdentifier("F15.card.retry")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(cornerRadius: VLCornerRadius.compact)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("F15.card.loadFailed")
+    }
+
+    private func manageButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(L10n.emergency_manageCard, systemImage: "slider.horizontal.3")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: metrics.touchTarget)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color("brand-primary", bundle: .main))
+        .accessibilityIdentifier("F15.card.manage")
     }
 
     /// 人别行：姓名必填才显示；年龄优先、出生年份兜底（FR3.1），性别随档案。
@@ -108,68 +332,51 @@ struct EmergencyCardView: View {
         }
         return (name, parts.isEmpty ? nil : parts.joined(separator: " · "))
     }
-
-    private func section(_ title: String, items: [EmergencyCardItem], empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
-            if items.isEmpty {
-                Text(empty).font(.subheadline).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("F15.card.empty.\(title)")
-            } else {
-                ForEach(items) { item in
-                    HStack {
-                        Text(item.title).font(.subheadline)
-                        if !item.displayDetail.isEmpty {
-                            Text(item.displayDetail).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("F15.card.item")
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct CardRow: View {
-    let icon: Image
-    let title: String
-    let value: String
-
-    var body: some View {
-        WithPerceptionTracking {
-            HStack(spacing: 8) {
-                icon.resizable().frame(width: 22, height: 22)
-                Text(title).font(.subheadline).foregroundStyle(.secondary)
-                Text(value).font(.title3).monospacedDigit()
-            }
-            .frame(minHeight: 44, alignment: .leading)
-        }
-    }
 }
 
 /// FR15.2：引导用户把同样内容写入 iOS 系统医疗急救卡——分步图文引导，
 /// 不替代系统能力、不静默写入；引导中断可重试。
 struct GuideCard: View {
+    var careMode = false
     var onGuide: (() -> Void)?
     @State private var showGuide = false
 
+    private var metrics: CareModeMetrics {
+        careMode ? .care : .standard
+    }
+
     var body: some View {
         WithPerceptionTracking {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(L10n.emergencyWriteTitle).font(.headline)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "heart.text.square")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
+                        .frame(width: 24, height: 24)
+                        .background(Color("brand-primary", bundle: .main).opacity(0.12),
+                                    in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .accessibilityHidden(true)
+                    Text(L10n.emergencyWriteTitle).font(.headline)
+                    Spacer(minLength: 0)
+                }
                 Text(L10n.emergencyWriteSubtitle)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                    .fixedSize(horizontal: false, vertical: true)
                 if onGuide != nil {
-                    Button(L10n.emergencyViewGuide) {
+                    Button {
                         showGuide = true
+                    } label: {
+                        Label(L10n.emergencyViewGuide, systemImage: "arrow.up.forward.square")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: metrics.touchTarget)
                     }
-                    .frame(minHeight: 44)
+                    .buttonStyle(.bordered)
+                    .tint(Color("brand-primary", bundle: .main))
                     .accessibilityIdentifier("F15.card.medicalIDGuide")
                 }
             }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassCard(cornerRadius: VLCornerRadius.compact)   // §3.3 表面阶梯 L2（V4.05：常态无阴影）
             .sheet(isPresented: $showGuide) {
@@ -441,6 +648,11 @@ struct SOSHelpView: View {
         hub.emergencySelected.contacts.filter(\.confirmed)
     }
 
+    /// 成员门：未装载完成前不得把「尚无联系人」当作事实（BR-001）。
+    private var contactsLoaded: Bool {
+        hub.isLoaded(for: app.currentPatientId)
+    }
+
     var body: some View {
         WithPerceptionTracking {
             NavigationStack {
@@ -461,8 +673,30 @@ struct SOSHelpView: View {
                     .tint(Color("semantic-danger", bundle: .main))
                     .accessibilityIdentifier("F18.sos.call120")
 
-                    // 紧急联系人（已配置才显示；未配置引导去急救卡补录，FR15.1）
-                    if contacts.isEmpty {
+                    // 紧急联系人（已配置才显示；未配置引导去急救卡补录，FR15.1）。
+                    // 装载中/失败不显示「无联系人」——那是把未知冒充事实。
+                    if !contactsLoaded {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text(L10n.emergencyLoading)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        .accessibilityIdentifier("F18.sos.contactsLoading")
+                    } else if hub.emergencyLoadFailed {
+                        VStack(spacing: 6) {
+                            Text(L10n.emergencyLoadFailed)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Button(L10n.retry) {
+                                Task { await hub.load(patientId: app.currentPatientId, force: true) }
+                            }
+                            .accessibilityIdentifier("F18.sos.contactsRetry")
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("F18.sos.contactsLoadFailed")
+                    } else if contacts.isEmpty {
                         Text(L10n.sosNoContacts)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -470,16 +704,22 @@ struct SOSHelpView: View {
                             .accessibilityIdentifier("F18.sos.noContacts")
                     } else {
                         ForEach(contacts) { contact in
-                            Button {
-                                // detail 为「关系 · 电话」复合展示串——拨号取纯号码
-                                // （BR-012 SOS 路径不得因 CJK/分隔符使 tel: 失效）
-                                dial(contact.contactPhone ?? contact.detail)
-                            } label: {
-                                Label(contact.title, systemImage: "person.crop.circle.badge.exclamationmark")
+                            if let phone = contact.contactPhone, !phone.isEmpty {
+                                Button {
+                                    // BR-012 SOS 路径不得因 CJK/分隔符使 tel: 失效
+                                    dial(phone)
+                                } label: {
+                                    Label(contact.title, systemImage: "person.crop.circle.badge.exclamationmark")
+                                        .frame(maxWidth: .infinity, minHeight: 56)
+                                }
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("F18.sos.contact")
+                            } else {
+                                // 无号码联系人不得渲染成可拨死控件（BR-012）。
+                                Label(contact.title, systemImage: "person.crop.circle")
                                     .frame(maxWidth: .infinity, minHeight: 56)
+                                    .accessibilityIdentifier("F18.sos.contactNoPhone")
                             }
-                            .buttonStyle(.bordered)
-                            .accessibilityIdentifier("F18.sos.contact")
                         }
                     }
 
