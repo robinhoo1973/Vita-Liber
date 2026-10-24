@@ -2539,6 +2539,9 @@
 "profile.data" = "Data & storage";
 "profile.chatHistory" = "Chat history";
 "healthHistory.kind" = "Type";
+"problem.create.chronicTitle" = "New chronic condition";
+"problem.create.surgeryTitle" = "New surgery record";
+"healthHistory.topCommon" = "Most common";
 "healthHistory.browseMode" = "Browse by";
 "healthHistory.commonChronic" = "Common conditions";
 "healthHistory.commonSurgery" = "Common surgeries";

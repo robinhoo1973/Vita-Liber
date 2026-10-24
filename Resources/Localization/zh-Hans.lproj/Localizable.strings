@@ -2539,6 +2539,9 @@
 "profile.data" = "数据与存储";
 "profile.chatHistory" = "对话历史";
 "healthHistory.kind" = "类型";
+"problem.create.chronicTitle" = "新建慢性病记录";
+"problem.create.surgeryTitle" = "新建手术史记录";
+"healthHistory.topCommon" = "最常见";
 "healthHistory.browseMode" = "浏览方式";
 "healthHistory.commonChronic" = "常见慢性病";
 "healthHistory.commonSurgery" = "常见手术";

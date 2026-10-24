@@ -4,9 +4,10 @@ import Perception
 import Domain
 import Infrastructure
 
-/// FR11.4 新建健康史条目（2026-10-22 按设计稿改三步流）。
+/// FR11.4 新建健康史条目（2026-10-24 双 tab + 详情）。
 ///
-/// 常见项 → 按部位查找（人体图两级）→ 详情。只记录用户自报的
+/// 浏览（常见慢性病/手术 + 按部位查找两个 tab）→ 详情（年份/保存）。
+/// 标题由入口固定为「新建慢性病记录/新建手术史记录」；只记录用户自报的
 /// 「已确诊病名 / 已发生手术」，不诊断、不推断症状。
 struct ProblemCreateSheet: View {
     @Environment(AppState.self) private var app
@@ -60,6 +61,12 @@ struct ProblemCreateSheet: View {
                          code.map { "ICD-10 \($0)" }].compactMap { $0 }
             return parts.isEmpty ? nil : parts.joined(separator: " · ")
         }
+    }
+
+    private struct CatalogLetterGroup: Identifiable {
+        let letter: String
+        let items: [CatalogItem]
+        var id: String { letter }
     }
 
     /// 滚轮目标：已选条目 id。
@@ -128,6 +135,31 @@ struct ProblemCreateSheet: View {
         matching(scopedItems)
     }
 
+    private var topCommonItems: [CatalogItem] {
+        commonItems.filter { $0.commonRank != nil }
+    }
+
+    private var commonLetterGroups: [CatalogLetterGroup] {
+        let grouped = Dictionary(grouping: commonItems.filter { $0.commonRank == nil }) {
+            HealthHistoryCatalog.pinyinInitial($0.name)
+        }
+        return grouped.map { CatalogLetterGroup(letter: $0.key, items: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.letter == "#" { return false }
+                if rhs.letter == "#" { return true }
+                return lhs.letter < rhs.letter
+            }
+    }
+
+    private var indexLetters: [String] {
+        let available = Set(commonLetterGroups.map(\.letter))
+        var letters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init)
+        if available.contains("#") { letters.append("#") }
+        return letters
+    }
+
+
+
     private func matching(_ items: [CatalogItem]) -> [CatalogItem] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return items }
@@ -167,14 +199,6 @@ struct ProblemCreateSheet: View {
                     .transition(.opacity)
                 }
                 .animation(.easeInOut(duration: 0.20), value: step)
-                // 切换 慢性病/手术史 时清空已选常见项：否则上一目录选项会带
-                // 另一 kind 落库（列表按 kind 过滤后「消失」）
-                .onChangeCompat(of: kind) { _, _ in
-                    selectedItems.removeAll()
-                    yearByItem.removeAll()
-                    unknownYearItems.removeAll()
-                    query = ""
-                }
                 .background(Color("bg-grouped", bundle: .main).ignoresSafeArea())
                 .navigationTitle(navigationTitle)
                 .navigationBarTitleDisplayMode(.inline)
@@ -213,70 +237,102 @@ struct ProblemCreateSheet: View {
 
     private var browseStep: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text(isSurgery
-                         ? L10n.healthHistoryChooseSurgeryTitle
-                         : L10n.healthHistoryChooseChronicTitle)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(Color("text-primary", bundle: .main))
-                    Text(L10n.healthHistoryChooseHint)
-                        .font(.subheadline)
-                        .foregroundStyle(Color("text-secondary", bundle: .main))
-
-                    Picker(L10n.healthHistoryKind, selection: $kind) {
-                        Text(L10n.healthHistoryChronic).tag("chronic")
-                        Text(L10n.healthHistorySurgery).tag("surgery")
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("SP-49.problem.kind")
-
-                    Picker(L10n.healthHistoryBrowseMode, selection: $browseTab) {
-                        Text(isSurgery ? L10n.healthHistoryCommonSurgery
-                                       : L10n.healthHistoryCommonChronic)
-                            .tag(BrowseTab.common)
-                        Text(L10n.healthHistoryByBody).tag(BrowseTab.body)
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("SP-49.problem.browseMode")
-
-                    switch browseTab {
-                    case .common:
-                        searchField
-                        if commonItems.isEmpty {
-                            emptyCatalogHint
-                        } else {
-                            sectionLabel(isSurgery ? L10n.healthHistoryCommonSurgery
-                                                   : L10n.healthHistoryCommonChronic)
-                            catalogRows(commonItems)
-                            Text(L10n.healthHistoryRankHint)
-                                .font(.caption2)
+            ScrollViewReader { proxy in
+                ZStack(alignment: .trailing) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text(isSurgery
+                                 ? L10n.healthHistoryChooseSurgeryTitle
+                                 : L10n.healthHistoryChooseChronicTitle)
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(Color("text-primary", bundle: .main))
+                            Text(L10n.healthHistoryChooseHint)
+                                .font(.subheadline)
                                 .foregroundStyle(Color("text-secondary", bundle: .main))
-                        }
-                    case .body:
-                        BodyMapPicker(regionID: $regionID, organID: $organID,
-                                      gender: patientGender)
-                        if bodyItems.isEmpty {
-                            emptyCatalogHint
-                        } else {
-                            sectionLabel(L10n.healthHistoryMappedItems)
-                            catalogRows(bodyItems)
-                        }
-                    }
 
-                    if !selectedList.isEmpty {
-                        sectionLabel(L10n.healthHistorySelected)
-                        selectedSummary
+                            Picker(L10n.healthHistoryBrowseMode, selection: $browseTab) {
+                                Text(isSurgery ? L10n.healthHistoryCommonSurgery
+                                               : L10n.healthHistoryCommonChronic)
+                                    .tag(BrowseTab.common)
+                                Text(L10n.healthHistoryByBody).tag(BrowseTab.body)
+                            }
+                            .pickerStyle(.segmented)
+                            .accessibilityIdentifier("SP-49.problem.browseMode")
+
+                            switch browseTab {
+                            case .common:
+                                searchField
+                                if commonItems.isEmpty {
+                                    emptyCatalogHint
+                                } else {
+                                    if !topCommonItems.isEmpty {
+                                        sectionLabel(L10n.healthHistoryTopCommon)
+                                        catalogRows(topCommonItems)
+                                    }
+                                    ForEach(commonLetterGroups) { group in
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            sectionLabel(group.letter)
+                                                .id(group.letter)
+                                            catalogRows(group.items)
+                                        }
+                                    }
+                                    Text(L10n.healthHistoryRankHint)
+                                        .font(.caption2)
+                                        .foregroundStyle(Color("text-secondary", bundle: .main))
+                                }
+                            case .body:
+                                BodyMapPicker(regionID: $regionID, organID: $organID,
+                                              gender: patientGender)
+                                if bodyItems.isEmpty {
+                                    emptyCatalogHint
+                                } else {
+                                    sectionLabel(L10n.healthHistoryMappedItems)
+                                    catalogRows(bodyItems)
+                                }
+                            }
+
+                            if !selectedList.isEmpty {
+                                sectionLabel(L10n.healthHistorySelected)
+                                selectedSummary
+                            }
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.trailing, browseTab == .common ? 24 : 0)
+                        .padding(.vertical, 16)
+                    }
+                    if browseTab == .common, !commonLetterGroups.isEmpty {
+                        alphabetIndex(proxy: proxy)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
             }
             bottomCTA(title: L10n.healthHistoryNextDetail,
                       disabled: selectedItems.isEmpty) {
                 step = .detail
             }
         }
+    }
+
+    private func alphabetIndex(proxy: ScrollViewProxy) -> some View {
+        let available = Set(commonLetterGroups.map(\.letter))
+        return VStack(spacing: 0) {
+            ForEach(indexLetters, id: \.self) { letter in
+                Button {
+                    proxy.scrollTo(letter, anchor: .top)
+                } label: {
+                    Text(letter)
+                        .font(.system(size: 9, weight: .semibold))
+                        .frame(width: 24, height: 17)
+                        .foregroundStyle(available.contains(letter)
+                                         ? Color("brand-primary", bundle: .main)
+                                         : Color("text-tertiary", bundle: .main).opacity(0.30))
+                }
+                .buttonStyle(.plain)
+                .disabled(!available.contains(letter))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(.ultraThinMaterial, in: Capsule())
+        .padding(.trailing, 2)
     }
 
     private var emptyCatalogHint: some View {
@@ -521,9 +577,9 @@ struct ProblemCreateSheet: View {
     private var navigationTitle: String {
         switch step {
         case .browse:
-            return L10n.problemCreateTitle
+            return isSurgery ? L10n.problemCreateSurgeryTitle : L10n.problemCreateChronicTitle
         case .detail:
-            return isSurgery ? L10n.healthHistorySurgery : L10n.healthHistoryChronic
+            return isSurgery ? L10n.problemCreateSurgeryTitle : L10n.problemCreateChronicTitle
         }
     }
 

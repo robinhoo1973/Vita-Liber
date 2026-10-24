@@ -2539,6 +2539,9 @@
 "profile.data" = "資料與儲存";
 "profile.chatHistory" = "對話歷史";
 "healthHistory.kind" = "類型";
+"problem.create.chronicTitle" = "新建慢性病記錄";
+"problem.create.surgeryTitle" = "新建手術史記錄";
+"healthHistory.topCommon" = "最常見";
 "healthHistory.browseMode" = "瀏覽方式";
 "healthHistory.commonChronic" = "常見慢性病";
 "healthHistory.commonSurgery" = "常見手術";

@@ -89,3 +89,13 @@ struct HealthHistoryCatalogTests {
         }
     }
 }
+
+@Suite("健康史拼音首字母")
+struct HealthHistoryPinyinTests {
+    @Test func commonNamesMapToPinyinInitials() {
+        #expect(HealthHistoryCatalog.pinyinInitial("高血压") == "G")
+        #expect(HealthHistoryCatalog.pinyinInitial("糖尿病二型") == "T")
+        #expect(HealthHistoryCatalog.pinyinInitial("阿尔茨海默病") == "A")
+        #expect(HealthHistoryCatalog.pinyinInitial("123") == "#")
+    }
+}

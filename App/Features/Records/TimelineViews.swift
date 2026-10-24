@@ -700,13 +700,30 @@ struct HealthProblemListView: View {
             .navigationTitle(L10n.problemTitle)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        activeSheet = .create(defaultKind: kindFilter == "surgery" ? "surgery" : "chronic")
-                    } label: {
-                        Image(systemName: "plus")
+                    // 2026-10-24 业主：新建页不再选类型；从「全部」进入时
+                    // 先在入口选慢性病/手术史，进入后标题即固定。
+                    if kindFilter == "all" {
+                        Menu {
+                            Button(L10n.problemCreateChronicTitle) {
+                                activeSheet = .create(defaultKind: "chronic")
+                            }
+                            Button(L10n.problemCreateSurgeryTitle) {
+                                activeSheet = .create(defaultKind: "surgery")
+                            }
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel(L10n.problemAdd)
+                        .accessibilityIdentifier("SP-49.problem.add")
+                    } else {
+                        Button {
+                            activeSheet = .create(defaultKind: kindFilter)
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel(L10n.problemAdd)
+                        .accessibilityIdentifier("SP-49.problem.add")
                     }
-                    .accessibilityLabel(L10n.problemAdd)
-                    .accessibilityIdentifier("SP-49.problem.add")
                 }
             }
             // 单一 sheet：新建/编辑共用（同层多 sheet 只有最后一个生效）。

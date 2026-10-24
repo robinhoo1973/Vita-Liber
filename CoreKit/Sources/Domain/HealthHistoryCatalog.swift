@@ -99,6 +99,15 @@ public enum HealthHistoryCatalog {
     public static func commonRank(forSurgery id: String) -> Int? {
         commonSurgeryRanks[id]
     }
+    /// 中文病名 → 拼音首字母（A–Z）；非拉丁开头/转换失败归 "#"。
+    /// 供按首字母分组与右侧索引共用，视图不各自复制转换逻辑。
+    public static func pinyinInitial(_ name: String) -> String {
+        let latin = name.applyingTransform(
+            StringTransform("Any-Latin; Latin-ASCII"), reverse: false) ?? name
+        let initial = String(latin.first ?? "#").uppercased()
+        return initial.range(of: "^[A-Z]$", options: .regularExpression) != nil
+            ? initial : "#"
+    }
 
     // MARK: - Body regions
 
