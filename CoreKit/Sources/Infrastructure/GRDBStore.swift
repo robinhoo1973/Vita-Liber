@@ -128,8 +128,9 @@ public struct GRDBStore {
                 case 44:
                     // v44 emergency-card-default-include（2026-10-24 业主）：急救卡
                     // 默认收录。表可能不存在于合成老库（v4 之前）——存在才加列。
+                    // 不 `continue`：本步无 SQL，须走循环末尾统一推进 user_version
+                    // （v25/v43 的 transactional 分支自带版本推进，故它们 continue）。
                     try Self.addDeselectedColumnIfPossible(db)
-                    continue
                 case 43:
                     // v43 medication-schedule-entries（2026-10-23 业主）：常用提醒范围
                     // 与时段身份。RENAME + 行重写同一事务；time 原样保留，绝不改既有提醒。
