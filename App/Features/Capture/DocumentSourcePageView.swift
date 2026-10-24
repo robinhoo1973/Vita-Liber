@@ -68,7 +68,8 @@ struct DocumentSourcePageView: View {
     @State private var image: UIImage?
     @State private var loading = true
     @State private var failed = false
-    @State private var unlocked = false
+    // 2026-10-24 业主裁决 B：页内媒体直接显示。
+    @State private var unlocked = true
     @State private var unlocking = false
     @State private var scale: CGFloat = 1
     @State private var operation: Task<Void, Never>?
@@ -169,7 +170,7 @@ struct DocumentSourcePageView: View {
                 // background = 真离开恒立即重锁；inactive 可能是认证浮层
                 // 收起瞬态——2026-10-03 评审修复：宽限锚定「首次回 active」
                 // + 绝对兜底（Domain 谓词），慢收起/瞬态 inactive 不再秒回锁。
-                if phase == .background { relock() }
+                if phase == .background { return }
                 else if phase == .active, unlocked { hasReturnedToActive = true }
                 else if phase != .active, unlocked,
                         MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
@@ -319,6 +320,8 @@ struct DocumentSourcePageView: View {
     }
 
     private func relock() {
+        // 2026-10-24 业主裁决 B：App 内不再重锁。
+        return
         relockTimer.cancelAll()
         operation?.cancel(); operation = nil
         unlocked = false; unlocking = false; data = nil; image = nil

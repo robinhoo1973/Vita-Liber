@@ -73,7 +73,8 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     private let placeholder: (Bool) -> Placeholder
 
     /// 本容器私有解锁态（FR1.9：无会话级顺带解锁）
-    @State private var unlocked = false
+    // 2026-10-24 业主裁决 B：App 使用者默认有权查看；敏感只约束对外分享/导出。
+    @State private var unlocked = true
     /// 空闲重锁计时器（计时/在途解锁双句柄，共享 MediaRelockTimer 机制）
     @State private var relockTimer = MediaRelockTimer()
     /// 解锁在途守卫：同步置位——连点两次只触发一次系统认证（unlocked 只在
@@ -101,10 +102,10 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
                 placeholder(unlocked)
                 if unlocked { content(unlocked) }
             }
-            .onTapGesture { triggerUnlock() }
+            // App 内直接访问：不再要求认证解锁（V4.54）
             // 2026-10-03 评审修复（VoiceOver）：tap 手势无辅助功能语义——
             // 补 accessibilityAction 使解锁动作在 VoiceOver 下可达。
-            .accessibilityAction { triggerUnlock() }
+
             // 读图/点击/拖动/滚动均视为活跃——活跃即重置空闲重锁窗口；
             // 1 秒合并窗口（MediaUnlockPolicy.activityCoalescingWindow）
             // 滤掉 60–120Hz 触摸流的逐帧任务重启
@@ -121,7 +122,7 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
                 // inactive 可能是系统认证浮层收起瞬态。2026-10-03 评审修复：
                 // 宽限锚定「首次回 active」+ 绝对兜底（Domain 谓词），
                 // 慢收起/瞬态 inactive 不再秒回锁。
-                if phase == .background { relock() }
+                if phase == .background { return }
                 else if phase == .active, unlocked { hasReturnedToActive = true }
                 else if phase != .active, unlocked,
                         MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
@@ -130,7 +131,7 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
                     relock()
                 }
             }
-            .onDisappear { relock() }
+            .onDisappear { }
         }
     }
 
@@ -164,6 +165,8 @@ struct SensitiveMediaContainer<Content: View, Placeholder: View>: View {
     }
 
     private func relock() {
+        // 2026-10-24 业主裁决 B：App 内不再重锁（含退后台）。
+        return
         // 审查修复：重锁必须取消在途解锁任务——onDisappear/退后台的重锁
         // 拦不住无句柄的在途认证：认证完成后 unlocked=true 死而复生
         // （BR-007「重锁 = 回到认证前内存态」违反；SensitiveMediaOriginalView

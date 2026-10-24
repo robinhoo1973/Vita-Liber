@@ -27,7 +27,8 @@ struct SensitiveMediaOriginalView: View {
     @State private var displayData: Data?
     @State private var scale: CGFloat = 1
     @State private var offset: CGSize = .zero
-    @State private var unlocked = false
+    // 2026-10-24 业主裁决 B：原图在 App 内直接显示。
+    @State private var unlocked = true
     /// 第七轮修复：加载失败态（loader 返回 nil/空 = 文件不可读/已清理）——
     /// 原实现 unlocked=true 但 image/displayData 均 nil，永远转圈无出口
     @State private var loadFailed = false
@@ -69,7 +70,7 @@ struct SensitiveMediaOriginalView: View {
                 // 认证通过之后——原实现在 onAppear 即降采样渲染，认证取消时解码图
                 // 仍驻留内存（文件头契约「认证通过后才落内存」对非 loader 路径失效）
                 displayData = imageData
-                if unlocked { loadDownsampled() }
+                if unlocked { Task { _ = await authenticateAndUnlock() } }
             }
             // 评审修正（BR-007/008）：任务切换器快照防护——SensitiveMediaContainer
             // 已在 inactive 时重锁，本视图此前缺失同款处理，退后台后快照可能
@@ -80,7 +81,7 @@ struct SensitiveMediaOriginalView: View {
             // shouldRelockOnInactive，最低认证要求 ≥5 秒），浮层期间重锁
             // 会形成「认证完成即锁回 → 再点再认证」循环。
             .onChangeCompat(of: scenePhase) { _, phase in
-                if phase == .background { relock() }
+                if phase == .background { return }
                 else if phase == .active, unlocked { hasReturnedToActive = true }
                 else if phase != .active, unlocked,
                         MediaUnlockPolicy.shouldRelockOnInactive(lastUnlockAt: unlockedAt ?? Date(),
@@ -92,7 +93,7 @@ struct SensitiveMediaOriginalView: View {
             // 与 SensitiveMediaContainer 同纪律：离开即重锁并取消空闲计时——
             // 原视图弹出销毁后 relockTask 仍持有解码图至 30s TTL（BR-007
             // 「重锁 = 回到认证前内存态」对离开场景失效）
-            .onDisappear { relock() }
+            .onDisappear { }
         }
     }
 
@@ -173,9 +174,9 @@ struct SensitiveMediaOriginalView: View {
     }
 
     private func authenticateAndUnlock() async -> Bool {
-        // FR1.9：每次查看原图都是一次独立的系统设备所有者认证（Face ID/Touch ID
-        // + 设备密码兜底），与 SensitiveMediaContainer 同路径，绝不允许无认证直通。
-        guard await app.requestUnlock(reason: L10n.sensitive_unlockReason) else { return false }
+        // 2026-10-24 业主裁决 B：App 使用者默认有权查看，不再做应用内认证；
+        // 敏感标记仅约束对外分享/导出。
+        _ = app
         // 认证途中视图已离开（relock 取消了本任务）：不得继续——原图字节、
         // 30s TTL 与「已查看」审计都不能在用户从未看到内容的场景下复活。
         guard !Task.isCancelled else { return false }
@@ -221,12 +222,12 @@ struct SensitiveMediaOriginalView: View {
         let now = Date()
         if let lastActivity, !MediaUnlockPolicy.shouldRecordActivity(lastInteraction: lastActivity, now: now) { return }
         self.lastActivity = now
-        // 值捕获（View 结构体，与原先 Task 闭包同语义）：@State 写入经共享存储
-        // 落真实状态，捕获的视图副本过时不影响。
-        relockTimer.schedule(onExpiry: { relock() })
+        // 2026-10-24 业主裁决 B：不再武装空闲重锁。
     }
 
     private func relock() {
+        // 2026-10-24 业主裁决 B：App 内不再重锁。
+        return
         // 取消在途解锁（离开/重锁后认证结果不得复活解码与审计）——句柄管理
         // 共享 MediaRelockTimer（第十一轮审查语义不变）
         relockTimer.cancelAll()
