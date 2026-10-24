@@ -725,7 +725,7 @@
 "help.data.noBackup" = "無備份記錄";
 "help.data.title" = "數據健康";
 "help.about.licenses" = "開源許可";
-"help.about.anatomyAttribution" = "解剖插圖源自 Servier Medical Art（smart.servier.com，經 Bioicons 提供向量版本），依 CC BY 3.0 授權，已重新柵格化。人體剪影來自 Wikimedia Commons（公有領域）。";
+"help.about.anatomyAttribution" = "解剖插圖源自 Servier Medical Art（smart.servier.com，經 Bioicons 提供矢量版本，CC BY 3.0/4.0）與 DBCLS BodyParts3D 解剖圖（CC BY 4.0），已重新柵格化。人體剪影來自 Wikimedia Commons（公有領域）。";
 "caregiver.title" = "幫家人處理";
 "caregiver.empty" = "無待處理事項";
 "caregiver.emptyHint" = "所有家人的提醒已處理";
@@ -2539,6 +2539,9 @@
 "profile.data" = "資料與儲存";
 "profile.chatHistory" = "對話歷史";
 "healthHistory.kind" = "類型";
+"healthHistory.alias" = "個人別名（可選）";
+"healthHistory.code" = "官方編碼";
+"healthHistory.mappingLocked" = "類別、名稱與器官由官方目錄決定；只能修改別名和年份。";
 "healthHistory.chronic" = "慢性病";
 "healthHistory.surgery" = "手術史";
 "healthHistory.bodyRegion" = "身體部位";

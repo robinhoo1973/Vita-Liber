@@ -193,10 +193,20 @@ public actor ProfileSuggestionStore {
                     written = nil
                 } else {
                     let id = UUID()
+                    // 官方目录命中时写入码值/部位/器官；未命中保留原文并留空，
+                    // 不伪造官方身份（用户可稍后在编辑页补别名）。
+                    let mapped = HealthHistoryCatalog.condition(matching: value)
                     try db.execute(sql: """
-                        INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
-                        VALUES (?, ?, ?, NULL, 0, ?, ?)
-                        """, arguments: [id.uuidString, pid, value, stamp, stamp])
+                        INSERT INTO health_problem (id, patient_id, name, kind, archived,
+                          body_region, body_site, catalog_id, code, code_system,
+                          mapping_version, created_at, updated_at)
+                        VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, arguments: [id.uuidString, pid, value,
+                                          mapped?.regionID, mapped?.organID,
+                                          mapped?.id, mapped?.code,
+                                          mapped?.code == nil ? nil : "ICD-10 医保版 2.0",
+                                          mapped?.code == nil ? nil : "医保版 2.0",
+                                          stamp, stamp])
                     if suggestion.provenance.entityTable == "diagnosis" {
                         // FR11.4：用户显式「采用为健康问题」→ 回填 diagnosis.health_problem_id（只补空，不改写既有采用）。
                         try db.execute(sql: """

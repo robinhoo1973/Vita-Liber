@@ -678,6 +678,9 @@ public enum SchemaV2 {
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       name TEXT NOT NULL, kind TEXT,
       body_region TEXT, body_site TEXT, year INTEGER,
+      -- v47：官方目录身份与个人别名（2026-10-24 业主：名称/类别不可随意改）
+      catalog_id TEXT, alias TEXT, code TEXT, code_system TEXT,
+      mapping_version TEXT,
       archived INTEGER NOT NULL DEFAULT 0,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_health_problem_patient ON health_problem(patient_id);

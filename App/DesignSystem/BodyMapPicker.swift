@@ -48,6 +48,10 @@ struct BodyMapPicker: View {
                     }
                 }
                 .transition(.scale(scale: 0.86, anchor: .center).combined(with: .opacity))
+                if let organ = region.organs.first(where: { $0.id == organID }) {
+                    OrganDetailCard(organ: organ)
+                        .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                }
                 organChips(region)
             } else {
                 HStack {

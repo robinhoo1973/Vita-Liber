@@ -14,7 +14,6 @@ struct ProblemCreateSheet: View {
 
     @State private var step: Step = .choose
     @State private var kind: String
-    @State private var name = ""
     @State private var query = ""
     @State private var regionID: String?
     @State private var organID: String?
@@ -22,9 +21,7 @@ struct ProblemCreateSheet: View {
     /// 每条目的发生年份（item.id → 年份，来自滚轮的可选范围）；「不详」独立标记。
     @State private var yearByItem: [String: Int] = [:]
     @State private var unknownYearItems: Set<String> = []
-    @State private var freeYear: Int?
-    @State private var freeYearUnknown = false
-    /// 当前打开滚轮的条目（item.id 或 "free"）。
+    /// 当前打开滚轮的条目。
     @State private var wheelTarget: YearWheelTarget?
     @State private var saveFailed = false
     /// 保存中重入守卫：连点 [保存] 会并发两次 createProblems，写入重复病名行
@@ -43,11 +40,13 @@ struct ProblemCreateSheet: View {
     private struct CatalogItem: Identifiable {
         let id: String
         let name: String
+        let aliases: [String]
+        let code: String?
         let region: String?
         let organ: String?
     }
 
-    /// 滚轮目标：已选条目 id 或自由文本 "free"。
+    /// 滚轮目标：已选条目 id。
     private struct YearWheelTarget: Identifiable, Equatable {
         let id: String
     }
@@ -60,24 +59,16 @@ struct ProblemCreateSheet: View {
         }?.gender
     }
 
-    private var selectedRegion: HealthHistoryCatalog.BodyRegion? {
-        guard let regionID else { return nil }
-        return HealthHistoryCatalog.bodyRegions.first { $0.id == regionID }
-    }
-
-    private var selectedOrgan: HealthHistoryCatalog.BodyOrgan? {
-        guard let organID else { return nil }
-        return selectedRegion?.organs.first { $0.id == organID }
-    }
-
     private var allItems: [CatalogItem] {
         if isSurgery {
             return HealthHistoryCatalog.commonSurgeries.map {
-                CatalogItem(id: $0.id, name: $0.name, region: $0.regionID, organ: $0.organID)
+                CatalogItem(id: $0.id, name: $0.name, aliases: [],
+                            code: nil, region: $0.regionID, organ: $0.organID)
             }
         }
         return HealthHistoryCatalog.commonConditions.map {
-            CatalogItem(id: $0.id, name: $0.name, region: $0.regionID, organ: $0.organID)
+            CatalogItem(id: $0.id, name: $0.name, aliases: $0.aliases,
+                        code: $0.code, region: $0.regionID, organ: $0.organID)
         }
     }
 
@@ -85,38 +76,39 @@ struct ProblemCreateSheet: View {
         guard let regionID else { return allItems }
         if isSurgery {
             return HealthHistoryCatalog.surgeries(in: regionID, organID: organID).map {
-                CatalogItem(id: $0.id, name: $0.name, region: $0.regionID, organ: $0.organID)
+                CatalogItem(id: $0.id, name: $0.name, aliases: [],
+                            code: nil, region: $0.regionID, organ: $0.organID)
             }
         }
         return HealthHistoryCatalog.conditions(in: regionID, organID: organID).map {
-            CatalogItem(id: $0.id, name: $0.name, region: $0.regionID, organ: $0.organID)
+            CatalogItem(id: $0.id, name: $0.name, aliases: $0.aliases,
+                        code: $0.code, region: $0.regionID, organ: $0.organID)
         }
     }
 
     private var filteredItems: [CatalogItem] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else { return scopedItems }
-        return scopedItems.filter { $0.name.localizedCaseInsensitiveContains(q) }
+        return scopedItems.filter {
+            $0.name.localizedCaseInsensitiveContains(q)
+                || $0.aliases.contains { $0.localizedCaseInsensitiveContains(q) }
+                || ($0.code?.localizedCaseInsensitiveContains(q) ?? false)
+        }
     }
 
     private var selectedList: [CatalogItem] {
         selectedItems.values.sorted { $0.name < $1.name }
     }
 
-    private var hasDraft: Bool { !selectedList.isEmpty || !freeName.isEmpty }
+    private var hasDraft: Bool { !selectedList.isEmpty }
 
-    private var freeName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// 每条已选条目与自由文本都必须有年份或显式「不详」才可保存。
+    /// 每条已选目录条目都必须有年份或显式「不详」才可保存。
     /// 年份已由滚轮限定在 Domain 合法范围，这里只判「是否已选」。
     private var allYearsComplete: Bool {
         let selectedComplete = selectedList.allSatisfy {
             unknownYearItems.contains($0.id) || yearByItem[$0.id] != nil
         }
-        let freeComplete = freeName.isEmpty || freeYearUnknown || freeYear != nil
-        return selectedComplete && freeComplete
+        return selectedComplete
     }
 
     var body: some View {
@@ -140,9 +132,6 @@ struct ProblemCreateSheet: View {
                     selectedItems.removeAll()
                     yearByItem.removeAll()
                     unknownYearItems.removeAll()
-                    freeYear = nil
-                    freeYearUnknown = false
-                    name = ""
                     query = ""
                 }
                 .background(Color("bg-grouped", bundle: .main).ignoresSafeArea())
@@ -170,8 +159,7 @@ struct ProblemCreateSheet: View {
                     }
                 }
                 .sheet(item: $wheelTarget) { target in
-                    YearWheelPickerSheet(year: target.id == "free"
-                                         ? freeYearBinding : yearBinding(for: target.id))
+                    YearWheelPickerSheet(year: yearBinding(for: target.id))
                 }
                 .saveFailedAlert(title: L10n.encounterSaveFailed,
                                  hint: L10n.problemSaveFailedHint,
@@ -234,10 +222,6 @@ struct ProblemCreateSheet: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("SP-49.problem.byBody")
 
-                primaryButton(L10n.healthHistoryFreeText) {
-                    step = .detail
-                }
-                .accessibilityIdentifier("SP-49.problem.directInput")
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 16)
@@ -268,7 +252,7 @@ struct ProblemCreateSheet: View {
                 .padding(.vertical, 16)
             }
             bottomCTA(title: L10n.healthHistoryNextDetail,
-                      disabled: regionID == nil && selectedItems.isEmpty) {
+                      disabled: selectedItems.isEmpty) {
                 step = .detail
             }
         }
@@ -295,40 +279,10 @@ struct ProblemCreateSheet: View {
                         selectedSummary
                         yearSection
                     }
-                    // 常见项各自带部位；只有自由文本才使用当前人体图选择。
-                    // 避免「选了胸部 + 勾了全身性高血压」时卡片把整批写成胸部。
-                    if selectedItems.isEmpty
-                        || !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        selectedLocationCard
-                    }
                     searchField
                     if !filteredItems.isEmpty {
                         sectionLabel(L10n.healthHistoryCommon)
                         chipGrid(filteredItems, action: chooseItem)
-                    }
-
-                    TextField(L10n.problemNamePlaceholder, text: $name)
-                        .font(.body.weight(.medium))
-                        .textInputAutocapitalization(.never)
-                        .padding(.horizontal, 16)
-                        .frame(minHeight: 56)
-                        .background(Color("bg-grouped", bundle: .main),
-                                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color("text-primary", bundle: .main).opacity(0.08), lineWidth: 1)
-                        )
-                        .accessibilityIdentifier("SP-49.problem.name")
-
-                    if !freeName.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionLabel(L10n.healthHistoryYearTitle)
-                            yearRow(title: freeName, id: "free", year: freeYearBinding,
-                                    unknown: $freeYearUnknown)
-                            Text(L10n.healthHistoryYearHint)
-                                .font(.caption)
-                                .foregroundStyle(Color("text-secondary", bundle: .main))
-                        }
                     }
 
                     Label(L10n.healthHistoryConfirmedSource, systemImage: "checkmark.seal")
@@ -484,49 +438,6 @@ struct ProblemCreateSheet: View {
         )
     }
 
-    private var freeYearBinding: Binding<Int?> {
-        Binding(
-            get: { freeYear },
-            set: { freeYear = $0 }
-        )
-    }
-
-    private var selectedLocationCard: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "figure.stand")
-                .foregroundStyle(Color("brand-primary", bundle: .main))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(selectedRegion?.name ?? L10n.healthHistoryBodyRegion)
-                    .font(.subheadline.weight(.semibold))
-                if let selectedOrgan {
-                    Text(selectedOrgan.name)
-                        .font(.caption)
-                        .foregroundStyle(Color("text-secondary", bundle: .main))
-                }
-            }
-            Spacer()
-            Button {
-                step = .body
-            } label: {
-                Text(L10n.healthHistoryChooseRegion)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 10)
-                    .frame(minHeight: 44)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color("brand-primary", bundle: .main))
-            .accessibilityIdentifier("SP-49.problem.changeRegion")
-        }
-        .padding(.horizontal, 16)
-        .frame(minHeight: 64)
-        .background(Color("bg-grouped", bundle: .main),
-                    in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color("text-primary", bundle: .main).opacity(0.06), lineWidth: 1)
-        )
-    }
-
     // MARK: - Components
 
     private var navigationTitle: String {
@@ -598,19 +509,6 @@ struct ProblemCreateSheet: View {
         }
     }
 
-    private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 52)
-                .foregroundStyle(.white)
-                .background(Color("brand-primary", bundle: .main),
-                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
     private func bottomCTA(title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         VStack(spacing: 0) {
             Divider().opacity(0.4)
@@ -658,22 +556,17 @@ struct ProblemCreateSheet: View {
 
     private func save() {
         guard !isSaving else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        var problems = selectedList.map {
-            HealthProblemStore.NewProblem(name: $0.name, kind: kind,
-                                          bodyRegion: $0.region, bodySite: $0.organ,
-                                          year: yearByItem[$0.id])
-        }
-        // 去重折叠与「资料建议接受流」同一条 Domain 规则（大小写/空白归一），
-        // 否则手填「高血压」与常见项「高血压」大小写不同会写成两行
-        let folded = trimmed.isEmpty ? "" : ProfileSuggestionExtractor.fold(trimmed, kind: .chronicCondition)
-        if !folded.isEmpty,
-           !problems.contains(where: {
-               ProfileSuggestionExtractor.fold($0.name, kind: .chronicCondition) == folded
-           }) {
-            problems.append(.init(name: trimmed, kind: kind,
-                                  bodyRegion: regionID, bodySite: organID,
-                                  year: freeYearUnknown ? nil : freeYear))
+        // 2026-10-24 业主：取消自由文本；名称/类别/器官全部来自官方目录。
+        let problems = selectedList.map {
+            HealthProblemStore.NewProblem(
+                name: $0.name, kind: kind,
+                bodyRegion: $0.region, bodySite: $0.organ,
+                year: yearByItem[$0.id],
+                catalogId: $0.id,
+                alias: nil,
+                code: $0.code,
+                codeSystem: $0.code == nil ? nil : HealthHistoryCatalog.codeSystemName,
+                mappingVersion: $0.code == nil ? nil : HealthHistoryCatalog.mappingVersionName)
         }
         guard !problems.isEmpty else { return }
         isSaving = true
@@ -697,11 +590,11 @@ struct ProblemEditSheet: View {
 
     private let problem: HealthProblemStore.HealthProblemRow
 
-    @State private var name: String
-    @State private var kind: String
+    /// 2026-10-24 业主：类别与官方名称只读；只允许修改个人别名、年份，
+    /// 以及官方映射给出的器官集合内选择。禁止把慢性病改成手术史。
+    @State private var alias: String
     @State private var yearValue: Int?
     @State private var yearUnknown: Bool
-    @State private var regionID: String?
     @State private var organID: String?
     @State private var showYearWheel = false
     @State private var saveFailed = false
@@ -709,27 +602,68 @@ struct ProblemEditSheet: View {
 
     init(problem: HealthProblemStore.HealthProblemRow) {
         self.problem = problem
-        _name = State(initialValue: problem.name)
-        _kind = State(initialValue: problem.kind ?? "chronic")
+        _alias = State(initialValue: problem.alias ?? "")
         _yearValue = State(initialValue: problem.year)
         // 旧数据 year 为 nil = 未登记（含显式「不详」）——编辑时保持「不详」，
         // 不强迫用户补年份才能保存其他修正。
         _yearUnknown = State(initialValue: problem.year == nil)
-        _regionID = State(initialValue: problem.bodyRegion)
         _organID = State(initialValue: problem.bodySite)
     }
 
-    private var trimmedName: String {
-        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var kind: String { problem.kind ?? "chronic" }
+    private var isSurgery: Bool { kind == "surgery" }
+
+    private var catalogCondition: HealthHistoryCatalog.CommonCondition? {
+        if let id = problem.catalogId, let hit = HealthHistoryCatalog.condition(id: id) {
+            return hit
+        }
+        return HealthHistoryCatalog.condition(matching: problem.name)
+    }
+
+    private var catalogSurgery: HealthHistoryCatalog.CommonSurgery? {
+        if let id = problem.catalogId, let hit = HealthHistoryCatalog.surgery(id: id) {
+            return hit
+        }
+        return HealthHistoryCatalog.commonSurgeries.first { $0.name == problem.name }
+    }
+
+    private var mappedRegionID: String? {
+        catalogCondition?.regionID ?? catalogSurgery?.regionID ?? problem.bodyRegion
+    }
+
+    private var mappedOrganIDs: [String] {
+        if let condition = catalogCondition { return condition.organIDs }
+        if let surgery = catalogSurgery { return surgery.organID.map { [$0] } ?? [] }
+        return problem.bodySite.map { [$0] } ?? []
+    }
+
+    private var mappedOrgans: [HealthHistoryCatalog.BodyOrgan] {
+        guard let region = HealthHistoryCatalog.bodyRegions.first(where: { $0.id == mappedRegionID }) else {
+            return []
+        }
+        let allowed = Set(mappedOrganIDs)
+        return region.organs.filter { allowed.contains($0.id) }
+    }
+
+    private var regionName: String? {
+        guard let mappedRegionID else { return nil }
+        return HealthHistoryCatalog.bodyRegions.first { $0.id == mappedRegionID }?.name
+    }
+
+    private var organName: String? {
+        let selected = organID.flatMap { id in
+            mappedOrgans.first { $0.id == id }?.name
+        }
+        return selected ?? mappedOrgans.first?.name
+    }
+
+    private var codeText: String? {
+        guard let code = catalogCondition?.code, !code.isEmpty else { return nil }
+        return code
     }
 
     private var canSave: Bool {
-        !trimmedName.isEmpty && (yearUnknown || yearValue != nil) && !isSaving
-    }
-
-    private var selectedRegion: HealthHistoryCatalog.BodyRegion? {
-        guard let regionID else { return nil }
-        return HealthHistoryCatalog.bodyRegions.first { $0.id == regionID }
+        (yearUnknown || yearValue != nil) && !isSaving
     }
 
     var body: some View {
@@ -737,14 +671,23 @@ struct ProblemEditSheet: View {
             NavigationStack {
                 Form {
                     Section(L10n.problemEditTitle) {
-                        TextField(L10n.problemNamePlaceholder, text: $name)
-                            .accessibilityIdentifier("SP-49.problem.edit.name")
-                        Picker(L10n.healthHistoryKind, selection: $kind) {
-                            Text(L10n.healthHistoryChronic).tag("chronic")
-                            Text(L10n.healthHistorySurgery).tag("surgery")
+                        LabeledContent(L10n.healthHistoryKind) {
+                            Text(isSurgery ? L10n.healthHistorySurgery : L10n.healthHistoryChronic)
                         }
-                        .pickerStyle(.segmented)
                         .accessibilityIdentifier("SP-49.problem.edit.kind")
+                        LabeledContent(L10n.problemNamePlaceholder) {
+                            Text(problem.name)
+                        }
+                        .accessibilityIdentifier("SP-49.problem.edit.name")
+                        TextField(L10n.healthHistoryAlias, text: $alias)
+                            .accessibilityIdentifier("SP-49.problem.edit.alias")
+                        if let codeText {
+                            LabeledContent(L10n.healthHistoryCode) {
+                                Text(codeText)
+                                    .font(.body.monospaced())
+                            }
+                            .accessibilityIdentifier("SP-49.problem.edit.code")
+                        }
                     }
                     Section {
                         if !yearUnknown {
@@ -774,22 +717,25 @@ struct ProblemEditSheet: View {
                         Text(L10n.healthHistoryYearTitle)
                     }
                     Section {
-                        Picker(L10n.healthHistoryBodyRegion, selection: $regionID) {
-                            Text(L10n.problemNotSet).tag(String?.none)
-                            ForEach(HealthHistoryCatalog.bodyRegions) { region in
-                                Text(region.name).tag(Optional(region.id))
-                            }
+                        LabeledContent(L10n.healthHistoryBodyRegion) {
+                            Text(regionName ?? L10n.problemNotSet)
                         }
-                        .accessibilityIdentifier("SP-49.problem.edit.region")
-                        if let region = selectedRegion, !region.organs.isEmpty {
+                        if mappedOrgans.count > 1 {
                             Picker(L10n.healthHistoryOrgan, selection: $organID) {
                                 Text(L10n.problemNotSet).tag(String?.none)
-                                ForEach(region.organs) { organ in
+                                ForEach(mappedOrgans) { organ in
                                     Text(organ.name).tag(Optional(organ.id))
                                 }
                             }
                             .accessibilityIdentifier("SP-49.problem.edit.organ")
+                        } else {
+                            LabeledContent(L10n.healthHistoryOrgan) {
+                                Text(organName ?? L10n.problemNotSet)
+                            }
+                            .accessibilityIdentifier("SP-49.problem.edit.organ")
                         }
+                    } footer: {
+                        Text(L10n.healthHistoryMappingLocked)
                     }
                 }
                 .navigationTitle(L10n.problemEditTitle)
@@ -804,12 +750,14 @@ struct ProblemEditSheet: View {
                             .accessibilityIdentifier("SP-49.problem.edit.save")
                     }
                 }
-                // 换部位后旧器官不再属于该部位：清空，避免保存出跨部位组合。
-                .onChangeCompat(of: regionID) { _, newRegion in
-                    guard let newRegion else { organID = nil; return }
-                    let organs = HealthHistoryCatalog.bodyRegions
-                        .first { $0.id == newRegion }?.organs.map(\.id) ?? []
-                    if let organID, !organs.contains(organID) { self.organID = nil }
+                .task {
+                    // 旧行可能保存过已退役/重映射的器官 id：收敛到官方映射集合，
+                    // 避免界面显示「脑」却把旧「head」写回。
+                    if let organID, !mappedOrganIDs.contains(organID) {
+                        self.organID = mappedOrganIDs.first
+                    } else if organID == nil {
+                        organID = mappedOrganIDs.first
+                    }
                 }
                 .sheet(isPresented: $showYearWheel) {
                     YearWheelPickerSheet(year: $yearValue)
@@ -824,12 +772,15 @@ struct ProblemEditSheet: View {
     private func save() {
         guard canSave else { return }
         let year: Int? = yearUnknown ? nil : yearValue
+        let trimmedAlias = alias.trimmingCharacters(in: .whitespacesAndNewlines)
         isSaving = true
         Task {
             let ok = await state.updateProblem(
                 id: problem.id,
-                update: .init(name: trimmedName, kind: kind, bodyRegion: regionID,
-                              bodySite: organID, year: year))
+                update: .init(bodyRegion: mappedRegionID,
+                              bodySite: organID ?? mappedOrganIDs.first,
+                              year: year,
+                              alias: trimmedAlias.isEmpty ? nil : trimmedAlias))
             isSaving = false
             if ok { dismiss() } else { saveFailed = true }
         }

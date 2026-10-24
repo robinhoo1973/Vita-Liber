@@ -24,22 +24,26 @@ struct HealthProblemStoreTests {
         return (HealthProblemStore(writer: dbQueue), dbQueue, patient)
     }
 
-    @Test("update 全字段落库；行缺失抛 notFound（UPDATE 0 行不得静默成功）")
+    @Test("update 只改年份/部位/别名，名称与类别不可变；行缺失抛 notFound")
     func updateWritesAllFieldsAndRejectsMissing() async throws {
         let (store, _, patient) = try await makeStore()
         let id = try await store.create(patientId: patient, name: "高血压", kind: "chronic",
                                         bodyRegion: "循环系统", bodySite: "心脏", now: Date())
-        try await store.update(id: id, .init(name: "高血压（2 级）", kind: "chronic",
-                                             bodyRegion: "循环系统", bodySite: "心脏", year: 2018))
+        try await store.update(id: id, .init(bodyRegion: "循环系统", bodySite: "心脏",
+                                             year: 2018, alias: "我的高血压"))
         let rows = try await store.list(patientId: patient, includeArchived: true)
         #expect(rows.count == 1)
-        #expect(rows[0].name == "高血压（2 级）")
+        #expect(rows[0].name == "高血压", "2026-10-24 业主：名称是官方目录身份，不可改名")
         #expect(rows[0].year == 2018)
-        #expect(rows[0].kind == "chronic")
+        #expect(rows[0].kind == "chronic", "类别不可从慢性病变更为手术史")
+        #expect(rows[0].catalogId == "hypertension")
+        #expect(rows[0].code == "I10")
+        #expect(rows[0].alias == "我的高血压")
+        #expect(rows[0].bodySite == "心脏")
 
         do {
-            try await store.update(id: UUID(), .init(name: "不存在", kind: nil,
-                                                     bodyRegion: nil, bodySite: nil, year: nil))
+            try await store.update(id: UUID(), .init(bodyRegion: nil, bodySite: nil,
+                                                     year: nil))
             Issue.record("缺失行 update 应抛 notFound")
         } catch is HealthProblemStore.StoreError {
             // 期望路径

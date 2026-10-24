@@ -765,7 +765,9 @@ struct HealthProblemListView: View {
         let regionName = problem.bodyRegion.flatMap { region in
             HealthHistoryCatalog.bodyRegions.first { $0.id == region }?.name
         }
-        let details = [problem.year.map(L10n.healthHistoryYearFmt),
+        let alias = problem.alias?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let details = [alias.flatMap { $0.isEmpty ? nil : $0 },
+                       problem.year.map(L10n.healthHistoryYearFmt),
                        durationText(for: problem),
                        regionName].compactMap { $0 }
         VStack(alignment: .leading, spacing: 2) {

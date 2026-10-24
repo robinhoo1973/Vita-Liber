@@ -1041,6 +1041,10 @@ public enum SchemaMigrations {
         // 可空加列 + 回填（dose_log ← plan；孤儿保留 NULL 并计数）；不删行、
         // 不改任何医疗事实列。默认时段唯一索引若重复，先确定性修复再建。
         Step(version: 46, name: "patient-scope-and-soft-delete", sql: ""),
+        // v47：健康史官方目录身份（2026-10-24 业主）——病名/类别锁定，
+        // 器官由官方映射提供；个人别名可改。只加可空列并按名称/别名回填，
+        // 不删行、不改既有名称/类别/年份/部位。
+        Step(version: 47, name: "health-problem-catalog-mapping", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

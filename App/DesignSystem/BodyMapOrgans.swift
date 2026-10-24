@@ -18,14 +18,16 @@ enum OrganLayout {
         switch regionID {
         case "head_neck":
             // 两列交错，避免 44pt 命中矩形在同一中轴上互相覆盖。
+            // 2026-10-24：补脑位；头/脑上移，给眼耳鼻咽喉留出更大画布。
             all = [
-                .init(id: "head", x: 0.50, y: 0.36, width: 0.13, height: 0.13),
-                .init(id: "eye", x: 0.34, y: 0.32, width: 0.10, height: 0.08),
-                .init(id: "ear", x: 0.66, y: 0.32, width: 0.10, height: 0.08),
-                .init(id: "nose_throat", x: 0.50, y: 0.45, width: 0.10, height: 0.10),
-                .init(id: "mouth", x: 0.34, y: 0.60, width: 0.10, height: 0.07),
-                .init(id: "thyroid", x: 0.66, y: 0.60, width: 0.12, height: 0.08),
-                .init(id: "neck", x: 0.50, y: 0.78, width: 0.12, height: 0.10),
+                .init(id: "brain", x: 0.50, y: 0.15, width: 0.20, height: 0.14),
+                .init(id: "head", x: 0.50, y: 0.30, width: 0.17, height: 0.12),
+                .init(id: "eye", x: 0.33, y: 0.34, width: 0.14, height: 0.10),
+                .init(id: "ear", x: 0.67, y: 0.34, width: 0.14, height: 0.10),
+                .init(id: "nose_throat", x: 0.50, y: 0.47, width: 0.15, height: 0.12),
+                .init(id: "mouth", x: 0.32, y: 0.63, width: 0.14, height: 0.10),
+                .init(id: "thyroid", x: 0.68, y: 0.63, width: 0.15, height: 0.10),
+                .init(id: "neck", x: 0.50, y: 0.80, width: 0.15, height: 0.12),
             ]
         case "chest":
             all = [
@@ -440,10 +442,23 @@ enum OrganStyle {
         switch id {
         case "heart", "liver", "lung", "kidney", "spleen", "stomach",
              "pancreas", "intestine", "bladder", "thyroid",
-             "uterus", "ovary", "breast":
+             "uterus", "ovary", "breast",
+             "head", "brain", "eye", "ear", "mouth", "neck",
+             "shoulder", "arm", "elbow", "hip", "thigh", "knee",
+             "spine", "skeletal", "blood", "immune", "genetic":
             return "anatomy-\(id)"
+        case "nose_throat":
+            return "anatomy-nose-throat"
+        case "wrist_hand":
+            return "anatomy-wrist-hand"
+        case "ankle_foot":
+            return "anatomy-ankle-foot"
+        case "spinal_cord":
+            return "anatomy-spine"
         case "mental":
             return "anatomy-brain"
+        case "endocrine":
+            return "anatomy-thyroid"
         default:
             return nil
         }
@@ -524,7 +539,7 @@ struct RegionAnatomyView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
-        .frame(height: 288)
+        .frame(height: 360)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bodyMap.regionLayer.\(region.id)")
     }
@@ -554,6 +569,15 @@ private struct OrganHotspot: View {
     let size: CGSize
     let action: () -> Void
 
+    /// 头颈/四肢的最小可见尺寸：旧版 20pt 让眼/耳退化成小圆点。
+    private var minArtSize: CGFloat {
+        switch organ.id {
+        case "brain", "head": return 56
+        case "eye", "ear", "mouth", "thyroid", "nose_throat", "neck": return 44
+        default: return 48
+        }
+    }
+
     private var hitWidth: CGFloat { max(44, placement.width * size.width) }
     private var hitHeight: CGFloat { max(44, placement.height * size.height) }
     /// 只有仍用矢量 Shape 绘制器官才按字形命中；有解剖插图的器官（心/肝/肺/
@@ -575,8 +599,8 @@ private struct OrganHotspot: View {
                         .frame(width: hitWidth + 14, height: hitWidth + 14)
                 }
                 OrganGlyph(organ: organ, selected: selected)
-                    .frame(width: max(20, placement.width * size.width * 0.90),
-                           height: max(20, placement.height * size.height * 0.90))
+                    .frame(width: max(minArtSize, placement.width * size.width * 0.96),
+                           height: max(minArtSize, placement.height * size.height * 0.96))
             }
             .frame(width: hitWidth, height: hitHeight)
             .contentShape(hitShape)
@@ -682,27 +706,54 @@ private struct OrganMiniIcon: View {
                     .interpolation(.high)
                     .antialiased(true)
                     .scaledToFit()
-                    .frame(width: 18, height: 18)
+                    .frame(width: 28, height: 28)
             } else if OrganGlyphShape.hasGlyph(organ.id) {
                 if organ.id == "intestine" {
                     IntestineLineShape()
                         .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .frame(width: 18, height: 18)
+                        .frame(width: 28, height: 28)
                 } else {
                     OrganGlyphShape(organID: organ.id)
                         .fill(tint)
-                        .frame(width: 18, height: 18)
+                        .frame(width: 28, height: 28)
                 }
             } else if let asset = OrganStyle.assetName(organ.id) {
                 Image("ic-organ-\(asset)")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 18, height: 18)
+                    .frame(width: 28, height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
-                Circle().fill(tint.opacity(0.18)).frame(width: 18, height: 18)
+                Circle().fill(tint.opacity(0.18)).frame(width: 28, height: 28)
             }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// 选中器官的大图详情：二级人体图上的热区较小，选中后在图下给出
+/// 104pt 解剖插图 + 名称，保证眼/耳/脑等小器官也能看清。
+struct OrganDetailCard: View {
+    let organ: HealthHistoryCatalog.BodyOrgan
+
+    var body: some View {
+        HStack(spacing: 14) {
+            OrganGlyph(organ: organ, selected: true)
+                .frame(width: 104, height: 104)
+                .accessibilityHidden(true)
+            Text(organ.name)
+                .font(.headline)
+                .foregroundStyle(Color("text-primary", bundle: .main))
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .background(Color("bg-grouped", bundle: .main),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(OrganStyle.tint(organ.id).opacity(0.26), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
     }
 }

@@ -483,18 +483,40 @@ public actor ExportService {
             // 才兑现「默认值保证旧备份可解」的注释契约。
             public var kind: String?
             public var archived: Bool = false
+            /// v47：位置、年份、官方目录身份与别名——旧备份缺键时回落 nil。
+            public var bodyRegion: String?
+            public var bodySite: String?
+            public var year: Int?
+            public var catalogId: String?
+            public var alias: String?
+            public var code: String?
+            public var codeSystem: String?
+            public var mappingVersion: String?
             public var createdAt: Date
             public init(id: UUID, patientId: UUID?, name: String, kind: String? = nil,
-                        archived: Bool = false, createdAt: Date) {
+                        archived: Bool = false, bodyRegion: String? = nil,
+                        bodySite: String? = nil, year: Int? = nil,
+                        catalogId: String? = nil, alias: String? = nil,
+                        code: String? = nil, codeSystem: String? = nil,
+                        mappingVersion: String? = nil, createdAt: Date) {
                 self.id = id
                 self.patientId = patientId
                 self.name = name
                 self.kind = kind
                 self.archived = archived
+                self.bodyRegion = bodyRegion
+                self.bodySite = bodySite
+                self.year = year
+                self.catalogId = catalogId
+                self.alias = alias
+                self.code = code
+                self.codeSystem = codeSystem
+                self.mappingVersion = mappingVersion
                 self.createdAt = createdAt
             }
             private enum CodingKeys: String, CodingKey {
-                case id, patientId, name, kind, archived, createdAt
+                case id, patientId, name, kind, archived, bodyRegion, bodySite, year,
+                     catalogId, alias, code, codeSystem, mappingVersion, createdAt
             }
             public init(from decoder: Decoder) throws {
                 let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -503,6 +525,14 @@ public actor ExportService {
                 name = try c.decode(String.self, forKey: .name)
                 kind = try c.decodeIfPresent(String.self, forKey: .kind)
                 archived = try c.decodeIfPresent(Bool.self, forKey: .archived) ?? false
+                bodyRegion = try c.decodeIfPresent(String.self, forKey: .bodyRegion)
+                bodySite = try c.decodeIfPresent(String.self, forKey: .bodySite)
+                year = try c.decodeIfPresent(Int.self, forKey: .year)
+                catalogId = try c.decodeIfPresent(String.self, forKey: .catalogId)
+                alias = try c.decodeIfPresent(String.self, forKey: .alias)
+                code = try c.decodeIfPresent(String.self, forKey: .code)
+                codeSystem = try c.decodeIfPresent(String.self, forKey: .codeSystem)
+                mappingVersion = try c.decodeIfPresent(String.self, forKey: .mappingVersion)
                 createdAt = try c.decode(Date.self, forKey: .createdAt)
             }
         }
@@ -795,6 +825,14 @@ public actor ExportService {
                     name: row["name"] as String,
                     kind: row["kind"] as String?,
                     archived: (row["archived"] as Int?) == 1,
+                    bodyRegion: row["body_region"] as String?,
+                    bodySite: row["body_site"] as String?,
+                    year: row["year"] as Int?,
+                    catalogId: row["catalog_id"] as String?,
+                    alias: row["alias"] as String?,
+                    code: row["code"] as String?,
+                    codeSystem: row["code_system"] as String?,
+                    mappingVersion: row["mapping_version"] as String?,
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
             }
             let sensitiveIds = try String.fetchAll(db, sql: "SELECT id FROM document_file WHERE is_sensitive = 1")
@@ -2912,17 +2950,25 @@ private struct ImportSession {
         for h in envelope.healthProblems {
             if try adoptOrSkip(problemConflicts, h.id, adopt: {
                 try db.execute(sql: """
-                    UPDATE health_problem SET patient_id = ?, name = ?, kind = ?, archived = ?, created_at = ?
+                    UPDATE health_problem SET patient_id = ?, name = ?, kind = ?, archived = ?,
+                      body_region = ?, body_site = ?, year = ?, catalog_id = ?, alias = ?,
+                      code = ?, code_system = ?, mapping_version = ?, created_at = ?
                     WHERE id = ?
                     """, arguments: [(remap(h.patientId) ?? h.patientId)?.uuidString ?? "", h.name,
-                                     h.kind, h.archived ? 1 : 0,
-                                     h.createdAt.timeIntervalSince1970, h.id.uuidString])
+                                     h.kind, h.archived ? 1 : 0, h.bodyRegion, h.bodySite,
+                                     h.year, h.catalogId, h.alias, h.code, h.codeSystem,
+                                     h.mappingVersion, h.createdAt.timeIntervalSince1970,
+                                     h.id.uuidString])
             }) { continue }
             try db.execute(sql: """
-                INSERT INTO health_problem (id, patient_id, name, kind, archived, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO health_problem (id, patient_id, name, kind, archived,
+                  body_region, body_site, year, catalog_id, alias, code, code_system,
+                  mapping_version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
-                                  h.kind, h.archived ? 1 : 0,
+                                  h.kind, h.archived ? 1 : 0, h.bodyRegion, h.bodySite,
+                                  h.year, h.catalogId, h.alias, h.code, h.codeSystem,
+                                  h.mappingVersion,
                                   h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
         }
     }

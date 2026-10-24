@@ -725,7 +725,7 @@
 "help.data.noBackup" = "No backup yet";
 "help.data.title" = "Data Health";
 "help.about.licenses" = "Open Source Licenses";
-"help.about.anatomyAttribution" = "Anatomical illustrations from Servier Medical Art (smart.servier.com), vector versions via Bioicons, licensed under CC BY 3.0 and re-rasterised. Body silhouette from Wikimedia Commons (public domain).";
+"help.about.anatomyAttribution" = "Anatomical illustrations from Servier Medical Art (smart.servier.com; vector versions via Bioicons; CC BY 3.0/4.0) and DBCLS BodyParts3D (CC BY 4.0), re-rasterised. Body silhouette from Wikimedia Commons (public domain).";
 "caregiver.title" = "Help Family";
 "caregiver.empty" = "Nothing to handle";
 "caregiver.emptyHint" = "All family reminders are handled";
@@ -2539,6 +2539,9 @@
 "profile.data" = "Data & storage";
 "profile.chatHistory" = "Chat history";
 "healthHistory.kind" = "Type";
+"healthHistory.alias" = "Personal alias (optional)";
+"healthHistory.code" = "Official code";
+"healthHistory.mappingLocked" = "Type, name and organ come from the official catalog; only alias and year can be edited.";
 "healthHistory.chronic" = "Chronic condition";
 "healthHistory.surgery" = "Surgery history";
 "healthHistory.bodyRegion" = "Body region";

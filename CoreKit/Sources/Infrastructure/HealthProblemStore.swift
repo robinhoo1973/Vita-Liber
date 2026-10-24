@@ -5,7 +5,8 @@ import GRDB
 import Domain
 import Protocols
 
-/// F11.4 健康问题管理（SP-49）数据仓：懒创建/手动新建/重命名/合并/归档/取消归档。
+/// F11.4 健康问题管理（SP-49）数据仓：懒创建/手动新建/合并/归档/取消归档。
+/// 2026-10-24 业主：名称/类别是官方目录身份，创建后不可改名或改类别。
 /// 归档问题不出现在默认筛选（FR11.2）；合并两问题历史不丢（合并 = 建新主问题 +
 /// 原问题归档 + 关联数据转移，audit 由调用方记）。
 public actor HealthProblemStore {
@@ -23,12 +24,22 @@ public actor HealthProblemStore {
         public var bodySite: String?
         /// 发生/确诊年份（v41）。nil = 用户明确「不详」或旧数据未登记。
         public var year: Int?
+        /// v47：官方目录身份 + 个人别名。
+        public var catalogId: String?
+        public var alias: String?
+        public var code: String?
+        public var codeSystem: String?
+        public var mappingVersion: String?
         public init(id: UUID, patientId: UUID, name: String, archived: Bool,
                     kind: String? = nil, bodyRegion: String? = nil, bodySite: String? = nil,
-                    year: Int? = nil) {
+                    year: Int? = nil, catalogId: String? = nil, alias: String? = nil,
+                    code: String? = nil, codeSystem: String? = nil,
+                    mappingVersion: String? = nil) {
             self.id = id; self.patientId = patientId; self.name = name; self.archived = archived
             self.kind = kind; self.bodyRegion = bodyRegion; self.bodySite = bodySite
-            self.year = year
+            self.year = year; self.catalogId = catalogId; self.alias = alias
+            self.code = code; self.codeSystem = codeSystem
+            self.mappingVersion = mappingVersion
         }
     }
 
@@ -47,7 +58,12 @@ public actor HealthProblemStore {
                     kind: row["kind"] as String?,
                     bodyRegion: row["body_region"] as String?,
                     bodySite: row["body_site"] as String?,
-                    year: row["year"] as Int?)
+                    year: row["year"] as Int?,
+                    catalogId: row["catalog_id"] as String?,
+                    alias: row["alias"] as String?,
+                    code: row["code"] as String?,
+                    codeSystem: row["code_system"] as String?,
+                    mappingVersion: row["mapping_version"] as String?)
             }
         }
     }
@@ -55,8 +71,18 @@ public actor HealthProblemStore {
     /// 新建/懒创建（FR11.4：可从文档/观察/就诊懒创建或手动新建）
     @discardableResult
     public func create(patientId: UUID, name: String, now: Date = Date()) async throws -> UUID {
-        try await create(patientId: patientId, name: name, kind: nil,
-                         bodyRegion: nil, bodySite: nil, now: now)
+        // 懒创建（文档/观察/就诊）也先尝试官方目录；匹配不到才保留未映射，
+        // 不伪造码值、不改用户原文。
+        if let condition = HealthHistoryCatalog.condition(matching: name),
+           let code = condition.code {
+            return try await create(
+                patientId: patientId, name: condition.name, kind: nil,
+                bodyRegion: condition.regionID, bodySite: condition.organID,
+                now: now, catalogId: condition.id, code: code,
+                codeSystem: condition.codeSystem, mappingVersion: "医保版 2.0")
+        }
+        return try await create(patientId: patientId, name: name, kind: nil,
+                                bodyRegion: nil, bodySite: nil, now: now)
     }
 
     public struct NewProblem: Sendable, Equatable {
@@ -65,25 +91,53 @@ public actor HealthProblemStore {
         public var bodyRegion: String?
         public var bodySite: String?
         public var year: Int?
+        public var catalogId: String?
+        public var alias: String?
+        public var code: String?
+        public var codeSystem: String?
+        public var mappingVersion: String?
         public init(name: String, kind: String?, bodyRegion: String?, bodySite: String?,
-                    year: Int? = nil) {
+                    year: Int? = nil, catalogId: String? = nil, alias: String? = nil,
+                    code: String? = nil, codeSystem: String? = nil,
+                    mappingVersion: String? = nil) {
             self.name = name; self.kind = kind
             self.bodyRegion = bodyRegion; self.bodySite = bodySite
-            self.year = year
+            self.year = year; self.catalogId = catalogId; self.alias = alias
+            self.code = code; self.codeSystem = codeSystem
+            self.mappingVersion = mappingVersion
         }
     }
 
     /// 新建健康史条目：kind = chronic/surgery；bodyRegion/bodySite 来自
-    /// HealthHistoryCatalog 的稳定 id/显示名，自由文本条目可留空。
+    /// HealthHistoryCatalog 的稳定 id/显示名。目录未命中时保留原文并留空码值。
     @discardableResult
     public func create(patientId: UUID, name: String, kind: String?,
                        bodyRegion: String?, bodySite: String?,
                        now: Date = Date()) async throws -> UUID {
+        // 显式创建也尝试官方目录（调用方未给码值时）；匹配不到保留原文。
+        let mapped = HealthHistoryCatalog.condition(matching: name)
+        return try await create(
+            patientId: patientId, name: name, kind: kind,
+            bodyRegion: bodyRegion ?? mapped?.regionID,
+            bodySite: bodySite ?? mapped?.organID, now: now,
+            catalogId: mapped?.id, code: mapped?.code,
+            codeSystem: mapped?.code == nil ? nil : "ICD-10 医保版 2.0",
+            mappingVersion: mapped?.code == nil ? nil : "医保版 2.0")
+    }
+
+    @discardableResult
+    public func create(patientId: UUID, name: String, kind: String?,
+                       bodyRegion: String?, bodySite: String?,
+                       now: Date = Date(), catalogId: String?, code: String?,
+                       codeSystem: String?, mappingVersion: String?) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
             try Self.insert(id: id, patientId: patientId,
                             problem: NewProblem(name: name, kind: kind,
-                                                bodyRegion: bodyRegion, bodySite: bodySite),
+                                                bodyRegion: bodyRegion, bodySite: bodySite,
+                                                catalogId: catalogId, code: code,
+                                                codeSystem: codeSystem,
+                                                mappingVersion: mappingVersion),
                             now: now, db: db)
         }
         return id
@@ -109,44 +163,39 @@ public actor HealthProblemStore {
                                now: Date, db: Database) throws {
         try db.execute(sql: """
             INSERT INTO health_problem
-              (id, patient_id, name, kind, archived, body_region, body_site, year, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+              (id, patient_id, name, kind, archived, body_region, body_site, year,
+               catalog_id, alias, code, code_system, mapping_version, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [id.uuidString, patientId.uuidString, problem.name, problem.kind,
                              problem.bodyRegion, problem.bodySite, problem.year,
+                             problem.catalogId, problem.alias, problem.code,
+                             problem.codeSystem, problem.mappingVersion,
                              now.timeIntervalSince1970, now.timeIntervalSince1970])
-    }
-
-    public func rename(id: UUID, to name: String, now: Date = Date()) async throws {
-        try await writer.write { db in
-            try db.execute(sql: "UPDATE health_problem SET name = ?, updated_at = ? WHERE id = ?",
-                           arguments: [name, now.timeIntervalSince1970, id.uuidString])
-        }
     }
 
     /// 用户后期修改（2026-10-23 业主：慢性病/手术需提供修改入口）。
     public struct ProblemUpdate: Sendable, Equatable {
-        public var name: String
-        public var kind: String?
         public var bodyRegion: String?
         public var bodySite: String?
         public var year: Int?
-        public init(name: String, kind: String?, bodyRegion: String?,
-                    bodySite: String?, year: Int?) {
-            self.name = name; self.kind = kind
-            self.bodyRegion = bodyRegion; self.bodySite = bodySite; self.year = year
+        public var alias: String?
+        public init(bodyRegion: String?, bodySite: String?,
+                    year: Int?, alias: String? = nil) {
+            self.bodyRegion = bodyRegion; self.bodySite = bodySite
+            self.year = year; self.alias = alias
         }
     }
 
-    /// 全字段更新：行不存在必须抛错（UPDATE 0 行曾静默「成功」）。
+    /// 后期修改：**名称/类别是官方目录身份，永不更新**（2026-10-24 业主）。
+    /// 只改年份、官方映射内的部位/器官与个人别名；行不存在必须抛错。
     public func update(id: UUID, _ update: ProblemUpdate, now: Date = Date()) async throws {
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE health_problem
-                   SET name = ?, kind = ?, body_region = ?, body_site = ?, year = ?, updated_at = ?
+                   SET body_region = ?, body_site = ?, year = ?, alias = ?, updated_at = ?
                  WHERE id = ?
-                """, arguments: [update.name, update.kind, update.bodyRegion,
-                                  update.bodySite, update.year,
-                                  now.timeIntervalSince1970, id.uuidString])
+                """, arguments: [update.bodyRegion, update.bodySite, update.year,
+                                  update.alias, now.timeIntervalSince1970, id.uuidString])
             guard db.changesCount > 0 else { throw StoreError.notFound(id) }
         }
     }

@@ -24,7 +24,7 @@ struct HealthHistoryCatalogTests {
         for region in HealthHistoryCatalog.bodyRegions {
             let organIDs = Set(region.organs.map(\.id))
             for condition in HealthHistoryCatalog.conditions(in: region.id) {
-                if let organID = condition.organID {
+                for organID in condition.organIDs {
                     #expect(organIDs.contains(organID),
                             "\(condition.id) 的器官 \(organID) 不在 \(region.id)")
                 }
@@ -52,9 +52,23 @@ struct HealthHistoryCatalogTests {
         #expect(names.contains("高血压"))
         #expect(names.contains("冠心病"))
         #expect(names.contains("脑卒中"))
-        #expect(names.contains("2 型糖尿病"))
+        #expect(names.contains("糖尿病二型"))
         #expect(names.contains("慢性阻塞性肺疾病"))
         #expect(names.contains("哮喘"))
+    }
+
+    @Test func officialCodesAreUniqueAndSearchable() {
+        let coded = HealthHistoryCatalog.commonConditions.filter { $0.code != nil }
+        #expect(coded.count == HealthHistoryCatalog.commonConditions.count,
+                "2026-10-24 业主：慢性病目录项必须全部带官方码")
+        let codes = coded.compactMap(\.code)
+        #expect(Set(codes).count == codes.count, "官方码不得重复")
+        let type2 = HealthHistoryCatalog.condition(id: "type2_diabetes")
+        #expect(type2?.code == "E11.900")
+        #expect(HealthHistoryCatalog.condition(matching: "2型糖尿病")?.id == "type2_diabetes")
+        #expect(HealthHistoryCatalog.condition(matching: "糖尿病二型")?.id == "type2_diabetes")
+        #expect(HealthHistoryCatalog.condition(id: "osteoarthritis")?.organIDs == ["knee", "hip"],
+                "多器官映射提供官方集合内选择")
     }
 
     @Test func allergenKindsMatchAllergyVocabulary() {

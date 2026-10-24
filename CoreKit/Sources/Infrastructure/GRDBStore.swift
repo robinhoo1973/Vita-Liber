@@ -131,6 +131,11 @@ public struct GRDBStore {
                     // 失败整体回滚，版本留 45。
                     try Self.applyTransactional(db, step, then: Self.migrateV46)
                     continue
+                case 47:
+                    // v47 health-problem-catalog-mapping（2026-10-24 业主）：官方
+                    // 目录身份 + 个人别名；只加列/回填，不改既有医疗事实。
+                    try Self.applyTransactional(db, step, then: Self.migrateV47)
+                    continue
                 case 45:
                     // v45 medication-schedule-default（2026-10-24 业主）：每成员一个
                     // 默认用药时段 + 提醒的时段连接键。只加列/索引/标记默认，
@@ -315,6 +320,41 @@ public struct GRDBStore {
                 BEFORE UPDATE ON audit_event
                 BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END
                 """)
+        }
+    }
+
+    /// v47 代码迁移：健康史目录身份列 + 按官方名称/别名回填。
+    /// 只加可空列；既有行名称/类别/年份/部位一字不改，自由文本行匹配不到
+    /// 目录时保持 NULL（不删、不猜）。
+    private static func migrateV47(_ db: Database) throws {
+        guard try tableExists(db, "health_problem") else { return }
+        func addColumnIfMissing(_ column: String, _ ddl: String) throws {
+            let columns = try db.columns(in: "health_problem").map(\.name)
+            guard !columns.contains(column) else { return }
+            try db.execute(sql: "ALTER TABLE health_problem ADD COLUMN \(ddl)")
+        }
+        try addColumnIfMissing("catalog_id", "catalog_id TEXT")
+        try addColumnIfMissing("alias", "alias TEXT")
+        try addColumnIfMissing("code", "code TEXT")
+        try addColumnIfMissing("code_system", "code_system TEXT")
+        try addColumnIfMissing("mapping_version", "mapping_version TEXT")
+
+        let version = "医保版 2.0"
+        for condition in HealthHistoryCatalog.commonConditions {
+            guard let code = condition.code else { continue }
+            let names = [condition.name] + condition.aliases
+            let placeholders = Array(repeating: "?", count: names.count)
+                .joined(separator: ", ")
+            try db.execute(sql: """
+                UPDATE health_problem
+                   SET catalog_id = ?, code = ?, code_system = ?, mapping_version = ?,
+                       body_region = COALESCE(body_region, ?),
+                       body_site = COALESCE(body_site, ?)
+                 WHERE catalog_id IS NULL
+                   AND name IN (\(placeholders))
+                """, arguments: StatementArguments(
+                    [condition.id, code, condition.codeSystem ?? "ICD-10 医保版 2.0",
+                     version, condition.regionID, condition.organID] + names.map { Optional($0) }))
         }
     }
 

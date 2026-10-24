@@ -1,0 +1,23 @@
+{
+  "images": [
+    {
+      "filename": "anatomy-ankle-foot@1x.png",
+      "idiom": "universal",
+      "scale": "1x"
+    },
+    {
+      "filename": "anatomy-ankle-foot@2x.png",
+      "idiom": "universal",
+      "scale": "2x"
+    },
+    {
+      "filename": "anatomy-ankle-foot@3x.png",
+      "idiom": "universal",
+      "scale": "3x"
+    }
+  ],
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}
