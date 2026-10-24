@@ -83,6 +83,8 @@ public enum SchemaV2 {
     -- 二进制附件
     CREATE TABLE asset (
       id TEXT PRIMARY KEY,
+      -- v46：患者作用域（旧行为 NULL；无可靠派生源，迁移不猜）
+      patient_id TEXT REFERENCES patient_profile(id),
       kind TEXT NOT NULL CHECK(kind IN ('original','processed','thumbnail','blur','photo')),
       relative_path TEXT NOT NULL,
       file_protection TEXT NOT NULL,
@@ -90,6 +92,8 @@ public enum SchemaV2 {
       parent_id TEXT REFERENCES asset(id),
       created_at REAL NOT NULL);
     CREATE INDEX idx_asset_kind ON asset(kind);
+    CREATE INDEX idx_asset_patient_kind ON asset(patient_id, kind)
+      WHERE patient_id IS NOT NULL;
 
     -- F4 就诊事件
     CREATE TABLE encounter (
@@ -240,6 +244,7 @@ public enum SchemaV2 {
     CREATE INDEX idx_prescription_line_patient ON prescription_line(patient_id, prescription_id, ordinal);
 
     -- 药品定义（与 StockLot/Plan 分离，ADR-016）
+    CREATE INDEX idx_prescription_patient_time ON prescription(patient_id, prescribed_at DESC);
     CREATE TABLE medication (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       generic_name TEXT NOT NULL, brand_name TEXT, spec TEXT,
@@ -248,6 +253,7 @@ public enum SchemaV2 {
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
 
     -- 用药计划模板（v42，2026-10-23 业主：计划 = 一天中的服药时段，与药品无关）
+    CREATE INDEX idx_medication_patient ON medication(patient_id, generic_name);
     CREATE TABLE medication_schedule (
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       name TEXT,
@@ -258,6 +264,8 @@ public enum SchemaV2 {
       is_default INTEGER NOT NULL DEFAULT 0,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_medication_schedule_patient ON medication_schedule(patient_id);
+    CREATE UNIQUE INDEX idx_medication_schedule_default
+      ON medication_schedule(patient_id) WHERE is_default = 1;
 
     -- 用药提醒绑定（F9.15 / ADR-020 状态机）：药品 × 计划模板
     CREATE TABLE medication_plan (
@@ -287,6 +295,8 @@ public enum SchemaV2 {
     -- 服药剂量日志（FR9.7 送达状态与用户确认分离）
     CREATE TABLE medication_dose_log (
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES medication_plan(id),
+      -- v46：患者作用域（旧行为 NULL，迁移按 plan 回填；孤儿保留 NULL）
+      patient_id TEXT REFERENCES patient_profile(id),
       scheduled_for REAL NOT NULL,
       dose_units REAL NOT NULL DEFAULT 1,   -- V3.42: 物化时的计划剂量（taper 不失真）
       delivery_state TEXT NOT NULL CHECK(delivery_state IN ('planned','sent','delivered','failed')),
@@ -297,6 +307,8 @@ public enum SchemaV2 {
     -- 守卫与 recordTakenAt 的时段解析均按 plan_id + scheduled_for 扫描——
     -- 无索引时每剂一次全表扫，随剂量行累积线性劣化。
     CREATE INDEX idx_dose_log_plan_time ON medication_dose_log(plan_id, scheduled_for);
+    CREATE INDEX idx_dose_log_patient_time ON medication_dose_log(patient_id, scheduled_for DESC)
+      WHERE patient_id IS NOT NULL;
 
     -- 双轨库存（F9.8 / ADR-009/016）
     CREATE TABLE stock_lot (
@@ -535,6 +547,12 @@ public enum SchemaV2 {
       patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       time_zone TEXT NOT NULL,
       connected_at REAL NOT NULL);
+    -- v46：HealthKit 绑定按成员（旧单例表保留，迁移复制一行后读侧优先新表）
+    CREATE TABLE hk_import_binding_member (
+      patient_id TEXT PRIMARY KEY REFERENCES patient_profile(id),
+      id TEXT NOT NULL UNIQUE,
+      time_zone TEXT NOT NULL,
+      connected_at REAL NOT NULL) WITHOUT ROWID;
     CREATE TABLE hk_sample_index (
       sample_id TEXT NOT NULL,
       type_key TEXT NOT NULL,
@@ -673,6 +691,7 @@ public enum SchemaV2 {
       occurred_at REAL, duration_min INTEGER, treatment_note TEXT,
       encounter_id TEXT REFERENCES encounter(id), medication_id TEXT REFERENCES medication(id),
       consulted_doctor INTEGER NOT NULL DEFAULT 0,
+      deleted_at REAL,
       note TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
       -- v30（全仓审查 2026-09-18 F-A4-01）：过敏原类型（药品/食物/其他，FR23.1 表单第一步）——
       -- 此前表单采集后无落点、静默丢弃。表尾追加 = 迁移 ADD COLUMN 同序。
@@ -732,6 +751,7 @@ public enum SchemaV2 {
       health_problem_id TEXT REFERENCES health_problem(id),
       group_id TEXT,
       self_mark TEXT CHECK(self_mark IN ('improved','unchanged','worsened') OR self_mark IS NULL),
+      deleted_at REAL,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_observation_patient_time ON observation(patient_id, occurred_at DESC);
 
@@ -763,6 +783,7 @@ public enum SchemaV2 {
       body TEXT NOT NULL, occurred_at REAL NOT NULL, tags TEXT,
       encounter_id TEXT REFERENCES encounter(id),
       in_timeline INTEGER NOT NULL DEFAULT 0,
+      deleted_at REAL,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_voice_note_patient_time ON voice_note(patient_id, occurred_at DESC);
 
@@ -874,6 +895,8 @@ public enum SchemaV2 {
       at REAL NOT NULL,
       meta_json TEXT);
     CREATE INDEX idx_audit_time ON audit_event(at DESC);
+    CREATE TRIGGER audit_event_no_update BEFORE UPDATE ON audit_event
+    BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END;
 
     -- 中文全文检索（V3.24 查询长度路由：≥3 字 trigram 主表 / 2 字 2-gram 影子表）
     -- V3.44：external-content + 触发器维护——FTS5 rowid 必须为 INTEGER（源表 TEXT UUID

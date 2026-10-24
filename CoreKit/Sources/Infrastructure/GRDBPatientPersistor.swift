@@ -176,7 +176,7 @@ public actor GRDBPatientPersistor: PatientPersisting {
             let ordered = [
                 "ocr_card_commit", "hk_pending_batch", "hk_projection_state", "hk_import_status",
                 // 最末级子表（不被他表引用，或被更末级引用）
-                "ai_message", "dose_lot_allocation", "notification_delivery",
+                "ai_message", "chat_message", "dose_lot_allocation", "notification_delivery",
                 "medication_dose_log", "plan_lifecycle_event", "stock_lot",
                 // v19/v21：待办卡与页文本引用 document_file，须先于其删除
                 "pending_card", "document_page",
@@ -189,14 +189,16 @@ public actor GRDBPatientPersistor: PatientPersisting {
                 "claim_line", "ocr_result", "claim_item", "prescription_line", "prescription",
                 "encounter_question", "voice_note",
                 "immunization", "allergy_event", "observation", "document_file", "medication_plan",
+                "medication_schedule",
                 "sent_message", "emergency_card_selection", "contact",
-                "alert_event", "guideline_source", "ai_conversation", "reminder",
+                "alert_event", "guideline_source", "ai_conversation", "chat_conversation", "reminder",
                 // v27 起 appointment.encounter_id 回指 encounter：预约先于就诊删除
                 "appointment", "medication", "encounter", "health_problem",
                 // v18 新增：同步锚点与通知中心状态——此前不在清空清单，
                 // UI 测试继承旧锚点（HealthKit 增量从旧锚续跑）与上轮已读/
                 // 归档标记，清态断言在脏状态上失效（「等价首次安装」落空）
-                "hk_sample_index", "hk_import_binding", "hk_sync_anchor", "notification_state",
+                "hk_sample_index", "hk_import_binding", "hk_import_binding_member",
+                "hk_sync_anchor", "notification_state",
                 // F25 用户码表覆盖（引用 code_concept；码表本身保留）
                 "resolver_override",
                 // local_owner 子表

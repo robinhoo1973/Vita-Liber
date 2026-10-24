@@ -1037,6 +1037,10 @@ public enum SchemaMigrations {
         // 旧模板保留（不删、不合并、不重指）；既有提醒的 schedule_json 一律不动。
         // DDL/选默认在代码迁移里做（表可能不存在于合成老库）。
         Step(version: 45, name: "medication-schedule-default", sql: ""),
+        // v46：患者作用域/软删/HK 多成员/热索引/审计 append-only（2026-10-24）。
+        // 可空加列 + 回填（dose_log ← plan；孤儿保留 NULL 并计数）；不删行、
+        // 不改任何医疗事实列。默认时段唯一索引若重复，先确定性修复再建。
+        Step(version: 46, name: "patient-scope-and-soft-delete", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

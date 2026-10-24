@@ -107,9 +107,12 @@ public actor MedicationScheduleStore {
                 """, arguments: [MedicationScheduleEntryCodec.encode(normalized),
                                  now.timeIntervalSince1970, scheduleId.uuidString])
 
+            // 只传播给仍在进行的提醒：paused/ended 的计划保留原时刻，
+            // 不得被改写或删除未来剂量行（审查修正）。
             let plans: [Row] = propagate ? try Row.fetchAll(db, sql: """
                 SELECT id, slot_keys_json FROM medication_plan
-                 WHERE patient_id = ? AND schedule_id = ?
+                 WHERE patient_id = ? AND schedule_id = ? AND status = 'active'
+                   AND slot_keys_json IS NOT NULL
                 """, arguments: [patientId.uuidString, scheduleId.uuidString]) : []
             var followed: [UUID] = []
             var legacy = 0
@@ -154,8 +157,9 @@ public actor MedicationScheduleStore {
 
     private static func row(_ db: Database, patientId: UUID) throws -> ScheduleRow? {
         guard let row = try Row.fetchOne(db, sql: """
-            SELECT s.*, (SELECT COUNT(*) FROM medication_plan p WHERE p.schedule_id = s.id)
-                   AS bound_count
+            SELECT s.*, (SELECT COUNT(*) FROM medication_plan p
+                          WHERE p.schedule_id = s.id AND p.status = 'active'
+                            AND p.slot_keys_json IS NOT NULL) AS bound_count
               FROM medication_schedule s
              WHERE s.patient_id = ? AND s.is_default = 1
              LIMIT 1
@@ -169,8 +173,9 @@ public actor MedicationScheduleStore {
 
     private static func adoptExisting(_ db: Database, patientId: UUID) throws -> ScheduleRow? {
         let rows = try Row.fetchAll(db, sql: """
-            SELECT s.*, (SELECT COUNT(*) FROM medication_plan p WHERE p.schedule_id = s.id)
-                   AS bound_count
+            SELECT s.*, (SELECT COUNT(*) FROM medication_plan p
+                          WHERE p.schedule_id = s.id AND p.status = 'active'
+                            AND p.slot_keys_json IS NOT NULL) AS bound_count
               FROM medication_schedule s
              WHERE s.patient_id = ?
              ORDER BY s.created_at ASC, s.rowid ASC

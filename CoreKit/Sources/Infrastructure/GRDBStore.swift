@@ -125,6 +125,12 @@ public struct GRDBStore {
                     // v40 drop-id-insurance（2026-10-22 业主）：列存在才删，
                     // 兼容老库/合成夹具缺列；彻底移除历史证件号/医保号。
                     try Self.dropLegacyProfileColumns(db)
+                case 46:
+                    // v46 patient-scope-and-soft-delete（2026-10-24）：可空 patient_id、
+                    // 软删列、HK 多成员、热索引、审计 append-only。事务内完成；
+                    // 失败整体回滚，版本留 45。
+                    try Self.applyTransactional(db, step, then: Self.migrateV46)
+                    continue
                 case 45:
                     // v45 medication-schedule-default（2026-10-24 业主）：每成员一个
                     // 默认用药时段 + 提醒的时段连接键。只加列/索引/标记默认，
@@ -209,6 +215,106 @@ public struct GRDBStore {
                 """, arguments: [templateId, patientId, timesJSON, createdAt, updatedAt])
             try db.execute(sql: "UPDATE medication_plan SET schedule_id = ? WHERE id = ?",
                            arguments: [templateId, planId])
+        }
+    }
+
+    /// v46 代码迁移：患者作用域/软删/HK 多成员/热索引/审计触发器。
+    /// 全部为可空加列或新对象；dose_log.patient_id 从 plan 回填，孤儿保留 NULL。
+    private static func migrateV46(_ db: Database) throws {
+        func addColumnIfMissing(_ table: String, _ column: String, _ ddl: String) throws {
+            guard try tableExists(db, table) else { return }
+            let columns = try db.columns(in: table).map(\.name)
+            guard !columns.contains(column) else { return }
+            try db.execute(sql: "ALTER TABLE \(table) ADD COLUMN \(ddl)")
+        }
+        try addColumnIfMissing("medication_dose_log", "patient_id",
+                               "patient_id TEXT REFERENCES patient_profile(id)")
+        try addColumnIfMissing("asset", "patient_id",
+                               "patient_id TEXT REFERENCES patient_profile(id)")
+        try addColumnIfMissing("observation", "deleted_at", "deleted_at REAL")
+        try addColumnIfMissing("allergy_event", "deleted_at", "deleted_at REAL")
+        try addColumnIfMissing("voice_note", "deleted_at", "deleted_at REAL")
+
+        if try tableExists(db, "medication_dose_log") {
+            try db.execute(sql: """
+                UPDATE medication_dose_log
+                   SET patient_id = (SELECT p.patient_id FROM medication_plan p
+                                      WHERE p.id = medication_dose_log.plan_id)
+                 WHERE patient_id IS NULL
+                """)
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS idx_dose_log_patient_time
+                ON medication_dose_log(patient_id, scheduled_for DESC)
+                WHERE patient_id IS NOT NULL
+                """)
+        }
+        if try tableExists(db, "asset") {
+            try db.execute(sql: """
+                CREATE INDEX IF NOT EXISTS idx_asset_patient_kind
+                ON asset(patient_id, kind) WHERE patient_id IS NOT NULL
+                """)
+        }
+        // HK 多成员：旧单例表复制一行；旧表保留。
+        if try tableExists(db, "hk_import_binding") {
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS hk_import_binding_member (
+                  patient_id TEXT PRIMARY KEY REFERENCES patient_profile(id),
+                  id TEXT NOT NULL UNIQUE,
+                  time_zone TEXT NOT NULL,
+                  connected_at REAL NOT NULL) WITHOUT ROWID
+                """)
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO hk_import_binding_member
+                  (patient_id, id, time_zone, connected_at)
+                SELECT patient_id, id, time_zone, connected_at FROM hk_import_binding
+                """)
+        }
+        // 默认时段唯一索引：先按同一规则确定性收敛重复，再建索引。
+        if try tableExists(db, "medication_schedule") {
+            let columns = try db.columns(in: "medication_schedule").map(\.name)
+            if columns.contains("is_default") {
+                let patients = try String.fetchAll(
+                    db, sql: "SELECT DISTINCT patient_id FROM medication_schedule")
+                for patient in patients {
+                    let rows = try Row.fetchAll(db, sql: """
+                        SELECT id FROM medication_schedule
+                         WHERE patient_id = ? AND is_default = 1
+                         ORDER BY created_at ASC, rowid ASC
+                        """, arguments: [patient])
+                    for loser in rows.dropFirst() {
+                        if let id = loser["id"] as String? {
+                            try db.execute(sql: """
+                                UPDATE medication_schedule SET is_default = 0 WHERE id = ?
+                                """, arguments: [id])
+                        }
+                    }
+                }
+                try db.execute(sql: """
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_medication_schedule_default
+                    ON medication_schedule(patient_id) WHERE is_default = 1
+                    """)
+            }
+        }
+        // 热索引（表存在才建）。
+        let indexes: [(String, String)] = [
+            ("prescription", "CREATE INDEX IF NOT EXISTS idx_prescription_patient_time ON prescription(patient_id, prescribed_at DESC)"),
+            ("medication", "CREATE INDEX IF NOT EXISTS idx_medication_patient ON medication(patient_id, generic_name)"),
+            ("ocr_result", "CREATE INDEX IF NOT EXISTS idx_ocr_result_document ON ocr_result(document_file_id, page_index)"),
+            ("notification_delivery", "CREATE INDEX IF NOT EXISTS idx_delivery_reminder ON notification_delivery(reminder_id, scheduled_at DESC)"),
+            ("reminder", "CREATE INDEX IF NOT EXISTS idx_reminder_source ON reminder(source_table, source_id)"),
+            ("document_file", "CREATE INDEX IF NOT EXISTS idx_doc_patient_created ON document_file(patient_id, created_at DESC)"),
+        ]
+        for (table, sqlText) in indexes {
+            guard try tableExists(db, table) else { continue }
+            try db.execute(sql: sqlText)
+        }
+        // 审计 append-only（只防 UPDATE；reset 仍需 DELETE）。
+        if try tableExists(db, "audit_event") {
+            try db.execute(sql: """
+                CREATE TRIGGER IF NOT EXISTS audit_event_no_update
+                BEFORE UPDATE ON audit_event
+                BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END
+                """)
         }
     }
 
