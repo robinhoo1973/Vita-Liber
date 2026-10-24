@@ -1410,6 +1410,8 @@ extension L10n {
         "emergency.contacts.add", "emergency.contacts.edit", "emergency.contacts.hint",
         "emergency.contacts.phoneHint", "emergency.contacts.deleteTitle",
         "emergency.contacts.deleteHint", "emergency.contacts.actionFailed",
+        "emergency.contacts.autoMemberTitle", "emergency.contacts.autoMemberQuota",
+        "emergency.contacts.autoMemberFailed",
         "common.delete"
     ]
 }
