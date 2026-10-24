@@ -64,11 +64,11 @@ struct SettingsView: View {
                 }
                 Section {
                     HStack(spacing: 0) {
-                        statCell("\(app.members.count)", L10n.profileStatMembers)
+                        statCell("\(app.members.count)", L10n.profileStatMembers, icon: "person.2.fill")
                         Divider().frame(height: 34)
-                        statCell("\(docs.documents.count)", L10n.profileStatRecords)
+                        statCell("\(docs.documents.count)", L10n.profileStatRecords, icon: "doc.text.fill")
                         Divider().frame(height: 34)
-                        statCell("\(chatCount)", L10n.profileStatChats)
+                        statCell("\(chatCount)", L10n.profileStatChats, icon: "bubble.left.and.bubble.right.fill")
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -113,12 +113,12 @@ struct SettingsView: View {
                 Section {
                     ThemeSegmentedPicker(selection: themeBinding)
                     Toggle(isOn: binding(for: .highContrastEnabled)) {
-                        Text(L10n.settings_highContrast)
+                        Label(L10n.settings_highContrast, systemImage: "circle.lefthalf.filled")
                     }
                     .accessibilityIdentifier("SP-25.setting.highContrast")
                     // 2026-10-23 业主：关怀模式并入外观与主题，不再放在授权区。
                     Toggle(isOn: binding(for: .careModeEnable)) {
-                        Text(L10n.settings_careMode)
+                        Label(L10n.settings_careMode, systemImage: "figure.and.child.holdinghands")
                     }
                     .accessibilityIdentifier("SP-25.setting.careModeEnable")
                     // 2026-10-23 业主：原「安全」组改名「自动锁定」并并入本组。
@@ -130,14 +130,18 @@ struct SettingsView: View {
                             Text(L10n.settings_graceSeconds(value)).tag("\(value)")
                         }
                     } label: {
-                        Text(L10n.settings_autoLock)
+                        Label(L10n.settings_autoLock, systemImage: "lock")
                     }
                     .accessibilityIdentifier("SP-25.setting.gateGraceSeconds")
                     // FR14.5 显示语言（§5.12.2）+ FR17.15/16 语音语言（§5.12.3）
                     NavigationLink {
                         LanguageSettingsView()
                     } label: {
-                        LabeledContent(L10n.languageTitle, value: currentLanguageName)
+                        LabeledContent {
+                            Text(currentLanguageName)
+                        } label: {
+                            Label(L10n.languageTitle, systemImage: "globe")
+                        }
                     }
                     .accessibilityIdentifier("SP-25.setting.language")
                     NavigationLink {
@@ -145,7 +149,11 @@ struct SettingsView: View {
                     } label: {
                         // V4.13 呈现评审：值显示语言名摘要（主语言 +N），
                         // 不再直出 locale 代码（如 zh-CN）
-                        LabeledContent(L10n.voiceLangTitle, value: currentVoiceLanguages)
+                        LabeledContent {
+                            Text(currentVoiceLanguages)
+                        } label: {
+                            Label(L10n.voiceLangTitle, systemImage: "waveform")
+                        }
                     }
                     .accessibilityIdentifier("SP-25.setting.voiceLanguage")
                 } header: {
@@ -159,33 +167,45 @@ struct SettingsView: View {
                 // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
                 // 首页铃铛是唯一路径；提醒触达设置页亦缺失）
                 Section(L10n.ncTitle) {
-                    NavigationLink(L10n.ncTitle) {
+                    NavigationLink {
                         NotificationCenterView()
+                    } label: {
+                        Label(L10n.ncTitle, systemImage: "bell")
                     }
                     .accessibilityIdentifier("SP-26.notificationCenter")
-                    NavigationLink(L10n.remchTitle) {
+                    NavigationLink {
                         ReminderChannelSettingsView()
+                    } label: {
+                        Label(L10n.remchTitle, systemImage: "bell.badge")
                     }
                     .accessibilityIdentifier("SP-26.remch.entry")
                 }
                 Section(L10n.settings_habits) {
                     // FR14.7 常用习惯：可编辑偏好中心（含「仅新建/全局生效」标签）
-                    NavigationLink(L10n.settings_habits) {
+                    NavigationLink {
                         PreferencesView()
+                    } label: {
+                        Label(L10n.settings_habits, systemImage: "slider.horizontal.3")
                     }
                     .accessibilityIdentifier("SP-26.preferences")
                     // FR14.3 数据生命周期页（四级删除语义 + 影响清单）
-                    NavigationLink(L10n.settings_dataLifecycle) {
+                    NavigationLink {
                         DataLifecycleView()
+                    } label: {
+                        Label(L10n.settings_dataLifecycle, systemImage: "clock.arrow.circlepath")
                     }
                     .accessibilityIdentifier("FR14.3.dataLifecycle")
                     // FR13.1/13.2 导出向导
-                    NavigationLink(L10n.exportWizardTitle) {
+                    NavigationLink {
                         ExportWizardView()
+                    } label: {
+                        Label(L10n.exportWizardTitle, systemImage: "square.and.arrow.up")
                     }
                     .accessibilityIdentifier("SP-22.export.entry")
-                    NavigationLink(L10n.backupTitle) {
+                    NavigationLink {
                         BackupView()
+                    } label: {
+                        Label(L10n.backupTitle, systemImage: "externaldrive")
                     }
                     .accessibilityIdentifier("SP-23.backup.entry")
                 }
@@ -207,51 +227,69 @@ struct SettingsView: View {
                     Text(L10n.settings_dataAndResources)
                 }
                 Section(L10n.settings_pro) {
-                    NavigationLink(L10n.proOutputTitle) {
+                    NavigationLink {
                         ProOutputHubView()
+                    } label: {
+                        Label(L10n.proOutputTitle, systemImage: "doc.richtext")
                     }
                     .accessibilityIdentifier("SP-25.settings.proOutputs")
-                    NavigationLink(L10n.settings_proUpgrade) {
+                    NavigationLink {
                         PaywallView()
+                    } label: {
+                        Label(L10n.settings_proUpgrade, systemImage: "star.circle")
                     }
                     .accessibilityIdentifier("SP-25.settings.pro")
                     // comercial §3 免费体验保护：「恢复购买」常驻设置中心
-                    Button(L10n.pay_restore) {
+                    Button {
                         Task { await entitlements.restore() }
+                    } label: {
+                        Label(L10n.pay_restore, systemImage: "arrow.clockwise")
                     }
                     .accessibilityIdentifier("SP-25.settings.restorePurchases")
                 }
                 Section(L10n.settings_privacy) {
                     // FR14.1 分目的授权面板入口
-                    NavigationLink(L10n.privacyAuthTitle) {
+                    NavigationLink {
                         PrivacyAuthorizationView()
+                    } label: {
+                        Label(L10n.privacyAuthTitle, systemImage: "hand.raised")
                     }
                     .accessibilityIdentifier("SP-25.settings.privacyAuth")
-                    NavigationLink(L10n.settings_audit) {
+                    NavigationLink {
                         AuditLogView()
+                    } label: {
+                        Label(L10n.settings_audit, systemImage: "list.bullet.rectangle")
                     }
                     .accessibilityIdentifier("SP-25.settings.audit")
                     // 2026-10-22 业主：发送状态归入隐私与数据，不再放在健康档案。
-                    NavigationLink(L10n.fr24_title) {
+                    NavigationLink {
                         SentStatusHubView()
+                    } label: {
+                        Label(L10n.fr24_title, systemImage: "paperplane")
                     }
                     .accessibilityIdentifier("SP-25.settings.sentStatus")
-                    Button(L10n.settings_restoreDefaults) {
+                    Button {
                         // 审查修复：恢复默认后必须清本地 toggles 影子——get 优先
                         // 读 toggles，不清则开关显示仍停留在用户改过的旧值
                         // （隐私开关虚显示），离开重进才自愈。
                         toggles = [:]
                         Task { await settings.restoreDefaults() }
+                    } label: {
+                        Label(L10n.settings_restoreDefaults, systemImage: "arrow.counterclockwise")
                     }
                 }
                 Section(L10n.settings_about) {
-                    NavigationLink(L10n.settings_help) {
+                    NavigationLink {
                         HelpRootView()
+                    } label: {
+                        Label(L10n.settings_help, systemImage: "questionmark.circle")
                     }
                     .accessibilityIdentifier("SP-25.settings.help")
                     // 2026-10-22 业主：参考范围/信源库从健康档案移到关于。
-                    NavigationLink(L10n.hub_guidelines) {
+                    NavigationLink {
                         GuidelineHubView()
+                    } label: {
+                        Label(L10n.hub_guidelines, systemImage: "book")
                     }
                     .accessibilityIdentifier("SP-25.settings.guidelines")
                     Text(L10n.settings_disclaimer)
@@ -325,8 +363,12 @@ struct SettingsView: View {
         return locales.count > 1 ? "\(name) +\(locales.count - 1)" : name
     }
 
-    private func statCell(_ value: String, _ title: String) -> some View {
+    private func statCell(_ value: String, _ title: String, icon: String) -> some View {
         VStack(spacing: 2) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+                .accessibilityHidden(true)
             Text(value).font(.title3.weight(.semibold))
                 .foregroundStyle(Color("brand-primary", bundle: .main))
             Text(title).font(.caption2).foregroundStyle(.secondary)
