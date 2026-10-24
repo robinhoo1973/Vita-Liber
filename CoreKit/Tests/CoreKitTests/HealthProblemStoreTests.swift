@@ -40,6 +40,8 @@ struct HealthProblemStoreTests {
         #expect(rows[0].code == "I10")
         #expect(rows[0].alias == "我的高血压")
         #expect(rows[0].bodySite == "心脏")
+        #expect(rows[0].department == "心血管内科")
+        #expect(rows[0].departmentCode == "03.04")
 
         do {
             try await store.update(id: UUID(), .init(bodyRegion: nil, bodySite: nil,

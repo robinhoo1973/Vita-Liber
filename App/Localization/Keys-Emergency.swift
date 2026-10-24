@@ -93,4 +93,7 @@ static var medicalIDTitle: String { t("medicalID.title") }
     static var emergencyContactsDeleteTitle: String { t("emergency.contacts.deleteTitle") }
     static var emergencyContactsDeleteHint: String { t("emergency.contacts.deleteHint") }
     static var emergencyContactsActionFailed: String { t("emergency.contacts.actionFailed") }
+    static var emergencyContactsAutoMemberTitle: String { t("emergency.contacts.autoMemberTitle") }
+    static var emergencyContactsAutoMemberQuota: String { t("emergency.contacts.autoMemberQuota") }
+    static var emergencyContactsAutoMemberFailed: String { t("emergency.contacts.autoMemberFailed") }
 }

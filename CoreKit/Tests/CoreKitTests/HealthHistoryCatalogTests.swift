@@ -69,6 +69,17 @@ struct HealthHistoryCatalogTests {
         #expect(HealthHistoryCatalog.condition(matching: "糖尿病二型")?.id == "type2_diabetes")
         #expect(HealthHistoryCatalog.condition(id: "osteoarthritis")?.organIDs == ["knee", "hip"],
                 "多器官映射提供官方集合内选择")
+        for condition in HealthHistoryCatalog.commonConditions {
+            #expect(condition.department != nil, "\(condition.id) 缺相关科室")
+            #expect(condition.departmentCode != nil, "\(condition.id) 缺科室代码")
+        }
+        #expect(HealthHistoryCatalog.condition(id: "hypertension")?.department == "心血管内科")
+        #expect(HealthHistoryCatalog.condition(id: "hypertension")?.departmentCode == "03.04")
+        #expect(HealthHistoryCatalog.condition(id: "hypertension")?.commonRank == 1)
+        #expect(HealthHistoryCatalog.condition(id: "type2_diabetes")?.commonRank == 4)
+        #expect(HealthHistoryCatalog.surgery(id: "cesarean")?.commonRank == 1)
+        #expect(HealthHistoryCatalog.surgery(id: "myomectomy")?.commonRank == 5)
+        #expect(HealthHistoryCatalog.commonRankSource.contains("国家卫生健康委"))
     }
 
     @Test func allergenKindsMatchAllergyVocabulary() {

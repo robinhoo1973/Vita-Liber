@@ -40,10 +40,39 @@ struct MemberRelationTests {
         #expect(MemberRelation.partner.coarse == .partner)
     }
 
+    @Test("家庭成员判据：配偶/子女/父母/祖父母（含细粒度）；本人/其他不算")
+    func familyMembership() {
+        for relation in [MemberRelation.partner, .child, .parent, .grandparent,
+                         .father, .mother, .son, .daughter] {
+            #expect(relation.isFamily)
+        }
+        #expect(!MemberRelation.selfMember.isFamily)
+        #expect(!MemberRelation.other.isFamily)
+    }
+
     @Test("新建可选集 = 既有 sheet 目录（粗粒度，保序）")
     /// 原名：可选集
     func candidateSet() {
         #expect(MemberRelation.creatable == [.partner, .child, .parent, .grandparent, .other])
         #expect(!MemberRelation.creatable.contains(.selfMember), "本人不可新建（由 onboarding 创建）")
+    }
+}
+
+/// 紧急联系人 → 常用成员 自动添加规则（2026-10-24 业主）。
+@Suite("SU-FR3.7 · 紧急联系人自动成员规则")
+struct EmergencyContactMemberRulesTests {
+    @Test("家庭成员且无同名成员才自动添加")
+    func autoAddOnlyForFamilyWithoutDuplicate() {
+        #expect(EmergencyContactMemberRules.shouldAutoAddMember(
+            name: "张三", relation: "配偶", existingMemberNames: ["李四"]))
+        #expect(!EmergencyContactMemberRules.shouldAutoAddMember(
+            name: "张三", relation: "配偶", existingMemberNames: [" 张三 "]),
+            "同名（空白归一）不重复创建")
+        #expect(!EmergencyContactMemberRules.shouldAutoAddMember(
+            name: "王五", relation: "其他", existingMemberNames: []),
+            "其他关系不自动加入")
+        #expect(!EmergencyContactMemberRules.shouldAutoAddMember(
+            name: "   ", relation: "子女", existingMemberNames: []),
+            "空名不创建")
     }
 }

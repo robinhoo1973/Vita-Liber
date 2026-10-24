@@ -11,6 +11,7 @@ import Perception
 struct EmergencyContactListView: View {
     @Environment(AppState.self) private var app
     @Environment(M2HubStore.self) private var hub
+    @Environment(AppEntitlementStore.self) private var entitlements
 
     @State private var editor: ContactEditorTarget?
     @State private var deleteTarget: EmergencyCardItem?
@@ -18,6 +19,8 @@ struct EmergencyContactListView: View {
     /// 目标条目保留到按钮动作读取完，避免「先清目标、后跑动作」的空操作。
     @State private var confirmDelete = false
     @State private var actionFailed = false
+    /// 自动加入常用成员失败/配额不足的可见提示（联系人与成员是两次写入）。
+    @State private var autoAddHint: String?
 
     private var patientId: UUID { app.currentPatientId }
 
@@ -88,9 +91,13 @@ struct EmergencyContactListView: View {
             .task(id: patientId) { await hub.load(patientId: patientId) }
             .sheet(item: $editor) { target in
                 EmergencyContactEditSheet(contact: target.contact) { draft in
-                    await hub.saveEmergencyContact(patientId: patientId,
-                                                   id: target.contact?.id,
-                                                   draft: draft)
+                    let saved = await hub.saveEmergencyContact(patientId: patientId,
+                                                               id: target.contact?.id,
+                                                               draft: draft)
+                    if saved {
+                        await autoAddMemberIfNeeded(draft)
+                    }
+                    return saved
                 }
             }
             .alert(L10n.emergencyContactsDeleteTitle, isPresented: $confirmDelete) {
@@ -101,6 +108,13 @@ struct EmergencyContactListView: View {
             }
             .alert(L10n.emergencyContactsActionFailed, isPresented: $actionFailed) {
                 Button(L10n.onboard_gotIt, role: .cancel) { }
+            }
+            .alert(L10n.emergencyContactsAutoMemberTitle,
+                   isPresented: Binding(get: { autoAddHint != nil },
+                                        set: { if !$0 { autoAddHint = nil } })) {
+                Button(L10n.onboard_gotIt, role: .cancel) { autoAddHint = nil }
+            } message: {
+                Text(autoAddHint ?? "")
             }
         }
     }
@@ -148,6 +162,28 @@ struct EmergencyContactListView: View {
         let phone = contact.phone ?? ""
         if relation.isEmpty { return phone }
         return phone.isEmpty ? relation : "\(relation) · \(phone)"
+    }
+
+    /// 2026-10-24 业主：紧急联系人是家庭成员时，自动加入常用成员。
+    /// 只对配偶/子女/父母/祖父母（含遗留细粒度关系）生效；同名成员已存在则跳过。
+    /// 成员配额是独立闸门：名额已满时不静默创建，给可见提示。
+    private func autoAddMemberIfNeeded(_ draft: EmergencyContactDraft) async {
+        guard EmergencyContactMemberRules.shouldAutoAddMember(
+            name: draft.name,
+            relation: draft.relation,
+            existingMemberNames: app.members.filter { $0.deletedAt == nil }.map(\.displayName)
+        ) else { return }
+        let relation = MemberRelation(tolerant: draft.relation)
+        let name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if PaywallRules.memberAdditionBlocked(currentCount: app.members.count,
+                                              ownedProducts: entitlements.owned) {
+            autoAddHint = L10n.emergencyContactsAutoMemberQuota
+            return
+        }
+        if !(await app.addMember(name: name, relation: relation.coarse.rawValue,
+                                 birthDate: nil)) {
+            autoAddHint = L10n.emergencyContactsAutoMemberFailed
+        }
     }
 
     private func deleteConfirmed() {

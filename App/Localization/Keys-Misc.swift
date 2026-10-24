@@ -504,6 +504,15 @@ extension L10n {
 
     // 健康史（2026-10-22）：手术史/慢性病 + 人体图索引
     static var healthHistoryKind: String { t("healthHistory.kind") }
+    static var healthHistoryBrowseMode: String { t("healthHistory.browseMode") }
+    static var healthHistoryCommonChronic: String { t("healthHistory.commonChronic") }
+    static var healthHistoryCommonSurgery: String { t("healthHistory.commonSurgery") }
+    static var healthHistoryMappedItems: String { t("healthHistory.mappedItems") }
+    static var healthHistorySelected: String { t("healthHistory.selected") }
+    static var healthHistoryNoMappedItems: String { t("healthHistory.noMappedItems") }
+    static var healthHistoryNoMatches: String { t("healthHistory.noMatches") }
+    static var healthHistoryRankHint: String { t("healthHistory.rankHint") }
+    static var healthHistoryDepartment: String { t("healthHistory.department") }
     static var healthHistoryAlias: String { t("healthHistory.alias") }
     static var healthHistoryCode: String { t("healthHistory.code") }
     static var healthHistoryMappingLocked: String { t("healthHistory.mappingLocked") }

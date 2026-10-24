@@ -50,4 +50,16 @@ public enum MemberRelation: String, Sendable, Equatable, CaseIterable, Codable {
 
     /// 是否本人哨兵（身份判定本身走 `selfPatientId`，此属性只用于关系展示分支）。
     public var isSelf: Bool { self == .selfMember }
+
+    /// 是否可视为家庭成员（紧急联系人自动进入常用成员的判据）：
+    /// 配偶/子女/父母/祖父母及其遗留细粒度值；「其他」与本人不算。
+    public var isFamily: Bool {
+        switch self {
+        case .partner, .child, .parent, .grandparent,
+             .father, .mother, .son, .daughter:
+            return true
+        case .selfMember, .other:
+            return false
+        }
+    }
 }

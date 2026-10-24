@@ -492,13 +492,16 @@ public actor ExportService {
             public var code: String?
             public var codeSystem: String?
             public var mappingVersion: String?
+            public var department: String?
+            public var departmentCode: String?
             public var createdAt: Date
             public init(id: UUID, patientId: UUID?, name: String, kind: String? = nil,
                         archived: Bool = false, bodyRegion: String? = nil,
                         bodySite: String? = nil, year: Int? = nil,
                         catalogId: String? = nil, alias: String? = nil,
                         code: String? = nil, codeSystem: String? = nil,
-                        mappingVersion: String? = nil, createdAt: Date) {
+                        mappingVersion: String? = nil, department: String? = nil,
+                        departmentCode: String? = nil, createdAt: Date) {
                 self.id = id
                 self.patientId = patientId
                 self.name = name
@@ -512,11 +515,14 @@ public actor ExportService {
                 self.code = code
                 self.codeSystem = codeSystem
                 self.mappingVersion = mappingVersion
+                self.department = department
+                self.departmentCode = departmentCode
                 self.createdAt = createdAt
             }
             private enum CodingKeys: String, CodingKey {
                 case id, patientId, name, kind, archived, bodyRegion, bodySite, year,
-                     catalogId, alias, code, codeSystem, mappingVersion, createdAt
+                     catalogId, alias, code, codeSystem, mappingVersion,
+                     department, departmentCode, createdAt
             }
             public init(from decoder: Decoder) throws {
                 let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -533,6 +539,8 @@ public actor ExportService {
                 code = try c.decodeIfPresent(String.self, forKey: .code)
                 codeSystem = try c.decodeIfPresent(String.self, forKey: .codeSystem)
                 mappingVersion = try c.decodeIfPresent(String.self, forKey: .mappingVersion)
+                department = try c.decodeIfPresent(String.self, forKey: .department)
+                departmentCode = try c.decodeIfPresent(String.self, forKey: .departmentCode)
                 createdAt = try c.decode(Date.self, forKey: .createdAt)
             }
         }
@@ -833,6 +841,8 @@ public actor ExportService {
                     code: row["code"] as String?,
                     codeSystem: row["code_system"] as String?,
                     mappingVersion: row["mapping_version"] as String?,
+                    department: row["department"] as String?,
+                    departmentCode: row["department_code"] as String?,
                     createdAt: Date(timeIntervalSince1970: row["created_at"] as Double))
             }
             let sensitiveIds = try String.fetchAll(db, sql: "SELECT id FROM document_file WHERE is_sensitive = 1")
@@ -2952,23 +2962,25 @@ private struct ImportSession {
                 try db.execute(sql: """
                     UPDATE health_problem SET patient_id = ?, name = ?, kind = ?, archived = ?,
                       body_region = ?, body_site = ?, year = ?, catalog_id = ?, alias = ?,
-                      code = ?, code_system = ?, mapping_version = ?, created_at = ?
+                      code = ?, code_system = ?, mapping_version = ?,
+                      department = ?, department_code = ?, created_at = ?
                     WHERE id = ?
                     """, arguments: [(remap(h.patientId) ?? h.patientId)?.uuidString ?? "", h.name,
                                      h.kind, h.archived ? 1 : 0, h.bodyRegion, h.bodySite,
                                      h.year, h.catalogId, h.alias, h.code, h.codeSystem,
-                                     h.mappingVersion, h.createdAt.timeIntervalSince1970,
+                                     h.mappingVersion, h.department, h.departmentCode,
+                                     h.createdAt.timeIntervalSince1970,
                                      h.id.uuidString])
             }) { continue }
             try db.execute(sql: """
                 INSERT INTO health_problem (id, patient_id, name, kind, archived,
                   body_region, body_site, year, catalog_id, alias, code, code_system,
-                  mapping_version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  mapping_version, department, department_code, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [(remap(h.id) ?? h.id).uuidString, patientID(h.patientId), h.name,
                                   h.kind, h.archived ? 1 : 0, h.bodyRegion, h.bodySite,
                                   h.year, h.catalogId, h.alias, h.code, h.codeSystem,
-                                  h.mappingVersion,
+                                  h.mappingVersion, h.department, h.departmentCode,
                                   h.createdAt.timeIntervalSince1970, h.createdAt.timeIntervalSince1970])
         }
     }

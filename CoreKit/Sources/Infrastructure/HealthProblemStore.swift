@@ -30,16 +30,20 @@ public actor HealthProblemStore {
         public var code: String?
         public var codeSystem: String?
         public var mappingVersion: String?
+        public var department: String?
+        public var departmentCode: String?
         public init(id: UUID, patientId: UUID, name: String, archived: Bool,
                     kind: String? = nil, bodyRegion: String? = nil, bodySite: String? = nil,
                     year: Int? = nil, catalogId: String? = nil, alias: String? = nil,
                     code: String? = nil, codeSystem: String? = nil,
-                    mappingVersion: String? = nil) {
+                    mappingVersion: String? = nil, department: String? = nil,
+                    departmentCode: String? = nil) {
             self.id = id; self.patientId = patientId; self.name = name; self.archived = archived
             self.kind = kind; self.bodyRegion = bodyRegion; self.bodySite = bodySite
             self.year = year; self.catalogId = catalogId; self.alias = alias
             self.code = code; self.codeSystem = codeSystem
             self.mappingVersion = mappingVersion
+            self.department = department; self.departmentCode = departmentCode
         }
     }
 
@@ -63,7 +67,9 @@ public actor HealthProblemStore {
                     alias: row["alias"] as String?,
                     code: row["code"] as String?,
                     codeSystem: row["code_system"] as String?,
-                    mappingVersion: row["mapping_version"] as String?)
+                    mappingVersion: row["mapping_version"] as String?,
+                    department: row["department"] as String?,
+                    departmentCode: row["department_code"] as String?)
             }
         }
     }
@@ -79,7 +85,9 @@ public actor HealthProblemStore {
                 patientId: patientId, name: condition.name, kind: nil,
                 bodyRegion: condition.regionID, bodySite: condition.organID,
                 now: now, catalogId: condition.id, code: code,
-                codeSystem: condition.codeSystem, mappingVersion: "医保版 2.0")
+                codeSystem: condition.codeSystem, mappingVersion: "医保版 2.0",
+                department: condition.department,
+                departmentCode: condition.departmentCode)
         }
         return try await create(patientId: patientId, name: name, kind: nil,
                                 bodyRegion: nil, bodySite: nil, now: now)
@@ -96,15 +104,19 @@ public actor HealthProblemStore {
         public var code: String?
         public var codeSystem: String?
         public var mappingVersion: String?
+        public var department: String?
+        public var departmentCode: String?
         public init(name: String, kind: String?, bodyRegion: String?, bodySite: String?,
                     year: Int? = nil, catalogId: String? = nil, alias: String? = nil,
                     code: String? = nil, codeSystem: String? = nil,
-                    mappingVersion: String? = nil) {
+                    mappingVersion: String? = nil, department: String? = nil,
+                    departmentCode: String? = nil) {
             self.name = name; self.kind = kind
             self.bodyRegion = bodyRegion; self.bodySite = bodySite
             self.year = year; self.catalogId = catalogId; self.alias = alias
             self.code = code; self.codeSystem = codeSystem
             self.mappingVersion = mappingVersion
+            self.department = department; self.departmentCode = departmentCode
         }
     }
 
@@ -122,14 +134,17 @@ public actor HealthProblemStore {
             bodySite: bodySite ?? mapped?.organID, now: now,
             catalogId: mapped?.id, code: mapped?.code,
             codeSystem: mapped?.code == nil ? nil : "ICD-10 医保版 2.0",
-            mappingVersion: mapped?.code == nil ? nil : "医保版 2.0")
+            mappingVersion: mapped?.code == nil ? nil : "医保版 2.0",
+            department: kind == "surgery" ? nil : mapped?.department,
+            departmentCode: kind == "surgery" ? nil : mapped?.departmentCode)
     }
 
     @discardableResult
     public func create(patientId: UUID, name: String, kind: String?,
                        bodyRegion: String?, bodySite: String?,
                        now: Date = Date(), catalogId: String?, code: String?,
-                       codeSystem: String?, mappingVersion: String?) async throws -> UUID {
+                       codeSystem: String?, mappingVersion: String?,
+                       department: String? = nil, departmentCode: String? = nil) async throws -> UUID {
         let id = UUID()
         try await writer.write { db in
             try Self.insert(id: id, patientId: patientId,
@@ -137,7 +152,9 @@ public actor HealthProblemStore {
                                                 bodyRegion: bodyRegion, bodySite: bodySite,
                                                 catalogId: catalogId, code: code,
                                                 codeSystem: codeSystem,
-                                                mappingVersion: mappingVersion),
+                                                mappingVersion: mappingVersion,
+                                                department: department,
+                                                departmentCode: departmentCode),
                             now: now, db: db)
         }
         return id
@@ -164,12 +181,14 @@ public actor HealthProblemStore {
         try db.execute(sql: """
             INSERT INTO health_problem
               (id, patient_id, name, kind, archived, body_region, body_site, year,
-               catalog_id, alias, code, code_system, mapping_version, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               catalog_id, alias, code, code_system, mapping_version,
+               department, department_code, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, arguments: [id.uuidString, patientId.uuidString, problem.name, problem.kind,
                              problem.bodyRegion, problem.bodySite, problem.year,
                              problem.catalogId, problem.alias, problem.code,
                              problem.codeSystem, problem.mappingVersion,
+                             problem.department, problem.departmentCode,
                              now.timeIntervalSince1970, now.timeIntervalSince1970])
     }
 

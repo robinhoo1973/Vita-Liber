@@ -307,7 +307,7 @@ struct HomeView: View {
                     .accessibilityIdentifier("SP-04.home.memberSwitch")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    // 2026-10-23 业主：三个首页工具统一为 32pt 着色圆 + 44pt
+                    // 2026-10-23 业主：三个首页工具统一为 40pt 着色圆 + 44pt
                     // 命中区；SOS 是唯一实心项。原先裸 SF Symbol 在玻璃导航栏上
                     // 大小/重量不一致，观感零散。
                     HStack(spacing: 4) {

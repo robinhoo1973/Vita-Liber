@@ -2539,6 +2539,15 @@
 "profile.data" = "Data & storage";
 "profile.chatHistory" = "Chat history";
 "healthHistory.kind" = "Type";
+"healthHistory.browseMode" = "Browse by";
+"healthHistory.commonChronic" = "Common conditions";
+"healthHistory.commonSurgery" = "Common surgeries";
+"healthHistory.mappedItems" = "Matching items";
+"healthHistory.selected" = "Selected";
+"healthHistory.noMappedItems" = "No common items for this area. Switch to Common or search by name.";
+"healthHistory.noMatches" = "No matches. Change the search or switch tabs.";
+"healthHistory.rankHint" = "Top 5 follow published NHC statistics; the rest are sorted by pinyin.";
+"healthHistory.department" = "Department";
 "healthHistory.alias" = "Personal alias (optional)";
 "healthHistory.code" = "Official code";
 "healthHistory.mappingLocked" = "Type, name and organ come from the official catalog; only alias and year can be edited.";
@@ -2612,4 +2621,7 @@
 "emergency.contacts.deleteTitle" = "Delete Emergency Contact?";
 "emergency.contacts.deleteHint" = "It will be removed from the emergency card and SOS help page. This cannot be undone.";
 "emergency.contacts.actionFailed" = "Operation failed. Please try again.";
+"emergency.contacts.autoMemberTitle" = "Family members";
+"emergency.contacts.autoMemberQuota" = "Contact saved. The family-member quota is full, so it was not added automatically.";
+"emergency.contacts.autoMemberFailed" = "Contact saved, but adding the family member failed. Retry from Member Management.";
 "common.delete" = "Delete";

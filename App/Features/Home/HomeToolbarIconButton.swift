@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 首页导航栏图标按钮（2026-10-23 业主：SOS / AI 助手 / 通知原样式难看）。
 ///
-/// 统一几何：32pt 可见圆 + 44pt 命中区；三个按钮同屏时只靠色彩与填充
+/// 统一几何：40pt 可见圆 + 44pt 命中区；三个按钮同屏时只靠色彩与填充
 /// 建立层级，不靠尺寸差。SOS 用实心语义红（唯一实心项），其余为低透明度
 /// 着色圆。无常态阴影（§3.3 阴影收敛），边界由着色描边承担；SOS 文字色
 /// 取系统背景色，浅色模式=白、深色模式=黑，保证两种模式下的对比度。
@@ -43,11 +43,11 @@ struct HomeToolbarIconButton: View {
                     Circle()
                         .stroke(border, lineWidth: 1)
                     Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundStyle(iconColor)
                         .accessibilityHidden(true)
                 }
-                .frame(width: 32, height: 32)
+                .frame(width: 40, height: 40)
                 .overlay {
                     if emphasis == .filled {
                         Circle().stroke(.white.opacity(0.22), lineWidth: 0.8)

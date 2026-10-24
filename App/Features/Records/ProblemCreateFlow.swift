@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 import Perception
 import Domain
 import Infrastructure
@@ -12,7 +13,8 @@ struct ProblemCreateSheet: View {
     @Environment(TimelineViewState.self) private var state
     @Environment(\.dismiss) private var dismiss
 
-    @State private var step: Step = .choose
+    @State private var step: Step = .browse
+    @State private var browseTab: BrowseTab = .common
     @State private var kind: String
     @State private var query = ""
     @State private var regionID: String?
@@ -32,9 +34,13 @@ struct ProblemCreateSheet: View {
     }
 
     private enum Step: Int, Hashable {
-        case choose
-        case body
+        case browse
         case detail
+    }
+
+    private enum BrowseTab: Int, Hashable {
+        case common
+        case body
     }
 
     private struct CatalogItem: Identifiable {
@@ -42,8 +48,18 @@ struct ProblemCreateSheet: View {
         let name: String
         let aliases: [String]
         let code: String?
+        let department: String?
+        let departmentCode: String?
+        let commonRank: Int?
         let region: String?
         let organ: String?
+
+        /// 慢性病行副标题：相关科室 + 官方码；手术无科室，仅在有码时显示。
+        var detailLine: String? {
+            let parts = [department.map { "\($0)\(departmentCode.map { " · \($0)" } ?? "")" },
+                         code.map { "ICD-10 \($0)" }].compactMap { $0 }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
     }
 
     /// 滚轮目标：已选条目 id。
@@ -63,12 +79,17 @@ struct ProblemCreateSheet: View {
         if isSurgery {
             return HealthHistoryCatalog.commonSurgeries.map {
                 CatalogItem(id: $0.id, name: $0.name, aliases: [],
-                            code: nil, region: $0.regionID, organ: $0.organID)
+                            code: nil, department: nil, departmentCode: nil,
+                            commonRank: $0.commonRank,
+                            region: $0.regionID, organ: $0.organID)
             }
         }
         return HealthHistoryCatalog.commonConditions.map {
             CatalogItem(id: $0.id, name: $0.name, aliases: $0.aliases,
-                        code: $0.code, region: $0.regionID, organ: $0.organID)
+                        code: $0.code, department: $0.department,
+                        departmentCode: $0.departmentCode,
+                        commonRank: $0.commonRank,
+                        region: $0.regionID, organ: $0.organID)
         }
     }
 
@@ -77,19 +98,40 @@ struct ProblemCreateSheet: View {
         if isSurgery {
             return HealthHistoryCatalog.surgeries(in: regionID, organID: organID).map {
                 CatalogItem(id: $0.id, name: $0.name, aliases: [],
-                            code: nil, region: $0.regionID, organ: $0.organID)
+                            code: nil, department: nil, departmentCode: nil,
+                            commonRank: $0.commonRank,
+                            region: $0.regionID, organ: $0.organID)
             }
         }
         return HealthHistoryCatalog.conditions(in: regionID, organID: organID).map {
             CatalogItem(id: $0.id, name: $0.name, aliases: $0.aliases,
-                        code: $0.code, region: $0.regionID, organ: $0.organID)
+                        code: $0.code, department: $0.department,
+                        departmentCode: $0.departmentCode,
+                        commonRank: $0.commonRank,
+                        region: $0.regionID, organ: $0.organID)
         }
     }
 
-    private var filteredItems: [CatalogItem] {
+    private var commonItems: [CatalogItem] {
+        // 2026-10-24 业主：官方前 5 置顶，其余按病名拼音；Foundation 中文排序规则。
+        matching(allItems).sorted { lhs, rhs in
+            let leftRank = lhs.commonRank ?? Int.max
+            let rightRank = rhs.commonRank ?? Int.max
+            if leftRank != rightRank { return leftRank < rightRank }
+            return lhs.name.compare(rhs.name,
+                                    options: [.caseInsensitive, .diacriticInsensitive],
+                                    locale: Locale(identifier: "zh-Hans")) == .orderedAscending
+        }
+    }
+
+    private var bodyItems: [CatalogItem] {
+        matching(scopedItems)
+    }
+
+    private func matching(_ items: [CatalogItem]) -> [CatalogItem] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !q.isEmpty else { return scopedItems }
-        return scopedItems.filter {
+        guard !q.isEmpty else { return items }
+        return items.filter {
             $0.name.localizedCaseInsensitiveContains(q)
                 || $0.aliases.contains { $0.localizedCaseInsensitiveContains(q) }
                 || ($0.code?.localizedCaseInsensitiveContains(q) ?? false)
@@ -117,8 +159,7 @@ struct ProblemCreateSheet: View {
                 VStack(spacing: 0) {
                     Group {
                         switch step {
-                        case .choose: chooseStep
-                        case .body: bodyStep
+                        case .browse: browseStep
                         case .detail: detailStep
                         }
                     }
@@ -139,7 +180,7 @@ struct ProblemCreateSheet: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        if step != .choose {
+                        if step == .detail {
                             Button {
                                 goBack()
                             } label: {
@@ -168,63 +209,68 @@ struct ProblemCreateSheet: View {
         }
     }
 
-    // MARK: - Step 1
+    // MARK: - Browse
 
-    private var chooseStep: some View {
+    private var browseStep: some View {
         VStack(spacing: 0) {
             ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text(isSurgery
-                     ? L10n.healthHistoryChooseSurgeryTitle
-                     : L10n.healthHistoryChooseChronicTitle)
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(Color("text-primary", bundle: .main))
-                Text(L10n.healthHistoryChooseHint)
-                    .font(.subheadline)
-                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(isSurgery
+                         ? L10n.healthHistoryChooseSurgeryTitle
+                         : L10n.healthHistoryChooseChronicTitle)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(Color("text-primary", bundle: .main))
+                    Text(L10n.healthHistoryChooseHint)
+                        .font(.subheadline)
+                        .foregroundStyle(Color("text-secondary", bundle: .main))
 
-                Picker(L10n.healthHistoryKind, selection: $kind) {
-                    Text(L10n.healthHistoryChronic).tag("chronic")
-                    Text(L10n.healthHistorySurgery).tag("surgery")
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("SP-49.problem.kind")
-
-                searchField
-
-                sectionLabel(L10n.healthHistoryCommon)
-                chipGrid(filteredItems, action: chooseItem)
-
-                Button {
-                    step = .body
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "figure.stand")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Color("brand-primary", bundle: .main))
-                        Text(L10n.healthHistoryByBody)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color("text-primary", bundle: .main))
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color("text-tertiary", bundle: .main))
+                    Picker(L10n.healthHistoryKind, selection: $kind) {
+                        Text(L10n.healthHistoryChronic).tag("chronic")
+                        Text(L10n.healthHistorySurgery).tag("surgery")
                     }
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 56)
-                    .background(Color("bg-grouped", bundle: .main),
-                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color("text-primary", bundle: .main).opacity(0.06), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("SP-49.problem.byBody")
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("SP-49.problem.kind")
 
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
+                    Picker(L10n.healthHistoryBrowseMode, selection: $browseTab) {
+                        Text(isSurgery ? L10n.healthHistoryCommonSurgery
+                                       : L10n.healthHistoryCommonChronic)
+                            .tag(BrowseTab.common)
+                        Text(L10n.healthHistoryByBody).tag(BrowseTab.body)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("SP-49.problem.browseMode")
+
+                    switch browseTab {
+                    case .common:
+                        searchField
+                        if commonItems.isEmpty {
+                            emptyCatalogHint
+                        } else {
+                            sectionLabel(isSurgery ? L10n.healthHistoryCommonSurgery
+                                                   : L10n.healthHistoryCommonChronic)
+                            catalogRows(commonItems)
+                            Text(L10n.healthHistoryRankHint)
+                                .font(.caption2)
+                                .foregroundStyle(Color("text-secondary", bundle: .main))
+                        }
+                    case .body:
+                        BodyMapPicker(regionID: $regionID, organID: $organID,
+                                      gender: patientGender)
+                        if bodyItems.isEmpty {
+                            emptyCatalogHint
+                        } else {
+                            sectionLabel(L10n.healthHistoryMappedItems)
+                            catalogRows(bodyItems)
+                        }
+                    }
+
+                    if !selectedList.isEmpty {
+                        sectionLabel(L10n.healthHistorySelected)
+                        selectedSummary
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
             }
             bottomCTA(title: L10n.healthHistoryNextDetail,
                       disabled: selectedItems.isEmpty) {
@@ -233,27 +279,52 @@ struct ProblemCreateSheet: View {
         }
     }
 
-    // MARK: - Step 2
+    private var emptyCatalogHint: some View {
+        Label(browseTab == .common ? L10n.healthHistoryNoMatches
+                                   : L10n.healthHistoryNoMappedItems,
+              systemImage: "info.circle")
+            .font(.caption)
+            .foregroundStyle(Color("text-secondary", bundle: .main))
+            .frame(maxWidth: .infinity, minHeight: 44)
+    }
 
-    private var bodyStep: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(isSurgery ? L10n.healthHistorySurgeryWhere : L10n.healthHistoryChronicWhere)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(Color("text-primary", bundle: .main))
-                    Text(L10n.healthHistoryRegionStepHint)
-                        .font(.subheadline)
-                        .foregroundStyle(Color("text-secondary", bundle: .main))
-                    BodyMapPicker(regionID: $regionID, organID: $organID, gender: patientGender)
-                        .padding(.top, 2)
+    private func catalogRows(_ items: [CatalogItem]) -> some View {
+        LazyVStack(spacing: 8) {
+            ForEach(items) { item in
+                let selected = selectedItems[item.id] != nil
+                Button {
+                    chooseItem(item)
+                } label: {
+                    HStack(spacing: 12) {
+                        Text(item.name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color("text-primary", bundle: .main))
+                        Spacer(minLength: 8)
+                        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                            .font(.title3)
+                            .foregroundStyle(selected
+                                             ? Color("brand-primary", bundle: .main)
+                                             : Color("text-tertiary", bundle: .main))
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 56)
+                    .background(selected
+                                ? Color("brand-primary", bundle: .main).opacity(0.12)
+                                : Color("bg-grouped", bundle: .main),
+                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(selected
+                                    ? Color("brand-primary", bundle: .main).opacity(0.55)
+                                    : Color("text-primary", bundle: .main).opacity(0.06),
+                                    lineWidth: 1)
+                    )
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
-            }
-            bottomCTA(title: L10n.healthHistoryNextDetail,
-                      disabled: selectedItems.isEmpty) {
-                step = .detail
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected
+                                        ? AccessibilityTraits.isButton.union(.isSelected)
+                                        : .isButton)
+                .accessibilityIdentifier("SP-49.problem.common.\(item.id)")
             }
         }
     }
@@ -276,13 +347,9 @@ struct ProblemCreateSheet: View {
                         .foregroundStyle(Color("text-secondary", bundle: .main))
 
                     if !selectedList.isEmpty {
+                        sectionLabel(L10n.healthHistorySelected)
                         selectedSummary
                         yearSection
-                    }
-                    searchField
-                    if !filteredItems.isEmpty {
-                        sectionLabel(L10n.healthHistoryCommon)
-                        chipGrid(filteredItems, action: chooseItem)
                     }
 
                     Label(L10n.healthHistoryConfirmedSource, systemImage: "checkmark.seal")
@@ -300,32 +367,43 @@ struct ProblemCreateSheet: View {
     }
 
     private var selectedSummary: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)],
-                  alignment: .leading, spacing: 8) {
+        LazyVStack(spacing: 8) {
             ForEach(selectedList) { item in
-                Button {
-                    selectedItems.removeValue(forKey: item.id)
-                } label: {
-                    HStack(spacing: 4) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(item.name)
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.caption2)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color("text-primary", bundle: .main))
+                        if let detail = item.detailLine {
+                            Text(detail)
+                                .font(.caption2)
+                                .foregroundStyle(Color("text-secondary", bundle: .main))
+                                .lineLimit(1)
+                        }
                     }
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(Color("brand-primary", bundle: .main).opacity(0.14),
-                                in: Capsule())
-                    .overlay(Capsule().stroke(
-                        Color("brand-primary", bundle: .main).opacity(0.55), lineWidth: 1))
+                    Spacer(minLength: 8)
+                    Button {
+                        selectedItems.removeValue(forKey: item.id)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(Color("text-tertiary", bundle: .main))
+                            .frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(String(format: L10n.healthHistorySelectedFmt, item.name))
+                    .accessibilityHint(L10n.commonCancel)
+                    .accessibilityIdentifier("SP-49.problem.selected.\(item.id)")
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Color("brand-primary", bundle: .main))
-                .accessibilityLabel(String(format: L10n.healthHistorySelectedFmt, item.name))
-                .accessibilityHint(L10n.commonCancel)
-                .accessibilityIdentifier("SP-49.problem.selected.\(item.id)")
+                .padding(.horizontal, 14)
+                .frame(minHeight: 56)
+                .background(Color("brand-primary", bundle: .main).opacity(0.10),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color("brand-primary", bundle: .main).opacity(0.45),
+                                lineWidth: 1)
+                )
             }
         }
     }
@@ -442,9 +520,9 @@ struct ProblemCreateSheet: View {
 
     private var navigationTitle: String {
         switch step {
-        case .choose:
+        case .browse:
             return L10n.problemCreateTitle
-        case .body, .detail:
+        case .detail:
             return isSurgery ? L10n.healthHistorySurgery : L10n.healthHistoryChronic
         }
     }
@@ -472,41 +550,6 @@ struct ProblemCreateSheet: View {
         Text(text)
             .font(.caption.weight(.semibold))
             .foregroundStyle(Color("text-secondary", bundle: .main))
-    }
-
-    private func chipGrid(_ items: [CatalogItem], action: @escaping (CatalogItem) -> Void) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)],
-                  alignment: .leading, spacing: 8) {
-            ForEach(items) { item in
-                let selected = selectedItems[item.id] != nil
-                Button {
-                    action(item)
-                } label: {
-                    Text(item.name)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(selected
-                                    ? Color("brand-primary", bundle: .main).opacity(0.14)
-                                    : Color("bg-grouped", bundle: .main),
-                                    in: Capsule())
-                        .overlay(
-                            Capsule().stroke(selected
-                                             ? Color("brand-primary", bundle: .main).opacity(0.65)
-                                             : Color("text-primary", bundle: .main).opacity(0.06),
-                                             lineWidth: 1)
-                        )
-                        .foregroundStyle(selected
-                                         ? Color("brand-primary", bundle: .main)
-                                         : Color("text-primary", bundle: .main))
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selected ? AccessibilityTraits.isButton.union(.isSelected) : .isButton)
-                .accessibilityIdentifier("SP-49.problem.common.\(item.id)")
-            }
-        }
     }
 
     private func bottomCTA(title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
@@ -545,12 +588,10 @@ struct ProblemCreateSheet: View {
 
     private func goBack() {
         switch step {
-        case .choose:
+        case .browse:
             break
-        case .body:
-            step = .choose
         case .detail:
-            step = regionID == nil ? .choose : .body
+            step = .browse
         }
     }
 
@@ -566,7 +607,9 @@ struct ProblemCreateSheet: View {
                 alias: nil,
                 code: $0.code,
                 codeSystem: $0.code == nil ? nil : HealthHistoryCatalog.codeSystemName,
-                mappingVersion: $0.code == nil ? nil : HealthHistoryCatalog.mappingVersionName)
+                mappingVersion: $0.code == nil ? nil : HealthHistoryCatalog.mappingVersionName,
+                department: $0.department,
+                departmentCode: $0.departmentCode)
         }
         guard !problems.isEmpty else { return }
         isSaving = true
@@ -662,6 +705,13 @@ struct ProblemEditSheet: View {
         return code
     }
 
+    /// 科室仅慢性病展示；手术不显示（2026-10-24 业主）。
+    private var departmentText: String? {
+        guard !isSurgery, let condition = catalogCondition,
+              let department = condition.department else { return nil }
+        return condition.departmentCode.map { "\(department) · \($0)" } ?? department
+    }
+
     private var canSave: Bool {
         (yearUnknown || yearValue != nil) && !isSaving
     }
@@ -687,6 +737,12 @@ struct ProblemEditSheet: View {
                                     .font(.body.monospaced())
                             }
                             .accessibilityIdentifier("SP-49.problem.edit.code")
+                        }
+                        if let departmentText {
+                            LabeledContent(L10n.healthHistoryDepartment) {
+                                Text(departmentText)
+                            }
+                            .accessibilityIdentifier("SP-49.problem.edit.department")
                         }
                     }
                     Section {

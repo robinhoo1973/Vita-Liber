@@ -1045,6 +1045,9 @@ public enum SchemaMigrations {
         // 器官由官方映射提供；个人别名可改。只加可空列并按名称/别名回填，
         // 不删行、不改既有名称/类别/年份/部位。
         Step(version: 47, name: "health-problem-catalog-mapping", sql: ""),
+        // v48：慢性病相关科室（2026-10-24 业主）——《医疗机构诊疗科目名录》
+        // 名称/代码，仅慢性病有值；手术不设科室。只加可空列并按目录回填。
+        Step(version: 48, name: "health-problem-department", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

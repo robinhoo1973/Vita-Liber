@@ -2539,6 +2539,15 @@
 "profile.data" = "数据与存储";
 "profile.chatHistory" = "对话历史";
 "healthHistory.kind" = "类型";
+"healthHistory.browseMode" = "浏览方式";
+"healthHistory.commonChronic" = "常见慢性病";
+"healthHistory.commonSurgery" = "常见手术";
+"healthHistory.mappedItems" = "该部位相关项";
+"healthHistory.selected" = "已选择";
+"healthHistory.noMappedItems" = "该部位暂无常见项，可切换「常见」或按名称搜索。";
+"healthHistory.noMatches" = "没有匹配项，可修改搜索或切换标签。";
+"healthHistory.rankHint" = "前 5 项按国家卫健委公开统计排序，其余按拼音。";
+"healthHistory.department" = "相关科室";
 "healthHistory.alias" = "个人别名（可选）";
 "healthHistory.code" = "官方编码";
 "healthHistory.mappingLocked" = "类别、名称与器官由官方目录决定；只能修改别名和年份。";
@@ -2612,4 +2621,7 @@
 "emergency.contacts.deleteTitle" = "删除紧急联系人？";
 "emergency.contacts.deleteHint" = "删除后将同时从急救卡与 SOS 求助页移除，无法恢复。";
 "emergency.contacts.actionFailed" = "操作失败，请重试。";
+"emergency.contacts.autoMemberTitle" = "常用成员";
+"emergency.contacts.autoMemberQuota" = "联系人已保存；常用成员名额已满，未自动加入。";
+"emergency.contacts.autoMemberFailed" = "联系人已保存；自动加入常用成员失败，可在成员管理中重试。";
 "common.delete" = "删除";

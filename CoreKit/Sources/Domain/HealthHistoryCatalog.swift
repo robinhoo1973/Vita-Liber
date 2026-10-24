@@ -11,6 +11,95 @@ public enum HealthHistoryCatalog {
     public static let codeSystemName = "ICD-10 医保版 2.0"
     public static let mappingVersionName = "医保版 2.0"
 
+    /// 官方科室（《医疗机构诊疗科目名录》名称/代码，慢性病专用）。
+    public struct Department: Sendable, Equatable {
+        public let name: String
+        public let code: String
+        public init(name: String, code: String) { self.name = name; self.code = code }
+    }
+
+    private static let cardio = Department(name: "心血管内科", code: "03.04")
+    private static let endocrine = Department(name: "内分泌科", code: "03.07")
+    private static let respiratory = Department(name: "呼吸内科", code: "03.01")
+    private static let gastro = Department(name: "消化内科", code: "03.02")
+    private static let nephro = Department(name: "肾内科", code: "03.06")
+    private static let neuro = Department(name: "神经内科", code: "03.03")
+    private static let hematology = Department(name: "血液科", code: "03.05")
+    private static let rheum = Department(name: "风湿免疫科", code: "03.08")
+    private static let infectious = Department(name: "传染科", code: "16")
+    private static let psych = Department(name: "精神科", code: "15")
+    private static let ent = Department(name: "耳鼻咽喉科", code: "11")
+    private static let ophth = Department(name: "眼科", code: "10")
+    private static let dental = Department(name: "口腔科", code: "12")
+    private static let derm = Department(name: "皮肤科", code: "13")
+    private static let ortho = Department(name: "骨科", code: "04.03")
+    private static let urology = Department(name: "泌尿外科", code: "04.04")
+    private static let generalSurgery = Department(name: "普通外科", code: "04.01")
+    private static let cardiacSurgery = Department(name: "心脏大血管外科", code: "04.06")
+    private static let obgyn = Department(name: "妇产科", code: "05")
+
+    /// 慢性病 → 科室：按《医疗机构诊疗科目名录》名称/代码 + 国家卫健委
+    /// 专科诊疗范围整理；国家层面没有疾病→科室统一表，本表为受控映射。
+    private static let conditionDepartments: [String: Department] = {
+        var map: [String: Department] = [:]
+        func put(_ dept: Department, _ ids: [String]) { ids.forEach { map[$0] = dept } }
+        put(cardio, ["hypertension", "dyslipidemia", "coronary_heart_disease",
+                     "chronic_heart_failure", "atrial_fibrillation"])
+        put(cardiacSurgery, ["varicose_veins"])
+        put(endocrine, ["type2_diabetes", "type1_diabetes", "hyperthyroidism",
+                        "hypothyroidism", "osteoporosis", "obesity", "thyroid_nodule"])
+        put(rheum, ["gout", "hyperuricemia", "rheumatoid_arthritis"])
+        put(neuro, ["stroke", "migraine", "epilepsy", "parkinson", "alzheimer"])
+        put(respiratory, ["copd", "asthma", "chronic_bronchitis", "bronchiectasis"])
+        put(infectious, ["hepatitis_b", "hepatitis_c", "tuberculosis"])
+        put(gastro, ["fatty_liver", "cirrhosis", "chronic_gastritis", "peptic_ulcer",
+                     "chronic_pancreatitis", "ulcerative_colitis", "crohn", "ibs",
+                     "constipation", "gerd"])
+        put(nephro, ["chronic_kidney_disease"])
+        put(urology, ["urinary_stone", "chronic_prostatitis", "bph", "chronic_cystitis"])
+        put(generalSurgery, ["cholecystitis", "gallstones", "breast_hyperplasia"])
+        put(ent, ["chronic_pharyngitis", "chronic_rhinitis", "chronic_sinusitis",
+                  "allergic_rhinitis", "otitis_media"])
+        put(ophth, ["cataract", "glaucoma"])
+        put(dental, ["oral_ulcer"])
+        put(ortho, ["cervical_spondylosis", "lumbar_disc_herniation",
+                    "osteoarthritis", "frozen_shoulder"])
+        put(derm, ["eczema", "psoriasis", "urticaria"])
+        put(hematology, ["anemia"])
+        put(psych, ["depression", "anxiety", "sleep_disorder", "bipolar", "schizophrenia"])
+        put(obgyn, ["uterine_fibroid", "endometriosis", "pcos"])
+        return map
+    }()
+
+    public static func department(forCondition id: String) -> Department? {
+        conditionDepartments[id]
+    }
+
+    /// 官方常见排序（仅前 5；其余按拼音）。来源：
+    /// 慢性病——国家卫健委《中国居民营养与慢性病状况报告（2020年）》患病率；
+    /// 手术——国家卫健委《国家医疗服务与质量安全报告》住院患者手术谱
+    /// （剖宫产、胆囊切除、白内障、阑尾切除、子宫肌瘤剔除等高频术式）。
+    /// 原报告未公开完整顺位，因此只钉有公开依据的前 5，其余不伪造排名。
+    public static let commonRankSource = "国家卫生健康委 2020 年慢性病报告 / 国家医疗服务与质量安全报告手术谱"
+
+    private static let commonConditionRanks: [String: Int] = [
+        "hypertension": 1, "obesity": 2, "copd": 3,
+        "type2_diabetes": 4, "dyslipidemia": 5,
+    ]
+
+    private static let commonSurgeryRanks: [String: Int] = [
+        "cesarean": 1, "cholecystectomy": 2, "cataract": 3,
+        "appendectomy": 4, "myomectomy": 5,
+    ]
+
+    public static func commonRank(forCondition id: String) -> Int? {
+        commonConditionRanks[id]
+    }
+
+    public static func commonRank(forSurgery id: String) -> Int? {
+        commonSurgeryRanks[id]
+    }
+
     // MARK: - Body regions
 
     public struct BodyOrgan: Sendable, Equatable, Identifiable, Hashable {
@@ -76,6 +165,9 @@ public enum HealthHistoryCatalog {
         /// 官方映射的器官/组织 id（可多选；展示时按顺序取第一个）。
         public let organIDs: [String]
         public var organID: String? { organIDs.first }
+        public var department: String? { HealthHistoryCatalog.department(forCondition: id)?.name }
+        public var departmentCode: String? { HealthHistoryCatalog.department(forCondition: id)?.code }
+        public var commonRank: Int? { HealthHistoryCatalog.commonRank(forCondition: id) }
         public init(id: String, name: String, aliases: [String] = [],
                     code: String? = nil, codeSystem: String? = "ICD-10 医保版 2.0",
                     regionID: String, organIDs: [String] = []) {
@@ -204,6 +296,7 @@ public enum HealthHistoryCatalog {
         public init(id: String, name: String, regionID: String, organID: String? = nil) {
             self.id = id; self.name = name; self.regionID = regionID; self.organID = organID
         }
+        public var commonRank: Int? { HealthHistoryCatalog.commonRank(forSurgery: id) }
     }
 
     public static let commonSurgeries: [CommonSurgery] = [
@@ -221,6 +314,7 @@ public enum HealthHistoryCatalog {
         .init(id: "bowel_resection", name: "肠切除/吻合术", regionID: "abdomen", organID: "intestine"),
         .init(id: "cesarean", name: "剖宫产", regionID: "pelvis", organID: "uterus"),
         .init(id: "hysterectomy", name: "子宫切除术", regionID: "pelvis", organID: "uterus"),
+        .init(id: "myomectomy", name: "子宫肌瘤剔除术", regionID: "pelvis", organID: "uterus"),
         .init(id: "ovarian_cystectomy", name: "卵巢囊肿手术", regionID: "pelvis", organID: "ovary"),
         .init(id: "prostatectomy", name: "前列腺手术", regionID: "pelvis", organID: "prostate"),
         .init(id: "spine_fusion", name: "脊柱融合/椎间盘手术", regionID: "back", organID: "spine"),

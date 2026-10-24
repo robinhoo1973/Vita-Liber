@@ -136,6 +136,11 @@ public struct GRDBStore {
                     // 目录身份 + 个人别名；只加列/回填，不改既有医疗事实。
                     try Self.applyTransactional(db, step, then: Self.migrateV47)
                     continue
+                case 48:
+                    // v48 health-problem-department（2026-10-24 业主）：慢性病
+                    // 相关科室；仅加列/回填，手术保持空。
+                    try Self.applyTransactional(db, step, then: Self.migrateV48)
+                    continue
                 case 45:
                     // v45 medication-schedule-default（2026-10-24 业主）：每成员一个
                     // 默认用药时段 + 提醒的时段连接键。只加列/索引/标记默认，
@@ -355,6 +360,31 @@ public struct GRDBStore {
                 """, arguments: StatementArguments(
                     [condition.id, code, condition.codeSystem ?? "ICD-10 医保版 2.0",
                      version, condition.regionID, condition.organID] + names.map { Optional($0) }))
+        }
+    }
+
+    /// v48 代码迁移：慢性病科室名称/代码（官方诊疗科目名录），按目录回填。
+    /// 手术不设科室；旧行匹配不到目录时留空，不猜。
+    private static func migrateV48(_ db: Database) throws {
+        guard try tableExists(db, "health_problem") else { return }
+        func addColumnIfMissing(_ column: String, _ ddl: String) throws {
+            let columns = try db.columns(in: "health_problem").map(\.name)
+            guard !columns.contains(column) else { return }
+            try db.execute(sql: "ALTER TABLE health_problem ADD COLUMN \(ddl)")
+        }
+        try addColumnIfMissing("department", "department TEXT")
+        try addColumnIfMissing("department_code", "department_code TEXT")
+
+        for condition in HealthHistoryCatalog.commonConditions {
+            guard let department = HealthHistoryCatalog.department(forCondition: condition.id) else { continue }
+            try db.execute(sql: """
+                UPDATE health_problem
+                   SET department = COALESCE(department, ?),
+                       department_code = COALESCE(department_code, ?)
+                 WHERE (catalog_id = ? OR name = ?)
+                   AND (kind IS NULL OR kind != 'surgery')
+                """, arguments: [department.name, department.code,
+                                  condition.id, condition.name])
         }
     }
 

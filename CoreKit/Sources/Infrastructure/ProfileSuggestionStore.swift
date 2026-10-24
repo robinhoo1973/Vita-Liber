@@ -199,13 +199,14 @@ public actor ProfileSuggestionStore {
                     try db.execute(sql: """
                         INSERT INTO health_problem (id, patient_id, name, kind, archived,
                           body_region, body_site, catalog_id, code, code_system,
-                          mapping_version, created_at, updated_at)
-                        VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                          mapping_version, department, department_code, created_at, updated_at)
+                        VALUES (?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, arguments: [id.uuidString, pid, value,
                                           mapped?.regionID, mapped?.organID,
                                           mapped?.id, mapped?.code,
                                           mapped?.code == nil ? nil : "ICD-10 医保版 2.0",
                                           mapped?.code == nil ? nil : "医保版 2.0",
+                                          mapped?.department, mapped?.departmentCode,
                                           stamp, stamp])
                     if suggestion.provenance.entityTable == "diagnosis" {
                         // FR11.4：用户显式「采用为健康问题」→ 回填 diagnosis.health_problem_id（只补空，不改写既有采用）。
