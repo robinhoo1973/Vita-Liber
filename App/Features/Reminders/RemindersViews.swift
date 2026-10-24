@@ -52,21 +52,26 @@ struct RemindersView: View {
                                 careMode: app.careMode)
                         }
                     }
-                    // FR9.15/SP-15 计划列表入口（生命周期管理）
+                    // 2026-10-24 业主：用药提醒 = 药品 × 用药时段的提醒列表；
+                    // 用药时段 = 每天可用时刻的单页配置。
                     NavigationLink {
                         MedicationPlanListView()
                     } label: {
-                        Label(L10n.planListTitle, systemImage: "list.bullet.clipboard")
+                        Label(L10n.planReminderListTitle, systemImage: "list.bullet.clipboard")
                     }
                     .accessibilityIdentifier("SP-15.plan.list")
-                    // 2026-10-24 业主：不再有独立的「添加用药计划」表单；
-                    // 「新建用药计划」页（时段模板）取代之。
                     NavigationLink {
-                        MedicationScheduleFormRouteView(templateId: nil)
+                        MedicationPlanFormView()
                     } label: {
-                        Label(L10n.reminder_planNew, systemImage: "plus")
+                        Label(L10n.planReminderAdd, systemImage: "plus")
                     }
                     .accessibilityIdentifier("SP-09.plan.add")
+                    NavigationLink {
+                        MedicationScheduleView()
+                    } label: {
+                        Label(L10n.planSlotsTitle, systemImage: "clock")
+                    }
+                    .accessibilityIdentifier("SP-15.slots.entry")
                 }
                 Section(L10n.reminder_appointments) {
                     if reminders.upcomingAppointments.isEmpty {

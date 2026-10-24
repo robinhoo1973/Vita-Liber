@@ -3,16 +3,95 @@ import Domain
 import Infrastructure
 import Perception
 
-// MARK: - FR9.15/SP-15 用药计划列表
+// MARK: - 用药提醒列表（SP-15；2026-10-24 业主改名）
 
-/// 用药计划列表（SP-15 切片）：按状态分组（进行中/已暂停/已结束）。
-/// 入口：提醒模块顶部；计划行点击进入详情（§5.26 生命周期操作）。
+/// 用药提醒 = 药品 × 用药时段的提醒。列表按状态排序；行显示药品、规格、
+/// 本次使用的时刻与状态；点击进入提醒详情（剂量日志/生命周期）。
 struct MedicationPlanListView: View {
-    // v42（2026-10-23 业主裁决）：用药计划 = 时段模板，与药品解耦。
-    // 列表/新建/编辑入口统一由 MedicationScheduleListView 承载；
-    // 药品绑定行在各模板详情内展示（用药提醒）。
+    @Environment(AppState.self) private var app
+    @Environment(ReminderStore.self) private var reminders
+    @State private var plans: [MedicationStore.PlanRow] = []
+    @State private var showForm = false
+    @State private var loadFailed = false
+
     var body: some View {
-        MedicationScheduleListView()
+        WithPerceptionTracking {
+            List {
+                if loadFailed {
+                    Section {
+                        Text(L10n.planReminderLoadFailed)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                    }
+                }
+                if plans.isEmpty && !loadFailed {
+                    Section {
+                        VLUnavailableView(L10n.planReminderEmpty, systemImage: "pills",
+                                         description: Text(L10n.planReminderEmptyHint))
+                            .accessibilityIdentifier("SP-15.reminders.empty")
+                    }
+                }
+                ForEach(plans) { plan in
+                    NavigationLink {
+                        MedicationPlanDetailView(planId: plan.id)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(plan.medicationName).font(.subheadline)
+                                Spacer()
+                                PlanStatusBadge(status: plan.status)
+                            }
+                            if let spec = plan.spec {
+                                Text(spec).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Text(scheduleSummary(plan))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("SP-15.reminders.row.\(plan.id.uuidString)")
+                }
+            }
+            .frame(maxWidth: 672)
+            .navigationTitle(L10n.planReminderListTitle)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showForm = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel(L10n.planReminderAdd)
+                    .accessibilityIdentifier("SP-15.reminders.add")
+                }
+            }
+            .sheet(isPresented: $showForm) {
+                MedicationPlanFormView()
+            }
+            .task(id: app.currentPatientId) { await load() }
+        }
+    }
+
+    private func scheduleSummary(_ plan: MedicationStore.PlanRow) -> String {
+        if plan.isUnreadable { return L10n.planUnreadable }
+        switch plan.schedule {
+        case .fixed(let times):
+            return times.joined(separator: " · ")
+        case .asNeeded:
+            return L10n.planFormAsNeeded
+        default:
+            return L10n.planFormSchedule
+        }
+    }
+
+    private func load() async {
+        do {
+            plans = try await reminders.plans(patientId: app.currentPatientId)
+            loadFailed = false
+        } catch {
+            loadFailed = true   // 保留旧列表，不渲染假空态
+        }
     }
 }
 
@@ -483,10 +562,8 @@ private struct BackfillSheet: View {
 /// 未知进待办队列不阻塞保存）。
 /// 保存经 MedicationPlanComposer 五表原子创建（BR-003：手工来源默认全确认）。
 struct MedicationPlanFormView: View {
-    /// v42：从「用药计划」模板发起绑定时传入——时刻由模板提供，表单不再编辑时段
-    /// （计划 = 时段，提醒 = 药品 × 计划）。
-    var scheduleTemplate: MedicationScheduleStore.TemplateRow? = nil
     @Environment(AppState.self) private var app
+    @Environment(\.medicationScheduleStore) private var schedules
     @Environment(ReminderStore.self) private var reminders
     @Environment(\.dismiss) private var dismiss
 
@@ -515,12 +592,12 @@ struct MedicationPlanFormView: View {
     @State private var startDate = Date()
     @State private var endDate = DayArithmetic.offset(days: 30)
     @State private var hasEndDate = false
-    /// FR9.4 服药时段（2026-10-23 业主指令）：默认早餐前一个时段；
-    /// 用户勾选一天中的固定锚点时段，并可逐时段调整提醒时刻。
-    @State private var selectedSlots: Set<DoseTimeSlot> = [.beforeBreakfast]
-    @State private var slotTimeTexts: [DoseTimeSlot: String] = [:]
-    /// 自由补充时刻（保留旧能力：时段之外的任意 HH:mm；逗号分隔）。
-    @State private var customTimes = ""
+    /// v45（2026-10-24 业主）：用药提醒 = 药品 × 所选用药时段子集。
+    /// 默认 0 选中——任何预选都是系统替用户决定频率（BR-006）；非按需至少选 1 个。
+    @State private var scheduleEntries: [MedicationScheduleEntry] = []
+    @State private var selectedKeys: Set<String> = []
+    @State private var scheduleId: UUID?
+    @State private var scheduleLoadFailed = false
     // FR9.10 初始批次
     @State private var lotUnits = 30.0
     @State private var lotUnitKind = "tablet"
@@ -528,83 +605,41 @@ struct MedicationPlanFormView: View {
     @State private var lotExpireUnknown = false
     @State private var storageNote = ""
 
-    /// 选中时段按枚举顺序（起床 → 三餐 → 睡前）呈现；时刻排序在 times 内完成。
-    private var selectedSlotList: [DoseTimeSlot] {
-        DoseTimeSlot.allCases.filter { selectedSlots.contains($0) }
+    /// 选中的时段条目（按用药时段的时刻排序）。
+    private var selectedEntries: [MedicationScheduleEntry] {
+        scheduleEntries.filter { selectedKeys.contains(MedicationScheduleSlotKey.key(for: $0)) }
     }
 
-    /// 时段 → 提醒时刻（用户覆盖优先；单一规则在 Domain，视图不复制）。
-    private var slotTimes: [String] {
-        DoseTimeSlotRules.times(selectedSlotList, overrides: slotTimeTexts)
-    }
-
-    /// 自由补充时刻的原文（保留空串项交给 allTimes 过滤；非法项由 save() 拒绝）。
-    private var customTimeList: [String] {
-        customTimes.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-
-    /// 最终提醒时刻：时段 + 自定义，去重、丢弃非法项、按分钟升序。
-    /// 时段侧已由 Domain `DoseTimeSlotRules.times` 完成覆盖/过滤/去重/排序；
-    /// 此处只为并入自定义时刻再按分钟去重一次（去重口径与重复闸门一致）。
-    private var allTimes: [String] {
-        var seen = Set<Int>()
-        return (slotTimes + customTimeList)
-            .filter { DoseScheduleEngine.isValidTime($0) }
-            .filter { seen.insert(DoseTimeSlotRules.minutes($0)).inserted }
-            .sorted { DoseTimeSlotRules.minutes($0) < DoseTimeSlotRules.minutes($1) }
-    }
-
-    /// 时段自带餐食关系（FR9.4 token）；仅当所有选中时段关系一致时回填处方，
-    /// 混合关系（如早餐前 + 晚餐后）不静默归并成一个串——逐时刻关系仍由
-    /// `mealRelation(for:)` 在冲突检查中分别使用。
-    private var derivedMealRelation: String? {
-        // 审查修正（产品席）：原先 compactMap 丢掉 nil，使「起床后(nil) + 早餐前」
-        // 被判为一致并回填 beforeBreakfast——但其中一剂并无餐食语义。
-        // 只有全部时段都有且只有一个相同关系时才回填。
-        let tokens = selectedSlotList.map(\.mealRelation)
-        guard tokens.allSatisfy({ $0 != nil }), let first = tokens.first ?? nil else { return nil }
-        return tokens.allSatisfy({ $0 == first }) ? first : nil
-    }
-
-    /// 绑定模板时以模板时刻为准；否则用表单时段。
+    /// 用户本次显式选中的提醒时刻——唯一排程输入。
     private var effectiveTimes: [String] {
-        if let scheduleTemplate {
-            return MedicationScheduleTemplateRules.normalize(scheduleTemplate.times)
-        }
-        return allTimes
+        MedicationScheduleEntryRules.times(selectedEntries)
     }
 
-    /// 非按需计划至少需要一个时段/自定义时刻——禁止静默落 08:00 默认。
+    /// 非按需计划至少选一个时段——禁止静默落 08:00 默认（旧事故闸门）。
     private var missingScheduleTime: Bool {
         !isAsNeeded && effectiveTimes.isEmpty
     }
 
-    /// 自定义时刻里的非法项（"8点"/"25:99"）——响亮拒绝，绝不静默丢弃后
-    /// 让计划以零剂量建成（fixed 通道零剂量事故的同款闸门）。
-    private var invalidCustomTime: Bool {
-        !isAsNeeded && customTimeList.contains { !DoseScheduleEngine.isValidTime($0) }
-    }
-
-    /// 重复时刻（多个时段/自定义填了同一 HH:mm）。`allTimes` 去重后只排
-    /// 一次剂量——用户选了 2 个时段却只得到 1 次/日且无任何提示（BR-004：
-    /// 少提醒一次 = 少一次服药确认），因此保存前阻断并要求调整时刻。
-    private var duplicateScheduleTimes: Bool {
-        // 按需计划不生成任何剂量：时段重复不构成少提醒，不能误阻保存。
-        guard !isAsNeeded else { return false }
-        // 按分钟比较：`isValidTime` 接受 "8:30"，若按原始字符串去重，
-        // "08:30" 与 "8:30" 会各排一剂（同一分钟两次提醒，审查修正）。
-        // 非法自定义时刻返回 nil 被剔除——它们由 `invalidCustomTime` 单独报错，
-        // 不能在这里塌缩成 0 分而误报「重复时刻」（审查修正）。
-        let minutes = (selectedSlotList.map { slotTimeTexts[$0] ?? $0.defaultTime } + customTimeList)
-            .compactMap { DoseScheduleEngine.minutes($0) }
-        return Set(minutes).count != minutes.count
+    /// 时段自带的餐食关系：所有选中条目都有且只有一个相同关系才回填。
+    private var derivedMealRelation: String? {
+        let tokens = selectedEntries.map(\.slot?.mealRelation)
+        guard tokens.allSatisfy({ $0 != nil }), let first = tokens.first ?? nil else { return nil }
+        return tokens.allSatisfy({ $0 == first }) ? first : nil
     }
 
     /// 排程冲突/处方记录使用的餐食关系：用户手填优先，空时取所选时段的 token。
     private var effectiveMealRelation: String? {
         mealRelation.isEmpty ? derivedMealRelation : mealRelation
+    }
+
+    private func isSelected(_ entry: MedicationScheduleEntry) -> Bool {
+        selectedKeys.contains(MedicationScheduleSlotKey.key(for: entry))
+    }
+
+    private func toggle(_ entry: MedicationScheduleEntry) {
+        let key = MedicationScheduleSlotKey.key(for: entry)
+        if selectedKeys.contains(key) { selectedKeys.remove(key) }
+        else { selectedKeys.insert(key) }
     }
 
     var body: some View {
@@ -627,48 +662,50 @@ struct MedicationPlanFormView: View {
                         TextField(L10n.planFormRoute, text: $route)
                         TextField(L10n.planFormMeal, text: $mealRelation)
                     }
-                    // FR9.4（2026-10-23 业主）：按一天中的固定时段选择提醒时刻，
-                    // 不再要求用户手输逗号分隔的 HH:mm。
+                    // v45（2026-10-24 业主）：从「用药时段」里选择本次提醒要用的时刻。
+                    // 时刻只读展示，修改入口在用药时段页；默认 0 选中。
                     Section {
-                        // 按需计划不生成剂量：不呈现任何不生效的时段控件
-                        // （诚实呈现；关闭按需后原选择仍在，恢复可见）。
-                        if let scheduleTemplate {
-                            // 时刻来自所选用药计划；此处只读呈现（与药品解耦）。
-                            Text(scheduleTemplate.name ?? L10n.planScheduleUntitled)
-                            Text(MedicationScheduleTemplateRules.summary(scheduleTemplate.times))
+                        if scheduleLoadFailed {
+                            Text(L10n.planSlotsLoadFailed)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                            Button(L10n.retry) { Task { await loadSchedule() } }
+                        } else if scheduleEntries.isEmpty {
+                            ProgressView()
                         } else if !isAsNeeded {
-                            ForEach(DoseTimeSlot.allCases, id: \.self) { slot in
-                                HStack(spacing: 8) {
-                                    Toggle(slot.localizedTitle, isOn: slotBinding(slot))
-                                    if selectedSlots.contains(slot) {
-                                        DatePicker("", selection: slotTimeBinding(slot),
-                                                   displayedComponents: .hourAndMinute)
-                                            .labelsHidden()
-                                            .accessibilityLabel(L10n.planFormSlotTimeFmt(slot.localizedTitle))
+                            ForEach(scheduleEntries) { entry in
+                                Button {
+                                    toggle(entry)
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: isSelected(entry)
+                                              ? "checkmark.circle.fill" : "circle")
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(entry.slot?.localizedTitle ?? entry.time)
+                                                .foregroundStyle(.primary)
+                                            Text(entry.slot == nil
+                                                 ? MedicationScheduleEntryRules.range(of: entry)
+                                                     .map { L10n.planFormRangeFmt($0.start, $0.end) } ?? ""
+                                                 : "\(entry.time) · " + (MedicationScheduleEntryRules
+                                                     .range(of: entry)
+                                                     .map { L10n.planFormRangeFmt($0.start, $0.end) } ?? ""))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
                                     }
                                 }
-                                .accessibilityElement(children: .contain)
-                                .accessibilityIdentifier("SP-15.form.slot.\(slot.rawValue)")
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("SP-15.reminder.slot.\(entry.id)")
                             }
-                            TextField(L10n.planFormFixedTimes, text: $customTimes)
-                                .keyboardType(.numbersAndPunctuation)
-                        }
-                        if missingScheduleTime {
-                            Text(L10n.planFormSlotMissing)
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-danger", bundle: .main))
-                        }
-                        if scheduleTemplate == nil, invalidCustomTime {
-                            Text(L10n.planFormCustomTimesInvalid)
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-danger", bundle: .main))
-                        }
-                        if scheduleTemplate == nil, !isAsNeeded, duplicateScheduleTimes {
-                            Text(L10n.planFormSlotDuplicate)
-                                .font(.caption)
-                                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                            NavigationLink(L10n.planReminderEditSlots) {
+                                MedicationScheduleView()
+                            }
+                            if missingScheduleTime {
+                                Text(L10n.planReminderSlotMissing)
+                                    .font(.caption)
+                                    .foregroundStyle(Color("semantic-danger", bundle: .main))
+                            }
                         }
                         LabeledContent(L10n.planFormTimesPerDay,
                                        value: isAsNeeded ? "—" : "\(effectiveTimes.count)")
@@ -680,9 +717,9 @@ struct MedicationPlanFormView: View {
                         }
                         Toggle(L10n.planFormLongTerm, isOn: $isLongTerm)
                     } header: {
-                        Text(L10n.planFormSchedule)
+                        Text(L10n.planReminderSlotsHeader)
                     } footer: {
-                        Text(L10n.planFormSlotsHint)
+                        Text(L10n.planReminderSlotsHint)
                     }
                     Section(L10n.planFormSource) {
                         TextField(L10n.planFormHospital, text: $hospital)
@@ -711,6 +748,7 @@ struct MedicationPlanFormView: View {
                     }
                 }
                 .navigationTitle(L10n.planFormTitle)
+                .task(id: app.currentPatientId) { await loadSchedule() }
                 // FR9.19（V4.48）：计划表单改由固定时段承载提醒时刻，默认时刻取
                 // 医院常用锚点（与 `DoseScheduleEngine.mealDefaultTime` 同源），
                 // 不再按频率预填、也不覆盖用户手改。`DoseScheduleAdvisor` 的推荐表
@@ -741,8 +779,7 @@ struct MedicationPlanFormView: View {
                             .disabled(genericName.trimmingCharacters(in: .whitespaces).isEmpty
                                       || doseParseFailed
                                       || missingScheduleTime
-                                      || invalidCustomTime
-                                      || duplicateScheduleTimes)
+                                      || scheduleLoadFailed)
                             .accessibilityIdentifier("SP-15.form.save")
                     }
                 }
@@ -751,14 +788,6 @@ struct MedicationPlanFormView: View {
     }
 
     private func save() {
-        // 时段时刻来自 DatePicker（恒合法）；自定义时刻走 Domain 单一闸门。
-        // 非法/空排程必须响亮拒绝——固定闸门的历史事故是零剂量计划静默建成。
-        if scheduleTemplate == nil {
-            guard !invalidCustomTime, !duplicateScheduleTimes else {
-                saveFailed = true
-                return
-            }
-        }
         let times = effectiveTimes
         if !isAsNeeded, times.isEmpty {
             saveFailed = true
@@ -809,11 +838,7 @@ struct MedicationPlanFormView: View {
     /// 自由补充时刻无关系 → nil（不猜测）。
     private func mealRelation(for time: String) -> String? {
         if !mealRelation.isEmpty { return mealRelation }
-        for slot in selectedSlotList
-        where (slotTimeTexts[slot] ?? slot.defaultTime) == time {
-            return slot.mealRelation
-        }
-        return nil
+        return selectedEntries.first { $0.time == time }?.slot?.mealRelation
     }
 
     private func conflictText(_ conflict: DoseConflictRules.Conflict) -> String {
@@ -825,31 +850,30 @@ struct MedicationPlanFormView: View {
         }
     }
 
-    // MARK: - 时段绑定
-
-    private func slotBinding(_ slot: DoseTimeSlot) -> Binding<Bool> {
-        Binding(
-            get: { selectedSlots.contains(slot) },
-            set: { isOn in
-                if isOn { selectedSlots.insert(slot) } else { selectedSlots.remove(slot) }
-            })
-    }
-
-    private func slotTimeBinding(_ slot: DoseTimeSlot) -> Binding<Date> {
-        Binding(
-            get: { DoseTimeSlotRules.date(for: slotTimeTexts[slot] ?? slot.defaultTime) ?? Date() },
-            set: { slotTimeTexts[slot] = DoseTimeSlotRules.timeString(from: $0) })
+    /// 加载默认用药时段（懒创建 8 个标准时段）。
+    private func loadSchedule() async {
+        guard let schedules else { return }
+        do {
+            let schedule = try await schedules.ensureDefaultSchedule(
+                patientId: app.currentPatientId)
+            scheduleEntries = schedule.entries
+            scheduleId = schedule.id
+            scheduleLoadFailed = false
+        } catch {
+            scheduleLoadFailed = true
+        }
     }
 
     private func performSave() {
-        let times = allTimes
+        let times = effectiveTimes
         // 非按需计划的空时刻在 save() 已被拒绝；此兜底只防程序路径绕过 UI 闸门
         // （固定时刻 08:00 与 DoseScheduleAdvisor qd 默认一致）。
         let schedule: MedicationSchedule = isAsNeeded
             ? .asNeeded
-            : .fixed(times: times.isEmpty ? ["08:00"] : times)   // 模板路径下 times 非空
-        // 按需计划没有时段：不挂模板（否则模板删除守卫会被虚假引用挡住）
-        let scheduleId = isAsNeeded ? nil : scheduleTemplate?.id
+            : .fixed(times: times)
+        // 按需计划没有时段：不挂时段文档，也不写连接键。
+        let planScheduleId: UUID? = isAsNeeded ? nil : scheduleId
+        let slotKeys: [String]? = isAsNeeded ? nil : selectedKeys.sorted()
         let source: PrescriptionSource = .manual
         let rx = Prescription(
             patientId: app.currentPatientId,
@@ -883,7 +907,8 @@ struct MedicationPlanFormView: View {
             do {
                 try await reminders.createPlanFromPrescription(prescription: rx,
                                                                plan: draft, initialLot: lot,
-                                                               scheduleId: scheduleId)
+                                                               scheduleId: planScheduleId,
+                                                               slotKeys: slotKeys)
                 dismiss()
             } catch {
                 // 保存失败必须可见（响亮拒绝纪律）——此前仅注释吞错，按钮

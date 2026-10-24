@@ -3,11 +3,12 @@ import Domain
 import Infrastructure
 import Perception
 
-// MARK: - v42 用药计划 = 时段模板（2026-10-23 业主裁决）
+// MARK: - 用药时段（2026-10-24 业主：原「用药计划」改名，二层页面提升为单页）
 //
-// 用药计划只描述「一天中的哪几个时刻该提醒」，与药品无关；把药品与计划关联
-// 是「用药提醒」的动作（`MedicationBindingFormView` → `medication_plan` 绑定行）。
-// 本文件的三个视图构成循环：列表（模板）→ 详情（模板 + 已绑定药品）→ 绑定表单。
+// 每成员一份默认时段文档：8 个标准时段恒显示、恒启用，可调提醒时刻与常用提醒
+// 范围，并可添加自定义时段。这里只是「一天中的时刻表」；某个药品用其中哪几个
+// 时刻，在「用药提醒」里选择。保存时按确认框把跟随的提醒改写到新时刻
+// （仅未来未确认剂量；历史与已服记录不动）。
 
 private struct MedicationScheduleStoreKey: EnvironmentKey {
     static let defaultValue: MedicationScheduleStore? = nil
@@ -20,119 +21,23 @@ extension EnvironmentValues {
     }
 }
 
-// MARK: - 列表
-
-/// 用药计划列表：只列时段模板。每行显示名称/时刻摘要与已绑定用药提醒数。
-struct MedicationScheduleListView: View {
+struct MedicationScheduleView: View {
     @Environment(AppState.self) private var app
     @Environment(\.medicationScheduleStore) private var schedules
-    @State private var templates: [MedicationScheduleStore.TemplateRow] = []
-    @State private var showForm = false
-    @State private var loadFailed = false
+    @Environment(ReminderStore.self) private var reminders
 
-    var body: some View {
-        WithPerceptionTracking {
-            List {
-                if loadFailed {
-                    Section {
-                        Text(L10n.planScheduleLoadFailed)
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                    }
-                }
-                if templates.isEmpty && !loadFailed {
-                    Section {
-                        VLUnavailableView(L10n.planScheduleEmpty, systemImage: "clock",
-                                         description: Text(L10n.planScheduleEmptyHint))
-                            .accessibilityIdentifier("SP-15.schedule.empty")
-                    }
-                } else {
-                    ForEach(templates) { template in
-                        NavigationLink {
-                            MedicationScheduleDetailView(template: template)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(template.name ?? L10n.planScheduleUntitled)
-                                    .font(.subheadline)
-                                Text(MedicationScheduleTemplateRules.summary(template.times))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if template.boundPlanCount > 0 {
-                                    Text(L10n.planScheduleBoundFmt(template.boundPlanCount))
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                        .accessibilityIdentifier("SP-15.schedule.row.\(template.id.uuidString)")
-                    }
-                }
-            }
-            .frame(maxWidth: 672)
-            .navigationTitle(L10n.planListTitle)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        showForm = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel(L10n.planAdd)
-                    .accessibilityIdentifier("SP-15.schedule.add")
-                }
-            }
-            .sheet(isPresented: $showForm) {
-                MedicationScheduleFormView(mode: .create) { await load() }
-            }
-            .task(id: app.currentPatientId) { await load() }
-        }
-    }
-
-    private func load() async {
-        guard let schedules else { return }
-        do {
-            templates = try await schedules.list(patientId: app.currentPatientId)
-            loadFailed = false
-        } catch {
-            loadFailed = true   // 读失败保留旧列表（同族 doctrine：不渲染假空态）
-        }
-    }
-}
-
-// MARK: - 新建 / 编辑表单（标准时段 + 常用提醒范围 + 自定义条目）
-//
-// 2026-10-23 业主：列出所有标准用药时段，边上给常用提醒范围，并允许自定义范围。
-// 委员会裁决：time 是唯一排程事实；range 是展示元数据（半开区间），不驱动
-// 通知/漏服/库存；范围值不是医学建议（BR-006），界面称「常用提醒范围」。
-
-struct MedicationScheduleFormView: View {
-    enum Mode {
-        case create
-        case edit(MedicationScheduleStore.TemplateRow)
-    }
-
-    @Environment(AppState.self) private var app
-    @Environment(\.medicationScheduleStore) private var schedules
-    @Environment(\.dismiss) private var dismiss
-
-    let mode: Mode
-    let onSaved: () async -> Void
-
-    @State private var name = ""
+    @State private var row: MedicationScheduleStore.ScheduleRow?
     @State private var slotTimeTexts: [DoseTimeSlot: String] = [:]
-    /// 用户改过的范围；缺省 = 该时段默认范围（=`[defaultTime, defaultTime+30)`）。
     @State private var slotRangeTexts: [DoseTimeSlot: [String]] = [:]
     @State private var customEntries: [MedicationScheduleEntry] = []
+    @State private var loadFailed = false
     @State private var saveFailed = false
     @State private var isSaving = false
+    @State private var showPropagateConfirm = false
+    @State private var savedNotice = false
 
-    /// 2026-10-24 业主：所有标准时段默认启用，不再提供逐时段开关。
-    private var activeSlots: [DoseTimeSlot] { DoseTimeSlot.allCases }
-
-    /// 未规范化的原始条目：校验必须看它——normalize 会去重，
-    /// 先 normalize 再 validate 会让「重复时刻」永远抓不到。
     private var rawEntries: [MedicationScheduleEntry] {
-        var list = activeSlots.map { slot -> MedicationScheduleEntry in
+        var list = DoseTimeSlot.allCases.map { slot -> MedicationScheduleEntry in
             let range = slotRangeTexts[slot]
             return MedicationScheduleEntry(
                 slot: slot,
@@ -156,27 +61,39 @@ struct MedicationScheduleFormView: View {
         MedicationScheduleEntryRules.timesOutsideRange(rawEntries)
     }
 
-    private var canSave: Bool {
-        !isSaving && validationError == nil
+    private var hasChanges: Bool {
+        guard let row else { return false }
+        return entries != MedicationScheduleEntryRules.normalize(row.entries)
     }
+
+    private var canSave: Bool { !isSaving && row != nil && validationError == nil }
 
     var body: some View {
         WithPerceptionTracking {
-            NavigationStack {
-                Form {
+            List {
+                Section {
+                    Text(L10n.planSlotsHint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+
+                if loadFailed {
                     Section {
-                        TextField(L10n.planScheduleNamePlaceholder, text: $name)
-                            .accessibilityIdentifier("SP-15.schedule.form.name")
+                        Text(L10n.planSlotsLoadFailed)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-danger", bundle: .main))
+                        Button(L10n.retry) { Task { await load() } }
                     }
+                } else if let row {
                     Section {
                         ForEach(DoseTimeSlot.allCases, id: \.self) { slot in
                             slotRow(slot)
                         }
                     } header: {
-                        Text(L10n.planFormSlots)
-                    } footer: {
-                        Text(L10n.planFormSlotsHint)
+                        Text(L10n.planSlotsStandard)
                     }
+
                     Section(L10n.planFormCustomSection) {
                         ForEach($customEntries) { $entry in
                             customEntryRow($entry)
@@ -189,13 +106,11 @@ struct MedicationScheduleFormView: View {
                         }
                         .accessibilityIdentifier("SP-15.schedule.form.custom.add")
                     }
+
                     if let error = validationError {
-                        Section {
-                            errorText(validationMessage(error))
-                        }
+                        Section { errorText(validationMessage(error)) }
                     }
                     if !outsideRange.isEmpty {
-                        // 软提示：提醒时刻不在常用范围内（不阻断保存，不改时刻）。
                         Section {
                             Text(L10n.planFormRangeNotice)
                                 .font(.caption)
@@ -203,24 +118,44 @@ struct MedicationScheduleFormView: View {
                         }
                     }
                     if saveFailed {
-                        Section {
-                            errorText(L10n.planFormSaveFailedHint)
-                        }
+                        Section { errorText(L10n.planFormSaveFailedHint) }
                     }
-                }
-                .navigationTitle(isEditing ? L10n.planScheduleEditTitle : L10n.planAdd)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(L10n.commonCancel) { dismiss() }
+                    Section {
+                        Text(L10n.planSlotsLinkedFmt(row.boundPlanCount))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.commonSave) { save() }
-                            .disabled(!canSave)
-                            .accessibilityIdentifier("SP-15.schedule.form.save")
-                    }
+                    .listRowBackground(Color.clear)
+                } else {
+                    Section { ProgressView() }
                 }
             }
-            .onAppear(perform: seed)
+            .frame(maxWidth: 672)
+            .navigationTitle(L10n.planSlotsTitle)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.commonSave) { requestSave() }
+                        .disabled(!canSave || !hasChanges)
+                        .accessibilityIdentifier("SP-15.schedule.form.save")
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if savedNotice {
+                    Text(L10n.planSlotsSaved)
+                        .font(.caption)
+                        .padding(8)
+                        .background(.thinMaterial, in: Capsule())
+                }
+            }
+            .task(id: app.currentPatientId) { await load() }
+            .confirmationDialog(L10n.planSlotsPropagateTitle, isPresented: $showPropagateConfirm,
+                                titleVisibility: .visible) {
+                Button(L10n.planSlotsPropagateConfirm) { save(propagate: true) }
+                Button(L10n.planSlotsSaveOnly) { save(propagate: false) }
+                Button(L10n.commonCancel, role: .cancel) { }
+            } message: {
+                Text(L10n.planSlotsPropagateBody(row?.boundPlanCount ?? 0))
+            }
         }
     }
 
@@ -232,13 +167,13 @@ struct MedicationScheduleFormView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(slot.localizedTitle)
                 .font(.subheadline.weight(.semibold))
-            Text(L10n.planFormRangeFmt(range.start, range.end))
-                .font(.caption)
-                .foregroundStyle(Color("text-secondary", bundle: .main))
             DatePicker(L10n.planFormSlotTimeFmt(slot.localizedTitle),
                        selection: slotTimeBinding(slot),
                        displayedComponents: .hourAndMinute)
                 .accessibilityIdentifier("SP-15.schedule.form.slot.time.\(slot.rawValue)")
+            Text(L10n.planFormRangeFmt(range.start, range.end))
+                .font(.caption)
+                .foregroundStyle(Color("text-secondary", bundle: .main))
             if slotRangeTexts[slot] != nil {
                 HStack {
                     DatePicker(L10n.planFormRangeStart,
@@ -269,8 +204,7 @@ struct MedicationScheduleFormView: View {
     @ViewBuilder
     private func customEntryRow(_ entry: Binding<MedicationScheduleEntry>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            DatePicker(L10n.planFormCustomTime,
-                       selection: timeBinding(entry.time),
+            DatePicker(L10n.planFormCustomTime, selection: timeBinding(entry.time),
                        displayedComponents: .hourAndMinute)
             HStack {
                 DatePicker(L10n.planFormRangeStart,
@@ -297,15 +231,8 @@ struct MedicationScheduleFormView: View {
 
     // MARK: 状态
 
-    private var isEditing: Bool {
-        if case .edit = mode { return true }
-        return false
-    }
-
     private func effectiveRange(_ slot: DoseTimeSlot) -> (start: String, end: String) {
-        if let texts = slotRangeTexts[slot], texts.count == 2 {
-            return (texts[0], texts[1])
-        }
+        if let texts = slotRangeTexts[slot], texts.count == 2 { return (texts[0], texts[1]) }
         return MedicationScheduleEntryRules.defaultRange(for: slot)
     }
 
@@ -313,8 +240,7 @@ struct MedicationScheduleFormView: View {
         switch error {
         case .empty: return L10n.planFormSlotMissing
         case .invalidTime: return L10n.planFormCustomTimesInvalid
-        case .duplicateTime: return L10n.planFormSlotDuplicate
-        case .duplicateSlot: return L10n.planFormSlotDuplicate
+        case .duplicateTime, .duplicateSlot: return L10n.planFormSlotDuplicate
         case .invalidRange: return L10n.planFormRangeInvalid
         }
     }
@@ -325,15 +251,23 @@ struct MedicationScheduleFormView: View {
             .foregroundStyle(Color("semantic-danger", bundle: .main))
     }
 
-    private func seed() {
-        guard case .edit(let row) = mode, name.isEmpty,
-              slotTimeTexts.isEmpty, customEntries.isEmpty else { return }
-        name = row.name ?? ""
-        // 条目模型优先；旧的仅 times 行（v42）按时段默认时刻认领，其余自定义。
-        let seeded = row.entries.isEmpty
-            ? MedicationScheduleEntryRules.entries(fromLegacyTimes: row.times)
-            : row.entries
-        for entry in seeded {
+    private func load() async {
+        guard let schedules else { return }
+        do {
+            let loaded = try await schedules.ensureDefaultSchedule(patientId: app.currentPatientId)
+            row = loaded
+            seed(loaded)
+            loadFailed = false
+        } catch {
+            loadFailed = true
+        }
+    }
+
+    private func seed(_ row: MedicationScheduleStore.ScheduleRow) {
+        slotTimeTexts = [:]
+        slotRangeTexts = [:]
+        customEntries = []
+        for entry in row.entries {
             if let slot = entry.slot {
                 slotTimeTexts[slot] = entry.time
                 if let start = entry.rangeStart, let end = entry.rangeEnd {
@@ -343,29 +277,35 @@ struct MedicationScheduleFormView: View {
                 customEntries.append(entry)
             }
         }
-        // 2026-10-24 业主：所有标准时段默认展示且启用；未在旧模板中出现的
-        // 时段沿用默认时刻（slotTimeTexts 缺省即 slot.defaultTime），不再隐藏。
     }
 
-    private func save() {
+    private func requestSave() {
+        guard let row, canSave else { return }
+        if row.boundPlanCount > 0 {
+            showPropagateConfirm = true
+        } else {
+            save(propagate: true)
+        }
+    }
+
+    private func save(propagate: Bool) {
         guard let schedules else { return }
         guard validationError == nil else { return }
         isSaving = true
         let normalized = entries
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName: String? = trimmed.isEmpty ? nil : trimmed
         Task {
             do {
-                switch mode {
-                case .create:
-                    try await schedules.create(patientId: app.currentPatientId,
-                                               name: displayName, entries: normalized)
-                case .edit(let row):
-                    try await schedules.update(id: row.id, name: displayName,
-                                               entries: normalized)
+                _ = try await schedules.updateDefaultEntries(
+                    patientId: app.currentPatientId, entries: normalized, propagate: propagate)
+                if propagate {
+                    // 对账通知：清掉旧 id、按新时刻重排未来提醒。
+                    await reminders.refresh(patientId: app.currentPatientId)
                 }
-                await onSaved()
-                dismiss()
+                row = try await schedules.defaultSchedule(patientId: app.currentPatientId)
+                savedNotice = true
+                isSaving = false
+                try? await Task.sleep(nanoseconds: 1_500_000_000)   // try?-ok: 提示计时
+                savedNotice = false
             } catch {
                 saveFailed = true
                 isSaving = false
@@ -394,15 +334,12 @@ struct MedicationScheduleFormView: View {
             })
     }
 
-    private func timeBinding(_ text: Binding<String>,
-                             fallback: String = "08:00") -> Binding<Date> {
+    private func timeBinding(_ text: Binding<String>) -> Binding<Date> {
         Binding(
-            get: { DoseTimeSlotRules.date(for: text.wrappedValue.isEmpty ? fallback : text.wrappedValue) ?? Date() },
+            get: { DoseTimeSlotRules.date(for: text.wrappedValue.isEmpty ? "08:00" : text.wrappedValue) ?? Date() },
             set: { text.wrappedValue = DoseTimeSlotRules.timeString(from: $0) })
     }
 
-    /// 自定义条目的范围绑定：两侧可空；用户先动任一端时自动补齐另一端
-    /// （`validate` 要求范围两端齐全，半截范围会被拒绝）。
     private func customRangeBinding(_ entry: Binding<MedicationScheduleEntry>,
                                     isStart: Bool) -> Binding<Date> {
         Binding(
@@ -426,196 +363,5 @@ struct MedicationScheduleFormView: View {
                 }
                 entry.wrappedValue = copy
             })
-    }
-}
-
-// MARK: - 模板详情（时段 + 已绑定用药提醒）
-
-struct MedicationScheduleDetailView: View {
-    @Environment(AppState.self) private var app
-    @Environment(\.medicationScheduleStore) private var schedules
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var template: MedicationScheduleStore.TemplateRow
-    @State private var bindings: [MedicationScheduleStore.BindingRow] = []
-
-    init(template: MedicationScheduleStore.TemplateRow) {
-        _template = State(initialValue: template)
-    }
-    @State private var showEdit = false
-    @State private var showBind = false
-    @State private var actionFailed = false
-    @State private var deleteBlocked = false
-    @State private var showDeleteConfirm = false
-
-    var body: some View {
-        WithPerceptionTracking {
-            List {
-                Section(L10n.planFormSlots) {
-                    ForEach(template.entries) { entry in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(entry.slot?.localizedTitle ?? entry.time)
-                                .font(.subheadline)
-                            if let range = MedicationScheduleEntryRules.range(of: entry) {
-                                Text(L10n.planFormRangeFmt(range.start, range.end))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if entry.slot != nil {
-                                Text(entry.time).font(.body.monospacedDigit())
-                            }
-                        }
-                        .accessibilityElement(children: .contain)
-                        .accessibilityIdentifier("SP-15.schedule.detail.entry.\(entry.id)")
-                    }
-                }
-                Section(L10n.planScheduleBindings) {
-                    if bindings.isEmpty {
-                        Text(L10n.planScheduleNoBindings)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(bindings) { binding in
-                            NavigationLink {
-                                MedicationPlanDetailView(planId: binding.id)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(binding.medicationName).font(.subheadline)
-                                    if let spec = binding.spec {
-                                        Text(spec).font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Button {
-                        showBind = true
-                    } label: {
-                        Label(L10n.planScheduleBindDrug, systemImage: "plus.circle")
-                    }
-                    .accessibilityIdentifier("SP-15.schedule.bind")
-                }
-                if actionFailed {
-                    Section {
-                        Text(L10n.problemSaveFailedHint)
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                    }
-                }
-                if deleteBlocked {
-                    Section {
-                        Text(L10n.planScheduleDeleteBlocked)
-                            .font(.caption)
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                    }
-                }
-                Section {
-                    Button(L10n.planScheduleDelete, role: .destructive) { showDeleteConfirm = true }
-                        .accessibilityIdentifier("SP-15.schedule.delete")
-                }
-                .confirmationDialog(L10n.planScheduleDelete, isPresented: $showDeleteConfirm,
-                                    titleVisibility: .visible) {
-                    Button(L10n.planScheduleDelete, role: .destructive) { delete() }
-                    Button(L10n.commonCancel, role: .cancel) { }
-                }
-            }
-            .navigationTitle(template.name ?? L10n.planScheduleUntitled)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(L10n.planScheduleEdit) { showEdit = true }
-                        .accessibilityIdentifier("SP-15.schedule.edit")
-                }
-            }
-            .sheet(isPresented: $showEdit) {
-                MedicationScheduleFormView(mode: .edit(template)) { await reloadTemplate() }
-            }
-            .sheet(isPresented: $showBind) {
-                MedicationBindingFormView(template: template) { await load() }
-            }
-            .onChangeCompat(of: showBind) { _, showing in
-                if !showing { Task { await load() } }   // 绑定表单自身 dismiss
-            }
-            .task { await load() }
-        }
-    }
-
-    private func load() async {
-        guard let schedules else { return }
-        do { bindings = try await schedules.bindings(scheduleId: template.id) } catch { }
-    }
-
-    private func reloadTemplate() async {
-        guard let schedules else { return }
-        if let fresh = try? await schedules.template(id: template.id) {   // try?-ok: 刷新失败保留旧值，不打断编辑后的页面
-            template = fresh
-        }
-    }
-
-    private func delete() {
-        guard let schedules else { return }
-        Task {
-            do {
-                try await schedules.delete(id: template.id)
-                dismiss()
-            } catch MedicationScheduleStore.StoreError.inUse {
-                deleteBlocked = true
-            } catch {
-                actionFailed = true
-            }
-        }
-    }
-}
-
-// MARK: - 绑定表单（用药提醒 = 药品 × 计划）
-
-/// 复用完整计划表单（药品/剂量/库存批次/医嘱），时刻与模板绑定由
-/// `scheduleTemplate` 注入：表单内不再编辑时段。
-struct MedicationBindingFormView: View {
-    let template: MedicationScheduleStore.TemplateRow
-    let onSaved: () async -> Void
-
-    var body: some View {
-        MedicationPlanFormView(scheduleTemplate: template)
-    }
-}
-
-
-// MARK: - 路由入口（深链/首页卡片「新建用药计划」）
-
-/// 按 id 加载模板后进入编辑；无 id 直接进入新建。
-struct MedicationScheduleFormRouteView: View {
-    @Environment(\.medicationScheduleStore) private var schedules
-    let templateId: UUID?
-
-    @State private var loaded: MedicationScheduleStore.TemplateRow?
-    @State private var loadFailed = false
-
-    var body: some View {
-        Group {
-            if let templateId {
-                if let loaded {
-                    MedicationScheduleFormView(mode: .edit(loaded)) { }
-                } else if loadFailed {
-                    VStack(spacing: 12) {
-                        Text(L10n.planScheduleLoadFailed)
-                            .foregroundStyle(Color("semantic-danger", bundle: .main))
-                        Button(L10n.retry) { Task { await load() } }
-                    }
-                } else {
-                    ProgressView().task { await load() }
-                }
-            } else {
-                MedicationScheduleFormView(mode: .create) { }
-            }
-        }
-    }
-
-    private func load() async {
-        guard let templateId, let schedules else { return }
-        do {
-            loaded = try await schedules.template(id: templateId)
-            loadFailed = false
-        } catch {
-            loadFailed = true
-        }
     }
 }

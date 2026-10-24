@@ -21,7 +21,8 @@ public actor MedicationStore: DoseSource {
                            schedule: MedicationSchedule, status: PlanStatus,
                            startDate: Date, endDate: Date?,
                            doseUnits: Double? = nil,
-                           scheduleId: UUID? = nil) async throws {
+                           scheduleId: UUID? = nil,
+                           slotKeys: [String]? = nil) async throws {
         try await writer.write { db in
             let scheduleJSON = String(data: try JSONEncoder().encode(schedule), encoding: .utf8) ?? "{}"
             // v42：绑定行指向时段模板（用药提醒 = 药品 × 计划）。模板存在性在
@@ -29,12 +30,16 @@ public actor MedicationStore: DoseSource {
             try db.execute(
                 sql: """
                 INSERT INTO medication_plan
-                  (id, patient_id, medication_id, schedule_id, status, schedule_json,
-                   start_date, end_date, dose_plan_units, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, medication_id, schedule_id, slot_keys_json,
+                   status, schedule_json, start_date, end_date, dose_plan_units,
+                   created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [planId.uuidString, patientId.uuidString, medicationId.uuidString,
-                            scheduleId?.uuidString, status.rawValue, scheduleJSON,
+                            scheduleId?.uuidString,
+                            slotKeys.flatMap { try? JSONEncoder().encode($0) }   // try?-ok: [String] 编码不会失败
+                                .flatMap { String(data: $0, encoding: .utf8) },
+                            status.rawValue, scheduleJSON,
                             startDate.timeIntervalSince1970,
                             endDate?.timeIntervalSince1970, doseUnits, Date().timeIntervalSince1970,
                             Date().timeIntervalSince1970])
@@ -960,17 +965,23 @@ public actor MedicationStore: DoseSource {
         /// 计划从 UI 消失不可管理，但物化 dose_log 仍被对账引擎继续提醒
         /// （不可见、不可停的提醒源）。UI 据此渲染「计划数据损坏」降级态。
         public var isUnreadable: Bool
-        /// 每剂剂量（dose_plan_units，评审修正 D1）——补录/详情按计划单剂基线扣减
+        /// 每剂剂量（dose_plan_units，评审修正 D1）——补录/详情按计划单剂扣减
         public var dosePlanUnits: Double?
+        /// v45：所属用药时段（nil = 旧提醒，独立时刻）；连接键 nil = 不跟随。
+        public var scheduleId: UUID?
+        public var slotKeys: [String]?
         public init(id: UUID, patientId: UUID, medicationId: UUID, medicationName: String,
                     spec: String?, status: String, schedule: MedicationSchedule,
                     startDate: Date, endDate: Date?, isUnreadable: Bool = false,
-                    dosePlanUnits: Double? = nil) {
+                    dosePlanUnits: Double? = nil,
+                    scheduleId: UUID? = nil, slotKeys: [String]? = nil) {
             self.id = id; self.patientId = patientId; self.medicationId = medicationId
             self.medicationName = medicationName; self.spec = spec; self.status = status
             self.schedule = schedule; self.startDate = startDate; self.endDate = endDate
             self.isUnreadable = isUnreadable
             self.dosePlanUnits = dosePlanUnits
+            self.scheduleId = scheduleId
+            self.slotKeys = slotKeys
         }
     }
 
@@ -995,7 +1006,8 @@ public actor MedicationStore: DoseSource {
         try await writer.read { db in
             let rows = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.patient_id, p.medication_id, p.status, p.schedule_json,
-                       p.start_date, p.end_date, p.dose_plan_units, m.generic_name, m.spec
+                       p.start_date, p.end_date, p.dose_plan_units, p.schedule_id,
+                       p.slot_keys_json, m.generic_name, m.spec
                 FROM medication_plan p
                 JOIN medication m ON m.id = p.medication_id
                 WHERE p.patient_id = ?
@@ -1009,7 +1021,8 @@ public actor MedicationStore: DoseSource {
         try await writer.read { db in
             guard let row = try Row.fetchOne(db, sql: """
                 SELECT p.id, p.patient_id, p.medication_id, p.status, p.schedule_json,
-                       p.start_date, p.end_date, p.dose_plan_units, m.generic_name, m.spec
+                       p.start_date, p.end_date, p.dose_plan_units, p.schedule_id,
+                       p.slot_keys_json, m.generic_name, m.spec
                 FROM medication_plan p
                 JOIN medication m ON m.id = p.medication_id
                 WHERE p.id = ?
@@ -1041,7 +1054,12 @@ public actor MedicationStore: DoseSource {
             startDate: Date(timeIntervalSince1970: row["start_date"] as Double),
             endDate: (row["end_date"] as Double?).map { Date(timeIntervalSince1970: $0) },
             isUnreadable: unreadable,
-            dosePlanUnits: row["dose_plan_units"] as Double?)
+            dosePlanUnits: row["dose_plan_units"] as Double?,
+            scheduleId: (row["schedule_id"] as String?).flatMap { UUID(uuidString: $0) },
+            slotKeys: (row["slot_keys_json"] as String?).flatMap { json in
+                guard let data = json.data(using: .utf8) else { return nil }
+                return try? JSONDecoder().decode([String].self, from: data)   // try?-ok: 损坏键按独立时刻处理
+            })
     }
 
     /// 计划剂量日志（FR9.16 日程条：本周七日格，已服实心✓/漏服空心!/未来灰）

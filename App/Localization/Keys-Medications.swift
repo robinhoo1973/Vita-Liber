@@ -199,6 +199,31 @@ extension L10n {
     // v42 用药计划 = 时段模板（2026-10-23 业主裁决）
     static var planScheduleNamePlaceholder: String { t("plan.schedule.namePlaceholder") }
     static var planScheduleNone: String { t("plan.schedule.none") }
+    // v45（2026-10-24 业主）：用药时段（单页）/ 用药提醒（药品×时段）
+    static var planSlotsTitle: String { t("plan.slots.title") }
+    static var planSlotsHint: String { t("plan.slots.hint") }
+    static var planSlotsStandard: String { t("plan.slots.standard") }
+    static var planSlotsLoadFailed: String { t("plan.slots.loadFailed") }
+    static var planSlotsSaved: String { t("plan.slots.saved") }
+    static func planSlotsLinkedFmt(_ count: Int) -> String {
+        String(format: t("plan.slots.linkedFmt"), count)
+    }
+    static var planSlotsPropagateTitle: String { t("plan.slots.propagate.title") }
+    static func planSlotsPropagateBody(_ count: Int) -> String {
+        String(format: t("plan.slots.propagate.body"), count)
+    }
+    static var planSlotsPropagateConfirm: String { t("plan.slots.propagate.confirm") }
+    static var planSlotsSaveOnly: String { t("plan.slots.saveOnly") }
+    static var planReminderListTitle: String { t("plan.reminder.listTitle") }
+    static var planReminderAdd: String { t("plan.reminder.add") }
+    static var planReminderLoadFailed: String { t("plan.reminder.loadFailed") }
+    static var planReminderEmpty: String { t("plan.reminder.empty") }
+    static var planReminderEmptyHint: String { t("plan.reminder.emptyHint") }
+    static var planReminderEditSlots: String { t("plan.reminder.editSlots") }
+    static var planReminderSlotsHeader: String { t("plan.reminder.slots.header") }
+    static var planReminderSlotsHint: String { t("plan.reminder.slots.hint") }
+    static var planReminderSlotMissing: String { t("plan.reminder.slotMissing") }
+
 
     // v43 常用提醒范围（2026-10-23 业主；展示元数据，非医学建议）
     static var planFormCustomSection: String { t("plan.form.custom.section") }

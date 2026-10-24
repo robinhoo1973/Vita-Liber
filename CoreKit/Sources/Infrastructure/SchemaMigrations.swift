@@ -1033,6 +1033,10 @@ public enum SchemaMigrations {
         // 需要的最小表集，v4 的 emergency_card_selection 可能不存在——
         // 此处写裸 ALTER 会让整条升级链在测试/降级库上失败。
         Step(version: 44, name: "emergency-card-default-include", sql: ""),
+        // v45：用药时段收敛为「每成员一个默认文档」，并记录提醒的时段连接键。
+        // 旧模板保留（不删、不合并、不重指）；既有提醒的 schedule_json 一律不动。
+        // DDL/选默认在代码迁移里做（表可能不存在于合成老库）。
+        Step(version: 45, name: "medication-schedule-default", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号

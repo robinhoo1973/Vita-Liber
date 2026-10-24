@@ -254,6 +254,8 @@ public enum SchemaV2 {
       -- v43：条目数组 [{slot?, time, rangeStart?, rangeEnd?}]；time 是唯一排程事实，
       -- rangeStart/rangeEnd 是「常用提醒范围」展示元数据（半开区间，不驱动调度）。
       entries_json TEXT NOT NULL,
+      -- v45：每成员一个默认时段文档（旧模板保留、不删）；部分唯一索引见迁移 v45。
+      is_default INTEGER NOT NULL DEFAULT 0,
       created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_medication_schedule_patient ON medication_schedule(patient_id);
 
@@ -262,6 +264,8 @@ public enum SchemaV2 {
       id TEXT PRIMARY KEY, patient_id TEXT NOT NULL REFERENCES patient_profile(id),
       medication_id TEXT NOT NULL REFERENCES medication(id),
       schedule_id TEXT REFERENCES medication_schedule(id),
+      -- v45：本次提醒选中的时段键（slot-*/custom-HH:mm）；NULL = 独立时刻（旧数据）。
+      slot_keys_json TEXT,
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','paused','ended')),
       schedule_json TEXT NOT NULL,
       start_date REAL NOT NULL, end_date REAL,

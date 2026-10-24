@@ -66,6 +66,7 @@ public actor MedicationPlanComposer {
                                      initialLot: StockLotDraft,
                                      prescriptionLineId: UUID? = nil,
                                      scheduleId: UUID? = nil,
+                                     slotKeys: [String]? = nil,
                                      now: Date = Date()) async throws -> (UUID, UUID, UUID, UUID) {
         // BR-003 闸门在 Domain（PlanGate 语义），本层拒绝未确认处方
         guard PrescriptionConfirmation.isFullyConfirmed(prescription) else {
@@ -124,13 +125,20 @@ public actor MedicationPlanComposer {
                                  prescription.adviceText,
                                  now.timeIntervalSince1970, now.timeIntervalSince1970])
             // ③ 用药计划（schedule_json §5.4 schema）
+            let slotKeysJSON: String? = slotKeys.flatMap { keys -> String? in
+                guard !keys.isEmpty else { return nil }
+                guard let data = try? JSONEncoder().encode(keys) else { return nil }   // try?-ok: [String] 编码不会失败
+                return String(data: data, encoding: .utf8)
+            }
             try db.execute(sql: """
                 INSERT INTO medication_plan
-                  (id, patient_id, medication_id, schedule_id, status, schedule_json,
-                   start_date, end_date, dose_plan_units, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                  (id, patient_id, medication_id, schedule_id, slot_keys_json,
+                   status, schedule_json, start_date, end_date, dose_plan_units,
+                   created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [planId.uuidString, prescription.patientId.uuidString,
                                  medId.uuidString, scheduleId?.uuidString,
+                                 slotKeysJSON,
                                  plan.status.rawValue, scheduleJSON,
                                  plan.startDate.timeIntervalSince1970,
                                  plan.endDate?.timeIntervalSince1970,

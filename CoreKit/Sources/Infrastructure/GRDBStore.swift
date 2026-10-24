@@ -125,6 +125,11 @@ public struct GRDBStore {
                     // v40 drop-id-insurance（2026-10-22 业主）：列存在才删，
                     // 兼容老库/合成夹具缺列；彻底移除历史证件号/医保号。
                     try Self.dropLegacyProfileColumns(db)
+                case 45:
+                    // v45 medication-schedule-default（2026-10-24 业主）：每成员一个
+                    // 默认用药时段 + 提醒的时段连接键。只加列/索引/标记默认，
+                    // 不删旧模板、不重指计划、不改任何 schedule_json。
+                    try Self.migrateScheduleDefault(db)
                 case 44:
                     // v44 emergency-card-default-include（2026-10-24 业主）：急救卡
                     // 默认收录。表可能不存在于合成老库（v4 之前）——存在才加列。
@@ -204,6 +209,66 @@ public struct GRDBStore {
                 """, arguments: [templateId, patientId, timesJSON, createdAt, updatedAt])
             try db.execute(sql: "UPDATE medication_plan SET schedule_id = ? WHERE id = ?",
                            arguments: [templateId, planId])
+        }
+    }
+
+    /// v45 代码迁移：`medication_schedule.is_default` + 部分唯一索引；
+    /// `medication_plan.slot_keys_json`；为每个有模板的成员选一个默认（不删行）。
+    private static func migrateScheduleDefault(_ db: Database) throws {
+        if try tableExists(db, "medication_schedule") {
+            let scheduleColumns = try db.columns(in: "medication_schedule").map(\.name)
+            if !scheduleColumns.contains("is_default") {
+                try db.execute(sql: """
+                    ALTER TABLE medication_schedule
+                    ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0
+                    """)
+            }
+            try db.execute(sql: """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_medication_schedule_default
+                ON medication_schedule(patient_id) WHERE is_default = 1
+                """)
+            let patients = try String.fetchAll(
+                db, sql: "SELECT DISTINCT patient_id FROM medication_schedule")
+            for patient in patients {
+                let existing = try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM medication_schedule
+                     WHERE patient_id = ? AND is_default = 1
+                    """, arguments: [patient]) ?? 0
+                guard existing == 0 else { continue }
+                // 选默认：被提醒引用最多 → 条目最多 → 最早创建 → id 升序。
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT s.id, s.entries_json, s.created_at,
+                           (SELECT COUNT(*) FROM medication_plan p
+                             WHERE p.schedule_id = s.id) AS bound_count
+                      FROM medication_schedule s
+                     WHERE s.patient_id = ?
+                     ORDER BY s.created_at ASC, s.rowid ASC
+                    """, arguments: [patient])
+                let winner = rows.max { a, b in
+                    let ab = a["bound_count"] as Int? ?? 0
+                    let bb = b["bound_count"] as Int? ?? 0
+                    if ab != bb { return ab < bb }
+                    let ae = MedicationScheduleEntryCodec
+                        .decode(a["entries_json"] as String? ?? "[]").count
+                    let be = MedicationScheduleEntryCodec
+                        .decode(b["entries_json"] as String? ?? "[]").count
+                    if ae != be { return ae < be }
+                    return (a["created_at"] as Double? ?? 0) > (b["created_at"] as Double? ?? 0)
+                }
+                if let winner, let id = winner["id"] as String? {
+                    try db.execute(sql: """
+                        UPDATE medication_schedule SET is_default = 1 WHERE id = ?
+                        """, arguments: [id])
+                }
+            }
+        }
+        if try tableExists(db, "medication_plan") {
+            let planColumns = try db.columns(in: "medication_plan").map(\.name)
+            if !planColumns.contains("slot_keys_json") {
+                try db.execute(sql: """
+                    ALTER TABLE medication_plan ADD COLUMN slot_keys_json TEXT
+                    """)
+            }
         }
     }
 

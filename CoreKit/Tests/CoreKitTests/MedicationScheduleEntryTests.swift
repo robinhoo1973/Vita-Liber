@@ -71,4 +71,29 @@ struct MedicationScheduleEntryTests {
         #expect(entries[1].rangeEnd == "20:00")
         #expect(MedicationScheduleEntryRules.times(entries) == ["07:30", "19:30"])
     }
+
+    @Test("连接键稳定：时段用 rawValue，自定义用时刻；编解码兼容旧数组")
+    func slotKeysAndCodec() {
+        let custom = MedicationScheduleEntry(
+            slot: nil, time: "12:00", rangeStart: "12:00", rangeEnd: "12:30")
+        #expect(MedicationScheduleSlotKey.key(for: custom) == "custom-12:00")
+        #expect(MedicationScheduleSlotKey.key(
+            for: MedicationScheduleEntry(slot: .beforeSleep, time: "21:30"))
+            == "slot-beforeSleep")
+
+        let entries = [
+            MedicationScheduleEntry(slot: .beforeBreakfast, time: "07:30"),
+            custom,
+        ]
+        let json = MedicationScheduleEntryCodec.encode(entries)
+        let decoded = MedicationScheduleEntryCodec.decode(json)
+        #expect(decoded.map(\.time) == ["07:30", "12:00"])
+        #expect(decoded[1].slot == nil)
+
+        // 旧 v42 时刻数组 → 条目；默认值认领时段，其余自定义。
+        let legacy = MedicationScheduleEntryCodec.decode("[\"19:30\",\"12:05\"]")
+        #expect(legacy.map(\.time) == ["12:05", "19:30"])
+        #expect(legacy[1].slot == .afterDinner)
+        #expect(legacy[0].slot == nil)
+    }
 }

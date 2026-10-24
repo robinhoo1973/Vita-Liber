@@ -19,8 +19,11 @@ public struct MedicationScheduleEntry: Sendable, Equatable, Hashable, Codable, I
     public var customId: UUID?
 
     public var id: String {
+        // 自定义条目用时刻做稳定身份：validate 已保证分钟唯一，且旧 JSON 的
+        // customId 可能缺失（decodeIfPresent）。UUID 兜底会让同一行每次刷新换 id，
+        // ForEach/选择状态错行（评审指出）。
         if let slot { return "slot-\(slot.rawValue)" }
-        return "custom-\((customId ?? UUID()).uuidString)"
+        return "custom-\(time)"
     }
 
     public init(slot: DoseTimeSlot?, time: String,
@@ -171,5 +174,47 @@ public enum MedicationScheduleEntryRules {
               let s = DoseScheduleEngine.minutes(range.start),
               let e = DoseScheduleEngine.minutes(range.end) else { return false }
         return t >= s && t < e
+    }
+}
+
+/// 条目 JSON 编解码（单一实现）：新格式为条目数组；旧格式 `["07:30",...]`
+/// 按「时刻恰等于时段默认值才认领 slot」回落。Store 与迁移共用，避免两份语义。
+public enum MedicationScheduleEntryCodec {
+    public static func encode(_ entries: [MedicationScheduleEntry]) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(entries) else { return "[]" }   // try?-ok: 条目编码不会失败
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    public static func decode(_ json: String) -> [MedicationScheduleEntry] {
+        guard let data = json.data(using: .utf8) else { return [] }
+        if let entries = try? JSONDecoder().decode([MedicationScheduleEntry].self, from: data) {   // try?-ok: 格式探测；失败走旧格式
+            return MedicationScheduleEntryRules.normalize(entries)
+        }
+        if let times = try? JSONDecoder().decode([String].self, from: data) {   // try?-ok: 旧 times_json 兼容读取
+            return MedicationScheduleEntryRules.normalize(
+                MedicationScheduleEntryRules.entries(fromLegacyTimes: times))
+        }
+        return []
+    }
+}
+
+/// 用药提醒与「用药时段」条目的连接键（v45）：`slot-<rawValue>` /
+/// `custom-<HH:mm>`。计划保存选中键，时段页编辑后可据此只更新「仍在跟随」的提醒；
+/// 键无法解析 = 独立时刻，迁移与传播都不得猜。
+public enum MedicationScheduleSlotKey {
+    public static func key(for entry: MedicationScheduleEntry) -> String {
+        if let slot = entry.slot { return "slot-\(slot.rawValue)" }
+        return "custom-\(entry.time)"
+    }
+
+    public static func entry(for key: String, in entries: [MedicationScheduleEntry])
+        -> MedicationScheduleEntry? {
+        entries.first { self.key(for: $0) == key }
+    }
+
+    public static func keys(for entries: [MedicationScheduleEntry]) -> [String] {
+        entries.map(key(for:)).sorted()
     }
 }
