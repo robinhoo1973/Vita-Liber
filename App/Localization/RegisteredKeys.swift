@@ -762,6 +762,7 @@ extension L10n {
     "profile.avatarRow",
     "profile.assistantRow",
     "profile.membersRow",
+    "profile.emergencyCardHint",
     "profile.data",
     "profile.chatHistory", "settings.highContrastFooter", "trend.axis.end", "trend.axis.lower",
         "trend.axis.selected", "trend.axis.start", "trend.axis.time", "trend.axis.upper",

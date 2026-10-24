@@ -325,6 +325,8 @@ extension L10n {
     static var profileAvatarRow: String { t("profile.avatarRow") }
     static var profileAssistantRow: String { t("profile.assistantRow") }
     static var profileMembersRow: String { t("profile.membersRow") }
+    /// 个人页一级紧急信息卡卡片的副标题（2026-10-24 业主：入口置于头像下方）。
+    static var profileEmergencyCardHint: String { t("profile.emergencyCardHint") }
     static var profileData: String { t("profile.data") }
     static var profileChatHistory: String { t("profile.chatHistory") }
 

@@ -2534,6 +2534,7 @@
 "profile.avatarRow" = "頭像與暱稱";
 "profile.assistantRow" = "助手外觀";
 "profile.membersRow" = "常用成員";
+"profile.emergencyCardHint" = "血型、過敏、長期用藥與緊急聯絡人";
 "profile.data" = "資料與儲存";
 "profile.chatHistory" = "對話歷史";
 "healthHistory.kind" = "類型";

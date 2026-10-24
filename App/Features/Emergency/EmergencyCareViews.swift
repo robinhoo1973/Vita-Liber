@@ -209,9 +209,14 @@ struct EmergencyCardView: View {
         Divider().opacity(0.6)
     }
 
+    /// 节内容缩进 = 节头图标砖 24 + 间距 8：条目左缘与节标题文字对齐，
+    /// 让「分类标题 → 条目」形成一眼可扫读的层级（2026-10-24 业主：
+    /// 标题与正文排布不合理，按分组列表惯例收紧）。
+    private var sectionContentInset: CGFloat { 24 + 8 }
+
     private func section(_ title: String, icon: String,
                          items: [EmergencyCardItem], emptyId: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.caption.weight(.bold))
@@ -221,8 +226,11 @@ struct EmergencyCardView: View {
                                 in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     .accessibilityHidden(true)
                 Text(title)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
+                    // 节标题进 VoiceOver 转子（分组列表惯例）；不合并子元素，
+                    // 「未配置」胶囊的 a11y 标识保持独立可达。
+                    .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 8)
                 if items.isEmpty {
                     PillBadge(text: L10n.emergency_notSet, style: .neutral, size: .regular)
@@ -234,12 +242,17 @@ struct EmergencyCardView: View {
                 }
             }
             if !items.isEmpty {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    if index > 0 {
-                        Divider().opacity(0.35)
+                // 条目整体缩进到标题文字下方；分隔线随条目内缩（不再横贯
+                // 图标列），分组边界由节间 Divider 承担。
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        if index > 0 {
+                            Divider().opacity(0.35)
+                        }
+                        itemRow(item)
                     }
-                    itemRow(item)
                 }
+                .padding(.leading, sectionContentInset)
             }
         }
         .padding(.vertical, careMode ? 12 : 9)
@@ -253,13 +266,13 @@ struct EmergencyCardView: View {
                 .foregroundStyle(.primary)
             if !item.displayDetail.isEmpty {
                 Text(item.displayDetail)
-                    .font(.caption)
+                    .font(.footnote)
                     .foregroundStyle(Color("text-secondary", bundle: .main))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, careMode ? 4 : 3)
+        .padding(.vertical, careMode ? 8 : 6)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("F15.card.item")
     }
@@ -852,13 +865,18 @@ private extension EmergencyCardItem {
             }
             return parts.joined(separator: " · ")
         case "contact":
-            if let relation, !relation.isEmpty, let phone, !phone.isEmpty {
-                // 审查修复（关系本地化）：关系原样拼串——旧英文词表行与中文行
-                // 在急救卡上两种词汇并存。统一经 memberRelationDisplayName
-                // 单一出口（三语本地化 + en 首字母大写）
-                return "\(L10n.memberRelationDisplayName(relation)) · \(phone)"
+            // 关系与号码各自独立可用：任一为空时仍展示另一个（此前要求二者
+            // 同时存在，只有关系或只有号码的联系人在急救卡上只剩姓名——
+            // 施救者拿不到可拨号码）。关系统一经 memberRelationDisplayName
+            // 单一出口（三语本地化 + en 首字母大写）。
+            var parts: [String] = []
+            if let relation, !relation.isEmpty {
+                parts.append(L10n.memberRelationDisplayName(relation))
             }
-            return detail
+            if let phone, !phone.isEmpty {
+                parts.append(phone)
+            }
+            return parts.isEmpty ? detail : parts.joined(separator: " · ")
         case "healthProblem":
             // 慢性病/手术史 kind 为 canonical 英文（chronic/surgery），
             // 展示层经 L10n 单一出口；未知值原样返回，不猜。

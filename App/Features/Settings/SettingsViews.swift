@@ -35,6 +35,33 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("SP-25.setting.avatar")
                 }
+                // 2026-10-24 业主：紧急信息卡是急救场景的第一入口——置于头像
+                // 下方作为一级卡片（本页直达 F15 展示/配置，不改变急救卡本身
+                // 的制作与展示）。联系人与常用成员同组，图标一视同仁。
+                Section {
+                    NavigationLink {
+                        EmergencyCardHubView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "cross.case.fill")
+                                .font(.title3)
+                                .foregroundStyle(Color("brand-primary", bundle: .main))
+                                .frame(width: 40, height: 40)
+                                .background(Color("brand-primary", bundle: .main).opacity(0.12),
+                                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L10n.emergency_title)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(L10n.profileEmergencyCardHint)
+                                    .font(.caption)
+                                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                            }
+                        }
+                        .frame(minHeight: 44)
+                    }
+                    .accessibilityIdentifier("SP-25.setting.emergencyCard")
+                }
                 Section {
                     HStack(spacing: 0) {
                         statCell("\(app.members.count)", L10n.profileStatMembers)
@@ -60,10 +87,23 @@ struct SettingsView: View {
                         Label(L10n.hub_healthRecords, systemImage: "heart.text.square")
                     }
                     .accessibilityIdentifier("SP-25.setting.healthHistory")
+                    // 2026-10-24 业主：紧急联系人自医疗档案抽离，落到个人资料
+                    // 「常用成员」之前；急救卡与 SOS 求助页读取同一数据源。
+                    NavigationLink {
+                        EmergencyContactListView()
+                    } label: {
+                        Label(L10n.emergencySectionContacts,
+                              systemImage: "person.crop.circle.badge.exclamationmark")
+                    }
+                    .accessibilityIdentifier("SP-25.setting.emergencyContacts")
                     NavigationLink {
                         MemberManagementView()
                     } label: {
-                        LabeledContent(L10n.profileMembersRow, value: "\(app.members.count)")
+                        LabeledContent {
+                            Text("\(app.members.count)")
+                        } label: {
+                            Label(L10n.profileMembersRow, systemImage: "person.2")
+                        }
                     }
                     // 保留既有 XCUITest 锚点：入口从根级「健康记录」区块迁到个人资料后，
                     // MemberViewsPresentationUITests 仍按此标识定位。

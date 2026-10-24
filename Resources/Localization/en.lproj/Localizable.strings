@@ -2533,7 +2533,8 @@
 "profile.personal" = "Personal";
 "profile.avatarRow" = "Avatar & name";
 "profile.assistantRow" = "Assistant appearance";
-"profile.membersRow" = "Primary member";
+"profile.membersRow" = "Members";
+"profile.emergencyCardHint" = "Blood type, allergies, medications and emergency contacts";
 "profile.data" = "Data & storage";
 "profile.chatHistory" = "Chat history";
 "healthHistory.kind" = "Type";
