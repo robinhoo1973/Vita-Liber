@@ -125,6 +125,11 @@ public struct GRDBStore {
                     // v40 drop-id-insurance（2026-10-22 业主）：列存在才删，
                     // 兼容老库/合成夹具缺列；彻底移除历史证件号/医保号。
                     try Self.dropLegacyProfileColumns(db)
+                case 44:
+                    // v44 emergency-card-default-include（2026-10-24 业主）：急救卡
+                    // 默认收录。表可能不存在于合成老库（v4 之前）——存在才加列。
+                    try Self.addDeselectedColumnIfPossible(db)
+                    continue
                 case 43:
                     // v43 medication-schedule-entries（2026-10-23 业主）：常用提醒范围
                     // 与时段身份。RENAME + 行重写同一事务；time 原样保留，绝不改既有提醒。
@@ -199,6 +204,17 @@ public struct GRDBStore {
             try db.execute(sql: "UPDATE medication_plan SET schedule_id = ? WHERE id = ?",
                            arguments: [templateId, planId])
         }
+    }
+
+    /// v44 代码迁移：急救卡选择表加 `deselected` 列（存在才加，幂等）。
+    private static func addDeselectedColumnIfPossible(_ db: Database) throws {
+        guard try tableExists(db, "emergency_card_selection") else { return }
+        let columns = try db.columns(in: "emergency_card_selection").map(\.name)
+        guard !columns.contains("deselected") else { return }
+        try db.execute(sql: """
+            ALTER TABLE emergency_card_selection
+            ADD COLUMN deselected INTEGER NOT NULL DEFAULT 0
+            """)
     }
 
     /// v43 代码迁移：`times_json` → `entries_json`（条目数组），既有行按

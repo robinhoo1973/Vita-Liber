@@ -1029,9 +1029,10 @@ public enum SchemaMigrations {
         // 慢性病与手术史/紧急联系人，不再要求逐项勾选）。语义从「选中才入卡」
         // 翻转为「档案已确认条目默认入卡，显式退选才排除」；旧选择行
         // deselected=0 = 仍入卡，兼容升级前用户已选内容。
-        Step(version: 44, name: "emergency-card-default-include", sql: """
-        ALTER TABLE emergency_card_selection ADD COLUMN deselected INTEGER NOT NULL DEFAULT 0;
-        """),
+        // 加列由代码迁移执行（表/列存在才做）：合成 v12 老库只建 pending 链
+        // 需要的最小表集，v4 的 emergency_card_selection 可能不存在——
+        // 此处写裸 ALTER 会让整条升级链在测试/降级库上失败。
+        Step(version: 44, name: "emergency-card-default-include", sql: ""),
     ]
 
     /// 全新库建库后应落到的版本号
