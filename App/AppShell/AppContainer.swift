@@ -136,6 +136,13 @@ struct AppContainer {
         }
         let store = try GRDBStore.pool(at: databasePath)
         removeLegacyDatabaseIfNeeded(activePath: databasePath)
+        return try live(store: store)
+    }
+
+    /// 启动门（2026-10-25）复用同一装配体：数据库文件已在后台完成探测/迁移，
+    /// 本方法只做主线程侧的 store 装配，不再打开/迁移数据库。
+    @MainActor
+    static func live(store: GRDBStore) throws -> AppContainer {
         let catalogPath = URL(fileURLWithPath: defaultMedicalCatalogPath())
         let catalogSupport = catalogPath.deletingLastPathComponent()
         // 崩溃可恢复的激活 journal：必须在 MedicalCatalogStore 打开前跑一遍，把上次更新
@@ -377,6 +384,8 @@ struct AppContainer {
 
     /// Canonical local database name (three-segment naming rule).
     static let databaseFileName = "app-local-user_data.sqlite"
+    /// 非权威 schema 历史库（版本目录投影；排除备份）。
+    static let schemaHistoryFileName = "app-local-schema-history.sqlite"
     /// Pre-2026-10-25 physical name; migrated once and then removed.
     static let legacyDatabaseFileName = "vitaliber.sqlite"
 
@@ -406,6 +415,14 @@ struct AppContainer {
             }
         }
         return target.path
+    }
+
+    /// 与患者库同目录；历史库永远不是迁移事实源，路径独立便于整体删除/重建。
+    static func defaultSchemaHistoryPath(fileManager: FileManager = .default) -> String {
+        URL(fileURLWithPath: defaultDatabasePath(fileManager: fileManager))
+            .deletingLastPathComponent()
+            .appendingPathComponent(schemaHistoryFileName)
+            .path
     }
 
     /// 正常迁移用 move 完成，旧文件在迁移成功时已消失。

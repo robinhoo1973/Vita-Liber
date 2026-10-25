@@ -440,6 +440,29 @@ extension L10n {
 
     static var startupLoadFailed: String { t("startup.loadFailed") }
 
+    // 2026-10-25 数据库启动门（DatabaseInitializationView）
+    static var startupInitTitle: String { t("startup.init.title") }
+    static var startupInitSubtitle: String { t("startup.init.subtitle") }
+    static var startupInitStageHistory: String { t("startup.init.stageHistory") }
+    static var startupInitStageProbe: String { t("startup.init.stageProbe") }
+    static var startupInitStageCreate: String { t("startup.init.stageCreate") }
+    static var startupInitStageVerify: String { t("startup.init.stageVerify") }
+    static var startupInitStageAssemble: String { t("startup.init.stageAssemble") }
+    static var startupInitPrivacy: String { t("startup.init.privacy") }
+    static var startupInitProgressA11y: String { t("startup.init.progressA11y") }
+    static var startupInitRetry: String { t("startup.init.retry") }
+    static var startupInitFailureTitle: String { t("startup.init.failureTitle") }
+    static var startupInitFailureMissingOriginals: String { t("startup.init.failureMissingOriginals") }
+    static var startupInitFailureCorrupt: String { t("startup.init.failureCorrupt") }
+    static var startupInitFailureTooNew: String { t("startup.init.failureTooNew") }
+    static var startupInitFailureGeneric: String { t("startup.init.failureGeneric") }
+    static func startupInitStageMigrate(_ from: Int, _ to: Int) -> String {
+        String(format: t("startup.init.stageMigrateFmt"), from, to)
+    }
+    static func startupInitFailureMigration(_ found: Int, _ expected: Int) -> String {
+        String(format: t("startup.init.failureMigrationFmt"), found, expected)
+    }
+
     static var appointmentAdd: String { t("appointment.add") }
 
     static var questionAdd: String { t("question.add") }

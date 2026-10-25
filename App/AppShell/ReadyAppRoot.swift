@@ -1,0 +1,497 @@
+import Foundation
+import SwiftUI
+import os
+import Domain
+import Infrastructure
+import Protocols
+import Perception
+
+/// 主界面装配：只有启动门 `DatabaseBootModel.container` 就绪后才创建一次。
+/// 原 `VitaLiberApp.init` 的 store 装配整体迁入本视图，保持装配顺序与全局
+/// 副作用（BGTask 注册、展示文案注入）不变。
+@MainActor
+struct ReadyAppRoot: View {
+    let container: AppContainer
+
+    private let router: AppRouter
+    /// §5.45 通知点击→路由映射契约：delegate 必须被强引用（UNUserNotificationCenter
+    /// 对 delegate 是弱引用），故由 App 持有，路由经注入的 AppRouter 分发
+    private let notificationDelegate: AppNotificationDelegate
+    @State private var appState: AppState
+    @State private var reminderStore: ReminderStore
+    @State private var settingsStore: AppSettingsStore
+    @State private var avatarState: AvatarState
+    @State private var chatHistoryState: ChatHistoryState
+    @State private var observationState: ObservationStoreState
+    @State private var entitlementStore: AppEntitlementStore
+    @State private var trendState: TrendEntryState
+    @State private var voiceNoteState: VoiceNoteState
+    @State private var m2Hub: M2HubStore
+    @State private var searchState: SearchViewState
+    @State private var encountersState: EncountersState
+    @State private var timelineState: TimelineViewState
+    @State private var questionsState: QuestionsState
+    @State private var documentsState: DocumentsState
+    @State private var exportWizardState: ExportWizardState
+    @State private var f16DeviceState: F16DeviceState
+    /// 类型化数据变更信号（V3.49：文档保存/设备读数落库 → 版本计数 → 跨页刷新）
+    @State private var dataChangeCenter: AppDataChangeCenter
+    /// 模型安装中心（2026-09-16）：下载进行态 App 级可观察（首页条目 + 设置页同源）。
+    @State private var asrInstallCenter: ASRInstallCenter
+    /// T2 本机 LLM 模型安装中心（2026-10-09 换型+下载化批）：模型不随包、
+    /// 运行时自 CNB 下载——状态与生命周期同样上提 App 层。
+    @State private var llmModelInstallCenter: LLMModelInstallCenter
+    @State private var backupState: BackupState
+    @State private var medicalCatalogState: MedicalCatalogState
+    @State private var updateAdviceState: UpdateAdviceState
+    /// 统一更新中心批（2026-10-07）：ASR 检查态 + 中心编排（App 级跨页存活）。
+    @State private var asrCheckState: ASRIndexCheckState
+    @State private var updateCenterState: UpdateCenterState
+    init(container: AppContainer) {
+        self.container = container
+        let args = ProcessInfo.processInfo.arguments
+        // 审查修复：live 失败走显式降级容器（degradedReason 非 nil），
+        // body 显示可见引导——原静默降级内存库、用户看到空档案且写入即丢
+        let medicalState = MedicalCatalogState(
+            store: container.medicalCatalog,
+            updater: container.medicalCatalogUpdater,
+            path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
+            checker: container.medicalCatalogChecker,
+            opener: container.medicalCatalogOpener)
+        _medicalCatalogState = State(initialValue: medicalState)
+        // P3（2026-10-07）：通告面状态（provider 由组装根注入；缺省=全域不可用）。
+        let adviceState = UpdateAdviceState(provider: container.updateAdvice)
+        _updateAdviceState = State(initialValue: adviceState)
+        let appRouter = AppRouter()
+        self.router = appRouter
+        let delegate = AppNotificationDelegate(router: appRouter)
+        self.notificationDelegate = delegate
+        UNUserNotificationCenter.current().delegate = delegate
+        // 门禁测试桩（XCUITest 无法自动化 Face ID）：-uitest-gate-stub-{success,fail}
+        // 注入确定性认证结果；生产路径缺省 nil → LocalAuthGateUnlocker（真系统认证）。
+        // 审查修复：全部测试桩与 launch-arg 旁路收敛进 #if DEBUG——
+        // 发布构建里不存在任何可绕过门禁/伪造 OCR 的启动参数开关。
+        #if DEBUG
+        let gateUnlocker: (any GateUnlocking)? =
+            args.contains("-uitest-gate-stub-success") ? FakeGateUnlocker()
+            : args.contains("-uitest-gate-stub-fail") ? FakeGateUnlocker(result: false)
+            : nil
+        // 语音转写测试桩（同 FakeGateUnlocker 纪律）：XCUITest 无法驱动真实麦克风/语音识别，
+        // -uitest-transcription-stub 注入确定性脚本，FR8.9 静默降级路径才可确定性验证。
+        let transcriptionStub: (any TranscriptionEngine)? =
+            args.contains("-uitest-transcription-stub")
+            ? StubTranscriptionEngine(capability: .baseline(), scripted: ["这是一段测试听写文本"])
+            : nil
+        // V3.39：-uitest-camera-fixture 样张注入退役——首启向导不再含拍摄/OCR 步，
+        // BR-003 闸门覆盖在活管线：单元/验收测试直测 DocumentsState.commitDraft /
+        // DocumentStore.confirmText（M1aAcceptanceTests）+ Domain 层 OcrConfirmationTests。
+        #else
+        let gateUnlocker: (any GateUnlocking)? = nil
+        let transcriptionStub: (any TranscriptionEngine)? = nil
+        #endif
+        _appState = State(initialValue: AppState(
+            persistor: container.persistor,
+            transcription: transcriptionStub,
+            gateUnlocker: gateUnlocker,
+            audit: container.audit,
+            memberDeletion: container.memberDeletion,
+            codeIndex: container.codeIndex,
+            lexiconSource: container.codeIndex))
+        _reminderStore = State(initialValue: ReminderStore(
+            meds: container.meds, apts: container.apts, reconciler: container.reconciler,
+            // 第八轮全仓审查修复：第七轮通道门只接到 AppointmentStore 与
+            // ReminderReconciler——本 store 直连裸 UNReminderScheduler。
+            // 改经组装根的投递门统一实例。门的作用域：dose-/slot- 的「静音
+            // 仅横幅」真实生效（有应用内横幅承接）；预约/随访/临期/备份等
+            // 无承接族照常系统投递（§5.58 降级链，W4 逐类别收紧）。
+            scheduler: container.reminderScheduler, composer: container.composer))
+        // 单一实例：环境注入与 DocumentsState 授权闭包共用（AppRootView 启动即 load）
+        let appSettings = AppSettingsStore(store: container.settings)
+        _settingsStore = State(initialValue: appSettings)
+        _avatarState = State(initialValue: AvatarState(settings: appSettings))
+        _observationState = State(initialValue: ObservationStoreState(
+            store: container.observations, allergyStore: container.allergies,
+            mediaAssets: container.mediaAssets))
+        _entitlementStore = State(initialValue: AppEntitlementStore(store: container.entitlements))
+        _trendState = State(initialValue: TrendEntryState(store: container.trends, audit: container.audit))
+        _voiceNoteState = State(initialValue: VoiceNoteState(store: container.voiceNotes))
+        _m2Hub = State(initialValue: M2HubStore(
+            meds: container.meds, emergency: container.emergencyCards,
+            immunizations: container.immunizations,
+            messages: container.messages, guidelines: container.guidelines,
+            audit: container.audit))
+        _searchState = State(initialValue: SearchViewState(search: container.search))
+        _encountersState = State(initialValue: EncountersState(store: container.encounters))
+        _timelineState = State(initialValue: TimelineViewState(
+            store: container.timelineQuery, problemStore: container.healthProblems))
+        _questionsState = State(initialValue: QuestionsState(store: container.questions))
+        _chatHistoryState = State(initialValue: ChatHistoryState(store: container.chatHistory))
+        // 类型化数据变更信号（先于 DocumentsState 装配——后者携带本实例注入）
+        // 局部常量中转（审查修复）：init 内引用 State 包装值（dataChangeCenter）
+        // 即触 self 属性访问——Swift 明确初始化纪律禁止全部存储属性就绪前
+        // 触 self（L1 34192387824：编译器指名未初始化的 documentsState）。
+        // 后续 State 的 initialValue 一律引用本局部常量，闭包惰性捕获不受限。
+        let dataChange = AppDataChangeCenter()
+        _dataChangeCenter = State(initialValue: dataChange)
+        let installCenter = ASRInstallCenter(dataChange: dataChange)
+        _asrInstallCenter = State(initialValue: installCenter)
+        // T2 本机 LLM 模型安装中心（2026-10-09 换型+下载化批）：与 ASR 中心同构
+        // （状态上提、进度分离观察域、完成广播）；首启语义 = 一次显式同意后自动补齐。
+        let llmInstallCenter = LLMModelInstallCenter(dataChange: dataChange)
+        _llmModelInstallCenter = State(initialValue: llmInstallCenter)
+        // 统一更新中心批（2026-10-07）：ASR 检查状态机上提为 App 级（跨页存活 +
+        // 供中心编排驱动）；安装互斥口径与提升前按钮禁用条件逐字同源
+        // （暂停中的安装不参与——任务已退出、暂存保留）。
+        let asrCheckState = ASRIndexCheckState(
+            isInstallActive: { installCenter.active.contains { !$0.isPaused } })
+        _asrCheckState = State(initialValue: asrCheckState)
+        _updateCenterState = State(initialValue: UpdateCenterState(
+            advice: adviceState,
+            chains: [.asrModels: asrCheckState, .medicalData: medicalState]))
+        _documentsState = State(initialValue: DocumentsState(
+            store: container.documents,
+            pipeline: OCRPipeline(
+                recognizer: EngineRegistry.shared.resolve(OCRRecognizerFactory.self),
+                grayscaleDecoder: GrayscaleImageDecoder()),
+            // FR14.1 authOcr/authAI 消费点：每次导入实时读授权（撤回即时生效）。
+            // 审查修复：布尔读一律 SettingsRules.resolved（stored ?? defaultValue）
+            // ——values 只存非默认覆盖（默认均为 "true"），裸 `== "true"` 把
+            // 未落库的默认授权读成拒绝（装载前/装载失败时 OCR 恒 skipped、
+            // AI 恒关闭，与设置页开关状态相反——SettingsViews 同批修复口径）。
+            ocrAuthorized: { SettingsRules.resolved(appSettings.values[.authOcr], key: .authOcr) == "true" },
+            aiAuthorization: { (SettingsRules.resolved(appSettings.values[.authAI], key: .authAI) == "true", appSettings.authAIRevision) },
+            originalsDir: AppContainer.defaultOriginalsDir(),
+            prescriptionStore: container.prescriptions,
+            // FR17.18 期一（V3.49）：共享文本理解引擎 + F25 惰性接线 +
+            // FR11.4 懒创建 + 保存后跨页刷新信号
+            understandingEngine: EngineRegistry.shared.resolve(TextUnderstandingFactory.self),
+            codeIndex: container.codeIndex,
+            // F25 词表锚定（2026-09-21，FR25.12⑬）：词表来自同一码表实例；
+            // 语区随界面语言设置（替代硬编码 zh_Hans）。
+            lexiconSource: container.codeIndex,
+            uiLocale: { Locale(identifier: SettingsRules.resolved(appSettings.values[.language], key: .language)) },
+            problemStore: container.healthProblems,
+            dataChange: dataChange,
+            pendingCards: container.pendingCards,
+            // 审查修复：encounterStore/trendStore 参数在 DocumentsState 中
+            // 从未存储/引用（静默丢弃的装饰性接线）——删除参数与传参，
+            // 避免未来「走注入仓持久化」的路径误以为已接线而静默不落库
+            // （FR6.9 页级实体卡落库现走 OCRCardStore 原始 SQL 路径）
+            scheduler: container.reminderScheduler,
+            cardStore: OCRCardStore(writer: container.store.writer),
+            // 子项目 D · D4-2：卡确认后「资料建议」采集/接受流（只读回执 → 逐项显式接受写资料 + 审计）
+            suggestionStore: ProfileSuggestionStore(writer: container.store.writer)))
+        _exportWizardState = State(initialValue: ExportWizardState(service: container.pdfExport))
+        _f16DeviceState = State(initialValue: F16DeviceState(
+            syncService: container.healthSync,
+            dataChange: dataChange,
+            settings: appSettings))
+        // 审查修复：BackupState 此前从未装配——SP-24 打开即
+        // "No Observable object of type BackupState found" 崩溃。
+        // 且必须在此处先行赋值：下方 backgroundSyncHandler 的捕获列表
+        // [appState] 创建时求值（触 self）——本 State 是最后一个未初始化
+        // 存储属性，Swift 明确初始化纪律要求其先行（L1 34193285034）。
+        _backupState = State(initialValue: BackupState(service: container.backup))
+        // data-flow §9.2 恢复末步：重建提醒投影——此前恢复后零排程，恢复的
+        // 计划要到下次回前台/重启才补排，恢复后首剂提醒静默漏发。回调在此
+        // 装配（self 完全初始化之后）：init 内捕获 self 会触发「backupState
+        // 未初始化」编译错（L1 34288551094）
+        backupState.onRestored = { [appState, reminderStore] in
+            await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
+        }
+        // 业主 2026-09-17 定：健康写回接线（最后一个存储属性初始化之后装配；
+        // 结构体 init 内逃逸闭包**必须用捕获列表**取属性值——闭包体直写
+        // `appState` 触发「escaping closure captures mutating 'self' parameter」
+        // （CI 35180851132 实证；`[appState, reminderStore]` 是既有通行形态）。
+        f16DeviceState.ownerPatientID = { [appState] in appState.owner?.selfPatientId }
+        // 收口批E②（FR16.2 履约口径）：手录/自测读数分级+派发接线——此前
+        // AlertRuleEngine.escalate 无生产调用方（手录读数永不参与 L1+ 判定）。
+        // 落库后：窗口定级（连续 3 次越限）→ 合格事件 → 与设备轨同源派发
+        // （L1 静默时段门 / L2+ 时间敏感）。分级/派发失败不阻断录入主流程。
+        trendState.gradeManualReading = { [dataChange] patientId, metric in
+            do {
+                let event = try await container.guidelines.evaluateRecentManualReadings(
+                    patientId: patientId, metricKey: metric.rawValue)
+                if event != nil {
+                    let quietStart = try await container.settings.value(for: .quietHoursStart)
+                    let quietEnd = try await container.settings.value(for: .quietHoursEnd)
+                    _ = try await container.healthSync.dispatchPendingElevated(
+                        patientId: patientId, quietStart: quietStart, quietEnd: quietEnd)
+                }
+                await MainActor.run { dataChange.alertsChanged() }
+            } catch {
+                // 分级/派发失败静默容忍：读数已落库；下轮同步的待派发重试链兜底
+                await MainActor.run { dataChange.alertsChanged() }
+            }
+        }
+        trendState.writeBack = { [f16 = f16DeviceState] patientId, metric, value, secondaryValue, unit, measuredAt in
+            await f16.writeBackSample(patientId: patientId, metric: metric, value: value,
+                                      secondaryValue: secondaryValue, unit: unit, measuredAt: measuredAt)
+        }
+        // FR16.1 V3.86 后台自动化同步：BGTask 注册（App init 唯一注册点，
+        // 标识符已登记 Info.plist BGTaskSchedulerPermittedIdentifiers）+
+        // 后台唤起执行体（BG 启动无 UI——未建档/未授权即跳过，前台锚点
+        // 兜底路径不受影响）
+        let bgSync = container.healthSync
+        let healthSettings = container.settings
+        HealthKitSyncService.backgroundCancelHandler = { await bgSync.cancelSync() }
+        // round5 Q2：分钟级回填执行体（BGProcessingTask / iOS 26 continued processing 共用）——
+        // 轮数与时间预算由系统给的到期时间推算（Domain HealthSyncBacklogPolicy），积压排空即停止重排
+        HealthKitSyncService.backgroundBackfillHandler = { [dataChange] budget in
+            do {
+                guard try await bgSync.canAutomaticallySync() else { return BackgroundJobOutcome(success: true, reschedule: false) }
+                await MainActor.run { dataChange.healthSyncStarted() }
+                let start = try await healthSettings.value(for: .quietHoursStart)
+                let end = try await healthSettings.value(for: .quietHoursEnd)
+                let interval = HealthSyncInterval.resolved(
+                    try await healthSettings.value(for: .healthSyncIntervalMinutes))
+                let report = try await bgSync.performSyncAll(
+                    quietStart: start, quietEnd: end,
+                    maxRounds: HealthSyncBacklogPolicy.maxRounds(for: budget),
+                    timeBudget: budget, joinTimeout: .seconds(15),
+                    cycleInterval: interval, enforceCycleInterval: true,
+                    managedCycle: true)
+                await MainActor.run {
+                    if report.persistedRows > 0 { dataChange.metricsChanged() }
+                    dataChange.alertsChanged()
+                    dataChange.healthSyncProgress(
+                        active: report.cycleCompletedAt == nil && report.cycleStartedAt != nil,
+                        stableKinds: report.cycleStableKinds ?? 0,
+                        totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                        lastCompletedAt: report.cycleCompletedAt)
+                }
+                let more = HealthSyncBacklogPolicy.shouldRequestProcessing(remainingWindows: report.remainingWindows, hasMore: report.hasMore)
+                // 2026-10-20：部分窗口失败不等于整次 BGTask 失败；把
+                // setTaskCompleted(false) 留给致命态，避免系统降频。失败用重排重试。
+                return BackgroundJobOutcome(success: true,
+                                            reschedule: more || !report.failedTypes.isEmpty)
+            } catch HealthImportStore.ImportError.busy {
+                // 已有共享轮次在跑：本次回填不排队等；重排保留积压处理权。
+                return BackgroundJobOutcome(success: true, reschedule: true)
+            } catch is CancellationError {
+                return BackgroundJobOutcome(success: false, reschedule: true)   // 到期打断：进度已逐类落盘，下次续排
+            } catch {
+                return BackgroundJobOutcome(success: false, reschedule: false)
+            }
+        }
+        // S-6①（第九轮审查权重重判）：展示文案注入——Domain 不再持用户可见
+        // 中文（知情 L1-L4 / 文档命名类型名），App 层经 L10n 映射；未注入
+        // 路径（测试/预览）回落内置文案。
+        DisclosureRegistry.labels = DisclosureRegistry.Labels(
+            title: { key in L10n.disclosureTextTitle(key) },
+            body: { key in L10n.disclosureTextBody(key) })
+        OCRCardStore.namingLabels = DocumentNaming.Labels(
+            forKind: { kind in
+                let key: DocumentTypeKey? = switch kind {
+                case "prescription": .prescription
+                case "encounter": .outpatientRecord
+                case "metric_sample": .labReport
+                case "medication": .medicationLabel
+                case "claim_item": .invoice
+                case "immunization": .vaccineRecord
+                default: nil
+                }
+                return key.map { L10n.docTypeName($0) } ?? ""
+            },
+            forDocType: { type in DocumentTypeKey(rawValue: type).map { L10n.docTypeName($0) } })
+        // 注册须在装配执行体之后、启动完成之前（BGTaskScheduler 限制）；两作业 + continued 标识符经统一门面一次注册
+        // （ASR 下载的 continued 标识符也在此登记——registerAll 之后的登记不会被系统唤起）
+        BackgroundWorkScheduler.shared.addContinued(identifier: BackgroundWorkScheduler.asrInstallContinuedIdentifier)
+        // 批C③（第九轮审查 P4#2 救援第四层）：提醒对账后台作业——必须在本行
+        // 之后、`registerBackgroundTask()` 的统一 registerAll 之前 add，否则
+        // 不会被系统唤起。执行体与前台同入口（refreshTriggered → reconcile
+        // 覆盖全部成员；成员参数只作状态投影隔离判据）。
+        BackgroundWorkScheduler.shared.add(ReminderReconcileJob { [appState, reminderStore] in
+            let member = await MainActor.run { appState.currentPatientId }
+            await reminderStore.refreshTriggered(patientId: member, force: true)
+        })
+        HealthKitSyncService.registerBackgroundTask()
+        // 首次排期（后续由作业自身 reschedule 滚动续排；重复提交在门面内先
+        // cancel 再 submit，幂等）。
+        _ = BackgroundWorkScheduler.shared.submit(ReminderReconcileJob.identifier)
+        HealthKitSyncService.backgroundSyncHandler = { [dataChange] in
+            do {
+                guard try await bgSync.canAutomaticallySync() else { return false }
+                await MainActor.run { dataChange.healthSyncStarted() }
+                let start = try await healthSettings.value(for: .quietHoursStart)
+                let end = try await healthSettings.value(for: .quietHoursEnd)
+                let interval = HealthSyncInterval.resolved(
+                    try await healthSettings.value(for: .healthSyncIntervalMinutes))
+                // C3（2026-10-03 评审修复）：后台每唤醒此前只跑 1 轮（1 页/类），
+                // 20s 预算只用 2-7s——改多轮排空（预算内 ≤8 轮），唤醒次数 3-5× 降。
+                // 实参顺序必须与声明一致（maxRounds 先于 timeBudget）——L1 编译修复 CI #646
+                let report = try await bgSync.performSyncAll(
+                    quietStart: start, quietEnd: end,
+                    maxRounds: 8, timeBudget: .seconds(18),
+                    joinTimeout: .seconds(5),
+                    cycleInterval: interval, enforceCycleInterval: true,
+                    managedCycle: true)
+                await MainActor.run {
+                    if report.persistedRows > 0 { dataChange.metricsChanged() }
+                    dataChange.alertsChanged()
+                    dataChange.healthSyncProgress(
+                        active: report.cycleCompletedAt == nil && report.cycleStartedAt != nil,
+                        stableKinds: report.cycleStableKinds ?? 0,
+                        totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                        lastCompletedAt: report.cycleCompletedAt)
+                }
+                await bgSync.scheduleBackgroundRefresh(
+                    after: report.cycleCompletedAt != nil ? interval.seconds : nil)
+                return true
+            } catch HealthImportStore.ImportError.busy {
+                // 共享轮次在跑：本次唤醒不排队等；不是失败，下一唤醒/回前台继续。
+                await bgSync.scheduleBackgroundRefresh()
+                return true
+            } catch {
+                await MainActor.run {
+                    dataChange.metricsChanged()
+                    dataChange.alertsChanged()
+                }
+                await bgSync.scheduleBackgroundRefresh()
+                return false
+            }
+        }
+        // C1-6（2026-10-04 评审）：投递唤醒专用轻量执行体——先排期 refresh（被系统
+        // 切断也有兜底通道）再受限排空（2 轮/10s，Domain 唤醒源分型背板）；积压由
+        // backfill 承接。预算依据：HealthKit 后台投递每次唤醒仅约 15s（社区实测，
+        // 待 L2 复核）；refresh 作业保持 8 轮/18s 不变。
+        HealthKitSyncService.backgroundObserverHandler = { [dataChange] kind in
+            do {
+                guard try await bgSync.canAutomaticallySync() else { return false }
+                await MainActor.run { dataChange.healthSyncStarted() }
+                await bgSync.scheduleBackgroundRefresh()
+                // 2026-10-21 业主裁决：observer 带类别 → 只唤醒/同步该类别，
+                // 不清其他类别的退避状态；预算也只给这一类。
+                await bgSync.wake(kind: kind)
+                let start = try await healthSettings.value(for: .quietHoursStart)
+                let end = try await healthSettings.value(for: .quietHoursEnd)
+                let interval = HealthSyncInterval.resolved(
+                    try await healthSettings.value(for: .healthSyncIntervalMinutes))
+                // completion 已由 Reader 提前确认；撞共享轮次最多等 2s。
+                let report = try await bgSync.performSyncAll(
+                    quietStart: start, quietEnd: end,
+                    maxRounds: 2, timeBudget: .seconds(10),
+                    joinTimeout: .seconds(2), kinds: [kind],
+                    cycleInterval: interval, enforceCycleInterval: true,
+                    managedCycle: true)
+                await MainActor.run {
+                    if report.persistedRows > 0 { dataChange.metricsChanged() }
+                    dataChange.alertsChanged()
+                    dataChange.healthSyncProgress(
+                        active: report.cycleCompletedAt == nil && report.cycleStartedAt != nil,
+                        stableKinds: report.cycleStableKinds ?? 0,
+                        totalKinds: report.cycleTotalKinds ?? HealthDataKind.allCases.count,
+                        lastCompletedAt: report.cycleCompletedAt)
+                }
+                await bgSync.scheduleBackgroundRefresh(
+                    after: report.cycleCompletedAt != nil ? interval.seconds : nil)
+                // 投递已确认（Reader 提前 completion）；部分失败由 refresh/backfill 重试。
+                return true
+            } catch {
+                await MainActor.run {
+                    dataChange.metricsChanged()
+                    dataChange.alertsChanged()
+                }
+                return false
+            }
+        }
+        // 2026-09-23 修复：启动入口改为统一维护（观察注册复核 + 刷新/回填请求重排）
+        Task { await container.healthSync.maintainBackgroundAutomation() }
+    }
+
+    var body: some View {
+        WithPerceptionTracking {
+            if let reason = container.degradedReason {
+                VLUnavailableView(
+                    L10n.startupDegradedTitle, systemImage: "externaldrive.badge.exclamationmark",
+                    description: Text(L10n.startupDegradedBody(reason)))
+                    .accessibilityIdentifier("STARTUP.degraded")
+            } else {
+                mainRoot
+            }
+        }
+    }
+
+    /// 主界面装配（降级路径不执行——内存库上的环境装配无意义）
+    @ViewBuilder
+    private var mainRoot: some View {
+        AppRootView(seedBundled: {
+            try await container.guidelines.seedBundled()
+            // F25 码表种子装载（V3.72）：装配层唯一调用点——幂等（app_settings
+            // 记 bundle_version），失败记日志不阻断启动（码表缺 = 未解析态，FR25.1）
+            try await container.codeIndex.loadBundledSeedsIfNeeded()
+        }, backfillDocumentTypeKeys: {
+            // v27 doc_type_key 首启回填（子项目 J · 原 D3-2）：装配层唯一调用点——
+            // 旧行标签三语反查稳定键、未命中 custom；幂等、失败下次启动重试
+            await DocumentTypeKeyBackfill.runIfNeeded(store: container.documents)
+        })
+            .environment(appState)
+            .environment(reminderStore)
+            // v42 用药时段 actor 非 Observable，经自定义 EnvironmentKey 注入。
+            // 审查修复（2026-10-24）：此前只在 PreviewRoot 注入，生产根缺失——
+            // 医疗档案 → 用药时段、提醒页 SP-15.slots.entry、提醒表单时段选择
+            // 全部拿 nil 而永久转圈（预览通过掩盖了生产断链）。
+            .environment(\.medicationScheduleStore, container.scheduleTemplates)
+            .environment(settingsStore)
+            .environment(avatarState)
+            .environment(observationState)
+            .environment(dataChangeCenter)
+            .environment(asrInstallCenter)
+            .environment(container.notificationCenterState)
+            .environment(PendingCardCenterState(store: container.pendingCards,
+                                                scheduler: container.reminderScheduler))
+            .environment(entitlementStore)
+            .environment(trendState)
+            .environment(voiceNoteState)
+            .environment(m2Hub)
+            .environment(container.mediaSession)
+            .environment(router)
+            .environment(\.auditLog, container.audit)
+            .environment(searchState)
+            .environment(encountersState)
+            .environment(HealthExamViewState(store: container.healthExams))
+            .environment(timelineState)
+            .environment(questionsState)
+            .environment(chatHistoryState)
+            .environment(documentsState)
+            .environment(exportWizardState)
+             .environment(f16DeviceState)
+             .environment(backupState)
+             .environment(medicalCatalogState)
+             // E①（收口批）：四域参考目录端口（nil=未就绪零渲染）
+             .environment(\.medicalReferenceCatalog, container.medicalReferenceCatalog)
+             .environment(\.medicalCatalogGeneration, medicalCatalogState.generation)
+             .environment(updateAdviceState)
+             .environment(asrCheckState)
+             .environment(llmModelInstallCenter)
+             .environment(updateCenterState)
+             // T2 模型自动补齐（2026-10-09 换型+下载化批）：幂等——仅在
+             // 「已一次显式同意 ∧ 未安装 ∧ 非低电量」时发起；未同意绝不联网。
+             .task { llmModelInstallCenter.autoInstallIfEligible() }
+             // 第九轮审查修复（权益冷启动）：entitlements.owned 此前只在
+             // PaywallView.task 里加载——冷启动后已购 Pro 用户首次「添加家人」
+             // 会被 memberAdditionBlocked 误拦并弹付费墙（门禁读 owned 恒空）。
+             // 启动即加载一次（StoreKit 只读、离线可用；失败静默，付费墙内仍可重试）。
+             .task { await entitlementStore.load() }
+    }
+}
+
+/// 批C③（第九轮审查 P4#2）：提醒对账的后台兜底作业（ReminderReconciler 文档
+/// 宣称的四层触发之**第四层**——此前 plist 无标识符、全仓无 BG 调用，只做提醒
+/// 用途的设备 8 天不开 App 即停提醒）。执行体由装配处注入（与前台同入口
+/// refreshTriggered → reconcile，幂等）；运行后恒重排（reschedule: true），
+/// BackgroundWorkScheduler 自动续排形成滚动兜底。预算取系统给的 refresh 预算，
+/// 对账本身为轻量 DB 读 + 系统 IPC。
+private struct ReminderReconcileJob: BackgroundJob {
+    static let identifier = "com.vitaliber.reminders-reconcile"
+    let handler: @Sendable () async -> Void
+    let descriptor = BackgroundJobDescriptor(identifier: ReminderReconcileJob.identifier,
+                                             kind: .refresh,
+                                             minimumInterval: 30 * 60)
+    func run(budget: Duration) async -> BackgroundJobOutcome {
+        await handler()
+        // refreshTriggered 按纪律内部吞错记日志（任一层成功即满足正确性）；
+        // 对账幂等 → 作业恒报 success + 重排
+        return BackgroundJobOutcome(success: true, reschedule: true)
+    }
+}
