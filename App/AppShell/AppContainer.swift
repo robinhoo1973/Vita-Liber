@@ -135,6 +135,7 @@ struct AppContainer {
             throw ContainerError.databaseMissing
         }
         let store = try GRDBStore.pool(at: databasePath)
+        removeLegacyDatabaseIfNeeded(activePath: databasePath)
         let catalogPath = URL(fileURLWithPath: defaultMedicalCatalogPath())
         let catalogSupport = catalogPath.deletingLastPathComponent()
         // 崩溃可恢复的激活 journal：必须在 MedicalCatalogStore 打开前跑一遍，把上次更新
@@ -374,15 +375,49 @@ struct AppContainer {
         case databaseMissing
     }
 
-    /// Application Support 下的数据库路径（生产库位置）
-    static func defaultDatabasePath() -> String {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory,
-                                            in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
+    /// Canonical local database name (three-segment naming rule).
+    static let databaseFileName = "app-local-user_data.sqlite"
+    /// Pre-2026-10-25 physical name; migrated once and then removed.
+    static let legacyDatabaseFileName = "vitaliber.sqlite"
+
+    /// Application Support 下的数据库路径（生产库位置）。
+    ///
+    /// 旧装机只有 `vitaliber.sqlite`。启动时先封 WAL、移动到规范名，
+    /// 成功后才删除旧文件；任何失败都回退旧路径，绝不让迁移失败变成空库。
+    static func defaultDatabasePath(fileManager: FileManager = .default) -> String {
+        let base = fileManager.urls(for: .applicationSupportDirectory,
+                                    in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
         let dir = base.appendingPathComponent("VitaLiber", isDirectory: true)
-        do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        do { try fileManager.createDirectory(at: dir, withIntermediateDirectories: true) }
         catch { /* 目录创建失败由 GRDB 打开时报错，不在此吞掉 */ }
-        return dir.appendingPathComponent("vitaliber.sqlite").path
+        let target = dir.appendingPathComponent(databaseFileName)
+        let legacy = dir.appendingPathComponent(legacyDatabaseFileName)
+        if !fileManager.fileExists(atPath: target.path),
+           fileManager.fileExists(atPath: legacy.path) {
+            do {
+                try DatabaseFileMigration.migrate(from: legacy, to: target,
+                                                  fileManager: fileManager)
+            } catch {
+                logger.error("数据库改名失败，继续使用旧库: \(String(describing: error))")
+                // 失败可能发生在移动之后（回滚也失败）：旧文件已不在时目标才是唯一副本，
+                // 否则返回一个已不存在的旧路径，真实库会被当成缺失或静默新建空库。
+                return fileManager.fileExists(atPath: legacy.path) ? legacy.path : target.path
+            }
+        }
+        return target.path
+    }
+
+    /// 正常迁移用 move 完成，旧文件在迁移成功时已消失。
+    /// 若启动时两者同时存在，无法证明哪一份是用户最新数据：
+    /// 不删除、不合并，保留旧库并记录告警，避免误删真实档案。
+    private static func removeLegacyDatabaseIfNeeded(activePath: String) {
+        let active = URL(fileURLWithPath: activePath)
+        guard active.lastPathComponent == databaseFileName else { return }
+        let legacy = active.deletingLastPathComponent()
+            .appendingPathComponent(legacyDatabaseFileName)
+        guard FileManager.default.fileExists(atPath: legacy.path) else { return }
+        logger.warning("检测到新旧数据库同时存在，保留旧库待人工核对: \(legacy.lastPathComponent)")
     }
 
     /// bundle 发布配置资源（SP-64 信任锚/age identity）；缺省/不可读 = 未配置，
