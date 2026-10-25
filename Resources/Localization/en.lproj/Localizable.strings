@@ -1818,7 +1818,7 @@
 "startup.init.stageHistory" = "Checking the local database…";
 "startup.init.stageProbe" = "Checking local records…";
 "startup.init.stageCreate" = "Creating the local database…";
-"startup.init.stageMigrateFmt" = "Upgrading the database (v%1$d → v%2$d)…";
+"startup.init.stageMigrateFmt" = "Upgrading the database (v%1$ld → v%2$ld)…";
 "startup.init.stageVerify" = "Verifying the data structure…";
 "startup.init.stageAssemble" = "Preparing the interface…";
 "startup.init.privacy" = "All data stays on this device · Nothing is uploaded";
@@ -1828,7 +1828,7 @@
 "startup.init.failureMissingOriginals" = "Original files are still present, but the main database is missing. Automatic rebuild stopped to avoid overwriting data. Restore from a backup or contact support.";
 "startup.init.failureCorrupt" = "The database file cannot be read. Your original files were not modified. Restart the app and try again; contact support if this persists.";
 "startup.init.failureTooNew" = "The database was created by a newer version of the app. Update the app and try again.";
-"startup.init.failureMigrationFmt" = "Database upgrade did not finish (current v%1$d, expected v%2$d). No data was deleted; please retry.";
+"startup.init.failureMigrationFmt" = "Database upgrade did not finish (current v%1$ld, expected v%2$ld). No data was deleted; please retry.";
 "startup.init.failureGeneric" = "The local database could not be initialized. No data was modified; please retry or contact support if this persists.";
 "helpcard.defaultFilename" = "Medication List";
 "f19.sendA11y" = "Send command";

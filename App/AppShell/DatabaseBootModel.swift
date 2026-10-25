@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 
 /// 启动门表现态：只有 `container` 非 nil 才允许挂载主界面。
@@ -26,10 +27,13 @@ final class DatabaseBootModel: ObservableObject {
             phase = .ready
         } catch let boot as DatabaseBootFailure {
             failure = boot
+            AppSessionHolder.shared.fail()
         } catch is CancellationError {
             // 用户退出/任务取消：保留首帧，下次进入重试。
+            AppSessionHolder.shared.fail()
         } catch {
             failure = .unexpected(String(describing: error))
+            AppSessionHolder.shared.fail()
         }
         isRunning = false
     }

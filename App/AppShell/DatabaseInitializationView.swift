@@ -11,16 +11,20 @@ struct DatabaseInitializationView: View {
             VStack(spacing: 20) {
                 iconBadge
                 VStack(spacing: 8) {
-                    Text(L10n.startupInitTitle)
+                    Text(model.failure == nil ? L10n.startupInitTitle : L10n.startupInitFailureTitle)
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("STARTUP.initialization.title")
-                    Text(L10n.startupInitSubtitle)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    if model.failure == nil {
+                        Text(L10n.startupInitSubtitle)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-                stageBlock
+                if model.failure == nil {
+                    stageBlock
+                }
                 privacyRow
                 if let failure = model.failure {
                     failureCard(failure)
@@ -122,9 +126,6 @@ struct DatabaseInitializationView: View {
 
     private func failureCard(_ failure: DatabaseBootFailure) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label(L10n.startupInitFailureTitle, systemImage: "exclamationmark.triangle")
-                .font(.headline)
-                .foregroundStyle(.orange)
             Text(failureBody(failure))
                 .font(.callout)
                 .foregroundStyle(.secondary)

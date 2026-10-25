@@ -191,8 +191,14 @@ enum DatabaseBootService {
 
     private static func hasOriginalsEvidence() -> Bool {
         let directory = AppContainer.defaultOriginalsDir()
-        let contents = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [] // try?-ok: 目录不可读=无原件证据，与 databaseWasLost 同口径
-        return contents.contains { !$0.hasPrefix(".") }
+        // 只认 originals/ 与 sensitive/ 下的真实文件：空目录/隐藏文件不是证据
+        // （data-flow §13.1 双布局判据；根目录本身存在不能让新装机误判为丢库）。
+        for sub in ("originals", "sensitive") {
+            let path = directory.appendingPathComponent(sub, isDirectory: true).path
+            let contents = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? [] // try?-ok: 目录不可读=无原件证据
+            if contents.contains(where: { !$0.hasPrefix(".") }) { return true }
+        }
+        return false
     }
 
     private static func record(_ history: SchemaHistoryStore?, databasePath: String,
