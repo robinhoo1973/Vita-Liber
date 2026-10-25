@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 import Foundation
+import GRDB
 import Testing
 @testable import Domain
 @testable import Infrastructure
@@ -46,7 +47,7 @@ struct SchemaHistoryTests {
         #expect(contents.attempts.isEmpty)
         #expect(contents.steps.count == SchemaMigrations.steps.count + 1)
         #expect(contents.steps.last?.version == SchemaMigrations.latestVersion)
-        #expect(contents.registry.count == 3)
+        #expect(contents.registry.count == 6)
         #expect(contents.meta["history_schema_version"] == "1")
     }
 
@@ -106,6 +107,43 @@ struct SchemaHistoryTests {
         #expect(probe.sizeBytes == 0)
         #expect(DatabaseBootPolicy.decide(probe, supportedVersion: 48) == .corrupt(.emptyFile))
     }
+    @Test func catalogSchemaProbeReadsOnlyContractKey() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
+        let v4 = dir.appendingPathComponent("v4.sqlite")
+        try makeCatalog(v4, schema: "4")
+        #expect(CatalogSchemaProbe.inspect(path: v4.path) == .v4)
+
+        let v5 = dir.appendingPathComponent("v5.sqlite")
+        try makeCatalog(v5, schema: "5")
+        #expect(CatalogSchemaProbe.inspect(path: v5.path) == .v5)
+
+        // 无契约键时不得回落 PRAGMA user_version（测试内为 7）。
+        let noKey = dir.appendingPathComponent("no-key.sqlite")
+        try makeCatalog(noKey, schema: nil)
+        #expect(CatalogSchemaProbe.inspect(path: noKey.path) == .unsupported(nil))
+
+        let unknown = dir.appendingPathComponent("unknown.sqlite")
+        try makeCatalog(unknown, schema: "9")
+        #expect(CatalogSchemaProbe.inspect(path: unknown.path) == .unsupported(9))
+
+        #expect(CatalogSchemaProbe.inspect(path: dir.appendingPathComponent("missing.sqlite").path)
+                == .missing)
+    }
+
+    private func makeCatalog(_ url: URL, schema: String?) throws {
+        let queue = try DatabaseQueue(path: url.path)
+        try queue.write { db in
+            try db.execute(sql: "CREATE TABLE catalog_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            if let schema {
+                try db.execute(
+                    sql: "INSERT INTO catalog_meta(key, value) VALUES('app_catalog_schema_version', ?)",
+                    arguments: [schema])
+            }
+            try db.execute(sql: "PRAGMA user_version = 7")
+        }
+    }
+
     @Test func upgradeServiceValidatesSourceAndTarget() throws {
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理

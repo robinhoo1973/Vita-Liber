@@ -33,7 +33,10 @@ struct DatabaseBootDiagnostics: Sendable, Equatable {
     let targetVersion: Int
     let decision: String
     let catalogPresent: Bool
-    let catalogVersion: Int?
+    let catalogSchemaVersion: Int?
+    let catalogV5PackagesPresent: Int
+    let catalogV5SchemaConsistent: Bool
+    let catalogSupportedByCurrentApp: Bool
 }
 
 struct PreparedDatabase: Sendable {
@@ -77,10 +80,15 @@ enum DatabaseBootService {
             requiredTables: DatabaseBootPolicy.requiredTables,
             originalsPresent: originalsPresent)
         let catalogPath = AppContainer.defaultMedicalCatalogPath()
-        let catalogProbe = DatabaseProbe.inspect(
-            path: catalogPath, requiredTables: [], originalsPresent: false)
-        let historyProbe = DatabaseProbe.inspect(
-            path: historyPath, requiredTables: [], originalsPresent: false)
+        let catalogState = CatalogSchemaProbe.inspect(path: catalogPath)
+        let v5Paths = v5CatalogNames.map { v5CatalogPath($0) }
+        let v5States = v5Paths.map { CatalogSchemaProbe.inspect(path: $0) }
+        let v5Present = v5States.filter { state in
+            if case .missing = state { return false }
+            return true
+        }.count
+        let v5SchemaConsistent = v5States.allSatisfy { $0 == .v5 }
+        let catalogPresent = catalogState != .missing || v5Present > 0
 
         var registeredCount = 0
         if let history {
@@ -92,13 +100,14 @@ enum DatabaseBootService {
                     switch entry.role {
                     case "user-data": path = databasePath
                     case "schema-history": path = historyPath
-                    case "medical-catalog": path = catalogPath
+                    case "medical-catalog", "medical-catalog-v4": path = catalogPath
+                    case "medical-catalog-v5": path = v5CatalogPath(entry.name)
                     default: path = nil
                     }
                     guard let path else { continue }
-                    let probe = path == databasePath ? userProbe
-                        : path == historyPath ? historyProbe
-                        : catalogProbe
+                    let probe = path == databasePath
+                        ? userProbe
+                        : DatabaseProbe.inspect(path: path, requiredTables: [], originalsPresent: false)
                     try history.record(.init(
                         name: entry.name, role: entry.role, exists: probe.exists,
                         sizeBytes: probe.sizeBytes, headerValid: probe.headerValid,
@@ -181,12 +190,31 @@ enum DatabaseBootService {
                 historyAvailable: history != nil,
                 historyStepCount: historyStepCount,
                 registeredDatabases: registeredCount,
-                observedDatabases: 3,
+                observedDatabases: 1 + v5Present + (catalogPresent ? 1 : 0),
                 sourceVersion: userProbe.observedVersion,
                 targetVersion: targetVersion,
                 decision: decisionLabel,
-                catalogPresent: catalogProbe.exists && catalogProbe.headerValid && catalogProbe.sizeBytes > 0,
-                catalogVersion: catalogProbe.observedVersion))
+                catalogPresent: catalogPresent,
+                catalogSchemaVersion: catalogState.version,
+                catalogV5PackagesPresent: v5Present,
+                catalogV5SchemaConsistent: v5SchemaConsistent,
+                catalogSupportedByCurrentApp: catalogState == .v4))
+    }
+
+    /// v5 三包固定名；安装、选择、激活归 f7，gate 只做 registry/探测。
+    private static let v5CatalogNames = [
+        "app-catalog-drug.sqlite",
+        "app-catalog-facility.sqlite",
+        "app-catalog-reference.sqlite",
+    ]
+
+    private static func v5CatalogPath(_ name: String,
+                                      fileManager: FileManager = .default) -> String {
+        let base = fileManager.urls(for: .applicationSupportDirectory,
+                                    in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        return base.appendingPathComponent("VitaLiber/catalog/v5", isDirectory: true)
+            .appendingPathComponent(name).path
     }
 
     private static func hasOriginalsEvidence() -> Bool {
