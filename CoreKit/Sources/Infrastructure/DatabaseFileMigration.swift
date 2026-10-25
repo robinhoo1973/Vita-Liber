@@ -48,7 +48,7 @@ public enum DatabaseFileMigration {
             throw Failure.notSealed(String(describing: error))
         }
 
-        for suffix in ("-wal", "-shm", "-journal") {
+        for suffix in ["-wal", "-shm", "-journal"] {
             let sidecar = URL(fileURLWithPath: source.path + suffix)
             if fileManager.fileExists(atPath: sidecar.path) {
                 try? fileManager.removeItem(at: sidecar) // try?-ok: sealed DB owns no sidecar

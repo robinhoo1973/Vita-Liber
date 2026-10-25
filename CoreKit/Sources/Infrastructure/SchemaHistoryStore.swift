@@ -89,10 +89,10 @@ public struct SchemaHistoryStore: Sendable {
     /// 删除旧文件而不是逐表 DELETE，确保旧列/旧触发器不会残留成“第二 schema”。
     public static func rebuild(at path: String,
                                fileManager: FileManager = .default) throws -> SchemaHistoryStore {
-        let url = URL(fileURLWithPath: path)
+        var url = URL(fileURLWithPath: path)
         try fileManager.createDirectory(at: url.deletingLastPathComponent(),
                                         withIntermediateDirectories: true)
-        for suffix in ("", "-wal", "-shm", "-journal") {
+        for suffix in ["", "-wal", "-shm", "-journal"] {
             let candidate = path + suffix
             if fileManager.fileExists(atPath: candidate) {
                 try fileManager.removeItem(atPath: candidate)
