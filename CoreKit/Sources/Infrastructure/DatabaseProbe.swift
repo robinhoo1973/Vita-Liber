@@ -33,23 +33,44 @@ public enum DatabaseProbe {
         configuration.busyMode = .timeout(1)
         do {
             let queue = try DatabaseQueue(path: path, configuration: configuration)
-            let (version, tables) = try queue.read { db -> (Int?, [String]) in
-                let version = try Int.fetchOne(db, sql: "PRAGMA user_version")
-                let tables = try String.fetchAll(
-                    db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
-                return (version, tables)
-            }
-            let present = Set(tables).intersection(requiredTables).count
-            return DatabaseProbeSnapshot(
-                exists: true, sizeBytes: size, headerValid: true, observedVersion: version,
-                tableCount: tables.count, requiredTablesPresent: present,
-                requiredTablesExpected: requiredTables.count, originalsPresent: originalsPresent)
+            return snapshot(try readState(queue), size: size,
+                            requiredTables: requiredTables, originalsPresent: originalsPresent)
         } catch {
-            return DatabaseProbeSnapshot(
-                exists: true, sizeBytes: size, headerValid: true, observedVersion: nil,
-                tableCount: 0, requiredTablesPresent: 0,
-                requiredTablesExpected: requiredTables.count, originalsPresent: originalsPresent)
+            // 只读打开可能因热 journal/WAL 恢复而失败；生产写入会正常恢复，
+            // 故此处退回读写连接再探一次（文件已存在，不会静默建库）。
+            var writable = Configuration()
+            writable.foreignKeysEnabled = false
+            writable.busyMode = .timeout(1)
+            do {
+                let queue = try DatabaseQueue(path: path, configuration: writable)
+                return snapshot(try readState(queue), size: size,
+                                requiredTables: requiredTables, originalsPresent: originalsPresent)
+            } catch {
+                return DatabaseProbeSnapshot(
+                    exists: true, sizeBytes: size, headerValid: true, observedVersion: nil,
+                    tableCount: 0, requiredTablesPresent: 0,
+                    requiredTablesExpected: requiredTables.count, originalsPresent: originalsPresent)
+            }
         }
+    }
+
+    private static func readState(_ queue: DatabaseQueue) throws -> (Int?, [String]) {
+        try queue.read { db in
+            let version = try Int.fetchOne(db, sql: "PRAGMA user_version")
+            let tables = try String.fetchAll(
+                db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
+            return (version, tables)
+        }
+    }
+
+    private static func snapshot(_ state: (Int?, [String]), size: Int64,
+                                 requiredTables: [String],
+                                 originalsPresent: Bool) -> DatabaseProbeSnapshot {
+        let present = Set(state.1).intersection(requiredTables).count
+        return DatabaseProbeSnapshot(
+            exists: true, sizeBytes: size, headerValid: true, observedVersion: state.0,
+            tableCount: state.1.count, requiredTablesPresent: present,
+            requiredTablesExpected: requiredTables.count, originalsPresent: originalsPresent)
     }
 
     private static func hasSQLiteHeader(_ path: String) -> Bool {
