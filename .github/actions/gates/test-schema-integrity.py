@@ -29,7 +29,7 @@ class SchemaIntegrityTests(unittest.TestCase):
         seed_text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaHistorySeed.swift").read_text()
         chunks = re.findall(r'^\s*"([A-Za-z0-9+/=]+)",$', seed_text, re.M)
         self.assertTrue(chunks, "SchemaHistorySeed 未找到 base64 分片")
-        raw = zlib.decompress(base64.b64decode("".join(chunks))).decode("utf-8")
+        raw = zlib.decompress(base64.b64decode("".join(chunks)), -15).decode("utf-8")
         seeded = [int(v) for v in re.findall(
             r"INSERT INTO schema_step\(version,name,kind,sql,transactional,fk_check_table\) VALUES\((\d+),", raw)]
         text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaMigrations.swift").read_text()
