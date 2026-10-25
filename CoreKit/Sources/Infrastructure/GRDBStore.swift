@@ -15,7 +15,7 @@ import Domain
 /// 产品目标平台是 iOS，Apple 平台 SQLite 具备该能力。故 Package.swift 用
 /// `.when(platforms: [.iOS, .macOS])` 条件依赖，Linux 侧只跑 Domain 层门禁，
 /// 本文件整体被 `#if canImport(GRDB)` 编译排除——不是降级，是平台正确性。
-public struct GRDBStore {
+public struct GRDBStore: Sendable {
     /// §4.4：仓储面向 `any DatabaseWriter`（tech V3.24 修正条——不得写死 DatabaseQueue）。
     /// 生产装配注入共享 `DatabasePool`(WAL)；测试/Preview 注入内存 `DatabaseQueue`。
     public let writer: any DatabaseWriter

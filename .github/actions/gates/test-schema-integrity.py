@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Execute the actual baseline DDL and the v23 rebuild against SQLite, without Apple SDKs."""
 from pathlib import Path
+import base64
 import re
 import sqlite3
+import zlib
 import unittest
 from contextlib import closing
 
@@ -18,6 +20,22 @@ def baseline():
 
 
 class SchemaIntegrityTests(unittest.TestCase):
+    def test_schema_history_seed_covers_every_migration(self):
+        """代码内 zlib+base64 种子必须与 SchemaMigrations.steps 同版本同顺序。
+
+        启动门每次启动都按此种子重建 app-local-schema-history.sqlite；
+        种子落后会让历史库目录与真实迁移链漂移，且 macOS 之外无 Swift 测试可跑。
+        """
+        seed_text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaHistorySeed.swift").read_text()
+        chunks = re.findall(r'^\s*"([A-Za-z0-9+/=]+)",$', seed_text, re.M)
+        self.assertTrue(chunks, "SchemaHistorySeed 未找到 base64 分片")
+        raw = zlib.decompress(base64.b64decode("".join(chunks))).decode("utf-8")
+        seeded = [int(v) for v in re.findall(
+            r"INSERT INTO schema_step\(version,name,kind,sql,transactional,fk_check_table\) VALUES\((\d+),", raw)]
+        text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaMigrations.swift").read_text()
+        expected = [1] + [int(v) for v in re.findall(r"Step\(version: (\d+),", text)]
+        self.assertEqual(seeded, expected, "历史库种子版本序列与 SchemaMigrations.steps 不一致")
+        self.assertEqual(seeded[-1], 48)
     def test_fresh_database_creates_all_indexes_and_relationship_columns(self):
         with closing(sqlite3.connect(":memory:")) as db:
             db.execute("PRAGMA foreign_keys = ON")
