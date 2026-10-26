@@ -34,7 +34,7 @@ final class DatabaseBootModel: ObservableObject {
                 checker: assembled.medicalCatalogChecker,
                 opener: assembled.medicalCatalogOpener)
             self.catalog = catalog
-            if prepared.diagnostics.catalogSupportedByCurrentApp {
+            if prepared.diagnostics.catalogSupportedByCurrentApp || shouldAutoContinue {
                 container = assembled
                 phase = .ready
             } else {
@@ -59,6 +59,15 @@ final class DatabaseBootModel: ObservableObject {
         guard !isRunning else { return }
         failure = nil
         await start()
+    }
+
+    /// XCUITest 不能驱动首启可选卡；仅 DEBUG 的 `-uitest-*` 启动参数自动继续。
+    private var shouldAutoContinue: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains { $0.hasPrefix("-uitest-") }
+        #else
+        false
+        #endif
     }
 
     /// 用户显式点击「检查更新」：这是首启唯一允许发起网络的动作。
