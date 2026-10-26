@@ -1814,6 +1814,10 @@
 "startup.loadFailed" = "本地数据库加载失败。";
 "startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";
 "startup.init.title" = "正在准备你的健康档案";
+"startup.init.readyTitle" = "本地档案已就绪";
+"startup.catalog.title" = "参考数据（可选）";
+"startup.catalog.body" = "下载药品与医院参考目录后，匹配会更完整；不下载也可继续使用全部核心功能。";
+"startup.catalog.continue" = "稍后再说";
 "startup.init.subtitle" = "首次启动或版本升级时，需要在本机整理数据库。请稍候，不要关闭 App。";
 "startup.init.stageHistory" = "正在校验本地数据库…";
 "startup.init.stageProbe" = "正在检查本地档案…";

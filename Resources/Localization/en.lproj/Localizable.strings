@@ -1814,6 +1814,10 @@
 "startup.loadFailed" = "The local database failed to load.";
 "startup.degradedBodyFmt" = "Your local data could not be opened (%@). Nothing has been modified; please restart the app, or contact support if this persists.";
 "startup.init.title" = "Preparing your health records";
+"startup.init.readyTitle" = "Local records are ready";
+"startup.catalog.title" = "Reference data (optional)";
+"startup.catalog.body" = "Downloading the drug and hospital reference catalog improves matching. You can continue without it and still use all core features.";
+"startup.catalog.continue" = "Continue without downloading";
 "startup.init.subtitle" = "The local database needs to be prepared on first launch or after an update. Please wait and keep the app open.";
 "startup.init.stageHistory" = "Checking the local database…";
 "startup.init.stageProbe" = "Checking local records…";

@@ -10,9 +10,13 @@ final class DatabaseBootModel: ObservableObject {
     @Published private(set) var failure: DatabaseBootFailure?
     @Published private(set) var diagnostics: DatabaseBootDiagnostics?
     @Published private(set) var isRunning = false
+    /// 本地库已就绪但参考目录缺失/版本不匹配时的显式可选步骤。
+    @Published private(set) var awaitingCatalogChoice = false
+    @Published private(set) var catalog: MedicalCatalogState?
+    private var pendingContainer: AppContainer?
 
     func start() async {
-        guard !isRunning, container == nil else { return }
+        guard !isRunning, container == nil, pendingContainer == nil else { return }
         isRunning = true
         failure = nil
         phase = .idle
@@ -23,8 +27,21 @@ final class DatabaseBootModel: ObservableObject {
             phase = .assembling
             let assembled = try AppContainer.live(store: prepared.store)
             diagnostics = prepared.diagnostics
-            container = assembled
-            phase = .ready
+            let catalog = MedicalCatalogState(
+                store: assembled.medicalCatalog,
+                updater: assembled.medicalCatalogUpdater,
+                path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
+                checker: assembled.medicalCatalogChecker,
+                opener: assembled.medicalCatalogOpener)
+            self.catalog = catalog
+            if prepared.diagnostics.catalogSupportedByCurrentApp {
+                container = assembled
+                phase = .ready
+            } else {
+                pendingContainer = assembled
+                awaitingCatalogChoice = true
+                phase = .catalogChoice
+            }
         } catch let boot as DatabaseBootFailure {
             failure = boot
             AppSessionHolder.shared.fail()
@@ -42,5 +59,25 @@ final class DatabaseBootModel: ObservableObject {
         guard !isRunning else { return }
         failure = nil
         await start()
+    }
+
+    /// 用户显式点击「检查更新」：这是首启唯一允许发起网络的动作。
+    func checkCatalog() {
+        catalog?.check()
+    }
+
+    func installCatalog() {
+        catalog?.applyUpdate()
+    }
+
+    /// 参考数据是可选项；不下载也进入主界面（P0 零网络可用）。
+    func continueToApp() {
+        guard let pendingContainer else { return }
+        catalog?.cancelUpdate()
+        catalog = nil
+        awaitingCatalogChoice = false
+        self.pendingContainer = nil
+        container = pendingContainer
+        phase = .ready
     }
 }

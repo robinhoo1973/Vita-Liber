@@ -12,6 +12,7 @@ enum DatabaseBootPhase: Equatable, Sendable {
     case migrating(from: Int, to: Int)
     case verifying
     case assembling
+    case catalogChoice
     case ready
 }
 

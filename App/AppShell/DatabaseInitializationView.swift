@@ -1,4 +1,6 @@
 import SwiftUI
+import Domain
+import Perception
 
 /// 启动门唯一可见页面：本地数据库未就绪前不挂载主界面。
 /// 设计约束：三语 L10n、无硬编码颜色/字号、失败态可重试、VoiceOver 可读。
@@ -6,24 +8,34 @@ struct DatabaseInitializationView: View {
     @ObservedObject var model: DatabaseBootModel
 
     var body: some View {
+        WithPerceptionTracking {
+            content
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 24)
             VStack(spacing: 20) {
                 iconBadge
                 VStack(spacing: 8) {
-                    Text(model.failure == nil ? L10n.startupInitTitle : L10n.startupInitFailureTitle)
+                    Text(titleText)
                         .font(.title2.bold())
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("STARTUP.initialization.title")
                     if model.failure == nil {
-                        Text(L10n.startupInitSubtitle)
+                        Text(model.awaitingCatalogChoice ? L10n.startupCatalogBody : L10n.startupInitSubtitle)
                             .font(.body)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                 }
                 if model.failure == nil {
-                    stageBlock
+                    if model.awaitingCatalogChoice {
+                        catalogCard
+                    } else {
+                        stageBlock
+                    }
                 }
                 privacyRow
                 if let failure = model.failure {
@@ -41,6 +53,95 @@ struct DatabaseInitializationView: View {
         .tintedCanvas()
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("STARTUP.initialization")
+    }
+
+    private var titleText: String {
+        if model.failure != nil { return L10n.startupInitFailureTitle }
+        if model.awaitingCatalogChoice { return L10n.startupInitReadyTitle }
+        return L10n.startupInitTitle
+    }
+
+    @ViewBuilder
+    private var catalogCard: some View {
+        if let catalog = model.catalog {
+            VStack(alignment: .leading, spacing: 10) {
+                Label(L10n.startupCatalogTitle, systemImage: "books.vertical")
+                    .font(.headline)
+                Text(catalogStatus(catalog))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let progress = catalog.updateProgress {
+                    if case .downloading(let received, let total) = progress {
+                        ProgressView(value: total > 0 ? min(1, Double(received) / Double(total)) : 0)
+                    } else {
+                        ProgressView()
+                    }
+                    Text(catalogPhaseText(progress))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if let completed = catalog.updateCompletedDataVersion {
+                    Label(L10n.resourceCatalogUpdateCompletedFmt(String(completed.prefix(8))),
+                          systemImage: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.green)
+                }
+                if catalog.updateError != nil {
+                    Text(L10n.resourceCatalogUpdateFailed)
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                }
+                HStack(spacing: 10) {
+                    if catalog.isUpdating {
+                        Button(L10n.commonCancel) { catalog.cancelUpdate() }
+                            .buttonStyle(.bordered)
+                    } else if case .updateAvailable = catalog.remoteState {
+                        Button(L10n.resourceCatalogUpdate) { model.installCatalog() }
+                            .buttonStyle(.bordered)
+                    } else {
+                        Button(L10n.resourceCatalogCheck) { model.checkCatalog() }
+                            .buttonStyle(.bordered)
+                            .disabled(catalog.remoteState == .checking)
+                    }
+                    Button(L10n.startupCatalogContinue) { model.continueToApp() }
+                        .buttonStyle(.borderedProminent)
+                }
+                .frame(minHeight: 44)
+                Text(L10n.resourceCatalogPrivacy)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
+            .accessibilityIdentifier("STARTUP.catalog")
+        }
+    }
+
+    private func catalogStatus(_ catalog: MedicalCatalogState) -> String {
+        switch catalog.remoteState {
+        case .idle:
+            return catalog.isAvailable ? L10n.resourceCatalogUpToDate : L10n.resourceCatalogNotAvailable
+        case .checking: return L10n.resourceCatalogChecking
+        case .upToDate: return L10n.resourceCatalogUpToDate
+        case .updateAvailable(let candidate): return L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion)
+        case .noInstallableAvailable: return L10n.resourceCatalogNoInstallable
+        case .unavailable: return L10n.resourceCatalogUnavailable
+        case .rateLimited: return L10n.resourceCatalogRateLimited
+        case .verificationFailed: return L10n.resourceCatalogVerificationFailed
+        case .networkUnavailable: return L10n.resourceCatalogNetworkUnavailable
+        }
+    }
+
+    private func catalogPhaseText(_ progress: MedicalCatalogDownloadProgress) -> String {
+        switch progress {
+        case .downloading: return L10n.resourceCatalogPhaseDownloading
+        case .verifyingPackage: return L10n.resourceCatalogPhaseVerifyingPackage
+        case .decrypting: return L10n.resourceCatalogPhaseDecrypting
+        case .verifyingCatalog: return L10n.resourceCatalogPhaseVerifyingCatalog
+        case .activating: return L10n.resourceCatalogPhaseActivating
+        }
     }
 
     private var iconBadge: some View {
@@ -85,7 +186,7 @@ struct DatabaseInitializationView: View {
         switch model.phase {
         case .idle, .rebuildingHistory: return 0
         case .probing, .creating, .migrating, .verifying: return 1
-        case .assembling, .ready: return 2
+        case .assembling, .catalogChoice, .ready: return 2
         }
     }
 
@@ -100,7 +201,7 @@ struct DatabaseInitializationView: View {
         case .creating: return "plus.square.on.square"
         case .migrating: return "arrow.triangle.2.circlepath"
         case .verifying: return "checkmark.shield"
-        case .assembling: return "square.grid.2x2"
+        case .assembling, .catalogChoice: return "square.grid.2x2"
         case .ready: return "checkmark.circle.fill"
         }
     }
@@ -112,7 +213,7 @@ struct DatabaseInitializationView: View {
         case .creating: return L10n.startupInitStageCreate
         case .migrating(let from, let to): return L10n.startupInitStageMigrate(from, to)
         case .verifying: return L10n.startupInitStageVerify
-        case .assembling: return L10n.startupInitStageAssemble
+        case .assembling, .catalogChoice: return L10n.startupInitStageAssemble
         case .ready: return L10n.startupInitStageAssemble
         }
     }

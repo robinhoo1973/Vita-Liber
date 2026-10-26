@@ -1814,6 +1814,10 @@
 "startup.loadFailed" = "本機資料庫載入失敗。";
 "startup.degradedBodyFmt" = "本機資料暫無法開啟（%@）。您的資料未被修改；請重新啟動應用程式重試，如持續出現請聯絡支援。";
 "startup.init.title" = "正在準備你的健康檔案";
+"startup.init.readyTitle" = "本機檔案已就緒";
+"startup.catalog.title" = "參考資料（選用）";
+"startup.catalog.body" = "下載藥品與醫院參考目錄後，匹配會更完整；不下載也可繼續使用全部核心功能。";
+"startup.catalog.continue" = "稍後再說";
 "startup.init.subtitle" = "首次啟動或版本升級時，需要在本機整理資料庫。請稍候，不要關閉 App。";
 "startup.init.stageHistory" = "正在校驗本機資料庫…";
 "startup.init.stageProbe" = "正在檢查本機檔案…";

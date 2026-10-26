@@ -442,6 +442,10 @@ extension L10n {
 
     // 2026-10-25 数据库启动门（DatabaseInitializationView）
     static var startupInitTitle: String { t("startup.init.title") }
+    static var startupInitReadyTitle: String { t("startup.init.readyTitle") }
+    static var startupCatalogTitle: String { t("startup.catalog.title") }
+    static var startupCatalogBody: String { t("startup.catalog.body") }
+    static var startupCatalogContinue: String { t("startup.catalog.continue") }
     static var startupInitSubtitle: String { t("startup.init.subtitle") }
     static var startupInitStageHistory: String { t("startup.init.stageHistory") }
     static var startupInitStageProbe: String { t("startup.init.stageProbe") }
