@@ -5,7 +5,7 @@ import Compression
 
 /// 代码内嵌的 schema 历史种子（业主 2026-10-25 要求：压缩 base64 SQL）。
 ///
-/// 生成源：`SchemaV2.ddl`（v1 baseline）+ `SchemaMigrations.steps`（v2…v48）。
+/// 生成源：`SchemaV2.ddl`（v1 baseline）+ `SchemaMigrations.steps`（v2…v49）。
 /// 格式：UTF-8 SQL → raw DEFLATE（RFC 1951, level 9）→ base64。
 /// SQL 体为 Swift 运行时字符串（多行字面量按闭合定界符缩进剥离），与 `SchemaMigrations.steps` 逐字节一致。
 /// Apple `COMPRESSION_ZLIB` expects raw DEFLATE, not the RFC 1950 wrapper.**不得手改**；
@@ -20,7 +20,7 @@ public enum SchemaHistorySeed {
         "LfPXmPtSNq0nMno4C2PrMXt0537r5RDMInw5lNUvxegj7mlGdLinZ4xQ2miLZrLpq3XOfJRpppMxzzQjRiacjqbw+9U3w/5K8lLG",
         "SHfq+MZOPmR8B3PLhFpjepvPMjPRvxmhS1ezRsbnZruhR4x0CE4sGvG5TRMyIiHXGcE8jL92RNNwh21eptq7elaD1Z6uuPx4tC3N",
         "1gxPZo14KlsnzUVavHbs4oWzp87Au9+0nLkQcLbND0YyyY502PDOO6un24ys93qyIxtOxn3OMKtHCbKqr+jUmfMt5y7geGfdGBJg",
-        "+FCv/fnY6Yst5+v2tMNpJdNXQ/wxPpU9gT1Ne3Y2UBg2IJZsC7UZCQN2kE0Mhmne13yooWlfQ/NB93j+4BxAmApI0Op8QU+lGmLJ",
+        "+FCv/fnY6Yst5+v2tMNpJdNXQ/wxPpU9gT1Ne3Y2UBg2IJZsC7UZCQN2kE0Mhmne13yooWlfQ/Nh93j+4BxAmApI0Op8QU+lGmLJ",
         "sB5r6IClh/D9RsC0aNaA7+ClBrwEf1vXnpa6egrLa+bqnf9ezx3er5Wm5v57PW9NvLQmVs2RxcJyl9n7wOyZ+e/1/o84LdqhBr6l",
         "ztzU63Ch2J+DuRTHF8yNu4XlQXN40bw5V5q9Zr29BfMtP3xkPbxuznVbN++aG68+xhzjRiSKM+SH5EzNdaOh8wBc7DygmUPPS4tr",
         "Zn6teG+U5gkTMwfumvke2MjjZ77UzIX+0tOej7WB4vuRdEe12R3E2R3USgOL5p1umhebUa71MJ9QsNzVb9364WPPq1UPR2FSV7ef",
@@ -372,21 +372,23 @@ public enum SchemaHistorySeed {
         "Ye0OcB/gxZpNPj7DpoYNxw407GsCRPl2n1Z++KC8dr+w/IQ6nRN9OHmueX8jYPZWn3V3CMMLB+4WX77ECN35mXIf4GgvgjTSGfaE",
         "Ofi4+GrNfHSLEZhcaWDRvNMdLD99XOz/IWj2vCus3YNxzYE3SEeAWQ8tloY3iH4Ailu596XNO0hqnryAeZjr15ESDC0Wf1hlzWSo",
         "QzgLFsaAXLbTRzVsTPhgrbSwhLHCjI4Bk4GJAFE0b+eKg0vUNLyYnwDWS2hYC3KpLQck67i3sp8htwfZ5QOXm4ezxgCJZAMa6N0V",
-        "Kn1Bn/nxHfOKWti+c/8+l3Hl/5xWAv9/e1f3mzYMxN/7V1RICCbFaGuAdZuYtIc9TJs0ads7CiRAREiiJKzjv5/PH4m/gsNoPKni",
-        "ra3r+Hy+s+/O5/uRqjdkkGeEFRCXX2Gl3YnjkzaCSjVu4nUfot6eQQwEX69dSBpv5nkREi6IB2oieys2f4sI3iKCriKCF1/732KC",
-        "LycmqJwT5/bmW0zwhcYE/QdvlER/YrxlYCu0OHQqUsQ6LKEDOaDJD8pdA3EsTWUzWOHJlqOONfJ9XdqX61LCNK0W6vFQg5BX/hVS",
-        "Uy55xJkXcQYJtpZEltUxDRMZ+lgBP63iQs43FLdEYBJni1ezoUPaq8juum4neVQkNNSs611ifG90zLdFEEZoDfEThE+oIC5coaj7",
-        "U2/E9ANt9q4Hn+GBdkGFWCX4LtoC/w8SB8P2WdSLlPo02MJxmv57jtZZGGtrYrM6c6kAq9ool2imVNPwtkCBPVuSfPcQlaXF5ZXo",
-        "OlsuWCO0HdMha7FZSYNSwLVOF+aPBCJsDfIdrNUZEPwA6u0y8zWgJmDQFPHUH84LLjbNHtHg12yy0PbooKMssGWRtYHLAmscKwsj",
-        "5Lf3rNtzFTMEcqQvQwyBHj3hhbAdRytuV0aJGUPVhtUdA8oH8RYo6nn9X686Is6yjnxHcwYaCKqSVjrdIpfONqosXCVQNT2E1FtR",
-        "EbrADzI5/P7jHns22L+hEqkKhNhbJMITV6/lZT/0oRaVCJcr/0YNfI25fSvMW1VhNsckwSfyU5DsO+pNGFEJWgbpepcVbgWJjrk0",
-        "3KDYdOd6ZEpqt3CMXqfTbsEnJrEA83ShZOUhr0qLFZEAHk9UFEKKvI1RBtRhzDo2Gy7VEkCp1lqe0jUTH61N26n03gIu8gdeC0HR",
-        "XyiGYNwtF4QJfavZo6pm/nwWIpg2Wp/WSVSrmpH6O6Be2vkW9/gDklW1AMH5NS6rYgPJCNi2GJYspv4ESeafftKD4Y5WKZD3UVYn",
-        "AW+B0t8/wijnl5IVPZCskG9fvn7G9slwgEmPBu8H7JuDIdxCtq88+xTTaBB79qHdfvLbn+DeQKC5eT4Z2lHWyViE3T2d70QP5PPK",
-        "eIiVRDpIzKO0mHf/C0fMf1dLLFs+tMrCEz4ZtuDKm2645GKX4g0d9FzSnob7XUu/MmbPXXqe8fS1NwqLLEdxiGocD1dO6fSNxu4T",
-        "lE68jM/QxRFu9fTBE0I7iAO/IzhkIPOji+0gXOzz/q3e3jVetVTNg5SkbgGr7uOZk2GSogttaB5LEcqWTAhyqIlve/i3z2JINWPE",
-        "HRB5YYxmZWRioW0sDNr3fjT1zfKG+VTEJPnRjZ5OvaZABQUADqNNcEwqvGeQnDZnlMzMDGHkOCNj3oTyoA5shIIUGzbZpkLEL3DH",
-        "j8aTYTsjXp4qSLItOgR5Dm9JXVHyqFHSPEo1EfEX",
+        "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",
     ]
 
     /// 运行时解码：仅供 `SchemaHistoryStore.rebuild` 执行一次，不参与迁移决策。

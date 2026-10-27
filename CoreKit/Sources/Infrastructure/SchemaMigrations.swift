@@ -1048,6 +1048,27 @@ public enum SchemaMigrations {
         // v48：慢性病相关科室（2026-10-24 业主）——《医疗机构诊疗科目名录》
         // 名称/代码，仅慢性病有值；手术不设科室。只加可空列并按目录回填。
         Step(version: 48, name: "health-problem-department", sql: ""),
+        // v49：文档导出账本（2026-10-27 存储边界委员会 D1）——导出副本=Documents
+        // 用户面树（青囊书/<会话>/<内容名>），权威件仍为 media 根内容寻址原件。
+        // 只建表/索引；媒体根搬移与 meta 绝对→相对前缀改写在代码迁移 migrateV49。
+        Step(version: 49, name: "document-user-export", sql: """
+        CREATE TABLE IF NOT EXISTS document_user_export (
+          document_id TEXT PRIMARY KEY REFERENCES document_file(id) ON DELETE CASCADE,
+          conversation_id TEXT REFERENCES chat_conversation(id) ON DELETE SET NULL,
+          directory_name TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          relative_path TEXT NOT NULL UNIQUE,
+          name_source TEXT NOT NULL CHECK(name_source IN ('auto','user','fallback')),
+          state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','missing','removed')),
+          size_bytes INTEGER,
+          mtime REAL,
+          created_at REAL NOT NULL,
+          updated_at REAL NOT NULL,
+          removed_at REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_document_user_export_conversation
+          ON document_user_export(conversation_id) WHERE removed_at IS NULL;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

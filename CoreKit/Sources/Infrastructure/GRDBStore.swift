@@ -141,6 +141,12 @@ public struct GRDBStore: Sendable {
                     // 相关科室；仅加列/回填，手术保持空。
                     try Self.applyTransactional(db, step, then: Self.migrateV48)
                     continue
+                case 49:
+                    // v49 document-user-export（2026-10-27 存储边界委员会）：导出账本
+                    // （步内 SQL）+ 媒体根迁出 Documents（代码迁移）。搬移失败整体
+                    // 回滚（版本留 48），下次启动重试。
+                    try Self.applyTransactional(db, step, then: Self.migrateV49)
+                    continue
                 case 45:
                     // v45 medication-schedule-default（2026-10-24 业主）：每成员一个
                     // 默认用药时段 + 提醒的时段连接键。只加列/索引/标记默认，
@@ -386,6 +392,36 @@ public struct GRDBStore: Sendable {
                 """, arguments: [department.name, department.code,
                                   condition.id, condition.name])
         }
+    }
+
+    enum MediaRootMigrationError: Error, Equatable {
+        case moveFailed(String)
+    }
+
+    /// v49 代码迁移（2026-10-27 存储边界委员会）：媒体根迁出 Documents。
+    /// ① 同卷原子 rename：`Documents/MedicalNotes` → `AppSupport/VitaLiber/Media/MedicalNotes`。
+    ///    搬移失败抛错 → applyTransactional 整体回滚（版本留 48），下次启动重试；
+    ///    「已搬移但版本未推进」的崩溃走 alreadyCanonical 分支续完（幂等收敛）。
+    /// ② meta_json 绝对前缀改写（幂等 REPLACE）：新写已是相对路径不命中；
+    ///    双根并存 = 保留旧根待人工核对（改写跳过，旧绝对路径经双形态读仍有效）。
+    private static func migrateV49(_ db: Database) throws {
+        let legacy = MediaRootPaths.legacyMedicalNotesRoot()
+        let canonical = MediaRootPaths.canonicalMedicalNotesRoot()
+        let outcome = MediaRootPaths.migrateLegacyRoot(legacy: legacy, canonical: canonical)
+        switch outcome {
+        case .moveFailed(let reason):
+            throw MediaRootMigrationError.moveFailed(reason)
+        case .bothPresent:
+            // 绝不合并/删除：双根并存意味着无法证明哪份是最新用户数据。
+            return
+        case .moved, .alreadyCanonical, .noSource:
+            break
+        }
+        try db.execute(sql: """
+            UPDATE document_file
+               SET meta_json = REPLACE(meta_json, ?, ?)
+             WHERE meta_json LIKE '%' || ? || '%'
+            """, arguments: [legacy.path, canonical.path, legacy.path])
     }
 
     /// v45 代码迁移：`medication_schedule.is_default` + 部分唯一索引；
