@@ -409,7 +409,7 @@ final class MedicalCatalogStateTests: XCTestCase {
         await waitUntil("检查应进入 checking") { state.remoteState == .checking }
         await waitUntilGated("checker 应真正挂起") { await gated.isGated }
         XCTAssertFalse(state.canCheck, "检查在飞时不可再发起（单飞守卫同判据）")
-        gated.resume(MedicalCatalogCheckOutcome(state: .unavailable))
+        await gated.resume(MedicalCatalogCheckOutcome(state: .unavailable))
         await waitUntil("检查应落定") { state.remoteState == .unavailable }
         XCTAssertTrue(state.canCheck)
     }
