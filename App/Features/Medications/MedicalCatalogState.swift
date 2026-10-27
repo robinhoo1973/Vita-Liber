@@ -54,6 +54,8 @@ final class MedicalCatalogState {
     var isUpdating: Bool { updates.isUpdating }
     var canCancelUpdate: Bool { updates.canCancelUpdate }
     var canCheck: Bool { updates.canCheck }
+    var canUpdate: Bool { updates.canUpdate }
+    var updateCompletedCatalogVersion: Int64? { updates.updateCompletedCatalogVersion }
 
     func check() { updates.check() }
     func cancelCheck() { updates.cancelCheck() }

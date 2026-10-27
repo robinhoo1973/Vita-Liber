@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SwiftUI
+import UIKit
 
 /// 启动门表现态：只有 `container` 非 nil 才允许挂载主界面。
 ///
@@ -21,12 +22,18 @@ final class DatabaseBootModel: ObservableObject {
     private var pendingContainer: AppContainer?
 
     private let sessionFactory: ((AppContainer, MedicalCatalogState) -> AppSession)?
-    /// 「稍后再说」的延期偏好（UI 偏好，非医疗数据；UserDefaults 不入备份）。
-    private static let deferredPromptKey = "catalogPromptDeferredAt"
-    private static let deferredPromptWindow: TimeInterval = 7 * 24 * 60 * 60
+    /// 「暂不下载，继续」的延期偏好（UI 偏好，非医疗数据；UserDefaults 不入备份）。
+    static let deferredPromptKey = "catalogPromptDeferredAt"
+    private let defaults: UserDefaults
+    private let now: () -> Date
+    private let autoEnter = CatalogAutoEnterScheduler()
 
-    init(sessionFactory: ((AppContainer, MedicalCatalogState) -> AppSession)? = nil) {
+    init(sessionFactory: ((AppContainer, MedicalCatalogState) -> AppSession)? = nil,
+         defaults: UserDefaults = .standard,
+         now: @escaping () -> Date = Date.init) {
         self.sessionFactory = sessionFactory
+        self.defaults = defaults
+        self.now = now
     }
 
     func start() async {
@@ -104,9 +111,9 @@ final class DatabaseBootModel: ObservableObject {
     }
 
     private var promptDeferredRecently: Bool {
-        guard let deferredAt = UserDefaults.standard.object(forKey: Self.deferredPromptKey) as? Date
-        else { return false }
-        return Date().timeIntervalSince(deferredAt) < Self.deferredPromptWindow
+        CatalogPromptDeferral.isDeferred(
+            now: now(),
+            lastDeferredAt: defaults.object(forKey: Self.deferredPromptKey) as? Date)
     }
 
     /// 用户显式点击「检查更新」：这是首启唯一允许发起网络的动作。
@@ -118,12 +125,52 @@ final class DatabaseBootModel: ObservableObject {
         catalog?.applyUpdate()
     }
 
+    enum CatalogChoiceExit {
+        case deferred        // 暂不下载：写 7 天延期并取消在途检查/下载
+        case keepUpdating    // 先去使用：不写延期、不取消在途下载
+        case completed       // 完成/已是最新：进入（语义同 keepUpdating）
+    }
+
     /// 参考数据是可选项；不下载也进入主界面（P0 零网络可用）。
-    func continueToApp() {
-        guard let pendingContainer else { return }
-        UserDefaults.standard.set(Date(), forKey: Self.deferredPromptKey)
-        catalog?.cancelCheck()
-        catalog?.cancelUpdate()
+    func continueToApp() { finishCatalogChoice(.deferred) }
+
+    /// 「先去使用（下载继续）」/完成后「进入 App」：不得静默取消在途下载
+    /// （2026-10-27 评审 P0：旧实现主按钮在任何状态都会取消下载）。
+    func enterKeepingUpdate() { finishCatalogChoice(.keepUpdating) }
+
+    /// 完成/已是最新后的自动进入。
+    func completeAndEnter() { finishCatalogChoice(.completed) }
+
+    /// 完成/无候选后自动进入；VoiceOver 下延到 3s，先让成功播报完成。
+    func scheduleAutoEnterIfNeeded() {
+        guard awaitingCatalogChoice, shouldAutoEnter else { return }
+        let delay: Duration = UIAccessibility.isVoiceOverRunning ? .seconds(3) : .milliseconds(1500)
+        autoEnter.schedule(after: delay) { [weak self] in
+            self?.finishCatalogChoice(.completed)
+        }
+    }
+
+    private var shouldAutoEnter: Bool {
+        guard let catalog else { return false }
+        if catalog.updateCompletedDataVersion != nil
+            || catalog.updateCompletedCatalogVersion != nil { return true }
+        switch catalog.remoteState {
+        case .upToDate, .noInstallableAvailable: return true
+        default: return false
+        }
+    }
+
+    private func finishCatalogChoice(_ exit: CatalogChoiceExit) {
+        guard let pendingContainer else { return }   // 幂等：防双发布
+        autoEnter.cancel()
+        switch exit {
+        case .deferred:
+            defaults.set(now(), forKey: Self.deferredPromptKey)
+            catalog?.cancelCheck()
+            catalog?.cancelUpdate()
+        case .keepUpdating, .completed:
+            break
+        }
         awaitingCatalogChoice = false
         self.pendingContainer = nil
         publish(pendingContainer)

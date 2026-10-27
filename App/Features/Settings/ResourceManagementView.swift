@@ -327,35 +327,13 @@ struct ResourceManagementView: View {
     }
 
     private func catalogPhaseText(_ progress: MedicalCatalogDownloadProgress) -> String {
-        switch progress {
-        case .downloading: return L10n.resourceCatalogPhaseDownloading
-        case .verifyingPackage: return L10n.resourceCatalogPhaseVerifyingPackage
-        case .decrypting: return L10n.resourceCatalogPhaseDecrypting
-        case .verifyingCatalog: return L10n.resourceCatalogPhaseVerifyingCatalog
-        case .activating: return L10n.resourceCatalogPhaseActivating
-        }
+        MedicalCatalogPromptCopy.phaseText(progress)
     }
 
     /// 更新错误 → 用户文案：安全事件（回退拒绝）与可行动指引（存储不足/重新检查/
     /// 未配置）单列，其余保留通用「更新失败，本机目录仍可用」（13 词折叠评审修复）。
     private func updateErrorText(_ error: MedicalCatalogDownloadError) -> String {
-        // 无本机目录时不得复用「本机目录仍可用」的文案（那是假话）。
-        if catalogState.localVersion == nil {
-            switch error {
-            case .cancelled, .downloadFailed, .checksumMismatch, .packageInvalid,
-                 .catalogIntegrityFailed, .activationFailed:
-                return L10n.resourceCatalogUpdateFailedNoLocal
-            default: break
-            }
-        }
-        switch error {
-        case .cancelled: return L10n.resourceCatalogUpdateCancelled
-        case .insufficientStorage: return L10n.resourceCatalogFailedStorage
-        case .catalogRolledBack: return L10n.resourceCatalogFailedRolledBack
-        case .catalogNotConfigured: return L10n.resourceCatalogNotConfigured
-        case .catalogNotInstallable: return L10n.resourceCatalogNotInstallable
-        default: return L10n.resourceCatalogUpdateFailed
-        }
+        MedicalCatalogPromptCopy.errorText(error, hasLocal: catalogState.localVersion != nil)
     }
 
     /// 本地更新时间：App 内语言 locale 的短日期+时间。

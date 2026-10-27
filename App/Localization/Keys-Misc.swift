@@ -446,6 +446,27 @@ extension L10n {
     static var startupCatalogTitle: String { t("startup.catalog.title") }
     static var startupCatalogBody: String { t("startup.catalog.body") }
     static var startupCatalogContinue: String { t("startup.catalog.continue") }
+    static func startupCatalogInstallFmt(_ size: String) -> String {
+        String(format: t("startup.catalog.installFmt"), size)
+    }
+    static var startupCatalogRetryInstall: String { t("startup.catalog.retryInstall") }
+    static var startupCatalogEnter: String { t("startup.catalog.enter") }
+    static var startupCatalogUseWhileUpdating: String { t("startup.catalog.useWhileUpdating") }
+    static var startupCatalogCancelCheckContinue: String { t("startup.catalog.cancelCheckContinue") }
+    static var startupCatalogCancelUpdateContinue: String { t("startup.catalog.cancelUpdateContinue") }
+    static var startupCatalogStatusIdleLocal: String { t("startup.catalog.status.idleLocal") }
+    static var startupCatalogStatusIdleNoLocal: String { t("startup.catalog.status.idleNoLocal") }
+    static func startupCatalogCandidateFmt(_ size: String) -> String {
+        String(format: t("startup.catalog.candidateFmt"), size)
+    }
+    static func startupCatalogCompletedFmt(_ version: Int64) -> String {
+        String(format: t("startup.catalog.completedFmt"), version)
+    }
+    static var startupCatalogCompleted: String { t("startup.catalog.completed") }
+    static var startupCatalogActivating: String { t("startup.catalog.activating") }
+    static var startupCatalogBackgroundGrace: String { t("startup.catalog.backgroundGrace") }
+    static var startupCatalogUpgradeUnavailable: String { t("startup.catalog.upgradeUnavailable") }
+    static var startupCatalogSizeHint: String { t("startup.catalog.sizeHint") }
     static var startupInitSubtitle: String { t("startup.init.subtitle") }
     static var startupInitStageHistory: String { t("startup.init.stageHistory") }
     static var startupInitStageProbe: String { t("startup.init.stageProbe") }

@@ -35,6 +35,8 @@ final class MedicalCatalogUpdateCoordinator {
     /// 一次性成功事件（§5.12.4「成功才展示更新完成及新本地版本」）：成功后设置、
     /// 下一次检查/更新开始时清除——成功是事件不是状态，不能由 upToDate 推断。
     private(set) var updateCompletedDataVersion: String?
+    /// 成功时的目录版本（与 dataVersion 同点设置/清除；UI 显示「已更新至 vN」）。
+    private(set) var updateCompletedCatalogVersion: Int64?
     /// 仅验签候选可进入安装：resolver 产出后由本协调器持有，视图只有 Domain 摘要。
     private var verifiedCandidate: VerifiedMedicalCatalogCandidate?
     private var checkTask: Task<Void, Never>?
@@ -70,6 +72,10 @@ final class MedicalCatalogUpdateCoordinator {
     /// 显式检查可发起性：与 `check()` 的单飞守卫同判据（检查或更新在飞均不可再发起）。
     var canCheck: Bool { checkTask == nil && updateTask == nil }
 
+    /// 显式安装可发起性：updater/path 缺失（journal 恢复失败等）时不可装，
+    /// UI 不得显示可点击的下载按钮（2026-10-27 评审 P1）。
+    var canUpdate: Bool { updater != nil && path != nil }
+
     /// 目录文件 mtime（原子替换时刻）；读不到按「未知」处理（UI 隐藏时间行）。
     private static func fileModificationDate(_ path: URL) -> Date? {
         let attributes = try? FileManager.default.attributesOfItem(atPath: path.path) // try?-ok: 读取失败=无本地更新时间，不影响其它状态
@@ -85,6 +91,7 @@ final class MedicalCatalogUpdateCoordinator {
         remoteState = .checking
         updateError = nil
         updateCompletedDataVersion = nil
+        updateCompletedCatalogVersion = nil
         checkTask = Task { [weak self] in
             guard let self else { return }
             let outcome: MedicalCatalogCheckOutcome
@@ -129,6 +136,7 @@ final class MedicalCatalogUpdateCoordinator {
               updateTask == nil, checkTask == nil else { return }
         updateError = nil
         updateCompletedDataVersion = nil
+        updateCompletedCatalogVersion = nil
         // expiry 前置（与安装器入口 guard 同源，2026-09-27 评审修复）：候选可在
         // 页面上停留数日，过期即拒——「expiry 约束安装新鲜度」不只在检查时刻生效。
         guard candidate.expiresAt > Date() else {
@@ -168,6 +176,7 @@ final class MedicalCatalogUpdateCoordinator {
                 self.updateProgress = nil
                 self.remoteState = .upToDate
                 self.updateCompletedDataVersion = candidate.dataVersion
+                self.updateCompletedCatalogVersion = candidate.catalogVersion
             } catch let error as MedicalCatalogDownloadError {
                 self.updateError = error
                 self.updateProgress = nil
