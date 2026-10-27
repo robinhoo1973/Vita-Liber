@@ -3,7 +3,7 @@ import Testing
 @testable import Infrastructure
 
 /// 媒体根与双形态路径金样（2026-10-27 存储边界委员会 P0）。
-@Suite("SU-M5-STORE · 媒体根路径")
+@Suite("SU-M2-STORE · 媒体根路径")
 struct MediaRootPathsTests {
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory

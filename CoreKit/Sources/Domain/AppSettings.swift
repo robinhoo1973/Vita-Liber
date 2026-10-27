@@ -64,6 +64,10 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     case avatarChoice
     /// 助手头像（2026-10-19）：仅预设 SF Symbol，保证与真人/医生可区分。
     case assistantAvatarChoice
+    /// 「文件」App 副本自动镜像（2026-10-27 存储边界委员会 E1/E2）：
+    /// 默认关；开启后仅**非敏感**导入件自动落 Documents 用户面树。
+    /// 敏感件永远逐项显式导出（BR-007/008 逐项选择语义），不受此开关影响。
+    case filesExportAutoMirror
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -106,6 +110,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .speechRate: return "normal"
         case .avatarChoice: return "symbol:person.crop.circle.fill"
         case .assistantAvatarChoice: return "sparkles"
+        case .filesExportAutoMirror: return "false"
         case .healthAutoImport: return "true"
         case .healthSyncIntervalMinutes: return String(HealthSyncInterval.default.rawValue)
         case .healthWriteBack: return "false"

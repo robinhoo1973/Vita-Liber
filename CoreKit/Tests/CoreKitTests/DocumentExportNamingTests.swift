@@ -4,7 +4,7 @@ import Testing
 
 /// 导出副本命名金样（2026-10-27 存储边界委员会 D4/E3 验收：净化/截断/去重/回落）。
 /// 纯 Domain，Linux 也真跑。
-@Suite("SU-M5-DOCEXPORT · 导出副本命名")
+@Suite("SU-M2-DOCEXPORT · 导出副本命名")
 struct DocumentExportNamingTests {
     private func confirmed(_ key: String, _ value: String) -> FieldDraft {
         FieldDraft(key: key, value: value, grade: .userConfirmed)
