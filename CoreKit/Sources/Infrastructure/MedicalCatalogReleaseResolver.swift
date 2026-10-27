@@ -132,7 +132,8 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
             // 也无害）；304 语义由本机能测试钉住，缓存一致性不断链。
             let inventory = try await fetch(Self.tagPageURL,
                                             maxBytes: CNBReleasePageInventoryParser.maxPageBytes,
-                                            etag: true)
+                                            etag: true,
+                                            accept: Self.inventoryAccept)
             try Task.checkCancellation()
             if let failure = Self.failureOutcome(inventory) { return failure }
             guard let inventoryBody = inventory.body else {
@@ -147,7 +148,8 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
             }
             let pointerResult = try await fetch(pointer.url,
                                                 maxBytes: MedicalCatalogReleaseProtocol.maxEnvelopeBytes,
-                                                etag: true)
+                                                etag: true,
+                                                accept: Self.pointerAccept)
             try Task.checkCancellation()
             // pointer 侧 404/410 = 发布方 inventory 与资产不一致（inventory 200 但
             // 资产缺失），归 verificationFailed 而非「尚未发布」（2026-09-27 评审修复：
@@ -231,9 +233,17 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
         let retryAfter: Date?
     }
 
-    private func fetch(_ url: URL, maxBytes: Int, etag: Bool) async throws -> FetchResult {
+    // CNB 内容协商线上实证（2026-10-27）：SSR tag 页在 `Accept: application/json`
+    // 下返回 404（`text/html`/`*/*` 为 200），检查链据此把「已发布」误判为
+    // `.unavailable`（UI「暂不可用（尚未发布或未配置）」）。Accept 必须按资源语义
+    // 分派：inventory(tag 页)=HTML，pointer(签名信封资产)=JSON。
+    static let inventoryAccept = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    static let pointerAccept = "application/json"
+
+    private func fetch(_ url: URL, maxBytes: Int, etag: Bool,
+                       accept: String) async throws -> FetchResult {
         var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(accept, forHTTPHeaderField: "Accept")
         if etag, let cached = etagCache.entry(for: url) {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
@@ -266,7 +276,7 @@ public actor MedicalCatalogReleaseResolver: MedicalCatalogReleaseResolving {
                 // 304 无缓存：最多一次无条件重试（§5.53）；无条件重试仍 304 =
                 // 服务器状态自相矛盾，fail-closed（etag=false 时不再递归）。
                 guard etag else { return FetchResult(status: 304, body: nil, retryAfter: nil) }
-                return try await fetch(url, maxBytes: maxBytes, etag: false)
+                return try await fetch(url, maxBytes: maxBytes, etag: false, accept: accept)
             default:
                 return FetchResult(status: http.statusCode,
                                    body: nil,

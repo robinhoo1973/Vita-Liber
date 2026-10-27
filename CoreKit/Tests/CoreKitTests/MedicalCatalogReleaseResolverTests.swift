@@ -218,6 +218,26 @@ struct MedicalCatalogReleaseResolverTests {
         #expect(candidate.catalogVersion == 30)
     }
 
+    @Test("检查面 Accept 按资源分派：inventory=HTML、pointer=JSON（2026-10-27 CNB 404 回归）")
+    func checkSendsResourceSpecificAcceptHeaders() async throws {
+        // 线上实证：SSR tag 页在 `Accept: application/json` 下返回 404（text/html、
+        // */* 均 200）→ failureOutcome 把已发布目录误判为 .unavailable
+        // （UI「暂不可用（尚未发布或未配置）」）。Accept 必须按资源语义分派。
+        let fixture = try MedicalCatalogFixture.make()
+        defer { fixture.cleanUp() }
+        Self.resetStubs()
+        Self.apply(Self.installRoutes(fixture))
+        let resolver = Self.makeResolver(fixture: fixture)
+        _ = try await resolver.check()
+        let log = URLProtocolStub.requestLog
+        let tagAccept = log.first { $0.url == MedicalCatalogReleaseResolver.tagPageURL }?.acceptHeader ?? ""
+        let pointerURLString = Self.pointerURL(fixture.pointerAssetName)
+        let pointerAccept = log.first { $0.url.absoluteString == pointerURLString }?.acceptHeader ?? ""
+        #expect(tagAccept.contains("text/html"))
+        #expect(!tagAccept.contains("application/json"))
+        #expect(pointerAccept == "application/json")
+    }
+
     @Test("清单里无 manifest.json（README/包/旧式名等噪声）→ 无候选")
     func checkIgnoresNonManifestNames() async throws {
         let fixture = try MedicalCatalogFixture.make()

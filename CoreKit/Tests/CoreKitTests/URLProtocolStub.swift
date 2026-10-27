@@ -37,13 +37,13 @@ final class URLProtocolStub: URLProtocol {
     /// 共享静态字典的并发变异导致进程级内存损坏（SIGSEGV 落在无关测试上）。锁保护。
     private static let lock = NSLock()
     private static var _scripts: [URL: Script] = [:]
-    private static var _requestLog: [(url: URL, rangeHeader: String?)] = []
+    private static var _requestLog: [(url: URL, rangeHeader: String?, acceptHeader: String?)] = []
 
     static var scripts: [URL: Script] {
         get { lock.lock(); defer { lock.unlock() }; return _scripts }
         set { lock.lock(); defer { lock.unlock() }; _scripts = newValue }
     }
-    static var requestLog: [(url: URL, rangeHeader: String?)] {
+    static var requestLog: [(url: URL, rangeHeader: String?, acceptHeader: String?)] {
         get { lock.lock(); defer { lock.unlock() }; return _requestLog }
         set { lock.lock(); defer { lock.unlock() }; _requestLog = newValue }
     }
@@ -59,9 +59,11 @@ final class URLProtocolStub: URLProtocol {
     }
 
     /// 原子追加请求日志（同族 RMW 修复；startLoading 专用）。
-    static func appendRequest(url: URL, rangeHeader: String?) {
+    /// acceptHeader（2026-10-27）：检查面 Accept 分派回归断言用——CNB SSR tag
+    /// 页对 `Accept: application/json` 回 404，请求头必须可观测。
+    static func appendRequest(url: URL, rangeHeader: String?, acceptHeader: String?) {
         lock.lock(); defer { lock.unlock() }
-        _requestLog.append((url, rangeHeader))
+        _requestLog.append((url, rangeHeader, acceptHeader))
     }
 
     /// 2026-09-27 CI 36305107324：两传输套件虽各 .serialized，但**彼此仍并行**且共享
@@ -111,7 +113,9 @@ final class URLProtocolStub: URLProtocol {
             return
         }
         let firstRequestForURL = !URLProtocolStub.requestLog.contains { $0.url == url }
-        URLProtocolStub.appendRequest(url: url, rangeHeader: request.value(forHTTPHeaderField: "Range"))
+        URLProtocolStub.appendRequest(url: url,
+                                      rangeHeader: request.value(forHTTPHeaderField: "Range"),
+                                      acceptHeader: request.value(forHTTPHeaderField: "Accept"))
 
         if let target = script.redirectTo {
             let response = HTTPURLResponse(url: url, statusCode: 301,
