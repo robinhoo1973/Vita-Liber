@@ -18,9 +18,17 @@ struct ReadyAppRoot: View {
         if let existing = AppSessionHolder.shared.currentSession {
             _session = State(initialValue: existing)
         } else {
+            // 预览/兜底：启动门不可用时仍能装配（正常路径由启动门建会话）。
+            let medical = MedicalCatalogState(
+                store: container.medicalCatalog,
+                updater: container.medicalCatalogUpdater,
+                path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
+                checker: container.medicalCatalogChecker,
+                opener: container.medicalCatalogOpener)
             _session = State(initialValue: AppSession(
                 container: container, router: router,
-                notificationDelegate: notificationDelegate))
+                notificationDelegate: notificationDelegate,
+                medicalCatalogState: medical))
         }
     }
 
@@ -63,8 +71,7 @@ struct ReadyAppRoot: View {
             .environment(session.dataChangeCenter)
             .environment(session.asrInstallCenter)
             .environment(session.container.notificationCenterState)
-            .environment(PendingCardCenterState(store: session.container.pendingCards,
-                                                scheduler: session.container.reminderScheduler))
+            .environment(session.pendingCardCenterState)
             .environment(session.entitlementStore)
             .environment(session.trendState)
             .environment(session.voiceNoteState)

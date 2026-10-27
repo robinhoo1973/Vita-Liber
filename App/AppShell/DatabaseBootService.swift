@@ -138,21 +138,23 @@ enum DatabaseBootService {
                 throw DatabaseBootFailure.corrupt(reason.rawValue)
             case .fresh:
                 await progress(.creating)
-                await progress(.verifying)
                 store = try DatabaseUpgradeService.open(
                     at: databasePath, from: nil, to: targetVersion,
                     requiredTables: DatabaseBootPolicy.requiredTables)
-            case .ready(let version):
                 await progress(.verifying)
+            case .ready(let version):
                 store = try DatabaseUpgradeService.open(
                     at: databasePath, from: version, to: targetVersion,
                     requiredTables: DatabaseBootPolicy.requiredTables)
+                await progress(.verifying)
             case .migrate(let from, let to):
                 await progress(.migrating(from: from, to: to))
-                await progress(.verifying)
                 store = try DatabaseUpgradeService.open(
                     at: databasePath, from: from, to: to,
                     requiredTables: DatabaseBootPolicy.requiredTables)
+                // 阶段标签如实反映已完成的工作（2026-10-27 审查 P3）：
+                // .verifying 只在 open 返回后发出，迁移期间不会被误报成「核对」。
+                await progress(.verifying)
             }
             record(history, databasePath: databasePath, source: userProbe.observedVersion,
                    target: targetVersion, outcome: "success", detail: nil)

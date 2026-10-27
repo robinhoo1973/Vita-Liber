@@ -5,19 +5,22 @@ import Infrastructure
 /// 批C③（第九轮审查 P4#2）：提醒对账的后台兜底作业（ReminderReconciler 文档
 /// 宣称的四层触发之**第四层**——此前 plist 无标识符、全仓无 BG 调用，只做提醒
 /// 用途的设备 8 天不开 App 即停提醒）。执行体由装配处注入（与前台同入口
-/// refreshTriggered → reconcile，幂等）；运行后恒重排（reschedule: true），
-/// BackgroundWorkScheduler 自动续排形成滚动兜底。预算取系统给的 refresh 预算，
-/// 对账本身为轻量 DB 读 + 系统 IPC。
+/// refreshTriggered → reconcile，幂等）；运行后按结果重排，BackgroundWorkScheduler
+/// 自动续排形成滚动兜底。
+///
+/// 2026-10-27 审查 P1：旧实现忽略预算与取消——系统到期取消 Task 后仍恒报
+/// success+reschedule，且执行体可能卡在会话等待上。现在执行体返回 Bool，
+/// 被取消或执行体放弃时如实报失败且不重排。
 struct ReminderReconcileJob: BackgroundJob {
     static let identifier = "com.vitaliber.reminders-reconcile"
-    let handler: @Sendable () async -> Void
+    let handler: @Sendable () async -> Bool
     let descriptor = BackgroundJobDescriptor(identifier: ReminderReconcileJob.identifier,
                                              kind: .refresh,
                                              minimumInterval: 30 * 60)
     func run(budget: Duration) async -> BackgroundJobOutcome {
-        await handler()
-        // refreshTriggered 按纪律内部吞错记日志（任一层成功即满足正确性）；
-        // 对账幂等 → 作业恒报 success + 重排
-        return BackgroundJobOutcome(success: true, reschedule: true)
+        if Task.isCancelled { return BackgroundJobOutcome(success: false, reschedule: false) }
+        let ok = await handler()
+        if Task.isCancelled { return BackgroundJobOutcome(success: false, reschedule: false) }
+        return BackgroundJobOutcome(success: ok, reschedule: ok)
     }
 }

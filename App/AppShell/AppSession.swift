@@ -41,24 +41,24 @@ final class AppSession: ObservableObject {
     let llmModelInstallCenter: LLMModelInstallCenter
     let backupState: BackupState
     let medicalCatalogState: MedicalCatalogState
+    /// 待办卡通知门面：有状态，必须在会话内单例化——根视图每次重算都新建
+    /// 会清空 `items/detail`（2026-10-27 审查 P2）。
+    let pendingCardCenterState: PendingCardCenterState
     let updateAdviceState: UpdateAdviceState
     /// 统一更新中心批（2026-10-07）：ASR 检查态 + 中心编排（App 级跨页存活）。
     let asrCheckState: ASRIndexCheckState
     let updateCenterState: UpdateCenterState
 
     init(container: AppContainer, router: AppRouter,
-         notificationDelegate: AppNotificationDelegate) {
+         notificationDelegate: AppNotificationDelegate,
+         medicalCatalogState: MedicalCatalogState) {
         self.container = container
         let args = ProcessInfo.processInfo.arguments
-        // 审查修复：live 失败走显式降级容器（degradedReason 非 nil），
-        // body 显示可见引导——原静默降级内存库、用户看到空档案且写入即丢
-        let medicalState = MedicalCatalogState(
-            store: container.medicalCatalog,
-            updater: container.medicalCatalogUpdater,
-            path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
-            checker: container.medicalCatalogChecker,
-            opener: container.medicalCatalogOpener)
-        self.medicalCatalogState = medicalState
+        // 单一 owner（2026-10-27 审查 P1/P2）：目录状态由启动门创建后注入，
+        // 避免启动卡与会话各建一份导致版本/进度/假失败分裂。
+        self.medicalCatalogState = medicalCatalogState
+        self.pendingCardCenterState = PendingCardCenterState(
+            store: container.pendingCards, scheduler: container.reminderScheduler)
         // P3（2026-10-07）：通告面状态（provider 由组装根注入；缺省=全域不可用）。
         let adviceState = UpdateAdviceState(provider: container.updateAdvice)
         self.updateAdviceState = adviceState
