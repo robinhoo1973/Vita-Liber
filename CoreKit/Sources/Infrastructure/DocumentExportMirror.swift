@@ -85,7 +85,10 @@ public actor DocumentExportMirror {
         } catch {
             throw MirrorError.writeFailed(String(describing: error))
         }
-        let existing = await ledger.records(conversationID: job.conversationID ?? UUID())
+        // 去重基准=同一目录已用显示名（按目录取，覆盖无会话的「直接导入」月桶；
+        // 旧实现用 conversationID ?? UUID() 查账本，无会话时恒空集，同名文件
+        // 会撞 relative_path UNIQUE 使导出失败）。
+        let existing = await ledger.records(directoryName: directory)
         let takenStems = Set(existing.map { DocumentExportNaming.normalizeKey($0.displayName) })
         let name = DocumentExportNaming.name(job.nameRequest)
         let fileName = DocumentExportNaming.deduplicatedStem(name.stem, existing: takenStems)

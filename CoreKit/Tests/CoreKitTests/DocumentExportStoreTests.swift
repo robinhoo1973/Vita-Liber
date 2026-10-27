@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Testing
 @testable import Infrastructure
 
@@ -8,7 +9,11 @@ import Testing
 @Suite("SU-M2-DOCEXPORT · 导出账本")
 struct DocumentExportStoreTests {
     private func makeQueue() throws -> DatabaseQueue {
-        let queue = try DatabaseQueue()
+        // FK 必须在连接配置层开启：SQLite 对事务内的 PRAGMA foreign_keys 是
+        // no-op，而在 write 闭包里执行该 PRAGMA 不会生效（级联断言会假红）。
+        var configuration = Configuration()
+        configuration.foreignKeysEnabled = true
+        let queue = try DatabaseQueue(configuration: configuration)
         try queue.write { db in
             try db.execute(sql: """
                 CREATE TABLE document_file (
@@ -95,7 +100,6 @@ struct DocumentExportStoreTests {
         let doc = UUID(), conv = UUID()
         try await queue.write { try self.insertDocument($0, id: doc) }
         try await queue.write { try self.insertConversation($0, id: conv) }
-        try await queue.write { db in try db.execute(sql: "PRAGMA foreign_keys = ON") }
         let store = DocumentExportStore(writer: queue)
         _ = try await store.upsert(record(doc: doc, conv: conv))
         try await queue.write { db in

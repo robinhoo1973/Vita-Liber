@@ -105,6 +105,17 @@ public actor DocumentExportStore {
         }) ?? []
     }
 
+    /// 同目录已用显示名（去重基准；无会话的「直接导入」月桶按目录取）。
+    public func records(directoryName: String) async -> [Record] {
+        (try? await writer.read { db in        // try?-ok: 读取失败按空集呈现
+            try Row.fetchAll(db, sql: """
+                SELECT * FROM document_user_export
+                 WHERE directory_name = ? AND removed_at IS NULL
+                 ORDER BY created_at
+                """, arguments: [directoryName]).map(Self.record(from:))
+        }) ?? []
+    }
+
     public func activeRecords() async -> [Record] {
         (try? await writer.read { db in        // try?-ok: 读取失败按空集呈现
             try Row.fetchAll(db, sql: """
