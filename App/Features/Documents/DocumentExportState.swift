@@ -90,9 +90,10 @@ final class DocumentExportState {
             directory = DocumentExportNaming.directoryName(conversationTitle: conversationTitle,
                                                            conversationID: conversationID)
         } else {
-            directory = DocumentExportNaming.directoryName(
-                conversationTitle: Self.directImportDirectory(now: Date()),
-                conversationID: row.id)
+            // 直接导入归档到「直接导入-YYYY-MM」月桶（不按文档分目录：
+            // 资料库入口无会话语义，目录名冻结规则只属于会话）。
+            directory = DocumentExportNaming.directImportDirectory(
+                monthText: Self.monthText(Date()))
         }
         let request = DocumentExportNaming.Request(
             preferredTitle: row.title,
@@ -115,11 +116,11 @@ final class DocumentExportState {
         return formatter.string(from: date)
     }
 
-    static func directImportDirectory(now: Date) -> String {
+    static func monthText(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM"
-        return "直接导入-" + formatter.string(from: now)
+        return formatter.string(from: date)
     }
 
     /// MIME → 扩展名白名单（未知 → nil，绝不猜）。

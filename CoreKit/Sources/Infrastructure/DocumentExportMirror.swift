@@ -134,8 +134,7 @@ public actor DocumentExportMirror {
             let attributes = try? fileManager.attributesOfItem(atPath: url.path)   // try?-ok: 属性不可读按不漂移
             if let size = (attributes?[.size] as? NSNumber)?.int64Value,
                let recorded = record.sizeBytes, size != recorded {
-                try? await ledger.setState(documentID: record.documentID, state: "missing",
-                                           sizeBytes: size, now: now)   // try?-ok: 对账尽力而为
+                try? await ledger.setState(documentID: record.documentID, state: "missing", sizeBytes: size, now: now)   // try?-ok: 对账尽力而为
                 drifted += 1
             }
         }

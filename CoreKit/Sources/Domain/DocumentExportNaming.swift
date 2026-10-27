@@ -153,6 +153,17 @@ public enum DocumentExportNaming {
         value.precomposedStringWithCompatibilityMapping.lowercased()
     }
 
+    /// 非聊天入口（资料库直接导入）的归档目录：`直接导入-<YYYY-MM>`。
+    /// 目录名属磁盘身份而非 UI 文案——放 Domain 保持确定性（L10n 单出口只
+    /// 约束视图层字面量；此处不随界面语言漂移，避免同一文档换语言换目录）。
+    public static func directImportDirectory(monthText: String) -> String {
+        let stem = sanitizeComponent("\(directImportPrefix)-\(monthText)")
+        if !stem.isEmpty { return stem }
+        return sanitizeComponent(monthText)
+    }
+
+    static let directImportPrefix = "直接导入"
+
     // MARK: - 净化（E3 采纳 I4 不变量）
 
     /// 净化一个路径组件：NFKC → 白名单（字母数字 + `-_.()·` + 空格）→
