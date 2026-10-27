@@ -578,7 +578,10 @@ struct MedicalCatalogFixture {
         try FileManager.default.createDirectory(at: catalogDirectory, withIntermediateDirectories: true)
         // 动态时钟对：issued=锚−1h、expires=锚+30d（跨度 ≤ pointerValidity 31d 且恒在未来；
         // 每次 make() 重建，跑一次新鲜一次）。
-        let anchor = Date()
+        // 锚取整秒（2026-10-27 四轮红修复）：wire 时间戳是整秒（ISO 无小数、
+        // x-ratelimit-reset 为 epoch 整数），带小数秒的锚会让「时钟+Δ」期望
+        // 与回读的整秒值 Date == 不等（:326 实证）。
+        let anchor = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
         let issued = anchor.addingTimeInterval(-3600)
         let expires = anchor.addingTimeInterval(30 * 24 * 60 * 60)
 
