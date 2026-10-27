@@ -296,11 +296,12 @@ struct TaskAssistantChatView: View {
             .accessibilityHint(L10n.assistantMediaOpen)
             .accessibilityIdentifier("assistant.media.open")
             // 2026-10-27 存储边界（E1/E2）+ 2026-10-28 逐条敏感开关：
-            // 默认敏感（仅内部保存）；关=显式授权对外，立即导出副本；
-            // 开=删用户面副本。菜单点击本身即显式选择（BR-007/008）。
+            // 默认不敏感（2026-10-28 业主改判，存量记录不追溯）；开=仅内部保存
+            // 并删除用户面副本；关=显式授权对外，立即导出副本。
+            // 菜单点击本身即显式选择（BR-007/008）。
             .contextMenu {
                 Toggle(L10n.chatRecordSensitiveToggle, isOn: Binding(
-                    get: { sensitiveByDocument[documentId] ?? true },
+                    get: { sensitiveByDocument[documentId] ?? false },
                     set: { newValue in
                         Task {
                             _ = await exportState.setRecordSensitive(
@@ -1275,7 +1276,7 @@ struct TaskAssistantChatView: View {
             return
         }
         let draft = await docs.importPDFData(patientId: session.patientId, data: merged.data,
-                                             title: filename, isSensitive: true, origin: origin)
+                                             title: filename, isSensitive: false, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
         if merged.truncated {
             append(.init(role: .assistant, text: L10n.assistantAttachmentTruncated,
@@ -1296,7 +1297,7 @@ struct TaskAssistantChatView: View {
             patientId: session.patientId,
             originalData: data, processedData: data,
             mimeType: ImageInputRules.sniffMimeType(of: data),
-            docType: nil, title: nil, isSensitive: true, origin: origin)
+            docType: nil, title: nil, isSensitive: false, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
@@ -1309,7 +1310,7 @@ struct TaskAssistantChatView: View {
             return
         }
         let draft = await docs.importDocument(patientId: session.patientId, url: url,
-                                              docType: nil, isSensitive: true)
+                                              docType: nil, isSensitive: false)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
