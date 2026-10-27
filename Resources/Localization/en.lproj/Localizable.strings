@@ -2673,3 +2673,5 @@
 "settings.filesExport.toggle" = "Auto-export non-sensitive documents to Files";
 "settings.filesExport.hint" = "Copies live in the 青囊书 folder in the Files app, organized by conversation. Sensitive documents are never auto-exported — export each one explicitly from chat or Documents. Copies can be read by other apps; deleting or renaming them never affects the originals in the app.";
 "doc.exportCopy" = "Export Copy to Files";
+
+"chat.recordSensitiveToggle" = "Keep On Device Only (Sensitive)";

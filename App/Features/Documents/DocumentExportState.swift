@@ -68,6 +68,32 @@ final class DocumentExportState {
         if driftCount > 0 { driftCount -= 1 }
     }
 
+    /// 记录当前敏感态（聊天敏感开关的初值；读失败按未知）。
+    func sensitivity(documentID: UUID) async -> Bool? {
+        guard let row = try? await store.fetch(id: documentID) else { return nil }   // try?-ok: 读失败按未知
+        return row?.isSensitive
+    }
+
+    /// 逐条「敏感」开关（2026-10-28 业主；默认开=仅内部保存）。
+    /// 转敏感：删用户面副本 + tombstone；转非敏感（关）：开关即显式选择，
+    /// 立即导出副本（不受全局自动镜像开关限制）；两者都只改本记录。
+    @discardableResult
+    func setRecordSensitive(documentID: UUID, sensitive: Bool,
+                            conversationID: UUID?, conversationTitle: String?) async -> ExportFailure? {
+        guard let row = try? await store.fetch(id: documentID) else { return .notFound }   // try?-ok: 读失败按 notFound
+        do {
+            try await store.setSensitive(id: documentID, patientId: row.patientId, sensitive: sensitive)
+        } catch {
+            return .writeFailed
+        }
+        if sensitive {
+            await mirror.removeCopy(documentID: documentID)
+            return nil
+        }
+        return await exportCopy(documentID: documentID, conversationID: conversationID,
+                                conversationTitle: conversationTitle, allowSensitive: true)
+    }
+
     /// 清空全部数据级联：删副本树 + 擦账本（canonical 由媒体链负责）。
     func wipeAll() async {
         await mirror.wipeAllCopies()

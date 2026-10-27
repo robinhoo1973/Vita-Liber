@@ -859,4 +859,7 @@ static var lifecycleSingle: String { t("lifecycle.single") }
     static var settingsFilesExportHint: String { t("settings.filesExport.hint") }
 
     static var docExportCopy: String { t("doc.exportCopy") }
+
+    /// 2026-10-28 业主：聊天记录逐条敏感开关（默认开=仅内部保存）
+    static var chatRecordSensitiveToggle: String { t("chat.recordSensitiveToggle") }
 }

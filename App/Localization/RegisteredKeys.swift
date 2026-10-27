@@ -10,6 +10,8 @@ extension L10n {
     "settings.filesExport.toggle",
     "settings.filesExport.hint",
     "doc.exportCopy",
+    // 2026-10-28 业主：聊天记录逐条敏感开关
+    "chat.recordSensitiveToggle",
     // 第四轮全仓审查修复（L0 登记表双向判定）：以下键此前未登记——
     // registeredKeys 单向 ⊆ .strings 检查覆盖不到，键被删出 .strings 时
     // L0/L1 全绿、运行时裸 key 上屏

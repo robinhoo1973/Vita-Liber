@@ -2673,3 +2673,5 @@
 "settings.filesExport.toggle" = "自動匯出非敏感資料到「檔案」";
 "settings.filesExport.hint" = "副本位於「檔案」App 的「青囊書」目錄，依會話名稱歸檔。敏感資料不會自動匯出，請在聊天或資料中逐項選擇匯出。副本可被其他 App 讀取；刪除或改名不影響 App 內原件。";
 "doc.exportCopy" = "匯出副本到「檔案」";
+
+"chat.recordSensitiveToggle" = "僅本機保留（敏感）";

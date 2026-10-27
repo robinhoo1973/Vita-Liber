@@ -29,6 +29,8 @@ struct TaskAssistantChatView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var messages: [ChatMessage] = []
+    /// 逐条敏感态缓存（2026-10-28：气泡菜单敏感开关初值；.task 按 documentId 加载）
+    @State private var sensitiveByDocument: [UUID: Bool] = [:]
     @State private var input = ""
     @State private var confirmSet: OcrConfirmationSet?
     @State private var pendingPlan: VoiceActionPlan?
@@ -293,9 +295,20 @@ struct TaskAssistantChatView: View {
             .buttonStyle(.plain)
             .accessibilityHint(L10n.assistantMediaOpen)
             .accessibilityIdentifier("assistant.media.open")
-            // 2026-10-27 存储边界（E1/E2）：逐项显式导出副本（菜单点击即显式选择；
-            // 聊天上传恒敏感，故 allowSensitive: true 只在此显式动作上放行）
+            // 2026-10-27 存储边界（E1/E2）+ 2026-10-28 逐条敏感开关：
+            // 默认敏感（仅内部保存）；关=显式授权对外，立即导出副本；
+            // 开=删用户面副本。菜单点击本身即显式选择（BR-007/008）。
             .contextMenu {
+                Toggle(L10n.chatRecordSensitiveToggle, isOn: Binding(
+                    get: { sensitiveByDocument[documentId] ?? true },
+                    set: { newValue in
+                        Task {
+                            _ = await exportState.setRecordSensitive(
+                                documentID: documentId, sensitive: newValue,
+                                conversationID: chatSessionID, conversationTitle: nil)
+                            sensitiveByDocument[documentId] = newValue
+                        }
+                    }))
                 Button {
                     Task {
                         _ = await exportState.exportCopy(
@@ -303,6 +316,11 @@ struct TaskAssistantChatView: View {
                             conversationTitle: nil, allowSensitive: true)
                     }
                 } label: { Label(L10n.docExportCopy, systemImage: "folder.badge.plus") }
+            }
+            .task(id: documentId) {
+                if let sensitive = await exportState.sensitivity(documentID: documentId) {
+                    sensitiveByDocument[documentId] = sensitive
+                }
             }
         } else {
             mediaContent(media)
