@@ -144,7 +144,7 @@ final class AppSession: ObservableObject {
         self.asrCheckState = asrCheckState
         self.updateCenterState = UpdateCenterState(
             advice: adviceState,
-            chains: [.asrModels: asrCheckState, .medicalData: medicalState])
+            chains: [.asrModels: asrCheckState, .medicalData: medicalCatalogState])
         self.documentsState = DocumentsState(
             store: container.documents,
             pipeline: OCRPipeline(

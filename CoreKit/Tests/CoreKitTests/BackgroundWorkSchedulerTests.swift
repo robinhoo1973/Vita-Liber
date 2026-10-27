@@ -192,6 +192,27 @@ struct BackgroundWorkSchedulerTests {
         #expect(fake.submitted().count == 1)
     }
 
+    @Test("C1-3 安装前取消：取消不丢失，operation 不执行")
+    func runContinuedCancelBeforeInstallIsNotLost() async {
+        let fake = FakeScheduler()
+        let scheduler = makeScheduler(fake)
+        var ran = false
+        // 立即取消：取消可能落在 installPending 之前——旧实现会丢失取消，
+        // 超时回落仍执行 operation（2026-10-27 审查发现的取消窗口）。
+        let task = Task {
+            await scheduler.runContinued(identifier: "com.test.continued",
+                                         title: "t", subtitle: "s",
+                                         startTimeout: .milliseconds(200)) { _, _ in
+                ran = true
+                return true
+            }
+        }
+        task.cancel()
+        let ok = await task.value
+        #expect(ok == false)
+        #expect(ran == false)
+    }
+
     @Test("C1-3 已取走不杀工作：系统唤起路径正常执行并恰一次 resume")
     func runContinuedSystemLaunchRunsOperation() async {
         let fake = FakeScheduler()

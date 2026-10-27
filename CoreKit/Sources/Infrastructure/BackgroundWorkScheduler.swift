@@ -287,6 +287,16 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                     completion.resume(returning: .runForeground)   // C1-1：已有在途，不安装不提交
                     return
                 }
+                // 取消窗口（2026-10-27 审查）：调用方在 install 之前取消时 onCancel
+                // 取不到 pending，取消会丢失、超时回落仍执行 operation。此处补检，
+                // 保证「安装前取消」同样以 false 收尾。
+                if Task.isCancelled {
+                    if let taken = takePending(identifier) {
+                        system.cancel(identifier: identifier)
+                        taken.completion.resume(returning: .done(false))
+                    }
+                    return
+                }
                 do {
                     // C1-2：先撤后提（与 submit(_:now:) 同纪律；官方同名重提=替换，
                     // 保守对齐——进程重启后遗留的陈旧同名请求在此被清）
@@ -302,6 +312,9 @@ public final class BackgroundWorkScheduler: @unchecked Sendable {
                     Task { taken.completion.resume(returning: .runForeground) }
                     return
                 }
+                // 取消在 submit 瞬间到达时 onCancel 可能已取走 pending 并撤过一次；
+                // 这里再撤一次，避免刚提交的请求成为无人认领的孤儿。
+                if Task.isCancelled { system.cancel(identifier: identifier) }
                 // 系统迟迟不启动（排队/资源受限）→ 不让用户干等：回落前台执行；谁先 take 谁执行，另一方看到 nil 即退出
                 Task {
                     try? await Task.sleep(for: startTimeout)   // try?-ok: 取消即不回落
