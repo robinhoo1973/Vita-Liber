@@ -37,8 +37,9 @@ public actor SensitiveAssetStore: SensitiveAssetStoring {
         self.compressor = compressor
         self.blurCache = CacheBox()
         self.logger = logger
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        self.baseDir = (baseDir ?? docs)
+        // 2026-10-27 存储边界（ADR-036）：默认根 = canonical 媒体基
+        // （Application Support/VitaLiber/Media），绝不再默认落 Documents。
+        self.baseDir = (baseDir ?? MediaRootPaths.mediaBase())
             .appendingPathComponent("MedicalNotes/sensitive", isDirectory: true)
         #if os(iOS)
         let box = blurCache

@@ -15,6 +15,14 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>VitaLiberBuildHash</key>
     <string>$(VITA_LIBER_CODE_HASH)</string>
+    <!-- 2026-10-27 存储边界委员会（ADR-036）：导出副本用户面。
+         Documents 仅含用户主动导出/自动镜像的副本树（按会话归档），
+         canonical 原件与敏感媒体已迁 Application Support（v49 迁移）——
+         开启共享前必须先完成迁根，L0 第 21 节静态钉住该边界。 -->
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <!-- 隐私用途声明（Apple 处理构建时强制校验，缺任一键 build 即 FAILED，code 90683）：
