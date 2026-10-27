@@ -30,6 +30,8 @@ final class AppSession: ObservableObject {
     let timelineState: TimelineViewState
     let questionsState: QuestionsState
     let documentsState: DocumentsState
+    /// 导出副本用户面（2026-10-27 存储边界委员会）：账本/镜像/对账唯一出口
+    let documentExportState: DocumentExportState
     let exportWizardState: ExportWizardState
     let f16DeviceState: F16DeviceState
     /// 类型化数据变更信号（V3.49：文档保存/设备读数落库 → 版本计数 → 跨页刷新）
@@ -179,6 +181,12 @@ final class AppSession: ObservableObject {
             // 子项目 D · D4-2：卡确认后「资料建议」采集/接受流（只读回执 → 逐项显式接受写资料 + 审计）
             suggestionStore: ProfileSuggestionStore(writer: container.store.writer))
         self.exportWizardState = ExportWizardState(service: container.pdfExport)
+        self.documentExportState = DocumentExportState(
+            store: container.documents,
+            ledger: container.documentExports,
+            mirror: DocumentExportMirror(ledger: container.documentExports,
+                                         exportsBase: MediaRootPaths.documentsBase(),
+                                         originalsDir: AppContainer.defaultOriginalsDir()))
         self.f16DeviceState = F16DeviceState(
             syncService: container.healthSync,
             dataChange: dataChange,
@@ -195,6 +203,14 @@ final class AppSession: ObservableObject {
         // 未初始化」编译错（L1 34288551094）
         backupState.onRestored = { [appState = self.appState, reminderStore = self.reminderStore] in
             await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
+        }
+        // 2026-10-27 存储边界（E1）：非敏感提交件自动镜像——设置开关键在消费时读，
+        // 关=零写入；敏感件由 commitDraft 侧过滤，闭包永不接收。
+        documentsState.autoMirrorHook = { [exportState = self.documentExportState,
+                                           settingsStore = self.settingsStore] documentID in
+            guard settingsStore.values[.filesExportAutoMirror] == "true" else { return }
+            _ = await exportState.exportCopy(documentID: documentID, conversationID: nil,
+                                             conversationTitle: nil, allowSensitive: false)
         }
         // 业主 2026-09-17 定：健康写回接线（最后一个存储属性初始化之后装配；
         // 结构体 init 内逃逸闭包**必须用捕获列表**取属性值——闭包体直写

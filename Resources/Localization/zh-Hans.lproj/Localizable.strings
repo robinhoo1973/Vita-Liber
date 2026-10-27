@@ -2668,3 +2668,8 @@
 "emergency.contacts.autoMemberQuota" = "联系人已保存；常用成员名额已满，未自动加入。";
 "emergency.contacts.autoMemberFailed" = "联系人已保存；自动加入常用成员失败，可在成员管理中重试。";
 "common.delete" = "删除";
+
+"settings.filesExport.section" = "「文件」App 副本";
+"settings.filesExport.toggle" = "自动导出非敏感资料到「文件」";
+"settings.filesExport.hint" = "副本位于「文件」App 的「青囊书」目录，按会话名称归档。敏感资料不会自动导出，请在聊天或资料中逐项选择导出。副本可被其他 App 读取；删除或改名不影响 App 内原件。";
+"doc.exportCopy" = "导出副本到「文件」";

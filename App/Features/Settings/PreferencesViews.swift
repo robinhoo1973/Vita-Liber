@@ -128,6 +128,7 @@ struct DataLifecycleView: View {
     @Environment(AppDataChangeCenter.self) private var dataChange
     @Environment(AppSettingsStore.self) private var settings
     @Environment(ChatHistoryState.self) private var chatHistory
+    @Environment(DocumentExportState.self) private var exportState
     @State private var showClearConfirm = false
     @State private var showResetConfirm = false
     @State private var clearing = false
@@ -145,6 +146,19 @@ struct DataLifecycleView: View {
                     NavigationLink(L10n.member_title) {
                         MemberManagementView()
                     }
+                }
+                Section(L10n.settingsFilesExportSection) {
+                    Text(L10n.settingsFilesExportHint)
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Toggle(L10n.settingsFilesExportToggle, isOn: Binding(
+                        get: { settings.values[.filesExportAutoMirror] == "true" },
+                        set: { newValue in
+                            Task { await settings.set(newValue ? "true" : "false",
+                                                      for: .filesExportAutoMirror) }
+                        }))
+                        .tint(Color("brand-primary", bundle: .main))
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("FR14.3.filesExportAutoMirror")
                 }
                 Section(L10n.lifecycleClearAll) {
                     Text(L10n.lifecycleClearHint)
@@ -181,6 +195,8 @@ struct DataLifecycleView: View {
                             // 聊天语音消息音频与历史（2026-10-19）：清空全部 = 真删。
                             ChatAudioStore.wipe()
                             await chatHistory.wipeAll()
+                            // 2026-10-27 存储边界：导出副本树与账本一并真删（FR14.3 清空全部）
+                            await exportState.wipeAll()
                             try await app.persistorReset()
                             // 审查修复（内存投影失效）：全量失效让各页（首页/
                             // 提醒/观察/文档…）重载——此前各仓内存投影仍渲染

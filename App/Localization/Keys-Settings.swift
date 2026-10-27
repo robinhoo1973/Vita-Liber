@@ -850,4 +850,13 @@ static var lifecycleSingle: String { t("lifecycle.single") }
     static var updateCenterCheckAllHint: String { t("updateCenter.checkAllHint") }
 
     static var updateCenterAdviceA11yPrefix: String { t("updateCenter.adviceA11yPrefix") }
+
+    // 2026-10-27 存储边界：导出副本（设置段/开关/说明 + 文档与聊天共用动作）
+    static var settingsFilesExportSection: String { t("settings.filesExport.section") }
+
+    static var settingsFilesExportToggle: String { t("settings.filesExport.toggle") }
+
+    static var settingsFilesExportHint: String { t("settings.filesExport.hint") }
+
+    static var docExportCopy: String { t("doc.exportCopy") }
 }

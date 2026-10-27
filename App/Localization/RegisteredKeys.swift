@@ -5,6 +5,11 @@ import Domain
 
 extension L10n {
     static let registeredKeys: [String] = [
+    // 2026-10-27 存储边界：导出副本（设置段 + 文档/聊天动作）
+    "settings.filesExport.section",
+    "settings.filesExport.toggle",
+    "settings.filesExport.hint",
+    "doc.exportCopy",
     // 第四轮全仓审查修复（L0 登记表双向判定）：以下键此前未登记——
     // registeredKeys 单向 ⊆ .strings 检查覆盖不到，键被删出 .strings 时
     // L0/L1 全绿、运行时裸 key 上屏

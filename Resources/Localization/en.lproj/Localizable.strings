@@ -2668,3 +2668,8 @@
 "emergency.contacts.autoMemberQuota" = "Contact saved. The family-member quota is full, so it was not added automatically.";
 "emergency.contacts.autoMemberFailed" = "Contact saved, but adding the family member failed. Retry from Member Management.";
 "common.delete" = "Delete";
+
+"settings.filesExport.section" = "Files App Copies";
+"settings.filesExport.toggle" = "Auto-export non-sensitive documents to Files";
+"settings.filesExport.hint" = "Copies live in the 青囊书 folder in the Files app, organized by conversation. Sensitive documents are never auto-exported — export each one explicitly from chat or Documents. Copies can be read by other apps; deleting or renaming them never affects the originals in the app.";
+"doc.exportCopy" = "Export Copy to Files";

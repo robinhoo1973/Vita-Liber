@@ -86,6 +86,7 @@ struct ReadyAppRoot: View {
             .environment(session.questionsState)
             .environment(session.chatHistoryState)
             .environment(session.documentsState)
+            .environment(session.documentExportState)
             .environment(session.exportWizardState)
              .environment(session.f16DeviceState)
              .environment(session.backupState)

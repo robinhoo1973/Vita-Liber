@@ -21,6 +21,7 @@ struct TaskAssistantChatView: View {
     @Environment(VoiceNoteState.self) private var voiceNotes
     @Environment(QuestionsState.self) private var questions
     @Environment(DocumentsState.self) private var docs
+    @Environment(DocumentExportState.self) private var exportState
     @Environment(ChatHistoryState.self) private var chatHistory
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(M2HubStore.self) private var hub
@@ -292,6 +293,17 @@ struct TaskAssistantChatView: View {
             .buttonStyle(.plain)
             .accessibilityHint(L10n.assistantMediaOpen)
             .accessibilityIdentifier("assistant.media.open")
+            // 2026-10-27 存储边界（E1/E2）：逐项显式导出副本（菜单点击即显式选择；
+            // 聊天上传恒敏感，故 allowSensitive: true 只在此显式动作上放行）
+            .contextMenu {
+                Button {
+                    Task {
+                        _ = await exportState.exportCopy(
+                            documentID: documentId, conversationID: chatSessionID,
+                            conversationTitle: nil, allowSensitive: true)
+                    }
+                } label: { Label(L10n.docExportCopy, systemImage: "folder.badge.plus") }
+            }
         } else {
             mediaContent(media)
         }

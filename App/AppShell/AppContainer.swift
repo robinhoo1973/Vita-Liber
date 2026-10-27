@@ -76,6 +76,8 @@ struct AppContainer {
     let memberDeletion: MemberDeletionService
     /// F5 资料库（SP-09）
     let documents: DocumentStore
+    /// 导出副本账本（2026-10-27 存储边界委员会 v49）：Documents 用户面树映射
+    let documentExports: DocumentExportStore
     /// F9 拍处方 OCR 确认后落库（SP-11 处方入口，见 DocumentsState.commitDraft）
     let prescriptions: PrescriptionStore
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
@@ -311,6 +313,7 @@ struct AppContainer {
         let questions = QuestionStore(writer: store.writer)
         let memberDeletion = MemberDeletionService(writer: store.writer, scheduler: scheduler)
         let documents = DocumentStore(writer: store.writer)
+        let documentExports = DocumentExportStore(writer: store.writer)
         let prescriptions = PrescriptionStore(writer: store.writer)
         let backup = BackupService(writer: store.writer)
         let pdfExport = PDFExportService(writer: store.writer)
@@ -383,6 +386,7 @@ struct AppContainer {
                             questions: questions,
                             memberDeletion: memberDeletion,
                             documents: documents,
+                            documentExports: documentExports,
                              prescriptions: prescriptions,
                              backup: backup,
                              medicalCatalog: medicalCatalog,

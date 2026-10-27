@@ -33,6 +33,10 @@ final class DocumentsState {
     private let ocrAuthorized: @MainActor () -> Bool
     private let aiAuthorization: @MainActor () -> (allowed: Bool, revision: UInt64)
     private let originalsDir: URL
+    /// 自动镜像钩子（2026-10-27 存储边界 E1）：仅**非敏感**提交件触发；
+    /// AppSession 装配时注入（读设置开关 + 调 DocumentExportState）。
+    /// 敏感件永远跳过（BR-007/008 逐项显式语义）。
+    var autoMirrorHook: (@MainActor (UUID) async -> Void)?
     private let understandingEngine: any TextUnderstanding
     private let codeIndex: (any CodeIndex & UnitIndex)?
     /// F25 词表证据层来源（2026-09-21，FR25.12⑬）：nil = 词表锚定关闭（测试桩/未装配）。
@@ -818,6 +822,10 @@ final class DocumentsState {
             session.cardOrder = cards.map(\.id)
             session.selectedCardID = cards.first?.id
             session.documentReviewFinished = true
+            // 2026-10-27 存储边界（E1）：非敏感提交件按设置自动导出副本。
+            if !draft.isSensitive, let committedID = session.source?.documentId {
+                await autoMirrorHook?(committedID)
+            }
             pendingDidChange()
             if loadingPatientId == draft.patientId || loadingPatientId == nil {
                 await load(patientId: draft.patientId, includeArchived: lastIncludeArchived)
@@ -1137,6 +1145,7 @@ struct DocumentLibraryView: View {
 private struct DocumentLibraryRow: View {
     let doc: DocumentStore.DocumentRow
     @Environment(DocumentsState.self) private var state
+    @Environment(DocumentExportState.self) private var exportState
 
     var body: some View {
         WithPerceptionTracking {
@@ -1176,6 +1185,13 @@ private struct DocumentLibraryRow: View {
                 if doc.origin != "manual" {
                     NavigationLink(L10n.docConfirmText) { DocumentReviewRouteView(documentId: doc.id, patientId: doc.patientId) }
                 }
+                // 2026-10-27 存储边界（E1/E2）：逐项显式导出副本（「直接导入-YYYY-MM」归档）
+                Button {
+                    Task {
+                        _ = await exportState.exportCopy(documentID: doc.id, conversationID: nil,
+                                                         conversationTitle: nil, allowSensitive: true)
+                    }
+                } label: { Label(L10n.docExportCopy, systemImage: "folder.badge.plus") }
             }
             .accessibilityIdentifier("SP-09.document.row.\(doc.id.uuidString)")
         }
