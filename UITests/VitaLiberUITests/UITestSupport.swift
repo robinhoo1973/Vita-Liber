@@ -5,10 +5,13 @@ import XCTest
 /// 自由函数形态（非 XCTestCase 子类），避免被测试发现器当成测试类。
 enum UITestSupport {
     /// 重置态种子 App（-uitest-reset 清库 + 建档流程已完成 + 门禁绕过）。
-    static func makeSeededApp(reset: Bool = true) -> XCUIApplication {
+    /// `extraArguments`：用例级旁路（如 -uitest-catalog-checker-off）。
+    static func makeSeededApp(reset: Bool = true,
+                              extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         var args = ["-uitest-gate-bypass", "-uitest-seed-finished"]
         if reset { args.insert("-uitest-reset", at: 0) }
+        args.append(contentsOf: extraArguments)
         app.launchArguments = args
         app.launch()
         return app

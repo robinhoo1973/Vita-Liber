@@ -219,10 +219,11 @@
 "hub.guidelines" = "参考范围与来源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授权（独立开关，关掉即停）";
-"settings.resourceManagement" = "离线资源与更新";
+"settings.resourceManagement" = "医疗数据与离线资源";
 "settings.resource.active" = "进行中";
 "settings.resource.catalog" = "资源清单";
 "settings.resource.catalogRow" = "医疗数据目录";
+"settings.resource.voiceModels" = "语音与模型";
 "settings.resource.t2Row" = "T2 本地模型";
 "settings.resource.installed" = "已安装";
 "settings.resource.notInstalled" = "未安装";
@@ -261,12 +262,15 @@
 "settings.resource.catalog.networkUnavailable" = "网络不可用";
 "settings.resource.catalog.updateCancelled" = "已取消，本机目录仍可用";
 "settings.resource.catalog.updateFailed" = "更新失败，本机目录仍可用";
+"settings.resource.catalog.updateFailedNoLocal" = "更新失败；其他功能不受影响。";
+"settings.resource.catalog.downloadingKeepOpen" = "下载中，请保持 App 打开。";
+"settings.resource.catalog.emptyHint" = "本机尚无医疗数据目录。检查只获取发布信息；找到可下载版本后可在此更新。";
 "settings.resource.catalog.phase.downloading" = "下载中";
 "settings.resource.catalog.phase.verifyingPackage" = "包摘要校验";
 "settings.resource.catalog.phase.decrypting" = "解密与解压";
 "settings.resource.catalog.phase.verifyingCatalog" = "目录完整性校验";
 "settings.resource.catalog.phase.activating" = "切换本机目录";
-"settings.resource.catalog.privacy" = "检查会连接公开 GitHub（不携带令牌，不上传成员、患者、搜索或医疗记录；服务端可能看到设备网络请求）。目录签名只证明发布来源与完整性，不代表临床审核。";
+"settings.resource.catalog.privacy" = "检查会连接公开 CNB 发布源（不携带令牌，不上传成员、患者、搜索或医疗记录；服务端可能看到设备网络请求）。目录签名只证明发布来源与完整性，不代表临床审核。";
 "settings.resource.catalog.localUpdatedFmt" = "更新于 %@";
 "settings.resource.catalog.notAvailable" = "目录尚不可用";
 "settings.resource.catalog.candidateDetailFmt" = "指纹 %@ · %@";
@@ -275,7 +279,7 @@
 "settings.resource.catalog.failedRolledBack" = "发布信息异常（疑似回退），已停止更新；本机目录仍可用";
 "settings.resource.catalog.notConfigured" = "更新服务尚未配置，本机目录仍可用";
 "settings.resource.catalog.notInstallable" = "发布信息不可安装或已过期，请重新检查";
-"settings.resource.catalog.checkHint" = "连接公开 GitHub 获取发布信息，不下载数据包";
+"settings.resource.catalog.checkHint" = "连接公开 CNB 发布源获取发布信息，不下载数据包";
 "settings.resource.catalog.updateHint" = "下载并安装新目录；安装期间本机目录保持可用";
 "settings.resource.catalog.cancelHint" = "停止更新并保留当前目录";
 "settings.resource.catalog.cancelCheckHint" = "停止检查";
@@ -1815,7 +1819,7 @@
 "startup.degradedBodyFmt" = "本地数据暂无法打开（%@）。您的资料未被修改；请重启应用重试，如持续出现请联系支持。";
 "startup.init.title" = "正在准备你的健康档案";
 "startup.init.readyTitle" = "本地档案已就绪";
-"startup.catalog.title" = "参考数据（可选）";
+"startup.catalog.title" = "医疗数据目录（可选）";
 "startup.catalog.body" = "下载药品与医院参考目录后，匹配会更完整；不下载也可继续使用全部核心功能。";
 "startup.catalog.continue" = "稍后再说";
 "startup.init.subtitle" = "首次启动或版本升级时，需要在本机整理数据库。请稍候，不要关闭 App。";
@@ -2450,7 +2454,7 @@
 "updateAdvice.row.stale" = "通告可能已过期";
 "updateAdvice.row.unavailable" = "通告暂不可用";
 "updateAdvice.domain.asr" = "ASR 语音模型";
-"updateAdvice.domain.medical" = "医疗参考数据";
+"updateAdvice.domain.medical" = "医疗数据目录";
 "updateCenter.title" = "更新中心";
 "updateCenter.checkAll" = "检查全部更新";
 "updateCenter.row.idle" = "尚未检查";
@@ -2458,7 +2462,7 @@
 "updateCenter.row.updating" = "更新中…";
 "updateCenter.asrUpdatesHint" = "在下方「识别引擎」中选择并更新";
 "updateCenter.asrBusyHint" = "正在下载模型，完成后可检查更新";
-"updateCenter.medicalUpdatesHint" = "在下方「医疗数据目录」中更新";
+"updateCenter.medicalUpdatesHint" = "在下方「医疗数据目录」中检查或更新";
 "updateCenter.checkAllHint" = "从发布源获取更新信息，不会下载数据包";
 "updateCenter.adviceA11yPrefix" = "未校验的通告：";
 "home.assistant" = "AI 助手";

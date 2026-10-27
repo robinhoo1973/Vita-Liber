@@ -77,6 +77,9 @@ extension L10n {
     static var settings_dataAndResources: String { t("settings.dataAndResources") }
     static var resourceActiveTitle: String { t("settings.resource.active") }
     static var resourceCatalogTitle: String { t("settings.resource.catalog") }
+
+    /// 语音模型资源节（2026-10-27 医疗目录独立成节后）。
+    static var resourceVoiceModels: String { t("settings.resource.voiceModels") }
     static var resourceCatalogRow: String { t("settings.resource.catalogRow") }
     static var resourceT2Row: String { t("settings.resource.t2Row") }
     static var resourceInstalled: String { t("settings.resource.installed") }
@@ -166,6 +169,10 @@ extension L10n {
     static var resourceCatalogUpdateCancelled: String { t("settings.resource.catalog.updateCancelled") }
 
     static var resourceCatalogUpdateFailed: String { t("settings.resource.catalog.updateFailed") }
+
+    static var resourceCatalogEmptyHint: String { t("settings.resource.catalog.emptyHint") }
+    static var resourceCatalogDownloadingKeepOpen: String { t("settings.resource.catalog.downloadingKeepOpen") }
+    static var resourceCatalogUpdateFailedNoLocal: String { t("settings.resource.catalog.updateFailedNoLocal") }
 
     static var resourceCatalogFailedStorage: String { t("settings.resource.catalog.failedStorage") }
 

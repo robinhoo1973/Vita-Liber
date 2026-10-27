@@ -219,10 +219,11 @@
 "hub.guidelines" = "參考範圍與來源";
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授權（獨立開關，關掉即停）";
-"settings.resourceManagement" = "離線資源與更新";
+"settings.resourceManagement" = "醫療資料與離線資源";
 "settings.resource.active" = "進行中";
 "settings.resource.catalog" = "資源清單";
 "settings.resource.catalogRow" = "醫療資料目錄";
+"settings.resource.voiceModels" = "語音與模型";
 "settings.resource.t2Row" = "T2 本機模型";
 "settings.resource.installed" = "已安裝";
 "settings.resource.notInstalled" = "未安裝";
@@ -261,12 +262,15 @@
 "settings.resource.catalog.networkUnavailable" = "網路不可用";
 "settings.resource.catalog.updateCancelled" = "已取消，本機目錄仍可用";
 "settings.resource.catalog.updateFailed" = "更新失敗，本機目錄仍可用";
+"settings.resource.catalog.updateFailedNoLocal" = "更新失敗；其他功能不受影響。";
+"settings.resource.catalog.downloadingKeepOpen" = "下載中，請保持 App 開啟。";
+"settings.resource.catalog.emptyHint" = "本機尚無醫療資料目錄。檢查只取得發布資訊；找到可下載版本後可在此更新。";
 "settings.resource.catalog.phase.downloading" = "下載中";
 "settings.resource.catalog.phase.verifyingPackage" = "套件摘要校驗";
 "settings.resource.catalog.phase.decrypting" = "解密與解壓縮";
 "settings.resource.catalog.phase.verifyingCatalog" = "目錄完整性校驗";
 "settings.resource.catalog.phase.activating" = "切換本機目錄";
-"settings.resource.catalog.privacy" = "檢查會連線公開 GitHub（不攜帶權杖，不上傳成員、患者、搜尋或醫療紀錄；伺服器可能看到裝置網路請求）。目錄簽章只證明發布來源與完整性，不代表臨床審核。";
+"settings.resource.catalog.privacy" = "檢查會連線公開 CNB 發布源（不攜帶權杖，不上傳成員、病患、搜尋或醫療紀錄；伺服器可能看到裝置網路請求）。目錄簽章只證明發布來源與完整性，不代表臨床審核。";
 "settings.resource.catalog.localUpdatedFmt" = "更新於 %@";
 "settings.resource.catalog.notAvailable" = "目錄尚不可用";
 "settings.resource.catalog.candidateDetailFmt" = "指紋 %@ · %@";
@@ -275,7 +279,7 @@
 "settings.resource.catalog.failedRolledBack" = "發布資訊異常（疑似回退），已停止更新；本機目錄仍可用";
 "settings.resource.catalog.notConfigured" = "更新服務尚未配置，本機目錄仍可用";
 "settings.resource.catalog.notInstallable" = "發布資訊不可安裝或已過期，請重新檢查";
-"settings.resource.catalog.checkHint" = "連線公開 GitHub 取得發布資訊，不下載資料包";
+"settings.resource.catalog.checkHint" = "連線公開 CNB 發布源取得發布資訊，不下載資料包";
 "settings.resource.catalog.updateHint" = "下載並安裝新目錄；安裝期間本機目錄保持可用";
 "settings.resource.catalog.cancelHint" = "停止更新並保留目前目錄";
 "settings.resource.catalog.cancelCheckHint" = "停止檢查";
@@ -1815,7 +1819,7 @@
 "startup.degradedBodyFmt" = "本機資料暫無法開啟（%@）。您的資料未被修改；請重新啟動應用程式重試，如持續出現請聯絡支援。";
 "startup.init.title" = "正在準備你的健康檔案";
 "startup.init.readyTitle" = "本機檔案已就緒";
-"startup.catalog.title" = "參考資料（選用）";
+"startup.catalog.title" = "醫療資料目錄（選用）";
 "startup.catalog.body" = "下載藥品與醫院參考目錄後，匹配會更完整；不下載也可繼續使用全部核心功能。";
 "startup.catalog.continue" = "稍後再說";
 "startup.init.subtitle" = "首次啟動或版本升級時，需要在本機整理資料庫。請稍候，不要關閉 App。";
@@ -2450,7 +2454,7 @@
 "updateAdvice.row.stale" = "通告可能已過期";
 "updateAdvice.row.unavailable" = "通告暫不可用";
 "updateAdvice.domain.asr" = "ASR 語音模型";
-"updateAdvice.domain.medical" = "醫療參考資料";
+"updateAdvice.domain.medical" = "醫療資料目錄";
 "updateCenter.title" = "更新中心";
 "updateCenter.checkAll" = "檢查全部更新";
 "updateCenter.row.idle" = "尚未檢查";
@@ -2458,7 +2462,7 @@
 "updateCenter.row.updating" = "更新中…";
 "updateCenter.asrUpdatesHint" = "在下方「識別引擎」中選擇並更新";
 "updateCenter.asrBusyHint" = "正在下載模型，完成後可檢查更新";
-"updateCenter.medicalUpdatesHint" = "在下方「醫療資料目錄」中更新";
+"updateCenter.medicalUpdatesHint" = "在下方「醫療資料目錄」中檢查或更新";
 "updateCenter.checkAllHint" = "從發布源獲取更新資訊，不會下載資料包";
 "updateCenter.adviceA11yPrefix" = "未校驗的通告：";
 "home.assistant" = "AI 助手";

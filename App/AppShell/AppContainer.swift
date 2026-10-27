@@ -182,7 +182,14 @@ struct AppContainer {
         let catalogOpener: (any MedicalCatalogPackageOpening)?
         let updateAdviceProvider: (any UpdateAdviceProviding)?
         #if os(iOS) || os(macOS)
-        let catalogRoot = bundledData("MedicalCatalogRoot", "json")
+        // XCUITest 离线用例：pinned root 随包后 checker 恒非 nil，任何点按都会真实
+        // 联网。仅 DEBUG 的 -uitest-catalog-checker-off 走 checker==nil → .unavailable。
+        #if DEBUG
+        let uiTestCheckerOff = ProcessInfo.processInfo.arguments.contains("-uitest-catalog-checker-off")
+        #else
+        let uiTestCheckerOff = false
+        #endif
+        let catalogRoot = uiTestCheckerOff ? nil : bundledData("MedicalCatalogRoot", "json")
         catalogChecker = catalogRoot.map { root in
             MedicalCatalogReleaseResolver(pinnedRootJSON: root,
                                           makeVerifier: { CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: $0) },

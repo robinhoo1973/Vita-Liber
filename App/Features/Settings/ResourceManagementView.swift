@@ -14,6 +14,11 @@ struct ResourceManagementView: View {
     @Environment(LLMModelInstallCenter.self) private var llmModelInstallCenter
     @Environment(MedicalCatalogState.self) private var catalogState
 
+    /// 关怀模式触控 ≥64pt（CareModeMetrics 同源，ui-ux §3.3）。
+    private var touchTarget: CGFloat {
+        app.careMode ? CareModeMetrics.care.touchTarget : CareModeMetrics.standard.touchTarget
+    }
+
     var body: some View {
         WithPerceptionTracking {
             Form {
@@ -22,7 +27,10 @@ struct ResourceManagementView: View {
                 // 检查入口与状态语法跨域统一（ASR+医疗），安装/更新动作留域内；
                 // 原独立通告区删除（呈现合并入中心，R2 边界由 Domain 规则守）。
                 UpdateCenterSection()
-                resourcesSection
+                // 2026-10-27：医疗目录升为顶级 Section（去「资源清单」双层标题）；
+                // 域内保留一个检查动作，检查态/批量入口仍在更新中心。
+                catalogSection
+                voiceModelsSection
                 // B2-3（2026-09-28）：语音模型管理并入本页（检查更新/下载/进度/取消，
                 // 复用语音设置页同一区块视图——单一管理面，无平行视图）。
                 ASREngineSettingsSection(accessibilityPrefix: "SP-64.resource.asr")
@@ -134,6 +142,12 @@ struct ResourceManagementView: View {
             .accessibilityIdentifier("SP-64.medicalCatalog.local")
 
             remoteRow
+            if catalogState.localVersion == nil, catalogState.remoteState == .idle {
+                Text(L10n.resourceCatalogEmptyHint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            checkButton
 
             // 一次性成功事件（§5.12.4「成功才展示更新完成及新本地版本」）
             if let completed = catalogState.updateCompletedDataVersion {
@@ -173,6 +187,52 @@ struct ResourceManagementView: View {
                 UIAccessibility.post(notification: .announcement, argument: updateErrorText(error))
             }
         }
+        .onChangeCompat(of: catalogState.remoteState) { _, state in
+            if let text = catalogResultAnnouncement(state) {
+                UIAccessibility.post(notification: .announcement, argument: text)
+            }
+        }
+    }
+
+    /// 医疗域显式检查快捷键（2026-10-27 业主反馈：更新入口不可发现）。
+    /// 只发起本域检查（不读通告、不碰 ASR）；检查态文案与取消仍单点渲染于页首
+    /// 更新中心（D4 修订：中心 = 批处理，域 = 域内动作）。
+    private var checkButton: some View {
+        Button {
+            catalogState.check()
+        } label: {
+            Text(checkButtonTitle)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .frame(minHeight: touchTarget)
+        .contentShape(Rectangle())
+        .disabled(!catalogState.canCheck)
+        .accessibilityHint(L10n.updateCenterCheckAllHint)
+        .accessibilityIdentifier("SP-64.medicalCatalog.check")
+    }
+
+    /// 空闲/检查中 = 「检查更新」；任何已决结果后 = 「重新检查」。
+    private var checkButtonTitle: String {
+        switch catalogState.remoteState {
+        case .idle, .checking: return L10n.resourceCatalogCheck
+        default: return L10n.resourceCatalogRecheck
+        }
+    }
+
+    /// 检查结果落定播报一次（不播 idle/checking；阶段与完成/失败已有独立播报）。
+    private func catalogResultAnnouncement(_ state: MedicalCatalogRemoteState) -> String? {
+        switch state {
+        case .idle, .checking: return nil
+        case .upToDate: return L10n.resourceCatalogUpToDate
+        case .updateAvailable(let candidate):
+            return L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion)
+        case .noInstallableAvailable: return L10n.resourceCatalogNoInstallable
+        case .unavailable: return L10n.resourceCatalogUnavailable
+        case .rateLimited: return L10n.resourceCatalogRateLimited
+        case .verificationFailed: return L10n.resourceCatalogVerificationFailed
+        case .networkUnavailable: return L10n.resourceCatalogNetworkUnavailable
+        }
     }
 
     /// 阶段键（无关联值的稳定形态）：只播报阶段切换，下载字节变化不触发播报。
@@ -192,7 +252,9 @@ struct ResourceManagementView: View {
     /// 详情 + [更新]（及下方进度/错误/完成行由父视图按态追加）。
     @ViewBuilder
     private var remoteRow: some View {
-        if case .updateAvailable(let candidate) = catalogState.remoteState {
+        // 更新进行中只显示进度/取消（避免「进度 + 禁用更新按钮」双动作面）。
+        if case .updateAvailable(let candidate) = catalogState.remoteState,
+           !catalogState.isUpdating {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     VLDownloadActivityIcon(isActive: catalogState.isUpdating)
@@ -212,7 +274,7 @@ struct ResourceManagementView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .frame(minHeight: 44)
+                .frame(minHeight: touchTarget)
                 .disabled(catalogState.isUpdating)
                 .accessibilityHint(L10n.resourceCatalogUpdateHint)
                 .accessibilityIdentifier("SP-64.medicalCatalog.update")
@@ -232,7 +294,7 @@ struct ResourceManagementView: View {
                 if catalogState.canCancelUpdate {
                     Button(L10n.commonCancel) { catalogState.cancelUpdate() }
                         .font(.caption)
-                        .frame(minHeight: 44)
+                        .frame(minHeight: touchTarget)
                         .accessibilityHint(L10n.resourceCatalogCancelHint)
                         .accessibilityIdentifier("SP-64.medicalCatalog.cancel")
                 }
@@ -242,6 +304,9 @@ struct ResourceManagementView: View {
                 ProgressView(value: total > 0 ? Double(received) / Double(total) : 0)
                 Text(byteText(received, total))
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(L10n.resourceCatalogDownloadingKeepOpen)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             default:
                 ProgressView()
@@ -274,6 +339,15 @@ struct ResourceManagementView: View {
     /// 更新错误 → 用户文案：安全事件（回退拒绝）与可行动指引（存储不足/重新检查/
     /// 未配置）单列，其余保留通用「更新失败，本机目录仍可用」（13 词折叠评审修复）。
     private func updateErrorText(_ error: MedicalCatalogDownloadError) -> String {
+        // 无本机目录时不得复用「本机目录仍可用」的文案（那是假话）。
+        if catalogState.localVersion == nil {
+            switch error {
+            case .cancelled, .downloadFailed, .checksumMismatch, .packageInvalid,
+                 .catalogIntegrityFailed, .activationFailed:
+                return L10n.resourceCatalogUpdateFailedNoLocal
+            default: break
+            }
+        }
         switch error {
         case .cancelled: return L10n.resourceCatalogUpdateCancelled
         case .insufficientStorage: return L10n.resourceCatalogFailedStorage
@@ -293,9 +367,9 @@ struct ResourceManagementView: View {
         return formatter.string(from: date)
     }
 
-    private var resourcesSection: some View {
-        Section(L10n.resourceCatalogTitle) {
-            catalogSection
+    /// 语音模型资源节（医疗目录已独立成节，2026-10-27）。
+    private var voiceModelsSection: some View {
+        Section(L10n.resourceVoiceModels) {
             // T2 本机 LLM 模型（2026-10-09 换型+下载化批：模型不随包、运行时自
             // CNB 下载；「手动更新」= 目录版本 vs 已装版本比对——网络侧最新模型
             // 发现需签名索引，登记为后续批）。

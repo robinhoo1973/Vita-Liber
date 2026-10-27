@@ -67,6 +67,9 @@ final class MedicalCatalogUpdateCoordinator {
 
     var isUpdating: Bool { updateTask != nil }
 
+    /// 显式检查可发起性：与 `check()` 的单飞守卫同判据（检查或更新在飞均不可再发起）。
+    var canCheck: Bool { checkTask == nil && updateTask == nil }
+
     /// 目录文件 mtime（原子替换时刻）；读不到按「未知」处理（UI 隐藏时间行）。
     private static func fileModificationDate(_ path: URL) -> Date? {
         let attributes = try? FileManager.default.attributesOfItem(atPath: path.path) // try?-ok: 读取失败=无本地更新时间，不影响其它状态

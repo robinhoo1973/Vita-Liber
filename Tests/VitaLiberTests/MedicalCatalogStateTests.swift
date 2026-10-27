@@ -397,4 +397,20 @@ final class MedicalCatalogStateTests: XCTestCase {
         XCTAssertNil(state.localUpdatedAt)
         XCTAssertFalse(state.isAvailable, "无 store 即不可用")
     }
+
+    // MARK: - 域内检查入口（2026-10-27 业主反馈）
+
+    /// `canCheck` 与 `check()` 单飞守卫同判据：检查在飞禁用，落定后恢复。
+    func testCanCheck_checkInFlight() async {
+        let gated = GatedChecker()
+        let state = MedicalCatalogState(store: nil, checker: gated)
+        XCTAssertTrue(state.canCheck)
+        state.check()
+        await waitUntil("检查应进入 checking") { state.remoteState == .checking }
+        await waitUntilGated("checker 应真正挂起") { await gated.isGated }
+        XCTAssertFalse(state.canCheck, "检查在飞时不可再发起（单飞守卫同判据）")
+        gated.resume(MedicalCatalogCheckOutcome(state: .unavailable))
+        await waitUntil("检查应落定") { state.remoteState == .unavailable }
+        XCTAssertTrue(state.canCheck)
+    }
 }

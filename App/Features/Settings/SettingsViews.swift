@@ -188,6 +188,12 @@ struct SettingsView: View {
                         Label(L10n.healthImportSettingsTitle, systemImage: "heart.text.square")
                     }
                     .accessibilityIdentifier("SP-25.settings.appleHealth")
+                    // 医疗数据入口紧随 Apple 健康（2026-10-27 业主反馈：医疗数据需有
+                    // 下载/更新入口；ui-ux §5.12.4 原定位置即 Apple Health 之后）。
+                    NavigationLink(value: AppRoute.resourceManagement) {
+                        Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
+                    }
+                    .accessibilityIdentifier("SP-64.settings.resources")
                     // 同步间隔已并入 Apple 健康数据二级页（2026-10-23 业主）。
                     // FR13.1/13.2 导出向导
                     NavigationLink {
@@ -202,11 +208,8 @@ struct SettingsView: View {
                         Label(L10n.backupTitle, systemImage: "externaldrive")
                     }
                     .accessibilityIdentifier("SP-23.backup.entry")
-                    // SP-64 统一资源管理页入口（2026-09-27 业主定案）
-                    NavigationLink(value: AppRoute.resourceManagement) {
-                        Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
-                    }
-                    .accessibilityIdentifier("SP-64.settings.resources")
+                    // SP-64 统一资源管理页入口（2026-09-27 业主定案；2026-10-27 上移至
+                    // Apple 健康之后）
                     // FR14.3 数据生命周期页（三级删除语义 + 影响清单）——删除入口置底。
                     NavigationLink {
                         DataLifecycleView()

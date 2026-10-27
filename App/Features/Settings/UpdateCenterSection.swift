@@ -99,8 +99,12 @@ struct UpdateCenterSection: View {
     }
 
     private var medicalHint: String? {
-        guard let medical, case .updateAvailable = medical.remoteState else { return nil }
-        return L10n.updateCenterMedicalUpdatesHint
+        guard let medical else { return nil }
+        // 未检查与发现更新两态都给出域内入口提示（空态找不到入口的直接修复）。
+        switch medical.remoteState {
+        case .idle, .updateAvailable: return L10n.updateCenterMedicalUpdatesHint
+        default: return nil
+        }
     }
 
     /// 通告注解：仅 `visible` 呈现（未读/被域链终态覆盖不占位）；文案键复用通告五态。
@@ -123,7 +127,8 @@ struct UpdateCenterSection: View {
         return L10n.resourceCatalogRateLimitedFmt(relative)
     }
 
-    // MARK: - 检查全部（唯一显式检查入口；禁用条件仅「批查在飞」，永不受通告态影响）
+    // MARK: - 跨域批量检查（医疗域另有单域快捷键 SP-64.medicalCatalog.check；
+    // 禁用条件仅「批查在飞」，永不受通告态影响）
 
     @ViewBuilder
     private var checkAllRow: some View {
