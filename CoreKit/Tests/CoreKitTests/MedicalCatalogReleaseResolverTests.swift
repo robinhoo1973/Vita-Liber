@@ -72,13 +72,13 @@ struct MedicalCatalogReleaseResolverTests {
         MedicalCatalogReleaseResolver(pinnedRootJSON: fixture.pinnedRootJSON,
                                       makeVerifier: { root in
                                           CryptoKitMedicalCatalogTrustVerifier(
-                                              pinnedRootJSON: root, now: { MedicalCatalogFixture.clock })
+                                              pinnedRootJSON: root, now: { fixture.clock })
                                       },
                                       hasher: CryptoKitContentHasher(),
                                       session: session ?? makeSession(),
                                       trust: trust,
                                       localVersion: { local },
-                                      now: { MedicalCatalogFixture.clock })
+                                      now: { fixture.clock })
     }
 
     /// 发布 tag 页 + installable-30 pointer 的标准路由（逐键写入——整字典赋值
@@ -310,7 +310,7 @@ struct MedicalCatalogReleaseResolverTests {
         let resolver = Self.makeResolver(fixture: fixture)
         let outcome = try await resolver.check()
         #expect(outcome.state == .rateLimited(
-            retryAfter: MedicalCatalogFixture.clock.addingTimeInterval(120)))
+            retryAfter: fixture.clock.addingTimeInterval(120)))
     }
 
     @Test("403 + x-ratelimit-reset → rateLimited 携带 epoch 时间")
@@ -318,7 +318,7 @@ struct MedicalCatalogReleaseResolverTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         Self.resetStubs()
-        let resetDate = MedicalCatalogFixture.clock.addingTimeInterval(300)
+        let resetDate = fixture.clock.addingTimeInterval(300)
         Self.apply((MedicalCatalogReleaseResolver.tagPageURL, URLProtocolStub.Script(
             statusCode: 403, headers: ["x-ratelimit-reset": String(Int(resetDate.timeIntervalSince1970))])))
         let resolver = Self.makeResolver(fixture: fixture)
@@ -434,7 +434,7 @@ struct MedicalCatalogReleaseResolverTests {
         Self.apply(routes)
         let resolver = Self.makeResolver(fixture: fixture)
         #expect(try await resolver.check().state == .rateLimited(
-            retryAfter: MedicalCatalogFixture.clock.addingTimeInterval(60)))
+            retryAfter: fixture.clock.addingTimeInterval(60)))
     }
 
     @Test("无 pinned root（未 provisioning）→ unavailable 且零网络请求")

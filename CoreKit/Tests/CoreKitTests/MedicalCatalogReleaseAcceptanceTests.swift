@@ -185,7 +185,7 @@ struct MedicalCatalogReleaseAcceptanceTests {
         let fixture = try MedicalCatalogFixture.make()
         defer { fixture.cleanUp() }
         let late = CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: fixture.pinnedRootJSON,
-                                                        now: { MedicalCatalogFixture.date("2026-10-27T12:00:00Z") })
+                                                        now: { fixture.expiresDate })
         #expect(throws: MedicalCatalogTrustError.expired) {
             try late.verify(catalogJSON: fixture.signedPointerJSON, expected: fixture.signedExpectation)
         }
@@ -274,8 +274,8 @@ struct MedicalCatalogReleaseAcceptanceTests {
         // 时钟错位注入：候选在 fixture 时钟（检查时刻）仍有效，更新入口时钟晚于
         // 到期——「检查时有效、数日后更新时过期」的真实窗口。
         let service = fixture.service(fetcher: StubPackageFetcher(bytes: fixture.packageBytes), journal: journal,
-                                      now: { MedicalCatalogFixture.date("2026-09-27T00:00:00Z") })
-        let expired = try fixture.candidate { $0["expiresAt"] = "2026-09-26T13:30:00Z" }
+                                      now: { fixture.expiresDate.addingTimeInterval(60) })
+        let expired = try fixture.candidate { $0["expiresAt"] = MedicalCatalogFixture.iso(fixture.issuedDate.addingTimeInterval(5400)) }
         await #expect(throws: MedicalCatalogUpdateError.catalogNotInstallable) {
             try await service.update(candidate: expired, opener: CountingZIPOpener())
         }
@@ -552,10 +552,23 @@ struct MedicalCatalogFixture {
     let packageBytes: Data
     let destinationURL: URL
     let patientDatabaseURL: URL
+    /// 实例时钟锚（make() 时刻）：解码/验签与信封 issued/expires 同源，
+    /// 避免与真实 now 脱钩（2026-10-27 时间炸弹根因）。
+    let clock: Date
+    let issuedDate: Date
+    let expiresDate: Date
     private let pointerFields: [String: Any]
     private let catalogSigners: [Curve25519.Signing.PrivateKey]
 
     static func date(_ value: String) -> Date { MedicalCatalogReleaseProtocol.timestamp(value) ?? .distantPast }
+
+    /// 信封时间戳序列化（wire 形态 `yyyy-MM-ddTHH:mm:ssZ`，无小数秒）。
+    static func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: date)
+    }
 
     static func make(rootSignerCount: Int = 2, catalogSignerCount: Int = 2, installable: Bool = true,
                      database: Database = .valid, schemaVersion: Int = 7) throws -> MedicalCatalogFixture {
@@ -563,6 +576,11 @@ struct MedicalCatalogFixture {
             .appendingPathComponent("medical-acceptance-\(UUID().uuidString)", isDirectory: true)
         let catalogDirectory = directory.appendingPathComponent("MedicalCatalog", isDirectory: true)
         try FileManager.default.createDirectory(at: catalogDirectory, withIntermediateDirectories: true)
+        // 动态时钟对：issued=锚−1h、expires=锚+30d（跨度 ≤ pointerValidity 31d 且恒在未来；
+        // 每次 make() 重建，跑一次新鲜一次）。
+        let anchor = Date()
+        let issued = anchor.addingTimeInterval(-3600)
+        let expires = anchor.addingTimeInterval(30 * 24 * 60 * 60)
 
         let rootKeys = [Curve25519.Signing.PrivateKey(), Curve25519.Signing.PrivateKey()]
         let catalogKeys = [Curve25519.Signing.PrivateKey(), Curve25519.Signing.PrivateKey()]
@@ -606,10 +624,7 @@ struct MedicalCatalogFixture {
             // 切换零成本）。根文档的 schemaVersion 仍为 1（两侧一致，勿改）。
             "schemaVersion": 3, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
             "rootVersion": 1, "catalogVersion": 30,
-            // 2026-10-27 时间炸弹修复：信封 expiresAt 原硬编码 2026-10-27T12:00Z，
-            // 到期日 CI run 40508438879 三例必红（安装入口如实拒收过期候选）。
-            // 改为远未来常量；过期语义由各用例显式 mutate（如 :278）覆盖，不靠时钟。
-            "issuedAt": "2026-09-26T12:00:00Z", "expiresAt": "2099-01-01T00:00:00Z",
+            "issuedAt": Self.iso(issued), "expiresAt": Self.iso(expires),
             "sqliteSha256": sqliteSHA, "packageSha256": packageSHA, "packageSize": packageBytes.count,
             "packageAssetName": MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 30),
             "fetchStateSha256": fetchStateSHA,
@@ -623,7 +638,7 @@ struct MedicalCatalogFixture {
         let pointerJSON = try sign(fields, with: signers)
         let assetName = MedicalCatalogReleaseProtocol.manifestAssetName
         let expectation = try MedicalCatalogSignedPointerDecoder.expectation(
-            catalogJSON: pointerJSON, servedAs: assetName, now: clock, hasher: hasher)
+            catalogJSON: pointerJSON, servedAs: assetName, now: anchor, hasher: hasher)
 
         let destination = catalogDirectory.appendingPathComponent("medical-catalog.sqlite")
         try oldCatalog.write(to: destination)
@@ -632,6 +647,7 @@ struct MedicalCatalogFixture {
         return MedicalCatalogFixture(directory: directory, pinnedRootJSON: pinnedRootJSON, signedPointerJSON: pointerJSON,
                                      pointerAssetName: assetName, signedExpectation: expectation, packageBytes: packageBytes,
                                      destinationURL: destination, patientDatabaseURL: patient,
+                                     clock: anchor, issuedDate: issued, expiresDate: expires,
                                      pointerFields: fields, catalogSigners: catalogKeys)
     }
 
@@ -640,7 +656,7 @@ struct MedicalCatalogFixture {
     }
 
     func verifier() -> CryptoKitMedicalCatalogTrustVerifier {
-        CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: pinnedRootJSON, now: { Self.clock })
+        CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: pinnedRootJSON, now: { clock })
     }
 
     /// 以夹具 catalog 私钥重签改动后的 pointer：每条断言只隔离一个信任门。
@@ -658,7 +674,7 @@ struct MedicalCatalogFixture {
         // v3：单头固定名，签名信封只落 `manifest.json`（唯一提交点）。
         let expectation = try MedicalCatalogSignedPointerDecoder.expectation(
             catalogJSON: json, servedAs: MedicalCatalogReleaseProtocol.manifestAssetName,
-            now: Self.clock, hasher: CryptoKitContentHasher())
+            now: clock, hasher: CryptoKitContentHasher())
         try verifier().verify(catalogJSON: json, expected: expectation)
         return VerifiedMedicalCatalogCandidate(verified: expectation)
     }
