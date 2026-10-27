@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Domain
 import Perception
 
@@ -85,29 +86,39 @@ struct DatabaseInitializationView: View {
                     Label(L10n.resourceCatalogUpdateCompletedFmt(String(completed.prefix(8))),
                           systemImage: "checkmark.circle.fill")
                         .font(.footnote)
-                        .foregroundStyle(.green)
+                        .foregroundStyle(Color("semantic-success", bundle: .main))
                 }
                 if catalog.updateError != nil {
                     Text(L10n.resourceCatalogUpdateFailed)
                         .font(.footnote)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
                 }
                 HStack(spacing: 10) {
                     if catalog.isUpdating {
                         Button(L10n.commonCancel) { catalog.cancelUpdate() }
                             .buttonStyle(.bordered)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
                     } else if case .updateAvailable = catalog.remoteState {
                         Button(L10n.resourceCatalogUpdate) { model.installCatalog() }
                             .buttonStyle(.bordered)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                            .accessibilityIdentifier("STARTUP.catalog.update")
                     } else {
                         Button(L10n.resourceCatalogCheck) { model.checkCatalog() }
                             .buttonStyle(.bordered)
                             .disabled(catalog.remoteState == .checking)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                            .accessibilityIdentifier("STARTUP.catalog.check")
                     }
                     Button(L10n.startupCatalogContinue) { model.continueToApp() }
                         .buttonStyle(.borderedProminent)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                        .accessibilityIdentifier("STARTUP.catalog.continue")
                 }
-                .frame(minHeight: 44)
                 Text(L10n.resourceCatalogPrivacy)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -115,8 +126,27 @@ struct DatabaseInitializationView: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
+            // 容器标识必须配 .contain，否则 SwiftUI 会把标识压到每个子元素上，
+            // 子按钮的独立标识在 XCUITest/VoiceOver 里不可查（L0 第 17 节）。
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("STARTUP.catalog")
+            .onChangeCompat(of: catalogAnnouncement) { _, newValue in
+                if let newValue {
+                    UIAccessibility.post(notification: .announcement, argument: newValue)
+                }
+            }
         }
+    }
+
+    /// VoiceOver 播报：阶段/完成/失败各一次，不逐字节播报下载进度。
+    private var catalogAnnouncement: String? {
+        guard let catalog = model.catalog else { return nil }
+        if let completed = catalog.updateCompletedDataVersion {
+            return L10n.resourceCatalogUpdateCompletedFmt(String(completed.prefix(8)))
+        }
+        if catalog.updateError != nil { return L10n.resourceCatalogUpdateFailed }
+        if let progress = catalog.updateProgress { return catalogPhaseText(progress) }
+        return nil
     }
 
     private func catalogStatus(_ catalog: MedicalCatalogState) -> String {
@@ -147,7 +177,7 @@ struct DatabaseInitializationView: View {
     private var iconBadge: some View {
         Image(systemName: model.failure == nil ? "heart.text.square.fill" : "exclamationmark.triangle.fill")
             .font(VLFont.homeActionIcon)
-            .foregroundStyle(model.failure == nil ? Color.accentColor : Color.orange)
+            .foregroundStyle(model.failure == nil ? Color.accentColor : Color("semantic-warning", bundle: .main))
             .frame(width: 88, height: 88)
             .background(.thinMaterial, in: Circle())
             .accessibilityHidden(true)
