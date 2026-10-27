@@ -606,7 +606,10 @@ struct MedicalCatalogFixture {
             // 切换零成本）。根文档的 schemaVersion 仍为 1（两侧一致，勿改）。
             "schemaVersion": 3, "role": "catalog", "app": "vitaliber", "assetKind": "medical-data",
             "rootVersion": 1, "catalogVersion": 30,
-            "issuedAt": "2026-09-26T12:00:00Z", "expiresAt": "2026-10-27T12:00:00Z",
+            // 2026-10-27 时间炸弹修复：信封 expiresAt 原硬编码 2026-10-27T12:00Z，
+            // 到期日 CI run 40508438879 三例必红（安装入口如实拒收过期候选）。
+            // 改为远未来常量；过期语义由各用例显式 mutate（如 :278）覆盖，不靠时钟。
+            "issuedAt": "2026-09-26T12:00:00Z", "expiresAt": "2099-01-01T00:00:00Z",
             "sqliteSha256": sqliteSHA, "packageSha256": packageSHA, "packageSize": packageBytes.count,
             "packageAssetName": MedicalCatalogReleaseProtocol.packageAssetName(catalogVersion: 30),
             "fetchStateSha256": fetchStateSHA,
