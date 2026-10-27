@@ -123,15 +123,23 @@ struct AppContainer {
     /// 「绝不静默空库继续写入」。判定信号用**文件系统事实**（原件目录），
     /// 不用 UserDefaults（`hk_sync_anchor` 先例：UserDefaults 不入备份语义）。
     static func databaseWasLost(databasePath: String, originalsDir: URL,
+                                legacyOriginalsDir: URL? = nil,
                                 fileManager: FileManager = .default) -> Bool {
         guard !fileManager.fileExists(atPath: databasePath) else { return false }
-        let contents = (try? fileManager.contentsOfDirectory(atPath: originalsDir.path)) ?? []   // try?-ok: 目录不可读=无原件证据，按「未丢失」处理，绝不阻断正常启动
-        return !contents.filter { !$0.hasPrefix(".") }.isEmpty
+        // 双根证据（2026-10-27 存储边界）：v49 迁移前旧装机的原件仍在
+        // Documents/MedicalNotes——只查新根会把「丢库但有旧原件」误判为未丢失，
+        // 空库静默建档。两处任一有真实文件即视为曾存在数据目录。
+        for directory in [originalsDir, legacyOriginalsDir].compactMap({ $0 }) {
+            let contents = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []   // try?-ok: 目录不可读=无原件证据，按「未丢失」处理，绝不阻断正常启动
+            if contents.contains(where: { !$0.hasPrefix(".") }) { return true }
+        }
+        return false
     }
 
     @MainActor
     static func live(databasePath: String) throws -> AppContainer {
-        if databaseWasLost(databasePath: databasePath, originalsDir: defaultOriginalsDir()) {
+        if databaseWasLost(databasePath: databasePath, originalsDir: defaultOriginalsDir(),
+                           legacyOriginalsDir: MediaRootPaths.legacyMedicalNotesRoot()) {
             throw ContainerError.databaseMissing
         }
         let store = try GRDBStore.pool(at: databasePath)
@@ -207,7 +215,10 @@ struct AppContainer {
         catalogOpener = nil
         updateAdviceProvider = nil
         #endif
-        return assemble(store: store, scheduler: productionScheduler(), medicalCatalog: catalog,
+        // 2026-10-27 存储边界：敏感媒体/原件 canonical 根迁出 Documents（ADR-036）。
+        return assemble(store: store, scheduler: productionScheduler(),
+                        mediaBaseDir: MediaRootPaths.mediaBase(),
+                        medicalCatalog: catalog,
                         medicalCatalogUpdater: updater,
                         medicalCatalogChecker: catalogChecker,
                         medicalCatalogOpener: catalogOpener,
@@ -466,8 +477,6 @@ struct AppContainer {
     /// 与敏感目录 `<Documents>/MedicalNotes/sensitive/` 同根（§6 文件保护分区）。
     /// 拍摄/导入原图只写一次、永不修改；预览/测试注入临时目录。
     static func defaultOriginalsDir() -> URL {
-        let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("MedicalNotes", isDirectory: true)
+        MediaRootPaths.canonicalMedicalNotesRoot()
     }
 }

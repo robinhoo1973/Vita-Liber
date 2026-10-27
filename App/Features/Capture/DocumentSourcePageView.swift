@@ -167,7 +167,10 @@ struct DocumentSourcePageView: View {
                       let meta = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
                       let path = meta["original_path"] as? String else { throw DocumentSourceRenderer.Failure.unreadable }
                 guard !Task.isCancelled else { return }
-                sensitive = doc.isSensitive; originalPath = path; mimeType = doc.mimeType ?? "image/jpeg"
+                guard let resolved = docs.resolveMediaPath(path) else {
+                    throw DocumentSourceRenderer.Failure.unreadable
+                }
+                sensitive = doc.isSensitive; originalPath = resolved.path; mimeType = doc.mimeType ?? "image/jpeg"
                 loadedDocument = doc
             }
             loading = false

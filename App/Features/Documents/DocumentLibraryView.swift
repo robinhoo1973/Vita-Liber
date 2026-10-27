@@ -512,14 +512,22 @@ final class DocumentsState {
         }
     }
 
+    /// 媒体路径统一解析（2026-10-27 存储边界，ADR-036）：meta 相对路径（新写）
+    /// 以 `originalsDir` 为锚；旧行绝对路径原样使用（v49 迁移前数据/回滚容忍）。
+    func resolveMediaPath(_ path: String) -> URL? {
+        MediaRootPaths.resolve(path: path, mediaBase: originalsDir)
+    }
+
     private func persistOriginal(patientId: UUID, data: Data, ext: String) throws -> String {
         guard !data.isEmpty else { throw ImportError.unreadableMedia }
         let directory = originalsDir.appendingPathComponent("originals", isDirectory: true)
             .appendingPathComponent(patientId.uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("\(UUID().uuidString).\(ext)")
+        let fileName = "\(UUID().uuidString).\(ext)"
+        let url = directory.appendingPathComponent(fileName)
         try data.write(to: url, options: .atomic)
-        return url.path
+        // meta 存相对路径（锚=originalsDir）：换容器/迁移不失效；写入位置不变。
+        return "originals/\(patientId.uuidString)/\(fileName)"
     }
 
     func prepareImageDraft(patientId: UUID, originalData: Data, processedData: Data, mimeType: String,
@@ -938,9 +946,11 @@ final class DocumentsState {
                   ["active", "favorite"].contains(document.status), let json = document.metaJSON,
                   let meta = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
                   let original = meta["original_path"] as? String else { throw ImportError.unreadableMedia }
-            let originalData = try Data(contentsOf: URL(fileURLWithPath: original))
+            guard let originalURL = resolveMediaPath(original) else { throw ImportError.unreadableMedia }
+            let originalData = try Data(contentsOf: originalURL)
             let processed = meta["processed_path"] as? String ?? original
-            let processedData = try Data(contentsOf: URL(fileURLWithPath: processed))
+            guard let processedURL = resolveMediaPath(processed) else { throw ImportError.unreadableMedia }
+            let processedData = try Data(contentsOf: processedURL)
             let input = PendingDocument(patientId: patientId, originalData: originalData, processedData: processedData,
                 mimeType: document.mimeType ?? ImageInputRules.sniffMimeType(of: originalData), docType: document.docType,
                 title: document.title, sha256: document.sha256 ?? "sha:" + Self.hash(processedData),

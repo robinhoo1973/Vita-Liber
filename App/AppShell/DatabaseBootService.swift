@@ -221,13 +221,18 @@ enum DatabaseBootService {
     }
 
     private static func hasOriginalsEvidence() -> Bool {
-        let directory = AppContainer.defaultOriginalsDir()
+        // 双根证据（2026-10-27 存储边界）：canonical（App Support/Media）与
+        // 旧根（Documents/MedicalNotes，v49 前装机）任一有真实文件即算证据。
+        let roots = [AppContainer.defaultOriginalsDir(),
+                     MediaRootPaths.legacyMedicalNotesRoot()]
         // 只认 originals/ 与 sensitive/ 下的真实文件：空目录/隐藏文件不是证据
         // （data-flow §13.1 双布局判据；根目录本身存在不能让新装机误判为丢库）。
-        for sub in ["originals", "sensitive"] {
-            let path = directory.appendingPathComponent(sub, isDirectory: true).path
-            let contents = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? [] // try?-ok: 目录不可读=无原件证据
-            if contents.contains(where: { !$0.hasPrefix(".") }) { return true }
+        for directory in roots {
+            for sub in ["originals", "sensitive"] {
+                let path = directory.appendingPathComponent(sub, isDirectory: true).path
+                let contents = (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? [] // try?-ok: 目录不可读=无原件证据
+                if contents.contains(where: { !$0.hasPrefix(".") }) { return true }
+            }
         }
         return false
     }
