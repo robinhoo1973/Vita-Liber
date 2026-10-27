@@ -144,6 +144,15 @@ public actor DocumentExportMirror {
         return drifted
     }
 
+    /// 单条副本删除（2026-10-28 业主：记录转敏感时副本必须离开用户面）。
+    /// 只删副本文件与账本行（置 removed），绝不触碰 canonical。
+    public func removeCopy(documentID: UUID) async {
+        guard let record = await ledger.record(documentID: documentID) else { return }
+        let url = exportsBase.appendingPathComponent(record.relativePath)
+        try? fileManager.removeItem(at: url)   // try?-ok: 副本删除尽力而为
+        try? await ledger.setState(documentID: documentID, state: "removed")   // try?-ok: tombstone 尽力而为
+    }
+
     /// 会话删除联动（E2：默认移除导出、可取消）：删除跟踪行 + 会话目录。
     public func removeCopies(conversationID: UUID) async {
         let records = await ledger.records(conversationID: conversationID)

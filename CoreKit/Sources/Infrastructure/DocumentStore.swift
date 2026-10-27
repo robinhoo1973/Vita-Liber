@@ -289,6 +289,25 @@ public actor DocumentStore {
 
     /// Review edits update projections, never source media or pages already cited by committed facts.
     /// v27：`docTypeKey` 非 nil 时随 `doc_type` 标签同事务改写 `doc_type_key`（标签与键不漂移）；nil = 保持原键。
+    /// 单记录敏感标记（2026-10-28 业主：聊天记录逐条「敏感」开关，默认开）。
+    /// 只改 `is_sensitive`/`updated_at`；副本侧（文件 App 用户面）由调用方同步：
+    /// 转敏感=删副本+tombstone，转非敏感=显式导出（显式选择即授权对外）。
+    public func setSensitive(id: UUID, patientId: UUID, sensitive: Bool,
+                             now: Date = Date()) async throws {
+        try await writer.write { db in
+            guard try Row.fetchOne(db, sql: """
+                SELECT d.id FROM document_file d JOIN patient_profile p ON p.id = d.patient_id
+                WHERE d.id = ? AND d.patient_id = ? AND p.deleted_at IS NULL
+                  AND d.status IN ('active','favorite')
+                """, arguments: [id.uuidString, patientId.uuidString]) != nil else {
+                throw StoreError.invalidSource
+            }
+            try db.execute(sql: """
+                UPDATE document_file SET is_sensitive = ?, updated_at = ? WHERE id = ?
+                """, arguments: [sensitive ? 1 : 0, now.timeIntervalSince1970, id.uuidString])
+        }
+    }
+
     public func updateReview(id: UUID, patientId: UUID, docType: String, isSensitive: Bool,
                              metaJSON: String?, ocrText: String?, grade: String, pages: [Page],
                              cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],

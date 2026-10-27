@@ -1,10 +1,10 @@
+#if os(iOS) || os(macOS)
+// linux-blind: GRDB 传输语义在 macOS CI 真跑（本文件自建最小表集，不依赖全量 schema）
+// 守卫必须包住 import：Linux 没有 GRDB 模块，守卫外的 import 会直接编译失败。
 import Foundation
 import GRDB
 import Testing
 @testable import Infrastructure
-
-#if os(iOS) || os(macOS)
-// linux-blind: GRDB 传输语义在 macOS CI 真跑（本文件自建最小表集，不依赖全量 schema）
 
 @Suite("SU-M2-DOCEXPORT · 导出账本")
 struct DocumentExportStoreTests {
