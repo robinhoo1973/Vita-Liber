@@ -7,6 +7,8 @@ import Testing
 @testable import Infrastructure
 
 /// 聊天记录逐条敏感开关（2026-10-28 业主）：`DocumentStore.setSensitive` 契约。
+/// 注（run 40595950245 修复）：`fetch` throws，`#expect` 宏内不得裸调——
+/// 一律先 `try await` 取值再断言（ci-lessons「自动闭包内 try」同族）。
 @Suite("SU-M2-DOCEXPORT · 记录敏感开关")
 struct DocumentSensitivityTests {
     private func makeQueue() throws -> DatabaseQueue {
@@ -55,11 +57,12 @@ struct DocumentSensitivityTests {
         }
         let store = DocumentStore(writer: queue)
         try await store.setSensitive(id: doc, patientId: patient, sensitive: false)
-        #expect(await store.fetch(id: doc)?.isSensitive == false)
+        var row = try await store.fetch(id: doc)
+        #expect(row?.isSensitive == false)
         try await store.setSensitive(id: doc, patientId: patient, sensitive: true)
-        #expect(await store.fetch(id: doc)?.isSensitive == true)
+        row = try await store.fetch(id: doc)
+        #expect(row?.isSensitive == true)
         // 未触碰内容列
-        let row = await store.fetch(id: doc)
         #expect(row?.docType == "record")
         #expect(row?.status == "active")
     }
@@ -83,7 +86,8 @@ struct DocumentSensitivityTests {
         await #expect(throws: (any Error).self) {
             try await store.setSensitive(id: doc, patientId: gone, sensitive: false)
         }
-        #expect(await store.fetch(id: doc)?.isSensitive == true)
+        let row = try await store.fetch(id: doc)
+        #expect(row?.isSensitive == true)
     }
 
     @Test("归档/已删文档不可改标记（只认 active/favorite）")
@@ -98,7 +102,8 @@ struct DocumentSensitivityTests {
         await #expect(throws: (any Error).self) {
             try await store.setSensitive(id: doc, patientId: patient, sensitive: false)
         }
-        #expect(await store.fetch(id: doc)?.isSensitive == true)
+        let row = try await store.fetch(id: doc)
+        #expect(row?.isSensitive == true)
     }
 }
 #endif
