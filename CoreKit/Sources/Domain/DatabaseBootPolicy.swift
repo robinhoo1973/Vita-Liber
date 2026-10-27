@@ -76,7 +76,10 @@ public enum DatabaseBootPolicy {
             return .tooNew(found: version, supported: supportedVersion)
         }
         if version == 0 {
-            return probe.tableCount == 0 ? .fresh : .corrupt(.versionZeroWithTables)
+            guard probe.tableCount == 0 else { return .corrupt(.versionZeroWithTables) }
+            // 空 SQLite 文件 + 原件仍在：与文件缺失同风险（半恢复/外部工具产物），
+            // 不得静默重建覆盖患者数据（2026-10-27 审查 P2）。
+            return probe.originalsPresent ? .missingWithOriginals : .fresh
         }
         guard probe.hasAllRequiredTables else { return .corrupt(.missingRequiredTables) }
         if version < supportedVersion {

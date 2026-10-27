@@ -48,6 +48,12 @@ struct DatabaseBootPolicyTests {
         #expect(DatabaseBootPolicy.decide(probe(version: 0, tables: 0), supportedVersion: 48) == .fresh)
     }
 
+    @Test func emptyFileWithOriginalsBlocksRebuild() {
+        // 空 SQLite 文件 + 原件证据 = 半恢复/外部产物，不得当全新库重建。
+        #expect(DatabaseBootPolicy.decide(probe(version: 0, tables: 0, originals: true),
+                                          supportedVersion: 48) == .missingWithOriginals)
+    }
+
     @Test func missingCoreTableBlocksEvenAtLatestVersion() {
         #expect(DatabaseBootPolicy.decide(probe(required: 2), supportedVersion: 48)
                 == .corrupt(.missingRequiredTables))

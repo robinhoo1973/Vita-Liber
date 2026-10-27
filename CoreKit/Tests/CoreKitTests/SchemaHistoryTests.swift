@@ -32,6 +32,23 @@ struct SchemaHistoryTests {
         #expect(sql.contains("VALUES(\(SchemaMigrations.latestVersion),'"))
     }
 
+    @Test func seedStepSQLMatchesMigrations() throws {
+        // 版本序列一致还不够：SQL 体漂移会让历史投影失真（2026-10-27 审查 P3）。
+        let sql = try SchemaHistorySeed.sql()
+        let queue = try DatabaseQueue()
+        try queue.write { db in try db.execute(sql: sql) }
+        let seeded = try queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT version, sql FROM schema_step ORDER BY version")
+        }
+        var expected: [(Int, String)] = [(SchemaMigrations.baselineVersion, MigrationEngine.schemaV1)]
+        expected += SchemaMigrations.steps.map { ($0.version, $0.sql) }
+        #expect(seeded.count == expected.count)
+        for (row, pair) in zip(seeded, expected) {
+            #expect((row["version"] as Int) == pair.0)
+            #expect((row["sql"] as String) == pair.1, "v\(pair.0) seed SQL 与 SchemaMigrations 不一致")
+        }
+    }
+
     @Test func rebuildClearsPreviousContents() throws {
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理

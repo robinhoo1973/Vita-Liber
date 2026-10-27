@@ -38,6 +38,14 @@ public enum DatabaseProbe {
         } catch {
             // 只读打开可能因热 journal/WAL 恢复而失败；生产写入会正常恢复，
             // 故此处退回读写连接再探一次（文件已存在，不会静默建库）。
+            // 读写回落前再确认文件仍在：探查与回落之间被外部删除时，
+            // 非 readonly 打开会以 SQLITE_OPEN_CREATE 建空库（2026-10-27 审查 P3）。
+            guard fileManager.fileExists(atPath: path) else {
+                return DatabaseProbeSnapshot(
+                    exists: false, sizeBytes: 0, headerValid: false, observedVersion: nil,
+                    tableCount: 0, requiredTablesPresent: 0,
+                    requiredTablesExpected: requiredTables.count, originalsPresent: originalsPresent)
+            }
             var writable = Configuration()
             writable.foreignKeysEnabled = false
             writable.busyMode = .timeout(1)

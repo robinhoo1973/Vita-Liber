@@ -652,10 +652,19 @@ public struct GRDBStore: Sendable {
         let temporary = table + "_v34"
         let quoted = "\"\(table)\""
         let quotedTemporary = "\"\(temporary)\""
-        if try tableExists(db, temporary) {
+        let hasTemporary = try tableExists(db, temporary)
+        let hasCurrent = try tableExists(db, table)
+        if hasTemporary, !hasCurrent {
             // 上次停在「删旧之后、换名之前」：续完换名
             try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO \(quoted)")
-        } else if try tableExists(db, table) {
+        } else if hasTemporary, hasCurrent {
+            // 上次停在「拷入暂存/删旧之前」：正式表仍是完整旧副本，暂存只是
+            // 半拷贝——丢弃后重做（2026-10-27 审查 P1：旧实现只查暂存表，
+            // 会在重启时对已存在的正式表 RENAME 而永久失败）。
+            try db.execute(sql: "DROP TABLE \(quotedTemporary)")
+            try rebuildPatientScopedTable(db, table: table, createSQL: createSQL, indexes: indexes)
+            return
+        } else if hasCurrent {
             let current = try String.fetchOne(
                 db, sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
                 arguments: [table]) ?? ""
@@ -714,10 +723,16 @@ public struct GRDBStore: Sendable {
             let quoted = "\"" + name + "\""
             let temporary = name + "_v33"
             let quotedTemporary = "\"" + temporary + "\""
-            if try tableExists(db, temporary) {
+            let hasTemporary = try tableExists(db, temporary)
+            let hasOriginal = try tableExists(db, name)
+            if hasTemporary, !hasOriginal {
                 // 上次停在「删旧之后、换名之前」:续完换名
                 try db.execute(sql: "ALTER TABLE \(quotedTemporary) RENAME TO \(quoted)")
                 continue
+            }
+            if hasTemporary {
+                // 半拷贝：原表仍是完整副本，丢弃暂存后重做（2026-10-27 审查 P1）。
+                try db.execute(sql: "DROP TABLE \(quotedTemporary)")
             }
             guard let original = try String.fetchOne(
                 db, sql: "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
