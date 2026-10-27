@@ -69,9 +69,11 @@ final class DocumentExportState {
     }
 
     /// 记录当前敏感态（聊天敏感开关的初值；读失败按未知）。
+    /// 注（run 40596667593 修复）：`try?` 对「返回 Optional 的 throwing 调用」
+    /// 会扁平化——guard 解包后 row 已是非可选 DocumentRow，不得再可选链。
     func sensitivity(documentID: UUID) async -> Bool? {
         guard let row = try? await store.fetch(id: documentID) else { return nil }   // try?-ok: 读失败按未知
-        return row?.isSensitive
+        return row.isSensitive
     }
 
     /// 逐条「敏感」开关（2026-10-28 业主；默认开=仅内部保存）。
