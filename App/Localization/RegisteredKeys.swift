@@ -1316,6 +1316,10 @@ extension L10n {
         "startup.check.a11y.rowFmt",
         "startup.check.a11y.done",
         "startup.check.a11y.failedFmt",
+        // 只读降级（2026-10-28 B2）
+        "startup.readonly.enter",
+        "startup.readonly.title",
+        "startup.readonly.banner",
         "tab.reminders.badge",
         "timeline.kind.document",
         "timeline.quickEntry",

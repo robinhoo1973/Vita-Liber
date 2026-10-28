@@ -1929,6 +1929,9 @@
 "startup.check.a11y.rowFmt" = "第 %1$ld 項，%2$@，%3$@";
 "startup.check.a11y.done" = "檢查完成，正在進入";
 "startup.check.a11y.failedFmt" = "檢查未完成：%@";
+"startup.readonly.enter" = "唯讀檢視";
+"startup.readonly.title" = "唯讀模式";
+"startup.readonly.banner" = "唯讀模式 · 資料未校驗。目前檔案庫版本高於本 App，以下內容僅來自本機讀取，未做完整性校驗；請更新 App 或從備份還原以繼續使用完整功能。";
 "helpcard.defaultFilename" = "配藥清單";
 "f19.sendA11y" = "發送指令";
 "plan.unreadable" = "計劃資料損壞";

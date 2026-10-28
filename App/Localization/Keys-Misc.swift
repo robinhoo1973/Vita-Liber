@@ -548,6 +548,11 @@ extension L10n {
         String(format: t("startup.check.a11y.failedFmt"), detail)
     }
 
+    // 只读降级（2026-10-28 B2）
+    static var startupReadonlyEnter: String { t("startup.readonly.enter") }
+    static var startupReadonlyTitle: String { t("startup.readonly.title") }
+    static var startupReadonlyBanner: String { t("startup.readonly.banner") }
+
     static var appointmentAdd: String { t("appointment.add") }
 
     static var questionAdd: String { t("question.add") }

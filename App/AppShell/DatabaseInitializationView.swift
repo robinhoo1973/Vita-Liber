@@ -769,6 +769,18 @@ struct DatabaseInitializationView: View {
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("STARTUP.initialization.retry")
+            if model.readOnlyContainer != nil {
+                // 只读降级入口（B2）：仅 tooNew 且只读打开成功时出现。
+                Button {
+                    model.enterReadOnly()
+                } label: {
+                    Text(L10n.startupReadonlyEnter)
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("STARTUP.readonly.enter")
+            }
         }
         .padding(16)
         .background(cardSurface, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))

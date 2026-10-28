@@ -309,6 +309,14 @@ struct AppContainer {
         }
     }
 
+    /// 只读降级容器（2026-10-28 只读降级 B2）：全 store 读面 + no-op 调度器，
+    /// 不挂切片 facade/checker/updater/通告面（只读壳零联网零写）；绝不经过
+    /// publish/会话链（后台作业因 holder 未装天然不排）。
+    @MainActor
+    static func readOnly(store: GRDBStore) -> AppContainer {
+        assemble(store: store, scheduler: NoopReminderScheduling())
+    }
+
     @MainActor
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
                                  mediaBaseDir: URL? = nil,

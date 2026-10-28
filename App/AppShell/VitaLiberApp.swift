@@ -60,7 +60,10 @@ struct VitaLiberApp: App {
             WithPerceptionTracking {
                 // U-批 B2 交接门：容器就绪但自检页未放行时继续展示启动页
                 // （session 已在页下创建；用户永远看不到未建 session 的主界面）。
-                if let container = boot.container, !boot.isShowingBootScreen {
+                if boot.isShowingReadOnly, let readOnly = boot.readOnlyContainer {
+                    // 只读降级壳（B2）：显式入口进入；不建会话、零写零联网。
+                    ReadOnlyAppRoot(container: readOnly)
+                } else if let container = boot.container, !boot.isShowingBootScreen {
                     ReadyAppRoot(container: container, router: router, notificationDelegate: notificationDelegate)
                 } else {
                     DatabaseInitializationView(model: boot)

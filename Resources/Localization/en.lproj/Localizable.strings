@@ -1929,6 +1929,9 @@
 "startup.check.a11y.rowFmt" = "Item %1$ld, %2$@, %3$@";
 "startup.check.a11y.done" = "Checks complete. Opening the app";
 "startup.check.a11y.failedFmt" = "Checks incomplete: %@";
+"startup.readonly.enter" = "View read-only";
+"startup.readonly.title" = "Read-only mode";
+"startup.readonly.banner" = "Read-only mode · Data not verified. This library's version is newer than this app. Shown content is read locally without integrity checks. Update the app or restore from a backup to use full functionality.";
 "helpcard.defaultFilename" = "Medication List";
 "f19.sendA11y" = "Send command";
 "plan.unreadable" = "Plan data corrupted";

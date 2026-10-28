@@ -24,6 +24,11 @@ final class DatabaseBootModel: ObservableObject {
     @Published private(set) var catalogSlices: CatalogSlicesState?
     /// U-批 B2：启动自检事实快照（advisory→final，架构席 S1/B2 定稿）。
     @Published private(set) var bootSnapshot: BootChecklistSnapshot?
+    /// 只读降级容器（2026-10-28 B2）：仅 tooNew 且只读打开成功时非 nil
+    /// （显式「只读查看」入口的可用判据；不建会话、不 install holder）。
+    @Published private(set) var readOnlyContainer: AppContainer?
+    /// 只读壳路由开关（VitaLiberApp body 用；enterReadOnly 置真）。
+    @Published private(set) var isShowingReadOnly = false
     /// UI 交接门（U-批 B2，B1 口径「页先于主 UI 可见」）：默认 true——主 UI 在
     /// `finishBootScreen()` 前不挂载；session 在 publish 即建、页下存在。
     @Published private(set) var isShowingBootScreen = true
@@ -51,6 +56,8 @@ final class DatabaseBootModel: ObservableObject {
         isRunning = true
         failure = nil
         phase = .idle
+        readOnlyContainer = nil
+        isShowingReadOnly = false
         // B4 失败桩：不经真实启动门，直接落确定性失败态（advisory 语义同真实
         // 失败路径——快照 facadeCommitted=false，行③恒未校验）。
         if let injected = uiTestSelfCheckFailure {
@@ -90,6 +97,14 @@ final class DatabaseBootModel: ObservableObject {
             }
         } catch let boot as DatabaseBootFailure {
             failure = boot
+            // 只读降级适格（B2）：仅 tooNew 且只读打开成功才给「只读查看」入口；
+            // 打开失败（热 WAL 等）=graceful，不显入口（讨论稿 2026-10-28 round1）。
+            if let decision = bootSnapshot?.decision,
+               ReadOnlyDegradation.isEligible(decision) {
+                if let store = try? GRDBStore.readOnly(at: AppContainer.defaultDatabasePath()) { // try?-ok: 只读开败=不显入口，绝不回落读写
+                    readOnlyContainer = AppContainer.readOnly(store: store)
+                }
+            }
             AppSessionHolder.shared.fail()
         } catch is CancellationError {
             // 取消发生在 App 退出/重试边界：不得停在无重试出口的阶段页。
@@ -274,6 +289,13 @@ final class DatabaseBootModel: ObservableObject {
     func noteSelfCheckPresented() {
         if selfCheckPresentedAt == nil { selfCheckPresentedAt = now() }
         trySchedulePassiveHandoff()
+    }
+
+    /// 显式进入只读壳（失败卡「只读查看」；仅 readOnlyContainer 非 nil 时可点）。
+    func enterReadOnly() {
+        guard readOnlyContainer != nil else { return }
+        isShowingReadOnly = true
+        finishBootScreen()   // 取消被动计时（失败路径本不武装，幂等）
     }
 
     /// 程序化放行主界面（取消被动计时；幂等）。B3 后页上无手动入口——
