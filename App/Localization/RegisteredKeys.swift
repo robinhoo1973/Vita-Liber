@@ -1050,6 +1050,7 @@ extension L10n {
         "appt.followUpRule.3", "appt.followUpRule.4", "appt.followUpDaysFmt",
         "appt.followUpConcreteDate", "appt.followUpDraftOnly",
         "member.detail.basic", "member.detail.more", "member.bloodType",
+        "member.height", "member.weight", "member.bodyMetricInvalidHint",
         "member.note", "member.delete", "member.selfNoDelete",
         "member.delete.impact", "member.delete.impactDocs", "member.delete.impactObs",
         "member.delete.impactPlans", "member.delete.impactAppts", "member.delete.keepDocs",

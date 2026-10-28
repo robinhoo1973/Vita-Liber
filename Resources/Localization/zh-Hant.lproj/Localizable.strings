@@ -1184,6 +1184,9 @@
 "member.detail.basic" = "基本資訊";
 "member.detail.more" = "補充資訊（P0 可補全）";
 "member.bloodType" = "血型";
+"member.height" = "身高（cm）";
+"member.weight" = "體重（kg）";
+"member.bodyMetricInvalidHint" = "請輸入數字，例如 175 或 68.5";
 "member.note" = "備註（監護人授權備註等）";
 "member.delete" = "刪除成員";
 "member.selfNoDelete" = "本人檔案是資料歸屬錨點，不可刪除";

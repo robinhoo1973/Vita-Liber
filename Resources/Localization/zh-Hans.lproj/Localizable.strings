@@ -1184,6 +1184,9 @@
 "member.detail.basic" = "基本信息";
 "member.detail.more" = "补充信息（P0 可补全）";
 "member.bloodType" = "血型";
+"member.height" = "身高（cm）";
+"member.weight" = "体重（kg）";
+"member.bodyMetricInvalidHint" = "请输入数字，例如 175 或 68.5";
 "member.note" = "备注（监护人授权备注等）";
 "member.delete" = "删除成员";
 "member.selfNoDelete" = "本人档案是数据归属锚点，不可删除";

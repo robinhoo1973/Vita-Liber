@@ -1184,6 +1184,9 @@
 "member.detail.basic" = "Basic Info";
 "member.detail.more" = "More (fill in anytime)";
 "member.bloodType" = "Blood type";
+"member.height" = "Height (cm)";
+"member.weight" = "Weight (kg)";
+"member.bodyMetricInvalidHint" = "Enter a number, e.g. 175 or 68.5";
 "member.note" = "Note (guardian authorization note, etc.)";
 "member.delete" = "Delete Member";
 "member.selfNoDelete" = "Your own profile is the data anchor and cannot be deleted";

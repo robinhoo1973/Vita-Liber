@@ -57,6 +57,10 @@ extension L10n {
     static var memberDetailMore: String { t("member.detail.more") }
 
     static var memberBloodType: String { t("member.bloodType") }
+    // FR3.1 P1 身高/体重（2026-10-28 补录批）
+    static var memberHeight: String { t("member.height") }
+    static var memberWeight: String { t("member.weight") }
+    static var memberBodyMetricInvalidHint: String { t("member.bodyMetricInvalidHint") }
 
     static var memberNote: String { t("member.note") }
 

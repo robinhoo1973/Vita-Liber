@@ -35,12 +35,34 @@ struct MemberDetailView: View {
     /// 用户是否主动动过生日控件——未经显式交互的保存绝不改写存量值
     /// （初始 Toggle 关着，只改血型就保存不得顺手清掉存量生日，BR-002）。
     @State private var birthDateEdited = false
+    // FR3.1 P1（2026-10-28 补录批）：血型受控控件（ABO+Rh 网格）+ 身高/体重。
+    @State private var bloodSelection: String
+    @State private var bloodNote: String
+    @State private var heightText: String
+    @State private var weightText: String
 
     init(member: PatientProfile) {
         _current = State(initialValue: member)
         let stored = member.birthDate ?? ""
         _hasBirthDate = State(initialValue: MemberProfileCompleteness.isValidBirthDate(stored))
         _birthDate = State(initialValue: MemberProfileCompleteness.parsedBirthDate(stored) ?? Date())
+        // 存量血型映射（BR-002 不改写）：ABO±Rh 可解析 → 网格选中；unknown 哨兵 →
+        // 不知道；其余非空自由文本（历史输入/特殊说明）→ special + 注记原文保真。
+        let bt = member.bloodType ?? ""
+        var selection = bt
+        var note = ""
+        if !bt.isEmpty,
+           bt != "special",
+           BloodTypePushGrid.aboValue(from: bt) == nil,
+           bt != BloodTypePushGrid.unknownValue,
+           bt != L10n.bloodTypeUnknown {
+            selection = "special"
+            note = bt
+        }
+        _bloodSelection = State(initialValue: selection)
+        _bloodNote = State(initialValue: note)
+        _heightText = State(initialValue: Self.metricText(member.heightCm))
+        _weightText = State(initialValue: Self.metricText(member.weightKg))
     }
 
     /// 空串↔nil 翻译收进 setter（单一草稿 `current`，无镜像 @State 字符串）。
@@ -49,6 +71,40 @@ struct MemberDetailView: View {
             get: { current[keyPath: keyPath] ?? "" },
             set: { current[keyPath: keyPath] = $0.isEmpty ? nil : $0 }
         )
+    }
+
+    // MARK: - FR3.1 P1 血型/身高/体重解析（2026-10-28 补录批）
+
+    /// 血型最终值：未选→nil；special→注记（空白→nil）；其余=网格选中值。
+    private var resolvedBloodType: String? {
+        if bloodSelection.isEmpty { return nil }
+        if bloodSelection == "special" {
+            let note = bloodNote.trimmingCharacters(in: .whitespacesAndNewlines)
+            return note.isEmpty ? nil : note
+        }
+        return bloodSelection
+    }
+
+    /// 非空且不可解析为正数 → 输入无效（空=未填写，合法）。
+    private var bodyMetricInvalidPreview: Bool {
+        (!heightText.isEmpty && Self.parseMetric(heightText) == nil)
+            || (!weightText.isEmpty && Self.parseMetric(weightText) == nil)
+    }
+
+    private var parsedHeight: Double? { Self.parseMetric(heightText) }
+    private var parsedWeight: Double? { Self.parseMetric(weightText) }
+
+    static func metricText(_ value: Double?) -> String {
+        guard let value else { return "" }
+        return value.rounded() == value ? String(Int(value)) : String(value)
+    }
+
+    /// 接受逗号小数（地区键盘习惯）；须正数。
+    static func parseMetric(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ",", with: ".")
+        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else { return nil }
+        return value
     }
 
     var body: some View {
@@ -69,7 +125,7 @@ struct MemberDetailView: View {
                         }
                     }
                 }
-                // FR3.1 字段补全（血型/备注）+ 生日补录；证件号/医保号已移除。
+                // FR3.1 字段补全（血型受控控件/身高/体重/备注）+ 生日补录；证件号/医保号已移除。
                 Section(L10n.memberDetailMore) {
                     Toggle(L10n.member_birthDateLabel, isOn: $hasBirthDate)
                         .accessibilityIdentifier("FR3.1.member.birthDateToggle")
@@ -81,9 +137,34 @@ struct MemberDetailView: View {
                             .accessibilityIdentifier("FR3.1.member.birthDate")
                             .onChangeCompat(of: birthDate) { _, _ in birthDatePicked = true }   // 零参闭包 onChange 为 iOS 17 专用形态，走 Compat 垫片
                     }
-                    TextField(L10n.memberBloodType, text: optionalField(\.bloodType))
+                    BloodTypePushGrid(selection: $bloodSelection)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("FR3.1.member.bloodType")
+                    if bloodSelection == "special" {
+                        TextField(L10n.onboardBloodNotePlaceholder, text: $bloodNote)
+                            .accessibilityIdentifier("FR3.1.member.bloodNote")
+                    }
+                    HStack(spacing: 12) {
+                        TextField(L10n.memberHeight, text: $heightText)
+                            .keyboardType(.decimalPad)
+                            .accessibilityIdentifier("FR3.1.member.height")
+                        TextField(L10n.memberWeight, text: $weightText)
+                            .keyboardType(.decimalPad)
+                            .accessibilityIdentifier("FR3.1.member.weight")
+                    }
+                    if bodyMetricInvalidPreview {
+                        // 非数字输入可见提示（空=未填写合法，不提示）。
+                        Text(L10n.memberBodyMetricInvalidHint)
+                            .font(.caption)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .accessibilityIdentifier("FR3.1.member.bodyMetricInvalidHint")
+                    }
                     TextField(L10n.memberNote, text: optionalField(\.note), axis: .vertical)
                     Button(L10n.reminder_save) {
+                        guard !bodyMetricInvalidPreview else { return }   // 按钮已禁用，双保险
+                        current.bloodType = resolvedBloodType
+                        current.heightCm = parsedHeight
+                        current.weightKg = parsedWeight
                         if birthDateEdited || birthDatePicked {
                             if !hasBirthDate {
                                 current.birthDate = nil
@@ -100,6 +181,7 @@ struct MemberDetailView: View {
                             }
                         }
                     }
+                    .disabled(bodyMetricInvalidPreview)
                     .accessibilityIdentifier("FR3.1.member.update")
                 }
                 // 删除流（FR3.4：影响清单 → 姓名确认 → 计划处置选择）
