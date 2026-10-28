@@ -69,7 +69,7 @@ public struct CatalogSliceCheckResult: Sendable, Equatable {
 }
 
 public struct CatalogSliceCheckOutcome: Sendable, Equatable {
-    /// 恒三片、按 `CatalogSliceKind.allCases` 顺序（UI 行序稳定）。
+    /// 覆盖 `CatalogSliceKind.allCases` 全量（当前四片）、顺序即行序（UI 稳定）。
     public let results: [CatalogSliceCheckResult]
 
     public init(results: [CatalogSliceCheckResult]) {
