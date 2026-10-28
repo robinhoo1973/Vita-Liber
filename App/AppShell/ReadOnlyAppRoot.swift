@@ -157,7 +157,7 @@ private struct ReadOnlyTimelineView: View {
 private struct ReadOnlyDocumentsView: View {
     let store: DocumentStore
     @Environment(AppState.self) private var app
-    @State private var rows: [DocumentRow] = []
+    @State private var rows: [DocumentStore.DocumentRow] = []
 
     var body: some View {
         WithPerceptionTracking {
