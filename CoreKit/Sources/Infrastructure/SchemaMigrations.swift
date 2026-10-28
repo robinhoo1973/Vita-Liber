@@ -1069,6 +1069,13 @@ public enum SchemaMigrations {
         CREATE INDEX IF NOT EXISTS idx_document_user_export_conversation
           ON document_user_export(conversation_id) WHERE removed_at IS NULL;
         """),
+        // v50：成员档案身高/体重（2026-10-28 补录批）——FR3.1 P1 字段
+        // （FR21.9 ④「当前测量值·影响药物剂量计算·可在个人中心补全」）。
+        // 只加可空列；不参与档案完善度口径（完善度只计血型+生日）。
+        Step(version: 50, name: "patient-profile-body-metrics", sql: """
+        ALTER TABLE patient_profile ADD COLUMN height_cm REAL;
+        ALTER TABLE patient_profile ADD COLUMN weight_kg REAL;
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

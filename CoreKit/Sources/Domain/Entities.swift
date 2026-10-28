@@ -9,6 +9,11 @@ public struct PatientProfile: Sendable, Equatable, Codable, Identifiable {
     public var birthDate: String?
     /// FR3.1 P0 字段：血型（证件号/医保号已于 2026-10-22 彻底移除；头像 P1 可选）
     public var bloodType: String?
+    /// FR3.1 P1 字段（2026-10-28 补录批；v50 迁移）：身高/体重=当前测量值
+    /// （FR21.9 ④「影响药物剂量计算·可在个人中心补全」）。不参与完善度口径
+    /// （完善度只计血型+生日）。
+    public var heightCm: Double?
+    public var weightKg: Double?
     public var note: String?
     public var createdAt: TimeInterval
     public var updatedAt: TimeInterval
@@ -18,12 +23,14 @@ public struct PatientProfile: Sendable, Equatable, Codable, Identifiable {
     public init(id: UUID = UUID(), displayName: String, relation: String = "本人",
                 gender: String? = nil, birthDate: String? = nil,
                 bloodType: String? = nil,
+                heightCm: Double? = nil, weightKg: Double? = nil,
                 note: String? = nil,
                 createdAt: TimeInterval = 0, updatedAt: TimeInterval = 0,
                 deletedAt: TimeInterval? = nil) {
         self.id = id; self.displayName = displayName; self.relation = relation
         self.gender = gender; self.birthDate = birthDate
         self.bloodType = bloodType
+        self.heightCm = heightCm; self.weightKg = weightKg
         self.note = note
         self.createdAt = createdAt; self.updatedAt = updatedAt
         self.deletedAt = deletedAt

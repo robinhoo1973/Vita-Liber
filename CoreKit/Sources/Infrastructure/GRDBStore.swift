@@ -1064,6 +1064,8 @@ public struct GRDBStore: Sendable {
                        gender: row["gender"] as String?,
                        birthDate: row["birth_date"] as String?,
                        bloodType: row["blood_type"] as String?,
+                       heightCm: row["height_cm"] as Double?,
+                       weightKg: row["weight_kg"] as Double?,
                        note: row["note"] as String?,
                        createdAt: row["created_at"] as Double,
                        updatedAt: row["updated_at"] as Double,

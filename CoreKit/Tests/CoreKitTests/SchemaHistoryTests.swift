@@ -19,6 +19,7 @@ struct SchemaHistoryTests {
         #expect(sql.contains("CREATE TABLE schema_step"))
         #expect(sql.contains("VALUES(48,'health-problem-department'"))
         #expect(sql.contains("VALUES(49,'document-user-export'"))
+        #expect(sql.contains("VALUES(50,'patient-profile-body-metrics'"))
         #expect(sql.contains("CREATE TABLE migration_attempt"))
     }
 

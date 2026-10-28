@@ -35,7 +35,7 @@ class SchemaIntegrityTests(unittest.TestCase):
         text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaMigrations.swift").read_text()
         expected = [1] + [int(v) for v in re.findall(r"Step\(version: (\d+),", text)]
         self.assertEqual(seeded, expected, "历史库种子版本序列与 SchemaMigrations.steps 不一致")
-        self.assertEqual(seeded[-1], 49)
+        self.assertEqual(seeded[-1], 50)
     def test_fresh_database_creates_all_indexes_and_relationship_columns(self):
         with closing(sqlite3.connect(":memory:")) as db:
             db.execute("PRAGMA foreign_keys = ON")

@@ -49,12 +49,12 @@ public actor GRDBPatientPersistor: PatientPersisting {
                 sql: """
                 INSERT INTO patient_profile
                   (id, owner_local_id, display_name, relation, gender, birth_date,
-                   blood_type, note, created_at, updated_at)
-                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)
+                   blood_type, height_cm, weight_kg, note, created_at, updated_at)
+                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [profile.id.uuidString, profile.displayName,
                             profile.relation, profile.gender, profile.birthDate,
-                            profile.bloodType, profile.note,
+                            profile.bloodType, profile.heightCm, profile.weightKg, profile.note,
                             profile.createdAt, profile.updatedAt])
             try db.execute(
                 sql: "INSERT INTO local_owner (id, display_name, self_patient_id, created_at) VALUES (?, ?, ?, ?)",
@@ -118,10 +118,11 @@ public actor GRDBPatientPersistor: PatientPersisting {
             try db.execute(sql: """
                 UPDATE patient_profile
                 SET display_name = ?, relation = ?, gender = ?, birth_date = ?,
-                    blood_type = ?, note = ?, updated_at = ?
+                    blood_type = ?, height_cm = ?, weight_kg = ?, note = ?, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """, arguments: [profile.displayName, profile.relation, profile.gender,
-                                   profile.birthDate, profile.bloodType, profile.note,
+                                   profile.birthDate, profile.bloodType,
+                                   profile.heightCm, profile.weightKg, profile.note,
                                    profile.updatedAt, profile.id.uuidString])
             if let audit {
                 try VoiceExecutionAuditWriter.record(audit, entityType: "patient_profile",

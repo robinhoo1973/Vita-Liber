@@ -45,6 +45,7 @@ public enum SchemaV2 {
       display_name TEXT NOT NULL,
       relation TEXT NOT NULL,
       gender TEXT, birth_date TEXT, blood_type TEXT,
+      height_cm REAL, weight_kg REAL,
       avatar_asset_id TEXT REFERENCES asset(id),
       note TEXT, deleted_at REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX idx_patient_owner ON patient_profile(owner_local_id);
