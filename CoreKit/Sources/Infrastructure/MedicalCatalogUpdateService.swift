@@ -10,7 +10,11 @@ import Domain
 /// 来源是**验签后的** `candidate.sqliteSHA256`（绝不可取资产名或 inventory——
 /// 那些是攻击者可控字符串）。
 public protocol MedicalCatalogPackageOpening: Sendable {
-    func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws
+    /// `entryName` = 包内唯一普通成员的期望名（v4 = `medical-catalog.sqlite`；
+    /// 切片 = `<stem>.sqlite`，由验签后的载荷 `sqliteEntryName` 传入——
+    /// 2026-10-28 B0 参数化，取代写死单名）。
+    func open(packageURL: URL, sqliteURL: URL, identity: String, entryName: String,
+              maxSQLiteBytes: Int64) async throws
 }
 
 /// 按签名的 packageAssetName 取密文包；实现须把落盘字节限制在 `expectedSize` 内。

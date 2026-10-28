@@ -548,7 +548,8 @@ struct MedicalCatalogTrustEvaluator {
     }
 
     /// 只数 `allowed` 内且在 root key 表中的 keyId；未知 keyId 忽略但不计数。
-    private func verifySignatures(_ envelope: MedicalCatalogSignedEnvelope, keys: [String: Data], allowed: [String]) throws {
+    /// internal（2026-10-28 B0）：切片 `verifySlice` 复用同一计数判定。
+    func verifySignatures(_ envelope: MedicalCatalogSignedEnvelope, keys: [String: Data], allowed: [String]) throws {
         let permitted = Set(allowed)
         var verified = 0
         for signature in envelope.signatures {

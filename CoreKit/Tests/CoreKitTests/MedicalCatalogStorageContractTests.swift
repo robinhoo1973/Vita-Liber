@@ -416,7 +416,8 @@ struct UnifiedAppFixture {
 
 private struct UnifiedFixtureOpener: MedicalCatalogPackageOpening {
     let bytes: Data
-    func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws {
+    func open(packageURL: URL, sqliteURL: URL, identity: String, entryName: String,
+              maxSQLiteBytes: Int64) async throws {
         try bytes.write(to: sqliteURL)
     }
 }

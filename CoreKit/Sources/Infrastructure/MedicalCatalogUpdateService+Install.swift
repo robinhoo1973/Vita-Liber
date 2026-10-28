@@ -83,6 +83,7 @@ extension MedicalCatalogUpdateService {
             // 派生输入）。2026-10-06：此前 opener 自持 age 身份、与包内容无关。
             try await opener.open(packageURL: package, sqliteURL: sqlite,
                                   identity: candidate.sqliteSHA256,
+                                  entryName: MedicalCatalogReleaseProtocol.sqliteEntryName,
                                   maxSQLiteBytes: limits.maxSQLiteBytes)
         } catch {
             throw Self.mapped(error, fallback: .packageInvalid)
@@ -385,7 +386,8 @@ public struct EnvelopeMedicalCatalogPackageOpening: MedicalCatalogPackageOpening
     /// 由调用方从**验签后的** `candidate.sqliteSHA256` 传入。identity 漂移
     /// （例如误传 dataVersion 或 catalogVersion）会以 GCM 认证失败拒绝，
     /// 而不是解出垃圾——ASR 侧的金样测试已钉死这一失败语义。
-    public func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws {
+    public func open(packageURL: URL, sqliteURL: URL, identity: String, entryName: String,
+                     maxSQLiteBytes: Int64) async throws {
         let zipURL = sqliteURL.deletingLastPathComponent()
             .appendingPathComponent("medical-catalog-\(UUID().uuidString).zip")
         defer { try? FileManager.default.removeItem(at: zipURL) } // try?-ok: 解密中间件清理
@@ -396,14 +398,18 @@ public struct EnvelopeMedicalCatalogPackageOpening: MedicalCatalogPackageOpening
             // `mapped(error, fallback: .packageInvalid)`，这里保持错误域单一。
             throw MedicalCatalogUpdateError.packageInvalid
         }
-        try MedicalCatalogPackageExtractor.extractSQLite(from: zipURL, to: sqliteURL, maxSQLiteBytes: maxSQLiteBytes)
+        try MedicalCatalogPackageExtractor.extractSQLite(from: zipURL, to: sqliteURL,
+                                                         entryName: entryName,
+                                                         maxSQLiteBytes: maxSQLiteBytes)
     }
 }
 
-/// 包内必须恰好一个普通文件 `medical-catalog.sqlite`；声明大小与实际解压字节双重限额，
-/// 目标文件独占创建，任何失败都不留下半成品。
+/// 包内必须恰好一个普通文件（名 = 调用方传入的 `entryName`，即验签后的
+/// `packageAssetName`/载荷 `sqliteEntryName` 绑定值）；声明大小与实际解压字节
+/// 双重限额，目标文件独占创建，任何失败都不留下半成品。
 enum MedicalCatalogPackageExtractor {
-    static func extractSQLite(from zipURL: URL, to sqliteURL: URL, maxSQLiteBytes: Int64) throws {
+    static func extractSQLite(from zipURL: URL, to sqliteURL: URL, entryName: String,
+                              maxSQLiteBytes: Int64) throws {
         let fileManager = FileManager.default
         let archive: Archive
         do {
@@ -413,7 +419,7 @@ enum MedicalCatalogPackageExtractor {
         }
         let entries = archive.makeIterator()
         guard let entry = entries.next(), entries.next() == nil,
-              entry.path == MedicalCatalogReleaseProtocol.sqliteEntryName, entry.type == .file,
+              entry.path == entryName, entry.type == .file,
               entry.uncompressedSize > 0, entry.uncompressedSize <= UInt64(maxSQLiteBytes) else {
             throw MedicalCatalogUpdateError.packageInvalid
         }

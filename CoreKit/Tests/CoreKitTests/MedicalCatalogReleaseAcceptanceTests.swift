@@ -497,7 +497,8 @@ struct MedicalCatalogReleaseAcceptanceTests {
         // 是**明文 SQLite 的 SHA-256**，与签名指针里的 sqliteSha256 同值。
         try await EnvelopeMedicalCatalogPackageOpening()
             .open(packageURL: GoMedicalFixture.url(expected.packageAssetName), sqliteURL: sqlite,
-                  identity: expected.sqliteSha256, maxSQLiteBytes: 1 << 20)
+                  identity: expected.sqliteSha256,
+                  entryName: MedicalCatalogReleaseProtocol.sqliteEntryName, maxSQLiteBytes: 1 << 20)
         #expect(fixture.sha256(sqlite) == expected.sqliteSha256)
         #expect(fixture.sha256(sqlite) == fixture.sha256(GoMedicalFixture.url("catalog.sqlite")))
         try MedicalCatalogStore.validateRelease(path: sqlite, schemaVersion: expected.sqliteSchemaVersion,
@@ -512,7 +513,8 @@ struct MedicalCatalogReleaseAcceptanceTests {
             try await EnvelopeMedicalCatalogPackageOpening()
                 .open(packageURL: GoMedicalFixture.url(expected.packageAssetName),
                       sqliteURL: fixture.directory.appendingPathComponent("wrong.sqlite"),
-                      identity: String(repeating: "a", count: 64), maxSQLiteBytes: 1 << 20)
+                      identity: String(repeating: "a", count: 64),
+                      entryName: MedicalCatalogReleaseProtocol.sqliteEntryName, maxSQLiteBytes: 1 << 20)
         }
     }
 
@@ -530,7 +532,8 @@ struct MedicalCatalogReleaseAcceptanceTests {
             try await EnvelopeMedicalCatalogPackageOpening()
                 .open(packageURL: GoMedicalFixture.url(legacy),
                       sqliteURL: fixture.directory.appendingPathComponent("legacy.sqlite"),
-                      identity: String(repeating: "2", count: 64), maxSQLiteBytes: 1 << 20)
+                      identity: String(repeating: "2", count: 64),
+                      entryName: MedicalCatalogReleaseProtocol.sqliteEntryName, maxSQLiteBytes: 1 << 20)
         }
     }
 }
@@ -826,9 +829,12 @@ final class CountingZIPOpener: MedicalCatalogPackageOpening, @unchecked Sendable
     private var count = 0
     var openCount: Int { lock.lock(); defer { lock.unlock() }; return count }
 
-    func open(packageURL: URL, sqliteURL: URL, identity: String, maxSQLiteBytes: Int64) async throws {
+    func open(packageURL: URL, sqliteURL: URL, identity: String, entryName: String,
+              maxSQLiteBytes: Int64) async throws {
         lock.lock(); count += 1; lock.unlock()
-        try MedicalCatalogPackageExtractor.extractSQLite(from: packageURL, to: sqliteURL, maxSQLiteBytes: maxSQLiteBytes)
+        try MedicalCatalogPackageExtractor.extractSQLite(from: packageURL, to: sqliteURL,
+                                                         entryName: entryName,
+                                                         maxSQLiteBytes: maxSQLiteBytes)
     }
 }
 
