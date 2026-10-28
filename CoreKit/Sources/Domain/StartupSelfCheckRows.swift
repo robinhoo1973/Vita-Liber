@@ -38,21 +38,24 @@ public struct StartupSelfCheckRowStates: Sendable, Equatable {
 }
 
 /// 行推导事实（`BootChecklistSnapshot` 的 Domain 投影）。
-/// `decision == nil` 表示尚未得出启动决策；`isWorking` 表示启动门处于进行态。
+/// `decision == nil` 表示尚未得出启动决策；`isWorking` 表示启动门处于进行态；
+/// `didFail` 表示启动门已抛错（B3 评审修复：失败卡在屏时行①②不得显示通过）。
 public struct StartupSelfCheckFacts: Sendable, Equatable {
     public let probe: DatabaseProbeSnapshot
     public let decision: DatabaseBootDecision?
     public let health: [CatalogSliceKind: CatalogSliceBootHealth]
     public let facadeCommitted: Bool
+    public let didFail: Bool
     public let isWorking: Bool
 
     public init(probe: DatabaseProbeSnapshot, decision: DatabaseBootDecision?,
                 health: [CatalogSliceKind: CatalogSliceBootHealth],
-                facadeCommitted: Bool, isWorking: Bool) {
+                facadeCommitted: Bool, didFail: Bool = false, isWorking: Bool) {
         self.probe = probe
         self.decision = decision
         self.health = health
         self.facadeCommitted = facadeCommitted
+        self.didFail = didFail
         self.isWorking = isWorking
     }
 }
@@ -66,14 +69,15 @@ public enum StartupSelfCheckRows {
         if let decision = facts.decision {
             switch decision {
             case .fresh:
-                file = facts.isWorking ? .running : .passed
-                schema = facts.isWorking ? .running : .passed
+                // 失败态（didFail）＝建库未成功：不得显示「已在本机建立档案」。
+                file = facts.didFail ? .failed : (facts.isWorking ? .running : .passed)
+                schema = facts.didFail ? .skipped : (facts.isWorking ? .running : .passed)
             case .ready:
                 file = .passed
-                schema = .passed
+                schema = facts.didFail ? .failed : .passed
             case .migrate:
                 file = .passed
-                schema = facts.isWorking ? .running : .passed
+                schema = facts.didFail ? .failed : (facts.isWorking ? .running : .passed)
             case .tooNew:
                 file = .passed
                 schema = .failed

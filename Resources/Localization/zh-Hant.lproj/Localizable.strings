@@ -1912,7 +1912,6 @@
 "startup.check.dbFile.createdFmt" = "首次使用 · 已在本機建立檔案（v%ld）";
 "startup.check.schema.okFmt" = "結構正常 · v%ld";
 "startup.check.schema.updatedFmt" = "結構已更新 v%1$ld → v%2$ld";
-"startup.check.schema.upgradingFmt" = "正在升級結構（第 %1$ld/%2$ld 步）";
 "startup.check.schema.oneWayNote" = "升級後舊版本 App 將無法開啟此檔案";
 "startup.check.catalog.installedFmt" = "已就緒 %1$ld/%2$ld";
 "startup.check.catalog.checking" = "正在校驗目錄檔案…";
@@ -1926,9 +1925,6 @@
 "startup.check.updates.sourcePartialFmt" = "%ld 個目錄暫未提供";
 "startup.check.updates.tapNote" = "只有點按「檢查」時才連網，僅取得版本資訊";
 "startup.check.summary.passFmt" = "%ld 項檢查已通過";
-"startup.check.summary.entering" = "正在進入…";
-"startup.check.row.retry" = "重試";
-"startup.check.enter" = "進入 App";
 "startup.check.a11y.introFmt" = "正在檢查本機資料，共 %ld 項";
 "startup.check.a11y.rowFmt" = "第 %1$ld 項，%2$@，%3$@";
 "startup.check.a11y.done" = "檢查完成，正在進入";

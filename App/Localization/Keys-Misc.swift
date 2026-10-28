@@ -514,9 +514,6 @@ extension L10n {
     static func startupCheckSchemaUpdatedFmt(_ from: Int64, _ to: Int64) -> String {
         String(format: t("startup.check.schema.updatedFmt"), from, to)
     }
-    static func startupCheckSchemaUpgradingFmt(_ step: Int64, _ total: Int64) -> String {
-        String(format: t("startup.check.schema.upgradingFmt"), step, total)
-    }
     static var startupCheckSchemaOneWayNote: String { t("startup.check.schema.oneWayNote") }
     static func startupCheckCatalogInstalledFmt(_ ready: Int64, _ total: Int64) -> String {
         String(format: t("startup.check.catalog.installedFmt"), ready, total)
@@ -540,9 +537,6 @@ extension L10n {
     static func startupCheckSummaryPassFmt(_ count: Int64) -> String {
         String(format: t("startup.check.summary.passFmt"), count)
     }
-    static var startupCheckSummaryEntering: String { t("startup.check.summary.entering") }
-    static var startupCheckRowRetry: String { t("startup.check.row.retry") }
-    static var startupCheckEnter: String { t("startup.check.enter") }
     static func startupCheckA11yIntroFmt(_ count: Int64) -> String {
         String(format: t("startup.check.a11y.introFmt"), count)
     }

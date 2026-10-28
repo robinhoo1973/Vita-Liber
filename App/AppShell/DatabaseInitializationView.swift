@@ -27,7 +27,8 @@ struct DatabaseInitializationView: View {
                 // U-批 B2：首帧呈现上报（被动交接门从此刻起算；headless 无此路径）。
                 .onAppear {
                     model.noteSelfCheckPresented()
-                    Self.announce(L10n.startupCheckA11yIntroFmt(3))
+                    // 4 项=三行本机自检 + 页脚行④（行编号 1–4 一致）。
+                    Self.announce(L10n.startupCheckA11yIntroFmt(4))
                 }
                 .onChangeCompat(of: terminalKey) { _, key in
                     if key == nil {
@@ -106,6 +107,7 @@ struct DatabaseInitializationView: View {
             decision: snapshot?.decision,
             health: snapshot?.sliceHealth ?? [:],
             facadeCommitted: snapshot?.facadeCommitted ?? false,
+            didFail: model.failure != nil,
             isWorking: isWorking)
     }
 
@@ -363,13 +365,27 @@ struct DatabaseInitializationView: View {
             return L10n.resourceCatalogSlicesChecking
         case .allCurrent:
             return L10n.startupCheckUpdatesCurrent
-        case .sourcePartial(let count):
-            return L10n.startupCheckUpdatesSourcePartialFmt(Int64(count))
+        case .sourcePartial:
+            // Aggregate.sourcePartial 无载荷（B3 评审修复：计数经 descriptor 取）。
+            if case .sourcePartial(let count) =
+                CatalogSlicesPromptPresentation.descriptor(for: slices).status {
+                return L10n.startupCheckUpdatesSourcePartialFmt(Int64(count))
+            }
+            return L10n.resourceCatalogSlicesAllCurrent
         case .updatesAvailable, .partialFailure:
+            // 一败其余最新时 aggregate 亦为 .partialFailure 且候选为空
+            // （B3 评审修复：不得显示「0 个可更新」，走失败短语）。
+            if slices.candidates.isEmpty {
+                let status = CatalogSlicesPromptPresentation.descriptor(for: slices).status
+                return Self.statusText(status, slices: slices)
+            }
             return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
         case .appUpdateRequired:
             return L10n.startupCheckUpdatesAppRequired
-        case .allFailed, .unavailable:
+        case .unavailable:
+            // checker 缺失=未发布/未配置，从未发起网络（B3 评审修复）。
+            return L10n.resourceCatalogUnavailable
+        case .allFailed:
             return L10n.startupCheckUpdatesOffline
         }
     }

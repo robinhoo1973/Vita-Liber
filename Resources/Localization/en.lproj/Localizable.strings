@@ -1912,7 +1912,6 @@
 "startup.check.dbFile.createdFmt" = "First use · record created on this device (v%ld)";
 "startup.check.schema.okFmt" = "Structure OK · v%ld";
 "startup.check.schema.updatedFmt" = "Structure updated v%1$ld → v%2$ld";
-"startup.check.schema.upgradingFmt" = "Upgrading structure (step %1$ld of %2$ld)";
 "startup.check.schema.oneWayNote" = "Older app versions can't open this record after upgrading";
 "startup.check.catalog.installedFmt" = "%1$ld of %2$ld ready";
 "startup.check.catalog.checking" = "Verifying catalog files…";
@@ -1926,9 +1925,6 @@
 "startup.check.updates.sourcePartialFmt" = "%ld catalog(s) not offered by the source";
 "startup.check.updates.tapNote" = "Connects only when you tap Check, and only to fetch version info";
 "startup.check.summary.passFmt" = "%ld checks passed";
-"startup.check.summary.entering" = "Opening…";
-"startup.check.row.retry" = "Retry";
-"startup.check.enter" = "Enter App";
 "startup.check.a11y.introFmt" = "Checking local data: %ld items";
 "startup.check.a11y.rowFmt" = "Item %1$ld, %2$@, %3$@";
 "startup.check.a11y.done" = "Checks complete. Opening the app";

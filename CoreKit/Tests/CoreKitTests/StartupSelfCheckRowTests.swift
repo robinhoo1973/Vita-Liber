@@ -28,10 +28,12 @@ struct StartupSelfCheckRowTests {
         decision: DatabaseBootDecision?,
         health: [CatalogSliceKind: CatalogSliceBootHealth] = allReady(),
         facadeCommitted: Bool,
+        didFail: Bool = false,
         isWorking: Bool = false
     ) -> StartupSelfCheckFacts {
         StartupSelfCheckFacts(probe: probe, decision: decision, health: health,
-                              facadeCommitted: facadeCommitted, isWorking: isWorking)
+                              facadeCommitted: facadeCommitted, didFail: didFail,
+                              isWorking: isWorking)
     }
 
     @Test func pendingBeforeAnyDecision() {
@@ -83,6 +85,33 @@ struct StartupSelfCheckRowTests {
         let done = StartupSelfCheckRows.rows(
             Self.facts(decision: .migrate(from: 48, to: 49), facadeCommitted: true))
         #expect(done.schema == .passed)
+    }
+
+    /// B3 评审修复：失败卡在屏（didFail）时行①②不得显示通过。
+    @Test func freshFailureMarksFileFailedNotCreated() {
+        let rows = StartupSelfCheckRows.rows(
+            Self.facts(probe: Self.probeMissingNoOriginals, decision: .fresh,
+                       facadeCommitted: false, didFail: true))
+        #expect(rows.file == .failed)
+        #expect(rows.schema == .skipped)
+        #expect(rows.catalog == .skipped)
+    }
+
+    @Test func migrateFailureMarksSchemaFailedNotUpdated() {
+        let rows = StartupSelfCheckRows.rows(
+            Self.facts(decision: .migrate(from: 48, to: 49),
+                       facadeCommitted: false, didFail: true))
+        #expect(rows.file == .passed)
+        #expect(rows.schema == .failed)
+    }
+
+    @Test func readyFailureMarksSchemaFailedNotOk() {
+        let rows = StartupSelfCheckRows.rows(
+            Self.facts(decision: .ready(version: 49),
+                       facadeCommitted: false, didFail: true))
+        #expect(rows.file == .passed)
+        #expect(rows.schema == .failed)
+        #expect(rows.catalog == .skipped)
     }
 
     @Test func tooNewFailsSchemaNotFile() {

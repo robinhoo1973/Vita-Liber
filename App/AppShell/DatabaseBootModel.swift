@@ -207,7 +207,8 @@ final class DatabaseBootModel: ObservableObject {
         trySchedulePassiveHandoff()
     }
 
-    /// 手动 [进入 App] / 卡片退出后放行主界面（取消被动计时；幂等）。
+    /// 程序化放行主界面（取消被动计时；幂等）。B3 后页上无手动入口——
+    /// 调用方=被动 hold 到期 / 卡片退出 / 测试通路。
     func finishBootScreen() {
         guard isShowingBootScreen else { return }
         isShowingBootScreen = false
