@@ -58,6 +58,26 @@ final class DatabaseBootModel: ObservableObject {
         phase = .idle
         readOnlyContainer = nil
         isShowingReadOnly = false
+        // B3 只读壳钩子（仅 DEBUG 生效）：合成 tooNew + 确保测试库存在 →
+        // 只读打开 → 失败卡显示「只读查看」。
+        if uiTestBootReadOnly {
+            let unsupported = DatabaseBootFailure.tooNew(
+                found: 99, supported: SchemaMigrations.latestVersion)
+            bootSnapshot = BootChecklistSnapshot(
+                probe: Self.uiTestFailureProbe,
+                decision: .tooNew(found: 99, supported: SchemaMigrations.latestVersion),
+                decisionLabel: "uitest-readonly", plannedMigrationSteps: nil,
+                sliceHealth: [:], facadeCommitted: false)
+            failure = unsupported
+            let path = AppContainer.defaultDatabasePath()
+            _ = try? GRDBStore.pool(at: path) // try?-ok: DEBUG 钩子确保测试库存在；生产路径不达
+            if let store = try? GRDBStore.readOnly(at: path) { // try?-ok: 开败=不显入口（graceful）
+                readOnlyContainer = AppContainer.readOnly(store: store)
+            }
+            AppSessionHolder.shared.fail()
+            isRunning = false
+            return
+        }
         // B4 失败桩：不经真实启动门，直接落确定性失败态（advisory 语义同真实
         // 失败路径——快照 facadeCommitted=false，行③恒未校验）。
         if let injected = uiTestSelfCheckFailure {
@@ -196,6 +216,16 @@ final class DatabaseBootModel: ObservableObject {
         exists: true, sizeBytes: 4096, headerValid: true, observedVersion: 49,
         tableCount: 30, requiredTablesPresent: 3, requiredTablesExpected: 3,
         originalsPresent: false)
+
+    /// `-uitest-boot-readonly`：B3 只读壳 UI 证据钩子——合成 tooNew 失败并
+    /// 确保测试库存在（库创建属测试面，生产路径不可达），供失败卡→只读壳用例。
+    private var uiTestBootReadOnly: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-uitest-boot-readonly")
+        #else
+        false
+        #endif
+    }
 
     private func showsCatalogChoice(diagnostics: DatabaseBootDiagnostics) -> Bool {
         if forceCatalogChoice { return true }
