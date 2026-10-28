@@ -72,7 +72,8 @@ enum CatalogSlicesPromptPresentation {
                          status: .failure(failed: failureCount(state),
                                           hasLocal: state.installedCount > 0))
         case .appUpdateRequired:
-            return .init(primary: .enter, secondary: nil, autoEnter: true,
+            // B7：minApp 未达只给 [进入 App]，绝不自动进入（避免强迫升级式循环）。
+            return .init(primary: .enter, secondary: nil, autoEnter: false,
                          status: .appUpdateRequired(count: appGatedCount(state)))
         case .unavailable:
             return .init(primary: .recheck, secondary: .continueWithout,

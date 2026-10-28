@@ -565,8 +565,8 @@ struct DatabaseInitializationView: View {
         case .check, .recheck: model.checkCatalog()
         case .install, .retryInstall: model.installCatalog()
         case .enter, .enterKeepingUpdate: model.enterKeepingUpdate()
-        case .continueWithout, .cancelCheckAndContinue, .cancelUpdateAndContinue:
-            model.continueToApp()
+        case .continueWithout: model.deferAndEnter()
+        case .cancelCheckAndContinue, .cancelUpdateAndContinue: model.cancelAndEnter()
         case .busy, .none: break
         }
     }

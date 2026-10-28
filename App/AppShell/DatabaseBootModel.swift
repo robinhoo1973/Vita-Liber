@@ -216,10 +216,16 @@ final class DatabaseBootModel: ObservableObject {
         case deferred        // 暂不下载：写 7 天延期并取消在途检查/下载
         case keepUpdating    // 先去使用：不写延期、不取消在途下载
         case completed       // 完成/已是最新：进入（语义同 keepUpdating）
+        case cancelled       // 显式取消在途检查/下载并进入：不写 7 天延期（B7）
     }
 
-    /// 参考数据是可选项；不下载也进入主界面（P0 零网络可用）。
-    func continueToApp() { finishCatalogChoice(.deferred) }
+    /// 参考数据是可选项；显式「暂不下载」也进入主界面并写 7 天延期
+    /// （P0 零网络可用）。B7 更名自 continueToApp，防与「取消并进入」误用。
+    func deferAndEnter() { finishCatalogChoice(.deferred) }
+
+    /// 取消在途检查/下载并进入：**不写** 7 天延期（延期只属于显式「暂不下载」，
+    /// B7 取消语义落地——重开 App 时首启卡照常按延期规则评估）。
+    func cancelAndEnter() { finishCatalogChoice(.cancelled) }
 
     /// 「先去使用（下载继续）」/完成后「进入 App」：不得静默取消在途下载
     /// （2026-10-27 评审 P0：旧实现主按钮在任何状态都会取消下载）。
@@ -228,22 +234,15 @@ final class DatabaseBootModel: ObservableObject {
     /// 完成/已是最新后的自动进入。
     func completeAndEnter() { finishCatalogChoice(.completed) }
 
-    /// 完成/无候选后自动进入；VoiceOver 下延到 3s，先让成功播报完成。
+    /// 完成后自动进入；VoiceOver 下延到 3s，先让成功播报完成。
+    /// B7：descriptor 为 autoEnter 单真源——视图只在 `descriptor.autoEnter`
+    /// 为真时调用本方法，模型不再按聚合态自行重算（旧 shouldAutoEnter 已删）。
     func scheduleAutoEnterIfNeeded() {
         guard !uiTestSelfCheckHold else { return }   // B4：显式 hold 冻结卡片 autoEnter
-        guard awaitingCatalogChoice, shouldAutoEnter else { return }
+        guard awaitingCatalogChoice else { return }
         let delay: Duration = UIAccessibility.isVoiceOverRunning ? .seconds(3) : .milliseconds(1500)
         autoEnter.schedule(after: delay) { [weak self] in
             self?.finishCatalogChoice(.completed)
-        }
-    }
-
-    private var shouldAutoEnter: Bool {
-        guard let slices = catalogSlices else { return false }
-        if slices.hasCompletedAnyUpdate { return true }
-        switch slices.aggregate {
-        case .allCurrent, .sourcePartial: return true
-        default: return false
         }
     }
 
@@ -253,6 +252,10 @@ final class DatabaseBootModel: ObservableObject {
         switch exit {
         case .deferred:
             defaults.set(now(), forKey: Self.deferredPromptKey)
+            catalogSlices?.cancelCheck()
+            catalogSlices?.cancelUpdate()
+        case .cancelled:
+            // B7：显式取消在途检查/下载并进入——不写 7 天延期。
             catalogSlices?.cancelCheck()
             catalogSlices?.cancelUpdate()
         case .keepUpdating, .completed:
