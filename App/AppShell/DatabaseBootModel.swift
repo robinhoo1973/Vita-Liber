@@ -51,6 +51,18 @@ final class DatabaseBootModel: ObservableObject {
         isRunning = true
         failure = nil
         phase = .idle
+        // B4 失败桩：不经真实启动门，直接落确定性失败态（advisory 语义同真实
+        // 失败路径——快照 facadeCommitted=false，行③恒未校验）。
+        if let injected = uiTestSelfCheckFailure {
+            bootSnapshot = BootChecklistSnapshot(
+                probe: Self.uiTestFailureProbe, decision: nil,
+                decisionLabel: "uitest-injected", plannedMigrationSteps: nil,
+                sliceHealth: [:], facadeCommitted: false)
+            failure = injected
+            AppSessionHolder.shared.fail()
+            isRunning = false
+            return
+        }
         do {
             bootSnapshot = nil
             let prepared = try await DatabaseBootService.prepare(
@@ -117,6 +129,59 @@ final class DatabaseBootModel: ObservableObject {
         #endif
     }
 
+    // MARK: - 测试钩子（U-批 B4，2026-10-28；仅 DEBUG）
+
+    /// `-uitest-selfcheck-hold`：显式冻结自检页——被动 hold 与卡片 autoEnter
+    /// 均不触发（显式 hold 优先于通用 `-uitest-` 的立即放行）。
+    private var uiTestSelfCheckHold: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-uitest-selfcheck-hold")
+        #else
+        false
+        #endif
+    }
+
+    /// `-uitest-selfcheck-failure=<case>`：prepare 桩——不起真实启动门，
+    /// 直接落确定性失败态（corrupt/tooNew/missingOriginals/migrationIncomplete/
+    /// openFailed/其它→unexpected），供失败卡 UI 用例。
+    private var uiTestSelfCheckFailure: DatabaseBootFailure? {
+        #if DEBUG
+        let prefix = "-uitest-selfcheck-failure="
+        for arg in ProcessInfo.processInfo.arguments where arg.hasPrefix(prefix) {
+            switch arg.dropFirst(prefix.count) {
+            case "corrupt": return .corrupt("uitest")
+            case "tooNew": return .tooNew(found: 99, supported: SchemaMigrations.latestVersion)
+            case "missingOriginals": return .missingWithOriginals
+            case "migrationIncomplete":
+                return .migrationIncomplete(found: 48, expected: SchemaMigrations.latestVersion)
+            case "openFailed": return .openFailed("uitest")
+            default: return .unexpected("uitest")
+            }
+        }
+        return nil
+        #else
+        nil
+        #endif
+    }
+
+    /// O21：通用 `-uitest-*` 默认不渲染自检页（立即放行主界面）；
+    /// 显式 hold 或失败桩才保持自检页可见。
+    private var uiTestInstantHandoff: Bool {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        return args.contains { $0.hasPrefix("-uitest-") }
+            && !uiTestSelfCheckHold && uiTestSelfCheckFailure == nil
+        #else
+        false
+        #endif
+    }
+
+    /// 失败桩用的合成探测事实（文件存在且版本正常——失败语义由注入 case 决定）。
+    private static let uiTestFailureProbe = DatabaseProbeSnapshot(
+        exists: true, sizeBytes: 4096, headerValid: true, observedVersion: 49,
+        tableCount: 30, requiredTablesPresent: 3, requiredTablesExpected: 3,
+        originalsPresent: false)
+
     private func showsCatalogChoice(diagnostics: DatabaseBootDiagnostics) -> Bool {
         if forceCatalogChoice { return true }
         // 切片-only（2026-10-28；P-批四片）：v4 替代集 `{drug,facility,reference}` 全就绪
@@ -165,6 +230,7 @@ final class DatabaseBootModel: ObservableObject {
 
     /// 完成/无候选后自动进入；VoiceOver 下延到 3s，先让成功播报完成。
     func scheduleAutoEnterIfNeeded() {
+        guard !uiTestSelfCheckHold else { return }   // B4：显式 hold 冻结卡片 autoEnter
         guard awaitingCatalogChoice, shouldAutoEnter else { return }
         let delay: Duration = UIAccessibility.isVoiceOverRunning ? .seconds(3) : .milliseconds(1500)
         autoEnter.schedule(after: delay) { [weak self] in
@@ -223,6 +289,7 @@ final class DatabaseBootModel: ObservableObject {
         guard isShowingBootScreen, failure == nil,
               container != nil, !awaitingCatalogChoice,
               !rowFourBusy,
+              !uiTestSelfCheckHold,   // B4：显式 hold 冻结被动交接
               let presentedAt = selfCheckPresentedAt else { return }
         let terminalAt = now()
         let minDisplay = UIAccessibility.isVoiceOverRunning
@@ -280,5 +347,10 @@ final class DatabaseBootModel: ObservableObject {
                 sliceHealth: advisory.sliceHealth, facadeCommitted: true)
         }
         trySchedulePassiveHandoff()
+        // O21（B4）：通用 -uitest-* 默认不渲染自检页（立即放行）；显式
+        // -uitest-selfcheck-hold / 失败桩才保持自检页。
+        if uiTestInstantHandoff {
+            finishBootScreen()
+        }
     }
 }
