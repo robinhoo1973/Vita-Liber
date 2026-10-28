@@ -46,6 +46,9 @@ final class CatalogSlicesState {
     /// 处方行匹配缓存（generation 变化即失效；视图观察此表渲染建议）。
     var matchByLineID: [UUID: MedicalCatalogMatch] = [:]
     private var observedGeneration: UInt64 = 0
+    /// 是否发生过显式检查尝试（FR25.13：checker 缺失时初始仍显示「检查更新」——
+    /// 「暂不可用」只有在用户点按检查后才成立）。
+    private var didAttemptCheck = false
 
     init(facade: CatalogSliceReadFacade,
          checker: (any CatalogSliceReleaseResolving)?,
@@ -154,6 +157,7 @@ final class CatalogSlicesState {
 
     func check() {
         guard checkTask == nil, updateTask == nil else { return }
+        didAttemptCheck = true
         guard let checker else {
             for kind in CatalogSliceKind.allCases { remote[kind] = .unavailable }
             return
@@ -295,7 +299,10 @@ final class CatalogSlicesState {
     var aggregate: Aggregate {
         if updateTask != nil { return .updating }
         if checkTask != nil { return .checking }
-        guard checker != nil else { return .unavailable }
+        // FR25.13 零隐式判定（2026-10-28 B2 回归修复，CI 40618700435）：checker 缺失
+        // 本身不等于「暂不可用」——用户还没点过检查时保持 .notChecked（按钮「检查更新」），
+        // 点按后 check() 已把全片置 .unavailable（按钮才变「重新检查」）。
+        guard checker != nil else { return didAttemptCheck ? .unavailable : .notChecked }
         let states = CatalogSliceKind.allCases.map(remoteState)
         func isFailure(_ state: CatalogSliceRemoteState) -> Bool {
             switch state {

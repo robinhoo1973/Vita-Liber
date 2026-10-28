@@ -158,7 +158,8 @@ struct AppContainer {
         let catalogSliceUpdater: CatalogSliceUpdateService?
         #if os(iOS) || os(macOS)
         // XCUITest 离线用例：pinned root 随包后 checker 恒非 nil，任何点按都会真实
-        // 联网。仅 DEBUG 的 -uitest-catalog-checker-off 走 checker==nil → .unavailable。
+        // 联网。仅 DEBUG 的 -uitest-catalog-checker-off 走 checker==nil：初始仍显示
+        // 「检查更新」（零隐式判定），用户点按检查后聚合才落 .unavailable（「重新检查」）。
         #if DEBUG
         let uiTestCheckerOff = ProcessInfo.processInfo.arguments.contains("-uitest-catalog-checker-off")
         #else

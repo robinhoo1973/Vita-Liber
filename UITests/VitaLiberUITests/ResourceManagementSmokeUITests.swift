@@ -22,12 +22,16 @@ final class ResourceManagementSmokeUITests: XCTestCase {
         // 批处理入口（测试不做网络触发，只断言存在）；医疗域另有单域快捷键。
         let checkAll = app.descendants(matching: .any)["SP-64.updateCenter.checkAll"].firstMatch
         XCTAssertTrue(checkAll.waitForExistence(timeout: 5), "更新中心必须呈现「检查全部更新」按钮")
-        // 医疗域单域检查入口存在且空闲可用（不点击——点按会真实联网）。
-        let domainCheck = app.descendants(matching: .any)["SP-64.medicalCatalog.check"].firstMatch
-        XCTAssertTrue(domainCheck.waitForExistence(timeout: 5), "医疗域必须有独立检查入口")
-        XCTAssertTrue(domainCheck.isEnabled)
         let asrRow = app.descendants(matching: .any)["SP-64.updateCenter.row.asr-models"].firstMatch
         XCTAssertTrue(asrRow.waitForExistence(timeout: 5), "更新中心必须呈现 ASR 域状态行")
+        // 医疗域单域检查入口存在且空闲可用（不点击——点按会真实联网）。
+        // 2026-10-28 B2 回归修复（CI 40618700435）：三切片行+摘要把检查钮推出首屏，
+        // Form 屏外元素不物化进 a11y 树——先滚动再断言（同 asrEngine 护栏）；
+        // updateCenter 两断言已前移，避免滚动后上方段退化。
+        let domainCheck = app.descendants(matching: .any)["SP-64.medicalCatalog.check"].firstMatch
+        UITestSupport.scrollToHittable(domainCheck, in: app, maxSwipes: 6)
+        XCTAssertTrue(domainCheck.waitForExistence(timeout: 5), "医疗域必须有独立检查入口")
+        XCTAssertTrue(domainCheck.isEnabled)
 
         // ASR 管理已并入本页（B2-3）：家族行以资源页前缀存在。
         // 滚动护栏（评审修复）：目录段未来加行/小屏设备下可能推出屏外，
