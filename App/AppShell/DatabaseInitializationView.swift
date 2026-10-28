@@ -70,12 +70,10 @@ struct DatabaseInitializationView: View {
 
     @ViewBuilder
     private var catalogCard: some View {
-        if let catalog = model.catalog {
-            let input = MedicalCatalogPromptInput(catalog: catalog)
-            let descriptor = MedicalCatalogPromptPresentation.descriptor(input)
-            let candidate = candidateOf(catalog)
-            let size = candidate.map { MedicalCatalogPromptCopy.sizeText($0.packageSize) }
-            let statusText = MedicalCatalogPromptCopy.statusText(descriptor.status, candidateSize: size)
+        if let slices = model.catalogSlices {
+            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices)
+            let size = Self.candidateSizeText(descriptor.status)
+            let statusText = Self.statusText(descriptor.status, slices: slices)
 
             VStack(alignment: .leading, spacing: 12) {
                 Label(L10n.startupCatalogTitle, systemImage: "books.vertical")
@@ -95,10 +93,10 @@ struct DatabaseInitializationView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                if case .phase(let progress) = descriptor.status {
+                if case .phase(_, let progress) = descriptor.status {
                     catalogProgress(progress)
                 }
-                if case .phase(.activating) = descriptor.status {
+                if case .phase(_, .activating) = descriptor.status {
                     Text(L10n.startupCatalogActivating)
                         .font(.footnote)
                         .foregroundStyle(Color("semantic-warning", bundle: .main))
@@ -111,42 +109,18 @@ struct DatabaseInitializationView: View {
             // 容器标识必须配 .contain，否则标识会压到子按钮上（L0 第 17 节）。
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("STARTUP.catalog")
-            .onChangeCompat(of: catalogPhaseKey(catalog.updateProgress)) { _, _ in
-                if let progress = catalog.updateProgress {
-                    UIAccessibility.post(notification: .announcement,
-                                         argument: MedicalCatalogPromptCopy.phaseText(progress))
-                }
+            // 播报纪律（§5.12.4）：只在状态短语变化时播一次；下载字节变化不播。
+            .onChangeCompat(of: Self.cardPhaseKey(descriptor.status)) { _, _ in
+                UIAccessibility.post(notification: .announcement, argument: statusText)
             }
-            .onChangeCompat(of: catalog.updateCompletedDataVersion) { _, _ in
-                announceCompleted(catalog)
-                model.scheduleAutoEnterIfNeeded()
-            }
-            .onChangeCompat(of: catalog.remoteState) { _, state in
-                switch state {
-                case .upToDate, .noInstallableAvailable:
-                    UIAccessibility.post(notification: .announcement,
-                                         argument: MedicalCatalogPromptCopy.remoteText(state))
-                    model.scheduleAutoEnterIfNeeded()
-                case .unavailable, .networkUnavailable, .verificationFailed, .rateLimited:
-                    UIAccessibility.post(notification: .announcement,
-                                         argument: MedicalCatalogPromptCopy.remoteText(state))
-                default:
-                    break
-                }
-            }
-            .onChangeCompat(of: catalog.updateError) { _, error in
-                if let error {
-                    UIAccessibility.post(
-                        notification: .announcement,
-                        argument: MedicalCatalogPromptCopy.errorText(
-                            error, hasLocal: catalog.localVersion != nil))
-                }
+            .onChangeCompat(of: descriptor.autoEnter) { _, autoEnter in
+                if autoEnter { model.scheduleAutoEnterIfNeeded() }
             }
         }
     }
 
     /// 每个状态最多一个主按钮 + 一个低强调次动作；busy/none 的主按钮禁用。
-    private func catalogActions(_ descriptor: MedicalCatalogPromptDescriptor,
+    private func catalogActions(_ descriptor: CatalogSlicesPromptDescriptor,
                                 sizeText: String?) -> some View {
         VStack(spacing: 12) {
             Button {
@@ -156,7 +130,8 @@ struct DatabaseInitializationView: View {
                     if descriptor.primary == .busy {
                         ProgressView().controlSize(.small)
                     }
-                    Text(MedicalCatalogPromptCopy.primaryTitle(descriptor, candidateSize: sizeText))
+                    Text(Self.primaryTitle(descriptor.primary, status: descriptor.status,
+                                           sizeText: sizeText))
                         .frame(maxWidth: .infinity, minHeight: 64)
                 }
             }
@@ -170,7 +145,7 @@ struct DatabaseInitializationView: View {
                 Button {
                     perform(secondary)
                 } label: {
-                    Text(MedicalCatalogPromptCopy.secondaryTitle(secondary))
+                    Text(Self.secondaryTitle(secondary))
                         .frame(maxWidth: .infinity, minHeight: 64)
                 }
                 .buttonStyle(.plain)
@@ -208,16 +183,103 @@ struct DatabaseInitializationView: View {
         }
     }
 
-    private func announceCompleted(_ catalog: MedicalCatalogState) {
-        let version = catalog.updateCompletedCatalogVersion
-        let text = version.map { L10n.startupCatalogCompletedFmt($0) }
-            ?? L10n.startupCatalogCompleted
-        UIAccessibility.post(notification: .announcement, argument: text)
+    /// 候选下载总量文案（仅 candidate 态）；其余状态 nil。
+    private static func candidateSizeText(_ status: CatalogSlicesPromptStatus) -> String? {
+        guard case .candidate(_, let totalSize) = status, totalSize > 0 else { return nil }
+        return ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
     }
 
-    private func candidateOf(_ catalog: MedicalCatalogState) -> MedicalCatalogUpdateCandidate? {
-        if case .updateAvailable(let candidate) = catalog.remoteState { return candidate }
-        return nil
+    /// 状态短语（切片聚合；未知进行中片显示其名 + 阶段）。
+    private static func statusText(_ status: CatalogSlicesPromptStatus,
+                                   slices: CatalogSlicesState) -> String {
+        switch status {
+        case .idleNoLocal(let installed):
+            return installed > 0
+                ? L10n.resourceCatalogSlicesNotCheckedFmt(installed)
+                : L10n.startupCatalogStatusIdleNoLocal
+        case .checking:
+            return L10n.resourceCatalogSlicesChecking
+        case .candidate(let count, let totalSize):
+            return L10n.resourceCatalogSlicesCandidatesFmt(
+                slices.installedCount, count,
+                ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))
+        case .phase(let kind, let progress):
+            return kindName(kind) + " · " + MedicalCatalogPromptCopy.phaseText(progress)
+        case .completed(let version):
+            return version.map { L10n.startupCatalogCompletedFmt($0) }
+                ?? L10n.startupCatalogCompleted
+        case .upToDate:
+            return L10n.resourceCatalogSlicesAllCurrent
+        case .sourcePartial(let count):
+            return L10n.resourceCatalogSlicesSourcePartialFmt(count)
+        case .failure(let failed, let hasLocal):
+            return hasLocal
+                ? L10n.resourceCatalogSlicesPartialFailureFmt(failed)
+                : L10n.resourceCatalogUpdateFailedNoLocal
+        case .appUpdateRequired(let count):
+            return L10n.resourceCatalogSlicesAppUpdateRequiredFmt(count)
+        case .unavailable:
+            return L10n.resourceCatalogUnavailable
+        }
+    }
+
+    /// 阶段/状态稳定键：只反映短语类别与阶段，不随下载字节变化（播报去抖）。
+    private static func cardPhaseKey(_ status: CatalogSlicesPromptStatus) -> String {
+        switch status {
+        case .idleNoLocal(let installed): return "idle-\(installed)"
+        case .checking: return "checking"
+        case .candidate(let count, _): return "candidate-\(count)"
+        case .phase(let kind, let progress):
+            switch progress {
+            case .downloading: return "downloading-\(kind.rawValue)"
+            case .verifyingPackage: return "verifying-\(kind.rawValue)"
+            case .decrypting: return "decrypting-\(kind.rawValue)"
+            case .verifyingCatalog: return "verifyingCatalog-\(kind.rawValue)"
+            case .activating: return "activating-\(kind.rawValue)"
+            }
+        case .completed: return "completed"
+        case .upToDate: return "upToDate"
+        case .sourcePartial(let count): return "sourcePartial-\(count)"
+        case .failure(let failed, _): return "failed-\(failed)"
+        case .appUpdateRequired(let count): return "appRequired-\(count)"
+        case .unavailable: return "unavailable"
+        }
+    }
+
+    private static func primaryTitle(_ action: MedicalCatalogPromptAction,
+                                     status: CatalogSlicesPromptStatus,
+                                     sizeText: String?) -> String {
+        switch action {
+        case .check: return L10n.resourceCatalogCheck
+        case .recheck: return L10n.resourceCatalogRecheck
+        case .install: return L10n.startupCatalogInstallFmt(sizeText ?? "")
+        case .retryInstall: return L10n.startupCatalogRetryInstall
+        case .enter: return L10n.startupCatalogEnter
+        case .enterKeepingUpdate: return L10n.startupCatalogUseWhileUpdating
+        case .continueWithout: return L10n.startupCatalogContinue
+        case .cancelCheckAndContinue: return L10n.startupCatalogCancelCheckContinue
+        case .cancelUpdateAndContinue: return L10n.startupCatalogCancelUpdateContinue
+        case .busy:
+            if case .phase(_, .activating) = status { return L10n.startupCatalogActivating }
+            return L10n.resourceCatalogChecking
+        case .none: return L10n.startupCatalogUpgradeUnavailable
+        }
+    }
+
+    private static func secondaryTitle(_ action: MedicalCatalogPromptAction) -> String {
+        switch action {
+        case .cancelCheckAndContinue: return L10n.startupCatalogCancelCheckContinue
+        case .cancelUpdateAndContinue: return L10n.startupCatalogCancelUpdateContinue
+        default: return L10n.startupCatalogContinue
+        }
+    }
+
+    private static func kindName(_ kind: CatalogSliceKind) -> String {
+        switch kind {
+        case .drug: return L10n.resourceCatalogSliceDrugName
+        case .facility: return L10n.resourceCatalogSliceFacilityName
+        case .reference: return L10n.resourceCatalogSliceReferenceName
+        }
     }
 
     @ViewBuilder

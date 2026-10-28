@@ -289,7 +289,6 @@ private struct PreviewRoot: View {
     /// 设置仓（业主 2026-09-17：F16DeviceState 构造与环境注入共用同一实例——
     /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
     private let settingsStore: AppSettingsStore
-    private let medicalCatalogState: MedicalCatalogState
     /// 三切片目录状态（2026-10-28 切片-only；预览与生产同构注入）。
     private let catalogSlicesState: CatalogSlicesState
     /// P3（2026-10-07）：预览同构——provider 缺省（preview 装配默认 nil）→
@@ -313,11 +312,6 @@ private struct PreviewRoot: View {
             fatalError("Preview container assembly failed (in-memory DB unavailable): \(error)")
         }
         container = assembled
-        let medicalState = MedicalCatalogState(store: assembled.medicalCatalog,
-                                               updater: assembled.medicalCatalogUpdater,
-                                               checker: assembled.medicalCatalogChecker,
-                                               opener: assembled.medicalCatalogOpener)
-        medicalCatalogState = medicalState
         catalogSlicesState = CatalogSlicesState(
             facade: assembled.catalogSlices ?? CatalogSliceReadFacade(),
             checker: assembled.catalogSliceChecker,
@@ -353,7 +347,6 @@ private struct PreviewRoot: View {
                 // actor 非 Observable，走自定义 EnvironmentKey 注入。
                 .environment(\.medicationScheduleStore, container.scheduleTemplates)
                 .environment(settingsStore)
-                .environment(medicalCatalogState)
                 .environment(catalogSlicesState)
                 .environment(updateAdviceState)
                 .environment(asrCheckState)

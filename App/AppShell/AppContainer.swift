@@ -102,10 +102,11 @@ struct AppContainer {
     let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
     /// 切片安装器（每片独立 journal/staging/last-good；nil = 安装入口 fail-closed）。
     let catalogSliceUpdater: CatalogSliceUpdateService?
-    /// Both ports retain the same facade across installations.
+    /// 四域参考端口（2026-10-28 切片-only）：由三切片 facade 派生——任一片可用即注入；
+    /// 缺片时对应查询在 facade 内返回空集（患者流零提示）。v4 读面不再对外服务。
     var medicalReferenceCatalog: (any MedicalReferenceCatalogReading)? {
-        guard let medicalCatalog, medicalCatalog.isAvailable else { return nil }
-        return medicalCatalog
+        guard let catalogSlices, !catalogSlices.availableKinds.isEmpty else { return nil }
+        return catalogSlices
     }
     /// SP-64 通告面（README VL-INDEX 二维码；委员会 P3，2026-10-07）：固定匿名通道
     /// + floor 落盘（与医疗支持目录同址）；读取纯显式动作、零隐式联网。

@@ -6,7 +6,8 @@ import Perception
 /// 独立药品目录只读详情。所有参考值保留来源语义，不生成诊断/剂量结论。
 struct MedicalCatalogDetailView: View {
     let drugID: Int
-    @Environment(MedicalCatalogState.self) private var catalog
+    /// 2026-10-28 切片-only：药品读面来自三切片状态（drug 片缺省时自然空态）。
+    @Environment(CatalogSlicesState.self) private var catalog
     @State private var drug: MedicalCatalogDrug?
     @State private var detail: MedicalCatalogDrugDetail?
     @State private var references: [MedicalCatalogReference] = []

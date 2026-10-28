@@ -19,12 +19,6 @@ struct ReadyAppRoot: View {
             _session = State(initialValue: existing)
         } else {
             // 预览/兜底：启动门不可用时仍能装配（正常路径由启动门建会话）。
-            let medical = MedicalCatalogState(
-                store: container.medicalCatalog,
-                updater: container.medicalCatalogUpdater,
-                path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
-                checker: container.medicalCatalogChecker,
-                opener: container.medicalCatalogOpener)
             let slices = CatalogSlicesState(
                 facade: container.catalogSlices ?? CatalogSliceReadFacade(),
                 checker: container.catalogSliceChecker,
@@ -34,7 +28,6 @@ struct ReadyAppRoot: View {
             _session = State(initialValue: AppSession(
                 container: container, router: router,
                 notificationDelegate: notificationDelegate,
-                medicalCatalogState: medical,
                 catalogSlicesState: slices))
         }
     }
@@ -97,7 +90,6 @@ struct ReadyAppRoot: View {
             .environment(session.exportWizardState)
              .environment(session.f16DeviceState)
              .environment(session.backupState)
-             .environment(session.medicalCatalogState)
              .environment(session.catalogSlicesState)
              // E①（收口批）：四域参考目录端口（nil=未就绪零渲染）
              .environment(\.medicalReferenceCatalog, session.container.medicalReferenceCatalog)

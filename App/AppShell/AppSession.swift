@@ -42,8 +42,7 @@ final class AppSession: ObservableObject {
     /// 运行时自 CNB 下载——状态与生命周期同样上提 App 层。
     let llmModelInstallCenter: LLMModelInstallCenter
     let backupState: BackupState
-    let medicalCatalogState: MedicalCatalogState
-    /// 三切片目录状态（2026-10-28 切片-only）：SP-64/首启卡/更新中心切片面数据源。
+    /// 三切片目录状态（2026-10-28 切片-only）：SP-64/首启卡/更新中心唯一数据源。
     let catalogSlicesState: CatalogSlicesState
     /// 待办卡通知门面：有状态，必须在会话内单例化——根视图每次重算都新建
     /// 会清空 `items/detail`（2026-10-27 审查 P2）。
@@ -55,13 +54,11 @@ final class AppSession: ObservableObject {
 
     init(container: AppContainer, router: AppRouter,
          notificationDelegate: AppNotificationDelegate,
-         medicalCatalogState: MedicalCatalogState,
          catalogSlicesState: CatalogSlicesState) {
         self.container = container
         let args = ProcessInfo.processInfo.arguments
         // 单一 owner（2026-10-27 审查 P1/P2）：目录状态由启动门创建后注入，
         // 避免启动卡与会话各建一份导致版本/进度/假失败分裂。
-        self.medicalCatalogState = medicalCatalogState
         self.catalogSlicesState = catalogSlicesState
         self.pendingCardCenterState = PendingCardCenterState(
             store: container.pendingCards, scheduler: container.reminderScheduler)

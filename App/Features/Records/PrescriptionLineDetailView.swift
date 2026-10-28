@@ -71,7 +71,8 @@ struct PrescriptionLineDetailView: View {
     let lineId: UUID
     let patientId: UUID
     @Environment(DocumentsState.self) private var docs
-    @Environment(MedicalCatalogState.self) private var catalog
+    /// 2026-10-28 切片-only：处方行匹配来自三切片状态（drug 片缺省即无建议）。
+    @Environment(CatalogSlicesState.self) private var catalog
     @State private var detail: OCRCardStore.LineDetail?
     @State private var catalogMatch: MedicalCatalogMatch?
     @State private var gone = false
