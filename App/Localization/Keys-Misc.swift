@@ -552,6 +552,8 @@ extension L10n {
     static var startupReadonlyEnter: String { t("startup.readonly.enter") }
     static var startupReadonlyTitle: String { t("startup.readonly.title") }
     static var startupReadonlyBanner: String { t("startup.readonly.banner") }
+    static var startupReadonlyDocuments: String { t("startup.readonly.documents") }
+    static var startupReadonlyDocumentsEmpty: String { t("startup.readonly.documentsEmpty") }
 
     static var appointmentAdd: String { t("appointment.add") }
 

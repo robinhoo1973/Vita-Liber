@@ -1320,6 +1320,8 @@ extension L10n {
         "startup.readonly.enter",
         "startup.readonly.title",
         "startup.readonly.banner",
+        "startup.readonly.documents",
+        "startup.readonly.documentsEmpty",
         "tab.reminders.badge",
         "timeline.kind.document",
         "timeline.quickEntry",

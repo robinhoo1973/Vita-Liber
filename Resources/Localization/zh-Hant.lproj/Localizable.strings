@@ -1932,6 +1932,8 @@
 "startup.readonly.enter" = "唯讀檢視";
 "startup.readonly.title" = "唯讀模式";
 "startup.readonly.banner" = "唯讀模式 · 資料未校驗。目前檔案庫版本高於本 App，以下內容僅來自本機讀取，未做完整性校驗；請更新 App 或從備份還原以繼續使用完整功能。";
+"startup.readonly.documents" = "資料文件";
+"startup.readonly.documentsEmpty" = "沒有可顯示的文件";
 "helpcard.defaultFilename" = "配藥清單";
 "f19.sendA11y" = "發送指令";
 "plan.unreadable" = "計劃資料損壞";

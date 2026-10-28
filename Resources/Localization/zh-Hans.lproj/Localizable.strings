@@ -1932,6 +1932,8 @@
 "startup.readonly.enter" = "只读查看";
 "startup.readonly.title" = "只读模式";
 "startup.readonly.banner" = "只读模式 · 数据未校验。当前档案库版本高于本 App，以下内容仅来自本机读取，未做完整性校验；请更新 App 或从备份恢复以继续使用完整功能。";
+"startup.readonly.documents" = "资料文档";
+"startup.readonly.documentsEmpty" = "没有可显示的文档";
 "helpcard.defaultFilename" = "配药清单";
 "f19.sendA11y" = "发送指令";
 "plan.unreadable" = "计划数据损坏";
