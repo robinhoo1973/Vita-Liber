@@ -2,6 +2,7 @@
 import Foundation
 import GRDB
 import Testing
+@testable import Domain   // DatabaseBootPolicy（CI 40789487666 红因：漏导入）
 @testable import Infrastructure
 
 // binds: SU-M0-DBBOOT（迁移回放矩阵，2026-10-29 转换登记表批 B3）。
