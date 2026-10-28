@@ -69,17 +69,6 @@ struct MedicalCatalogPromptInput: Equatable {
         self.hasLocalCatalog = hasLocalCatalog
     }
 
-    @MainActor
-    init(catalog: MedicalCatalogState) {
-        self.init(remoteState: catalog.remoteState,
-                  progress: catalog.updateProgress,
-                  error: catalog.updateError,
-                  completedCatalogVersion: catalog.updateCompletedCatalogVersion,
-                  completedDataVersion: catalog.updateCompletedDataVersion,
-                  canUpdate: catalog.canUpdate,
-                  canCancelUpdate: catalog.canCancelUpdate,
-                  hasLocalCatalog: catalog.localVersion != nil)
-    }
 }
 
 enum MedicalCatalogPromptPresentation {

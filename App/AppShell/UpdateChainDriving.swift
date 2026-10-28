@@ -14,14 +14,6 @@ protocol UpdateChainDriving: AnyObject {
     func cancelCheck()
 }
 
-/// 医疗目录链一致性扩展：`check`/`cancelCheck` 由既有转发面提供（零改动）；
-/// 更新/下载进行中优先呈 `.updating`（与 ASR 侧 chainSummary 同口径）。
-extension MedicalCatalogState: UpdateChainDriving {
-    var chainSummary: UpdateChainRowState {
-        isUpdating ? .updating : UpdateCenterRules.chainState(from: remoteState)
-    }
-}
-
 /// ASR 索引链一致性扩展：`check` 已具同名签名；`cancelCheck` 映射真中断
 /// `cancel()`（迟到结果由状态机内 `Task.isCancelled` 守卫丢弃）。
 /// CI 37580929178 实证：缺此遵从会让两处注入点 `[any UpdateChainDriving]`

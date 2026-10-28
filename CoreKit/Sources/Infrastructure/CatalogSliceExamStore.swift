@@ -29,7 +29,7 @@ public final class CatalogSliceExamStore: MedicalExamCatalogReading, @unchecked 
     // MARK: - 查询（与 v4 同口径）
 
     public func diagnosisSuggest(query: String, system: String?, region: String?, limit: Int) async throws -> [MedicalCatalogDiagnosis] {
-        let q = MedicalReferenceCatalogStore.likeEscaped(query)
+        let q = CatalogSQLLike.escaped(query)
         guard !q.isEmpty else { return [] }
         let prefix = q + "%"
         let contains = "%" + q + "%"
@@ -49,7 +49,7 @@ public final class CatalogSliceExamStore: MedicalExamCatalogReading, @unchecked 
     }
 
     public func examSuggest(query: String, category: String?, region: String?, limit: Int) async throws -> [MedicalCatalogExamItem] {
-        let q = MedicalReferenceCatalogStore.likeEscaped(query)
+        let q = CatalogSQLLike.escaped(query)
         guard !q.isEmpty else { return [] }
         let prefix = q + "%"
         let contains = "%" + q + "%"

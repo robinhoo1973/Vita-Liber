@@ -74,8 +74,7 @@ let package = Package(
                         condition: .when(platforms: [.iOS, .macOS])),
             ],
             // Supertonic不支持中文，当前中文TTS仍使用已接线的系统实现。
-            exclude: ["SherpaOnnxSpeechSynthesizer.swift"],
-            resources: [.copy("Resources")]),
+            exclude: ["SherpaOnnxSpeechSynthesizer.swift"]),
         .testTarget(
             name: "CoreKitTests",
             dependencies: [

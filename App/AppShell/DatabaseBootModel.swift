@@ -172,8 +172,8 @@ final class DatabaseBootModel: ObservableObject {
         switch exit {
         case .deferred:
             defaults.set(now(), forKey: Self.deferredPromptKey)
-            catalog?.cancelCheck()
-            catalog?.cancelUpdate()
+            catalogSlices?.cancelCheck()
+            catalogSlices?.cancelUpdate()
         case .keepUpdating, .completed:
             break
         }

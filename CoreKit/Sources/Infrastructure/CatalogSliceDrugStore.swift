@@ -76,7 +76,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
             guard !name.isEmpty else {
                 return MedicalCatalogMatch(status: .unmatched, exact: nil, candidates: [])
             }
-            let like = "%" + MedicalReferenceCatalogStore.likeEscaped(name) + "%"
+            let like = "%" + CatalogSQLLike.escaped(name) + "%"
             var candidates = try Self.rows(db, sql: """
                 SELECT * FROM drug
                 WHERE name_zh = ? OR name_en = ? OR brand_name = ?

@@ -201,7 +201,7 @@ public struct CatalogSliceActivationJournal: Sendable {
         }
         let size: Int64
         do {
-            size = try MedicalCatalogUpdateService.fileSize(of: url)
+            size = try CatalogPackageFiles.size(of: url)
         } catch {
             return false
         }

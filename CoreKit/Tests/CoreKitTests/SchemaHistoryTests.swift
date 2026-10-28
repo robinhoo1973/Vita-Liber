@@ -125,29 +125,8 @@ struct SchemaHistoryTests {
         #expect(probe.sizeBytes == 0)
         #expect(DatabaseBootPolicy.decide(probe, supportedVersion: 48) == .corrupt(.emptyFile))
     }
-    @Test func catalogSchemaProbeReadsOnlyContractKey() throws {
-        let dir = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
-        let v4 = dir.appendingPathComponent("v4.sqlite")
-        try makeCatalog(v4, schema: "4")
-        #expect(CatalogSchemaProbe.inspect(path: v4.path) == .v4)
-
-        let v5 = dir.appendingPathComponent("v5.sqlite")
-        try makeCatalog(v5, schema: "5")
-        #expect(CatalogSchemaProbe.inspect(path: v5.path) == .v5)
-
-        // 无契约键时不得回落 PRAGMA user_version（测试内为 7）。
-        let noKey = dir.appendingPathComponent("no-key.sqlite")
-        try makeCatalog(noKey, schema: nil)
-        #expect(CatalogSchemaProbe.inspect(path: noKey.path) == .unsupported(nil))
-
-        let unknown = dir.appendingPathComponent("unknown.sqlite")
-        try makeCatalog(unknown, schema: "9")
-        #expect(CatalogSchemaProbe.inspect(path: unknown.path) == .unsupported(9))
-
-        #expect(CatalogSchemaProbe.inspect(path: dir.appendingPathComponent("missing.sqlite").path)
-                == .missing)
-    }
+    // 2026-10-28 切片-only B2：`CatalogSchemaProbe`（v4 catalog_meta 探测）随 v4 链删除，
+    // 对应探测断言一并退役；切片启动探测由 `CatalogSliceProbe`（表集/slice_meta/COUNT）承担。
 
     private func makeCatalog(_ url: URL, schema: String?) throws {
         let queue = try DatabaseQueue(path: url.path)

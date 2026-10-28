@@ -211,12 +211,12 @@ public actor CatalogSliceReleaseResolver: CatalogSliceReleaseResolving {
             request.setValue(cached.etag, forHTTPHeaderField: "If-None-Match")
         }
         let delegate = MedicalCatalogBoundedDataDelegate(
-            maxBytes: maxBytes, allowsURL: { MedicalCatalogReleaseResolver.allowsCheckURL($0) })
+            maxBytes: maxBytes, allowsURL: { CatalogCheckURLGate.allows($0) })
         do {
             let (tupleBody, response) = try await session.data(for: request, delegate: delegate)
             try Task.checkCancellation()
             guard let http = response as? HTTPURLResponse,
-                  let finalURL = response.url, MedicalCatalogReleaseResolver.allowsCheckURL(finalURL)
+                  let finalURL = response.url, CatalogCheckURLGate.allows(finalURL)
             else {
                 throw CatalogSliceResolveError.hostMismatch
             }

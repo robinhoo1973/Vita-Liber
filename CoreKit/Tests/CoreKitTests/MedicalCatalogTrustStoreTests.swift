@@ -65,38 +65,6 @@ struct MedicalCatalogTrustStoreTests {
         #expect(store.observedFloor == .init(catalogVersion: 30, payloadDigest: Self.digestA))
     }
 
-    @Test("progress pointers (installable == false) are rejected by accept(_:) and never reach the floor")
-    func progressPointersRejected() throws {
-        let directory = Self.makeDirectory()
-        defer { Self.cleanUp(directory) }
-        let store = MedicalCatalogTrustStore(fileURL: directory.appendingPathComponent("trust-floor.json"))
-        let progress = try Self.progressCandidate()
-
-        #expect(throws: MedicalCatalogTrustStore.Failure.notInstallable) {
-            try store.accept(progress)
-        }
-        #expect(store.observedFloor == nil)
-
-        // 即便已有已建立的 floor，后续 progress 候选依然不能改动它。
-        try store.acceptVerifiedInstallable(catalogVersion: 30, payloadDigest: Self.digestA)
-        #expect(throws: MedicalCatalogTrustStore.Failure.notInstallable) {
-            try store.accept(progress)
-        }
-        #expect(store.observedFloor == .init(catalogVersion: 30, payloadDigest: Self.digestA))
-    }
-
-    @Test("installable candidates advance the floor through accept(_:) exactly as through the 2-arg method")
-    func acceptForwardsInstallableCandidateToTheFloor() throws {
-        let directory = Self.makeDirectory()
-        defer { Self.cleanUp(directory) }
-        let store = MedicalCatalogTrustStore(fileURL: directory.appendingPathComponent("trust-floor.json"))
-        let candidate = try Self.installableCandidate()
-
-        try store.accept(candidate)
-        #expect(store.observedFloor == .init(catalogVersion: candidate.catalogVersion,
-                                             payloadDigest: candidate.signedPointerDigest))
-    }
-
     @Test("a failed atomic write leaves the prior persisted and in-memory state intact")
     func failedAtomicWriteLeavesPriorStateIntact() throws {
         let directory = Self.makeDirectory()
@@ -136,21 +104,6 @@ struct MedicalCatalogTrustStoreTests {
         // 仍可从零开始正常推进（不会因为损坏文件而被永久锁死）。
         try store.acceptVerifiedInstallable(catalogVersion: 1, payloadDigest: Self.digestA)
         #expect(store.observedFloor == .init(catalogVersion: 1, payloadDigest: Self.digestA))
-    }
-
-    /// 复用 Go 导出金样的 progress pointer（`installable == false`），不手造签名候选。
-    private static func progressCandidate() throws -> VerifiedMedicalCatalogCandidate {
-        let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.progressManifest)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
-        return VerifiedMedicalCatalogCandidate(verified: expectation)
-    }
-
-    private static func installableCandidate() throws -> VerifiedMedicalCatalogCandidate {
-        let expected = try GoMedicalFixture.expected()
-        let pointer = try GoMedicalFixture.data(expected.installableManifest)
-        let expectation = try GoMedicalFixture.expectation(pointer, servedAs: expected.manifestAssetName)
-        return VerifiedMedicalCatalogCandidate(verified: expectation)
     }
 
     private static func makeDirectory() -> URL {

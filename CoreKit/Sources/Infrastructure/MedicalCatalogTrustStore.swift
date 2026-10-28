@@ -75,15 +75,7 @@ public final class MedicalCatalogTrustStore: @unchecked Sendable {
         return floor.map { ObservedFloor(catalogVersion: $0.catalogVersion, payloadDigest: $0.payloadDigest) }
     }
 
-    /// 结构性保证入口：接一整个已验签候选。`installable == false`（progress pointer）
-    /// 在这里就地拒绝（`Failure.notInstallable`），不转发到 `acceptVerifiedInstallable`——
-    /// 没有第二条能让 progress 候选推进 floor 的路径。
-    public func accept(_ candidate: VerifiedMedicalCatalogCandidate) throws {
-        guard candidate.installable else { throw Failure.notInstallable }
-        try acceptVerifiedInstallable(catalogVersion: candidate.catalogVersion, payloadDigest: candidate.signedPointerDigest)
-    }
-
-    /// 唯一改动落盘状态的方法。调用方（Task 7 的 resolver/installer）只能在
+    /// 唯一改动落盘状态的方法。调用方（切片 resolver/installer）只能在
     /// pinned-root 验签 + 全部元数据校验通过、且候选 `installable == true` 之后调用；
     /// progress pointer 走 `accept(_:)` 即被拒绝，绝不会调用到这里。
     ///

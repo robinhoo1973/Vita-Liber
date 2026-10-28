@@ -82,19 +82,6 @@ struct AppContainer {
     let prescriptions: PrescriptionStore
     /// FR13.11 备份与恢复（SP-24）——BackupState 的服务端
     let backup: BackupService
-    /// 独立只读药品目录（不进入患者主库迁移/WAL/备份事务）。
-    let medicalCatalog: MedicalCatalogReadAccess?
-    /// 药品目录更新器；Release 元数据/identity 由上层发布配置提供。
-    /// 反回退 floor（TrustStore）由 updater 内部持有并在 update() 入口消费——
-    /// 不再在容器上开第二条引用（扫尾修复：双引用在降级路径上可分歧）。
-    let medicalCatalogUpdater: MedicalCatalogUpdateService?
-    /// SP-64 手动检查 resolver（2026-09-27）：pinned root 由 bundle 发布配置注入；
-    /// provisioning 前为 nil——检查 fail-closed 呈「暂不可用」，绝不联网。
-    let medicalCatalogChecker: (any MedicalCatalogReleaseResolving)?
-    /// SP-64 更新解包 opener（2026-09-27；2026-10-07 起为与 ASR 同构的
-    /// AES-256-GCM 信封，无注入材料）；缺省 nil → 更新入口 fail-closed
-    /// （packageInvalid），last-good 不受影响。
-    let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
     /// 三切片读面（2026-10-28 切片-only）：每片独立只读池 + 锁式 facade；
     /// nil = 装配未走切片路径（降级/预览缺省）。
     let catalogSlices: CatalogSliceReadFacade?
@@ -161,43 +148,10 @@ struct AppContainer {
     /// 本方法只做主线程侧的 store 装配，不再打开/迁移数据库。
     @MainActor
     static func live(store: GRDBStore) throws -> AppContainer {
-        let catalogPath = URL(fileURLWithPath: defaultMedicalCatalogPath())
-        let catalogSupport = catalogPath.deletingLastPathComponent()
-        // 崩溃可恢复的激活 journal：必须在 MedicalCatalogStore 打开前跑一遍，把上次更新
-        // 窗口内任一步的崩溃收敛到"旧库可读"或"新库已验证生效"两态之一（Task 6）。
-        let catalogJournal = MedicalCatalogActivationJournal.production(supportDirectory: catalogSupport)
-        // tech-spec §5.53 ④：反回退 floor 与 journal 同要求——Store 打开前恢复（构造即读盘，
-        // 2026-09-26 审查接线：此前 TrustStore 生产零构造，防回退判据悬空）。
-        let catalogTrust = MedicalCatalogTrustStore.production(supportDirectory: catalogSupport)
-        var catalog: MedicalCatalogReadAccess?
-        var updater: MedicalCatalogUpdateService?
-        do {
-            // 代价注记（2026-09-26 审查）：无 journal 时只多一次 stat（可忽略）；journal
-            // 存在（上次激活窗口内崩溃）时对 active 库做整文件 SHA-256 + 可能 schema 复核，
-            // 在启动主线程上多花若干秒——恢复必须前置于 Store 打开（§5.53 ④），此代价
-            // 是崩溃安全的定价，仅在上次更新被中断后一次性发生。
-            try catalogJournal.recoverBeforeOpen(catalogURL: catalogPath)
-            catalog = (try? MedicalCatalogReadAccess(path: catalogPath)) ?? MedicalCatalogReadAccess() // try?-ok: 未安装/损坏时保留空门面，后续有效安装可原位启用两个读面
-            // 审查修复（2026-09-26）：updater 必须拿到同一 journal 实例——此前便捷 init
-            // 默认 journal=nil，begin/complete 全为 no-op，启动恢复永远读到 .clean。
-            updater = MedicalCatalogUpdateService(destination: catalogPath, journal: catalogJournal,
-                trust: catalogTrust, readAccess: catalog)
-        } catch {
-            // 恢复失败（journal 损坏/路径逃逸/不可收敛 irrecoverable）：fail-closed 不打开
-            // 目录库——绝不把未收敛的 active 当可信参考数据服务（B 级参考数据红线），
-            // 目录功能降级、患者主库与其余功能不受影响。恢复语义见 journal 契约：
-            // irrecoverable 从不静默吞掉（本处吞的是「目录功能」，不是状态）。
-            logger.error("医疗目录恢复失败，目录功能降级: \(String(describing: error))")
-        }
-        let catalogAccess = catalog
-        // SP-64 检查/更新链（2026-09-27）：pinned root 随发布配置 provisioning 注入
-        // bundle；provisioning 前资源缺省 → checker 为 nil，检查/更新 fail-closed
-        // （「暂不可用」/ packageInvalid），本机 last-good 不受影响。
-        // 2026-10-06：包加密换成与 ASR 同构的信封后，opener 不再需要 provisioning
-        // 资源——它直接调用 ASRPackageCrypto（主密钥内嵌于 App，见该文件说明），
-        // 因此 opener 恒定可用；真正的门仍是 checker 的 pinned root。
-        let catalogChecker: (any MedicalCatalogReleaseResolving)?
-        let catalogOpener: (any MedicalCatalogPackageOpening)?
+        // 2026-10-28 切片-only（B2）：v4 目录链（ReadAccess/updater/journal/
+        // checker/opener）已整体移除；Support 目录仍供通告面 floor
+        // （UpdateAdviceService）使用。
+        let catalogSupport = URL(fileURLWithPath: defaultMedicalCatalogPath()).deletingLastPathComponent()
         let updateAdviceProvider: (any UpdateAdviceProviding)?
         let catalogSlices: CatalogSliceReadFacade?
         let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
@@ -211,14 +165,6 @@ struct AppContainer {
         let uiTestCheckerOff = false
         #endif
         let catalogRoot = uiTestCheckerOff ? nil : bundledData("MedicalCatalogRoot", "json")
-        catalogChecker = catalogRoot.map { root in
-            MedicalCatalogReleaseResolver(pinnedRootJSON: root,
-                                          makeVerifier: { CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: $0) },
-                                          hasher: CryptoKitContentHasher(),
-                                          trust: catalogTrust,
-                                          localVersion: { catalogAccess?.installedVersion })
-        }
-        catalogOpener = EnvelopeMedicalCatalogPackageOpening()
         // P3（2026-10-07）：通告面通道已上线（固定 /git/raw 二维码），装配即 live；
         // floor 与医疗信任状态同支持目录、独立文件。
         updateAdviceProvider = UpdateAdviceService(
@@ -237,7 +183,7 @@ struct AppContainer {
             let journal = CatalogSliceActivationJournal(
                 journalURL: sliceDirectory.appendingPathComponent(kind.stem + "-active-journal.json"),
                 supportDirectory: sliceDirectory,
-                sha256: { try StreamingFileHasher.sha256(of: $0) },
+                sha256: { try CatalogFileHashing.sha256(of: $0) },
                 verifyInstalled: { url in
                     guard case .ready = CatalogSliceProbe.inspectSelfConsistent(path: url.path, kind: kind) else {
                         throw MedicalCatalogUpdateError.catalogIntegrityFailed
@@ -279,7 +225,7 @@ struct AppContainer {
                 CatalogSliceActivationJournal(
                     journalURL: sliceDirectory.appendingPathComponent(kind.stem + "-active-journal.json"),
                     supportDirectory: sliceDirectory,
-                    sha256: { try StreamingFileHasher.sha256(of: $0) },
+                    sha256: { try CatalogFileHashing.sha256(of: $0) },
                     verifyInstalled: { url in
                         guard case .ready = CatalogSliceProbe.inspectSelfConsistent(path: url.path, kind: kind) else {
                             throw MedicalCatalogUpdateError.catalogIntegrityFailed
@@ -297,8 +243,6 @@ struct AppContainer {
                 }
             })
         #else
-        catalogChecker = nil
-        catalogOpener = nil
         updateAdviceProvider = nil
         catalogSlices = nil
         catalogSliceChecker = nil
@@ -307,10 +251,6 @@ struct AppContainer {
         // 2026-10-27 存储边界：敏感媒体/原件 canonical 根迁出 Documents（ADR-036）。
         return assemble(store: store, scheduler: productionScheduler(),
                         mediaBaseDir: MediaRootPaths.mediaBase(),
-                        medicalCatalog: catalog,
-                        medicalCatalogUpdater: updater,
-                        medicalCatalogChecker: catalogChecker,
-                        medicalCatalogOpener: catalogOpener,
                         catalogSlices: catalogSlices,
                         catalogSliceChecker: catalogSliceChecker,
                         catalogSliceUpdater: catalogSliceUpdater,
@@ -369,10 +309,6 @@ struct AppContainer {
     private static func assemble(store: GRDBStore, scheduler: any ReminderScheduling,
                                  mediaBaseDir: URL? = nil,
                                  degradedReason: String? = nil,
-                                 medicalCatalog: MedicalCatalogReadAccess? = nil,
-                                 medicalCatalogUpdater: MedicalCatalogUpdateService? = nil,
-                                 medicalCatalogChecker: (any MedicalCatalogReleaseResolving)? = nil,
-                                 medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil,
                                  catalogSlices: CatalogSliceReadFacade? = nil,
                                  catalogSliceChecker: (any CatalogSliceReleaseResolving)? = nil,
                                  catalogSliceUpdater: CatalogSliceUpdateService? = nil,
@@ -482,10 +418,6 @@ struct AppContainer {
                             documentExports: documentExports,
                              prescriptions: prescriptions,
                              backup: backup,
-                             medicalCatalog: medicalCatalog,
-                             medicalCatalogUpdater: medicalCatalogUpdater,
-                             medicalCatalogChecker: medicalCatalogChecker,
-                             medicalCatalogOpener: medicalCatalogOpener,
                              catalogSlices: catalogSlices,
                              catalogSliceChecker: catalogSliceChecker,
                              catalogSliceUpdater: catalogSliceUpdater,

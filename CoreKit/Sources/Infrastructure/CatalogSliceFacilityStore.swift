@@ -30,7 +30,7 @@ public final class CatalogSliceFacilityStore: MedicalFacilityCatalogReading, @un
     // MARK: - 查询（与 v4 同口径）
 
     public func hospitalSuggest(query: String, region: String?, limit: Int) async throws -> [MedicalCatalogHospital] {
-        let q = MedicalReferenceCatalogStore.likeEscaped(query)
+        let q = CatalogSQLLike.escaped(query)
         guard !q.isEmpty else { return [] }
         let prefix = q + "%"
         let contains = "%" + q + "%"

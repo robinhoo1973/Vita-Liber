@@ -33,15 +33,12 @@ struct DatabaseBootDiagnostics: Sendable, Equatable {
     let sourceVersion: Int?
     let targetVersion: Int
     let decision: String
-    let catalogPresent: Bool
-    let catalogSchemaVersion: Int?
-    let catalogV5PackagesPresent: Int
-    let catalogV5SchemaConsistent: Bool
-    let catalogSupportedByCurrentApp: Bool
     /// 三切片启动探测（2026-10-28 切片-only）：每片自洽态 + 就绪计数。
     /// 「就绪」= 该片 `CatalogSliceProbe.inspectSelfConsistent` 通过（表集/契约/完整性/COUNT）。
     let catalogSliceReadyCount: Int
     let catalogSliceStates: [String]
+    /// 三片全就绪并已执行 v4 残留清理（启动前置；失败只记日志，不阻断）。
+    let legacyCatalogResidueCleaned: Bool
 }
 
 struct PreparedDatabase: Sendable {
@@ -84,8 +81,6 @@ enum DatabaseBootService {
             path: databasePath,
             requiredTables: DatabaseBootPolicy.requiredTables,
             originalsPresent: originalsPresent)
-        let catalogPath = AppContainer.defaultMedicalCatalogPath()
-        let catalogState = CatalogSchemaProbe.inspect(path: catalogPath)
         // 三切片探测（2026-10-28 切片-only）：切片库只有 slice_meta，绝不回落 v4 的
         // catalog_meta/user_version 语义——每片自洽校验（表集/契约/完整性/COUNT）。
         let sliceStates: [(kind: CatalogSliceKind, label: String)] =
@@ -96,8 +91,8 @@ enum DatabaseBootService {
             }
         let sliceReady = sliceStates.filter { $0.label == "ready" }.count
         let v5Present = sliceStates.filter { $0.label != "missing" }.count
-        let v5SchemaConsistent = sliceReady == CatalogSliceKind.allCases.count
-        let catalogPresent = catalogState != .missing || v5Present > 0
+        // 「自动迁移前一数据库」（2026-10-28）：三片全就绪才清 v4 残留；未替换前绝不删。
+        let legacyResidueCleaned = LegacyCatalogResidue.cleanIfEligible(sliceReadyCount: sliceReady)
 
         var registeredCount = 0
         if let history {
@@ -109,7 +104,6 @@ enum DatabaseBootService {
                     switch entry.role {
                     case "user-data": path = databasePath
                     case "schema-history": path = historyPath
-                    case "medical-catalog", "medical-catalog-v4": path = catalogPath
                     case "medical-catalog-v5": path = v5CatalogPath(entry.name)
                     default: path = nil
                     }
@@ -201,19 +195,13 @@ enum DatabaseBootService {
                 historyAvailable: history != nil,
                 historyStepCount: historyStepCount,
                 registeredDatabases: registeredCount,
-                observedDatabases: 1 + v5Present + (catalogPresent ? 1 : 0),
+                observedDatabases: 1 + v5Present,
                 sourceVersion: userProbe.observedVersion,
                 targetVersion: targetVersion,
                 decision: decisionLabel,
-                catalogPresent: catalogPresent,
-                catalogSchemaVersion: catalogState.version,
-                catalogV5PackagesPresent: v5Present,
-                catalogV5SchemaConsistent: v5SchemaConsistent,
-                // 切片-only（2026-10-28）：当前 App 只认切片——三片全就绪才算「已支持」；
-                // v4 残留仅作存在性诊断（新 App 不读、不阻止首启卡出现）。
-                catalogSupportedByCurrentApp: sliceReady == CatalogSliceKind.allCases.count,
                 catalogSliceReadyCount: sliceReady,
-                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.label)" }))
+                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.label)" },
+                legacyCatalogResidueCleaned: legacyResidueCleaned))
     }
 
     /// v5 三包固定名；安装、选择、激活归 f7，gate 只做 registry/探测。

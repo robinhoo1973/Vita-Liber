@@ -1101,17 +1101,22 @@ def main():
                 )
                 break
 
-    # ---- 家族 O：四域参考目录 DDL 三拷贝面漂移 —— CI 36248076043 / 测试席 F1
-    # v2（2026-09-27）：除「store SELECT ⊆ 夹具列」外，增加「夹具列 == 生产 DDL 列」双向断言——
-    # 测试席实测生产 catalog_v4.sql 无 contract_end 而夹具独有（幻影列，抄写链漂移），
-    # 此前单向检查抓不到「夹具多列掩盖生产缺列」的反方向。
-    # 实证：hospital 表新增 contract_end 后夹具 CREATE TABLE 未同步，macOS 运行时
-    # "no such column"。Linux 上 store 与测试被平台守卫空编译（swift test 假绿），
-    # 文本交叉核对是唯一 Linux 可见通道。四表逐一比对，缺列即 FAIL。
-    ref_fix = root / "CoreKit/Tests/CoreKitTests/MedicalReferenceCatalogStoreTests.swift"
-    ref_store = root / "CoreKit/Sources/Infrastructure/MedicalReferenceCatalogStore.swift"
+    # ---- 家族 O：参考目录 SELECT ↔ 生产 DDL 列契约 —— CI 36248076043 / 测试席 F1
+    # 历史 v1/v2 判据为「store SELECT ⊆ 测试夹具 DDL」+「夹具列 == 生产 DDL 列」双向断言：
+    # 实证 hospital 表新增 contract_end 后夹具 CREATE TABLE 未同步，macOS 运行时
+    # "no such column"；Linux 上 store 与测试被平台守卫空编译（swift test 假绿），
+    # 文本交叉核对是唯一 Linux 可见通道；v2 依据测试席 F1 增加「幻影列」反方向检查。
+    # v3（2026-10-28 切片-only B2）：v4 MedicalReferenceCatalogStore(+Tests) 随 v4 链删除，
+    # 判据重锚到切片只读仓——facility 切片 = hospital+department，reference 切片 =
+    # diagnosis+exam_item。夹具腿退役：切片 sqlite 由 Go 真源 catalog_v4.sql 直接构建，
+    # 不再存在「测试夹具建表」这一拷贝面；「切片仓 SELECT 列 ⊆ 生产 DDL 列」即生产数据
+    # 路径本身，且整条 SELECT 全列捕获开始校验（v1/v2 仅捕获正则尾段），检测面只增不减。
+    # 生产 DDL 真源 2026-10-19 起在 repos/medical-workbench/medical-data/（旧
+    # repos/medical-data/ 代码副本冻结，降级为兜底）。四表逐一比对，缺列即 FAIL。
+    slice_facility = root / "CoreKit/Sources/Infrastructure/CatalogSliceFacilityStore.swift"
+    slice_exam = root / "CoreKit/Sources/Infrastructure/CatalogSliceExamStore.swift"
     scanned["O"] = 0
-    if ref_fix.exists() and ref_store.exists():
+    if slice_facility.exists() and slice_exam.exists():
         def ddl_column_names(body):
             columns = set()
             for definition in body.split(","):
@@ -1125,17 +1130,13 @@ def main():
                     columns.add(name)
             return columns
 
-        tf = ref_fix.read_text(encoding="utf-8")
-        st = ref_store.read_text(encoding="utf-8")
-        tables = (
-            ("hospital", r"CREATE TABLE hospital \(([^)]*)\)",
-             r"SELECT rowid, region, source_id, code, name_zh, short_name, type_zh, level_zh, address,\s*\n?\s*([^F]*?)FROM hospital"),
-            ("department", r"CREATE TABLE department \(([^)]*)\)",
-             r"SELECT rowid, region, source_id, code, name_zh, category_zh, aliases_json\s*\n?\s*([^F]*?)FROM department"),
-            ("diagnosis", r"CREATE TABLE diagnosis \(([^)]*)\)",
-             r"SELECT rowid, region, source_id, code, name_zh, code_system, chapter_zh, aliases_json\s*\n?\s*([^F]*?)FROM diagnosis"),
-            ("exam_item", r"CREATE TABLE exam_item \(([^)]*)\)",
-             r"SELECT rowid, region, source_id, code, name_zh, name_en, category, method, specimen, unit,\s*\n?\s*([^F]*?)FROM exam_item"),
+        st_facility = slice_facility.read_text(encoding="utf-8")
+        st_exam = slice_exam.read_text(encoding="utf-8")
+        table_sources = (
+            ("hospital", slice_facility, st_facility),
+            ("department", slice_facility, st_facility),
+            ("diagnosis", slice_exam, st_exam),
+            ("exam_item", slice_exam, st_exam),
         )
         # 2026-10-06 评审修复:生产 DDL 自诞生起就**从未被核对过** —— 这里写死的
         # 路径 `scripts/medical-data/go/fetchstore/catalog_v4.sql` 在公仓已不存在
@@ -1157,6 +1158,8 @@ def main():
             prod_candidates.append(pathlib.Path(override))
         prod_candidates += [
             pathlib.Path("scripts/medical-data/go/fetchstore/catalog_v4.sql"),  # 历史路径(公仓已无)
+            root.parent / "medical-workbench/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",  # 2026-10-19 合并后真源
+            root.parent.parent / "repos/medical-workbench/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
             root.parent / "repos/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
             root.parent.parent / "repos/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
             root.parent / "refactor/tools/medical-data/go/lib/datastorage/catalogdb/catalog_v4.sql",
@@ -1167,38 +1170,46 @@ def main():
         if prod_ddl is not None:
             prod_text = prod_ddl.read_text(encoding="utf-8")
             for name in ("hospital", "department", "diagnosis", "exam_item"):
-                m = re.search(r"CREATE TABLE " + name + r" \(([^)]*)\)", prod_text)
+                m = re.search(r"CREATE TABLE (?:IF NOT EXISTS )?" + name + r"\s*\(([^)]*)\)", prod_text)
                 if m:
                     prod_cols[name] = ddl_column_names(m.group(1))
-        for name, ddl_re, sel_re in tables:
-            ddl = re.search(ddl_re, tf)
-            sel = re.search(sel_re, st, re.S)
-            if not ddl or not sel:
-                fails.append(f"{ref_fix.relative_to(root)}: 家族 O 无法解析 {name} 的 fixture DDL 或 store SELECT")
+                else:
+                    fails.append(
+                        f"{prod_ddl}: 家族 O 无法解析 {name} 的 CREATE TABLE —— "
+                        f"生产 DDL 已改名/重构，本族判据失效，须同步更新后方可判 PASS")
+        for name, src_file, src_text in table_sources:
+            sels = re.findall(
+                r"SELECT\s+((?:(?!\bFROM\b)[\s\S])*?)\s+FROM\s+" + name + r"\b", src_text)
+            if len(sels) != 1:
+                fails.append(
+                    f"{src_file.relative_to(root)}: 家族 O 无法唯一定位 {name} 的 SELECT 列清单"
+                    f"（命中 {len(sels)} 处）—— 本族判据失效，须同步更新后方可判 PASS")
                 continue
-            ddl_cols = ddl_column_names(ddl.group(1))
-            sel_cols = {c.strip() for c in sel.group(1).replace("\n", " ").split(",")
-                        if c.strip() and not c.strip().startswith(("FROM", "--"))}
-            missing = sel_cols - ddl_cols - {"rowid"}
-            if missing:
+            sel_cols = set()
+            for token in sels[0].replace("\n", " ").split(","):
+                token = token.strip()
+                if token.startswith("--"):
+                    continue
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token) and token != "rowid":
+                    sel_cols.add(token)
+            if not sel_cols:
                 fails.append(
-                    f"{ref_fix.relative_to(root)}: {name} 表 fixture 缺列 {sorted(missing)} —— "
-                    f"store SELECT 消费但 fixture DDL 未定义，仅 macOS 运行时暴露（CI 36248076043 同族）"
-                )
-            if name in prod_cols and ddl_cols != prod_cols[name]:
-                extra = ddl_cols - prod_cols[name]
-                lacking = prod_cols[name] - ddl_cols
-                fails.append(
-                    f"{ref_fix.relative_to(root)}: {name} 表夹具与生产 DDL 列集漂移"
-                    f"（夹具多列 {sorted(extra) or '∅'} / 夹具缺列 {sorted(lacking) or '∅'}）—— "
-                    f"幻影列族（测试席 F1：contract_end 曾仅存在于夹具）"
-                )
+                    f"{src_file.relative_to(root)}: 家族 O 解析 {name} SELECT 得到空列集 —— 本族判据失效")
+                continue
+            if name in prod_cols:
+                missing = sel_cols - prod_cols[name]
+                if missing:
+                    fails.append(
+                        f"{src_file.relative_to(root)}: {name} 表切片仓 SELECT 列 {sorted(missing)}"
+                        f" 在生产 DDL 不存在 —— 切片构建后运行期 'no such column'，"
+                        f"Linux 平台守卫空编译不可见（CI 36248076043 同族）"
+                    )
         scanned["O"] = 4
         if prod_ddl is None:
-            print("UNVERIFIED: 家族 O 的「夹具 ↔ 生产 DDL」列契约腿未执行——未找到 catalog_v4.sql"
+            print("UNVERIFIED: 家族 O 的「切片仓 SELECT ↔ 生产 DDL」列契约腿未执行——未找到 catalog_v4.sql"
                   "(搜索: " + ", ".join(str(c) for c in prod_candidates) + ")。"
                   "该腿在本次运行中【未被核对】,不得据此认为列契约一致;"
-                  "本地请设 VL_MEDICAL_DDL 指向 repos/medical-data 内的生产 DDL。")
+                  "本地请设 VL_MEDICAL_DDL 指向 repos/medical-workbench/medical-data 内的生产 DDL。")
 
     # ---- 家族 P：测试内改 NSTimeZone.default 全局状态 —— CI 36249512459 实证：
     # TimeZone.current 在 Darwin 是进程启动缓存、不随 NSTimeZone.default 变化

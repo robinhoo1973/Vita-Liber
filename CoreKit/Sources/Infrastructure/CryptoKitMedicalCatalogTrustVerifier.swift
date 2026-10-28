@@ -9,19 +9,13 @@ import Foundation
 /// 签名只针对 payload 原始字节，解码后的字段绝不重序列化再验。
 /// 2026-10-28：同型承担切片清单验签（`CatalogSliceTrustVerifying`——同一 pinned
 /// root、同一 2-of-2 计数判定，只是载荷解码走 `CatalogSliceManifestDecoder`）。
-public struct CryptoKitMedicalCatalogTrustVerifier: MedicalCatalogTrustVerifying,
-                                                     CatalogSliceTrustVerifying, Sendable {
+public struct CryptoKitMedicalCatalogTrustVerifier: CatalogSliceTrustVerifying, Sendable {
     private let pinnedRootJSON: Data
     private let now: @Sendable () -> Date
 
     public init(pinnedRootJSON: Data, now: @escaping @Sendable () -> Date = { Date() }) {
         self.pinnedRootJSON = pinnedRootJSON
         self.now = now
-    }
-
-    public func verify(catalogJSON: Data, expected: MedicalCatalogSignedExpectation) throws {
-        try Self.evaluator.verify(pinnedRootJSON: pinnedRootJSON, catalogJSON: catalogJSON,
-                                  expected: expected, now: now())
     }
 
     /// 切片清单验签：`<stem>.json` 签名信封 → 严格载荷解码 → 密封候选。

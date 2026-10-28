@@ -197,7 +197,7 @@ public actor CatalogSliceUpdateService {
 
     private static func size(of url: URL, failing failure: MedicalCatalogUpdateError) throws -> Int64 {
         do {
-            return try MedicalCatalogUpdateService.fileSize(of: url)
+            return try CatalogPackageFiles.size(of: url)
         } catch {
             throw failure
         }
