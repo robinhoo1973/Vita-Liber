@@ -1,20 +1,50 @@
 import SwiftUI
 import UIKit
 import Domain
+import Infrastructure
 import Perception
 
 /// 启动门唯一可见页面：本地数据库未就绪前不挂载主界面。
 /// 设计约束：三语 L10n、无硬编码颜色/字号、失败态可重试、VoiceOver 可读。
+///
+/// U-批 B3（2026-10-28）：启动自检「3+1」四行清单——
+/// ①本地档案文件 ②档案结构版本 ③医疗数据目录（本机常驻）+ ④参考目录版本
+/// （低权重页脚行，仅入口，点「检查」才联网）。行状态由 Domain 纯函数
+/// `StartupSelfCheckRows` 从 `BootChecklistSnapshot` 推导；行④由
+/// `CatalogSlicesState.aggregate` 驱动。播报纪律（UI 席 §3.3）：只播
+/// 进入·完成·失败三次。
+///
 /// 医疗目录卡（2026-10-27 方案 B）：单主按钮 + 单次动作，完成/无候选自动进入；
 /// 两次显式点击语义不变（检查只取元数据，下载是第二次显式动作）。
 struct DatabaseInitializationView: View {
     @ObservedObject var model: DatabaseBootModel
+    /// 终态播报只发一次（retry 后复位）。
+    @State private var announcedTerminal = false
 
     var body: some View {
         WithPerceptionTracking {
             content
                 // U-批 B2：首帧呈现上报（被动交接门从此刻起算；headless 无此路径）。
-                .onAppear { model.noteSelfCheckPresented() }
+                .onAppear {
+                    model.noteSelfCheckPresented()
+                    Self.announce(L10n.startupCheckA11yIntroFmt(3))
+                }
+                .onChangeCompat(of: terminalKey) { _, key in
+                    if key == nil {
+                        announcedTerminal = false
+                    } else if let key, !announcedTerminal {
+                        announcedTerminal = true
+                        if key == "failed" {
+                            Self.announce(L10n.startupCheckA11yFailedFmt(terminalFailureText))
+                        } else {
+                            Self.announce(L10n.startupCheckA11yDone)
+                        }
+                    }
+                }
+                .onChangeCompat(of: updatesBusy) { _, _ in
+                    // 行④进行中 > 被动 hold（五级优先级）：开始/结束后重评估交接。
+                    model.rowFourActivityChanged()
+                }
         }
     }
 
@@ -30,18 +60,16 @@ struct DatabaseInitializationView: View {
                         .multilineTextAlignment(.center)
                         .accessibilityIdentifier("STARTUP.initialization.title")
                     if model.failure == nil {
-                        Text(model.awaitingCatalogChoice ? L10n.startupCatalogBody : L10n.startupInitSubtitle)
+                        Text(model.awaitingCatalogChoice ? L10n.startupCatalogBody : L10n.startupCheckSubtitle)
                             .font(.body)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
                 }
-                if model.failure == nil {
-                    if model.awaitingCatalogChoice {
-                        catalogCard
-                    } else {
-                        stageBlock
-                    }
+                if model.failure == nil && model.awaitingCatalogChoice {
+                    catalogCard
+                } else {
+                    selfCheckSection
                 }
                 privacyRow
                 if let failure = model.failure {
@@ -65,10 +93,368 @@ struct DatabaseInitializationView: View {
     private var titleText: String {
         if model.failure != nil { return L10n.startupInitFailureTitle }
         if model.awaitingCatalogChoice { return L10n.startupInitReadyTitle }
-        return L10n.startupInitTitle
+        return L10n.startupCheckTitle
+    }
+
+    // MARK: - 启动自检四行清单（U-批 B3）
+
+    /// 行状态事实投影：快照在（advisory/final）+ 进行态（失败后不显示进行中）。
+    private var facts: StartupSelfCheckFacts {
+        let snapshot = model.bootSnapshot
+        return StartupSelfCheckFacts(
+            probe: snapshot?.probe ?? Self.emptyProbe,
+            decision: snapshot?.decision,
+            health: snapshot?.sliceHealth ?? [:],
+            facadeCommitted: snapshot?.facadeCommitted ?? false,
+            isWorking: isWorking)
+    }
+
+    private var isWorking: Bool {
+        guard model.failure == nil else { return false }
+        switch model.phase {
+        case .idle, .ready, .catalogChoice: return false
+        default: return true
+        }
+    }
+
+    private static let emptyProbe = DatabaseProbeSnapshot(
+        exists: false, sizeBytes: 0, headerValid: false, observedVersion: nil,
+        tableCount: 0, requiredTablesPresent: 0, requiredTablesExpected: 0,
+        originalsPresent: false)
+
+    private var selfCheckSection: some View {
+        let rows = StartupSelfCheckRows.rows(facts)
+        return VStack(spacing: 4) {
+            checklistRow(identifier: "dbFile", index: 1, title: L10n.startupCheckRowDbFile,
+                         state: rows.file, detail: fileDetail(rows.file),
+                         note: nil, icon: "externaldrive.fill")
+            rowDivider
+            checklistRow(identifier: "schema", index: 2, title: L10n.startupCheckRowSchema,
+                         state: rows.schema, detail: schemaDetail(rows.schema),
+                         note: schemaNote(rows.schema), icon: "square.stack.3d.up.fill")
+            rowDivider
+            checklistRow(identifier: "catalog", index: 3, title: L10n.startupCheckRowCatalog,
+                         state: rows.catalog, detail: catalogDetail(rows.catalog),
+                         note: catalogNote(rows.catalog), icon: "books.vertical.fill")
+            if model.failure == nil {
+                rowDivider
+                updatesFooterRow
+                footerNotes(rows)
+            }
+        }
+        .padding(.vertical, 4)
+        // 容器标识必须配 .contain，否则标识会压到子元素上（L0 第 17 节）。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("STARTUP.selfcheck")
+    }
+
+    private var rowDivider: some View {
+        Divider().opacity(0.4).padding(.leading, 40)
+    }
+
+    /// 单行：图标 + 标题 + 说明 + 末态胶囊；AX 大字号自动纵排（ViewThatFits）。
+    private func checklistRow(identifier: String, index: Int, title: String,
+                              state: StartupSelfCheckRowState, detail: String?,
+                              note: String?, icon: String) -> some View {
+        let stateText = Self.stateText(state)
+        return ViewThatFits(in: .horizontal) {
+            rowHStack(title: title, state: state, detail: detail, note: note,
+                      icon: icon, stateText: stateText)
+            rowVStack(title: title, state: state, detail: detail, note: note,
+                      icon: icon, stateText: stateText)
+        }
+        .frame(minHeight: 64)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(L10n.startupCheckA11yRowFmt(Int64(index), title, stateText))
+        .accessibilityIdentifier("STARTUP.selfcheck.\(identifier)")
+    }
+
+    private func rowHStack(title: String, state: StartupSelfCheckRowState,
+                           detail: String?, note: String?, icon: String,
+                           stateText: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            rowIcon(icon, state: state)
+            rowText(title: title, detail: detail, note: note)
+            Spacer(minLength: 8)
+            stateChip(state, text: stateText)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func rowVStack(title: String, state: StartupSelfCheckRowState,
+                           detail: String?, note: String?, icon: String,
+                           stateText: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                rowIcon(icon, state: state)
+                rowText(title: title, detail: detail, note: note)
+            }
+            stateChip(state, text: stateText).padding(.leading, 40)
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func rowIcon(_ name: String, state: StartupSelfCheckRowState) -> some View {
+        Image(systemName: name)
+            .font(VLFont.startupCheckRowIcon)
+            .foregroundStyle(Self.stateTint(state))
+            .frame(width: 28, height: 28)
+    }
+
+    private func rowText(title: String, detail: String?, note: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.subheadline.weight(.medium))
+            if let detail {
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let note {
+                Text(note)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func stateChip(_ state: StartupSelfCheckRowState, text: String) -> some View {
+        if state == .running {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(text).font(.footnote).foregroundStyle(.secondary)
+            }
+        } else {
+            Label(text, systemImage: Self.stateSymbol(state))
+                .font(.footnote)
+                .foregroundStyle(Self.stateTint(state))
+                .labelStyle(.titleAndIcon)
+        }
+    }
+
+    private static func stateText(_ state: StartupSelfCheckRowState) -> String {
+        switch state {
+        case .pending: return L10n.startupCheckStatePending
+        case .running: return L10n.startupCheckStateRunning
+        case .passed: return L10n.startupCheckStatePassed
+        case .warning: return L10n.startupCheckStateWarning
+        case .failed: return L10n.startupCheckStateFailed
+        case .skipped: return L10n.startupCheckStateSkipped
+        }
+    }
+
+    private static func stateSymbol(_ state: StartupSelfCheckRowState) -> String {
+        switch state {
+        case .pending: return "circle.dotted"
+        case .running: return "circle.dashed"
+        case .passed: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .failed: return "xmark.octagon.fill"
+        case .skipped: return "minus.circle"
+        }
+    }
+
+    private static func stateTint(_ state: StartupSelfCheckRowState) -> Color {
+        switch state {
+        case .passed:
+            return Color("semantic-success", bundle: .main)
+        case .warning, .failed:
+            return Color("semantic-warning", bundle: .main)
+        case .pending, .running, .skipped:
+            return .secondary
+        }
+    }
+
+    // MARK: 行① 本地档案文件
+
+    private func fileDetail(_ state: StartupSelfCheckRowState) -> String? {
+        guard state == .passed else { return nil }
+        let exists = model.bootSnapshot?.probe.exists ?? false
+        let observed = model.bootSnapshot?.probe.observedVersion
+        if !exists {
+            return L10n.startupCheckDbFileCreatedFmt(Int64(SchemaMigrations.latestVersion))
+        }
+        return L10n.startupCheckDbFileFoundFmt(Int64(observed ?? SchemaMigrations.latestVersion))
+    }
+
+    // MARK: 行② 档案结构版本
+
+    private func schemaDetail(_ state: StartupSelfCheckRowState) -> String? {
+        switch state {
+        case .running:
+            if case .migrating(let from, let to) = model.phase {
+                return L10n.startupInitStageMigrate(from, to)
+            }
+            return nil
+        case .passed:
+            guard let decision = model.bootSnapshot?.decision else { return nil }
+            switch decision {
+            case .migrate(let from, let to):
+                return L10n.startupCheckSchemaUpdatedFmt(Int64(from), Int64(to))
+            case .fresh:
+                return L10n.startupCheckSchemaOkFmt(Int64(SchemaMigrations.latestVersion))
+            case .ready(let version):
+                return L10n.startupCheckSchemaOkFmt(Int64(version))
+            case .tooNew, .missingWithOriginals, .corrupt:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    /// 单向迁移提示（O5）：升级后旧版本 App 打不开此档案，一屏一句。
+    private func schemaNote(_ state: StartupSelfCheckRowState) -> String? {
+        guard state == .passed,
+              case .migrate = model.bootSnapshot?.decision else { return nil }
+        return L10n.startupCheckSchemaOneWayNote
+    }
+
+    // MARK: 行③ 医疗数据目录
+
+    private var readySliceCount: Int {
+        let health = model.bootSnapshot?.sliceHealth ?? [:]
+        return CatalogSliceKind.allCases.filter { health[$0] == .ready }.count
+    }
+
+    private var missingRequiredSliceCount: Int {
+        let health = model.bootSnapshot?.sliceHealth ?? [:]
+        return CatalogSliceBootPolicy.startupRequiredKinds.filter { health[$0] != .ready }.count
+    }
+
+    private func catalogDetail(_ state: StartupSelfCheckRowState) -> String? {
+        switch state {
+        case .running:
+            return L10n.startupCheckCatalogChecking
+        case .passed:
+            return L10n.startupCheckCatalogInstalledFmt(
+                Int64(readySliceCount), Int64(CatalogSliceBootPolicy.displayedSliceCount))
+        case .warning:
+            return L10n.startupCheckCatalogPartialFmt(Int64(missingRequiredSliceCount))
+        default:
+            return nil
+        }
+    }
+
+    /// profile 第四片「可选 · 未安装」（O4：可选但常显；不阻塞、不告警）。
+    private func catalogNote(_ state: StartupSelfCheckRowState) -> String? {
+        guard state == .passed,
+              let health = model.bootSnapshot?.sliceHealth,
+              health[.profile] != .ready else { return nil }
+        return L10n.startupCheckStateOptional
+    }
+
+    // MARK: 行④ 参考目录版本（低权重页脚；仅入口，点「检查」才联网）
+
+    private var updatesBusy: Bool {
+        guard let aggregate = model.catalogSlices?.aggregate else { return false }
+        return aggregate == .checking || aggregate == .updating
+    }
+
+    private var updatesDetail: String {
+        guard let slices = model.catalogSlices else { return L10n.startupCheckUpdatesIdle }
+        switch slices.aggregate {
+        case .notChecked:
+            return L10n.startupCheckUpdatesIdle
+        case .checking, .updating:
+            return L10n.resourceCatalogSlicesChecking
+        case .allCurrent:
+            return L10n.startupCheckUpdatesCurrent
+        case .sourcePartial(let count):
+            return L10n.startupCheckUpdatesSourcePartialFmt(Int64(count))
+        case .updatesAvailable, .partialFailure:
+            return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
+        case .appUpdateRequired:
+            return L10n.startupCheckUpdatesAppRequired
+        case .allFailed, .unavailable:
+            return L10n.startupCheckUpdatesOffline
+        }
+    }
+
+    private var updatesState: StartupSelfCheckRowState {
+        guard let aggregate = model.catalogSlices?.aggregate else { return .pending }
+        switch aggregate {
+        case .notChecked:
+            return .pending
+        case .checking, .updating:
+            return .running
+        case .allCurrent, .sourcePartial:
+            return .passed
+        case .updatesAvailable, .partialFailure, .appUpdateRequired:
+            return .warning
+        case .allFailed, .unavailable:
+            return .failed
+        }
+    }
+
+    private var updatesFooterRow: some View {
+        let stateText = Self.stateText(updatesState)
+        return HStack(alignment: .top, spacing: 12) {
+            rowIcon("arrow.triangle.2.circlepath", state: updatesState)
+            rowText(title: L10n.startupCheckRowUpdates, detail: updatesDetail, note: nil)
+            Spacer(minLength: 8)
+            Button {
+                model.checkCatalog()
+            } label: {
+                Text(L10n.startupCheckUpdatesCheck)
+                    .frame(minHeight: 64)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.bordered)
+            .disabled(updatesBusy || model.catalogSlices == nil)
+            .accessibilityIdentifier("STARTUP.selfcheck.updates.check")
+            .accessibilityHint(L10n.startupCheckUpdatesTapNote)
+        }
+        .padding(.vertical, 12)
+        // 含子按钮 → 必须 .contain（L0 第 17 节）。
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.startupCheckA11yRowFmt(4, L10n.startupCheckRowUpdates, stateText))
+        .accessibilityIdentifier("STARTUP.selfcheck.updates")
+    }
+
+    @ViewBuilder
+    private func footerNotes(_ rows: StartupSelfCheckRowStates) -> some View {
+        VStack(spacing: 6) {
+            Text(L10n.startupCheckUpdatesTapNote)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            if rows.file == .passed && rows.schema == .passed && rows.catalog == .passed {
+                Text(L10n.startupCheckSummaryPassFmt(3))
+                    .font(.footnote)
+                    .foregroundStyle(Color("semantic-success", bundle: .main))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+    }
+
+    // MARK: - 播报（进入·完成·失败三次；UI 席 §3.3）
+
+    private var terminalKey: String? {
+        if model.failure != nil { return "failed" }
+        if model.bootSnapshot?.facadeCommitted == true { return "done" }
+        return nil
+    }
+
+    private var terminalFailureText: String {
+        guard let failure = model.failure else { return "" }
+        return failureBody(failure)
+    }
+
+    private static func announce(_ text: String) {
+        UIAccessibility.post(notification: .announcement, argument: text)
     }
 
     // MARK: - 医疗目录卡（方案 B：descriptor 驱动）
+
+    /// 内卡表面（UI 席：目录卡/失败卡改 L1 实心表面，防玻璃卡内嵌套模糊）。
+    private var cardSurface: Color {
+        Color(.secondarySystemGroupedBackground)
+    }
 
     @ViewBuilder
     private var catalogCard: some View {
@@ -107,7 +493,7 @@ struct DatabaseInitializationView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
+            .background(cardSurface, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
             // 容器标识必须配 .contain，否则标识会压到子按钮上（L0 第 17 节）。
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("STARTUP.catalog")
@@ -334,7 +720,7 @@ struct DatabaseInitializationView: View {
         ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }
 
-    // MARK: - 数据库阶段/失败（原样）
+    // MARK: - 顶图/隐私行/失败卡
 
     private var iconBadge: some View {
         Image(systemName: model.failure == nil ? "heart.text.square.fill" : "exclamationmark.triangle.fill")
@@ -343,71 +729,6 @@ struct DatabaseInitializationView: View {
             .frame(width: 88, height: 88)
             .background(.thinMaterial, in: Circle())
             .accessibilityHidden(true)
-    }
-
-    private var stageBlock: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .controlSize(.large)
-                .accessibilityLabel(L10n.startupInitProgressA11y)
-            HStack(spacing: 8) {
-                Image(systemName: stageSymbol)
-                    .foregroundStyle(.secondary)
-                Text(stageText)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            stepDots
-        }
-    }
-
-    /// 三步视觉锚点：历史目录 → 物理探测/迁移 → 界面装配。
-    private var stepDots: some View {
-        HStack(spacing: 6) {
-            ForEach(0..<3, id: \.self) { index in
-                Capsule()
-                    .fill(index < completedSteps ? Color.accentColor : Color.secondary.opacity(0.25))
-                    .frame(width: index == stepIndex ? 22 : 8, height: 6)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private var stepIndex: Int {
-        switch model.phase {
-        case .idle, .rebuildingHistory: return 0
-        case .probing, .creating, .migrating, .verifying: return 1
-        case .assembling, .catalogChoice, .ready: return 2
-        }
-    }
-
-    private var completedSteps: Int {
-        model.phase == .ready ? 3 : stepIndex
-    }
-
-    private var stageSymbol: String {
-        switch model.phase {
-        case .idle, .rebuildingHistory: return "externaldrive.badge.timemachine"
-        case .probing: return "magnifyingglass"
-        case .creating: return "plus.square.on.square"
-        case .migrating: return "arrow.triangle.2.circlepath"
-        case .verifying: return "checkmark.shield"
-        case .assembling, .catalogChoice: return "square.grid.2x2"
-        case .ready: return "checkmark.circle.fill"
-        }
-    }
-
-    private var stageText: String {
-        switch model.phase {
-        case .idle, .rebuildingHistory: return L10n.startupInitStageHistory
-        case .probing: return L10n.startupInitStageProbe
-        case .creating: return L10n.startupInitStageCreate
-        case .migrating(let from, let to): return L10n.startupInitStageMigrate(from, to)
-        case .verifying: return L10n.startupInitStageVerify
-        case .assembling, .catalogChoice: return L10n.startupInitStageAssemble
-        case .ready: return L10n.startupInitStageAssemble
-        }
     }
 
     private var privacyRow: some View {
@@ -427,14 +748,16 @@ struct DatabaseInitializationView: View {
                 Task { await model.retry() }
             } label: {
                 Text(L10n.startupInitRetry)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderedProminent)
-            .frame(minHeight: 44)
             .accessibilityIdentifier("STARTUP.initialization.retry")
         }
         .padding(16)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
+        .background(cardSurface, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("STARTUP.failure")
     }
 
     private func failureBody(_ failure: DatabaseBootFailure) -> String {

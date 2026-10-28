@@ -144,7 +144,7 @@ enum DatabaseBootService {
             plannedSteps = nil
         }
         await snapshot(BootChecklistSnapshot(
-            probe: userProbe, decisionLabel: label(decision),
+            probe: userProbe, decision: decision, decisionLabel: label(decision),
             plannedMigrationSteps: plannedSteps, sliceHealth: sliceHealth,
             facadeCommitted: false))
 

@@ -488,6 +488,72 @@ extension L10n {
         String(format: t("startup.init.failureMigrationFmt"), found, expected)
     }
 
+    // U-批 B3（2026-10-28）：启动自检四行清单（DatabaseInitializationView 重写）
+    static var startupCheckTitle: String { t("startup.check.title") }
+    static var startupCheckSubtitle: String { t("startup.check.subtitle") }
+    static var startupCheckRowDbFile: String { t("startup.check.row.dbFile") }
+    static var startupCheckRowSchema: String { t("startup.check.row.schema") }
+    static var startupCheckRowCatalog: String { t("startup.check.row.catalog") }
+    static var startupCheckRowUpdates: String { t("startup.check.row.updates") }
+    static var startupCheckStatePending: String { t("startup.check.state.pending") }
+    static var startupCheckStateRunning: String { t("startup.check.state.running") }
+    static var startupCheckStatePassed: String { t("startup.check.state.passed") }
+    static var startupCheckStateOptional: String { t("startup.check.state.optional") }
+    static var startupCheckStateWarning: String { t("startup.check.state.warning") }
+    static var startupCheckStateFailed: String { t("startup.check.state.failed") }
+    static var startupCheckStateSkipped: String { t("startup.check.state.skipped") }
+    static func startupCheckDbFileFoundFmt(_ schemaVersion: Int64) -> String {
+        String(format: t("startup.check.dbFile.foundFmt"), schemaVersion)
+    }
+    static func startupCheckDbFileCreatedFmt(_ schemaVersion: Int64) -> String {
+        String(format: t("startup.check.dbFile.createdFmt"), schemaVersion)
+    }
+    static func startupCheckSchemaOkFmt(_ schemaVersion: Int64) -> String {
+        String(format: t("startup.check.schema.okFmt"), schemaVersion)
+    }
+    static func startupCheckSchemaUpdatedFmt(_ from: Int64, _ to: Int64) -> String {
+        String(format: t("startup.check.schema.updatedFmt"), from, to)
+    }
+    static func startupCheckSchemaUpgradingFmt(_ step: Int64, _ total: Int64) -> String {
+        String(format: t("startup.check.schema.upgradingFmt"), step, total)
+    }
+    static var startupCheckSchemaOneWayNote: String { t("startup.check.schema.oneWayNote") }
+    static func startupCheckCatalogInstalledFmt(_ ready: Int64, _ total: Int64) -> String {
+        String(format: t("startup.check.catalog.installedFmt"), ready, total)
+    }
+    static var startupCheckCatalogChecking: String { t("startup.check.catalog.checking") }
+    static func startupCheckCatalogPartialFmt(_ count: Int64) -> String {
+        String(format: t("startup.check.catalog.partialFmt"), count)
+    }
+    static var startupCheckUpdatesIdle: String { t("startup.check.updates.idle") }
+    static var startupCheckUpdatesCheck: String { t("startup.check.updates.check") }
+    static var startupCheckUpdatesCurrent: String { t("startup.check.updates.current") }
+    static func startupCheckUpdatesCandidatesFmt(_ count: Int64) -> String {
+        String(format: t("startup.check.updates.candidatesFmt"), count)
+    }
+    static var startupCheckUpdatesAppRequired: String { t("startup.check.updates.appRequired") }
+    static var startupCheckUpdatesOffline: String { t("startup.check.updates.offline") }
+    static func startupCheckUpdatesSourcePartialFmt(_ count: Int64) -> String {
+        String(format: t("startup.check.updates.sourcePartialFmt"), count)
+    }
+    static var startupCheckUpdatesTapNote: String { t("startup.check.updates.tapNote") }
+    static func startupCheckSummaryPassFmt(_ count: Int64) -> String {
+        String(format: t("startup.check.summary.passFmt"), count)
+    }
+    static var startupCheckSummaryEntering: String { t("startup.check.summary.entering") }
+    static var startupCheckRowRetry: String { t("startup.check.row.retry") }
+    static var startupCheckEnter: String { t("startup.check.enter") }
+    static func startupCheckA11yIntroFmt(_ count: Int64) -> String {
+        String(format: t("startup.check.a11y.introFmt"), count)
+    }
+    static func startupCheckA11yRowFmt(_ index: Int64, _ title: String, _ state: String) -> String {
+        String(format: t("startup.check.a11y.rowFmt"), index, title, state)
+    }
+    static var startupCheckA11yDone: String { t("startup.check.a11y.done") }
+    static func startupCheckA11yFailedFmt(_ detail: String) -> String {
+        String(format: t("startup.check.a11y.failedFmt"), detail)
+    }
+
     static var appointmentAdd: String { t("appointment.add") }
 
     static var questionAdd: String { t("question.add") }

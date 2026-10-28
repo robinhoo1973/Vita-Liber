@@ -212,6 +212,8 @@ final class DatabaseBootModel: ObservableObject {
         guard isShowingBootScreen else { return }
         isShowingBootScreen = false
         autoEnter.cancel()
+        // U-批 B3：交接完成 → 释放行④持有的目录态（会话是唯一 owner）。
+        catalogSlices = nil
     }
 
     /// 被动交接：仅「容器就绪、无失败、无待办卡片、已呈现」时计时；
@@ -219,6 +221,7 @@ final class DatabaseBootModel: ObservableObject {
     private func trySchedulePassiveHandoff() {
         guard isShowingBootScreen, failure == nil,
               container != nil, !awaitingCatalogChoice,
+              !rowFourBusy,
               let presentedAt = selfCheckPresentedAt else { return }
         let terminalAt = now()
         let minDisplay = UIAccessibility.isVoiceOverRunning
@@ -236,19 +239,42 @@ final class DatabaseBootModel: ObservableObject {
         }
     }
 
+    /// 行④进行中（检查/下载）时被动交接让位（五级优先级：行④进行中 > 被动 hold）。
+    private var rowFourBusy: Bool {
+        guard let aggregate = catalogSlices?.aggregate else { return false }
+        return aggregate == .checking || aggregate == .updating
+    }
+
+    /// 行④活动变化（开始/结束检查或更新）后重评估被动交接（视图 onChange 调用）。
+    /// 进行中 → 取消在排的被动 hold（卡片流程有自己的 autoEnter，不受此影响）；
+    /// 结束后 → 按剩余预算重排（`trySchedulePassiveHandoff` 从 now 起算）。
+    func rowFourActivityChanged() {
+        if rowFourBusy {
+            if !awaitingCatalogChoice { autoEnter.cancel() }
+            return
+        }
+        trySchedulePassiveHandoff()
+    }
+
     /// 容器发布：先建会话（同一实例交给主界面与后台作业），再放行 UI。
     private func publish(_ assembled: AppContainer) {
         let slices = self.catalogSlices
         if let slices, let sessionFactory {
             _ = sessionFactory(assembled, slices)   // AppSession.init 安装到 holder
-            self.catalogSlices = nil                // 会话是唯一 owner，避免僵尸状态
+            // U-批 B3：自检页仍在展示（UI 首帧已上报）时保持引用——页脚行④
+            // 「检查」在被动 hold 窗口内必须可点，交接完成后由 finishBootScreen
+            // 释放；headless（无首帧）不保留，维持「会话唯一 owner」语义。
+            if !isShowingBootScreen || selfCheckPresentedAt == nil {
+                self.catalogSlices = nil
+            }
         }
         container = assembled
         phase = .ready
         // U-批 S1：final 快照在 facade 装配后发（facadeCommitted=true，行③以 facade 为准）。
         if let advisory = bootSnapshot {
             bootSnapshot = BootChecklistSnapshot(
-                probe: advisory.probe, decisionLabel: advisory.decisionLabel,
+                probe: advisory.probe, decision: advisory.decision,
+                decisionLabel: advisory.decisionLabel,
                 plannedMigrationSteps: advisory.plannedMigrationSteps,
                 sliceHealth: advisory.sliceHealth, facadeCommitted: true)
         }

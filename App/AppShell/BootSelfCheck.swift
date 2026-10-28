@@ -16,7 +16,9 @@ import Domain
 struct BootChecklistSnapshot: Sendable, Equatable {
     /// 患者主库探测事实（Domain 纯值）。
     let probe: DatabaseProbeSnapshot
-    /// 决策诊断标签（`fresh/ready-v49/migrate-v48-to-v49/...`；行文案派生用）。
+    /// 启动决策（U-批 B3：行①/②由它经 `StartupSelfCheckRows` 纯函数推导）。
+    let decision: DatabaseBootDecision?
+    /// 决策诊断标签（`fresh/ready-v49/migrate-v48-to-v49/...`；诊断/日志用）。
     let decisionLabel: String
     /// 迁移总步数（`SchemaMigrations.pending(from:).count`；非 migrate 决策为 nil）。
     let plannedMigrationSteps: Int?
@@ -25,10 +27,12 @@ struct BootChecklistSnapshot: Sendable, Equatable {
     /// 是否已装配 facade（final 快照 true；advisory 恒 false）。
     let facadeCommitted: Bool
 
-    init(probe: DatabaseProbeSnapshot, decisionLabel: String,
+    init(probe: DatabaseProbeSnapshot, decision: DatabaseBootDecision?,
+         decisionLabel: String,
          plannedMigrationSteps: Int?, sliceHealth: [CatalogSliceKind: CatalogSliceBootHealth],
          facadeCommitted: Bool) {
         self.probe = probe
+        self.decision = decision
         self.decisionLabel = decisionLabel
         self.plannedMigrationSteps = plannedMigrationSteps
         self.sliceHealth = sliceHealth

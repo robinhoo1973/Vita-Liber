@@ -20,4 +20,6 @@ enum VLFont {
     /// 编码——须配 `.monospacedDigit()`（Font 不携带等宽数字，由 Text 修饰器承担；
     /// Linear「mono 用于状态/ID 令牌」+ Stripe tnum 心得，防 0/O、1/l 误读）
     static let monoCaption: Font = .system(size: 11, weight: .regular)
+    /// 启动自检行图标（U-批 B3，2026-10-28；四行清单/页脚行行首符号，20pt）
+    static let startupCheckRowIcon: Font = .system(size: 20)
 }
