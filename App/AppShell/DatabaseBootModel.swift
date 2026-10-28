@@ -22,7 +22,14 @@ final class DatabaseBootModel: ObservableObject {
     @Published private(set) var awaitingCatalogChoice = false
     /// 三切片目录状态（2026-10-28 切片-only）：首启卡/会话/环境的唯一目录态。
     @Published private(set) var catalogSlices: CatalogSlicesState?
+    /// U-批 B2：启动自检事实快照（advisory→final，架构席 S1/B2 定稿）。
+    @Published private(set) var bootSnapshot: BootChecklistSnapshot?
+    /// UI 交接门（U-批 B2，B1 口径「页先于主 UI 可见」）：默认 true——主 UI 在
+    /// `finishBootScreen()` 前不挂载；session 在 publish 即建、页下存在。
+    @Published private(set) var isShowingBootScreen = true
     private var pendingContainer: AppContainer?
+    /// 自检页首帧呈现时刻（onAppear 上报；headless 无首帧保持 nil）。
+    private var selfCheckPresentedAt: Date?
 
     private let sessionFactory: ((AppContainer, CatalogSlicesState) -> AppSession)?
     /// 「暂不下载，继续」的延期偏好（UI 偏好，非医疗数据；UserDefaults 不入备份）。
@@ -45,9 +52,14 @@ final class DatabaseBootModel: ObservableObject {
         failure = nil
         phase = .idle
         do {
-            let prepared = try await DatabaseBootService.prepare { [weak self] phase in
-                await MainActor.run { self?.phase = phase }
-            }
+            bootSnapshot = nil
+            let prepared = try await DatabaseBootService.prepare(
+                snapshot: { [weak self] advisory in
+                    await MainActor.run { self?.bootSnapshot = advisory }
+                },
+                progress: { [weak self] phase in
+                    await MainActor.run { self?.phase = phase }
+                })
             phase = .assembling
             let assembled = try AppContainer.live(store: prepared.store)
             diagnostics = prepared.diagnostics
@@ -183,6 +195,45 @@ final class DatabaseBootModel: ObservableObject {
         awaitingCatalogChoice = false
         self.pendingContainer = nil
         publish(pendingContainer)
+        // 卡片退出是显式动作：不再叠加被动 0.8s hold（卡片流程有其自身节奏）。
+        finishBootScreen()
+    }
+
+    // MARK: - 启动自检交接门（U-批 B2）
+
+    /// 自检页首帧呈现上报（`DatabaseInitializationView.onAppear`；headless 无此路径）。
+    func noteSelfCheckPresented() {
+        if selfCheckPresentedAt == nil { selfCheckPresentedAt = now() }
+        trySchedulePassiveHandoff()
+    }
+
+    /// 手动 [进入 App] / 卡片退出后放行主界面（取消被动计时；幂等）。
+    func finishBootScreen() {
+        guard isShowingBootScreen else { return }
+        isShowingBootScreen = false
+        autoEnter.cancel()
+    }
+
+    /// 被动交接：仅「容器就绪、无失败、无待办卡片、已呈现」时计时；
+    /// 终态自 `max(presentedAt, readyAt)` 起可见 ≥ 最短展示（VO 3s）。
+    private func trySchedulePassiveHandoff() {
+        guard isShowingBootScreen, failure == nil,
+              container != nil, !awaitingCatalogChoice,
+              let presentedAt = selfCheckPresentedAt else { return }
+        let terminalAt = now()
+        let minDisplay = UIAccessibility.isVoiceOverRunning
+            ? StartupSelfCheckRules.voiceOverMinDisplaySeconds
+            : StartupSelfCheckRules.minDisplaySeconds
+        let remaining = max(presentedAt, terminalAt)
+            .addingTimeInterval(minDisplay).timeIntervalSince(now())
+        if remaining <= 0 {
+            finishBootScreen()
+            return
+        }
+        autoEnter.cancel()
+        autoEnter.schedule(after: .seconds(remaining)) { [weak self] in
+            self?.finishBootScreen()
+        }
     }
 
     /// 容器发布：先建会话（同一实例交给主界面与后台作业），再放行 UI。
@@ -194,5 +245,13 @@ final class DatabaseBootModel: ObservableObject {
         }
         container = assembled
         phase = .ready
+        // U-批 S1：final 快照在 facade 装配后发（facadeCommitted=true，行③以 facade 为准）。
+        if let advisory = bootSnapshot {
+            bootSnapshot = BootChecklistSnapshot(
+                probe: advisory.probe, decisionLabel: advisory.decisionLabel,
+                plannedMigrationSteps: advisory.plannedMigrationSteps,
+                sliceHealth: advisory.sliceHealth, facadeCommitted: true)
+        }
+        trySchedulePassiveHandoff()
     }
 }

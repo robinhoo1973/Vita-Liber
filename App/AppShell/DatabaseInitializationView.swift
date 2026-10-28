@@ -13,6 +13,8 @@ struct DatabaseInitializationView: View {
     var body: some View {
         WithPerceptionTracking {
             content
+                // U-批 B2：首帧呈现上报（被动交接门从此刻起算；headless 无此路径）。
+                .onAppear { model.noteSelfCheckPresented() }
         }
     }
 

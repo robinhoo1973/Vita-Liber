@@ -54,7 +54,8 @@ public enum CatalogSliceProbe {
     }
 
     /// `expectedTables`/`expectedCounts` 来自已验签 manifest（`CatalogSliceManifestDecoder`）；
-    /// `verifyCounts` 只在安装期 true（7 表全扫 <200ms），启动探测只做元数据级。
+    /// `verifyCounts` 由调用方决定：2026-10-28 U-批业主裁决 Q14=B——启动探测即全量
+    /// （integrity/FK/逐表 COUNT），旧注释「启动只做元数据级」与实现不符已删。
     public static func inspect(path: String, kind: CatalogSliceKind,
                                expectedTables: Set<String>, expectedCounts: [String: Int64],
                                verifyCounts: Bool, fileManager: FileManager = .default) -> State {

@@ -54,13 +54,15 @@ struct PreparedDatabase: Sendable {
 enum DatabaseBootService {
     private static let logger = Logger(subsystem: "com.vitaliber", category: "database-boot")
 
-    static func prepare(progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
+    static func prepare(snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void = { _ in },
+                        progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
         try await Task.detached(priority: .userInitiated) {
-            try await prepareSync(progress: progress)
+            try await prepareSync(snapshot: snapshot, progress: progress)
         }.value
     }
 
-    private static func prepareSync(progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
+    private static func prepareSync(snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void,
+                                    progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
         // 路径解析必须先于探测：f7 的 legacy 改名有副作用，失败会回退旧路径。
         let databasePath = AppContainer.defaultDatabasePath()
         let historyPath = AppContainer.defaultSchemaHistoryPath()
@@ -85,15 +87,16 @@ enum DatabaseBootService {
             originalsPresent: originalsPresent)
         // 三切片探测（2026-10-28 切片-only）：切片库只有 slice_meta，绝不回落 v4 的
         // catalog_meta/user_version 语义——每片自洽校验（表集/契约/完整性/COUNT）。
-        let sliceStates: [(kind: CatalogSliceKind, label: String)] =
+        let sliceStates: [(kind: CatalogSliceKind, health: CatalogSliceBootHealth)] =
             CatalogSliceKind.allCases.map { kind in
                 let state = CatalogSliceProbe.inspectSelfConsistent(
                     path: v5CatalogPath(kind.sqliteEntryName), kind: kind)
-                return (kind, Self.sliceLabel(state))
+                return (kind, Self.bootHealth(state))
             }
-        let sliceReadyKinds = Set(sliceStates.filter { $0.label == "ready" }.map(\.kind))
+        let sliceHealth = Dictionary(uniqueKeysWithValues: sliceStates.map { ($0.kind, $0.health) })
+        let sliceReadyKinds = Set(sliceStates.filter { $0.health == .ready }.map(\.kind))
         let sliceReady = sliceReadyKinds.count
-        let v5Present = sliceStates.filter { $0.label != "missing" }.count
+        let v5Present = sliceStates.filter { $0.health != .missing }.count
         // 「自动迁移前一数据库」（2026-10-28；P-批按 kind 子集）：v4 替代集
         // {drug,facility,reference} 全就绪才清 v4 残留；profile 不参与；未替换前绝不删。
         let legacyResidueCleaned = LegacyCatalogResidue.cleanIfEligible(readyKinds: sliceReadyKinds)
@@ -132,6 +135,18 @@ enum DatabaseBootService {
         let targetVersion = SchemaMigrations.latestVersion
         record(history, databasePath: databasePath, source: userProbe.observedVersion,
                target: targetVersion, outcome: "decision", detail: label(decision))
+        // U-批 B2（架构席 S1/B2）：advisory 快照在决策后、switch/抛出前发射——
+        // 失败路径也能拿到存在性/版本/健康事实（行①/②由它 + failure 推导）。
+        let plannedSteps: Int?
+        if case .migrate(let from, _) = decision {
+            plannedSteps = SchemaMigrations.pending(from: from).count
+        } else {
+            plannedSteps = nil
+        }
+        await snapshot(BootChecklistSnapshot(
+            probe: userProbe, decisionLabel: label(decision),
+            plannedMigrationSteps: plannedSteps, sliceHealth: sliceHealth,
+            facadeCommitted: false))
 
         let store: GRDBStore
         do {
@@ -205,7 +220,7 @@ enum DatabaseBootService {
                 decision: decisionLabel,
                 catalogSliceReadyCount: sliceReady,
                 catalogSliceReadyKinds: sliceReadyKinds.map(\.rawValue).sorted(),
-                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.label)" },
+                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.health.diagnosticLabel)" },
                 legacyCatalogResidueCleaned: legacyResidueCleaned))
     }
 
@@ -221,15 +236,15 @@ enum DatabaseBootService {
             .appendingPathComponent(name).path
     }
 
-    private static func sliceLabel(_ state: CatalogSliceProbe.State) -> String {
+    private static func bootHealth(_ state: CatalogSliceProbe.State) -> CatalogSliceBootHealth {
         switch state {
-        case .missing: return "missing"
-        case .unreadable: return "unreadable"
-        case .contractViolation: return "contract-violation"
-        case .tableSetMismatch: return "table-set-mismatch"
-        case .integrityFailed: return "integrity-failed"
-        case .countsMismatch: return "counts-mismatch"
-        case .ready: return "ready"
+        case .missing: return .missing
+        case .unreadable: return .unreadable
+        case .contractViolation: return .contractViolation
+        case .tableSetMismatch: return .tableSetMismatch
+        case .integrityFailed: return .integrityFailed
+        case .countsMismatch: return .countsMismatch
+        case .ready: return .ready
         }
     }
 
