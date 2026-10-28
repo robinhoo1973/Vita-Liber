@@ -41,7 +41,9 @@ struct MigrationReplayMatrixTests {
             try db.execute(sql: "PRAGMA user_version = \(SchemaMigrations.latestVersion + 1)")
         }
         try queue.close()
-        #expect(throws: MigrationError.schemaTooNew(
+        // MigrationError 是 GRDBStore 内的 public 嵌套枚举——须限定名
+        //（CI 40790219051 红因：裸名不在作用域）。
+        #expect(throws: GRDBStore.MigrationError.schemaTooNew(
             found: SchemaMigrations.latestVersion + 1,
             supported: SchemaMigrations.latestVersion)) {
             _ = try GRDBStore.pool(at: path)
