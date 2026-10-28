@@ -15,7 +15,7 @@ import Foundation
 /// - 回执是派生数据：写失败不回滚已成功的激活（journal Record 可重建）；
 /// - minApp 双门：resolver 已拦一次，安装前在此再验（定稿：resolver+installer 双门）；
 /// - 任一片失败只影响该片（目录/备份/journal/回执全部按片命名）。
-public actor CatalogSliceUpdateService {
+public actor CatalogSliceUpdateService: CatalogSliceInstalling {
     public typealias Progress = @Sendable (MedicalCatalogUpdateProgress) -> Void
 
     private let directory: URL

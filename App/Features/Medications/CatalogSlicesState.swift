@@ -30,7 +30,7 @@ final class CatalogSlicesState {
 
     private let facade: CatalogSliceReadFacade
     private let checker: (any CatalogSliceReleaseResolving)?
-    private let updater: CatalogSliceUpdateService?
+    private let updater: (any CatalogSliceInstalling)?
     private let receiptDirectory: URL
     /// 仅 `updateAvailable` 时存在（密封候选，安装链唯一入口）。
     private var verified: [CatalogSliceKind: VerifiedCatalogSliceCandidate] = [:]
@@ -52,7 +52,7 @@ final class CatalogSlicesState {
 
     init(facade: CatalogSliceReadFacade,
          checker: (any CatalogSliceReleaseResolving)?,
-         updater: CatalogSliceUpdateService?,
+         updater: (any CatalogSliceInstalling)?,
          receiptDirectory: URL) {
         self.facade = facade
         self.checker = checker

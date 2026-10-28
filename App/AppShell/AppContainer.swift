@@ -88,7 +88,7 @@ struct AppContainer {
     /// 切片检查器（pinned root provisioning 前 nil——检查 fail-closed「暂不可用」）。
     let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
     /// 切片安装器（每片独立 journal/staging/last-good；nil = 安装入口 fail-closed）。
-    let catalogSliceUpdater: CatalogSliceUpdateService?
+    let catalogSliceUpdater: (any CatalogSliceInstalling)?
     /// 四域参考端口（2026-10-28 切片-only）：由三目录切片 facade 派生——drug/facility/
     /// exam 任一片可用即注入；缺片时对应查询在 facade 内返回空集（患者流零提示）。
     /// P6（P-批）：profile 片不提供检索能力，不得据此把端口判为非 nil——用显式谓词。
@@ -156,7 +156,7 @@ struct AppContainer {
         let updateAdviceProvider: (any UpdateAdviceProviding)?
         let catalogSlices: CatalogSliceReadFacade?
         let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
-        let catalogSliceUpdater: CatalogSliceUpdateService?
+        let catalogSliceUpdater: (any CatalogSliceInstalling)?
         #if os(iOS) || os(macOS)
         // XCUITest 离线用例：pinned root 随包后 checker 恒非 nil，任何点按都会真实
         // 联网。仅 DEBUG 的 -uitest-catalog-checker-off 走 checker==nil：初始仍显示
@@ -315,7 +315,7 @@ struct AppContainer {
                                  degradedReason: String? = nil,
                                  catalogSlices: CatalogSliceReadFacade? = nil,
                                  catalogSliceChecker: (any CatalogSliceReleaseResolving)? = nil,
-                                 catalogSliceUpdater: CatalogSliceUpdateService? = nil,
+                                 catalogSliceUpdater: (any CatalogSliceInstalling)? = nil,
                                  updateAdvice: (any UpdateAdviceProviding)? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
