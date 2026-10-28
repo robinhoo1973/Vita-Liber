@@ -11,7 +11,8 @@ import Perception
 struct UpdateCenterSection: View {
     @Environment(UpdateCenterState.self) private var center: UpdateCenterState?
     @Environment(ASRIndexCheckState.self) private var asrCheck: ASRIndexCheckState?
-    @Environment(MedicalCatalogState.self) private var medical: MedicalCatalogState?
+    /// 2026-10-28 切片-only：医疗域主行改读三切片聚合（v4 单目录态不再呈现）。
+    @Environment(CatalogSlicesState.self) private var medical: CatalogSlicesState?
 
     var body: some View {
         WithPerceptionTracking {
@@ -84,25 +85,27 @@ struct UpdateCenterSection: View {
     private var medicalPrimary: String {
         guard let medical else { return L10n.resourceCatalogUnavailable }
         if medical.isUpdating { return L10n.updateCenterRowUpdating }
-        switch medical.remoteState {
-        case .idle: return L10n.updateCenterRowIdle
+        switch medical.aggregate {
+        case .notChecked: return L10n.updateCenterRowIdle
         case .checking: return L10n.resourceCatalogChecking
-        case .upToDate: return L10n.resourceCatalogUpToDate
-        case .updateAvailable(let candidate):
-            return L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion)
-        case .noInstallableAvailable: return L10n.resourceCatalogNoInstallable
+        case .updating: return L10n.updateCenterRowUpdating
+        case .allCurrent: return L10n.resourceCatalogUpToDate
+        case .updatesAvailable, .partialFailure:
+            let count = medical.candidates.count
+            return L10n.resourceCatalogSlicesUpdatesFmt(count)
+        case .allFailed: return L10n.resourceCatalogSlicesCheckFailed
+        case .appUpdateRequired: return L10n.resourceCatalogSlicesAppUpdateRequired
+        case .sourcePartial: return L10n.resourceCatalogSlicesSourcePartial
         case .unavailable: return L10n.resourceCatalogUnavailable
-        case .rateLimited(let retryAfter): return retryLimitedText(retryAfter)
-        case .verificationFailed: return L10n.resourceCatalogVerificationFailed
-        case .networkUnavailable: return L10n.resourceCatalogNetworkUnavailable
         }
     }
 
     private var medicalHint: String? {
         guard let medical else { return nil }
         // 未检查与发现更新两态都给出域内入口提示（空态找不到入口的直接修复）。
-        switch medical.remoteState {
-        case .idle, .updateAvailable: return L10n.updateCenterMedicalUpdatesHint
+        switch medical.aggregate {
+        case .notChecked, .updatesAvailable, .partialFailure:
+            return L10n.updateCenterMedicalUpdatesHint
         default: return nil
         }
     }

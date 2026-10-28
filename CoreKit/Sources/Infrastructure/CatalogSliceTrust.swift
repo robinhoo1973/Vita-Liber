@@ -1,3 +1,4 @@
+import Domain
 import Foundation
 
 /// 切片级 trust floor（抗回滚 + 反等价），身份 = **内容**（`sqliteSha256`）。

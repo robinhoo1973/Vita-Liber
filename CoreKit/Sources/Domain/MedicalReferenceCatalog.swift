@@ -140,6 +140,20 @@ public protocol MedicalReferenceCatalogReading: MedicalCatalogGenerationReading 
     var catalogSchemaVersion: Int { get async throws }
 }
 
+/// 切片化两端读端口（2026-10-28 切片-only）：facility 切片（医院/科室）与
+/// reference 切片（诊断/检查）各自独立库、独立可用性/失效隔离。组合端口
+/// `MedicalReferenceCatalogReading` 由 Infrastructure facade 在两端之上合成
+/// （缺片 → 对应查询返回空集，患者流零提示；设施端不可用不得回退任一他片）。
+public protocol MedicalFacilityCatalogReading: MedicalCatalogGenerationReading {
+    func hospitalSuggest(query: String, region: String?, limit: Int) async throws -> [MedicalCatalogHospital]
+    func departmentList(region: String?) async throws -> [MedicalCatalogDepartment]
+}
+
+public protocol MedicalExamCatalogReading: MedicalCatalogGenerationReading {
+    func diagnosisSuggest(query: String, system: String?, region: String?, limit: Int) async throws -> [MedicalCatalogDiagnosis]
+    func examSuggest(query: String, category: String?, region: String?, limit: Int) async throws -> [MedicalCatalogExamItem]
+}
+
 // MARK: - 术语覆盖层
 
 /// 四域术语覆盖层：静态 `TerminologyStore`（FR12.4 P0 内置词典）兜底解释，

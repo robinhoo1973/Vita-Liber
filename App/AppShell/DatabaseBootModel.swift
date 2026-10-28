@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import UIKit
+import Infrastructure
 
 /// 启动门表现态：只有 `container` 非 nil 才允许挂载主界面。
 ///
@@ -19,16 +20,18 @@ final class DatabaseBootModel: ObservableObject {
     /// 本地库已就绪但参考目录缺失/版本不匹配时的显式可选步骤。
     @Published private(set) var awaitingCatalogChoice = false
     @Published private(set) var catalog: MedicalCatalogState?
+    /// 三切片目录状态（2026-10-28 切片-only）：与 v4 态并存，供会话/环境注入。
+    @Published private(set) var catalogSlices: CatalogSlicesState?
     private var pendingContainer: AppContainer?
 
-    private let sessionFactory: ((AppContainer, MedicalCatalogState) -> AppSession)?
+    private let sessionFactory: ((AppContainer, MedicalCatalogState, CatalogSlicesState) -> AppSession)?
     /// 「暂不下载，继续」的延期偏好（UI 偏好，非医疗数据；UserDefaults 不入备份）。
     static let deferredPromptKey = "catalogPromptDeferredAt"
     private let defaults: UserDefaults
     private let now: () -> Date
     private let autoEnter = CatalogAutoEnterScheduler()
 
-    init(sessionFactory: ((AppContainer, MedicalCatalogState) -> AppSession)? = nil,
+    init(sessionFactory: ((AppContainer, MedicalCatalogState, CatalogSlicesState) -> AppSession)? = nil,
          defaults: UserDefaults = .standard,
          now: @escaping () -> Date = Date.init) {
         self.sessionFactory = sessionFactory
@@ -55,6 +58,12 @@ final class DatabaseBootModel: ObservableObject {
                 checker: assembled.medicalCatalogChecker,
                 opener: assembled.medicalCatalogOpener)
             self.catalog = catalog
+            self.catalogSlices = CatalogSlicesState(
+                facade: assembled.catalogSlices ?? CatalogSliceReadFacade(),
+                checker: assembled.catalogSliceChecker,
+                updater: assembled.catalogSliceUpdater,
+                receiptDirectory: URL(fileURLWithPath: AppContainer.defaultCatalogSliceDirectory(),
+                                     isDirectory: true))
             if showsCatalogChoice(diagnostics: prepared.diagnostics) {
                 pendingContainer = assembled
                 awaitingCatalogChoice = true
@@ -179,9 +188,11 @@ final class DatabaseBootModel: ObservableObject {
     /// 容器发布：先建会话（同一实例交给主界面与后台作业），再放行 UI。
     private func publish(_ assembled: AppContainer) {
         let catalog = self.catalog
-        if let catalog, let sessionFactory {
-            _ = sessionFactory(assembled, catalog)   // AppSession.init 安装到 holder
+        let slices = self.catalogSlices
+        if let catalog, let slices, let sessionFactory {
+            _ = sessionFactory(assembled, catalog, slices)   // AppSession.init 安装到 holder
             self.catalog = nil                        // 会话是唯一 owner，避免僵尸状态
+            self.catalogSlices = nil
         }
         container = assembled
         phase = .ready

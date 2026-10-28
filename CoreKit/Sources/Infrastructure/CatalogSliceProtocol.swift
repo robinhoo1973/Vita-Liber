@@ -1,3 +1,4 @@
+import Domain
 import Foundation
 
 /// 目录 v5 三切片线协议（2026-10-28 业主裁决：v4 package 模式全面退役，切片-only）。
@@ -9,16 +10,7 @@ import Foundation
 /// 发现面 = tag 页 SSR 资产清单（`CNBReleasePageInventoryParser`）——manifest.json
 /// 指针文件与 `package-<ver>.bin` 旧名一律不再接受（业主裁决无兼容）。
 /// 纯 Foundation、无平台守卫——Linux 可跑语法闸金样。
-public enum CatalogSliceKind: String, CaseIterable, Sendable {
-    case drug
-    case facility
-    case reference
-
-    public var stem: String { "app-catalog-" + rawValue }
-    public var manifestAssetName: String { stem + ".json" }
-    public var packageAssetName: String { stem + ".bin" }
-    public var sqliteEntryName: String { stem + ".sqlite" }
-}
+/// （`CatalogSliceKind` 已于 2026-10-28 上移 `Domain/CatalogSliceKind.swift`。）
 
 public enum CatalogSliceProtocol {
     /// 清单载荷线格式（f7 publisher 与 App 两侧同源冻结）。

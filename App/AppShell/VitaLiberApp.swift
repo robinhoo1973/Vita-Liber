@@ -26,10 +26,11 @@ struct VitaLiberApp: App {
         self.router = router
         self.notificationDelegate = notificationDelegate
         UNUserNotificationCenter.current().delegate = notificationDelegate
-        let boot = DatabaseBootModel { container, medicalCatalogState in
+        let boot = DatabaseBootModel { container, medicalCatalogState, catalogSlicesState in
             AppSession(container: container, router: router,
                        notificationDelegate: notificationDelegate,
-                       medicalCatalogState: medicalCatalogState)
+                       medicalCatalogState: medicalCatalogState,
+                       catalogSlicesState: catalogSlicesState)
         }
         _boot = StateObject(wrappedValue: boot)
         // FR14.5 启动语言恢复（评审修正）：同步执行、首帧前完成——

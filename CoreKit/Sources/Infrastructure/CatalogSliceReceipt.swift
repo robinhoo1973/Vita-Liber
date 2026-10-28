@@ -1,3 +1,4 @@
+import Domain
 import Foundation
 
 /// 切片安装回执（派生数据）。

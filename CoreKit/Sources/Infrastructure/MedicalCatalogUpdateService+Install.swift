@@ -220,12 +220,21 @@ extension MedicalCatalogUpdateService {
 /// 落盘字节超过签名 packageSize 即中止。
 public struct URLSessionMedicalCatalogPackageFetcher: MedicalCatalogPackageFetching, Sendable {
     private let session: URLSession
+    /// 资产名 → 固定 Release 基址 URL。默认 = v4 `package-<ver>.bin` 文法；
+    /// 切片服务注入 `CatalogSliceProtocol` 解析器（`app-catalog-*.bin`）——
+    /// 传输/重试/尺寸门/逐跳主机白名单全部共用一条路径（2026-10-28 二轮质询矛盾 A：
+    /// 名门与主机门是两件事，名门必须可注入而不是另起一套下载器）。
+    private let urlResolver: @Sendable (String) -> URL?
 
     /// 2026-09-27 委员会裁决 5（SRE 席）：目录 fetcher 由 URLSession.shared（60s 空闲
     /// 超时、无重试）升级为专有会话——waitsForConnectivity 吸收短时抖动、
     /// 300s 请求超时兜底慢链路（GB 级 SQLite 在慢链路曾被 -1001 误杀）；
     /// 瞬态错误重试一次（与 ModelPackageDownloader 同清单 + 4s 退避）。
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil,
+                urlResolver: @escaping @Sendable (String) -> URL? = { assetName in
+                    MedicalCatalogReleaseProtocol.packageURL(assetName: assetName)
+                }) {
+        self.urlResolver = urlResolver
         if let session {
             self.session = session
         } else {
@@ -240,7 +249,7 @@ public struct URLSessionMedicalCatalogPackageFetcher: MedicalCatalogPackageFetch
 
     public func fetch(assetName: String, expectedSize: Int64, to destination: URL,
                       progress: @escaping @Sendable (Int64) -> Void) async throws {
-        guard expectedSize > 0, let url = MedicalCatalogReleaseProtocol.packageURL(assetName: assetName) else {
+        guard expectedSize > 0, let url = urlResolver(assetName) else {
             throw MedicalCatalogUpdateError.downloadFailed
         }
         var request = URLRequest(url: url)

@@ -290,6 +290,8 @@ private struct PreviewRoot: View {
     /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
     private let settingsStore: AppSettingsStore
     private let medicalCatalogState: MedicalCatalogState
+    /// 三切片目录状态（2026-10-28 切片-only；预览与生产同构注入）。
+    private let catalogSlicesState: CatalogSlicesState
     /// P3（2026-10-07）：预览同构——provider 缺省（preview 装配默认 nil）→
     /// 读取后呈「不可用」，fail-closed 路径可视。
     private let updateAdviceState: UpdateAdviceState
@@ -316,6 +318,12 @@ private struct PreviewRoot: View {
                                                checker: assembled.medicalCatalogChecker,
                                                opener: assembled.medicalCatalogOpener)
         medicalCatalogState = medicalState
+        catalogSlicesState = CatalogSlicesState(
+            facade: assembled.catalogSlices ?? CatalogSliceReadFacade(),
+            checker: assembled.catalogSliceChecker,
+            updater: assembled.catalogSliceUpdater,
+            receiptDirectory: URL(fileURLWithPath: AppContainer.defaultCatalogSliceDirectory(),
+                                 isDirectory: true))
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
         let adviceState = UpdateAdviceState(provider: assembled.updateAdvice)
@@ -326,7 +334,7 @@ private struct PreviewRoot: View {
         asrCheckState = checkState
         updateCenterState = UpdateCenterState(
             advice: adviceState,
-            chains: [.asrModels: checkState, .medicalData: medicalState])
+            chains: [.asrModels: checkState, .medicalData: catalogSlicesState])
     }
 
     var body: some View {
@@ -346,6 +354,7 @@ private struct PreviewRoot: View {
                 .environment(\.medicationScheduleStore, container.scheduleTemplates)
                 .environment(settingsStore)
                 .environment(medicalCatalogState)
+                .environment(catalogSlicesState)
                 .environment(updateAdviceState)
                 .environment(asrCheckState)
                 .environment(updateCenterState)

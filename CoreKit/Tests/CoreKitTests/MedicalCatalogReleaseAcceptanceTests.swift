@@ -364,7 +364,12 @@ struct MedicalCatalogReleaseAcceptanceTests {
             let zip = try fixture.zip(layout)
             let target = fixture.directory.appendingPathComponent("extract-\(UUID().uuidString).sqlite")
             #expect(throws: MedicalCatalogUpdateError.packageInvalid) {
-                try MedicalCatalogPackageExtractor.extractSQLite(from: zip, to: target, maxSQLiteBytes: 1 << 20)
+                // 2026-10-28 CI #191 修复：extractSQLite 增 entryName 后此直调漏参
+                // （整文件平台守卫，Linux 零编译信号）——每格布局相对期望成员名均非法。
+                try MedicalCatalogPackageExtractor.extractSQLite(
+                    from: zip, to: target,
+                    entryName: MedicalCatalogReleaseProtocol.sqliteEntryName,
+                    maxSQLiteBytes: 1 << 20)
             }
             #expect(!FileManager.default.fileExists(atPath: target.path))
         }

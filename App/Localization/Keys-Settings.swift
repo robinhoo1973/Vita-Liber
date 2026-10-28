@@ -166,6 +166,117 @@ extension L10n {
 
     static var resourceCatalogNetworkUnavailable: String { t("settings.resource.catalog.networkUnavailable") }
 
+    // 2026-10-28 切片-only：医疗目录三行聚合（SP-64 摘要 / 更新中心医疗行共用）
+    static func resourceCatalogSlicesUpdatesFmt(_ count: Int) -> String {
+        String(format: t("settings.resource.catalog.slices.updatesFmt"), count)
+    }
+
+    static var resourceCatalogSlicesCheckFailed: String { t("settings.resource.catalog.slices.checkFailed") }
+
+    static var resourceCatalogSlicesAppUpdateRequired: String { t("settings.resource.catalog.slices.appUpdateRequired") }
+
+    static var resourceCatalogSlicesSourcePartial: String { t("settings.resource.catalog.slices.sourcePartial") }
+
+    static var resourceCatalogSlicesSummaryLabel: String { t("settings.resource.catalog.slices.summaryLabel") }
+
+    static func resourceCatalogSlicesSliceCompletedFmt(_ name: String, _ version: Int64) -> String {
+        String(format: t("settings.resource.catalog.slices.sliceCompletedFmt"), name, version)
+    }
+
+    // 2026-10-28 切片-only：SP-64 三行（名称/用途/行态/动作）与聚合摘要
+    static var resourceCatalogSliceDrugName: String { t("settings.resource.catalog.slice.drug.name") }
+
+    static var resourceCatalogSliceFacilityName: String { t("settings.resource.catalog.slice.facility.name") }
+
+    static var resourceCatalogSliceReferenceName: String { t("settings.resource.catalog.slice.reference.name") }
+
+    static var resourceCatalogSliceDrugUsage: String { t("settings.resource.catalog.slice.drug.usage") }
+
+    static var resourceCatalogSliceFacilityUsage: String { t("settings.resource.catalog.slice.facility.usage") }
+
+    static var resourceCatalogSliceReferenceUsage: String { t("settings.resource.catalog.slice.reference.usage") }
+
+    static var resourceCatalogSliceNotInstalled: String { t("settings.resource.catalog.slice.state.notInstalled") }
+
+    static func resourceCatalogSliceInstalledFmt(_ a0: Int64) -> String {
+        String(format: t("settings.resource.catalog.slice.state.installedFmt"), a0)
+    }
+
+    static var resourceCatalogSliceChecking: String { t("settings.resource.catalog.slice.state.checking") }
+
+    static func resourceCatalogSliceCandidateFmt(_ a0: Int64, _ a1: String) -> String {
+        String(format: t("settings.resource.catalog.slice.state.candidateFmt"), a0, a1)
+    }
+
+    static var resourceCatalogSliceUpToDate: String { t("settings.resource.catalog.slice.state.upToDate") }
+
+    static var resourceCatalogSliceSourceNotProvided: String { t("settings.resource.catalog.slice.state.sourceNotProvided") }
+
+    static var resourceCatalogSliceRemovedFromSource: String { t("settings.resource.catalog.slice.state.removedFromSource") }
+
+    static func resourceCatalogSliceAppUpdateRequiredFmt(_ a0: Int64) -> String {
+        String(format: t("settings.resource.catalog.slice.state.appUpdateRequiredFmt"), a0)
+    }
+
+    static var resourceCatalogSliceCheckUnavailable: String { t("settings.resource.catalog.slice.state.checkUnavailable") }
+
+    static var resourceCatalogSliceVerificationFailed: String { t("settings.resource.catalog.slice.state.verificationFailed") }
+
+    static func resourceCatalogSliceInstallFailedFmt(_ a0: String) -> String {
+        String(format: t("settings.resource.catalog.slice.state.installFailedFmt"), a0)
+    }
+
+    static var resourceCatalogSliceNotInstalledFailed: String { t("settings.resource.catalog.slice.state.notInstalledFailed") }
+
+    static var resourceCatalogSliceActionCheck: String { t("settings.resource.catalog.slice.action.check") }
+
+    static var resourceCatalogSliceActionInstall: String { t("settings.resource.catalog.slice.action.install") }
+
+    static var resourceCatalogSliceActionUpdate: String { t("settings.resource.catalog.slice.action.update") }
+
+    static var resourceCatalogSliceActionCancel: String { t("settings.resource.catalog.slice.action.cancel") }
+
+    static func resourceCatalogSlicesInstalledFmt(_ a0: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.installedFmt"), a0)
+    }
+
+    static func resourceCatalogSlicesNotCheckedFmt(_ a0: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.notCheckedFmt"), a0)
+    }
+
+    static var resourceCatalogSlicesChecking: String { t("settings.resource.catalog.summary.checking") }
+
+    static var resourceCatalogSlicesAllCurrent: String { t("settings.resource.catalog.summary.allCurrent") }
+
+    static func resourceCatalogSlicesCandidatesFmt(_ a0: Int, _ a1: Int, _ a2: String) -> String {
+        String(format: t("settings.resource.catalog.summary.candidatesFmt"), a0, a1, a2)
+    }
+
+    static func resourceCatalogSlicesUpdatingFmt(_ a0: Int, _ a1: String) -> String {
+        String(format: t("settings.resource.catalog.summary.updatingFmt"), a0, a1)
+    }
+
+    static func resourceCatalogSlicesPartialFailureFmt(_ a0: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.partialFailureFmt"), a0)
+    }
+
+    static var resourceCatalogSlicesAllFailed: String { t("settings.resource.catalog.summary.allFailed") }
+
+    static func resourceCatalogSlicesAppUpdateRequiredFmt(_ a0: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.appUpdateRequiredFmt"), a0)
+    }
+
+    static func resourceCatalogSlicesSourcePartialFmt(_ a0: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.sourcePartialFmt"), a0)
+    }
+
+    static var resourceCatalogSlicesUnavailable: String { t("settings.resource.catalog.summary.unavailable") }
+
+    static func resourceCatalogSlicesUpdateAllFmt(_ a0: String) -> String {
+        String(format: t("settings.resource.catalog.summary.updateAllFmt"), a0)
+    }
+
+
     static var resourceCatalogUpdateCancelled: String { t("settings.resource.catalog.updateCancelled") }
 
     static var resourceCatalogUpdateFailed: String { t("settings.resource.catalog.updateFailed") }

@@ -25,10 +25,17 @@ struct ReadyAppRoot: View {
                 path: URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath()),
                 checker: container.medicalCatalogChecker,
                 opener: container.medicalCatalogOpener)
+            let slices = CatalogSlicesState(
+                facade: container.catalogSlices ?? CatalogSliceReadFacade(),
+                checker: container.catalogSliceChecker,
+                updater: container.catalogSliceUpdater,
+                receiptDirectory: URL(fileURLWithPath: AppContainer.defaultCatalogSliceDirectory(),
+                                     isDirectory: true))
             _session = State(initialValue: AppSession(
                 container: container, router: router,
                 notificationDelegate: notificationDelegate,
-                medicalCatalogState: medical))
+                medicalCatalogState: medical,
+                catalogSlicesState: slices))
         }
     }
 
@@ -91,9 +98,10 @@ struct ReadyAppRoot: View {
              .environment(session.f16DeviceState)
              .environment(session.backupState)
              .environment(session.medicalCatalogState)
+             .environment(session.catalogSlicesState)
              // E①（收口批）：四域参考目录端口（nil=未就绪零渲染）
              .environment(\.medicalReferenceCatalog, session.container.medicalReferenceCatalog)
-             .environment(\.medicalCatalogGeneration, session.medicalCatalogState.generation)
+             .environment(\.medicalCatalogGeneration, session.catalogSlicesState.generation)
              .environment(session.updateAdviceState)
              .environment(session.asrCheckState)
              .environment(session.llmModelInstallCenter)

@@ -12,7 +12,8 @@ struct ResourceManagementView: View {
     @Environment(AppState.self) private var app
     @Environment(ASRInstallCenter.self) private var installCenter
     @Environment(LLMModelInstallCenter.self) private var llmModelInstallCenter
-    @Environment(MedicalCatalogState.self) private var catalogState
+    /// 2026-10-28 切片-only：医疗目录三行读三切片状态；v4 单目录态仅保留到 B2 删除。
+    @Environment(CatalogSlicesState.self) private var catalogState
 
     /// 关怀模式触控 ≥64pt（CareModeMetrics 同源，ui-ux §3.3）。
     private var touchTarget: CGFloat {
@@ -115,88 +116,253 @@ struct ResourceManagementView: View {
             .accessibilityIdentifier("SP-64.resource.cancel.\(install.choice.rawValue)")
     }
 
-    // MARK: - SP-64 医疗目录维护（B2-3）
+    // MARK: - SP-64 医疗目录维护（2026-10-28 切片-only：三行 + 聚合摘要）
 
-    /// 医疗数据目录维护段：本地状态常显、显式检查 → 独立更新（FR25.13 零隐式联网——
-    /// 只有用户点按钮才触发网络）；失败/取消保留本机 last-good。
+    /// 医疗数据目录维护段：三类目录逐行（名称/用途/版本/大小/动作）+ 聚合摘要 +
+    /// 单一显式检查（FR25.13 零隐式联网——只有用户点按钮才触发网络）；
+    /// 失败/取消保留本机 last-good；缺片只降级该域（患者流零提示，见 B 席口径）。
     /// VoiceOver 播报纪律（§5.12.4）：只在阶段切换/完成/失败播报，不逐字节播报。
     private var catalogSection: some View {
         Section {
-            // 本地状态（与远端检查态分离——断网/限流/失败时本机目录仍可见可用）
-            LabeledContent(L10n.resourceCatalogLocalLabel) {
-                if let version = catalogState.localVersion {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(L10n.resourceCatalogLocalVersionFmt(String(version.dataVersion.prefix(8))))
-                        if let updatedAt = catalogState.localUpdatedAt {
-                            Text(L10n.resourceCatalogLocalUpdatedFmt(localTimeText(updatedAt)))
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                } else {
-                    Text(L10n.resourceCatalogNotAvailable)
-                        .font(.caption)
-                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                }
-            }
-            .accessibilityIdentifier("SP-64.medicalCatalog.local")
-
-            remoteRow
-            if catalogState.localVersion == nil, catalogState.remoteState == .idle {
-                Text(L10n.resourceCatalogEmptyHint)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            summaryRow
+            ForEach(CatalogSliceKind.allCases, id: \.rawValue) { kind in
+                sliceRow(kind)
             }
             checkButton
-
+            if catalogState.canUpdate {
+                Button {
+                    catalogState.installAll()
+                } label: {
+                    Text(L10n.resourceCatalogSlicesUpdateAllFmt(
+                        MedicalCatalogPromptCopy.sizeText(catalogState.totalDownloadBytes)))
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .frame(minHeight: touchTarget)
+                .disabled(catalogState.isUpdating)
+                .accessibilityHint(L10n.resourceCatalogUpdateHint)
+                .accessibilityIdentifier("SP-64.catalogSlices.updateAll")
+            }
             // 一次性成功事件（§5.12.4「成功才展示更新完成及新本地版本」）
-            if let completed = catalogState.updateCompletedDataVersion {
-                Label(L10n.resourceCatalogUpdateCompletedFmt(String(completed.prefix(8))),
-                      systemImage: "checkmark.circle.fill")
-                    .font(.subheadline)
-                    .accessibilityIdentifier("SP-64.medicalCatalog.completed")
-            }
-
-            if let progress = catalogState.updateProgress {
-                updateProgressRow(progress)
-            }
-            if let error = catalogState.updateError {
-                Text(updateErrorText(error))
-                    .font(.footnote)
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
-                    .accessibilityIdentifier("SP-64.medicalCatalog.updateError")
+            ForEach(CatalogSliceKind.allCases, id: \.rawValue) { kind in
+                if let version = catalogState.completedVersions[kind] {
+                    Label(L10n.resourceCatalogSlicesSliceCompletedFmt(kindName(kind), version),
+                          systemImage: "checkmark.circle.fill")
+                        .font(.subheadline)
+                        .accessibilityIdentifier("SP-64.catalogSlices.completed.\(kind.rawValue)")
+                }
             }
         } header: {
             Text(L10n.resourceCatalogRow)
         } footer: {
             Text(L10n.resourceCatalogPrivacy)
         }
-        .onChangeCompat(of: catalogUpdatePhaseKey) { _, _ in
-            if let progress = catalogState.updateProgress {
-                UIAccessibility.post(notification: .announcement, argument: catalogPhaseText(progress))
-            }
-        }
-        .onChangeCompat(of: catalogState.updateCompletedDataVersion) { _, version in
-            if let version {
-                UIAccessibility.post(notification: .announcement,
-                                     argument: L10n.resourceCatalogUpdateCompletedFmt(String(version.prefix(8))))
-            }
-        }
-        .onChangeCompat(of: catalogState.updateError) { _, error in
-            if let error {
-                UIAccessibility.post(notification: .announcement, argument: updateErrorText(error))
-            }
-        }
-        .onChangeCompat(of: catalogState.remoteState) { _, state in
-            if let text = catalogResultAnnouncement(state) {
+        .onChangeCompat(of: catalogAggregatePhaseKey) { _, _ in
+            if let text = catalogAggregateAnnouncement {
                 UIAccessibility.post(notification: .announcement, argument: text)
             }
         }
     }
 
-    /// 医疗域显式检查快捷键（2026-10-27 业主反馈：更新入口不可发现）。
-    /// 只发起本域检查（不读通告、不碰 ASR）；检查态文案与取消仍单点渲染于页首
-    /// 更新中心（D4 修订：中心 = 批处理，域 = 域内动作）。
+    /// 聚合摘要（已装 N/3 · M 个可更新（约 X MB）等；ui-ux §5.12.4）。
+    private var summaryRow: some View {
+        LabeledContent(L10n.resourceCatalogSlicesSummaryLabel) {
+            Text(summaryText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+        .accessibilityIdentifier("SP-64.catalogSlices.summary")
+    }
+
+    private var summaryText: String {
+        switch catalogState.aggregate {
+        case .notChecked:
+            return L10n.resourceCatalogSlicesNotCheckedFmt(catalogState.installedCount)
+        case .checking:
+            return L10n.resourceCatalogSlicesChecking
+        case .updating:
+            return L10n.resourceCatalogSlicesUpdatingFmt(
+                CatalogSliceKind.allCases.filter { catalogState.isUpdating($0) }.count,
+                kindName(currentUpdatingKind))
+        case .allCurrent:
+            return L10n.resourceCatalogSlicesAllCurrent
+        case .updatesAvailable:
+            return L10n.resourceCatalogSlicesCandidatesFmt(
+                catalogState.installedCount, catalogState.candidates.count,
+                MedicalCatalogPromptCopy.sizeText(catalogState.totalDownloadBytes))
+        case .partialFailure:
+            return L10n.resourceCatalogSlicesPartialFailureFmt(
+                CatalogSliceKind.allCases.filter { isFailed($0) }.count)
+        case .allFailed:
+            return L10n.resourceCatalogSlicesAllFailed
+        case .appUpdateRequired:
+            return L10n.resourceCatalogSlicesAppUpdateRequiredFmt(appUpdateGatedCount)
+        case .sourcePartial:
+            return L10n.resourceCatalogSlicesSourcePartialFmt(sourceGapCount)
+        case .unavailable:
+            return L10n.resourceCatalogUnavailable
+        }
+    }
+
+    private var currentUpdatingKind: CatalogSliceKind {
+        CatalogSliceKind.allCases.first { catalogState.isUpdating($0) } ?? .drug
+    }
+
+    private func isFailed(_ kind: CatalogSliceKind) -> Bool {
+        switch catalogState.remoteState(kind) {
+        case .rateLimited, .networkUnavailable, .verificationFailed: return true
+        default: return false
+        }
+    }
+
+    private var appUpdateGatedCount: Int {
+        CatalogSliceKind.allCases.filter {
+            if case .appUpdateRequired = catalogState.remoteState($0) { return true }
+            return false
+        }.count
+    }
+
+    private var sourceGapCount: Int {
+        CatalogSliceKind.allCases.filter {
+            switch catalogState.remoteState($0) {
+            case .sourceNotProvided, .removedFromSource: return true
+            default: return false
+            }
+        }.count
+    }
+
+    private func kindName(_ kind: CatalogSliceKind) -> String {
+        switch kind {
+        case .drug: return L10n.resourceCatalogSliceDrugName
+        case .facility: return L10n.resourceCatalogSliceFacilityName
+        case .reference: return L10n.resourceCatalogSliceReferenceName
+        }
+    }
+
+    private func kindUsage(_ kind: CatalogSliceKind) -> String {
+        switch kind {
+        case .drug: return L10n.resourceCatalogSliceDrugUsage
+        case .facility: return L10n.resourceCatalogSliceFacilityUsage
+        case .reference: return L10n.resourceCatalogSliceReferenceUsage
+        }
+    }
+
+    /// 单行：名称 + 用途（caption）+ 版本/大小/动作（右侧）。
+    @ViewBuilder
+    private func sliceRow(_ kind: CatalogSliceKind) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Text(kindName(kind))
+                    .font(.subheadline)
+                Spacer()
+                if catalogState.isUpdating(kind) {
+                    ProgressView().controlSize(.small)
+                }
+                Button(actionTitle(kind)) { performRowAction(kind) }
+                    .font(.caption)
+                    .frame(minHeight: touchTarget)
+                    .disabled(!rowActionEnabled(kind))
+                    .accessibilityIdentifier("SP-64.catalogSlices.action.\(kind.rawValue)")
+            }
+            Text(kindUsage(kind))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(rowStatusText(kind))
+                .font(.caption)
+                .foregroundStyle(isFailed(kind) ? Color("semantic-warning", bundle: .main) : .secondary)
+                .accessibilityIdentifier("SP-64.catalogSlices.status.\(kind.rawValue)")
+            if let progress = catalogState.progress[kind] {
+                ProgressView(value: progressFraction(progress))
+                    .accessibilityValue(percentText(progress) ?? "")
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityIdentifier("SP-64.catalogSlices.progress.\(kind.rawValue)")
+                if catalogState.canCancelUpdate(kind) {
+                    Button(L10n.resourceCatalogSliceActionCancel) { catalogState.cancelUpdate() }
+                        .font(.caption)
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("SP-64.catalogSlices.cancel.\(kind.rawValue)")
+                }
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("SP-64.catalogSlices.row.\(kind.rawValue)")
+    }
+
+    private func actionTitle(_ kind: CatalogSliceKind) -> String {
+        switch catalogState.remoteState(kind) {
+        case .updateAvailable:
+            return catalogState.localVersion(kind) == nil
+                ? L10n.resourceCatalogSliceActionInstall
+                : L10n.resourceCatalogSliceActionUpdate
+        case .checking:
+            return L10n.resourceCatalogSliceActionCheck
+        default:
+            return L10n.resourceCatalogSliceActionCheck
+        }
+    }
+
+    private func rowActionEnabled(_ kind: CatalogSliceKind) -> Bool {
+        if catalogState.isUpdating(kind) || catalogState.aggregate == .checking { return false }
+        if case .updateAvailable = catalogState.remoteState(kind) { return catalogState.canUpdate }
+        return catalogState.canCheck
+    }
+
+    private func performRowAction(_ kind: CatalogSliceKind) {
+        if case .updateAvailable = catalogState.remoteState(kind) {
+            catalogState.install(kind)
+        } else {
+            catalogState.check()
+        }
+    }
+
+    private func rowStatusText(_ kind: CatalogSliceKind) -> String {
+        if let error = catalogState.errors[kind] {
+            return L10n.resourceCatalogSliceInstallFailedFmt(
+                MedicalCatalogPromptCopy.errorText(error, hasLocal: catalogState.localVersion(kind) != nil))
+        }
+        switch catalogState.remoteState(kind) {
+        case .idle:
+            if let version = catalogState.localVersion(kind) {
+                return L10n.resourceCatalogSliceInstalledFmt(version)
+            }
+            return L10n.resourceCatalogSliceNotInstalled
+        case .checking:
+            return L10n.resourceCatalogSliceChecking
+        case .upToDate(let version):
+            return version.map { L10n.resourceCatalogSliceInstalledFmt($0) }
+                ?? L10n.resourceCatalogSliceUpToDate
+        case .updateAvailable(let candidate):
+            return L10n.resourceCatalogSliceCandidateFmt(
+                candidate.catalogVersion, MedicalCatalogPromptCopy.sizeText(candidate.packageSize))
+        case .sourceNotProvided:
+            return L10n.resourceCatalogSliceSourceNotProvided
+        case .removedFromSource:
+            return L10n.resourceCatalogSliceRemovedFromSource
+        case .appUpdateRequired(let build, _):
+            return L10n.resourceCatalogSliceAppUpdateRequiredFmt(build)
+        case .rateLimited, .networkUnavailable:
+            return L10n.resourceCatalogSliceCheckUnavailable
+        case .verificationFailed:
+            return L10n.resourceCatalogSliceVerificationFailed
+        case .unavailable:
+            return L10n.resourceCatalogUnavailable
+        }
+    }
+
+    private func progressFraction(_ progress: MedicalCatalogDownloadProgress) -> Double {
+        guard case .downloading(let received, let total) = progress, total > 0 else { return 0 }
+        return Double(received) / Double(total)
+    }
+
+    /// 进度百分比（无障碍 value）：颜色/进度条不是唯一状态信号，数字随读。
+    private func percentText(_ progress: MedicalCatalogDownloadProgress) -> String? {
+        guard case .downloading(let received, let total) = progress, total > 0 else { return nil }
+        return "\(received * 100 / total)%"
+    }
+
+    /// 医疗域显式检查快捷键（聚合检查 = 一次扇出三片；两次显式点击语义不变）。
     private var checkButton: some View {
         Button {
             catalogState.check()
@@ -214,126 +380,27 @@ struct ResourceManagementView: View {
 
     /// 空闲/检查中 = 「检查更新」；任何已决结果后 = 「重新检查」。
     private var checkButtonTitle: String {
-        switch catalogState.remoteState {
-        case .idle, .checking: return L10n.resourceCatalogCheck
+        switch catalogState.aggregate {
+        case .notChecked, .checking: return L10n.resourceCatalogCheck
         default: return L10n.resourceCatalogRecheck
         }
     }
 
-    /// 检查结果落定播报一次（不播 idle/checking；阶段与完成/失败已有独立播报）。
-    private func catalogResultAnnouncement(_ state: MedicalCatalogRemoteState) -> String? {
-        switch state {
-        case .idle, .checking: return nil
-        case .upToDate: return L10n.resourceCatalogUpToDate
-        case .updateAvailable(let candidate):
-            return L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion)
-        case .noInstallableAvailable: return L10n.resourceCatalogNoInstallable
+    /// 聚合态播报键（只随聚合派生值变化，不随下载字节变化）。
+    private var catalogAggregatePhaseKey: String {
+        "\(catalogState.aggregate)-\(catalogState.installedCount)-\(catalogState.candidates.count)"
+    }
+
+    /// 检查/安装终态播报一次（不播 idle/checking/进行中）。
+    private var catalogAggregateAnnouncement: String? {
+        switch catalogState.aggregate {
+        case .allCurrent, .sourcePartial: return L10n.resourceCatalogSlicesAllCurrent
+        case .updatesAvailable, .partialFailure: return summaryText
+        case .allFailed: return L10n.resourceCatalogSlicesAllFailed
+        case .appUpdateRequired: return L10n.resourceCatalogSlicesAppUpdateRequired
         case .unavailable: return L10n.resourceCatalogUnavailable
-        case .rateLimited: return L10n.resourceCatalogRateLimited
-        case .verificationFailed: return L10n.resourceCatalogVerificationFailed
-        case .networkUnavailable: return L10n.resourceCatalogNetworkUnavailable
+        case .notChecked, .checking, .updating: return nil
         }
-    }
-
-    /// 阶段键（无关联值的稳定形态）：只播报阶段切换，下载字节变化不触发播报。
-    private var catalogUpdatePhaseKey: String {
-        guard let progress = catalogState.updateProgress else { return "idle" }
-        switch progress {
-        case .downloading: return "downloading"
-        case .verifyingPackage: return "verifyingPackage"
-        case .decrypting: return "decrypting"
-        case .verifyingCatalog: return "verifyingCatalog"
-        case .activating: return "activating"
-        }
-    }
-
-    /// 2026-10-07 统一更新中心批（委员会裁定 D4）：检查入口与**检查态呈现**收敛到
-    /// 页首「更新中心」（单一状态单渲染点）；本节只保留**更新动作闭环**——候选
-    /// 详情 + [更新]（及下方进度/错误/完成行由父视图按态追加）。
-    @ViewBuilder
-    private var remoteRow: some View {
-        // 更新进行中只显示进度/取消（避免「进度 + 禁用更新按钮」双动作面）。
-        if case .updateAvailable(let candidate) = catalogState.remoteState,
-           !catalogState.isUpdating {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    VLDownloadActivityIcon(isActive: catalogState.isUpdating)
-                    Text(L10n.resourceCatalogUpdateAvailableFmt(candidate.catalogVersion))
-                }
-                .font(.subheadline)
-                .accessibilityIdentifier("SP-64.medicalCatalog.status")
-                Text(L10n.resourceCatalogCandidateDetailFmt(
-                    String(candidate.dataVersion.prefix(8)),
-                    ByteCountFormatter.string(fromByteCount: candidate.packageSize, countStyle: .file)))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Button {
-                    catalogState.applyUpdate()
-                } label: {
-                    Text(L10n.resourceCatalogUpdate)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .frame(minHeight: touchTarget)
-                .disabled(catalogState.isUpdating)
-                .accessibilityHint(L10n.resourceCatalogUpdateHint)
-                .accessibilityIdentifier("SP-64.medicalCatalog.update")
-            }
-        }
-    }
-
-    private func updateProgressRow(_ progress: MedicalCatalogDownloadProgress) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                VLDownloadActivityIcon(isActive: true, font: .caption)
-                Text(catalogPhaseText(progress))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                // 切换阶段开始后安装器不再响应取消（journal 契约）——隐藏取消按钮
-                if catalogState.canCancelUpdate {
-                    Button(L10n.commonCancel) { catalogState.cancelUpdate() }
-                        .font(.caption)
-                        .frame(minHeight: touchTarget)
-                        .accessibilityHint(L10n.resourceCatalogCancelHint)
-                        .accessibilityIdentifier("SP-64.medicalCatalog.cancel")
-                }
-            }
-            switch progress {
-            case .downloading(let received, let total):
-                ProgressView(value: total > 0 ? Double(received) / Double(total) : 0)
-                Text(byteText(received, total))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(L10n.resourceCatalogDownloadingKeepOpen)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            default:
-                ProgressView()
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .contain)
-        .accessibilityValue(percentText(progress) ?? "")
-        .accessibilityIdentifier("SP-64.medicalCatalog.progress")
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-
-    /// 进度百分比（无障碍 value）：颜色/进度条不是唯一状态信号，数字随读。
-    private func percentText(_ progress: MedicalCatalogDownloadProgress) -> String? {
-        guard case .downloading(let received, let total) = progress, total > 0 else { return nil }
-        return "\(received * 100 / total)%"
-    }
-
-    private func catalogPhaseText(_ progress: MedicalCatalogDownloadProgress) -> String {
-        MedicalCatalogPromptCopy.phaseText(progress)
-    }
-
-    /// 更新错误 → 用户文案：安全事件（回退拒绝）与可行动指引（存储不足/重新检查/
-    /// 未配置）单列，其余保留通用「更新失败，本机目录仍可用」（13 词折叠评审修复）。
-    private func updateErrorText(_ error: MedicalCatalogDownloadError) -> String {
-        MedicalCatalogPromptCopy.errorText(error, hasLocal: catalogState.localVersion != nil)
     }
 
     /// 本地更新时间：App 内语言 locale 的短日期+时间。

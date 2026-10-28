@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 // linux-blind: GRDB only links on Apple platforms; Linux compiles an empty unit.
+import Domain
 import Foundation
 import GRDB
 
@@ -18,6 +19,38 @@ public enum CatalogSliceProbe {
         case integrityFailed
         case countsMismatch
         case ready(CatalogSliceMetaContract.Observed)
+    }
+
+    /// 启动期自洽探测（boot 判据用；无需 manifest）：期望表集来自静态冻结常量
+    /// `expectedTables(kind, schemaVersion: 1)`，counts 期望取自库内 slice_meta 自身
+    /// （安装期已对已验签 manifest 做过三方核对，此处只防「拿错文件/被替换」）。
+    public static func inspectSelfConsistent(path: String, kind: CatalogSliceKind,
+                                             fileManager: FileManager = .default) -> State {
+        guard fileManager.fileExists(atPath: path) else { return .missing }
+        guard let tables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: 1) else {
+            return .contractViolation(.badValue("tables"))
+        }
+        var configuration = Configuration()
+        configuration.readonly = true
+        configuration.foreignKeysEnabled = false
+        configuration.busyMode = .timeout(1)
+        let counts: [String: Int64]
+        do {
+            counts = try DatabaseQueue(path: path, configuration: configuration).read { db in
+                let rows: [(key: String, value: String)] = try Row.fetchAll(db, sql: "SELECT key, value FROM slice_meta")
+                    .map { (key: $0["key"] as String, value: $0["value"] as String) }
+                let meta = Dictionary(rows.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+                guard let raw = meta["counts"].flatMap({ $0.data(using: .utf8) }),
+                      let decoded = try? JSONDecoder().decode([String: Int64].self, from: raw) else {   // try?-ok: 形态错按契约违规
+                    throw CatalogSliceMetaContract.Violation.badValue("counts")
+                }
+                return decoded
+            }
+        } catch {
+            return .unreadable
+        }
+        return inspect(path: path, kind: kind, expectedTables: tables, expectedCounts: counts,
+                       verifyCounts: true, fileManager: fileManager)
     }
 
     /// `expectedTables`/`expectedCounts` 来自已验签 manifest（`CatalogSliceManifestDecoder`）；

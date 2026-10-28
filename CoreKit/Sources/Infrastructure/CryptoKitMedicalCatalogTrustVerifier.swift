@@ -1,12 +1,16 @@
 #if os(iOS) || os(macOS)
 // linux-blind: CryptoKit Ed25519 验签（Apple 专属模块，Linux 不可用） —— Linux 型检编译空单元，改动须经 macOS CI 验证
 import CryptoKit
+import Domain
 import Foundation
 
 /// medical-data 独立信任链的 CryptoKit 验签器。pinned root 在构造时由 App bundle 固定，
 /// `verify` 不接收任何网络给出的 trust root；App 永不加载私钥。
 /// 签名只针对 payload 原始字节，解码后的字段绝不重序列化再验。
-public struct CryptoKitMedicalCatalogTrustVerifier: MedicalCatalogTrustVerifying, Sendable {
+/// 2026-10-28：同型承担切片清单验签（`CatalogSliceTrustVerifying`——同一 pinned
+/// root、同一 2-of-2 计数判定，只是载荷解码走 `CatalogSliceManifestDecoder`）。
+public struct CryptoKitMedicalCatalogTrustVerifier: MedicalCatalogTrustVerifying,
+                                                     CatalogSliceTrustVerifying, Sendable {
     private let pinnedRootJSON: Data
     private let now: @Sendable () -> Date
 
@@ -18,6 +22,14 @@ public struct CryptoKitMedicalCatalogTrustVerifier: MedicalCatalogTrustVerifying
     public func verify(catalogJSON: Data, expected: MedicalCatalogSignedExpectation) throws {
         try Self.evaluator.verify(pinnedRootJSON: pinnedRootJSON, catalogJSON: catalogJSON,
                                   expected: expected, now: now())
+    }
+
+    /// 切片清单验签：`<stem>.json` 签名信封 → 严格载荷解码 → 密封候选。
+    public func verifySlice(manifestJSON: Data, kind: CatalogSliceKind, servedAs: String) throws
+        -> VerifiedCatalogSliceCandidate {
+        try Self.evaluator.verifySlice(pinnedRootJSON: pinnedRootJSON, manifestJSON: manifestJSON,
+                                       kind: kind, servedAs: servedAs,
+                                       hasher: CryptoKitContentHasher(), now: now())
     }
 
     static let evaluator = MedicalCatalogTrustEvaluator(

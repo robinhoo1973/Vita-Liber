@@ -95,6 +95,13 @@ struct AppContainer {
     /// AES-256-GCM 信封，无注入材料）；缺省 nil → 更新入口 fail-closed
     /// （packageInvalid），last-good 不受影响。
     let medicalCatalogOpener: (any MedicalCatalogPackageOpening)?
+    /// 三切片读面（2026-10-28 切片-only）：每片独立只读池 + 锁式 facade；
+    /// nil = 装配未走切片路径（降级/预览缺省）。
+    let catalogSlices: CatalogSliceReadFacade?
+    /// 切片检查器（pinned root provisioning 前 nil——检查 fail-closed「暂不可用」）。
+    let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
+    /// 切片安装器（每片独立 journal/staging/last-good；nil = 安装入口 fail-closed）。
+    let catalogSliceUpdater: CatalogSliceUpdateService?
     /// Both ports retain the same facade across installations.
     var medicalReferenceCatalog: (any MedicalReferenceCatalogReading)? {
         guard let medicalCatalog, medicalCatalog.isAvailable else { return nil }
@@ -191,6 +198,9 @@ struct AppContainer {
         let catalogChecker: (any MedicalCatalogReleaseResolving)?
         let catalogOpener: (any MedicalCatalogPackageOpening)?
         let updateAdviceProvider: (any UpdateAdviceProviding)?
+        let catalogSlices: CatalogSliceReadFacade?
+        let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
+        let catalogSliceUpdater: CatalogSliceUpdateService?
         #if os(iOS) || os(macOS)
         // XCUITest 离线用例：pinned root 随包后 checker 恒非 nil，任何点按都会真实
         // 联网。仅 DEBUG 的 -uitest-catalog-checker-off 走 checker==nil → .unavailable。
@@ -212,10 +222,86 @@ struct AppContainer {
         // floor 与医疗信任状态同支持目录、独立文件。
         updateAdviceProvider = UpdateAdviceService(
             floorStore: UpdateAdviceFloorStore.production(supportDirectory: catalogSupport))
+        // 三切片（2026-10-28 切片-only）：支持目录 AppSupport/VitaLiber/catalog/v5。
+        // 顺序：每片 journal 恢复（打开前）→ 自洽探测通过才挂读面（缺片=域级不可用）；
+        // 检查器/安装器共用 bundled pinned root（uiTest 关闭时 checker=nil，失败闭合）。
+        let sliceDirectory = URL(fileURLWithPath: Self.defaultCatalogSliceDirectory(), isDirectory: true)
+        let sliceFacade = CatalogSliceReadFacade()
+        let sliceTrust = CatalogSliceTrust(directory: sliceDirectory)
+        let sliceBuild: @Sendable () -> Int64 = {
+            Int64(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") ?? 0
+        }
+        for kind in CatalogSliceKind.allCases {
+            let active = CatalogSliceUpdateService.activeURL(kind, directory: sliceDirectory)
+            let journal = CatalogSliceActivationJournal(
+                journalURL: sliceDirectory.appendingPathComponent(kind.stem + "-active-journal.json"),
+                supportDirectory: sliceDirectory,
+                sha256: { try StreamingFileHasher.sha256(of: $0) },
+                verifyInstalled: { url in
+                    guard case .ready = CatalogSliceProbe.inspectSelfConsistent(path: url.path, kind: kind) else {
+                        throw MedicalCatalogUpdateError.catalogIntegrityFailed
+                    }
+                })
+            do {
+                _ = try journal.recoverBeforeOpen(catalogURL: active)
+            } catch {
+                // 恢复失败（不可收敛）：该片 fail-closed 不挂读面，其余片不受影响。
+                logger.error("切片恢复失败(\(kind.rawValue))，该片暂不启用: \(String(describing: error))")
+                continue
+            }
+            switch kind {
+            case .drug:
+                if let store = try? CatalogSliceDrugStore(path: active) { sliceFacade.commitDrug(store) }   // try?-ok: 未装/损坏=该域不可用
+            case .facility:
+                if let store = try? CatalogSliceFacilityStore(path: active) { sliceFacade.commitFacility(store) }   // try?-ok: 同上
+            case .reference:
+                if let store = try? CatalogSliceExamStore(path: active) { sliceFacade.commitExam(store) }   // try?-ok: 同上
+            }
+        }
+        catalogSlices = sliceFacade
+        catalogSliceChecker = catalogRoot.map { root in
+            CatalogSliceReleaseResolver(
+                pinnedRootJSON: root,
+                makeVerifier: { CryptoKitMedicalCatalogTrustVerifier(pinnedRootJSON: $0) },
+                trust: sliceTrust,
+                localReceipt: { kind in
+                    CatalogSliceReceipt.read(kind: kind, directory: sliceDirectory)
+                },
+                currentBuild: sliceBuild)
+        }
+        catalogSliceUpdater = CatalogSliceUpdateService(
+            directory: sliceDirectory,
+            // fetcher 缺省由 Infrastructure 自建（切片名门文法；L0 家族 Q：
+            // App 层不得引用传输实现符号）。
+            opener: EnvelopeMedicalCatalogPackageOpening(),
+            journalFor: { kind in
+                CatalogSliceActivationJournal(
+                    journalURL: sliceDirectory.appendingPathComponent(kind.stem + "-active-journal.json"),
+                    supportDirectory: sliceDirectory,
+                    sha256: { try StreamingFileHasher.sha256(of: $0) },
+                    verifyInstalled: { url in
+                        guard case .ready = CatalogSliceProbe.inspectSelfConsistent(path: url.path, kind: kind) else {
+                            throw MedicalCatalogUpdateError.catalogIntegrityFailed
+                        }
+                    })
+            },
+            currentBuild: sliceBuild,
+            verifySQLite: { url, candidate in
+                switch CatalogSliceProbe.inspect(path: url.path, kind: candidate.kind,
+                                                 expectedTables: Set(candidate.tables),
+                                                 expectedCounts: candidate.counts,
+                                                 verifyCounts: true) {
+                case .ready: return
+                default: throw MedicalCatalogUpdateError.catalogIntegrityFailed
+                }
+            })
         #else
         catalogChecker = nil
         catalogOpener = nil
         updateAdviceProvider = nil
+        catalogSlices = nil
+        catalogSliceChecker = nil
+        catalogSliceUpdater = nil
         #endif
         // 2026-10-27 存储边界：敏感媒体/原件 canonical 根迁出 Documents（ADR-036）。
         return assemble(store: store, scheduler: productionScheduler(),
@@ -224,6 +310,9 @@ struct AppContainer {
                         medicalCatalogUpdater: updater,
                         medicalCatalogChecker: catalogChecker,
                         medicalCatalogOpener: catalogOpener,
+                        catalogSlices: catalogSlices,
+                        catalogSliceChecker: catalogSliceChecker,
+                        catalogSliceUpdater: catalogSliceUpdater,
                         updateAdvice: updateAdviceProvider)
     }
 
@@ -283,6 +372,9 @@ struct AppContainer {
                                  medicalCatalogUpdater: MedicalCatalogUpdateService? = nil,
                                  medicalCatalogChecker: (any MedicalCatalogReleaseResolving)? = nil,
                                  medicalCatalogOpener: (any MedicalCatalogPackageOpening)? = nil,
+                                 catalogSlices: CatalogSliceReadFacade? = nil,
+                                 catalogSliceChecker: (any CatalogSliceReleaseResolving)? = nil,
+                                 catalogSliceUpdater: CatalogSliceUpdateService? = nil,
                                  updateAdvice: (any UpdateAdviceProviding)? = nil) -> AppContainer {
         // 引擎注册提前到组装根：资产仓等依赖注入端口的能力在组合根装配时即就位。
         // AppState.init 侧有 isRegistered 幂等守卫，重复调用不覆盖已注入桩。
@@ -393,6 +485,9 @@ struct AppContainer {
                              medicalCatalogUpdater: medicalCatalogUpdater,
                              medicalCatalogChecker: medicalCatalogChecker,
                              medicalCatalogOpener: medicalCatalogOpener,
+                             catalogSlices: catalogSlices,
+                             catalogSliceChecker: catalogSliceChecker,
+                             catalogSliceUpdater: catalogSliceUpdater,
                              updateAdvice: updateAdvice,
                              pdfExport: pdfExport,
                             healthReader: healthReader,
@@ -475,6 +570,19 @@ struct AppContainer {
         do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         catch { /* 更新服务/只读打开路径失败时如实显示不可用 */ }
         return dir.appendingPathComponent("medical-catalog.sqlite").path
+    }
+
+    /// 三切片支持目录（2026-10-28 切片-only）：`AppSupport/VitaLiber/catalog/v5`——
+    /// 与 `DatabaseBootService.v5CatalogPath` 同源（journal/floor/回执/active 均在
+    /// 此目录按片命名）。
+    static func defaultCatalogSliceDirectory() -> String {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory,
+                                            in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("VitaLiber/catalog/v5", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        catch { /* 打开/安装报文时如实失败 */ }
+        return dir.path
     }
 
     /// 原件专用目录（BR-002）：`<Documents>/MedicalNotes/originals/`——

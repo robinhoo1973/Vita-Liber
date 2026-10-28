@@ -38,6 +38,10 @@ struct DatabaseBootDiagnostics: Sendable, Equatable {
     let catalogV5PackagesPresent: Int
     let catalogV5SchemaConsistent: Bool
     let catalogSupportedByCurrentApp: Bool
+    /// 三切片启动探测（2026-10-28 切片-only）：每片自洽态 + 就绪计数。
+    /// 「就绪」= 该片 `CatalogSliceProbe.inspectSelfConsistent` 通过（表集/契约/完整性/COUNT）。
+    let catalogSliceReadyCount: Int
+    let catalogSliceStates: [String]
 }
 
 struct PreparedDatabase: Sendable {
@@ -82,13 +86,17 @@ enum DatabaseBootService {
             originalsPresent: originalsPresent)
         let catalogPath = AppContainer.defaultMedicalCatalogPath()
         let catalogState = CatalogSchemaProbe.inspect(path: catalogPath)
-        let v5Paths = v5CatalogNames.map { v5CatalogPath($0) }
-        let v5States = v5Paths.map { CatalogSchemaProbe.inspect(path: $0) }
-        let v5Present = v5States.filter { state in
-            if case .missing = state { return false }
-            return true
-        }.count
-        let v5SchemaConsistent = v5States.allSatisfy { $0 == .v5 }
+        // 三切片探测（2026-10-28 切片-only）：切片库只有 slice_meta，绝不回落 v4 的
+        // catalog_meta/user_version 语义——每片自洽校验（表集/契约/完整性/COUNT）。
+        let sliceStates: [(kind: CatalogSliceKind, label: String)] =
+            CatalogSliceKind.allCases.map { kind in
+                let state = CatalogSliceProbe.inspectSelfConsistent(
+                    path: v5CatalogPath(kind.sqliteEntryName), kind: kind)
+                return (kind, Self.sliceLabel(state))
+            }
+        let sliceReady = sliceStates.filter { $0.label == "ready" }.count
+        let v5Present = sliceStates.filter { $0.label != "missing" }.count
+        let v5SchemaConsistent = sliceReady == CatalogSliceKind.allCases.count
         let catalogPresent = catalogState != .missing || v5Present > 0
 
         var registeredCount = 0
@@ -201,7 +209,11 @@ enum DatabaseBootService {
                 catalogSchemaVersion: catalogState.version,
                 catalogV5PackagesPresent: v5Present,
                 catalogV5SchemaConsistent: v5SchemaConsistent,
-                catalogSupportedByCurrentApp: catalogState == .v4))
+                // 切片-only（2026-10-28）：当前 App 只认切片——三片全就绪才算「已支持」；
+                // v4 残留仅作存在性诊断（新 App 不读、不阻止首启卡出现）。
+                catalogSupportedByCurrentApp: sliceReady == CatalogSliceKind.allCases.count,
+                catalogSliceReadyCount: sliceReady,
+                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.label)" }))
     }
 
     /// v5 三包固定名；安装、选择、激活归 f7，gate 只做 registry/探测。
@@ -218,6 +230,18 @@ enum DatabaseBootService {
             ?? fileManager.temporaryDirectory
         return base.appendingPathComponent("VitaLiber/catalog/v5", isDirectory: true)
             .appendingPathComponent(name).path
+    }
+
+    private static func sliceLabel(_ state: CatalogSliceProbe.State) -> String {
+        switch state {
+        case .missing: return "missing"
+        case .unreadable: return "unreadable"
+        case .contractViolation: return "contract-violation"
+        case .tableSetMismatch: return "table-set-mismatch"
+        case .integrityFailed: return "integrity-failed"
+        case .countsMismatch: return "counts-mismatch"
+        case .ready: return "ready"
+        }
     }
 
     private static func hasOriginalsEvidence() -> Bool {

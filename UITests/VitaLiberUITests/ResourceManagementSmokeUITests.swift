@@ -14,9 +14,9 @@ final class ResourceManagementSmokeUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 5), "资源页入口必须在设置 > 健康记录内可达")
         entry.tap()
 
-        // 本机目录状态行（本地与远端状态分离——重置态下也常显「目录尚不可用」）
-        let local = app.descendants(matching: .any)["SP-64.medicalCatalog.local"].firstMatch
-        XCTAssertTrue(local.waitForExistence(timeout: 10), "资源页必须常显本机目录状态行")
+        // 三切片聚合摘要行（2026-10-28 切片-only：三行+摘要常显；重置态「已装 0/3」）
+        let summary = app.descendants(matching: .any)["SP-64.catalogSlices.summary"].firstMatch
+        XCTAssertTrue(summary.waitForExistence(timeout: 10), "资源页必须常显三类目录聚合摘要行")
 
         // 统一更新中心（2026-10-07 批；2026-10-27 D4 修订）：[检查全部更新] = 跨域
         // 批处理入口（测试不做网络触发，只断言存在）；医疗域另有单域快捷键。
