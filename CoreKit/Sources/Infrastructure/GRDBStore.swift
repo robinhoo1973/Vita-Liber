@@ -50,7 +50,7 @@ public struct GRDBStore: Sendable {
     public static func readOnly(at path: String) throws -> GRDBStore {
         var config = configuration()
         config.readonly = true
-        return GRDBStore(readOnlyWriter: DatabaseQueue(path: path, configuration: config))
+        return GRDBStore(readOnlyWriter: try DatabaseQueue(path: path, configuration: config))
     }
 
     /// 只读构造旁路：不建库、不迁移、不写 user_version。
