@@ -42,6 +42,22 @@ public struct GRDBStore: Sendable {
         try GRDBStore(writer: DatabasePool(path: path, configuration: configuration()))
     }
 
+    /// 只读降级装配（2026-10-28 只读降级规划轮；B0 实证干净关闭库可只读打开）：
+    /// readonly `DatabaseQueue` 单连接（快败；Pool 惰性 reader 不采用），**绝不走
+    /// init**（init 必跑建库/迁移/写 user_version）；打开失败即抛，绝不回落读写
+    /// （零写红线）。`prepareDatabase`（bigrams）对只读连接照常注册；热 WAL 态
+    /// （-wal/-shm 在场）可能开败——调用方须 graceful（不显示只读入口）。
+    public static func readOnly(at path: String) throws -> GRDBStore {
+        var config = configuration()
+        config.readonly = true
+        return GRDBStore(readOnlyWriter: DatabaseQueue(path: path, configuration: config))
+    }
+
+    /// 只读构造旁路：不建库、不迁移、不写 user_version。
+    private init(readOnlyWriter: any DatabaseWriter) {
+        self.writer = readOnlyWriter
+    }
+
     /// 测试与 Preview 装配：内存库（WAL 不适用于内存库，按 GRDB 惯例用 DatabaseQueue）
     public static func inMemory() throws -> GRDBStore {
         try GRDBStore(writer: DatabaseQueue(configuration: configuration()))
