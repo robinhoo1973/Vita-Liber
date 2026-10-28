@@ -178,18 +178,21 @@ struct ResourceManagementView: View {
     private var summaryText: String {
         switch catalogState.aggregate {
         case .notChecked:
-            return L10n.resourceCatalogSlicesNotCheckedFmt(catalogState.installedCount)
+            return L10n.resourceCatalogSlicesNotCheckedFmt(
+                catalogState.installedCount, CatalogSliceKind.allCases.count)
         case .checking:
             return L10n.resourceCatalogSlicesChecking
         case .updating:
             return L10n.resourceCatalogSlicesUpdatingFmt(
                 CatalogSliceKind.allCases.filter { catalogState.isUpdating($0) }.count,
+                CatalogSliceKind.allCases.count,
                 kindName(currentUpdatingKind))
         case .allCurrent:
             return L10n.resourceCatalogSlicesAllCurrent
         case .updatesAvailable:
             return L10n.resourceCatalogSlicesCandidatesFmt(
-                catalogState.installedCount, catalogState.candidates.count,
+                catalogState.installedCount, CatalogSliceKind.allCases.count,
+                catalogState.candidates.count,
                 MedicalCatalogPromptCopy.sizeText(catalogState.totalDownloadBytes))
         case .partialFailure:
             return L10n.resourceCatalogSlicesPartialFailureFmt(
@@ -237,6 +240,7 @@ struct ResourceManagementView: View {
         case .drug: return L10n.resourceCatalogSliceDrugName
         case .facility: return L10n.resourceCatalogSliceFacilityName
         case .reference: return L10n.resourceCatalogSliceReferenceName
+        case .profile: return L10n.resourceCatalogSliceProfileName
         }
     }
 
@@ -245,6 +249,7 @@ struct ResourceManagementView: View {
         case .drug: return L10n.resourceCatalogSliceDrugUsage
         case .facility: return L10n.resourceCatalogSliceFacilityUsage
         case .reference: return L10n.resourceCatalogSliceReferenceUsage
+        case .profile: return L10n.resourceCatalogSliceProfileUsage
         }
     }
 

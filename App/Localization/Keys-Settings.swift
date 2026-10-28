@@ -196,6 +196,10 @@ extension L10n {
 
     static var resourceCatalogSliceReferenceUsage: String { t("settings.resource.catalog.slice.reference.usage") }
 
+    static var resourceCatalogSliceProfileName: String { t("settings.resource.catalog.slice.profile.name") }
+
+    static var resourceCatalogSliceProfileUsage: String { t("settings.resource.catalog.slice.profile.usage") }
+
     static var resourceCatalogSliceNotInstalled: String { t("settings.resource.catalog.slice.state.notInstalled") }
 
     static func resourceCatalogSliceInstalledFmt(_ a0: Int64) -> String {
@@ -236,24 +240,25 @@ extension L10n {
 
     static var resourceCatalogSliceActionCancel: String { t("settings.resource.catalog.slice.action.cancel") }
 
-    static func resourceCatalogSlicesInstalledFmt(_ a0: Int) -> String {
-        String(format: t("settings.resource.catalog.summary.installedFmt"), a0)
+    static func resourceCatalogSlicesInstalledFmt(_ a0: Int, _ a1: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.installedFmt"), a0, a1)
     }
 
-    static func resourceCatalogSlicesNotCheckedFmt(_ a0: Int) -> String {
-        String(format: t("settings.resource.catalog.summary.notCheckedFmt"), a0)
+    static func resourceCatalogSlicesNotCheckedFmt(_ a0: Int, _ a1: Int) -> String {
+        String(format: t("settings.resource.catalog.summary.notCheckedFmt"), a0, a1)
     }
 
     static var resourceCatalogSlicesChecking: String { t("settings.resource.catalog.summary.checking") }
 
     static var resourceCatalogSlicesAllCurrent: String { t("settings.resource.catalog.summary.allCurrent") }
 
-    static func resourceCatalogSlicesCandidatesFmt(_ a0: Int, _ a1: Int, _ a2: String) -> String {
-        String(format: t("settings.resource.catalog.summary.candidatesFmt"), a0, a1, a2)
+    static func resourceCatalogSlicesCandidatesFmt(_ a0: Int, _ a1: Int, _ a2: Int,
+                                                   _ a3: String) -> String {
+        String(format: t("settings.resource.catalog.summary.candidatesFmt"), a0, a1, a2, a3)
     }
 
-    static func resourceCatalogSlicesUpdatingFmt(_ a0: Int, _ a1: String) -> String {
-        String(format: t("settings.resource.catalog.summary.updatingFmt"), a0, a1)
+    static func resourceCatalogSlicesUpdatingFmt(_ a0: Int, _ a1: Int, _ a2: String) -> String {
+        String(format: t("settings.resource.catalog.summary.updatingFmt"), a0, a1, a2)
     }
 
     static func resourceCatalogSlicesPartialFailureFmt(_ a0: Int) -> String {

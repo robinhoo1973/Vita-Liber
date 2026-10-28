@@ -32,12 +32,11 @@ enum CatalogSlicesPromptPresentation {
     @MainActor
     static func descriptor(for state: CatalogSlicesState) -> CatalogSlicesPromptDescriptor {
         // 一次性完成事件：全部完成后自动进入（§5.12.4「成功才展示完成」）。
+        // P-批：聚合完成态不带版本——四片版本空间不可比（profile 的 catalogVersion
+        // 与三片目录版本不同轴），逐片版本仍由 SP-64 行内展示。
         if state.hasCompletedAnyUpdate, state.aggregate == .allCurrent {
-            let version = CatalogSliceKind.allCases
-                .compactMap { state.completedVersions[$0] }
-                .max()
             return .init(primary: .enter, secondary: nil, autoEnter: true,
-                         status: .completed(version: version))
+                         status: .completed(version: nil))
         }
         if let (kind, progress) = activeProgress(state) {
             if case .activating = progress {

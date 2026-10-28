@@ -36,6 +36,8 @@ struct DatabaseBootDiagnostics: Sendable, Equatable {
     /// 三切片启动探测（2026-10-28 切片-only）：每片自洽态 + 就绪计数。
     /// 「就绪」= 该片 `CatalogSliceProbe.inspectSelfConsistent` 通过（表集/契约/完整性/COUNT）。
     let catalogSliceReadyCount: Int
+    /// 就绪切片 kind 原始值（带身份；v4 替代集判据/诊断用——勿以计数判语义）。
+    let catalogSliceReadyKinds: [String]
     let catalogSliceStates: [String]
     /// 三片全就绪并已执行 v4 残留清理（启动前置；失败只记日志，不阻断）。
     let legacyCatalogResidueCleaned: Bool
@@ -89,10 +91,12 @@ enum DatabaseBootService {
                     path: v5CatalogPath(kind.sqliteEntryName), kind: kind)
                 return (kind, Self.sliceLabel(state))
             }
-        let sliceReady = sliceStates.filter { $0.label == "ready" }.count
+        let sliceReadyKinds = Set(sliceStates.filter { $0.label == "ready" }.map(\.kind))
+        let sliceReady = sliceReadyKinds.count
         let v5Present = sliceStates.filter { $0.label != "missing" }.count
-        // 「自动迁移前一数据库」（2026-10-28）：三片全就绪才清 v4 残留；未替换前绝不删。
-        let legacyResidueCleaned = LegacyCatalogResidue.cleanIfEligible(sliceReadyCount: sliceReady)
+        // 「自动迁移前一数据库」（2026-10-28；P-批按 kind 子集）：v4 替代集
+        // {drug,facility,reference} 全就绪才清 v4 残留；profile 不参与；未替换前绝不删。
+        let legacyResidueCleaned = LegacyCatalogResidue.cleanIfEligible(readyKinds: sliceReadyKinds)
 
         var registeredCount = 0
         if let history {
@@ -200,16 +204,13 @@ enum DatabaseBootService {
                 targetVersion: targetVersion,
                 decision: decisionLabel,
                 catalogSliceReadyCount: sliceReady,
+                catalogSliceReadyKinds: sliceReadyKinds.map(\.rawValue).sorted(),
                 catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.label)" },
                 legacyCatalogResidueCleaned: legacyResidueCleaned))
     }
 
-    /// v5 三包固定名；安装、选择、激活归 f7，gate 只做 registry/探测。
-    private static let v5CatalogNames = [
-        "app-catalog-drug.sqlite",
-        "app-catalog-facility.sqlite",
-        "app-catalog-reference.sqlite",
-    ]
+    // P-批：死列表 `v5CatalogNames`（三片手写名）已删除——命名一律由
+    // `CatalogSliceKind.stem` 派生（registry 探测走 sliceStates，无第二真源）。
 
     private static func v5CatalogPath(_ name: String,
                                       fileManager: FileManager = .default) -> String {

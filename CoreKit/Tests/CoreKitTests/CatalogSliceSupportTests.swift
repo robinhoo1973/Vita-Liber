@@ -47,9 +47,16 @@ struct CatalogSliceTrustTests {
         try trust.accept(candidate(.drug, catalogVersion: 2, sqlite: "a"))
         try trust.accept(candidate(.facility, catalogVersion: 2, sqlite: "c"))
         try trust.accept(candidate(.reference, catalogVersion: 2, sqlite: "e"))
+        // profile 第四切片：独立文件、独立 floor（stem 例外
+        // app-profile-chronic_surgery-trust.json）。桩值必须是小写十六进制字符。
+        try trust.accept(candidate(.profile, catalogVersion: 2, sqlite: "f"))
         #expect(trust.observedFloor(.drug)?.catalogVersion == 2)
         #expect(trust.observedFloor(.facility)?.payloadDigest == digest("c"))
         #expect(trust.observedFloor(.reference)?.payloadDigest == digest("e"))
+        #expect(trust.observedFloor(.profile)?.payloadDigest == digest("f"))
+        #expect(!FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent("app-catalog-profile-trust.json").path),
+            "profile 的错名 trust 文件永不生成")
         // 每片一文件、v4 文件不存在
         for kind in CatalogSliceKind.allCases {
             #expect(FileManager.default.fileExists(

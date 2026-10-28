@@ -1137,15 +1137,17 @@ fi
 # 切片线协议是整个目录链的地基：「固定名 / 22 键精确集合 / 每片表集 / slice_meta
 # 白名单」任一漂移都会让安装必拒或静默错片——而这些实现文件多为 URLSession/
 # CryptoKit/GRDB 平台守卫（Linux 型检全盲），本节把契约钉成静态断言。
-section "22/22" "切片目录契约 —— 三片固定名/22 键清单/每片表集/slice_meta 白名单（v4 退役后唯一发布单元）"
+section "22/22" "切片目录契约 —— 四片固定名/22 键清单/每片表集/slice_meta 白名单（v4 退役后唯一发布单元）"
 slice_missing=0
 for _f in "$APP/CoreKit/Sources/Domain/CatalogSliceKind.swift" \
+          "$APP/CoreKit/Sources/Domain/MedicalProfileCatalogReading.swift" \
           "$APP/CoreKit/Sources/Infrastructure/CatalogSliceProtocol.swift" \
           "$APP/CoreKit/Sources/Infrastructure/CatalogSliceManifest.swift" \
           "$APP/CoreKit/Sources/Infrastructure/CatalogSliceTrust.swift" \
           "$APP/CoreKit/Sources/Infrastructure/CatalogSliceReceipt.swift" \
           "$APP/CoreKit/Sources/Infrastructure/CatalogSliceMetaContract.swift" \
-          "$APP/CoreKit/Sources/Infrastructure/CatalogSliceProbe.swift"; do
+          "$APP/CoreKit/Sources/Infrastructure/CatalogSliceProbe.swift" \
+          "$APP/CoreKit/Sources/Infrastructure/CatalogSliceProfileStore.swift"; do
   if [ ! -f "$_f" ]; then fail "缺失：$_f"; slice_missing=1; fi
 done
 SLICE_MANIFEST_SWIFT="$APP/CoreKit/Sources/Infrastructure/CatalogSliceManifest.swift"
@@ -1159,14 +1161,29 @@ for _t in drug_detail drug_reference department hospital diagnosis exam_item; do
     fail "切片表集缺：$_t"; slice_missing=1
   fi
 done
+# profile 第四切片 13 表冻结集（2026-10-28 P-批；extension_meta 永不进包）。
+for _t in body_organ common_rank condition_department condition_organ condition_profile \
+          ext_department ext_document ext_evidence ext_source kg_extension_release \
+          surgery surgery_department surgery_organ; do
+  if ! grep -q "\"$_t\"" "$SLICE_MANIFEST_SWIFT" 2>/dev/null; then
+    fail "profile 切片表集缺：$_t"; slice_missing=1
+  fi
+done
 if ! grep -q "catalog-v4" "$APP/CoreKit/Sources/Infrastructure/CatalogSliceMetaContract.swift" 2>/dev/null; then
   fail "slice_meta physical_schema 白名单缺失（catalog-v4）"; slice_missing=1
 fi
 if ! grep -q "app-catalog-" "$APP/CoreKit/Sources/Domain/CatalogSliceKind.swift" 2>/dev/null; then
   fail "切片固定名前缀 app-catalog- 缺失"; slice_missing=1
 fi
+# profile stem 例外（P-批）：冻结资产名必须在场；按 rawValue 拼出的错名永不出现。
+if ! grep -q "app-profile-chronic_surgery" "$APP/CoreKit/Sources/Domain/CatalogSliceKind.swift" 2>/dev/null; then
+  fail "profile stem 例外缺失（app-profile-chronic_surgery）"; slice_missing=1
+fi
+if grep -q "app-catalog-profile" "$APP/CoreKit/Sources/Domain/CatalogSliceKind.swift" 2>/dev/null; then
+  fail "出现非法 profile 名 app-catalog-profile（应为 app-profile-chronic_surgery）"; slice_missing=1
+fi
 if [ "$slice_missing" -eq 0 ]; then
-  pass "切片契约在位：三片固定名/22 键/表集/slice_meta 白名单（v4 退役后唯一发布单元）"
+  pass "切片契约在位：四片固定名/22 键/表集/slice_meta 白名单（v4 退役后唯一发布单元）"
 fi
 
 # ---------- 实计节数断言（业主裁决 Q5；必须在任何 exit 之前执行） ----------

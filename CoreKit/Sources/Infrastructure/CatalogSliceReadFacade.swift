@@ -14,7 +14,7 @@ import Foundation
 /// - 缺片 = 该域不可用：drug 面抛 `Failure.unavailable`；facility/exam 面
 ///   返回空集（患者流零提示，联想自然退化为普通输入）——绝不回退到 v4 或他片。
 public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferenceCatalogReading,
-                                           @unchecked Sendable {
+                                           MedicalProfileCatalogReading, @unchecked Sendable {
     public enum Failure: Error, Equatable {
         case unavailable
         case snapshotChanged
@@ -29,6 +29,7 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
     private var drug: Slot<CatalogSliceDrugStore>?
     private var facility: Slot<CatalogSliceFacilityStore>?
     private var exam: Slot<CatalogSliceExamStore>?
+    private var profile: Slot<CatalogSliceProfileStore>?
     private var epoch: UInt64 = 0
 
     public init() {}
@@ -39,6 +40,13 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
     public var isDrugAvailable: Bool { lock.withLock { drug != nil } }
     public var isFacilityAvailable: Bool { lock.withLock { facility != nil } }
     public var isExamAvailable: Bool { lock.withLock { exam != nil } }
+    public var isProfileAvailable: Bool { lock.withLock { profile != nil } }
+
+    /// 目录检索面是否可用（drug/facility/exam 三片任一；profile 不提供检索，
+    /// 不得据此误判——P6 语义：`medicalReferenceCatalog` 以此谓词判 nil）。
+    public var hasReferenceSlices: Bool {
+        lock.withLock { drug != nil || facility != nil || exam != nil }
+    }
 
     /// 当前可用切片（UI 分组渲染用；顺序按 allCases）。
     public var availableKinds: [CatalogSliceKind] {
@@ -48,6 +56,7 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
                 case .drug: return drug != nil
                 case .facility: return facility != nil
                 case .reference: return exam != nil
+                case .profile: return profile != nil
                 }
             }
         }
@@ -76,12 +85,20 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
         }
     }
 
+    public func commitProfile(_ store: CatalogSliceProfileStore) {
+        lock.withLock {
+            profile = Slot(store: store, generation: (profile?.generation ?? 0) &+ 1)
+            epoch &+= 1
+        }
+    }
+
     /// 清空（备份恢复/清数据/全部切片移除时）；全局 epoch 递增使所有在途读失效。
     public func removeAll() {
         lock.withLock {
             drug = nil
             facility = nil
             exam = nil
+            profile = nil
             epoch &+= 1
         }
     }
@@ -126,6 +143,12 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
         try await withExam(whenUnavailable: []) {
             try await $0.examSuggest(query: query, category: category, region: region, limit: limit)
         }
+    }
+
+    // MARK: - MedicalProfileCatalogReading（profile 切片；缺片抛 unavailable，不返回空集）
+
+    public func profileSnapshot(region: String) async throws -> MedicalProfileCatalogSnapshot {
+        try await withProfile { try await $0.profileSnapshot(region: region) }
     }
 
     /// 切片内容 schema 恒为当前支持版本（每片表集随 kind 在该版本冻结）；
@@ -173,6 +196,19 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
         }
         let result = try await operation(snapshot.0)
         guard lock.withLock({ exam?.generation == snapshot.1 }) else { throw Failure.snapshotChanged }
+        return result
+    }
+
+    /// profile 缺片语义刻意区别于三片：基本需求数据不静默空集，显式 `.unavailable`。
+    private func withProfile<T: Sendable>(
+        _ operation: @Sendable (CatalogSliceProfileStore) async throws -> T
+    ) async throws -> T {
+        let snapshot: (CatalogSliceProfileStore, UInt64) = try lock.withLock {
+            guard let slot = profile else { throw MedicalProfileCatalogFailure.unavailable }
+            return (slot.store, slot.generation)
+        }
+        let result = try await operation(snapshot.0)
+        guard lock.withLock({ profile?.generation == snapshot.1 }) else { throw Failure.snapshotChanged }
         return result
     }
 }

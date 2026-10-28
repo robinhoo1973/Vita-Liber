@@ -122,7 +122,7 @@ struct CatalogSliceManifestTests {
         #expect(decoded.signedPayloadDigest.count == 64)
     }
 
-    @Test("facility/reference 表集精确冻结；未知内容 schema 无表集")
+    @Test("facility/reference/profile 表集精确冻结；未知内容 schema 无表集")
     func perKindTableSets() throws {
         #expect(try candidate(.facility).tables.sorted() == ["department", "hospital"])
         #expect(try candidate(.reference).tables.sorted() == ["diagnosis", "exam_item"])
@@ -131,6 +131,14 @@ struct CatalogSliceManifestTests {
         #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 2) == nil)
         #expect(CatalogSliceManifestDecoder.installedTableSet(.facility, schemaVersion: 1)
                 == ["department", "hospital", "slice_meta"])
+        // profile 第四切片：13 表冻结集（extension_meta 永不进包；视图不入表集）。
+        #expect(try candidate(.profile).tables.sorted()
+                == ["body_organ", "common_rank", "condition_department", "condition_organ",
+                    "condition_profile", "ext_department", "ext_document", "ext_evidence",
+                    "ext_source", "kg_extension_release", "surgery", "surgery_department",
+                    "surgery_organ"])
+        #expect(CatalogSliceManifestDecoder.installedTableSet(.profile, schemaVersion: 1)?.count == 14)
+        #expect(CatalogSliceManifestDecoder.expectedTables(.profile, schemaVersion: 2) == nil)
     }
 
     @Test("未知键与缺键一律拒；note 是唯一可缺省键")

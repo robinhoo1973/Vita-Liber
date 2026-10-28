@@ -195,13 +195,14 @@ struct DatabaseInitializationView: View {
         switch status {
         case .idleNoLocal(let installed):
             return installed > 0
-                ? L10n.resourceCatalogSlicesNotCheckedFmt(installed)
+                ? L10n.resourceCatalogSlicesNotCheckedFmt(
+                    installed, CatalogSliceKind.allCases.count)
                 : L10n.startupCatalogStatusIdleNoLocal
         case .checking:
             return L10n.resourceCatalogSlicesChecking
         case .candidate(let count, let totalSize):
             return L10n.resourceCatalogSlicesCandidatesFmt(
-                slices.installedCount, count,
+                slices.installedCount, CatalogSliceKind.allCases.count, count,
                 ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))
         case .phase(let kind, let progress):
             return kindName(kind) + " · " + MedicalCatalogPromptCopy.phaseText(progress)
@@ -279,6 +280,7 @@ struct DatabaseInitializationView: View {
         case .drug: return L10n.resourceCatalogSliceDrugName
         case .facility: return L10n.resourceCatalogSliceFacilityName
         case .reference: return L10n.resourceCatalogSliceReferenceName
+        case .profile: return L10n.resourceCatalogSliceProfileName
         }
     }
 

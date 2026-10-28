@@ -1,7 +1,8 @@
 import Domain
 import Foundation
 
-/// 目录 v5 三切片线协议（2026-10-28 业主裁决：v4 package 模式全面退役，切片-only）。
+/// 目录 v5 切片线协议（2026-10-28 业主裁决：v4 package 模式全面退役，切片-only；
+/// 同日晚 P-批升四片——三目录片 + 医疗档案 profile 片）。
 ///
 /// 固定名资产（同名 stem，均挂在同一 Release 基址）：
 /// - 清单 `<stem>.json`（签名信封，`vita-liber-app-slice-manifest/v1`）
@@ -27,7 +28,8 @@ public enum CatalogSliceProtocol {
     public static let maxEnvelopeBytes = 2 << 20
     public static let maxPayloadBytes = 1 << 20
 
-    /// 三切片清单/包的固定名→kind（精确匹配；profile 与其他资产一律不认）。
+    /// 四切片清单/包的固定名→kind（精确匹配；v4 旧名与未知资产不认——profile
+    /// 经 per-kind stem 例外识别为 `app-profile-chronic_surgery.{json,bin}`）。
     public static func kind(forManifestAsset name: String) -> CatalogSliceKind? {
         CatalogSliceKind.allCases.first { $0.manifestAssetName == name }
     }

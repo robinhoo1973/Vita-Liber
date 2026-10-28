@@ -1211,6 +1211,62 @@ def main():
                   "该腿在本次运行中【未被核对】,不得据此认为列契约一致;"
                   "本地请设 VL_MEDICAL_DDL 指向 repos/medical-workbench/medical-data 内的生产 DDL。")
 
+    # ---- 家族 O · profile 腿（P-批 2026-10-28）：extension_schema.sql ↔ 13 表发布集
+    # profile 第四切片的 DDL 真源 = `repos/medical-workbench/kg/extension_schema.sql`
+    # （14 表，其中 `extension_meta` 由数据侧 splitter 永久剔除、永不进发布包）。
+    # 既有正则 `CREATE TABLE … \(([^)]*)\)` 会被内层 CHECK(...) 括号截断，故此处直接
+    # 在内存 SQLite 执行 DDL 后用 sqlite_master 取表集（修正则截断族）。
+    profile_expected = {
+        "body_organ", "common_rank", "condition_department", "condition_organ",
+        "condition_profile", "ext_department", "ext_document", "ext_evidence",
+        "ext_source", "kg_extension_release", "surgery", "surgery_department",
+        "surgery_organ",
+    }
+    profile_excluded = {"extension_meta"}
+    slice_profile = root / "CoreKit/Sources/Infrastructure/CatalogSliceProfileStore.swift"
+    ext_candidates = [
+        root.parent / "medical-workbench/kg/extension_schema.sql",
+        root.parent.parent / "repos/medical-workbench/kg/extension_schema.sql",
+    ]
+    ext_ddl = next((c for c in ext_candidates if c.is_file()), None)
+    if slice_profile.exists():
+        prof_text = slice_profile.read_text(encoding="utf-8")
+        # 读面只覆盖 9 张读表（ext_source/ext_document/ext_evidence/kg_extension_release
+        # 是溯源/打包表，读面不碰——架构席裁决）；13 表全集由下方 DDL 发布集核对。
+        profile_read_tables = {
+            "body_organ", "common_rank", "condition_department", "condition_organ",
+            "condition_profile", "ext_department", "surgery", "surgery_department",
+            "surgery_organ",
+        }
+        for _name in sorted(profile_read_tables):
+            if not re.search(r"\b" + _name + r"\b", prof_text):
+                fails.append(
+                    f"{slice_profile.relative_to(root)}: 家族 O profile 腿缺读表引用 {_name} —— "
+                    f"读面未覆盖 9 读表（数据侧发布后 App 端 'no such table' 同族）")
+        scanned["O"] = scanned.get("O", 0) + 13
+        if ext_ddl is None:
+            print("UNVERIFIED: 家族 O profile 腿的「读面 ↔ extension_schema.sql」表集核对未执行"
+                  "——未找到 kg/extension_schema.sql（搜索: "
+                  + ", ".join(str(c) for c in ext_candidates) + "）。该腿本次【未被核对】。")
+        else:
+            import sqlite3 as _sqlite3
+            try:
+                mem = _sqlite3.connect(":memory:")
+                mem.executescript(ext_ddl.read_text(encoding="utf-8"))
+                ddl_tables = {row[0] for row in mem.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+                mem.close()
+            except Exception as _err:  # noqa: BLE001 —— 解析失败判红，不假绿
+                fails.append(f"{ext_ddl}: 家族 O profile DDL 无法执行（{_err}）")
+            else:
+                published = ddl_tables - profile_excluded
+                if published != profile_expected:
+                    fails.append(
+                        f"{ext_ddl}: profile DDL 表集漂移（发布集多 "
+                        f"{sorted(published - profile_expected) or '∅'} / 缺 "
+                        f"{sorted(profile_expected - published) or '∅'}）——"
+                        f"排除集={sorted(profile_excluded)}")
+
     # ---- 家族 P：测试内改 NSTimeZone.default 全局状态 —— CI 36249512459 实证：
     # TimeZone.current 在 Darwin 是进程启动缓存、不随 NSTimeZone.default 变化
     # （Linux corelibs 跟随，本地假绿）；且全局时区变异与并行套件互踩。

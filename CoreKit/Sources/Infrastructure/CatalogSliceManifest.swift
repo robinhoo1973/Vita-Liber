@@ -78,6 +78,13 @@ public enum CatalogSliceManifestDecoder {
         case .drug: return ["drug", "drug_detail", "drug_reference"]
         case .facility: return ["department", "hospital"]
         case .reference: return ["diagnosis", "exam_item"]
+        case .profile:
+            // profile 第四切片 13 表冻结集（v3 实发包；`extension_meta` 永久剔除
+            // 不发布；视图 active_*/published_top10 不入表集）。
+            return ["body_organ", "common_rank", "condition_department", "condition_organ",
+                    "condition_profile", "ext_department", "ext_document", "ext_evidence",
+                    "ext_source", "kg_extension_release", "surgery", "surgery_department",
+                    "surgery_organ"]
         }
     }
 

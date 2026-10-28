@@ -18,9 +18,11 @@ public struct CatalogSliceTrust: Sendable {
     public static let fileNamePrefix = "app-catalog-"
     public static let fileNameSuffix = "-trust.json"
 
-    /// 生产文件名注入点（L0 第 22 节断言用）。
+    /// 生产文件名注入点（L0 第 22 节断言用）。按 `kind.stem` 派生——
+    /// 三片产物 `app-catalog-<raw>-trust.json` 与旧实现逐字节相同（stem 前缀未变），
+    /// profile 得 `app-profile-chronic_surgery-trust.json`（stem 例外随之生效）。
     public static func fileURL(kind: CatalogSliceKind, directory: URL) -> URL {
-        directory.appendingPathComponent(fileNamePrefix + kind.rawValue + fileNameSuffix)
+        directory.appendingPathComponent(kind.stem + fileNameSuffix)
     }
 
     private let stores: [CatalogSliceKind: MedicalCatalogTrustStore]

@@ -107,9 +107,12 @@ final class DatabaseBootModel: ObservableObject {
 
     private func showsCatalogChoice(diagnostics: DatabaseBootDiagnostics) -> Bool {
         if forceCatalogChoice { return true }
-        // 切片-only（2026-10-28）：三片全就绪才视为「无需引导」——部分可用仍显示
-        // 卡片（副行如实「已装 N/3」）；v4 残留仅存在性诊断，不再阻止引导。
-        if diagnostics.catalogSliceReadyCount >= CatalogSliceKind.allCases.count || shouldAutoContinue {
+        // 切片-only（2026-10-28；P-批四片）：v4 替代集 `{drug,facility,reference}` 全就绪
+        // 即视为「无需引导」——按 kind 子集判定（计数会随加片漂移）；profile 第四片按
+        // 业主项 O4 建议为「可选但常显」，不阻塞首启卡（若 O4 裁决改为四片必需，在此调整）。
+        let readyKinds = Set(diagnostics.catalogSliceReadyKinds)
+        if Set(CatalogSliceKind.legacyReplacedKinds.map(\.rawValue)).isSubset(of: readyKinds)
+            || shouldAutoContinue {
             return false
         }
         // 「稍后再说」在延期窗口内不再每次冷启动拦截；目录变化或窗口过期后重新提示。
@@ -122,7 +125,7 @@ final class DatabaseBootModel: ObservableObject {
             lastDeferredAt: defaults.object(forKey: Self.deferredPromptKey) as? Date)
     }
 
-    /// 用户显式点击「检查更新」：这是首启唯一允许发起网络的动作（一次扇出三片）。
+    /// 用户显式点击「检查更新」：这是首启唯一允许发起网络的动作（一次扇出四片）。
     func checkCatalog() {
         catalogSlices?.check()
     }

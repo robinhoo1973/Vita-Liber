@@ -76,6 +76,7 @@ final class CatalogSlicesState {
         case .drug: return facade.isDrugAvailable
         case .facility: return facade.isFacilityAvailable
         case .reference: return facade.isExamAvailable
+        case .profile: return facade.isProfileAvailable
         }
     }
 
@@ -291,6 +292,8 @@ final class CatalogSlicesState {
             if let store = try? CatalogSliceFacilityStore(path: url) { facade.commitFacility(store) }   // try?-ok: 同上
         case .reference:
             if let store = try? CatalogSliceExamStore(path: url) { facade.commitExam(store) }   // try?-ok: 同上
+        case .profile:
+            if let store = try? CatalogSliceProfileStore(path: url) { facade.commitProfile(store) }   // try?-ok: 同上
         }
     }
 

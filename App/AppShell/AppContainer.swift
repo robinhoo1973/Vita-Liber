@@ -89,10 +89,11 @@ struct AppContainer {
     let catalogSliceChecker: (any CatalogSliceReleaseResolving)?
     /// 切片安装器（每片独立 journal/staging/last-good；nil = 安装入口 fail-closed）。
     let catalogSliceUpdater: CatalogSliceUpdateService?
-    /// 四域参考端口（2026-10-28 切片-only）：由三切片 facade 派生——任一片可用即注入；
-    /// 缺片时对应查询在 facade 内返回空集（患者流零提示）。v4 读面不再对外服务。
+    /// 四域参考端口（2026-10-28 切片-only）：由三目录切片 facade 派生——drug/facility/
+    /// exam 任一片可用即注入；缺片时对应查询在 facade 内返回空集（患者流零提示）。
+    /// P6（P-批）：profile 片不提供检索能力，不得据此把端口判为非 nil——用显式谓词。
     var medicalReferenceCatalog: (any MedicalReferenceCatalogReading)? {
-        guard let catalogSlices, !catalogSlices.availableKinds.isEmpty else { return nil }
+        guard let catalogSlices, catalogSlices.hasReferenceSlices else { return nil }
         return catalogSlices
     }
     /// SP-64 通告面（README VL-INDEX 二维码；委员会 P3，2026-10-07）：固定匿名通道
@@ -204,6 +205,8 @@ struct AppContainer {
                 if let store = try? CatalogSliceFacilityStore(path: active) { sliceFacade.commitFacility(store) }   // try?-ok: 同上
             case .reference:
                 if let store = try? CatalogSliceExamStore(path: active) { sliceFacade.commitExam(store) }   // try?-ok: 同上
+            case .profile:
+                if let store = try? CatalogSliceProfileStore(path: active) { sliceFacade.commitProfile(store) }   // try?-ok: 同上
             }
         }
         catalogSlices = sliceFacade
