@@ -35,9 +35,35 @@ public enum SchemaMigrations {
         /// （nil = 不校验）。使用者：v23 / v25 / v27（ocr_card_commit 三次重建后校验
         /// 搬运无损）；校验失败抛 `OCRCardStore.StoreError.corruptReceipt`。
         public let fkCheckTable: String?
-        public init(version: Int, name: String, sql: String, transactional: Bool = false, fkCheckTable: String? = nil) {
+        /// 本步除 SQL 外还有 Swift 侧副作用（代码迁移/hybrid）。B1 登记表批（2026-10-29）：
+        /// `kind` 由它派生（sql 空→code；sql 非空+hasCode→hybrid；否则 sql），
+        /// 消灭旧 `sql.isEmpty` 二分的失真（混合步曾被历史库投影标成 sql）。
+        public let hasCode: Bool
+        /// 代码迁移的执行体符号（GRDBStore.migrateIncremental 版本分派表中的函数名）。
+        /// nil = 纯 SQL 步。符号只作登记/断言锚点，runner 仍按 version 分派
+        /// （登记表不接管执行——转换登记表批硬约束，防 v49 反模式）。
+        public let executor: String?
+        /// 已发布步骤的 SQL 定义摘要（64 位小写 hex），发布时冻结；未发布 = nil。
+        /// CI（test-schema-integrity）比对，防「已发布步被原地改写」——种子↔steps
+        /// 断言只能证明当前代码与当前种子自洽，防不了这一面。code/hybrid 步以
+        /// executor 符号为身份，不冻结哈希（重构友好）。
+        public let sqlSha256: String?
+        /// 破坏性/不可逆步（v40 删列、v49 文件搬移）：失败只能回退版本号，
+        /// 数据本身不可回滚——失败卡/收据按此标注，不提供「撤销」出口。
+        public let irreversible: Bool
+        /// 迁移定义三值类别（B1）：sql / code / hybrid。
+        public var kind: Kind {
+            if sql.isEmpty { return .code }
+            return hasCode ? .hybrid : .sql
+        }
+        public enum Kind: String, Sendable { case sql, code, hybrid }
+        public init(version: Int, name: String, sql: String, transactional: Bool = false, fkCheckTable: String? = nil,
+                    hasCode: Bool = false, executor: String? = nil, sqlSha256: String? = nil,
+                    irreversible: Bool = false) {
             self.version = version; self.name = name; self.sql = sql
             self.transactional = transactional; self.fkCheckTable = fkCheckTable
+            self.hasCode = hasCode; self.executor = executor; self.sqlSha256 = sqlSha256
+            self.irreversible = irreversible
         }
     }
 
@@ -251,7 +277,7 @@ public enum SchemaMigrations {
         // v13 为代码迁移（GRDBStore.migrateIncremental 的 rename-first 可恢复重建，
         // 见下方 v15 注释段）；sql 置空仅作占位。孤儿剂量行 = 对已删计划继续提醒
         // （FR9.15 计划生命周期破坏）——重建补 plan_id REFERENCES，历史孤儿行保留。
-        Step(version: 13, name: "dose-log-plan-fk", sql: ""),
+        Step(version: 13, name: "dose-log-plan-fk", sql: "", executor: "rebuildDoseLogWithFK"),
         // F25 医学数据标准化引擎码表六表（tech §4.3 / §5.52，编号 v14——
         // 注记：v12=document grade、v13=dose_log FK，F25 码表迁移从 v14 起）。
         // 幂等：六表 CREATE TABLE IF NOT EXISTS（baseline 已含同定义的全新库
@@ -310,7 +336,7 @@ public enum SchemaMigrations {
         // 剂量行 id 由绝对 epoch 迁移为逻辑身份（day+ordinal，评审修正 D5）——
         // 原地重算而非 DELETE 全清：已决议行/送达证据（delivered_at）全程保留；
         // 无法重算的未决议行清除（物化窗口按逻辑 id 重建，materializeMissed 随即决议）。
-        Step(version: 15, name: "dose-logical-ids", sql: ""),
+        Step(version: 15, name: "dose-logical-ids", sql: "", executor: "recomputeLogicalDoseIds"),
         // v16：数据修复 + 索引补齐（评审修正第二轮）：
         // ① dose_plan_units 归一——旧 MedicationPlanComposer 曾把整盒数量
         //   （initialLot.totalUnits，如 20/30）误写本列，读取侧按「每剂剂量」
@@ -561,7 +587,8 @@ public enum SchemaMigrations {
              CREATE INDEX idx_ocr_card_commit_entity ON ocr_card_commit(card_kind, entity_id, patient_id);
              CREATE INDEX idx_ocr_card_commit_encounter ON ocr_card_commit(encounter_id, patient_id);
              CREATE INDEX idx_ocr_card_commit_entity_table ON ocr_card_commit(entity_table, entity_id, patient_id);
-             """, transactional: true, fkCheckTable: "ocr_card_commit"),
+             """, transactional: true, fkCheckTable: "ocr_card_commit",
+             hasCode: true, executor: "backfillRecognitionFactLines"),
         // v26：clinical-episodes（discussions/2026-09-13-hospital-card-schema-round1 §C.2–C.5 / §D.2）——
         // 住院期 / 诊断 / 检查报告 / 检验表头 + 定性行五表，metric_sample 增 lab_report_id/abnormal_flag。
         // 纯 SQL 步、非 transactional（无表重建，runner default 路径）：新表/索引 IF NOT EXISTS，增列经
@@ -898,13 +925,13 @@ public enum SchemaMigrations {
         // v13 悬空 FK / v29 occurred_at 未退役 / sent_message+metric_sample 回指
         // 索引缺）——实现为代码迁移（表重建需终态探测与列集无关搬运,
         // 见 GRDBStore.repairUpgradeChain 头注）。
-        Step(version: 33, name: "upgrade-chain-repair", sql: ""),
+        Step(version: 33, name: "upgrade-chain-repair", sql: "", executor: "repairUpgradeChain"),
         // v34 患者域 FK 补齐（2026-10-10 收口批 F⑤②）：alert_event /
         // ai_conversation 是患者域唯二未声明 REFERENCES patient_profile(id)
         // 的表（v1 起形态；L0「DDL 引用完整性」只断已声明项可达,缺声明不在
         // 覆盖面）——表重建补 FK；实现为代码迁移（列集交集搬运 + 终态探测,
         // 见 GRDBStore.repairPatientReferences 头注）。
-        Step(version: 34, name: "patient-fk-repair", sql: ""),
+        Step(version: 34, name: "patient-fk-repair", sql: "", executor: "repairPatientReferences"),
         // v35：AI 聊天历史（2026-10-19 业主「聊天要能保存」）：本机会话/消息，
         // 消息 payload_json 存展示快照；会话删除级联删消息（真删）。
         Step(version: 35, name: "chat-history", sql: """
@@ -1003,7 +1030,8 @@ public enum SchemaMigrations {
         // v40：业主 2026-10-22 要求彻底移除证件号/医保号（含历史数据）。
         // 代码迁移（GRDBStore.dropLegacyProfileColumns）：列存在才 DROP，兼容
         // 老库/合成夹具缺列；sql 置空仅作占位。破坏性：历史值随列删除。
-        Step(version: 40, name: "drop-id-insurance", sql: ""),
+        Step(version: 40, name: "drop-id-insurance", sql: "", executor: "dropLegacyProfileColumns",
+             irreversible: true),
         // v41：手术/慢性病登记年份（2026-10-23 业主）。旧行 NULL = 年份未登记。
         Step(version: 41, name: "health-history-year", sql: """
         ALTER TABLE health_problem ADD COLUMN year INTEGER;
@@ -1020,11 +1048,11 @@ public enum SchemaMigrations {
         CREATE INDEX IF NOT EXISTS idx_medication_schedule_patient ON medication_schedule(patient_id);
         ALTER TABLE medication_plan ADD COLUMN schedule_id TEXT REFERENCES medication_schedule(id);
         CREATE INDEX IF NOT EXISTS idx_plan_schedule ON medication_plan(schedule_id);
-        """),
+        """, hasCode: true, executor: "backfillScheduleTemplates"),
         // v43：常用提醒范围与时段身份（2026-10-23 业主：标准时段 + 可用范围 + 自定义）。
         // 列改名与行重写都在代码迁移里做（RENAME COLUMN 幂等守卫），sql 置空。
         // 语义：time 仍是唯一排程事实；范围只展示，不驱动物化/通知/安全线。
-        Step(version: 43, name: "medication-schedule-entries", sql: ""),
+        Step(version: 43, name: "medication-schedule-entries", sql: "", executor: "rewriteScheduleEntries"),
         // v44：急救卡默认收录档案条目（2026-10-24 业主：急救卡必须显示过敏/
         // 慢性病与手术史/紧急联系人，不再要求逐项勾选）。语义从「选中才入卡」
         // 翻转为「档案已确认条目默认入卡，显式退选才排除」；旧选择行
@@ -1032,22 +1060,22 @@ public enum SchemaMigrations {
         // 加列由代码迁移执行（表/列存在才做）：合成 v12 老库只建 pending 链
         // 需要的最小表集，v4 的 emergency_card_selection 可能不存在——
         // 此处写裸 ALTER 会让整条升级链在测试/降级库上失败。
-        Step(version: 44, name: "emergency-card-default-include", sql: ""),
+        Step(version: 44, name: "emergency-card-default-include", sql: "", executor: "addDeselectedColumnIfPossible"),
         // v45：用药时段收敛为「每成员一个默认文档」，并记录提醒的时段连接键。
         // 旧模板保留（不删、不合并、不重指）；既有提醒的 schedule_json 一律不动。
         // DDL/选默认在代码迁移里做（表可能不存在于合成老库）。
-        Step(version: 45, name: "medication-schedule-default", sql: ""),
+        Step(version: 45, name: "medication-schedule-default", sql: "", executor: "migrateScheduleDefault"),
         // v46：患者作用域/软删/HK 多成员/热索引/审计 append-only（2026-10-24）。
         // 可空加列 + 回填（dose_log ← plan；孤儿保留 NULL 并计数）；不删行、
         // 不改任何医疗事实列。默认时段唯一索引若重复，先确定性修复再建。
-        Step(version: 46, name: "patient-scope-and-soft-delete", sql: ""),
+        Step(version: 46, name: "patient-scope-and-soft-delete", sql: "", executor: "migrateV46"),
         // v47：健康史官方目录身份（2026-10-24 业主）——病名/类别锁定，
         // 器官由官方映射提供；个人别名可改。只加可空列并按名称/别名回填，
         // 不删行、不改既有名称/类别/年份/部位。
-        Step(version: 47, name: "health-problem-catalog-mapping", sql: ""),
+        Step(version: 47, name: "health-problem-catalog-mapping", sql: "", executor: "migrateV47"),
         // v48：慢性病相关科室（2026-10-24 业主）——《医疗机构诊疗科目名录》
         // 名称/代码，仅慢性病有值；手术不设科室。只加可空列并按目录回填。
-        Step(version: 48, name: "health-problem-department", sql: ""),
+        Step(version: 48, name: "health-problem-department", sql: "", executor: "migrateV48"),
         // v49：文档导出账本（2026-10-27 存储边界委员会 D1）——导出副本=Documents
         // 用户面树（青囊书/<会话>/<内容名>），权威件仍为 media 根内容寻址原件。
         // 只建表/索引；媒体根搬移与 meta 绝对→相对前缀改写在代码迁移 migrateV49。
@@ -1068,7 +1096,7 @@ public enum SchemaMigrations {
         );
         CREATE INDEX IF NOT EXISTS idx_document_user_export_conversation
           ON document_user_export(conversation_id) WHERE removed_at IS NULL;
-        """),
+        """, hasCode: true, executor: "migrateV49", irreversible: true),
         // v50：成员档案身高/体重（2026-10-28 补录批）——FR3.1 P1 字段
         // （FR21.9 ④「当前测量值·影响药物剂量计算·可在个人中心补全」）。
         // 只加可空列；不参与档案完善度口径（完善度只计血型+生日）。

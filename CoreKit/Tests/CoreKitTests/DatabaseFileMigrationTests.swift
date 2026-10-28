@@ -34,11 +34,21 @@ struct DatabaseFileMigrationTests {
 
         #expect(!FileManager.default.fileExists(atPath: old.path))
         #expect(FileManager.default.fileExists(atPath: new.path))
+        // B3（2026-10-29）：封库断言——改名后必为 DELETE 日志模式、旧名伴生文件清零
+        //（SRE 席失败面③：伴生未跟移会丢已提交事务）。
+        for suffix in ["-wal", "-shm", "-journal"] {
+            #expect(!FileManager.default.fileExists(atPath: old.path + suffix),
+                    "旧名伴生文件必须清除: \(suffix)")
+        }
         let queue = try DatabaseQueue(path: new.path)
         let value = try queue.read { db in
             try String.fetchOne(db, sql: "SELECT value FROM sample WHERE id=1")
         }
         #expect(value == "kept")
+        let journalMode = try queue.read { db in
+            try String.fetchOne(db, sql: "PRAGMA journal_mode")
+        }
+        #expect(journalMode?.lowercased() == "delete", "封库后必须为 DELETE 模式，迁移名下不得拖 WAL")
     }
 
     @Test func refusesToOverwriteExistingTarget() throws {

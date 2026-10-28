@@ -24,6 +24,8 @@ M0	SU-M0-L0	yes	workflow	./.github/actions/l0-gate
 M0	SU-M0-PERF	yes	tests	SU_M0_PERF
 M0	SU-M0-SMOKE	yes	tests	SU_M0_SMOKE
 M0	SU-M0-DBBOOT	yes	tests	SU-M0-DBBOOT
+M0	SU-M0-DBBOOT-NAMES	yes	tests	SU-M0-DBBOOT-NAMES
+M0	SU-M0-DBBOOT-RECEIPT	yes	tests	SU-M0-DBBOOT-RECEIPT
 M1a	SU-M1a-E2E	yes	tests	SU_M1a_E2E
 M1a	SU-M1a-SEC	yes	tests	SU_M1a_SEC
 M1a	SU-M1a-GOLDEN	yes	tests	SU-M1a-GOLDEN

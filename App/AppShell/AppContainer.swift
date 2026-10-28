@@ -109,42 +109,6 @@ struct AppContainer {
     /// FR16.1 V3.86 自动化同步服务（观察者+BGTask+锚点+评估入库双流）
     let healthSync: HealthKitSyncService
 
-    /// 生产装配：文件库 + WAL（§4.4）+ UNUserNotificationCenter 适配。
-    /// @MainActor：mediaSession（MediaUnlockSession）为 UI 会话令牌，装配根即主线程。
-    /// 第七轮修复：UNReminderScheduler 外包 FR9.18 通道投递门（ChannelGated
-    /// Scheduler）——「静音仅横幅」偏好真实生效（不再锁屏响铃的假宣告）
-    /// 库文件缺失判定（2026-09-16 委员会评审）：数据目录**曾存在**（原件非空）
-    /// 而库文件不在——库被外部删除/清理/损坏后被移走。此时 GRDB 会以
-    /// `SQLITE_OPEN_CREATE` 静默建空库、读 `user_version = 0` 跑基线，全程不抛；
-    /// 引导完成态又在 UserDefaults（不随库消失重置），用户将落到**外观完全正常的
-    /// 空应用并继续写入**，BR-002 原件成为无引用孤儿——恰违反本容器自陈的
-    /// 「绝不静默空库继续写入」。判定信号用**文件系统事实**（原件目录），
-    /// 不用 UserDefaults（`hk_sync_anchor` 先例：UserDefaults 不入备份语义）。
-    static func databaseWasLost(databasePath: String, originalsDir: URL,
-                                legacyOriginalsDir: URL? = nil,
-                                fileManager: FileManager = .default) -> Bool {
-        guard !fileManager.fileExists(atPath: databasePath) else { return false }
-        // 双根证据（2026-10-27 存储边界）：v49 迁移前旧装机的原件仍在
-        // Documents/MedicalNotes——只查新根会把「丢库但有旧原件」误判为未丢失，
-        // 空库静默建档。两处任一有真实文件即视为曾存在数据目录。
-        for directory in [originalsDir, legacyOriginalsDir].compactMap({ $0 }) {
-            let contents = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? []   // try?-ok: 目录不可读=无原件证据，按「未丢失」处理，绝不阻断正常启动
-            if contents.contains(where: { !$0.hasPrefix(".") }) { return true }
-        }
-        return false
-    }
-
-    @MainActor
-    static func live(databasePath: String) throws -> AppContainer {
-        if databaseWasLost(databasePath: databasePath, originalsDir: defaultOriginalsDir(),
-                           legacyOriginalsDir: MediaRootPaths.legacyMedicalNotesRoot()) {
-            throw ContainerError.databaseMissing
-        }
-        let store = try GRDBStore.pool(at: databasePath)
-        removeLegacyDatabaseIfNeeded(activePath: databasePath)
-        return try live(store: store)
-    }
-
     /// 启动门（2026-10-25）复用同一装配体：数据库文件已在后台完成探测/迁移，
     /// 本方法只做主线程侧的 store 装配，不再打开/迁移数据库。
     @MainActor
@@ -282,33 +246,6 @@ struct AppContainer {
                         mediaBaseDir: FileManager.default.temporaryDirectory)
     }
 
-    /// 生产装配 + 显式降级路径：live 失败时返回 degradedReason 非 nil 的
-    /// 占位容器（内存库），App 层不渲染主界面、显示可见降级引导——
-    /// 绝不静默空库继续写入（审查修复，tech-spec「迁移失败只读降级」）
-    @MainActor
-    static func liveOrDegraded(databasePath: String) -> AppContainer {
-        do {
-            return try live(databasePath: databasePath)
-        } catch {
-            do {
-                let store = try GRDBStore.inMemory()
-                // 稳定文案（2026-09-16 评审）：此前直插 `"\(error)"`——英文 SQLite
-                // 诊断出现在用户可见的降级页。
-                let reason: String
-                if case ContainerError.databaseMissing = error {
-                    reason = L10n.startupDatabaseMissing
-                } else {
-                    reason = L10n.startupLoadFailed
-                }
-                return assemble(store: store,
-                                scheduler: productionScheduler(),
-                                degradedReason: reason)
-            } catch {
-                fatalError("Data layer init failed (live and in-memory degraded both unavailable): \(error)")
-            }
-        }
-    }
-
     /// 只读降级容器（2026-10-28 只读降级 B2）：全 store 读面 + no-op 调度器，
     /// 不挂切片 facade/checker/updater/通告面（只读壳零联网零写）；绝不经过
     /// publish/会话链（后台作业因 holder 未装天然不排）。
@@ -439,44 +376,77 @@ struct AppContainer {
                             healthSync: healthSync)
     }
 
-    enum ContainerError: Error {
-        /// 库文件缺失但原件目录非空（见 `databaseWasLost`）。
-        case databaseMissing
+    /// 患者主库路径解析失败（B0 名字全集批，2026-10-29）：≥2 个注册名候选
+    /// 并存时绝不猜哪份是用户最新档案（不按 mtime/大小挑，BR-002 同理），
+    /// 启动门转为可解释失败态而非静默建空库。
+    enum DatabasePathError: Error, Equatable {
+        case ambiguousCandidates([String])
     }
 
     /// Canonical local database name (three-segment naming rule).
     static let databaseFileName = "app-local-user_data.sqlite"
     /// 非权威 schema 历史库（版本目录投影；排除备份）。
     static let schemaHistoryFileName = "app-local-schema-history.sqlite"
-    /// Pre-2026-10-25 physical name; migrated once and then removed.
-    static let legacyDatabaseFileName = "vitaliber.sqlite"
 
-    /// Application Support 下的数据库路径（生产库位置）。
+    /// 启动门路径解析结果（B3）：活动路径 + 目录检出的注册名候选（收据取证用）。
+    struct ResolvedDatabasePath: Sendable, Equatable {
+        let path: String
+        let candidates: [String]
+    }
+
+    /// 启动门专用路径解析（B0）：名字全集扫描 → 单候选（含历史名）原子改名 →
+    /// 返回活动库路径；≥2 候选抛 `ambiguousCandidates`（fail-closed，绝不猜测）。
     ///
-    /// 旧装机只有 `vitaliber.sqlite`。启动时先封 WAL、移动到规范名，
-    /// 成功后才删除旧文件；任何失败都回退旧路径，绝不让迁移失败变成空库。
-    static func defaultDatabasePath(fileManager: FileManager = .default) -> String {
+    /// 旧装机只有 `vitaliber.sqlite`：单命中时先封 WAL、移动到规范名，
+    /// 任何失败都回退旧路径，绝不让改名失败变成空库（语义同 v49 前实现）。
+    static func resolveDatabasePath(fileManager: FileManager = .default) throws -> ResolvedDatabasePath {
+        let dir = databaseDirectory(fileManager: fileManager)
+        let candidates = PatientDatabaseLocator.presentNames(in: dir, fileManager: fileManager)
+        switch DatabaseNameResolution.decide(presentNames: candidates) {
+        case .missing:
+            return ResolvedDatabasePath(
+                path: dir.appendingPathComponent(databaseFileName).path,
+                candidates: candidates)
+        case .ambiguous(let names):
+            logger.error("multiple registered database candidates found; refusing to guess: \(names.joined(separator: ", "), privacy: .public)")
+            throw DatabasePathError.ambiguousCandidates(names)
+        case .single(let name):
+            let active = dir.appendingPathComponent(name)
+            guard name.lowercased() != databaseFileName.lowercased() else {
+                return ResolvedDatabasePath(path: active.path, candidates: candidates)
+            }
+            let target = dir.appendingPathComponent(databaseFileName)
+            do {
+                try DatabaseFileMigration.migrate(from: active, to: target,
+                                                  fileManager: fileManager)
+                return ResolvedDatabasePath(path: target.path, candidates: candidates)
+            } catch {
+                logger.error("数据库改名失败，继续使用旧库: \(String(describing: error), privacy: .public)")
+                // 失败可能发生在移动之后（回滚也失败）：旧文件已不在时目标才是唯一副本，
+                // 否则返回一个已不存在的旧路径，真实库会被当成缺失或静默新建空库。
+                return ResolvedDatabasePath(
+                    path: fileManager.fileExists(atPath: active.path) ? active.path : target.path,
+                    candidates: candidates)
+            }
+        }
+    }
+
+    private static func databaseDirectory(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory,
                                     in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
         let dir = base.appendingPathComponent("VitaLiber", isDirectory: true)
         do { try fileManager.createDirectory(at: dir, withIntermediateDirectories: true) }
         catch { /* 目录创建失败由 GRDB 打开时报错，不在此吞掉 */ }
-        let target = dir.appendingPathComponent(databaseFileName)
-        let legacy = dir.appendingPathComponent(legacyDatabaseFileName)
-        if !fileManager.fileExists(atPath: target.path),
-           fileManager.fileExists(atPath: legacy.path) {
-            do {
-                try DatabaseFileMigration.migrate(from: legacy, to: target,
-                                                  fileManager: fileManager)
-            } catch {
-                logger.error("数据库改名失败，继续使用旧库: \(String(describing: error))")
-                // 失败可能发生在移动之后（回滚也失败）：旧文件已不在时目标才是唯一副本，
-                // 否则返回一个已不存在的旧路径，真实库会被当成缺失或静默新建空库。
-                return fileManager.fileExists(atPath: legacy.path) ? legacy.path : target.path
-            }
-        }
-        return target.path
+        return dir
+    }
+
+    /// 非权威便利包装（DEBUG 钩子/历史库同目录推导用）：解析失败回落规范名；
+    /// 生产启动必须走 `resolveDatabasePath`（fail-closed 语义只在启动门生效）。
+    static func defaultDatabasePath(fileManager: FileManager = .default) -> String {
+        (try? resolveDatabasePath(fileManager: fileManager))?.path // try?-ok: 包装仅服务非决策场景，启动门走 throwing 版本
+            ?? databaseDirectory(fileManager: fileManager)
+                .appendingPathComponent(databaseFileName).path
     }
 
     /// 与患者库同目录；历史库永远不是迁移事实源，路径独立便于整体删除/重建。
@@ -487,17 +457,9 @@ struct AppContainer {
             .path
     }
 
-    /// 正常迁移用 move 完成，旧文件在迁移成功时已消失。
-    /// 若启动时两者同时存在，无法证明哪一份是用户最新数据：
-    /// 不删除、不合并，保留旧库并记录告警，避免误删真实档案。
-    private static func removeLegacyDatabaseIfNeeded(activePath: String) {
-        let active = URL(fileURLWithPath: activePath)
-        guard active.lastPathComponent == databaseFileName else { return }
-        let legacy = active.deletingLastPathComponent()
-            .appendingPathComponent(legacyDatabaseFileName)
-        guard FileManager.default.fileExists(atPath: legacy.path) else { return }
-        logger.warning("检测到新旧数据库同时存在，保留旧库待人工核对: \(legacy.lastPathComponent)")
-    }
+    // B0（2026-10-29）：旧「双名并存只告警」（removeLegacyDatabaseIfNeeded，且挂在
+    // 生产不可达的 live(databasePath:) 死路径上）已由 resolveDatabasePath 的
+    // `.ambiguousCandidates` fail-closed 取代——并存=启动失败卡，不再静默放行。
 
     /// bundle 发布配置资源（SP-64 信任锚/age identity）；缺省/不可读 = 未配置，
     /// 检查 fail-closed 不阻断启动（未配置≠网络错误，UI 呈「暂不可用」）。

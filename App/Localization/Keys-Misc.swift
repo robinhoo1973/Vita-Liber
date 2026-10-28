@@ -481,6 +481,7 @@ extension L10n {
     static var startupInitFailureCorrupt: String { t("startup.init.failureCorrupt") }
     static var startupInitFailureTooNew: String { t("startup.init.failureTooNew") }
     static var startupInitFailureGeneric: String { t("startup.init.failureGeneric") }
+    static var startupInitFailureAmbiguous: String { t("startup.init.failureAmbiguous") }
     static func startupInitStageMigrate(_ from: Int, _ to: Int) -> String {
         String(format: t("startup.init.stageMigrateFmt"), from, to)
     }

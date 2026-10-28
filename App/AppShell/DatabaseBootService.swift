@@ -18,6 +18,9 @@ enum DatabaseBootPhase: Equatable, Sendable {
 
 enum DatabaseBootFailure: Error, Equatable, Sendable {
     case missingWithOriginals
+    /// B0（2026-10-29）：多个注册名数据库文件并存——无法证明哪份是最新档案，
+    /// 拒绝猜测（不按 mtime/大小挑），需用户人工核对保留一份。
+    case databaseAmbiguous(names: [String])
     case corrupt(String)
     case tooNew(found: Int, supported: Int)
     case migrationIncomplete(found: Int, expected: Int)
@@ -63,8 +66,15 @@ enum DatabaseBootService {
 
     private static func prepareSync(snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void,
                                     progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
-        // 路径解析必须先于探测：f7 的 legacy 改名有副作用，失败会回退旧路径。
-        let databasePath = AppContainer.defaultDatabasePath()
+        // 路径解析必须先于探测：legacy 改名有副作用，失败会回退旧路径；
+        // ≥2 个注册名候选并存 = 可解释失败（B0 名字全集，绝不静默建空库）。
+        let resolution: AppContainer.ResolvedDatabasePath
+        do {
+            resolution = try AppContainer.resolveDatabasePath()
+        } catch AppContainer.DatabasePathError.ambiguousCandidates(let names) {
+            throw DatabaseBootFailure.databaseAmbiguous(names: names)
+        }
+        let databasePath = resolution.path
         let historyPath = AppContainer.defaultSchemaHistoryPath()
 
         // 1) 历史库：存在则清空，按代码内压缩 base64 SQL 重建。
@@ -135,6 +145,16 @@ enum DatabaseBootService {
         let targetVersion = SchemaMigrations.latestVersion
         record(history, databasePath: databasePath, source: userProbe.observedVersion,
                target: targetVersion, outcome: "decision", detail: label(decision))
+        // B3 启动收据（2026-10-29）：跨启动唯一取证通道（历史库每启动重建）。
+        // 先写 in-progress，终止事件在成功/失败路径补齐；末行无终止 = 死在迁移中。
+        // 取证失败只降级诊断，绝不阻断启动（收据不是启动闸）。
+        let receipt = try? MigrationReceipt.standard() // try?-ok: 取证通道失败不阻断启动
+        let receiptBootId = UUID().uuidString
+        let receiptChosen = URL(fileURLWithPath: databasePath).lastPathComponent
+        receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
+                      chosen: receiptChosen, mode: label(decision),
+                      source: userProbe.observedVersion, target: targetVersion,
+                      outcome: .inProgress)
         // U-批 B2（架构席 S1/B2）：advisory 快照在决策后、switch/抛出前发射——
         // 失败路径也能拿到存在性/版本/健康事实（行①/②由它 + failure 推导）。
         let plannedSteps: Int?
@@ -179,6 +199,10 @@ enum DatabaseBootService {
             }
             record(history, databasePath: databasePath, source: userProbe.observedVersion,
                    target: targetVersion, outcome: "success", detail: nil)
+            receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
+                          chosen: receiptChosen, mode: label(decision),
+                          source: userProbe.observedVersion, target: targetVersion,
+                          outcome: .success)
         } catch let boot as DatabaseBootFailure {
             throw boot
         } catch let upgrade as DatabaseUpgradeError {
@@ -192,12 +216,21 @@ enum DatabaseBootService {
             record(history, databasePath: databasePath, source: userProbe.observedVersion,
                    target: targetVersion, outcome: "verify-failed",
                    detail: "found=\(found.map(String.init) ?? "nil") expected=\(expected)")
+            receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
+                          chosen: receiptChosen, mode: label(decision),
+                          source: userProbe.observedVersion, target: targetVersion,
+                          outcome: .verifyFailed,
+                          detail: "found=\(found.map(String.init) ?? "nil") expected=\(expected)")
             throw DatabaseBootFailure.migrationIncomplete(
                 found: found ?? -1, expected: expected)
         } catch {
             record(history, databasePath: databasePath, source: userProbe.observedVersion,
                    target: targetVersion, outcome: "open-failed",
                    detail: String(describing: error))
+            receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
+                          chosen: receiptChosen, mode: label(decision),
+                          source: userProbe.observedVersion, target: targetVersion,
+                          outcome: .openFailed, detail: String(describing: error))
             throw DatabaseBootFailure.openFailed(String(describing: error))
         }
 
@@ -263,6 +296,23 @@ enum DatabaseBootService {
             }
         }
         return false
+    }
+
+    /// B3 收据追加（失败只告警——取证通道不阻断启动）。
+    private static func receiptAppend(_ receipt: MigrationReceipt?, bootId: String,
+                                      resolution: [String], chosen: String?, mode: String,
+                                      source: Int?, target: Int?,
+                                      outcome: MigrationReceipt.Event.Outcome,
+                                      detail: String? = nil) {
+        guard let receipt else { return }
+        do {
+            try receipt.append(.init(bootId: bootId, at: Date().timeIntervalSince1970,
+                                     candidates: resolution, chosen: chosen, mode: mode,
+                                     sourceVersion: source, targetVersion: target,
+                                     outcome: outcome, detail: detail))
+        } catch {
+            logger.warning("migration receipt write failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     private static func record(_ history: SchemaHistoryStore?, databasePath: String,

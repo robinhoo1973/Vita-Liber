@@ -1898,6 +1898,7 @@
 "startup.init.failureTooNew" = "The database was created by a newer version of the app. Update the app and try again.";
 "startup.init.failureMigrationFmt" = "Database upgrade did not finish (current v%1$ld, expected v%2$ld). No data was deleted; please retry.";
 "startup.init.failureGeneric" = "The local database could not be initialized. No data was modified; please retry or contact support if this persists.";
+"startup.init.failureAmbiguous" = "Multiple local database files were found. To protect your records, automatic selection stopped. After checking manually, keep a single database file and retry, or contact support.";
 "startup.check.title" = "Opening your health record";
 "startup.check.subtitle" = "Checked on this device only. Nothing is uploaded.";
 "startup.check.row.dbFile" = "Local records file";

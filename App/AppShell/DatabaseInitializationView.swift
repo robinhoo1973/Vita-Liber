@@ -792,6 +792,8 @@ struct DatabaseInitializationView: View {
         switch failure {
         case .missingWithOriginals:
             return L10n.startupInitFailureMissingOriginals
+        case .databaseAmbiguous:
+            return L10n.startupInitFailureAmbiguous
         case .corrupt:
             return L10n.startupInitFailureCorrupt
         case .tooNew:

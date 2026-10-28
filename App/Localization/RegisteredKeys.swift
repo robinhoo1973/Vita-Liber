@@ -1282,6 +1282,7 @@ extension L10n {
         "startup.init.failureTooNew",
         "startup.init.failureMigrationFmt",
         "startup.init.failureGeneric",
+        "startup.init.failureAmbiguous",
         // U-批 B3（2026-10-28）：启动自检四行清单
         "startup.check.title",
         "startup.check.subtitle",

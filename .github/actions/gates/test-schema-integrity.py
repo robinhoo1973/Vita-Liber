@@ -4,6 +4,8 @@ from pathlib import Path
 import base64
 import re
 import sqlite3
+import subprocess
+import sys
 import zlib
 import unittest
 from contextlib import closing
@@ -36,6 +38,18 @@ class SchemaIntegrityTests(unittest.TestCase):
         expected = [1] + [int(v) for v in re.findall(r"Step\(version: (\d+),", text)]
         self.assertEqual(seeded, expected, "历史库种子版本序列与 SchemaMigrations.steps 不一致")
         self.assertEqual(seeded[-1], 50)
+    def test_schema_registry_generator_consistent(self):
+        """B2 门禁（2026-10-29 转换登记表批）：种子与 schema-registry.json 必须
+        等于生成器从代码全量派生的产物。
+
+        旧「补丁式种子脚本」在 run 40778755694 因字节漂移红过；本测试把
+        「产物 = 代码派生」钉在 L0（Linux 可跑），不依赖 macOS Swift 测试。
+        """
+        script = ROOT / "scripts/gates/generate-schema-registry.py"
+        result = subprocess.run([sys.executable, "-I", str(script)],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
     def test_fresh_database_creates_all_indexes_and_relationship_columns(self):
         with closing(sqlite3.connect(":memory:")) as db:
             db.execute("PRAGMA foreign_keys = ON")
@@ -102,13 +116,24 @@ class SchemaIntegrityTests(unittest.TestCase):
                 continue
             db.execute(statement)
 
-    # 纯 SQL 步的步级声明（`sql: ""` 的 v13/v15 代码步不匹配——Python 侧不可重放，只在 v16 以下链上出现）。
-    STEP_PATTERN = re.compile(r'Step\(version: (\d+), name: "([^"]+)",\s*sql: """(.*?)"""(?:,\s*transactional: (true|false))?(?:,\s*fkCheckTable: "(\w+)")?\)', re.S)
+    # 纯 SQL 步的步级声明（`sql: ""` 的代码步不匹配——Python 侧不可重放，只在 v16 以下链上出现；
+    # B1 起尾部具名参数含 hasCode/executor/irreversible，此处只取 transactional/fkCheckTable）。
+    STEP_PATTERN = re.compile(
+        r'Step\(version: (\d+), name: "([^"]+)",\s*sql: """(.*?)"""((?:,\s*\w+:\s*(?:"[^"]*"|true|false))*)\),',
+        re.S)
+    TAIL_PARAM = re.compile(r'(\w+):\s*(?:"([^"]*)"|(true|false))')
 
     @classmethod
     def steps(cls):
         text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaMigrations.swift").read_text()
-        return [(int(version), name, sql, flag == "true", fk_table or None) for version, name, sql, flag, fk_table in cls.STEP_PATTERN.findall(text)]
+        rows = []
+        for version, name, sql, tail in cls.STEP_PATTERN.findall(text):
+            params = {key: (value if value else flag == "true")
+                      for key, value, flag in cls.TAIL_PARAM.findall(tail)}
+            rows.append((int(version), name, sql,
+                         params.get("transactional") is True,
+                         params.get("fkCheckTable")))
+        return rows
 
     @classmethod
     def latest_version(cls):

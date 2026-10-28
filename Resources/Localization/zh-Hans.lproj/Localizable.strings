@@ -1898,6 +1898,7 @@
 "startup.init.failureTooNew" = "数据库来自更新版本的 App。请更新 App 后重试。";
 "startup.init.failureMigrationFmt" = "数据库升级未完成（当前 v%1$ld，应为 v%2$ld）。数据未被删除，请重试。";
 "startup.init.failureGeneric" = "本地数据库暂时无法初始化。数据未被修改，请重试；如持续出现请联系支持。";
+"startup.init.failureAmbiguous" = "检测到多份本地数据库并存，为保护档案已停止自动选择。请人工核对后仅保留一份数据库文件，再重试；或联系支持。";
 "startup.check.title" = "正在打开你的健康档案";
 "startup.check.subtitle" = "只在本机检查，不会上传任何内容";
 "startup.check.row.dbFile" = "本地档案文件";

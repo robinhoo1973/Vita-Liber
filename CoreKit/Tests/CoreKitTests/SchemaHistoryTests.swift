@@ -27,8 +27,9 @@ struct SchemaHistoryTests {
         let sql = try SchemaHistorySeed.sql()
         #expect(sql.contains("(1,'baseline','sql'"))
         for step in SchemaMigrations.steps {
-            let kind = step.sql.isEmpty ? "code" : "sql"
-            #expect(sql.contains("(\(step.version),'\(step.name)','\(kind)'"),
+            // B1（2026-10-29）：kind 三值由 Step 派生（sql/code/hybrid），
+            // 消灭旧 `sql.isEmpty` 二分的失真（混合步曾被标成 sql）。
+            #expect(sql.contains("(\(step.version),'\(step.name)','\(step.kind.rawValue)'"),
                     "seed 缺少 v\(step.version) \(step.name)")
         }
         #expect(sql.contains("VALUES(\(SchemaMigrations.latestVersion),'"))
@@ -66,7 +67,8 @@ struct SchemaHistoryTests {
         #expect(contents.attempts.isEmpty)
         #expect(contents.steps.count == SchemaMigrations.steps.count + 1)
         #expect(contents.steps.last?.version == SchemaMigrations.latestVersion)
-        #expect(contents.registry.count == 6)
+        // B1（2026-10-29）：medical-catalog-v4 死行删除（现存库自描述纪律，条目即存在）。
+        #expect(contents.registry.count == 5)
         #expect(contents.meta["history_schema_version"] == "1")
     }
 

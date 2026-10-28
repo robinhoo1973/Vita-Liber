@@ -55,12 +55,25 @@ struct VitaLiberApp: App {
         Task { await boot.start() }
     }
 
+    /// 样张图库直达（仅 DEBUG；2026-10-29 样张图库批）：
+    /// 模拟器以 `-uitest-samples` 启动即进 Sample Gallery，不进产品导航。
+    private var isShowingSamples: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-uitest-samples")
+        #else
+        return false
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             WithPerceptionTracking {
+                if isShowingSamples {
+                    SamplesRootView()
+                }
                 // U-批 B2 交接门：容器就绪但自检页未放行时继续展示启动页
                 // （session 已在页下创建；用户永远看不到未建 session 的主界面）。
-                if boot.isShowingReadOnly, let readOnly = boot.readOnlyContainer {
+                else if boot.isShowingReadOnly, let readOnly = boot.readOnlyContainer {
                     // 只读降级壳（B2）：显式入口进入；不建会话、零写零联网。
                     ReadOnlyAppRoot(container: readOnly)
                 } else if let container = boot.container, !boot.isShowingBootScreen {

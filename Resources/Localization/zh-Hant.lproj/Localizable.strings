@@ -1898,6 +1898,7 @@
 "startup.init.failureTooNew" = "資料庫來自更新版本的 App。請更新 App 後重試。";
 "startup.init.failureMigrationFmt" = "資料庫升級未完成（目前 v%1$ld，應為 v%2$ld）。資料未被刪除，請重試。";
 "startup.init.failureGeneric" = "本機資料庫暫時無法初始化。資料未被修改，請重試；如持續出現請聯絡支援。";
+"startup.init.failureAmbiguous" = "偵測到多份本機資料庫並存，為保護檔案已停止自動選擇。請人工核對後僅保留一份資料庫檔案，再重試；或聯絡支援。";
 "startup.check.title" = "正在開啟你的健康檔案";
 "startup.check.subtitle" = "只在本機檢查，不會上傳任何內容";
 "startup.check.row.dbFile" = "本機檔案";
