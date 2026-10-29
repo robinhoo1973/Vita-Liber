@@ -12,12 +12,15 @@ final class MemberViewsPresentationUITests: XCTestCase {
         membersEntry.tap()
 
         let addMember = app.buttons["FR3.7.member.add"]
-        XCTAssertTrue(addMember.waitForExistence(timeout: 5))
-        addMember.tap()
+        XCTAssertTrue(addMember.waitForExistence(timeout: 10))
+        // TD（2026-10-29）：创建 sheet 段「出现≠可点」——点走可点性门控；
+        // run 40812706085 首轮在此段 5s 预算内失败、二轮同环境零代码差通过
+        // =模拟器转场抖动，本段为加固面（预算 5→10s + tapWhenHittable）。
+        UITestSupport.tapWhenHittable(addMember)
 
         let name = app.textFields["FR3.7.create.name"]
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
-        name.tap()
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        UITestSupport.tapWhenHittable(name)
         name.typeText("Atomicity Test Member")
         app.buttons["FR3.7.create.save"].tap()
 

@@ -33,4 +33,17 @@ enum UITestSupport {
             app.swipeUp()
         }
     }
+
+    /// 等到可点再点击（TD 2026-10-29；run 40812706085 retry-masked 抖动复核）：
+    /// `waitForExistence` 通过 ≠ 可点——sheet 转场/动画期间元素刚出现又重排，
+    /// 紧接着的 tap 会以「No matches found」硬失败（MemberViews 首轮实证）。
+    /// 轮询 isHittable 至截止（默认 10s）再点击；超限仍点击一次，
+    /// 失败由 XCUITest 原生错误如实暴露（不吞错）。
+    static func tapWhenHittable(_ element: XCUIElement, timeout: TimeInterval = 10) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !element.isHittable && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        element.tap()
+    }
 }
