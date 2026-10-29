@@ -88,13 +88,37 @@ public enum LlamaModelManager {
     // MARK: - 目录（信任锚）
 
     /// 随包目录文档（缺失/损坏 → nil：一切条目不就绪——绝不假装可用）。
+    ///
+    /// 解析结果进程内缓存一次：随包目录是签名二进制里的不可变文件，而本函数是
+    /// 就绪判定的热路径（`activeModel()` 逐条目、安装中心多个 computed property
+    /// 每次渲染各调一次）——此前每次调用都 `Data(contentsOf:)` + JSON 解析。
     public static func catalogDocument() -> LLMModelCatalog.Document? {
         if let override = catalogOverride { return override }
-        guard let url = Bundle.main.url(forResource: catalogFileName, withExtension: "json",
-                                        subdirectory: catalogSubdirectory),
-              let data = try? Data(contentsOf: url) else { return nil }   // try?-ok: 目录缺失按未配置处理（就绪判定随之全假）
-        return LLMModelCatalog.parse(data)
+        return catalogCache.document {
+            guard let url = Bundle.main.url(forResource: catalogFileName, withExtension: "json",
+                                            subdirectory: catalogSubdirectory),
+                  let data = try? Data(contentsOf: url) else { return nil }   // try?-ok: 目录缺失按未配置处理（就绪判定随之全假）
+            return LLMModelCatalog.parse(data)
+        }
     }
+
+    /// 目录缓存盒（NSLock；`catalogOverride` 存在时绕过——测试注入语义不变）。
+    private final class CatalogCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var loaded = false
+        private var document: LLMModelCatalog.Document?
+
+        func document(load: () -> LLMModelCatalog.Document?) -> LLMModelCatalog.Document? {
+            lock.lock()
+            defer { lock.unlock() }
+            if loaded { return document }
+            document = load()
+            loaded = true
+            return document
+        }
+    }
+
+    private static let catalogCache = CatalogCache()
 
     // MARK: - 安装指针
 
@@ -117,8 +141,14 @@ public enum LlamaModelManager {
 
     /// 已安装模型文件 URL（指针在 + 文件在）。
     public static func installedModelURL(id: String) -> URL? {
-        guard let pointer = readPointer(id: id),
-              let directory = installDirectory(id: id) else { return nil }
+        guard let pointer = readPointer(id: id) else { return nil }
+        return installedModelURL(id: id, pointer: pointer)
+    }
+
+    /// 指针已解码版本（就绪判定复用——此前 `readyModel` 先读指针、再经
+    /// `installedModelURL` 二次读指针并重新解码）。
+    private static func installedModelURL(id: String, pointer: InstallPointer) -> URL? {
+        guard let directory = installDirectory(id: id) else { return nil }
         let url = directory
             .appendingPathComponent(LLMModelInstallLayout.versionDirectoryName(version: pointer.version,
                                                                                sha256: pointer.sha256),
@@ -144,7 +174,7 @@ public enum LlamaModelManager {
               pointer.fileName == entry.fileName,
               pointer.bytes == entry.bytes,
               pointer.sha256 == entry.sha256,
-              let url = installedModelURL(id: entry.id),
+              let url = installedModelURL(id: entry.id, pointer: pointer),
               fileSize(at: url) == entry.bytes else { return nil }
         return ActiveModel(id: entry.id, url: url, bytes: entry.bytes, sha256: entry.sha256,
                            frame: entry.frame, kvBytesPerToken: entry.kvBytesPerToken,

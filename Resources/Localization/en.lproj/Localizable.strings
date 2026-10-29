@@ -236,7 +236,7 @@
 "settings.resource.bundled" = "Bundled";
 "settings.resource.t2.download" = "Download";
 "settings.resource.t2.consentDownload" = "Agree & Download";
-"settings.resource.t2.consentHintFmt" = "About %@, one-time download then offline. Wi-Fi only; keep the app open.";
+"settings.resource.t2.consentHintFmt" = "About %@, one-time download then offline. Uses your Download Network setting; keep the app open.";
 "settings.resource.t2.update" = "Update";
 "settings.resource.t2.remove" = "Delete";
 "settings.resource.t2.retry" = "Retry";
@@ -250,6 +250,7 @@
 "settings.resource.t2.failedOther" = "Installation failed; please retry.";
 "settings.resource.t2.statusInstalledFmt" = "Installed v%@";
 "settings.resource.t2.statusUpdateFmt" = "Update available %@ → %@";
+"settings.resource.t2.statusSwitchFmt" = "Switch available %@ → %@ (%@)";
 "settings.resource.t2.statusNotInstalledFmt" = "Not installed (about %@)";
 "settings.resource.progressBytesFmt" = "%@ / %@";
 "settings.resource.catalog.local" = "Local catalog";

@@ -504,19 +504,36 @@ struct ResourceManagementView: View {
             Button(L10n.llmModelCancel) { llmModelInstallCenter.cancel() }
         case .installed:
             if llmModelInstallCenter.updateAvailable {
-                Button(L10n.llmModelUpdate) { llmModelInstallCenter.startInstall() }
-                    .buttonStyle(.borderedProminent)
+                Button(L10n.llmModelUpdate) {
+                    guard downloadsAllowed() else { return }
+                    llmModelInstallCenter.startInstall()
+                }
+                .buttonStyle(.borderedProminent)
             }
             Button(L10n.llmModelRemove, role: .destructive) { llmModelInstallCenter.remove() }
         case .failed:
-            Button(L10n.llmModelRetry) { llmModelInstallCenter.startInstall() }
+            Button(L10n.llmModelRetry) {
+                guard downloadsAllowed() else { return }
+                llmModelInstallCenter.startInstall()
+            }
+            // 更新失败时旧模型仍就绪：失败态不得吞掉「删除」入口（否则用户腾不出空间，
+            // 也删不掉占位的旧模型）。
+            if llmModelInstallCenter.installedEntry != nil {
+                Button(L10n.llmModelRemove, role: .destructive) { llmModelInstallCenter.remove() }
+            }
         case .notInstalled:
             if llmModelInstallCenter.consentGranted {
-                Button(L10n.llmModelDownload) { llmModelInstallCenter.startInstall() }
-                    .buttonStyle(.borderedProminent)
+                Button(L10n.llmModelDownload) {
+                    guard downloadsAllowed() else { return }
+                    llmModelInstallCenter.startInstall()
+                }
+                .buttonStyle(.borderedProminent)
             } else {
-                Button(L10n.llmModelConsentDownload) { llmModelInstallCenter.grantConsentAndInstall() }
-                    .buttonStyle(.borderedProminent)
+                Button(L10n.llmModelConsentDownload) {
+                    guard downloadsAllowed() else { return }
+                    llmModelInstallCenter.grantConsentAndInstall()
+                }
+                .buttonStyle(.borderedProminent)
                 Text(L10n.llmModelConsentHint(t2SizeText))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -538,6 +555,11 @@ struct ResourceManagementView: View {
         case .installed:
             let installed = llmModelInstallCenter.installedVersion ?? "?"
             if llmModelInstallCenter.updateAvailable, let entry = llmModelInstallCenter.entry {
+                // 换型（不同 id）与同条目升版是两种事实：用文件名点出目标模型，
+                // 否则「可更新 1 → 1」看不出模型已换。
+                if llmModelInstallCenter.installedEntry?.id != entry.id {
+                    return L10n.llmModelStatusSwitch(installed, entry.version, entry.fileName)
+                }
                 return L10n.llmModelStatusUpdate(installed, entry.version)
             }
             return L10n.llmModelStatusInstalled(installed)

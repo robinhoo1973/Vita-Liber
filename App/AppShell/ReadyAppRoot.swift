@@ -10,6 +10,8 @@ import Perception
 /// 保证初始化与全局副作用只执行一次，避免 SwiftUI 重复求值 body 时重复注册。
 @MainActor
 struct ReadyAppRoot: View {
+    /// 下载网络门（VitaLiberApp 在 WindowGroup 注入：启动卡与主界面共用）。
+    @Environment(DownloadNetworkGate.self) private var networkGate
     @State private var session: AppSession
 
     init(container: AppContainer, router: AppRouter,
@@ -100,7 +102,11 @@ struct ReadyAppRoot: View {
              .environment(session.updateCenterState)
              // T2 模型自动补齐（2026-10-09 换型+下载化批）：幂等——仅在
              // 「已一次显式同意 ∧ 未安装 ∧ 非低电量」时发起；未同意绝不联网。
-             .task { session.llmModelInstallCenter.autoInstallIfEligible() }
+             // 2026-10-29 下载网络门：wifiOnly 策略/离线时不得借自动补齐绕过策略。
+             .task {
+                 guard networkGate.allowsDownload() else { return }
+                 session.llmModelInstallCenter.autoInstallIfEligible()
+             }
              // 第九轮审查修复（权益冷启动）：entitlements.owned 此前只在
              // PaywallView.task 里加载——冷启动后已购 Pro 用户首次「添加家人」
              // 会被 memberAdditionBlocked 误拦并弹付费墙（门禁读 owned 恒空）。

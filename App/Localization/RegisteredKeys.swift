@@ -727,6 +727,7 @@ extension L10n {
         "settings.resource.t2.failedOther",
         "settings.resource.t2.statusInstalledFmt",
         "settings.resource.t2.statusUpdateFmt",
+        "settings.resource.t2.statusSwitchFmt",
         "settings.resource.t2.statusNotInstalledFmt",
         "settings.resource.catalog.local",
         "settings.resource.catalog.localVersionFmt",

@@ -236,7 +236,7 @@
 "settings.resource.bundled" = "隨包內建";
 "settings.resource.t2.download" = "下載";
 "settings.resource.t2.consentDownload" = "同意並下載";
-"settings.resource.t2.consentHintFmt" = "約 %@，一次性下載後離線可用；僅 Wi-Fi，請保持前景。";
+"settings.resource.t2.consentHintFmt" = "約 %@，一次性下載後離線可用；依「下載線路」設定連網，請保持前景。";
 "settings.resource.t2.update" = "更新";
 "settings.resource.t2.remove" = "刪除";
 "settings.resource.t2.retry" = "重試";
@@ -250,6 +250,7 @@
 "settings.resource.t2.failedOther" = "安裝失敗，請重試。";
 "settings.resource.t2.statusInstalledFmt" = "已安裝 v%@";
 "settings.resource.t2.statusUpdateFmt" = "可更新 %@ → %@";
+"settings.resource.t2.statusSwitchFmt" = "可切換 %@ → %@（%@）";
 "settings.resource.t2.statusNotInstalledFmt" = "未安裝（約 %@）";
 "settings.resource.progressBytesFmt" = "%@ / %@";
 "settings.resource.catalog.local" = "本機目錄";

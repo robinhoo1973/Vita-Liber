@@ -7,7 +7,7 @@ import Foundation
 /// ```
 /// <id>/active.json                     # 指针（唯一就绪权威：version+fileName+bytes+sha256）
 /// <id>/<version>-<sha12>/<fileName>    # 内容寻址版本目录（同卷 move 原子激活）
-/// <id>/.staging-<uuid>/<fileName>.part # 续传暂存（取消/失败清理，续传点保留）
+/// <id>/.staging-<version>-<sha12>/<fileName>.part # 内容寻址续传暂存（跨尝试稳定）
 /// ```
 ///
 /// 纪律（2026-10-09 换型批；2026-09-20 回滚根因的结构性对策）：
@@ -30,22 +30,12 @@ public enum LLMModelInstallLayout {
         "\(version)-\(sha256.prefix(12))"
     }
 
-    /// 暂存目录名（uuid 由调用方生成；此处只做命名组装）。
-    public static func stagingDirectoryName(uuid: String) -> String {
-        stagingPrefix + uuid
-    }
-
     /// 内容寻址暂存目录名：`<version>-<sha12>` 与目标版本目录同名——续传点跨尝试
     /// 稳定（同 version+sha 复用 `.part`），且不同内容绝不互相续写。
+    /// （2026-10-29：旧的 uuid 暂存命名 API 已删——续传点必须跨尝试稳定，uuid 名与
+    /// 该契约直接矛盾，且已无生产调用者。）
     public static func stagingDirectoryName(version: String, sha256: String) -> String {
         stagingPrefix + versionDirectoryName(version: version, sha256: sha256)
-    }
-
-    /// 暂存目录名 → uuid（非暂存目录返回 nil；清扫侧用于日志/去重）。
-    public static func stagingUUID(_ directoryName: String) -> String? {
-        guard directoryName.hasPrefix(stagingPrefix) else { return nil }
-        let uuid = String(directoryName.dropFirst(stagingPrefix.count))
-        return uuid.isEmpty ? nil : uuid
     }
 
     /// 有效续传偏移：仅当 0 < partialBytes < expectedBytes 时从该偏移续传；
@@ -61,8 +51,11 @@ public enum LLMModelInstallLayout {
         installed.filter { $0 != active }.sorted()
     }
 
-    /// 就绪判定（纯函数）：文件名与字节双钉版即可就绪；全量 sha 校验在激活期完成
-    /// （冷路径一次），此处不做流式哈希（IO 属 Infrastructure）。
+    /// 布局级就绪判定（纯函数）：文件名与字节双钉版即可就绪。
+    ///
+    /// **非生产权威**：生产的就绪判定是 `LlamaModelManager.readyModel`（另比
+    /// pointer.sha256 ↔ 目录 sha256）。本函数契约更宽（不比 sha），只供布局纯函数
+    /// 测试使用——不得接进加载/安装路径，否则「指针已改钉到另一 sha」会被误判就绪。
     public static func isReady(pointerFileName: String, onDisk: [String: Int64],
                                expectedFileName: String, expectedBytes: Int64) -> Bool {
         guard pointerFileName == expectedFileName,

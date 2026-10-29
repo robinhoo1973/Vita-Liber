@@ -120,6 +120,10 @@ extension L10n {
     static func llmModelStatusUpdate(_ from: String, _ to: String) -> String {
         String(format: t("settings.resource.t2.statusUpdateFmt"), from, to)
     }
+    /// 换型（目录首选 id ≠ 已装 id）：点出目标模型文件名，避免「可更新 1 → 1」看不出换型。
+    static func llmModelStatusSwitch(_ from: String, _ to: String, _ name: String) -> String {
+        String(format: t("settings.resource.t2.statusSwitchFmt"), from, to, name)
+    }
     static func llmModelStatusNotInstalled(_ size: String) -> String {
         String(format: t("settings.resource.t2.statusNotInstalledFmt"), size)
     }

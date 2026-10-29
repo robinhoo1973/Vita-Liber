@@ -42,7 +42,6 @@ public actor LLMModelDownloadService {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpMaximumConnectionsPerHost = 8
         configuration.waitsForConnectivity = true
-        // 默认仅非计费网络（Wi-Fi）；蜂窝需 UI 侧显式放行——本批按保守默认。
         // 2026-10-29 业主规则：下载默认允许蜂窝与 Wi-Fi（仅 Wi-Fi 限制属 App 层
         // 「下载线路」策略；服务层保守硬禁会令蜂窝下表现为「进行中但零字节」）。
         configuration.allowsExpensiveNetworkAccess = true
@@ -110,6 +109,9 @@ public actor LLMModelDownloadService {
             } catch is CancellationError {
                 throw CancellationError()
             }
+            // 取消只在下发期间被观察到（downloader 内部）；校验/激活是纯本机长操作，
+            // 这里补检查点：否则「校验中」点取消仍会原子激活并报 .installed。
+            try Task.checkCancellation()
 
             // —— 校验（哈希 + 字节双钉版；不符即弃，绝不安装不可信字节）——
             onPhase?(.verifying)
@@ -118,6 +120,7 @@ public actor LLMModelDownloadService {
             guard size == entry.bytes else { throw Failure.sizeMismatch }
             let digest = try StreamingFileHasher.sha256(of: partial)
             guard digest.lowercased() == entry.sha256.lowercased() else { throw Failure.checksumMismatch }
+            try Task.checkCancellation()
 
             // —— 激活（原子：move 到位 → 最后写指针）——
             onPhase?(.activating)
@@ -153,7 +156,12 @@ public actor LLMModelDownloadService {
             // 取消 = 用户主动暂停：暂存与 .part 保留，下次同 version+sha 从水位续传。
             throw CancellationError()
         } catch {
-            try? FileManager.default.removeItem(at: staging)   // try?-ok: 失败清理尽力而为
+            // 只丢「字节不可信」的暂存（size/checksum/badAddress）；传输类失败（badResponse、
+            // 超时等）保留 .part——内容寻址暂存正是为续传而设，整目录删除会让 90% 的 688 MB
+            // 在一次 Wi-Fi 抖动后全部作废。SHA 终验仍是 fail-closed 兜底。
+            if Self.discardStaging(on: error) {
+                try? FileManager.default.removeItem(at: staging)   // try?-ok: 失败清理尽力而为
+            }
             throw error
         }
     }
@@ -170,6 +178,15 @@ public actor LLMModelDownloadService {
     }
 
     // MARK: - 私有
+
+    /// 字节不可信类失败（重下也必须从零）才丢暂存；网络/传输失败保留续传点。
+    private static func discardStaging(on error: Error) -> Bool {
+        guard let failure = error as? Failure else { return false }
+        switch failure {
+        case .sizeMismatch, .checksumMismatch, .badAddress: return true
+        default: return false
+        }
+    }
 
     private func checkStorage(requiredBytes: Int64) throws {
         guard let root = LlamaModelManager.installRootDirectory else { throw Failure.installFailed }

@@ -12,14 +12,6 @@ struct LLMModelInstallLayoutTests {
         #expect(name == "1-ac2d9771dead")
     }
 
-    @Test func stagingNameRoundTrips() {
-        let name = LLMModelInstallLayout.stagingDirectoryName(uuid: "7F0E-ABCD")
-        #expect(name == ".staging-7F0E-ABCD")
-        #expect(LLMModelInstallLayout.stagingUUID(name) == "7F0E-ABCD")
-        #expect(LLMModelInstallLayout.stagingUUID("1-ac2d9771dead") == nil)
-        #expect(LLMModelInstallLayout.stagingUUID(".staging-") == nil)
-    }
-
     @Test func stagingNameIsContentAddressedForResume() {
         // 2026-10-29 评审修复：暂存位按 version+sha 内容寻址（跨尝试稳定才能续传）；
         // 不同内容绝不共用一个 .part（旧前缀 + 新内容 = 白下 + 校验必红）。

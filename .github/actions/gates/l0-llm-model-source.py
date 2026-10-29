@@ -103,8 +103,12 @@ else:
     if catalog is not None:
         # 2026-10-29 MiniCPM5 选型批：v3 = v2 + per-entry kvBytesPerToken/stopTokens/addBosToken
         # （与 Domain LLMModelCatalog.parseEntry / integrate_to_vitaliber.py entry_failures 逐条同口径）。
-        if catalog.get("formatVersion") not in (2, 3):
-            fail(f"catalog formatVersion 非 2/3（实为 {catalog.get('formatVersion')!r}）——v1 已随本批退役")
+        # 严格整数：Python 里 2.0/True 的 `in (2, 3)` 为真，App 侧 JSONDecoder 解 Int 会拒
+        # （2.0 非整值、true 非数字）——不按类型卡 = 「L0 全绿、App 整体拒收」。
+        catalog_version = catalog.get("formatVersion")
+        if (not isinstance(catalog_version, int) or isinstance(catalog_version, bool)
+                or catalog_version not in (2, 3)):
+            fail(f"catalog formatVersion 非整数 2/3（实为 {catalog_version!r}）——v1 已随本批退役")
         known_frames = {"chatml", "qwen3-nothink", "minicpm5-nothink"}
         models = catalog.get("models")
         if not isinstance(models, list) or not models:
@@ -127,9 +131,14 @@ else:
                 ids.add(entry_id)
                 if model.get("role") not in {"default", "medical"}:
                     fail(f"{label} role 非法：{model.get('role')!r}")
-                if not isinstance(model.get("fileName"), str) or not model["fileName"].endswith(".gguf"):
-                    fail(f"{label} fileName 非 .gguf：{model.get('fileName')!r}")
-                if not isinstance(model.get("bytes"), int) or model["bytes"] <= 0:
+                # App makeEntry 双条件：.gguf 后缀 + isSlug（下载落盘文件名直接来自本字段）。
+                file_name = model.get("fileName")
+                if (not isinstance(file_name, str) or not file_name.endswith(".gguf")
+                        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", file_name)):
+                    fail(f"{label} fileName 非 .gguf slug：{file_name!r}")
+                # bool 是 int 子类：True 冒充 bytes 会过掉 Python 侧检查（App JSONDecoder 同样拒）。
+                if (not isinstance(model.get("bytes"), int) or isinstance(model.get("bytes"), bool)
+                        or model["bytes"] <= 0):
                     fail(f"{label} bytes 未钉版：{model.get('bytes')!r}")
                 sha = model.get("sha256")
                 if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{64}", sha):
@@ -141,6 +150,11 @@ else:
                 version = model.get("version")
                 if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", version or ""):
                     fail(f"{label} version 非 slug：{version!r}")
+                # App makeEntry 拒收空 license（条目级 fail-closed）；缺这条 = 手改目录可静默
+                # 丢字段过 L0，出厂后整条被 App 拒收。
+                license_name = model.get("license")
+                if not isinstance(license_name, str) or not license_name:
+                    fail(f"{label} license 缺失：{license_name!r}")
                 # v3 字段（2026-10-29）：缺省合法；显式值非法即拒收（App 解析器同口径）。
                 frame = model.get("frame")
                 if frame is not None and frame not in known_frames:

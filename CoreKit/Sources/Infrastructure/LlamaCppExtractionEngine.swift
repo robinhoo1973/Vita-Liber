@@ -289,16 +289,15 @@ final class LlamaRuntime: @unchecked Sendable {
         // 是否被转换链标 EOG 不由本仓决定——目录钉 + 词表兜底双保险，绝不靠隐含 EOG。
         var stopSet = Set(stopTokens)
         if let imEnd = Self.singleTokenID(vocab: vocab, text: "<|im_end|>") { stopSet.insert(imEnd) }
-        var pieces: [String] = []
+        // 逐 token 只累积**原始字节**，返回前一次性按 UTF-8 解码：llama_token_to_piece 在
+        // byte-fallback 词表下会把一个多字节字符拆到多个 token（含 CJK/emoji），逐 token
+        // `String(cString:)` 会把每个不完整片段各自变成 U+FFFD（污染抽取文本且 JSON 仍可解析）。
+        var outputBytes: [UInt8] = []
         for _ in 0..<maxTokens {
             if cancelFlag.isCancelled { throw CancellationError() }
             let newToken = llama_sampler_sample(chain, context, -1)
             if newToken == eos || llama_vocab_is_eog(vocab, newToken) || stopSet.contains(newToken) { break }
-            var pieceBuffer = [CChar](repeating: 0, count: 256)
-            let pieceLength = pieceBuffer.withUnsafeMutableBufferPointer { buffer in
-                llama_token_to_piece(vocab, newToken, buffer.baseAddress, 256, 0, false)
-            }
-            if pieceLength > 0 { pieces.append(String(cString: pieceBuffer)) }
+            outputBytes.append(contentsOf: Self.pieceBytes(vocab: vocab, token: newToken))
             batch.token[0] = newToken
             batch.pos[0] = position
             batch.n_seq_id[0] = 1
@@ -308,7 +307,24 @@ final class LlamaRuntime: @unchecked Sendable {
             guard llama_decode(context, batch) == 0 else { break }
             position += 1
         }
-        return pieces.joined()
+        return String(decoding: outputBytes, as: UTF8.self)
+    }
+
+    /// 单 token 的原始字节（负返回 = 缓冲区不足，按所需长度重取——超过 256 B 的 token
+    /// 此前会被整段丢弃）。
+    private static func pieceBytes(vocab: OpaquePointer, token: llama_token) -> [UInt8] {
+        var buffer = [CChar](repeating: 0, count: 32)
+        var written = buffer.withUnsafeMutableBufferPointer { pointer in
+            llama_token_to_piece(vocab, token, pointer.baseAddress, 32, 0, false)
+        }
+        if written < 0 {
+            buffer = [CChar](repeating: 0, count: Int(-written))
+            written = buffer.withUnsafeMutableBufferPointer { pointer in
+                llama_token_to_piece(vocab, token, pointer.baseAddress, Int32(buffer.count), 0, false)
+            }
+        }
+        guard written > 0 else { return [] }
+        return buffer.prefix(Int(written)).map { UInt8(bitPattern: $0) }
     }
 
     /// 词表内单 token 化查询（停止集兜底；非单 token → nil，绝不按字面匹配输出文本）。

@@ -108,6 +108,9 @@ public enum LLMModelCatalog {
     ///   承担（Bool→Int、1.5→Int、String→Int 均拒），与 L0 [20] 门禁
     ///   `isinstance(int) and not isinstance(bool)` 同口径。
     /// - `preference` 任一 id 悬空 → 整体判 nil（宁可拒绝，不可静默错选）。
+    ///   **与条目级跳过的优先级**：被跳过的条目若出现在 `preference` 里，其 id 即悬空
+    ///   → 整份目录 nil（优先条目非法 = 构建期必须拦住，绝不下发「假装可用」的降级）。
+    ///   非优先条目非法则只丢该条。L0 [20] 门禁按同一规则做发货前阻断。
     /// - 去重：同 id 重复（后者）覆盖前者可静默错选 → 直接剔除重复 id 的全部后验条目，
     ///   保留首个（确定性优先）。
     public static func parse(_ data: Data) -> Document? {

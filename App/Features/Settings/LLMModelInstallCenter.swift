@@ -77,12 +77,15 @@ final class LLMModelInstallCenter {
         LlamaModelManager.catalogDocument()?.preferred.first
     }
 
-    /// 已安装条目：目录 preference 序中首个就绪者（可能 ≠ 首选目标）。
-    var installedEntry: LLMModelCatalog.Entry? {
-        LlamaModelManager.catalogDocument()?.preferred.first {
+    /// 已安装条目：目录 preference 序中的全部就绪者（可能 ≠ 首选目标；换型过渡期可有多个）。
+    var installedEntries: [LLMModelCatalog.Entry] {
+        (LlamaModelManager.catalogDocument()?.preferred ?? []).filter {
             LlamaModelManager.isModelReady(id: $0.id)
         }
     }
+
+    /// 报告/呈现用首个已装条目（≠ 首选目标）。
+    var installedEntry: LLMModelCatalog.Entry? { installedEntries.first }
 
     /// 已安装版本（未安装 → nil）。
     var installedVersion: String? {
@@ -111,7 +114,15 @@ final class LLMModelInstallCenter {
 
     func refresh() {
         guard installTask == nil else { return }
-        state = LlamaModelManager.activeModel() != nil ? .installed : .notInstalled
+        if LlamaModelManager.activeModel() != nil {
+            state = .installed
+            return
+        }
+        // 失败态保留：行视图每次出现都 `.task { refresh() }`，一律按磁盘重算会把
+        // .failed(FailureKind) 抹成 .notInstalled——失败原因与「重试」入口跨页即消失。
+        // 删除成功路径由 remove() 显式落 .notInstalled 后再 refresh。
+        if case .failed = state { return }
+        state = .notInstalled
     }
 
     /// 一次显式同意（同意即安装）。
@@ -155,7 +166,9 @@ final class LLMModelInstallCenter {
                     })
                 self?.finish(with: .installed)
             } catch is CancellationError {
-                self?.finish(with: .notInstalled)
+                // 取消更新时旧模型仍可能就绪：直接落 .notInstalled 会让状态与磁盘不符
+                //（旧模型仍活跃/仍占空间），按磁盘真相回落。
+                self?.finish(with: LlamaModelManager.activeModel() != nil ? .installed : .notInstalled)
             } catch {
                 self?.finish(with: .failed(Self.kind(of: error)))
             }
@@ -167,19 +180,26 @@ final class LLMModelInstallCenter {
     }
 
     func remove() {
-        // 删除对象 = 实际已装条目（换型过渡期首选目标可能尚未安装——按目标删会空转，
-        // 且把 Qwen3 留在活跃位却显示「未安装」）。
-        guard let target = installedEntry ?? entry else { return }
+        // 删除对象 = **全部**实际已装条目（换型过渡期可有多个：新模型已装 + 旧模型仍就绪）。
+        // 只删 installedEntry 一个会让旧模型继续占据活跃位：删除看起来无效（refresh 回落到
+        // 旧模型仍 .installed），切换后残留的旧目录也永远无人回收。「删除」= 释放本机模型
+        // 存储的单一语义。
+        let removalIDs = installedEntries.map(\.id)
+            + (installedEntries.isEmpty ? entry.map { [$0.id] } ?? [] : [])
+        guard !removalIDs.isEmpty else { return }
         // S-3（第九轮审查 P7#1，权重重判定案）：删除 = **吊销同意**——类文档
         // 自述「拉黑语义 = 删键」，但此前 remove() 从不删键：用户为腾空间删除
         // 后，下一次冷启动 autoInstallIfEligible()（同意仍为 true、模型已缺）
         // 会静默重新下载 ~396MB。现在删除即清 consent key：自动补齐不再触发，
         // 重装必须再经用户显式同意（grantConsentAndInstall）。
         UserDefaults.standard.removeObject(forKey: Self.consentKey)
-        let removedID = target.id
         Task { [weak self] in
-            try? await LLMModelDownloadService.shared.remove(id: removedID)   // try?-ok: 删除失败按幂等处理，refresh 会校正呈现
+            for id in removalIDs {
+                try? await LLMModelDownloadService.shared.remove(id: id)   // try?-ok: 删除失败按幂等处理，refresh 会校正呈现
+            }
             await MainActor.run { [weak self] in
+                // 先落 .notInstalled 再 refresh：refresh 保留失败态，删除结果不能显示旧失败。
+                self?.state = .notInstalled
                 self?.refresh()
                 self?.dataChange.assetsChanged()
             }
