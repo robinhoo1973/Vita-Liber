@@ -146,6 +146,9 @@ final class BootSnapshotSequenceTests: XCTestCase {
         let timeline = Timeline()
         let databasePath = dir.appendingPathComponent("app-local-user_data.sqlite").path
         let historyPath = dir.appendingPathComponent("app-local-schema-history.sqlite").path
+        // CI 40798903458 红修复：@Sendable 闭包内不得调 @MainActor 方法——
+        // 值在 MainActor 作用域预取后按值捕获（DatabaseProbeSnapshot 为 Sendable）。
+        let readySnapshot = readyProbe()
         let environment = DatabaseBootService.BootEnvironment(
             resolveDatabasePath: {
                 .init(path: databasePath, candidates: ["app-local-user_data.sqlite"])
@@ -153,7 +156,7 @@ final class BootSnapshotSequenceTests: XCTestCase {
             schemaHistoryPath: { historyPath },
             catalogSlicePath: { name in dir.appendingPathComponent(name).path },
             originalsPresent: { false },
-            probePatient: { _, _ in self.readyProbe() },
+            probePatient: { _, _ in readySnapshot },
             probeSlice: { _, _ in
                 timeline.mark("probeStart")
                 Thread.sleep(forTimeInterval: 0.2)
