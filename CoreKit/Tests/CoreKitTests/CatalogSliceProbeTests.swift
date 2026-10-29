@@ -26,7 +26,9 @@ struct CatalogSliceProbeTests {
 
     /// 造一个合法切片库：期望表集 + slice_meta 七硬键；每表恰一行。
     private func makeLegalSlice(at path: String, kind: CatalogSliceKind) throws {
-        guard let tables = CatalogSliceManifest.expectedTables(kind, schemaVersion: Self.schemaVersion) else {
+        // 宿主类型实锤=CatalogSliceManifestDecoder（文件名为 CatalogSliceManifest.swift，
+        // 类型名与文件不同——CI 40803160846 红因；同 MigrationError 族陷阱）。
+        guard let tables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: Self.schemaVersion) else {
             throw CocoaError(.featureUnsupported)
         }
         let queue = try DatabaseQueue(path: path)
@@ -72,7 +74,7 @@ struct CatalogSliceProbeTests {
                 Issue.record("合法夹具必须 ready：\(kind.rawValue) → \(state)")
                 continue
             }
-            let expectedTables = CatalogSliceManifest.expectedTables(kind, schemaVersion: Self.schemaVersion) ?? []
+            let expectedTables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: Self.schemaVersion) ?? []
             #expect(observed.tables == Set(expectedTables))
             #expect(observed.physicalSchema == "catalog-v4")
             #expect(try fileBytes(path) == before, "只读探测必须零写入（\(kind.rawValue) 字节守恒）")
