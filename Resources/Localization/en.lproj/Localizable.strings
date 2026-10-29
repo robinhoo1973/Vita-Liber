@@ -223,9 +223,9 @@
 "settings.downloadNetwork.title" = "Download network";
 "settings.downloadNetwork.any" = "Cellular and Wi-Fi (default)";
 "settings.downloadNetwork.wifiOnly" = "Wi-Fi only";
-"settings.downloadNetwork.hint" = "Catalog and resource downloads may use cellular and Wi-Fi by default. With Wi-Fi only selected, checks and installs over cellular are blocked with an explanation.";
+"settings.downloadNetwork.hint" = "Catalog checks and installs may use cellular and Wi-Fi by default. With Wi-Fi only selected, they are blocked over cellular with an explanation.";
 "download.networkBlocked.title" = "Network unavailable for download";
-"download.networkBlocked.body" = "There is no usable network, or Wi-Fi only is set while on cellular. If networking is off system-wide, enable Wi-Fi or cellular data in Settings; the Wi-Fi only option lives in Me → Settings → Model & Data Resources → Download network.";
+"download.networkBlocked.body" = "There is no usable network, or Wi-Fi only is set while on cellular. If networking is off system-wide, enable Wi-Fi or cellular data in Settings; the Wi-Fi only option lives in Me → Settings → Data & Storage → Medical Data & Offline Resources → Download network.";
 "settings.resource.active" = "In Progress";
 "settings.resource.catalog" = "Resources";
 "settings.resource.catalogRow" = "Medical data catalog";
@@ -510,6 +510,7 @@
 "bloodType.negative" = "Negative";
 "bloodType.rhUnknown" = "Not sure";
 "bloodType.unknown" = "Don't know my blood type";
+"bloodType.legacyBare" = "%@ (Rh not set)";
 "member.birthDateLabel" = "Birth date";
 "member.birthDateInvalidHint" = "Invalid birth date format; please re-select it under More info below.";
 "member.voiceHint" = "Say the relationship, name and birth date in one sentence, e.g. \"my daughter Zhang Min, born May 3, 1990\".";
@@ -1880,6 +1881,7 @@
 "startup.init.title" = "Preparing your health records";
 "startup.init.readyTitle" = "Local records are ready";
 "startup.catalog.title" = "Medical data catalog (optional)";
+"startup.catalog.titleRequired" = "Medical data catalog (required)";
 "startup.catalog.body" = "Your data stays on this device. The app goes online to check the version only when you tap Check for updates, and never uploads your data.";
 "startup.catalog.continue" = "Continue without downloading";
 "startup.catalog.sizeHint" = "Wi-Fi recommended. Keep the app open while downloading.";
@@ -2667,6 +2669,7 @@
 "assistant.mediaEgressNote" = "Originals stay on this device; external copies are created only when export settings are on or you export explicitly";
 "assistant.mediaEgressNoteMirror" = "Originals stay on this device; non-sensitive items are mirrored to the Files app per your setting";
 "assistant.historyNoPreview" = "No message preview";
+"assistant.historyLoadFailed" = "Could not load history. Try again.";
 "assistant.mediaCardsPendingSection" = "Needs changes";
 "assistant.mediaCardsCommittedSection" = "Confirmed";
 "assistant.mediaSharedFieldsRow" = "Shared details";

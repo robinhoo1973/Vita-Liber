@@ -457,6 +457,8 @@ extension L10n {
     static var startupInitTitle: String { t("startup.init.title") }
     static var startupInitReadyTitle: String { t("startup.init.readyTitle") }
     static var startupCatalogTitle: String { t("startup.catalog.title") }
+    /// 强制首启（无库∧第一次启动）卡标题：不得自称「可选」（审查席 D）。
+    static var startupCatalogTitleRequired: String { t("startup.catalog.titleRequired") }
     static var startupCatalogBody: String { t("startup.catalog.body") }
     static var startupCatalogContinue: String { t("startup.catalog.continue") }
     static func startupCatalogInstallFmt(_ size: String) -> String {

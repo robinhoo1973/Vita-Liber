@@ -84,7 +84,7 @@ struct MemberCreateSheet: View {
                             showBirthWheel = true
                         } label: {
                             LabeledContent(L10n.member_birthDateLabel,
-                                           value: MemberProfileCompleteness.birthDateString(from: birthDate))
+                                           value: birthDatePicked ? MemberProfileCompleteness.birthDateString(from: birthDate) : L10n.onboardNotSelected)
                                 .frame(minHeight: 44)
                                 .contentShape(Rectangle())
                         }

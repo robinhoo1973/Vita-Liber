@@ -35,10 +35,31 @@ struct ChatHistoryView: View {
         WithPerceptionTracking {
             NavigationStack {
                 Group {
-                    if history.conversations.isEmpty {
+                    // 审查席 P2（三值纪律）：读失败 ≠ 空历史——失败且无旧列表时
+                    // 显错误态+重试；失败但仍有旧列表时列表上方挂重试条。
+                    if history.conversations.isEmpty, history.loadFailed {
+                        VLUnavailableView(L10n.assistantHistoryLoadFailed,
+                                          systemImage: "exclamationmark.triangle") {
+                            Button(L10n.retry) {
+                                Task { await history.load(patientId: patientId, query: query) }
+                            }
+                            .frame(minHeight: 44)
+                            .accessibilityIdentifier("assistant.history.retry")
+                        }
+                    } else if history.conversations.isEmpty {
                         VLUnavailableView(L10n.assistantHistoryEmpty, systemImage: "clock.arrow.circlepath")
                     } else {
                         List {
+                            if history.loadFailed {
+                                Button {
+                                    Task { await history.load(patientId: patientId, query: query) }
+                                } label: {
+                                    Label(L10n.assistantHistoryLoadFailed, systemImage: "exclamationmark.triangle")
+                                        .font(.footnote)
+                                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                }
+                                .accessibilityIdentifier("assistant.history.retry")
+                            }
                             ForEach(sections, id: \.title) { section in
                                 Section {
                                     ForEach(section.rows) { row in

@@ -44,6 +44,17 @@ struct PhoneCountryCatalogTests {
         #expect(PhoneCountryCatalog.flag("XYZ") == "🌐")
     }
 
+    @Test("全地区数字往返：canonical→parse 保留国内号数字（区域显示锚可不同）")
+    func digitsRoundTripForEveryRegion() {
+        for region in PhoneCountryCatalog.allRegions {
+            let canonical = PhoneCountryCatalog.canonical(region: region, nationalDigits: "91234567")
+            let parsed = PhoneCountryCatalog.parse(canonical)
+            #expect(parsed.nationalDigits == "91234567", "数字往返丢失：\(region) -> \(canonical)")
+            #expect(parsed.region == (PhoneCountryCatalog.preferredRegionByDial[PhoneCountryCatalog.dialCodeByRegion[region]!] ?? region),
+                    "区域应为文档锚或原地区：\(region)")
+        }
+    }
+
     @Test("目录自身一致：每个地区拨号码为 1–3 位数字，且存在默认地区")
     func catalogSelfConsistency() {
         for (region, dial) in PhoneCountryCatalog.dialCodeByRegion {

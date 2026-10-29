@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import Domain
 import Perception
 
@@ -186,6 +187,8 @@ struct OwnerSetupView: View {
     @State private var contactPhone = ""
     /// 出生日期轮盘 sheet（2026-10-29 业主：iPad 9.7 内联选择器不可滚——轮盘独立 sheet）。
     @State private var showBirthWheel = false
+    /// 用户是否真实编辑过（审查席 P2：健康预填不应触发「还差…」提示）。
+    @State private var userEdited = false
     /// 预填是否已应用（提示行只在有实际默认值时出现）
     @State private var prefilled = false
     @State private var prefillAttempted = false
@@ -216,14 +219,28 @@ struct OwnerSetupView: View {
                 .toolbar {
                     ToolbarItemGroup(placement: .keyboard) {
                         Spacer()
-                        Button(L10n.commonConfirm) { focusedField = nil }
-                            .accessibilityIdentifier("SP-06.owner.dismissKeyboard")
+                        Button(L10n.commonConfirm) {
+                            focusedField = nil
+                            // 审查席 P2：PhoneNumberField 自带 @FocusState，父级置空
+                            // 收不起其键盘——统一全局 resign 兜底。
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                            to: nil, from: nil, for: nil)
+                        }
+                        .accessibilityIdentifier("SP-06.owner.dismissKeyboard")
                     }
                 }
             }
             .navigationTitle(L10n.onboard_buildProfile)
             .saveFailedAlert(title: L10n.onboardSaveFailed, hint: L10n.onboardSaveFailedHint,
                              isPresented: $saveFailed)
+            .onChangeCompat(of: name) { _, _ in userEdited = true }
+            .onChangeCompat(of: gender) { _, _ in userEdited = true }
+            .onChangeCompat(of: birthYear) { _, _ in userEdited = true }
+            .onChangeCompat(of: birthMonth) { _, _ in userEdited = true }
+            .onChangeCompat(of: birthDay) { _, _ in userEdited = true }
+            .onChangeCompat(of: bloodChoice) { _, _ in userEdited = true }
+            .onChangeCompat(of: contactName) { _, _ in userEdited = true }
+            .onChangeCompat(of: contactPhone) { _, _ in userEdited = true }
             .task {
                 guard !prefillAttempted else { return }
                 prefillAttempted = true
@@ -326,7 +343,7 @@ struct OwnerSetupView: View {
             .disabled(!formValid || submitting)
             .accessibilityIdentifier("SP-06.owner.create")
             // 2026-10-29 业主：填完仍无法创建且无解释——按钮下方如实列出还差什么。
-            if !formValid, formTouched {
+            if !formValid, userEdited {
                 Text(L10n.onboardMissingFmt(missingLabels.joined(separator: L10n.onboardMissingSeparator)))
                     .font(.footnote)
                     .foregroundStyle(Color("semantic-warning", bundle: .main))

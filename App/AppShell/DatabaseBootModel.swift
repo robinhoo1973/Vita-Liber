@@ -272,6 +272,9 @@ final class DatabaseBootModel: ObservableObject {
 
     private func showsCatalogChoice(diagnostics: DatabaseBootDiagnostics) -> Bool {
         if forceCatalogChoice { return true }
+        // 审查席 P1：强制首启下载（当前库为空 ∧ 第一次启动）优先于 7 天延期
+        // ——否则「离线先进入」写下的延期会把业主强制策略在联网重启后静默绕过。
+        if mandatoryFirstLaunchDownload { return true }
         // 切片-only（2026-10-28；P-批四片）：v4 替代集 `{drug,facility,reference}` 全就绪
         // 即视为「无需引导」——按 kind 子集判定（计数会随加片漂移）；profile 第四片按
         // 业主项 O4 建议为「可选但常显」，不阻塞首启卡（若 O4 裁决改为四片必需，在此调整）。
@@ -282,6 +285,17 @@ final class DatabaseBootModel: ObservableObject {
         }
         // 「稍后再说」在延期窗口内不再每次冷启动拦截；目录变化或窗口过期后重新提示。
         return !promptDeferredRecently
+    }
+
+    /// 强制首启下载真值（与 CatalogSlicesPromptPresentation.mandatoryDownload 同口径：
+    /// firstLaunch = 尚未完成首启向导 ∧ 本机无任一片）。
+    /// 视图用：强制首启下载态（决定卡片标题「（必需）/（可选）」叙事）。
+    var isCatalogMandatory: Bool { mandatoryFirstLaunchDownload }
+
+    private var mandatoryFirstLaunchDownload: Bool {
+        guard !defaults.bool(forKey: "onboardingFinished"),
+              let slices = catalogSlices else { return false }
+        return CatalogSlicesPromptPresentation.mandatoryDownload(state: slices, firstLaunch: true)
     }
 
     private var promptDeferredRecently: Bool {
@@ -339,6 +353,9 @@ final class DatabaseBootModel: ObservableObject {
         autoEnter.cancel()
         switch exit {
         case .deferred:
+            // 审查席 P1：强制模式不写延期、不取消在途（离线豁免的「先进入」
+            // 语义=下载可继续，下次启动仍会强制提示）。
+            if mandatoryFirstLaunchDownload { break }
             defaults.set(now(), forKey: Self.deferredPromptKey)
             catalogSlices?.cancelCheck()
             catalogSlices?.cancelUpdate()

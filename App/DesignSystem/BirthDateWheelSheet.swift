@@ -17,6 +17,9 @@ struct BirthDateWheelSheet: View {
 
     @State private var date: Date
     @State private var yearOnly: Bool
+    /// 审查席 P2：未滚动/未切换直接点确认 = 取消——不得把初值（今天/1月1日）
+    /// 当作用户选择落库。
+    @State private var didChange = false
 
     init(allowYearOnly: Bool, year: Binding<String>, month: Binding<String>, day: Binding<String>,
          earliest: Date, latest: Date = Date()) {
@@ -53,12 +56,15 @@ struct BirthDateWheelSheet: View {
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("birthDate.wheel")
+                    .onChangeCompat(of: working) { _, _ in didChange = true }
                     .opacity(yearOnly ? 0.35 : 1)
                     .allowsHitTesting(!yearOnly)
+                    .onChangeCompat(of: date) { _, _ in didChange = true }
                 if allowYearOnly {
                     Toggle(L10n.birthDateYearOnly, isOn: $yearOnly)
                         .frame(maxWidth: 320)
                         .accessibilityIdentifier("birthDate.yearOnly")
+                        .onChangeCompat(of: yearOnly) { _, _ in didChange = true }
                 }
                 Spacer(minLength: 0)
             }
@@ -71,7 +77,7 @@ struct BirthDateWheelSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.commonConfirm) {
-                        apply()
+                        if didChange { apply() }
                         dismiss()
                     }
                     .accessibilityIdentifier("birthDate.confirm")
@@ -104,6 +110,7 @@ struct BirthDateDateSheet: View {
     var onPicked: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @State private var working: Date
+    @State private var didChange = false
 
     init(date: Binding<Date>, earliest: Date, latest: Date = Date(), onPicked: @escaping () -> Void = {}) {
         _date = date
@@ -133,8 +140,10 @@ struct BirthDateDateSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(L10n.commonConfirm) {
-                        date = working
-                        onPicked()
+                        if didChange {
+                            date = working
+                            onPicked()
+                        }
                         dismiss()
                     }
                     .accessibilityIdentifier("birthDate.confirm")

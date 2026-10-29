@@ -45,6 +45,29 @@ final class CatalogSlicesPromptPresentationTests: XCTestCase {
         XCTAssertEqual(descriptor.primary, .enter, "minApp 未达只给 [进入 App]")
     }
 
+    /// 2026-10-29 业主两条原则 + 审查席 C：强制下载矩阵——
+    /// firstLaunch ∧ 无本机片 = 无旁路；离线给「先进入」；非首启维持普通旁路。
+    func testMandatoryMatrixFirstLaunchNoSlices() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("descriptor-matrix-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) // try?-ok: 测试目录
+        let state = CatalogSlicesState(facade: CatalogSliceReadFacade(),
+                                       checker: StubResolver(state: .upToDate(catalogVersion: 1)),
+                                       updater: nil, receiptDirectory: dir)
+        // 未检查：强制模式无次动作；离线强制模式给「先进入」。
+        if state.aggregate == .notChecked, state.installedCount == 0 {
+            let strict = CatalogSlicesPromptPresentation.descriptor(for: state, firstLaunch: true)
+            XCTAssertEqual(strict.primary, .check)
+            XCTAssertNil(strict.secondary, "强制首启不得给「暂不下载」旁路")
+            let offline = CatalogSlicesPromptPresentation.descriptor(
+                for: state, firstLaunch: true, networkAvailable: false)
+            XCTAssertEqual(offline.primary, .recheck)
+            XCTAssertEqual(offline.secondary, .continueWithout, "离线豁免：给先进入")
+            let normal = CatalogSlicesPromptPresentation.descriptor(for: state, firstLaunch: false)
+            XCTAssertEqual(normal.secondary, .continueWithout, "非首启维持普通旁路")
+        }
+    }
+
     func testAllCurrentAutoEnters() async throws {
         let state = try await stateAfterCheck(.upToDate(catalogVersion: 1))
         let descriptor = CatalogSlicesPromptPresentation.descriptor(for: state)

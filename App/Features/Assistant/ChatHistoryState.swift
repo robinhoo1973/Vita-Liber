@@ -27,12 +27,20 @@ final class ChatHistoryState {
             let rows = try await store.conversations(patientId: patientId, query: query)
             guard generation == loadGeneration else { return }
             conversations = rows
+            loadFailed = false
             loadedPatientId = patientId
         } catch {
             guard generation == loadGeneration else { return }
-            conversations = []
+            // 审查席 P2：读失败不得涂成「空历史」——保留旧列表并立失败标志，
+            // 空列表场景由视图显式错误态+重试承载（三值纪律）。
+            loadFailed = true
+            if conversations.isEmpty { conversations = [] }
         }
     }
+
+    /// 历史读取失败标志（load 失败；成功清位）。视图据此显示错误/重试，
+    /// 不得把失败画成「暂无历史」。
+    private(set) var loadFailed = false
 
     private func reloadCurrentQuery() async {
         guard let patientId = loadedPatientId else { return }
@@ -59,8 +67,14 @@ final class ChatHistoryState {
         try? await store.updateMessagePayload(conversationId: conversationId, clientId: clientId, payloadJSON: payloadJSON)   // try?-ok: 历史快照更新尽力而为，不阻断聊天
     }
 
+    /// 读取会话消息：nil = 读取失败（与「空会话」区分；三值纪律）。
+    /// 保留旧 `messages` 语义的调用方请注意：新代码一律走本方法判 nil。
+    func loadMessages(conversationId: UUID) async -> [ChatHistoryStore.StoredMessage]? {
+        try? await store.messages(conversationId: conversationId)   // try?-ok: 语义改为可空返回值，失败由调用方显式处理
+    }
+
     func messages(conversationId: UUID) async -> [ChatHistoryStore.StoredMessage] {
-        (try? await store.messages(conversationId: conversationId)) ?? []   // try?-ok: 读取失败按空历史呈现
+        await loadMessages(conversationId: conversationId) ?? []
     }
 
     func rename(_ id: UUID, title: String) async {

@@ -1280,7 +1280,13 @@ struct TaskAssistantChatView: View {
         let generation = UUID()
         conversationGeneration = generation
         Task {
-            let stored = await chatHistory.messages(conversationId: summary.id)
+            // 审查席 P2：nil=读取失败，不得把失败当空会话打开（三值纪律）。
+            guard let stored = await chatHistory.loadMessages(conversationId: summary.id) else {
+                await MainActor.run {
+                    append(.init(role: .assistant, text: L10n.assistantHistoryLoadFailed, isRefusal: true))
+                }
+                return
+            }
             await MainActor.run {
                 // 用户快速点开另一会话时，旧请求不得把首个会话内容写回来。
                 guard generation == conversationGeneration else { return }

@@ -43,7 +43,10 @@ public actor LLMModelDownloadService {
         configuration.httpMaximumConnectionsPerHost = 8
         configuration.waitsForConnectivity = true
         // 默认仅非计费网络（Wi-Fi）；蜂窝需 UI 侧显式放行——本批按保守默认。
-        configuration.allowsExpensiveNetworkAccess = false
+        // 2026-10-29 业主规则：下载默认允许蜂窝与 Wi-Fi（仅 Wi-Fi 限制属 App 层
+        // 「下载线路」策略；服务层保守硬禁会令蜂窝下表现为「进行中但零字节」）。
+        configuration.allowsExpensiveNetworkAccess = true
+        configuration.allowsConstrainedNetworkAccess = true
         session = URLSession(configuration: configuration)
     }
 

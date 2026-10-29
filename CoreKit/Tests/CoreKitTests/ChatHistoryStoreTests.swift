@@ -92,6 +92,29 @@ struct ChatHistoryStoreTests {
         #expect(search.isEmpty)
     }
 
+    /// 审查席 P2：损坏 payload 家族须全读面加固——audioFilenames 抛错会让删除
+    /// 前置读被吞成 []，语音文件成孤儿（BR-007 残留）；updateCardSnapshot 抛错
+    /// 会让快照静默失败。
+    @Test("损坏 payload 不阻断 audioFilenames 与 updateCardSnapshot")
+    func malformedPayloadDoesNotBreakAudioOrSnapshotUpdates() async throws {
+        let patient = UUID()
+        let (history, dbQueue) = try await store(patient)
+        let conversation = try await history.createConversation(patientId: patient, title: "损坏")
+        let badId = UUID()
+        try await dbQueue.write { db in
+            try db.execute(sql: """
+                INSERT INTO chat_message
+                  (id, conversation_id, role, kind, text, payload_json, created_at, seq)
+                VALUES (?, ?, 'user', 'media', '', '{not json', ?, 1)
+                """, arguments: [badId.uuidString, conversation.uuidString, Date().timeIntervalSince1970])
+        }
+        let files = try await history.audioFilenames(conversationId: conversation)
+        #expect(files.isEmpty)
+        try await history.updateCardSnapshot(conversationId: conversation, cardId: "x", state: "done")
+        try await history.updateMessagePayload(conversationId: conversation, clientId: UUID(),
+                                               payloadJSON: #"{"clientId":"y"}"#)
+    }
+
     @Test("卡片消息不计入历史消息数与预览，卡片专用会话不显示")
     func cardMessagesExcludedFromHistorySummary() async throws {
         let patient = UUID()

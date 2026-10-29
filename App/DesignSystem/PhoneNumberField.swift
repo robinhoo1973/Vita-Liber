@@ -16,6 +16,9 @@ struct PhoneNumberField: View {
     @State private var national = ""
     @State private var showCountryPicker = false
     @State private var didLoad = false
+    /// 回声抑制（审查席 P1）：自产 canonical 写回 phone 时 onchange 不再重解析，
+    /// 否则打开组件/改地区会被 parse 反向覆盖（+1 CA→US、无前缀旧值被强改 CN）。
+    @State private var lastEmittedCanonical: String?
     @FocusState private var numberFocused: Bool
 
     private var dial: String {
@@ -57,7 +60,11 @@ struct PhoneNumberField: View {
             }
         }
         .onAppear { loadFromPhoneIfNeeded() }
-        .onChangeCompat(of: phone) { _, _ in loadFromPhoneIfNeeded(force: true) }
+        .onChangeCompat(of: phone) { _, newValue in
+            // 自产回声不重载；仅外部写入（预填/父重置/恢复）才重解析。
+            if newValue == lastEmittedCanonical { return }
+            loadFromPhoneIfNeeded(force: true)
+        }
         .sheet(isPresented: $showCountryPicker) {
             CountryPickerSheet(selected: $region, locale: locale)
                 .onDisappear { rebuildCanonical() }
@@ -84,6 +91,7 @@ struct PhoneNumberField: View {
     private func rebuildCanonical() {
         let digits = national.filter(\.isNumber)
         let canonical = PhoneCountryCatalog.canonical(region: region, nationalDigits: digits)
+        lastEmittedCanonical = canonical
         if phone != canonical { phone = canonical }
     }
 

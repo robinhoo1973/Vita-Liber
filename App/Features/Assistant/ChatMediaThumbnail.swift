@@ -145,12 +145,13 @@ struct ChatMediaGradeIcon: View {
         if grade == GradeBadge.gradeMachineUnconfirmed {
             Image(systemName: "square.and.pencil")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                // 审查席 P2：改用 GradeBadge 校准过的 grade-d 令牌（warning 令牌专属警示语义）。
+                .foregroundStyle(Color("grade-d", bundle: .main))
                 .accessibilityLabel(L10n.assistantMediaNeedsConfirm)
         } else if grade == GradeBadge.gradeConfirmed {
             Image(systemName: "checkmark.circle.fill")
                 .font(.body.weight(.semibold))
-                .foregroundStyle(Color("semantic-success", bundle: .main))
+                .foregroundStyle(Color("grade-c", bundle: .main))
                 .accessibilityLabel(L10n.assistantMediaConfirmed)
         }
     }

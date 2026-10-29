@@ -40,7 +40,8 @@ enum CatalogSlicesPromptPresentation {
     @MainActor
     static func descriptor(for state: CatalogSlicesState,
                            firstLaunch: Bool = false,
-                           networkAvailable: Bool = true) -> CatalogSlicesPromptDescriptor {
+                           networkAvailable: Bool = true,
+                           policyBlocked: Bool = false) -> CatalogSlicesPromptDescriptor {
         // 一次性完成事件：全部完成后自动进入（§5.12.4「成功才展示完成」）。
         if state.hasCompletedAnyUpdate, state.aggregate == .allCurrent {
             return .init(primary: .enter, secondary: nil, autoEnter: true,
@@ -49,14 +50,20 @@ enum CatalogSlicesPromptPresentation {
         // 业主第二原则（网络确认前置，2026-10-29）：强制模式下**先确认网络是否
         // 可用**——已知离线时不把用户困在卡上：直接给「先进入」（稍后到
         // 我的 → 模型与数据资源手动更新）；联网后再检查/安装。
-        if mandatoryDownload(state: state, firstLaunch: firstLaunch), !networkAvailable {
+        if mandatoryDownload(state: state, firstLaunch: firstLaunch), !networkAvailable || policyBlocked {
             return .init(primary: .recheck, secondary: .continueWithout, autoEnter: false,
                          status: .unavailable)
         }
         if let (kind, progress) = activeProgress(state) {
             if mandatoryDownload(state: state, firstLaunch: firstLaunch) {
-                // 强制模式：下载/校验/解密/激活一律等待（无可点动作）。
-                return .init(primary: .busy, secondary: nil, autoEnter: false,
+                // 审查席 P1：强制模式区分「不可取消」与「不可进入」——
+                // activating 保持 busy（写盘临界区），其余阶段给「先用（下载继续）」
+                // 出口：不取消在途下载 = 未跳过下载，只避免 GB 级任务挂起时死锁。
+                if case .activating = progress {
+                    return .init(primary: .busy, secondary: nil, autoEnter: false,
+                                 status: .phase(kind: kind, progress: progress))
+                }
+                return .init(primary: .enterKeepingUpdate, secondary: nil, autoEnter: false,
                              status: .phase(kind: kind, progress: progress))
             }
             // 常规模式：进行中允许「先去使用（下载继续）」/「取消更新并进入」；

@@ -70,10 +70,17 @@ private struct BloodTypePickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     private var options: [(value: String, title: String, id: String)] {
-        var rows: [(String, String, String)] = BloodTypeField.standard.map {
-            ($0, $0, "bloodType.option." + $0.replacingOccurrences(of: "+", with: "pos")
-                .replacingOccurrences(of: "−", with: "neg"))
+        var rows: [(String, String, String)] = []
+        // 审查席 P2：旧值裸 ABO（A/B/AB/O，无 Rh）必须可选可保留——
+        // 选择器缺行会让存量成员编辑时无选中项、重选可能误存。
+        if let bare = BloodTypeField.aboValue(from: selection),
+           !BloodTypeField.standard.contains(bare) {
+            rows.append((bare, L10n.bloodTypeLegacyBare(bare), "bloodType.option.legacy"))
         }
+        rows.append(contentsOf: BloodTypeField.standard.map { value in
+            (value, value, "bloodType.option." + value.replacingOccurrences(of: "+", with: "pos")
+                .replacingOccurrences(of: "−", with: "neg"))
+        })
         rows.append((BloodTypeField.unknownValue, L10n.bloodTypeUnknown, "bloodType.option.unknown"))
         rows.append(("special", L10n.onboardBloodSpecial, "bloodType.option.special"))
         return rows

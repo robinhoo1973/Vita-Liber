@@ -223,9 +223,9 @@
 "settings.downloadNetwork.title" = "下载线路";
 "settings.downloadNetwork.any" = "蜂窝网络与 Wi-Fi（默认）";
 "settings.downloadNetwork.wifiOnly" = "仅 Wi-Fi";
-"settings.downloadNetwork.hint" = "医疗数据目录与资源默认允许蜂窝和 Wi-Fi 下载；选择「仅 Wi-Fi」后，蜂窝网络下的检查与安装会被拦截并说明原因。";
+"settings.downloadNetwork.hint" = "医疗数据目录的检查与安装默认允许蜂窝和 Wi-Fi；选择「仅 Wi-Fi」后，蜂窝网络下会被拦截并说明原因。";
 "download.networkBlocked.title" = "当前网络不可用于下载";
-"download.networkBlocked.body" = "没有可用网络，或已设为仅 Wi-Fi 而当前为蜂窝网络。如系统网络已关闭，请到系统设置开启 Wi-Fi 或蜂窝数据；仅 Wi-Fi 设置可在「我的 → 设置 → 模型与数据资源 → 下载线路」修改。";
+"download.networkBlocked.body" = "没有可用网络，或已设为仅 Wi-Fi 而当前为蜂窝网络。如系统网络已关闭，请到系统设置开启 Wi-Fi 或蜂窝数据；仅 Wi-Fi 设置可在「我的 → 设置 → 数据与存储 → 医疗数据与离线资源 → 下载线路」修改。";
 "settings.resource.active" = "进行中";
 "settings.resource.catalog" = "资源清单";
 "settings.resource.catalogRow" = "医疗数据目录";
@@ -510,6 +510,7 @@
 "bloodType.negative" = "阴性";
 "bloodType.rhUnknown" = "不确定";
 "bloodType.unknown" = "不知道血型";
+"bloodType.legacyBare" = "%@（未标 Rh）";
 "member.birthDateLabel" = "生日";
 "member.birthDateInvalidHint" = "生日格式无效，请在下方「更多信息」重新选择";
 "member.voiceHint" = "一句话说出关系、姓名和生日，例如「我女儿张敏，1990 年 5 月 3 日出生」";
@@ -1880,6 +1881,7 @@
 "startup.init.title" = "正在准备你的健康档案";
 "startup.init.readyTitle" = "本地档案已就绪";
 "startup.catalog.title" = "医疗数据目录（可选）";
+"startup.catalog.titleRequired" = "医疗数据目录（必需）";
 "startup.catalog.body" = "资料保存在本机；只有你点「检查更新」时才会联网查版本，不会上传你的资料。";
 "startup.catalog.continue" = "暂不下载，继续";
 "startup.catalog.sizeHint" = "建议使用 Wi-Fi；下载时请保持 App 打开。";
@@ -2667,6 +2669,7 @@
 "assistant.mediaEgressNote" = "原件保存在本机；对外副本只在导出设置开启或你显式导出时生成";
 "assistant.mediaEgressNoteMirror" = "原图保存在本机；非敏感资料已按你的设置同步到「文件」App 副本";
 "assistant.historyNoPreview" = "暂无消息预览";
+"assistant.historyLoadFailed" = "历史读取失败，请重试";
 "assistant.mediaCardsPendingSection" = "需要修改";
 "assistant.mediaCardsCommittedSection" = "已确认";
 "assistant.mediaSharedFieldsRow" = "共用信息";

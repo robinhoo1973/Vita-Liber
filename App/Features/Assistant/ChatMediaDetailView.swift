@@ -102,7 +102,7 @@ struct ChatMediaDetailView: View {
                 // 待核对卡 → 既有复核页；关闭后重读「需要修改/已确认」两区。
                 .sheet(item: $pendingReview, onDismiss: {
                     // 确认/放弃卡后文档 grade 也可能 D→C，整页重读。
-                    Task { await loadBasics() }
+                    Task { await loadCardsOnly() }
                 }) { target in
                     NavigationStack {
                         PendingCardResumeRouteView(cardId: target.id)
@@ -121,7 +121,7 @@ struct ChatMediaDetailView: View {
             HStack(spacing: 8) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Spacer(minLength: 8)
                 if case .loaded(let grade) = docState {
                     // 业主 2026-10-29：D 级不再显示文字徽章，统一用橘红编辑/
@@ -492,7 +492,7 @@ struct ChatMediaDetailView: View {
             Button(L10n.retry, action: retry)
                 .font(.footnote.weight(.semibold))
                 .frame(minHeight: 44)
-                .accessibilityIdentifier("chat.mediaDetail.retry")
+                .accessibilityIdentifier("chat.mediaDetail.retry.doc")
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -501,6 +501,17 @@ struct ChatMediaDetailView: View {
     }
 
     // MARK: - 载入
+
+    /// 只刷新卡片区（核对 sheet 关闭后）：正文/缩略图/文档行保持已读状态，
+    /// 避免整页塌回 ProgressView、滚动位置丢失（审查席 P2）。
+    private func loadCardsOnly() async {
+        switch await docs.committedCards(documentId: documentId, patientId: patientId) {
+        case .loaded(let kindIds):
+            cardsState = .loaded(kindIds.map { CommittedCard(kind: $0.kind, id: $0.id) })
+        case .failed:
+            cardsState = .failed
+        }
+    }
 
     private func loadBasics() async {
         textState = .loading

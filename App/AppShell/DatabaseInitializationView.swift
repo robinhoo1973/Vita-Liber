@@ -450,7 +450,7 @@ struct DatabaseInitializationView: View {
         case .sourcePartial:
             // Aggregate.sourcePartial 无载荷（B3 评审修复：计数经 descriptor 取）。
             if case .sourcePartial(let count) =
-                CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected).status {
+                CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status {
                 return L10n.startupCheckUpdatesSourcePartialFmt(Int64(count))
             }
             return L10n.resourceCatalogSlicesAllCurrent
@@ -458,7 +458,7 @@ struct DatabaseInitializationView: View {
             // 一败其余最新时 aggregate 亦为 .partialFailure 且候选为空
             // （B3 评审修复：不得显示「0 个可更新」，走失败短语）。
             if slices.candidates.isEmpty {
-                let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected).status
+                let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status
                 return Self.statusText(status, slices: slices)
             }
             return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
@@ -559,12 +559,13 @@ struct DatabaseInitializationView: View {
     @ViewBuilder
     private var catalogCard: some View {
         if let slices = model.catalogSlices {
-            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected)
+            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy)
             let size = Self.candidateSizeText(descriptor.status)
             let statusText = Self.statusText(descriptor.status, slices: slices)
 
             VStack(alignment: .leading, spacing: 12) {
-                Label(L10n.startupCatalogTitle, systemImage: "books.vertical")
+                Label(model.isCatalogMandatory ? L10n.startupCatalogTitleRequired : L10n.startupCatalogTitle,
+                      systemImage: "books.vertical")
                     .font(.headline)
                 if case .completed = descriptor.status {
                     Label(statusText, systemImage: "checkmark.circle.fill")

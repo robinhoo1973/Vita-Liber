@@ -31,6 +31,10 @@ extension L10n {
     static var bloodTypeNegative: String { t("bloodType.negative") }
     static var bloodTypeRhUnknown: String { t("bloodType.rhUnknown") }
     static var bloodTypeUnknown: String { t("bloodType.unknown") }
+    /// 旧值裸 ABO（未标 Rh）选择器行（审查席 P2）。
+    static func bloodTypeLegacyBare(_ abo: String) -> String {
+        String(format: t("bloodType.legacyBare"), abo)
+    }
 
     static var member_birthDatePlaceholder: String { t("member.birthDatePlaceholder") }
 

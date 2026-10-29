@@ -57,7 +57,11 @@ final class CaptureFlowE2ETests: XCTestCase {
         contactName.tap()
         contactName.typeText("李四")
         app.buttons["SP-06.owner.dismissKeyboard"].tap()
-        let contactPhone = app.textFields["SP-06.owner.contact.phone"]
+        // 2026-10-29 审查席 P0：电话组件拆分为 .country/.number（PhoneNumberField）。
+        XCTAssertTrue(app.buttons["SP-06.owner.contact.phone.country"].waitForExistence(timeout: 5),
+                      "国家/地区区号按钮必须呈现")
+        let contactPhone = app.textFields["SP-06.owner.contact.phone.number"]
+        XCTAssertTrue(contactPhone.waitForExistence(timeout: 5), "电话数字输入框必须呈现")
         contactPhone.tap()
         contactPhone.typeText("13800138000")
         app.buttons["SP-06.owner.dismissKeyboard"].tap()

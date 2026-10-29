@@ -136,9 +136,12 @@ extension L10n {
     static var assistantHistoryDelete: String { t("assistant.historyDelete") }
     static var assistantHistoryDeleteBody: String { t("assistant.historyDeleteBody") }
     static func assistantHistoryMessages(_ count: Int) -> String {
-        String(format: t("assistant.historyMessages"), count)
+        // 审查席 P2：en 下 "1 messages" 语法错——单条走已注册的 One 键。
+        count == 1 ? t("assistant.historyMessageOne")
+                   : String(format: t("assistant.historyMessages"), count)
     }
     static var assistantHistoryNoPreview: String { t("assistant.historyNoPreview") }
+    static var assistantHistoryLoadFailed: String { t("assistant.historyLoadFailed") }
     static var assistantNewConversation: String { t("assistant.newConversation") }
 
 }

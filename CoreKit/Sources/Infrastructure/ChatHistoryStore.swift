@@ -74,6 +74,7 @@ public actor ChatHistoryStore {
             try db.execute(sql: """
                 UPDATE chat_message SET payload_json = ?
                 WHERE conversation_id = ?
+                  AND json_valid(payload_json)
                   AND json_extract(payload_json, '$.clientId') = ?
                 """, arguments: [payloadJSON, conversationId.uuidString, clientId.uuidString])
         }
@@ -86,6 +87,7 @@ public actor ChatHistoryStore {
                 UPDATE chat_message
                 SET payload_json = json_set(payload_json, '$.card.snapshotState', ?)
                 WHERE conversation_id = ? AND kind = 'card'
+                  AND json_valid(payload_json)
                   AND json_extract(payload_json, '$.card.id') = ?
                 """, arguments: [state, conversationId.uuidString, cardId])
         }
@@ -182,11 +184,15 @@ public actor ChatHistoryStore {
     /// 会话内全部语音文件名（删除会话时由 App 层清理 ChatAudio 文件，
     /// 数据库行删除不会触碰文件系统；2026-10-20）。
     public func audioFilenames(conversationId: UUID) async throws -> [String] {
+        // 审查席 P2：与 conversations 同口径加 json_valid 守卫——一条畸形
+        // payload 若让本读面抛错，删除前置读失败会被上层吞成空数组，
+        // 语音文件永久孤儿（敏感媒体不可见落盘）。
         try await writer.read { db in
             try String.fetchAll(db, sql: """
                 SELECT json_extract(payload_json, '$.media.audioFilename')
                 FROM chat_message
                 WHERE conversation_id = ?
+                  AND json_valid(payload_json)
                   AND json_extract(payload_json, '$.media.audioFilename') IS NOT NULL
                 """, arguments: [conversationId.uuidString])
         }
