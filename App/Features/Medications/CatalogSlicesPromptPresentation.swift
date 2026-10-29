@@ -29,16 +29,37 @@ struct CatalogSlicesPromptDescriptor: Equatable {
 }
 
 enum CatalogSlicesPromptPresentation {
+    /// 强制模式判定（2026-10-29 业主两条原则）：**当前基础数据库没有 ∧ 第一次启动**
+    /// 时下载不可跳过。任一不满足（已有任一片、或非首次启动）→ 维持常规旁路语义
+    /// （V4.87 行为）——更新/补装对老用户不设强制门。
+    static func mandatoryDownload(state: CatalogSlicesState, firstLaunch: Bool) -> Bool {
+        firstLaunch && state.installedCount == 0
+    }
+
     @MainActor
-    static func descriptor(for state: CatalogSlicesState) -> CatalogSlicesPromptDescriptor {
+    static func descriptor(for state: CatalogSlicesState,
+                           firstLaunch: Bool = false,
+                           networkAvailable: Bool = true) -> CatalogSlicesPromptDescriptor {
         // 一次性完成事件：全部完成后自动进入（§5.12.4「成功才展示完成」）。
-        // P-批：聚合完成态不带版本——四片版本空间不可比（profile 的 catalogVersion
-        // 与三片目录版本不同轴），逐片版本仍由 SP-64 行内展示。
         if state.hasCompletedAnyUpdate, state.aggregate == .allCurrent {
             return .init(primary: .enter, secondary: nil, autoEnter: true,
                          status: .completed(version: nil))
         }
+        // 业主第二原则（网络确认前置，2026-10-29）：强制模式下**先确认网络是否
+        // 可用**——已知离线时不把用户困在卡上：直接给「先进入」（稍后到
+        // 我的 → 模型与数据资源手动更新）；联网后再检查/安装。
+        if mandatoryDownload(state: state, firstLaunch: firstLaunch), !networkAvailable {
+            return .init(primary: .recheck, secondary: .continueWithout, autoEnter: false,
+                         status: .unavailable)
+        }
         if let (kind, progress) = activeProgress(state) {
+            if mandatoryDownload(state: state, firstLaunch: firstLaunch) {
+                // 强制模式：下载/校验/解密/激活一律等待（无可点动作）。
+                return .init(primary: .busy, secondary: nil, autoEnter: false,
+                             status: .phase(kind: kind, progress: progress))
+            }
+            // 常规模式：进行中允许「先去使用（下载继续）」/「取消更新并进入」；
+            // activating 阶段不可取消（journal 契约）。
             if case .activating = progress {
                 return .init(primary: .busy, secondary: nil, autoEnter: false,
                              status: .phase(kind: kind, progress: progress))
@@ -46,21 +67,23 @@ enum CatalogSlicesPromptPresentation {
             return .init(primary: .enterKeepingUpdate, secondary: .cancelUpdateAndContinue,
                          autoEnter: false, status: .phase(kind: kind, progress: progress))
         }
+        let strict = mandatoryDownload(state: state, firstLaunch: firstLaunch)
         switch state.aggregate {
         case .notChecked:
-            return .init(primary: .check, secondary: .continueWithout, autoEnter: false,
+            return .init(primary: .check, secondary: strict ? nil : .continueWithout,
+                         autoEnter: false,
                          status: .idleNoLocal(installed: state.installedCount))
         case .checking:
-            return .init(primary: .busy, secondary: .cancelCheckAndContinue,
+            return .init(primary: .busy, secondary: strict ? nil : .cancelCheckAndContinue,
                          autoEnter: false, status: .checking)
         case .updatesAvailable, .partialFailure:
             let status = CatalogSlicesPromptStatus.candidate(
                 count: state.candidates.count, totalSize: state.totalDownloadBytes)
             if state.hasCandidate, state.canUpdate {
-                return .init(primary: .install, secondary: .continueWithout,
+                return .init(primary: .install, secondary: strict ? nil : .continueWithout,
                              autoEnter: false, status: status)
             }
-            return .init(primary: .recheck, secondary: .continueWithout,
+            return .init(primary: .recheck, secondary: strict ? nil : .continueWithout,
                          autoEnter: false, status: status)
         case .allCurrent:
             return .init(primary: .enter, secondary: nil, autoEnter: true, status: .upToDate)
@@ -68,7 +91,12 @@ enum CatalogSlicesPromptPresentation {
             return .init(primary: .enter, secondary: nil, autoEnter: true,
                          status: .sourcePartial(count: sourceGapCount(state)))
         case .allFailed:
-            return .init(primary: .recheck, secondary: .continueWithout, autoEnter: false,
+            // 业主第二原则：无网络时不得把用户困在首启卡（只能退出系统的死路）——
+            // 存在网络类失败（networkUnavailable）时允许「先进入」，稍后到
+            // 我的 → 模型与数据资源 手动更新；校验/限流类失败仍只给重试。
+            let allowOfflineExit = !strict || hasNetworkFailure(state)
+            return .init(primary: .recheck, secondary: allowOfflineExit ? .continueWithout : nil,
+                         autoEnter: false,
                          status: .failure(failed: failureCount(state),
                                           hasLocal: state.installedCount > 0))
         case .appUpdateRequired:
@@ -76,6 +104,7 @@ enum CatalogSlicesPromptPresentation {
             return .init(primary: .enter, secondary: nil, autoEnter: false,
                          status: .appUpdateRequired(count: appGatedCount(state)))
         case .unavailable:
+            // 业主第二原则：完全无网络/源不可达 → 允许先进入（稍后手动更新）。
             return .init(primary: .recheck, secondary: .continueWithout,
                          autoEnter: false, status: .unavailable)
         case .updating:
@@ -91,6 +120,15 @@ enum CatalogSlicesPromptPresentation {
             if let progress = state.progress[kind] { return (kind, progress) }
         }
         return nil
+    }
+
+    /// 是否存在网络类失败（离线豁免判定；校验/限流不算）。
+    @MainActor
+    private static func hasNetworkFailure(_ state: CatalogSlicesState) -> Bool {
+        CatalogSliceKind.allCases.contains {
+            if case .networkUnavailable = state.remoteState($0) { return true }
+            return false
+        }
     }
 
     @MainActor

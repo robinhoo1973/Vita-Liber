@@ -15,6 +15,10 @@ import Perception
 @MainActor
 struct VitaLiberApp: App {
     @StateObject private var boot: DatabaseBootModel
+    /// 下载网络门（2026-10-29）：启动卡离线豁免 + 下载线路策略（默认蜂窝与
+    /// Wi-Fi 均可，可在「我的 → 模型与数据资源」改仅 Wi-Fi）。启动门与
+    /// 主界面共用同一实例。
+    @State private var networkGate = DownloadNetworkGate()
     /// 通知 delegate 必须在启动早期挂上（系统在冷启动完成前可能投递点击）；
     /// 数据库启动门异步，故由 App 壳持有并注入会话。
     private let router: AppRouter
@@ -88,6 +92,9 @@ struct VitaLiberApp: App {
                 productRoot
                 #endif
             }
+            // 下载网络门：启动卡与主界面（SP-64 资源页）共用（2026-10-29）。
+            .environment(networkGate)
+            .task { networkGate.start() }
         }
     }
 

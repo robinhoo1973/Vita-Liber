@@ -251,9 +251,9 @@ private struct EmergencyContactEditSheet: View {
                         }
                     }
                     .accessibilityIdentifier("F15.contacts.edit.relation")
-                    TextField(L10n.onboardContactPhone, text: $phone)
-                        .keyboardType(.phonePad)
-                        .accessibilityIdentifier("F15.contacts.edit.phone")
+                    // 2026-10-29 业主：九宫数字键盘 + 国家/地区区号（与首启建档同组件）。
+                    PhoneNumberField(phone: $phone, label: L10n.onboardContactPhone,
+                                     identifierPrefix: "F15.contacts.edit.phone")
                 } footer: {
                     Text(L10n.emergencyContactsPhoneHint)
                 }

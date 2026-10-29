@@ -12,6 +12,8 @@ extension L10n {
     "doc.exportCopy",
     // 2026-10-28 业主：聊天记录逐条敏感开关
     "chat.recordSensitiveToggle",
+    // 2026-10-29：历史消息数英语单数（避免 1 messages）
+    "assistant.historyMessageOne",
     // 第四轮全仓审查修复（L0 登记表双向判定）：以下键此前未登记——
     // registeredKeys 单向 ⊆ .strings 检查覆盖不到，键被删出 .strings 时
     // L0/L1 全绿、运行时裸 key 上屏
@@ -95,7 +97,30 @@ extension L10n {
     "assistant.mediaPageFailed",
     "assistant.mediaPageNoText",
     "assistant.mediaEgressNote",
-    "assistant.mediaEgressNoteMirror",
+    "assistant.mediaCardsPendingSection",
+    "assistant.mediaCardsCommittedSection",
+    "assistant.mediaSharedFieldsRow",
+    "assistant.mediaNeedsConfirm",
+    "assistant.mediaConfirmed",
+    "assistant.mediaPageCount",
+    "assistant.mediaPageIndex",
+    // 2026-10-29 首启修复批（业主五项）
+    "onboard.missingFmt",
+    "onboard.missingSeparator",
+    "onboard.yourNameLabel",
+    "onboard.pickBirthDate",
+    "birthDate.yearOnly",
+    "bloodType.label",
+    "bloodType.pickerFooter",
+    "phone.country.title",
+    "phone.country.search",
+    // 2026-10-29 下载线路（默认蜂窝+Wi-Fi；我的内可限制仅 Wi-Fi）
+    "settings.downloadNetwork.title",
+    "settings.downloadNetwork.any",
+    "settings.downloadNetwork.wifiOnly",
+    "settings.downloadNetwork.hint",
+    "download.networkBlocked.title",
+    "download.networkBlocked.body",
     "assistant.historyTitle",
     "assistant.historyNew",
     "assistant.historySearch",
@@ -110,7 +135,6 @@ extension L10n {
     "assistant.historyDelete",
     "assistant.historyDeleteBody",
     "assistant.historyMessages",
-    "assistant.historyNoPreview",
     "assistant.newConversation",
     "voiceSlot.metric",
     "voiceSlot.observationType",

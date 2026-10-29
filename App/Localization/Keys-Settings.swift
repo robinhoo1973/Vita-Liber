@@ -72,6 +72,13 @@ extension L10n {
     static var settings_habits: String { t("settings.habits") }
     // SP-64 统一「模型与数据资源」管理页（2026-09-27 业主定案）
     static var resourceManagementTitle: String { t("settings.resourceManagement") }
+    // 2026-10-29 下载线路（业主：默认蜂窝与 Wi-Fi 均可；我的内可限制）
+    static var downloadNetworkPolicyTitle: String { t("settings.downloadNetwork.title") }
+    static var downloadNetworkPolicyAny: String { t("settings.downloadNetwork.any") }
+    static var downloadNetworkPolicyWiFiOnly: String { t("settings.downloadNetwork.wifiOnly") }
+    static var downloadNetworkPolicyHint: String { t("settings.downloadNetwork.hint") }
+    static var downloadNetworkBlockedTitle: String { t("download.networkBlocked.title") }
+    static var downloadNetworkBlockedBody: String { t("download.networkBlocked.body") }
 
     /// 设置主面「数据与资源」分组标题（2026-10-03 信息架构评审方案 C）
     static var settings_dataAndResources: String { t("settings.dataAndResources") }

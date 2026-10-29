@@ -14,6 +14,10 @@ struct ResourceManagementView: View {
     @Environment(LLMModelInstallCenter.self) private var llmModelInstallCenter
     /// 2026-10-28 切片-only：医疗目录三行读三切片状态；v4 单目录态仅保留到 B2 删除。
     @Environment(CatalogSlicesState.self) private var catalogState
+    // 2026-10-29 下载网络门：网络确认 + 线路策略（模板：默认蜂窝与 Wi-Fi 均可）。
+    @Environment(DownloadNetworkGate.self) private var networkGate
+    @Environment(AppSettingsStore.self) private var settingsStore
+    @State private var networkBlockedShown = false
 
     /// 关怀模式触控 ≥64pt（CareModeMetrics 同源，ui-ux §3.3）。
     private var touchTarget: CGFloat {
@@ -31,6 +35,7 @@ struct ResourceManagementView: View {
                 // 2026-10-27：医疗目录升为顶级 Section（去「资源清单」双层标题）；
                 // 域内保留一个检查动作，检查态/批量入口仍在更新中心。
                 catalogSection
+                downloadNetworkSection
                 voiceModelsSection
                 // B2-3（2026-09-28）：语音模型管理并入本页（检查更新/下载/进度/取消，
                 // 复用语音设置页同一区块视图——单一管理面，无平行视图）。
@@ -47,6 +52,11 @@ struct ResourceManagementView: View {
                 }
             }
                         .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
+            .alert(L10n.downloadNetworkBlockedTitle, isPresented: $networkBlockedShown) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            } message: {
+                Text(L10n.downloadNetworkBlockedBody)
+            }
             .tintedCanvas()
 .navigationTitle(L10n.resourceManagementTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -131,6 +141,7 @@ struct ResourceManagementView: View {
             checkButton
             if catalogState.canUpdate {
                 Button {
+                    guard downloadsAllowed() else { return }
                     catalogState.installAll()
                 } label: {
                     Text(L10n.resourceCatalogSlicesUpdateAllFmt(
@@ -315,6 +326,7 @@ struct ResourceManagementView: View {
     }
 
     private func performRowAction(_ kind: CatalogSliceKind) {
+        guard downloadsAllowed() else { return }
         if case .updateAvailable = catalogState.remoteState(kind) {
             catalogState.install(kind)
         } else {
@@ -367,9 +379,36 @@ struct ResourceManagementView: View {
         return "\(received * 100 / total)%"
     }
 
+    /// 下载前网络/线路门（2026-10-29 业主：默认蜂窝与 Wi-Fi 均可；
+    /// 「下载线路」段可改仅 Wi-Fi）。被拦截时弹说明，不静默失败。
+    private func downloadsAllowed() -> Bool {
+        guard networkGate.blockReason() != nil else { return true }
+        networkBlockedShown = true
+        return false
+    }
+
+    /// 下载线路（2026-10-29 业主）：默认 any=蜂窝与 Wi-Fi 均可；wifiOnly=仅 Wi-Fi。
+    /// 策略写 AppSettings（UserDefaults 镜像双写）——启动卡同一策略生效。
+    private var downloadNetworkSection: some View {
+        Section {
+            Picker(L10n.downloadNetworkPolicyTitle, selection: Binding(
+                get: { settingsStore.values[.downloadNetworkPolicy] ?? AppSettingKey.downloadNetworkPolicy.defaultValue },
+                set: { value in Task { await settingsStore.set(value, for: .downloadNetworkPolicy) } })) {
+                Text(L10n.downloadNetworkPolicyAny).tag("any")
+                Text(L10n.downloadNetworkPolicyWiFiOnly).tag("wifiOnly")
+            }
+            .accessibilityIdentifier("SP-64.downloadNetwork.policy")
+        } header: {
+            Text(L10n.downloadNetworkPolicyTitle)
+        } footer: {
+            Text(L10n.downloadNetworkPolicyHint)
+        }
+    }
+
     /// 医疗域显式检查快捷键（聚合检查 = 一次扇出三片；两次显式点击语义不变）。
     private var checkButton: some View {
         Button {
+            guard downloadsAllowed() else { return }
             catalogState.check()
         } label: {
             Text(checkButtonTitle)

@@ -169,6 +169,9 @@ struct AppRootView: View {
     /// 启动任务链（body 提取：布局与启动编排分离）。顺序敏感：设置先于首帧
     /// 就位 → 语言对账 → 档案引导 → 备份时刻镜像 → 三/五链并行。
     private func startTasks() async {
+        // 全链完成（含异常路径）才放行门禁自动认证——业主 2026-10-29：
+        // 生物验证不得打断启动阶段工作（见 AppState.startupWorkFinished）。
+        defer { appState.markStartupWorkFinished() }
         await settingsStore.load()   // 主题等设置先于首帧后的首次渲染就位
         await avatarState.load()   // 头像（本地文件/预设）随设置就位
         // 语言初始化已移至 VitaLiberApp.init（L10n.restoreLanguage 同步恢复，

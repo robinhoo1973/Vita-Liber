@@ -32,6 +32,8 @@ struct MemberDetailView: View {
     @State private var hasBirthDate: Bool
     @State private var birthDate: Date
     @State private var birthDatePicked = false
+    /// 生日轮盘 sheet（2026-10-29：iPad 内联选择器不可滚）。
+    @State private var showBirthWheel = false
     /// 用户是否主动动过生日控件——未经显式交互的保存绝不改写存量值
     /// （初始 Toggle 关着，只改血型就保存不得顺手清掉存量生日，BR-002）。
     @State private var birthDateEdited = false
@@ -53,8 +55,8 @@ struct MemberDetailView: View {
         var note = ""
         if !bt.isEmpty,
            bt != "special",
-           BloodTypePushGrid.aboValue(from: bt) == nil,
-           bt != BloodTypePushGrid.unknownValue,
+           BloodTypeField.aboValue(from: bt) == nil,
+           bt != BloodTypeField.unknownValue,
            bt != L10n.bloodTypeUnknown {
             selection = "special"
             note = bt
@@ -131,13 +133,24 @@ struct MemberDetailView: View {
                         .accessibilityIdentifier("FR3.1.member.birthDateToggle")
                         .onChangeCompat(of: hasBirthDate) { _, _ in birthDateEdited = true }   // 零参闭包 onChange 为 iOS 17 专用形态，走 Compat 垫片
                     if hasBirthDate {
-                        DatePicker(L10n.member_birthDateLabel, selection: $birthDate,
-                                   in: MemberProfileCompleteness.birthDateEarliest...Date(),
-                                   displayedComponents: .date)
-                            .accessibilityIdentifier("FR3.1.member.birthDate")
-                            .onChangeCompat(of: birthDate) { _, _ in birthDatePicked = true }   // 零参闭包 onChange 为 iOS 17 专用形态，走 Compat 垫片
+                        // 2026-10-29 业主：iPad 9.7 内联 DatePicker 不可滚——行按钮 + 轮盘 sheet。
+                        Button {
+                            showBirthWheel = true
+                        } label: {
+                            LabeledContent(L10n.member_birthDateLabel,
+                                           value: MemberProfileCompleteness.birthDateString(from: birthDate))
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("FR3.1.member.birthDate")
+                        .sheet(isPresented: $showBirthWheel) {
+                            BirthDateDateSheet(date: $birthDate,
+                                               earliest: MemberProfileCompleteness.birthDateEarliest,
+                                               onPicked: { birthDatePicked = true })
+                        }
                     }
-                    BloodTypePushGrid(selection: $bloodSelection)
+                    BloodTypeField(selection: $bloodSelection)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("FR3.1.member.bloodType")
                     if bloodSelection == "special" {

@@ -17,6 +17,7 @@ struct MemberCreateSheet: View {
     // Domain 规范格式 yyyy-MM-dd（MemberProfileCompleteness.birthDateString）。
     @State private var hasBirthDate = false
     @State private var birthDate = Date()
+    @State private var showBirthWheel = false
     /// 审查修复（2026-09-26）：Toggle 打开即显示「今天」且未触碰 DatePicker 直接
     /// 保存会把「今天」当生日落库（用户只是想稍后再填）——未经显式选择的日期
     /// 一律按未填写处理，绝不落库未经用户确认的日期（BR-002 原始数据原则）。
@@ -78,11 +79,22 @@ struct MemberCreateSheet: View {
                     Toggle(L10n.member_birthDateLabel, isOn: $hasBirthDate)
                         .accessibilityIdentifier("FR3.7.create.birthDateToggle")
                     if hasBirthDate {
-                        DatePicker(L10n.member_birthDateLabel, selection: $birthDate,
-                                   in: MemberProfileCompleteness.birthDateEarliest...Date(),
-                                   displayedComponents: .date)
-                            .accessibilityIdentifier("FR3.7.create.birthDate")
-                            .onChangeCompat(of: birthDate) { _, _ in birthDatePicked = true }   // 零参闭包 onChange 为 iOS 17 专用形态，走 Compat 垫片
+                        // 2026-10-29 业主：iPad 9.7 内联 DatePicker 不可滚——行按钮 + 轮盘 sheet。
+                        Button {
+                            showBirthWheel = true
+                        } label: {
+                            LabeledContent(L10n.member_birthDateLabel,
+                                           value: MemberProfileCompleteness.birthDateString(from: birthDate))
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("FR3.7.create.birthDate")
+                        .sheet(isPresented: $showBirthWheel) {
+                            BirthDateDateSheet(date: $birthDate,
+                                               earliest: MemberProfileCompleteness.birthDateEarliest,
+                                               onPicked: { birthDatePicked = true })
+                        }
                     }
                 }
                 .navigationTitle(L10n.member_add)

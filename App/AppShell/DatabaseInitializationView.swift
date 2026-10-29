@@ -444,7 +444,7 @@ struct DatabaseInitializationView: View {
         case .sourcePartial:
             // Aggregate.sourcePartial 无载荷（B3 评审修复：计数经 descriptor 取）。
             if case .sourcePartial(let count) =
-                CatalogSlicesPromptPresentation.descriptor(for: slices).status {
+                CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected).status {
                 return L10n.startupCheckUpdatesSourcePartialFmt(Int64(count))
             }
             return L10n.resourceCatalogSlicesAllCurrent
@@ -452,7 +452,7 @@ struct DatabaseInitializationView: View {
             // 一败其余最新时 aggregate 亦为 .partialFailure 且候选为空
             // （B3 评审修复：不得显示「0 个可更新」，走失败短语）。
             if slices.candidates.isEmpty {
-                let status = CatalogSlicesPromptPresentation.descriptor(for: slices).status
+                let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected).status
                 return Self.statusText(status, slices: slices)
             }
             return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
@@ -553,7 +553,7 @@ struct DatabaseInitializationView: View {
     @ViewBuilder
     private var catalogCard: some View {
         if let slices = model.catalogSlices {
-            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices)
+            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected)
             let size = Self.candidateSizeText(descriptor.status)
             let statusText = Self.statusText(descriptor.status, slices: slices)
 
@@ -598,6 +598,11 @@ struct DatabaseInitializationView: View {
             .onChangeCompat(of: descriptor.autoEnter) { _, autoEnter in
                 if autoEnter { model.scheduleAutoEnterIfNeeded() }
             }
+            .alert(L10n.downloadNetworkBlockedTitle, isPresented: $networkBlockedShown) {
+                Button(L10n.onboard_gotIt, role: .cancel) { }
+            } message: {
+                Text(L10n.downloadNetworkBlockedBody)
+            }
         }
     }
 
@@ -639,6 +644,17 @@ struct DatabaseInitializationView: View {
     }
 
     private func perform(_ action: MedicalCatalogPromptAction) {
+        // 2026-10-29 业主：下载前确认网络与线路策略（默认蜂窝与 Wi-Fi 均可；
+        // 「我的 → 模型与数据资源」可改仅 Wi-Fi）。被拦截时给出原因，不静默。
+        switch action {
+        case .check, .recheck, .install, .retryInstall:
+            if networkGate.blockReason() != nil {
+                networkBlockedShown = true
+                return
+            }
+        default:
+            break
+        }
         switch action {
         case .check, .recheck: model.checkCatalog()
         case .install, .retryInstall: model.installCatalog()

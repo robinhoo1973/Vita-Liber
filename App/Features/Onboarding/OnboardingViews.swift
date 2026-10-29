@@ -184,6 +184,8 @@ struct OwnerSetupView: View {
     @State private var contactName = ""
     @State private var contactRelation = MemberRelation.partner.rawValue
     @State private var contactPhone = ""
+    /// 出生日期轮盘 sheet（2026-10-29 业主：iPad 9.7 内联选择器不可滚——轮盘独立 sheet）。
+    @State private var showBirthWheel = false
     /// 预填是否已应用（提示行只在有实际默认值时出现）
     @State private var prefilled = false
     @State private var prefillAttempted = false
@@ -227,6 +229,11 @@ struct OwnerSetupView: View {
                 prefillAttempted = true
                 await prefillFromHealth()
             }
+            .sheet(isPresented: $showBirthWheel) {
+                BirthDateWheelSheet(allowYearOnly: true, year: $birthYear,
+                                    month: $birthMonth, day: $birthDay,
+                                    earliest: MemberProfileCompleteness.birthDateEarliest)
+            }
         }
     }
 
@@ -244,7 +251,9 @@ struct OwnerSetupView: View {
                 Text(L10n.onboardGenderOther).tag("other")
             }
             .accessibilityIdentifier("SP-06.owner.gender")
-            // FR3.1 精度纪律：年份必填、月日可空；月日只接受成对填写（不虚构不补齐）
+            // FR3.1 精度纪律：年份必填、月日可空；月日只接受成对填写（不虚构不补齐）。
+            // 2026-10-29 业主：iPad 9.7 上内联日期控件不可滚——主入口改为轮盘 sheet，
+            // 文本三格保留为键盘快速录入（单数字月/日自动补零）。
             HStack {
                 TextField(L10n.onboardBirthYear, text: $birthYear)
                     .focused($focusedField, equals: .birthYear)
@@ -260,8 +269,17 @@ struct OwnerSetupView: View {
                     .keyboardType(.numberPad)
                     .frame(maxWidth: 64)
                     .accessibilityIdentifier("SP-06.owner.birthDay")
+                Button {
+                    focusedField = nil
+                    showBirthWheel = true
+                } label: {
+                    Image(systemName: "calendar")
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .accessibilityLabel(L10n.onboardPickBirthDate)
+                .accessibilityIdentifier("SP-06.owner.birthPick")
             }
-            BloodTypePushGrid(selection: $bloodChoice)
+            BloodTypeField(selection: $bloodChoice)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("SP-06.owner.bloodType")
             if bloodChoice == "special" {
@@ -291,10 +309,9 @@ struct OwnerSetupView: View {
                 }
             }
             .accessibilityIdentifier("SP-06.owner.contact.relation")
-            TextField(L10n.onboardContactPhone, text: $contactPhone)
-                    .focused($focusedField, equals: .contactPhone)
-                    .keyboardType(.phonePad)
-                .accessibilityIdentifier("SP-06.owner.contact.phone")
+            // 2026-10-29 业主：九宫数字键盘 + 国家/地区区号（名称+国旗）。
+            PhoneNumberField(phone: $contactPhone, label: L10n.onboardContactPhone,
+                             identifierPrefix: "SP-06.owner.contact.phone")
         } header: { Text(L10n.onboardContactHeader) } footer: { Text(L10n.onboardContactFooter) }
     }
 
@@ -308,7 +325,30 @@ struct OwnerSetupView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!formValid || submitting)
             .accessibilityIdentifier("SP-06.owner.create")
+            // 2026-10-29 业主：填完仍无法创建且无解释——按钮下方如实列出还差什么。
+            if !formValid, formTouched {
+                Text(L10n.onboardMissingFmt(missingLabels.joined(separator: L10n.onboardMissingSeparator)))
+                    .font(.footnote)
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .accessibilityIdentifier("SP-06.owner.missingHint")
+            }
         }
+    }
+
+    /// 任一字段有输入即视为「已尝试」，避免空表单首帧就报缺项。
+    private var formTouched: Bool {
+        !name.isEmpty || !gender.isEmpty || !birthYear.isEmpty
+            || !bloodChoice.isEmpty || !contactName.isEmpty || !contactPhone.isEmpty
+    }
+
+    private var missingLabels: [String] {
+        var missing: [String] = []
+        if name.trimmingCharacters(in: .whitespaces).isEmpty { missing.append(L10n.onboardYourNameLabel) }
+        if gender.isEmpty { missing.append(L10n.onboardGender) }
+        if birthDate == nil { missing.append(L10n.member_birthDateLabel) }
+        if bloodValue == nil { missing.append(L10n.bloodTypeLabel) }
+        if contactDraft == nil { missing.append(L10n.onboardContactHeader) }
+        return missing
     }
 
     // MARK: - 健康预填
@@ -342,15 +382,18 @@ struct OwnerSetupView: View {
     /// `MemberProfileCompleteness.isValidBirthDate`（1900…今、逐日历回读）。
     private var birthDate: String? {
         guard birthYear.count == 4, birthYear.allSatisfy(\.isNumber) else { return nil }
-        let monthOK = birthMonth.count == 2 && birthMonth.allSatisfy(\.isNumber)
-            && (1...12).contains(Int(birthMonth) ?? 0)
-        let dayOK = birthDay.count == 2 && birthDay.allSatisfy(\.isNumber)
-            && (1...31).contains(Int(birthDay) ?? 0)
-        if birthMonth.isEmpty && birthDay.isEmpty {
+        // 2026-10-29 业主（填完仍不可创建）：单数字「7」曾因要求两位而静默判无效——
+        // 1-2 位数字按数值判定，组串时补零（不虚构：0 与 >31 仍拒绝）。
+        let monthInt = Int(birthMonth).flatMap { (1...12).contains($0) ? $0 : nil }
+        let dayInt = Int(birthDay).flatMap { (1...31).contains($0) ? $0 : nil }
+        let monthGiven = !birthMonth.isEmpty
+        let dayGiven = !birthDay.isEmpty
+        if !monthGiven && !dayGiven {
             return MemberProfileCompleteness.isValidBirthDate(birthYear) ? birthYear : nil
         }
-        guard monthOK && dayOK else { return nil }   // 只填其一/非法 → 表单无效，响亮拒绝
-        let composed = "\(birthYear)-\(birthMonth)-\(birthDay)"
+        guard monthGiven, dayGiven, let monthInt, let dayInt,
+              birthMonth.count <= 2, birthDay.count <= 2 else { return nil }   // 只填其一/非法 → 响亮拒绝
+        let composed = String(format: "%@-%02d-%02d", birthYear, monthInt, dayInt)
         return MemberProfileCompleteness.isValidBirthDate(composed) ? composed : nil
     }
 

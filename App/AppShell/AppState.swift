@@ -243,6 +243,17 @@ final class AppState {
     /// 回前台自动弹系统认证浮层（默认开；XCUITest 用 -uitest-gate-no-auto 关闭保确定性）
     var gateAutoAttempts: Bool { !launchArgs.contains("-uitest-gate-no-auto") }
 
+    /// 启动任务链完成锚点（2026-10-29 业主：生物验证不得早于启动工作）。
+    /// AppRootView.startTasks 全链（设置/头像/bootstrap/种子/孤儿对账/回填/
+    /// 提醒链）完成后置位；LockOverlayView 的**自动**系统认证等待本锚点——
+    /// 首帧即弹 Face ID 会把启动链压在浮层之下、场景转 inactive，用户看到
+    /// 的启动仍是「被打断」的；手动解锁按钮不受此限（用户主动行为）。
+    private(set) var startupWorkFinished = false
+    func markStartupWorkFinished() {
+        guard !startupWorkFinished else { return }
+        startupWorkFinished = true
+    }
+
     /// 门禁/敏感媒体共用认证入口（BR-007 修订：任一次系统设备所有者认证成功
     /// 即证明持机者在场——每次调用都弹新系统浮层，不存在「顺带解锁」语义问题；
     /// 失败节流由系统处理：biometryLockout 后系统自动引导设备密码）。

@@ -191,7 +191,8 @@ final class AppSettingsStore {
         // inAppBannerEnabled 镜像——通知投递门（ChannelGatedScheduler）与
         // willPresent 在非主线程读该镜像（UserDefaults 线程安全），无需
         // @MainActor 往返
-        if key.rawValue.hasPrefix("remindChannel") || key == .inAppBannerEnabled {
+        if key.rawValue.hasPrefix("remindChannel") || key == .inAppBannerEnabled
+            || key == .downloadNetworkPolicy {
             UserDefaults.standard.set(value, forKey: key.rawValue)
         }
         // 审查修复（冻结键镜像缺失）：TTS rateProvider 与识别引擎工厂
@@ -290,6 +291,8 @@ final class AppSettingsStore {
         // choiceProvider）以 UserDefaults 为运行时真源：升级回填
         // （seedMirrorsIfNeeded）与恢复默认清镜像（restoreDefaults）都必须覆盖。
         .voiceEngine, .speechRate,
+        // 2026-10-29：启动门（会话建立前）与下载动作读取的线路策略镜像。
+        .downloadNetworkPolicy,
     ]
 
     func loadAudit() async {

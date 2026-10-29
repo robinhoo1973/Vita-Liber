@@ -164,6 +164,19 @@ extension L10n {
 
     static var retry: String { t("common.retry") }
 
+    // 2026-10-29 首启修复批（业主五项）：缺项明示/日期轮盘/血型单列表/国家区号
+    static func onboardMissingFmt(_ list: String) -> String {
+        String(format: t("onboard.missingFmt"), list)
+    }
+    static var onboardMissingSeparator: String { t("onboard.missingSeparator") }
+    static var onboardYourNameLabel: String { t("onboard.yourNameLabel") }
+    static var onboardPickBirthDate: String { t("onboard.pickBirthDate") }
+    static var birthDateYearOnly: String { t("birthDate.yearOnly") }
+    static var bloodTypeLabel: String { t("bloodType.label") }
+    static var bloodTypePickerFooter: String { t("bloodType.pickerFooter") }
+    static var phoneCountryTitle: String { t("phone.country.title") }
+    static var phoneCountrySearch: String { t("phone.country.search") }
+
     static var knowledgeTitle: String { t("knowledge.title") }
 
     static var knowledgeAdvice: String { t("knowledge.advice") }

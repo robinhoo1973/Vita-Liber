@@ -146,10 +146,27 @@ struct LockOverlayView: View {
                 // 退后台（.inactive）也挂载，其 .task 随挂载立即执行，LAContext
                 // 在非前台场景求值必失败（appNotForeground）且 .task 不因回前台
                 // 重跑——回前台自动重试由下方 onChange(scenePhase) 驱动。
+                // 2026-10-29 业主：自动认证还必须等启动任务链完成
+                // （startupWorkFinished）——浮层会把启动工作压在锁屏下并令场景
+                // 转 inactive；完成时刻由下方 onChange(startupWorkFinished) 补一次。
                 // UI 测试用 -uitest-gate-no-auto 关断自动尝试（Face ID 无法自动化）
-                guard app.gateAutoAttempts, scenePhase == .active else { return }
+                guard app.gateAutoAttempts, app.startupWorkFinished,
+                      scenePhase == .active else { return }
                 autoGate = .attempted
                 await attempt()
+            }
+            .onChangeCompat(of: app.startupWorkFinished) { _, finished in
+                // 启动链完成 → 若遮罩仍在且前台，补发唯一一次自动认证
+                // （backgrounded 不动：等回前台由 scenePhase 分支统一重试）。
+                guard finished, app.gateAutoAttempts, scenePhase == .active else { return }
+                switch autoGate {
+                case .pending:
+                    autoGate = .attempted
+                    failedOnce = false
+                    Task { await attempt() }
+                case .attempted, .backgrounded:
+                    break
+                }
             }
             .onChangeCompat(of: scenePhase) { _, phase in
                 // FR1.4「回前台必须重新认证、自动弹系统浮层」：仅从真后台返回时
@@ -164,7 +181,8 @@ struct LockOverlayView: View {
                 case .background:
                     autoGate = .backgrounded
                 case .active:
-                    guard app.gateAutoAttempts else { return }
+                    // 启动链未完成前回到前台也不得抢跑自动认证（业主 2026-10-29）。
+                    guard app.gateAutoAttempts, app.startupWorkFinished else { return }
                     switch autoGate {
                     case .backgrounded:
                         autoGate = .attempted

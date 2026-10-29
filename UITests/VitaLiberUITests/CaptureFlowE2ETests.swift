@@ -45,8 +45,11 @@ final class CaptureFlowE2ETests: XCTestCase {
         yearField.typeText("1975")
         app.buttons["SP-06.owner.dismissKeyboard"].tap()
 
-        app.buttons["bloodType.abo.O"].tap()
-        app.buttons["bloodType.rh.positive"].tap()
+        // 2026-10-29 血型改单列表单选（行 → sheet → 选项），两步网格退役。
+        app.buttons["bloodType.select"].tap()
+        let bloodOption = app.buttons["bloodType.option.Opos"].firstMatch
+        XCTAssertTrue(bloodOption.waitForExistence(timeout: 5), "血型选项面板必须呈现")
+        bloodOption.tap()
 
         // 键盘避让：每输完一个文本字段先收起键盘再点下一个
         //（键盘弹起时 phone 字段在键盘下方，tap 会打到键盘 → 无焦点 → typeText 失败）

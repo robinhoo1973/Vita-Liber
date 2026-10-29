@@ -68,6 +68,10 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
     /// 默认关；开启后仅**非敏感**导入件自动落 Documents 用户面树。
     /// 敏感件永远逐项显式导出（BR-007/008 逐项选择语义），不受此开关影响。
     case filesExportAutoMirror
+    /// 下载线路限制（2026-10-29 业主）：目录/资源下载默认允许蜂窝与 Wi-Fi；
+    /// 可在「我的 → 模型与数据资源」改为仅 Wi-Fi（"any"/"wifiOnly"）。
+    /// 启动期（会话建立前）读 UserDefaults 镜像（AppSettingsStore 双写）。
+    case downloadNetworkPolicy
 
     /// 键默认值（单一事实源：新增键必须补 default，禁止 UserDefaults 直读兜底）
     public var defaultValue: String {
@@ -111,6 +115,7 @@ public enum AppSettingKey: String, Sendable, CaseIterable, Codable {
         case .avatarChoice: return "symbol:person.crop.circle.fill"
         case .assistantAvatarChoice: return "sparkles"
         case .filesExportAutoMirror: return "false"
+        case .downloadNetworkPolicy: return "any"
         case .healthAutoImport: return "true"
         case .healthSyncIntervalMinutes: return String(HealthSyncInterval.default.rawValue)
         case .healthWriteBack: return "false"
