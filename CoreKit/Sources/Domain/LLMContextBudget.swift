@@ -19,14 +19,13 @@ public enum LLMContextBudget {
     /// 发货默认档（探针不可用/全部超预算时的确定值）。
     public static let defaultNCtx = 3072
 
-    /// Qwen3-0.6B 的 KV 单 token 字节数（q8_0 ≈ 34/32 块开销后的近似整数值；
-    /// 定标依据：2(K·V) × 28 层 × 8 KV 头 × 128 head_dim × 1.0625(块)＝112 KiB）。
+    /// 目录条目未钉 `kvBytesPerToken` 时的缺省回落：**全表最贵**的 KV 单价
+    /// （2(K·V) × 28 层 × 8 KV 头 × 128 head_dim × 2 B = 112 KiB/token，F16 口径）。
+    /// 引擎常态跑 q8_0（≈0.53×F16），但 q8_0 初始化失败会诚实回退 F16——按 F16 计
+    /// 才对两态都成立：宁可高估、缩小窗口，也不放过注定 jetsam 的配置。
+    /// 家族值不进本枚举（引擎无从按家族选择）：MiniCPM5-1B 的 24 KiB/token 由目录条目
+    /// `kvBytesPerToken: 24576` 携带（v3，2026-10-29 选型批）。
     public static let qwen3KVBytesPerToken: Int64 = 112 * 1024
-
-    /// MiniCPM5-1B 的 KV 单 token 字节数（F16：2 × 24 层 × 2 KV 头 × 128 head_dim × 2 B
-    /// = 24 KiB；config.json 实测 2026-10-29 选型批）。比 Qwen3 低 4.7×——**消费点必须用
-    /// 目录条目的 `kvBytesPerToken`**，本常量只是缺省回落，不得在引擎里硬编码模型值。
-    public static let minicpm5KVBytesPerToken: Int64 = 24 * 1024
 
     /// 选定 n_ctx：从大到小取第一个满足「权重峰值 + KV×n + 计算缓冲 ≤ 可用」的档；
     /// 探针 nil → 默认档；全部不满足 → 最小档（调用侧再由 verdict 做加载许可判定，

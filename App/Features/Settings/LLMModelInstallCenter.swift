@@ -69,27 +69,38 @@ final class LLMModelInstallCenter {
 
     // MARK: - 解析面
 
-    /// 目录首选条目（随签名二进制发布 = 信任锚；条目缺席 = 本次构建未配置模型）。
+    /// 目录首选条目 = **安装目标**（随签名二进制发布 = 信任锚；条目缺席 = 本次构建未配置模型）。
+    /// 与 `installedEntry` 分离的原因：目录 preference 换型后（如 Qwen3 → MiniCPM5），
+    /// 旧实现拿「首选条目」当「已装条目」——已装 Qwen3 的报告面全部错位
+    /// （installedVersion=nil / updateAvailable=false / remove 空转），新首选模型永远装不上。
     var entry: LLMModelCatalog.Entry? {
         LlamaModelManager.catalogDocument()?.preferred.first
     }
 
-    /// 已安装版本（未安装 → nil）。
-    var installedVersion: String? {
-        guard let entry else { return nil }
-        return LlamaModelManager.installedVersion(id: entry.id)
+    /// 已安装条目：目录 preference 序中首个就绪者（可能 ≠ 首选目标）。
+    var installedEntry: LLMModelCatalog.Entry? {
+        LlamaModelManager.catalogDocument()?.preferred.first {
+            LlamaModelManager.isModelReady(id: $0.id)
+        }
     }
 
-    /// 手动更新判定：目录版本 ≠ 已安装版本（目录随 App 版本更新；
-    /// 网络侧"最新模型"发现需签名索引，登记为后续批——见批报告 D 项）。
+    /// 已安装版本（未安装 → nil）。
+    var installedVersion: String? {
+        guard let installedEntry else { return nil }
+        return LlamaModelManager.installedVersion(id: installedEntry.id)
+    }
+
+    /// 手动更新判定：已装条目 ≠ 首选目标（换型 = 可更新），或同条目目录版 ≠ 已装版
+    /// （目录随 App 版本更新；网络侧"最新模型"发现需签名索引，登记为后续批——见批报告 D 项）。
     var updateAvailable: Bool {
-        guard let entry, let installed = installedVersion else { return false }
-        return installed != entry.version
+        guard let target = entry, let installed = installedEntry else { return false }
+        if installed.id != target.id { return true }
+        return LlamaModelManager.installedVersion(id: installed.id) != target.version
     }
 
     var installedBytes: Int64 {
-        guard let entry else { return 0 }
-        return LlamaModelManager.modelSize(id: entry.id)
+        guard let installedEntry else { return 0 }
+        return LlamaModelManager.modelSize(id: installedEntry.id)
     }
 
     var consentGranted: Bool {
@@ -156,17 +167,20 @@ final class LLMModelInstallCenter {
     }
 
     func remove() {
-        guard let entry else { return }
+        // 删除对象 = 实际已装条目（换型过渡期首选目标可能尚未安装——按目标删会空转，
+        // 且把 Qwen3 留在活跃位却显示「未安装」）。
+        guard let target = installedEntry ?? entry else { return }
         // S-3（第九轮审查 P7#1，权重重判定案）：删除 = **吊销同意**——类文档
         // 自述「拉黑语义 = 删键」，但此前 remove() 从不删键：用户为腾空间删除
         // 后，下一次冷启动 autoInstallIfEligible()（同意仍为 true、模型已缺）
         // 会静默重新下载 ~396MB。现在删除即清 consent key：自动补齐不再触发，
         // 重装必须再经用户显式同意（grantConsentAndInstall）。
         UserDefaults.standard.removeObject(forKey: Self.consentKey)
+        let removedID = target.id
         Task { [weak self] in
-            try? await LLMModelDownloadService.shared.remove(id: entry.id)   // try?-ok: 删除失败按幂等处理，refresh 会校正呈现
+            try? await LLMModelDownloadService.shared.remove(id: removedID)   // try?-ok: 删除失败按幂等处理，refresh 会校正呈现
             await MainActor.run { [weak self] in
-                self?.state = .notInstalled
+                self?.refresh()
                 self?.dataChange.assetsChanged()
             }
         }

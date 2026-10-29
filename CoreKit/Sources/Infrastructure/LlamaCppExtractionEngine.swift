@@ -163,6 +163,9 @@ final class LlamaRuntime: @unchecked Sendable {
     private var context: OpaquePointer?
     private var vocab: OpaquePointer?
     private var loadedURL: URL?
+    /// 已载上下文的**实际** n_ctx（复用路径的夹紧依据；内存探针每次调用重算的档位
+    /// 只用于冷载——复用旧上下文却返回新档位会把提示/生成推出真实窗口）。
+    private var loadedNCtx = 0
     private var backendInitialized = false
 
     /// 释放驻留模型/上下文（换型激活、删除、下载重装前调用）。
@@ -176,6 +179,7 @@ final class LlamaRuntime: @unchecked Sendable {
                 self.model = nil
                 self.vocab = nil
                 self.loadedURL = nil
+                self.loadedNCtx = 0
                 continuation.resume()
             }
         }
@@ -332,8 +336,22 @@ final class LlamaRuntime: @unchecked Sendable {
         let nCtx = LLMContextBudget.nCtx(availableBytes: ProcessMemory.availableBytes(),
                                          modelBytes: modelBytes,
                                          kvBytesPerToken: kvPerToken)
-        if loadedURL == url, model != nil, context != nil, vocab != nil { return nCtx }
+        if loadedURL == url, model != nil, context != nil, vocab != nil { return loadedNCtx }
         if cancelFlag.isCancelled { throw CancellationError() }
+        // 2026-09-19 审查修复（2026-10-29 纠正顺序）：URL 变更时**先**释放旧上下文与模型
+        // ——原实现装载新模型后才释放，峰值 = 旧权重 + 新权重 + 新 KV 同时驻留
+        // （396 MB + 688 MB 档在 2–3 GB 机型直接 jetsam），且下方预算门只按新模型计算，
+        // 与「旧句柄已占内存」的真实峰值不符。加载失败不外溢：旧 URL 本就不可再用，
+        // 状态清空后下次调用按同一路径重载。
+        if model != nil || context != nil || vocab != nil {
+            if let existing = context { llama_free(existing) }
+            if let existing = model { llama_model_free(existing) }
+            context = nil
+            model = nil
+            vocab = nil
+            loadedURL = nil
+            loadedNCtx = 0
+        }
         // round5 Q3 举一反三：GB 级原生加载前内存预算门（与 sherpa ASR 同一策略，系数按 mmap+Metal 形态取 1.3）。
         // 2026-10-09：**KV cache 显式加项**（系数只覆盖权重 mmap）——Qwen3 KV/token 9.3× 于旧模型，
         // 不加项会放过注定 jetsam 的配置。不足 → unavailable：T2 降级 T3（而非被系统终止）。
@@ -376,19 +394,11 @@ final class LlamaRuntime: @unchecked Sendable {
             llama_model_free(loadedModel)
             throw ExtractionEngineError.unavailable
         }
-        // 2026-09-19 审查修复：URL 变更（覆盖位出现/测试换模型）时先释放旧上下文与模型——
-        // 原实现直接覆写指针，数百 MB 模型 + 上下文泄漏。
-        if loadedURL != nil, loadedURL != url {
-            if let context { llama_free(context) }
-            if let model { llama_model_free(model) }
-            vocab = nil
-            context = nil
-            model = nil
-        }
         model = loadedModel
         vocab = loadedVocab
         context = loadedContext
         loadedURL = url
+        loadedNCtx = nCtx
         return nCtx
     }
 }

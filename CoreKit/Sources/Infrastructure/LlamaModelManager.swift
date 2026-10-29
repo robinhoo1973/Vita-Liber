@@ -166,13 +166,8 @@ public enum LlamaModelManager {
     /// （调用方按既有语义降级 T3——「缺席不失能、不假装可用」）。
     public static func activeModel() -> ActiveModel? {
         guard let document = catalogDocument() else { return nil }
-        for entry in document.preferred where isModelReady(id: entry.id) {
-            guard let url = installedModelURL(id: entry.id) else { continue }
-            return ActiveModel(id: entry.id, url: url, bytes: entry.bytes,
-                               sha256: entry.sha256, frame: entry.frame,
-                               kvBytesPerToken: entry.kvBytesPerToken,
-                               stopTokens: entry.stopTokens,
-                               addBosToken: entry.addBosToken)
+        for entry in document.preferred {
+            if let model = readyModel(for: entry) { return model }
         }
         return nil
     }

@@ -74,7 +74,7 @@ public enum LLMModelCatalog {
         }
     }
 
-    /// 目录文档（`formatVersion == 2`）。
+    /// 目录文档（`formatVersion` 2/3）。
     public struct Document: Sendable, Equatable {
         public let entries: [Entry]
         /// 解析优先序（每个 id 必须存在于 entries；引用悬空即整体判非法——
@@ -101,42 +101,74 @@ public enum LLMModelCatalog {
     }
 
     /// 解析（纯函数）。契约：
-    /// - 根非对象 / `formatVersion != 2` / `models` 非数组 → nil（整体拒）。
-    /// - 条目级任一字段非法 → 跳过该条（不半信）。
+    /// - 根非对象 / `formatVersion` 非整数 2 或 3 / `models` 非数组 /
+    ///   `preference` 缺失或非字符串数组 → nil（整体拒）。
+    /// - 条目级任一字段类型非法（含 bool/非整值浮点冒充数字、frame/addBosToken/
+    ///   stopTokens 类型不符）→ 跳过该条（不半信）。类型严格性由 `JSONDecoder`
+    ///   承担（Bool→Int、1.5→Int、String→Int 均拒），与 L0 [20] 门禁
+    ///   `isinstance(int) and not isinstance(bool)` 同口径。
     /// - `preference` 任一 id 悬空 → 整体判 nil（宁可拒绝，不可静默错选）。
     /// - 去重：同 id 重复（后者）覆盖前者可静默错选 → 直接剔除重复 id 的全部后验条目，
     ///   保留首个（确定性优先）。
     public static func parse(_ data: Data) -> Document? {
-        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],   // try?-ok: 非法 JSON 即整体拒
-              let formatVersion = root["formatVersion"] as? Int, (2...3).contains(formatVersion),
-              let models = root["models"] as? [[String: Any]] else { return nil }
+        guard let raw = try? JSONDecoder().decode(RawDocument.self, from: data),   // try?-ok: 根结构/优先序非法即整体拒
+              (2...3).contains(raw.formatVersion) else { return nil }
         var seen = Set<String>()
         var entries: [Entry] = []
-        for model in models {
-            guard let entry = parseEntry(model), seen.insert(entry.id).inserted else { continue }
+        for box in raw.models {
+            guard let model = box.value,
+                  let entry = makeEntry(model), seen.insert(entry.id).inserted else { continue }
             entries.append(entry)
         }
-        let preference = (root["preference"] as? [String]) ?? []
         // 悬空引用 → 整体拒（静默错选比拒绝更糟）。
         let ids = Set(entries.map(\.id))
-        guard preference.allSatisfy({ ids.contains($0) }) else { return nil }
-        return Document(entries: entries, preference: preference)
+        guard raw.preference.allSatisfy({ ids.contains($0) }) else { return nil }
+        return Document(entries: entries, preference: raw.preference)
+    }
+
+    /// 根结构（严格类型：任何一项类型不符 → 整份目录 nil）。
+    private struct RawDocument: Decodable {
+        let formatVersion: Int
+        let models: [FailableDecodable<RawEntry>]
+        let preference: [String]
+    }
+
+    /// 条目级失败隔离：单条解不出 = 丢该条（v2 起的「不半信」契约），不拖垮整份目录。
+    private struct FailableDecodable<Value: Decodable>: Decodable {
+        let value: Value?
+        init(from decoder: Decoder) {
+            value = try? Value(from: decoder)   // try?-ok: 条目级字段类型非法 → 只丢该条（fail-closed 跳过而非整体拒）
+        }
+    }
+
+    /// 条目原始形状（全部尺寸/数量字段用定宽整数解码——Bool/浮点非法值在此被 Foundation 拒）。
+    private struct RawEntry: Decodable {
+        let id: String
+        let role: String
+        let fileName: String
+        let bytes: Int64
+        let sha256: String
+        let url: String
+        let version: String
+        let license: String
+        let frame: String?
+        let kvBytesPerToken: Int64?
+        let stopTokens: [Int32]?
+        let addBosToken: Bool?
     }
 
     /// 条目级解析（任一字段不合法返回 nil——调用方跳过）。
-    static func parseEntry(_ model: [String: Any]) -> Entry? {
-        guard let id = model["id"] as? String, ModelResourcePolicy.isSlug(id),
-              let roleRaw = model["role"] as? String, let role = Role(rawValue: roleRaw),
-              let fileName = model["fileName"] as? String,
-              fileName.hasSuffix(".gguf"), ModelResourcePolicy.isSlug(fileName),
-              let bytes = (model["bytes"] as? NSNumber)?.int64Value, bytes > 0,
-              let sha256 = model["sha256"] as? String, ModelResourcePolicy.isSHA256(sha256),
-              let urlRaw = model["url"] as? String, let url = URL(string: urlRaw),
-              ModelResourcePolicy.allowedURL(url),
-              let version = model["version"] as? String, ModelResourcePolicy.isSlug(version),
-              let license = model["license"] as? String, !license.isEmpty else { return nil }
+    private static func makeEntry(_ model: RawEntry) -> Entry? {
+        guard ModelResourcePolicy.isSlug(model.id),
+              let role = Role(rawValue: model.role),
+              model.fileName.hasSuffix(".gguf"), ModelResourcePolicy.isSlug(model.fileName),
+              model.bytes > 0,
+              ModelResourcePolicy.isSHA256(model.sha256),
+              let url = URL(string: model.url), ModelResourcePolicy.allowedURL(url),
+              ModelResourcePolicy.isSlug(model.version),
+              !model.license.isEmpty else { return nil }
         let frame: ExtractionPromptBuilder.ChatFrameStyle
-        if let rawFrame = model["frame"] as? String {
+        if let rawFrame = model.frame {
             // v3 fail-closed：显式 frame 未知值 = 用错帧渲染 = 训推异分布，拒收该条目
             // （绝不静默回落 chatML——那正是 v2 的种子缺陷）。
             guard let parsed = ExtractionPromptBuilder.ChatFrameStyle(rawValue: rawFrame) else { return nil }
@@ -144,23 +176,12 @@ public enum LLMModelCatalog {
         } else {
             frame = .chatML   // 无键 = 旧契约缺省（v1/v2 兼容面）
         }
-        let kvBytesPerToken: Int64?
-        if let rawKV = model["kvBytesPerToken"] {
-            guard let number = rawKV as? NSNumber, number.int64Value > 0 else { return nil }
-            kvBytesPerToken = number.int64Value
-        } else {
-            kvBytesPerToken = nil
-        }
-        var stopTokens: [Int32] = []
-        if let rawStops = model["stopTokens"] {
-            guard let numbers = rawStops as? [NSNumber] else { return nil }
-            stopTokens = numbers.map(\.int32Value)
-            guard !stopTokens.contains(where: { $0 <= 0 }) else { return nil }
-        }
-        let addBosToken = (model["addBosToken"] as? Bool) ?? false
-        return Entry(id: id, role: role, fileName: fileName, bytes: bytes, sha256: sha256,
-                     url: url, version: version, license: license, frame: frame,
-                     kvBytesPerToken: kvBytesPerToken, stopTokens: stopTokens,
-                     addBosToken: addBosToken)
+        if let kv = model.kvBytesPerToken, kv <= 0 { return nil }
+        let stopTokens = model.stopTokens ?? []
+        guard !stopTokens.contains(where: { $0 <= 0 }) else { return nil }
+        return Entry(id: model.id, role: role, fileName: model.fileName, bytes: model.bytes,
+                     sha256: model.sha256, url: url, version: model.version, license: model.license,
+                     frame: frame, kvBytesPerToken: model.kvBytesPerToken,
+                     stopTokens: stopTokens, addBosToken: model.addBosToken ?? false)
     }
 }

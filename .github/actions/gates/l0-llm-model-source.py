@@ -14,9 +14,10 @@
      excludes 覆盖 LLMCatalog（防同款「group 条目 + 文件夹引用」双拷，2026-09-19 实证）。
   c. CI 无取模步：workflows/actions 内不得出现 `materialize-llama`（构建期把 GGUF
      灌进 bundle 的旧通道；脚本已随本批删除）。
-  d. 目录契约自洽：Resources/LLMCatalog/catalog.json 可解析为 v2 且逐条字段合法
+  d. 目录契约自洽：Resources/LLMCatalog/catalog.json 可解析为 v2/v3 且逐条字段合法
      （id slug / fileName .gguf / bytes>0 / sha256 64hex / url https+主机白名单 /
-     role 合法 / preference ⊆ ids）。
+     role 合法 / v3 字段 kvBytesPerToken·stopTokens·addBosToken 类型严格 /
+     显式 frame 在闭集内 / preference ⊆ ids / id 不重复）。
 
 镜像声明：字段规则的事实源是 Swift `LLMModelCatalog.parse` + `ModelResourcePolicy`
 （Domain）；本判定器是离线镜像（照 l0-dependency-matrix 先例）——两处规则同批演化，
@@ -119,6 +120,10 @@ else:
                 if not isinstance(entry_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", entry_id):
                     fail(f"{label} id 非 slug：{entry_id!r}")
                     continue
+                if entry_id in ids:
+                    # App 解析器按契约「保留首个」；构建期在发货前就拒绝重复 id
+                    # （integrator 同口径）——重复 = 静默覆盖种子，不能进入签名二进制。
+                    fail(f"{label} id 重复：{entry_id!r}")
                 ids.add(entry_id)
                 if model.get("role") not in {"default", "medical"}:
                     fail(f"{label} role 非法：{model.get('role')!r}")

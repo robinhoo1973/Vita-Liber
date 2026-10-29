@@ -47,13 +47,17 @@ public actor LLMModelDownloadService {
         session = URLSession(configuration: configuration)
     }
 
-    /// 安装（幂等）：已就绪即短路返回；否则 下载 → 校验 → 激活。
+    /// 安装（幂等）：已就绪**且指针版本与目录一致**即短路返回；否则 下载 → 校验 → 激活。
+    /// 版本也进短路条件：目录升版但字节/摘要不变（同内容重发）时旧指针仍「就绪」，
+    /// 只查就绪会让「更新」按钮永远空转（updateAvailable 恒真、install 秒返回）。
     /// 取消（Task.cancel）→ `CancellationError`，暂存保留可续传；失败 → 暂存清理后抛错。
     @discardableResult
     public func install(_ entry: LLMModelCatalog.Entry,
                         progress: (@Sendable (Progress) -> Void)? = nil,
                         onPhase: (@Sendable (Phase) -> Void)? = nil) async throws -> URL {
-        if LlamaModelManager.isModelReady(id: entry.id), let url = LlamaModelManager.installedModelURL(id: entry.id) {
+        if LlamaModelManager.isModelReady(id: entry.id),
+           LlamaModelManager.installedVersion(id: entry.id) == entry.version,
+           let url = LlamaModelManager.installedModelURL(id: entry.id) {
             return url
         }
         guard installing.insert(entry.id).inserted else { throw Failure.installInProgress }
@@ -68,8 +72,12 @@ public actor LLMModelDownloadService {
               let directory = LlamaModelManager.installDirectory(id: entry.id) else {
             throw Failure.installFailed
         }
+        // 暂存名 = 内容寻址（version+sha12），不是一次性 UUID：续传点必须跨尝试稳定，
+        // 否则 `resumeOffset` 恒为 0、断点续传结构上不可达；内容寻址同时保证不同
+        // version/sha 的残片绝不互相续写（旧前缀 + 新内容 = 白下 + 校验必红）。
         let staging = directory.appendingPathComponent(
-            LLMModelInstallLayout.stagingDirectoryName(uuid: UUID().uuidString), isDirectory: true)
+            LLMModelInstallLayout.stagingDirectoryName(
+                version: entry.version, sha256: entry.sha256), isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
             excludeFromBackup(root)
@@ -130,11 +138,17 @@ public actor LLMModelDownloadService {
             for stale in cleanup {
                 try? FileManager.default.removeItem(at: directory.appendingPathComponent(stale))   // try?-ok: 清扫尽力而为，残留由下次安装再扫
             }
-            try? FileManager.default.removeItem(at: staging)   // try?-ok: 暂存目录已空，删除失败由系统临时目录回收
+            // 暂存清扫：本次位（move 后已空壳）+ 历史失败尝试的孤儿（稳定命名后才会积累）。
+            for stale in stagingDirectories(in: directory) {
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent(stale))   // try?-ok: 清扫尽力而为
+            }
 
             // 换型激活后驱逐旧驻留句柄（旧模型句柄仍指向已删文件时下次 load 才失败——此处主动释放）。
             await LlamaRuntime.shared.unload()
             return destination
+        } catch is CancellationError {
+            // 取消 = 用户主动暂停：暂存与 .part 保留，下次同 version+sha 从水位续传。
+            throw CancellationError()
         } catch {
             try? FileManager.default.removeItem(at: staging)   // try?-ok: 失败清理尽力而为
             throw error
@@ -170,6 +184,11 @@ public actor LLMModelDownloadService {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []   // try?-ok: 读不到按空目录处理
         return names.filter { !$0.hasPrefix(LLMModelInstallLayout.stagingPrefix)
             && $0 != LLMModelInstallLayout.pointerFileName }
+    }
+
+    private func stagingDirectories(in directory: URL) -> [String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []   // try?-ok: 读不到按空目录处理
+        return names.filter { $0.hasPrefix(LLMModelInstallLayout.stagingPrefix) }
     }
 
     private func excludeFromBackup(_ url: URL) {

@@ -152,6 +152,34 @@ struct LlamaModelCatalogTests {
                 "stopTokens 非数字数组必须拒收该条目（绝不静默当空集）")
     }
 
+    @Test func v3StrictTypesRejectEntryAndMalformedPreferenceRejectsDocument() throws {
+        // 2026-10-29 评审修复：v3 字段类型严格性 = L0 门禁同口径（bool/浮点/字符串冒充
+        // 数字一律拒收该条目；frame 显式非字符串同样拒收——绝不再静默回落 chatML）。
+        let models = [
+            // bytes 是浮点（非整值）——旧实现 NSNumber.int64Value 静默截断
+            #"{"id":"float-bytes","role":"default","fileName":"a.gguf","bytes":1.5,"sha256":"\#(Self.shaA)","url":"https://cnb.cool/a","version":"1","license":"MIT"}"#,
+            // addBosToken 是数字——旧实现 as? Bool 失败静默 false
+            #"{"id":"number-bos","role":"default","fileName":"b.gguf","bytes":1024,"sha256":"\#(Self.shaA)","url":"https://cnb.cool/a","version":"1","license":"MIT","addBosToken":1}"#,
+            // kvBytesPerToken 是 bool（true 在旧实现里 int64Value = 1 通过）
+            #"{"id":"bool-kv","role":"default","fileName":"c.gguf","bytes":1024,"sha256":"\#(Self.shaA)","url":"https://cnb.cool/a","version":"1","license":"MIT","kvBytesPerToken":true}"#,
+            // stopTokens 含浮点
+            #"{"id":"float-stop","role":"default","fileName":"d.gguf","bytes":1024,"sha256":"\#(Self.shaA)","url":"https://cnb.cool/a","version":"1","license":"MIT","stopTokens":[1.5]}"#,
+            // frame 显式给数字——旧实现 as? String 失败静默回落 chatML（E3 种子缺陷）
+            #"{"id":"numeric-frame","role":"default","fileName":"e.gguf","bytes":1024,"sha256":"\#(Self.shaA)","url":"https://cnb.cool/a","version":"1","license":"MIT","frame":3}"#,
+        ].joined(separator: ",")
+        let document = """
+        {"formatVersion":3,"models":[\(models)],"preference":[]}
+        """
+        #expect(LLMModelCatalog.parse(Data(document.utf8))?.entries.isEmpty == true,
+                "类型不符的 v3 字段必须拒收该条目（不半信）")
+        // preference 非字符串数组 → 整份目录拒（旧实现静默当空数组 = 静默错选种子）。
+        let badPreference = """
+        {"formatVersion":3,"models":[],"preference":"first"}
+        """
+        #expect(LLMModelCatalog.parse(Data(badPreference.utf8)) == nil,
+                "preference 非数组必须整体拒（与 L0 门禁同口径）")
+    }
+
     @Test func preferenceOrderPicksFirstReadyEntry() throws {
         let root = makeTempRoot()
         defer { LlamaModelManager.installRootOverride = nil; LlamaModelManager.catalogOverride = nil }

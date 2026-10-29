@@ -20,6 +20,16 @@ struct LLMModelInstallLayoutTests {
         #expect(LLMModelInstallLayout.stagingUUID(".staging-") == nil)
     }
 
+    @Test func stagingNameIsContentAddressedForResume() {
+        // 2026-10-29 评审修复：暂存位按 version+sha 内容寻址（跨尝试稳定才能续传）；
+        // 不同内容绝不共用一个 .part（旧前缀 + 新内容 = 白下 + 校验必红）。
+        let name = LLMModelInstallLayout.stagingDirectoryName(version: "1",
+                                                             sha256: "ac2d9771deadbeef")
+        #expect(name == ".staging-1-ac2d9771dead")
+        #expect(LLMModelInstallLayout.stagingDirectoryName(version: "2",
+                                                           sha256: "ac2d9771deadbeef") != name)
+    }
+
     @Test func resumeOffsetMatrix() {
         // 正常半程 → 续传
         #expect(LLMModelInstallLayout.resumeOffset(partialBytes: 100, expectedBytes: 1000) == 100)

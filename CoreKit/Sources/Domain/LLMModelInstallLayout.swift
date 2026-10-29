@@ -35,6 +35,12 @@ public enum LLMModelInstallLayout {
         stagingPrefix + uuid
     }
 
+    /// 内容寻址暂存目录名：`<version>-<sha12>` 与目标版本目录同名——续传点跨尝试
+    /// 稳定（同 version+sha 复用 `.part`），且不同内容绝不互相续写。
+    public static func stagingDirectoryName(version: String, sha256: String) -> String {
+        stagingPrefix + versionDirectoryName(version: version, sha256: sha256)
+    }
+
     /// 暂存目录名 → uuid（非暂存目录返回 nil；清扫侧用于日志/去重）。
     public static func stagingUUID(_ directoryName: String) -> String? {
         guard directoryName.hasPrefix(stagingPrefix) else { return nil }
