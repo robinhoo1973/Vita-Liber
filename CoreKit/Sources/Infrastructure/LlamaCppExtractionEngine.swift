@@ -318,9 +318,13 @@ final class LlamaRuntime: @unchecked Sendable {
             llama_token_to_piece(vocab, token, pointer.baseAddress, 32, 0, false)
         }
         if written < 0 {
-            buffer = [CChar](repeating: 0, count: Int(-written))
+            // 容量须闭包外求值：在 withUnsafeMutableBufferPointer 独占访问 buffer 期间读
+            // buffer.count 是 overlapping access（Swift 6 编译期验收，macOS CI 40886485628 红因；
+            // Linux 盲区——llama 守卫代码本地不编译）。
+            let needed = Int(-written)
+            buffer = [CChar](repeating: 0, count: needed)
             written = buffer.withUnsafeMutableBufferPointer { pointer in
-                llama_token_to_piece(vocab, token, pointer.baseAddress, Int32(buffer.count), 0, false)
+                llama_token_to_piece(vocab, token, pointer.baseAddress, Int32(needed), 0, false)
             }
         }
         guard written > 0 else { return [] }
