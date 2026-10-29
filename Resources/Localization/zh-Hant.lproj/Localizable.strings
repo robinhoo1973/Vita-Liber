@@ -1905,6 +1905,7 @@
 "startup.check.summary.passedFmt" = "%1$ld 項本機檢查通過 · 檔案可用";
 "startup.check.summary.warningFmt" = "%1$ld 項本機檢查通過 · 部分需留意";
 "startup.check.summary.expand" = "展開自檢詳情";
+"startup.check.summary.collapse" = "收合自檢詳情";
 "startup.check.row.schema" = "檔案結構版本";
 "startup.check.row.catalog" = "醫療資料目錄";
 "startup.check.row.updates" = "參考目錄版本";

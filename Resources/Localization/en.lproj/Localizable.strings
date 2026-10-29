@@ -1905,6 +1905,7 @@
 "startup.check.summary.passedFmt" = "%1$ld local checks passed · Records available";
 "startup.check.summary.warningFmt" = "%1$ld local checks passed · Some items need attention";
 "startup.check.summary.expand" = "Show self-check details";
+"startup.check.summary.collapse" = "Hide self-check details";
 "startup.check.row.schema" = "Record structure";
 "startup.check.row.catalog" = "Medical data catalog";
 "startup.check.row.updates" = "Catalog version";

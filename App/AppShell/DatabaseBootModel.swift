@@ -55,7 +55,22 @@ final class DatabaseBootModel: ObservableObject {
     @Published private(set) var isSelfCheckSummaryExpanded = false
 
     /// B4 hold 钩子对视图可见化（DEBUG）：hold 期间强制展开四行（既有 UI 用例依赖）。
+    /// 两段式稳态用例用 `-uitest-selfcheck-hold-summary`：冻结交接但允许折叠摘要。
     var debugHoldForcesExpanded: Bool { uiTestSelfCheckHold }
+
+    /// `-uitest-selfcheck-hold-summary`：冻结被动交接与卡片 autoEnter，
+    /// 但不强制展开四行——用于「二启稳态折叠摘要 → 展开 → 收起」用例。
+    private var uiTestSelfCheckHoldSummary: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("-uitest-selfcheck-hold-summary")
+        #else
+        false
+        #endif
+    }
+
+    private var isHandoffFrozenForUITest: Bool {
+        uiTestSelfCheckHold || uiTestSelfCheckHoldSummary
+    }
 
     init(sessionFactory: ((AppContainer, CatalogSlicesState) -> AppSession)? = nil,
          defaults: UserDefaults = .standard,
@@ -233,7 +248,7 @@ final class DatabaseBootModel: ObservableObject {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
         return args.contains { $0.hasPrefix("-uitest-") }
-            && !uiTestSelfCheckHold && uiTestSelfCheckFailure == nil
+            && !isHandoffFrozenForUITest && uiTestSelfCheckFailure == nil
         #else
         false
         #endif
@@ -311,7 +326,7 @@ final class DatabaseBootModel: ObservableObject {
     /// B7：descriptor 为 autoEnter 单真源——视图只在 `descriptor.autoEnter`
     /// 为真时调用本方法，模型不再按聚合态自行重算（旧 shouldAutoEnter 已删）。
     func scheduleAutoEnterIfNeeded() {
-        guard !uiTestSelfCheckHold else { return }   // B4：显式 hold 冻结卡片 autoEnter
+        guard !isHandoffFrozenForUITest else { return }   // hold / hold-summary 冻结卡片 autoEnter
         guard awaitingCatalogChoice else { return }
         let delay: Duration = UIAccessibility.isVoiceOverRunning ? .seconds(3) : .milliseconds(1500)
         autoEnter.schedule(after: delay) { [weak self] in
@@ -374,7 +389,7 @@ final class DatabaseBootModel: ObservableObject {
               container != nil, !awaitingCatalogChoice,
               !rowFourBusy,
               !isSelfCheckSummaryExpanded,   // 批 ②：展开态冻结交接
-              !uiTestSelfCheckHold,   // B4：显式 hold 冻结被动交接
+              !isHandoffFrozenForUITest,   // B4 hold / hold-summary 冻结被动交接
               let presentedAt = selfCheckPresentedAt else { return }
         if bootTerminalAt == nil { bootTerminalAt = now() }
         let terminalAt = bootTerminalAt ?? now()

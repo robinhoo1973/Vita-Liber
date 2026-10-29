@@ -1905,6 +1905,7 @@
 "startup.check.summary.passedFmt" = "%1$ld 项本机检查通过 · 档案可用";
 "startup.check.summary.warningFmt" = "%1$ld 项本机检查通过 · 部分需留意";
 "startup.check.summary.expand" = "展开自检详情";
+"startup.check.summary.collapse" = "收起自检详情";
 "startup.check.row.schema" = "档案结构版本";
 "startup.check.row.catalog" = "医疗数据目录";
 "startup.check.row.updates" = "参考目录版本";

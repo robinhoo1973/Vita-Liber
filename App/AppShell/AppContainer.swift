@@ -431,6 +431,23 @@ struct AppContainer {
         }
     }
 
+    #if DEBUG
+    /// 两段式 UI 测试钩子（2026-10-29）：在 `boot.start()` 之前同步删除患者库
+    /// 全部注册名与伴生文件——用于「首启建库 → 终止 → 二启稳态」用例的
+    /// 第一阶段。仅 DEBUG；生产不可达。
+    static func debugErasePatientDatabaseForUITest(fileManager: FileManager = .default) {
+        let dir = databaseDirectory(fileManager: fileManager)
+        for name in PatientDatabaseNames.all {
+            for suffix in ["", "-wal", "-shm", "-journal"] {
+                let path = dir.appendingPathComponent(name + suffix).path
+                if fileManager.fileExists(atPath: path) {
+                    try? fileManager.removeItem(atPath: path) // try?-ok: DEBUG 钩子尽力删除
+                }
+            }
+        }
+    }
+    #endif
+
     private static func databaseDirectory(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory,
                                     in: .userDomainMask).first

@@ -153,6 +153,25 @@ struct DatabaseInitializationView: View {
 
     private func expandedChecklist(_ rows: StartupSelfCheckRowStates) -> some View {
         VStack(spacing: 4) {
+            if model.isSelfCheckSummaryExpanded {
+                // 用户展开态给收起入口（批 ② 500ms 恢复规则的交互面；
+                // 系统强制展开场景——首启/迁移/失败/hold——无收起钮）。
+                Button {
+                    model.toggleSelfCheckSummary()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.up")
+                            .font(.footnote.weight(.semibold))
+                        Text(L10n.startupCheckSummaryCollapse)
+                            .font(.footnote)
+                    }
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("STARTUP.selfcheck.summary.collapse")
+            }
             checklistRow(identifier: "dbFile", index: 1, title: L10n.startupCheckRowDbFile,
                          state: rows.file, detail: fileDetail(rows.file),
                          note: nil, icon: "externaldrive.fill")

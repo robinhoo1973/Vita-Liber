@@ -504,6 +504,7 @@ extension L10n {
         String(format: t("startup.check.summary.warningFmt"), count)
     }
     static var startupCheckSummaryExpand: String { t("startup.check.summary.expand") }
+    static var startupCheckSummaryCollapse: String { t("startup.check.summary.collapse") }
     static var startupCheckStatePending: String { t("startup.check.state.pending") }
     static var startupCheckStateRunning: String { t("startup.check.state.running") }
     static var startupCheckStatePassed: String { t("startup.check.state.passed") }

@@ -1293,6 +1293,7 @@ extension L10n {
         "startup.check.summary.passedFmt",
         "startup.check.summary.warningFmt",
         "startup.check.summary.expand",
+        "startup.check.summary.collapse",
         "startup.check.state.pending",
         "startup.check.state.running",
         "startup.check.state.passed",

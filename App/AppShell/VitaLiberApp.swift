@@ -51,6 +51,13 @@ struct VitaLiberApp: App {
         })
         HealthKitSyncService.registerBackgroundTask()
         _ = BackgroundWorkScheduler.shared.submit(ReminderReconcileJob.identifier)
+        #if DEBUG
+        // 两段式钩子（2026-10-29）：必须同步删库于 boot.start 之前——
+        // 启动门在 init 尾部即开跑，晚于本调用的删除会撞已被打开的库。
+        if ProcessInfo.processInfo.arguments.contains("-uitest-boot-fresh-db") {
+            AppContainer.debugErasePatientDatabaseForUITest()
+        }
+        #endif
         // headless 启动：后台唤起也能把数据库门走完。
         Task { await boot.start() }
     }

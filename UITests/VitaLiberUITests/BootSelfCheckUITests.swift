@@ -64,4 +64,36 @@ final class BootSelfCheckUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["STARTUP.selfcheck"].exists,
                       "失败路径自检行仍应在屏")
     }
+
+    /// 两段式（2026-10-29，启动时序批）：首启建库 → 终止 → 二启稳态折叠摘要
+    /// → 展开四行 → 收起 → 交接进主界面（500ms 恢复规则）。
+    func testSecondLaunchSteadySummaryExpandCollapseThenHandoff() {
+        let first = XCUIApplication()
+        first.launchArguments += ["-uitest-gate-bypass", "-uitest-seed-finished",
+                                  "-uitest-reset", "-uitest-boot-fresh-db",
+                                  "-uitest-selfcheck-hold"]
+        first.launch()
+        XCTAssertTrue(first.otherElements["STARTUP.selfcheck"].waitForExistence(timeout: 30),
+                      "首启自检页应在屏（hold）")
+        first.terminate()
+
+        let second = XCUIApplication()
+        second.launchArguments += ["-uitest-gate-bypass", "-uitest-seed-finished",
+                                   "-uitest-selfcheck-hold-summary"]
+        second.launch()
+        let expand = second.buttons["STARTUP.selfcheck.summary.expand"]
+        XCTAssertTrue(expand.waitForExistence(timeout: 30),
+                      "二启稳态应显示折叠摘要行")
+        XCTAssertFalse(second.otherElements["STARTUP.selfcheck.dbFile"].exists,
+                       "折叠态不得常显四行")
+        expand.tap()
+        XCTAssertTrue(second.otherElements["STARTUP.selfcheck.dbFile"].waitForExistence(timeout: 5),
+                      "展开后应显示四行")
+        let collapse = second.buttons["STARTUP.selfcheck.summary.collapse"]
+        XCTAssertTrue(collapse.waitForExistence(timeout: 5),
+                      "用户展开态应有收起入口")
+        collapse.tap()
+        XCTAssertTrue(second.tabBars.firstMatch.waitForExistence(timeout: 10),
+                      "收起后按 resumeAnchor（500ms）恢复交接进入主界面")
+    }
 }
