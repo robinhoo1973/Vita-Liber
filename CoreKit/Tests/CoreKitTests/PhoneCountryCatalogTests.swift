@@ -46,12 +46,23 @@ struct PhoneCountryCatalogTests {
 
     @Test("全地区数字往返：canonical→parse 保留国内号数字（区域显示锚可不同）")
     func digitsRoundTripForEveryRegion() {
+        // 显示锚 = preferredRegionByDial 映射，否则同前缀地区中字母序最小者
+        // （与 PhoneCountryCatalog.parse 的候选排序一致）。
+        var anchorByDial: [String: String] = [:]
+        for region in PhoneCountryCatalog.allRegions.sorted() {
+            let dial = PhoneCountryCatalog.dialCodeByRegion[region]!
+            if anchorByDial[dial] == nil { anchorByDial[dial] = region }
+        }
+        for (dial, region) in PhoneCountryCatalog.preferredRegionByDial {
+            anchorByDial[dial] = region
+        }
         for region in PhoneCountryCatalog.allRegions {
+            let dial = PhoneCountryCatalog.dialCodeByRegion[region]!
             let canonical = PhoneCountryCatalog.canonical(region: region, nationalDigits: "91234567")
             let parsed = PhoneCountryCatalog.parse(canonical)
             #expect(parsed.nationalDigits == "91234567", "数字往返丢失：\(region) -> \(canonical)")
-            #expect(parsed.region == (PhoneCountryCatalog.preferredRegionByDial[PhoneCountryCatalog.dialCodeByRegion[region]!] ?? region),
-                    "区域应为文档锚或原地区：\(region)")
+            #expect(parsed.region == (anchorByDial[dial] ?? region),
+                    "区域应为文档锚（\(anchorByDial[dial] ?? "-")）：\(region) got \(parsed.region)")
         }
     }
 
