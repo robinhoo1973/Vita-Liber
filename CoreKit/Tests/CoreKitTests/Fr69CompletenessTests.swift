@@ -363,7 +363,8 @@ struct PendingCardDedupTests {
                 """, arguments: [patient.uuidString, stamp, stamp])
         }
         let store = PendingCardStore(writer: dbQueue)
-        let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: UUID(),
+        // 手工草稿（ocr 源须真题面页号+源校验，生命周期与来源无关）
+        let draft = PendingCardDraft(patientId: patient, sourceType: "manual", sourceDocId: nil,
                                      cardKind: "prescription",
                                      incompleteFields: [IncompleteField(key: "dosage", confidence: 0.5)],
                                      partialData: ["drug_name": "阿莫西林"],
