@@ -84,10 +84,13 @@ final class BootSelfCheckUITests: XCTestCase {
         let expand = second.buttons["STARTUP.selfcheck.summary.expand"]
         XCTAssertTrue(expand.waitForExistence(timeout: 30),
                       "二启稳态应显示折叠摘要行")
-        XCTAssertFalse(second.otherElements["STARTUP.selfcheck.dbFile"].exists,
+        // CI 40809529801 红修复：行元素（combine 行）不落在 otherElements——
+        // 与既有 hold 用例同约定用 descendants(matching: .any) 查询。
+        XCTAssertFalse(second.descendants(matching: .any)["STARTUP.selfcheck.dbFile"].exists,
                        "折叠态不得常显四行")
         expand.tap()
-        XCTAssertTrue(second.otherElements["STARTUP.selfcheck.dbFile"].waitForExistence(timeout: 5),
+        XCTAssertTrue(second.descendants(matching: .any)["STARTUP.selfcheck.dbFile"]
+                        .waitForExistence(timeout: 5),
                       "展开后应显示四行")
         let collapse = second.buttons["STARTUP.selfcheck.summary.collapse"]
         XCTAssertTrue(collapse.waitForExistence(timeout: 5),
