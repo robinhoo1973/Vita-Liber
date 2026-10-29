@@ -272,6 +272,12 @@ final class DatabaseBootModel: ObservableObject {
 
     private func showsCatalogChoice(diagnostics: DatabaseBootDiagnostics) -> Bool {
         if forceCatalogChoice { return true }
+        // XCUITest 不能驱动首启卡（契约见 shouldAutoContinue）——该逃生门必须先于强制分支：
+        // 5eb279b0 把 mandatory 分支插在其上，使 `-uitest-*` 且 onboarding 标记读为未完成的
+        // 用例被强制卡拦在首页之外（CI 40902338522：AssistantChat 5 例红，可及树仅
+        // STARTUP.catalog.primary）。强制卡自身的 UI 覆盖走 -uitest-boot-catalog-choice
+        // （forceCatalogChoice 仍最前）。
+        if shouldAutoContinue { return false }
         // 审查席 P1：强制首启下载（当前库为空 ∧ 第一次启动）优先于 7 天延期
         // ——否则「离线先进入」写下的延期会把业主强制策略在联网重启后静默绕过。
         if mandatoryFirstLaunchDownload { return true }
