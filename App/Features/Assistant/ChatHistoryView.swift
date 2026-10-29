@@ -31,46 +31,65 @@ struct ChatHistoryView: View {
                 (L10n.assistantHistoryEarlier, earlier)].filter { !$0.1.isEmpty }
     }
 
+    @ViewBuilder
+    private var historyContent: some View {
+        if history.conversations.isEmpty {
+            if history.loadFailed {
+                historyFailedEmpty
+            } else {
+                VLUnavailableView(L10n.assistantHistoryEmpty, systemImage: "clock.arrow.circlepath")
+            }
+        } else {
+            historyList
+        }
+    }
+
+    private var historyFailedEmpty: some View {
+        VLUnavailableView(L10n.assistantHistoryLoadFailed,
+                          systemImage: "exclamationmark.triangle") {
+            retryButton
+        }
+    }
+
+    private var retryButton: some View {
+        Button(L10n.retry) {
+            Task { await history.load(patientId: patientId, query: query) }
+        }
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("assistant.history.retry")
+    }
+
+    private var historyList: some View {
+        List {
+            if history.loadFailed {
+                Button {
+                    Task { await history.load(patientId: patientId, query: query) }
+                } label: {
+                    Label(L10n.assistantHistoryLoadFailed, systemImage: "exclamationmark.triangle")
+                        .font(.footnote)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                }
+                .accessibilityIdentifier("assistant.history.retry")
+            }
+            ForEach(sections, id: \.title) { section in
+                Section {
+                    ForEach(section.rows) { row in
+                        rowView(row)
+                    }
+                } header: {
+                    Text(section.title)
+                }
+            }
+        }
+    }
+
     var body: some View {
         WithPerceptionTracking {
             NavigationStack {
+                // 审查席 P2（三值纪律）：读失败 ≠ 空历史。拆分为独立 builder——
+                // 单表达式内嵌 VLUnavailableView 分派曾触发型检超时（CI 40888035668）。
                 Group {
-                    // 审查席 P2（三值纪律）：读失败 ≠ 空历史——失败且无旧列表时
-                    // 显错误态+重试；失败但仍有旧列表时列表上方挂重试条。
-                    if history.conversations.isEmpty, history.loadFailed {
-                        VLUnavailableView(L10n.assistantHistoryLoadFailed,
-                                          systemImage: "exclamationmark.triangle") {
-                            Button(L10n.retry) {
-                                Task { await history.load(patientId: patientId, query: query) }
-                            }
-                            .frame(minHeight: 44)
-                            .accessibilityIdentifier("assistant.history.retry")
-                        }
-                    } else if history.conversations.isEmpty {
-                        VLUnavailableView(L10n.assistantHistoryEmpty, systemImage: "clock.arrow.circlepath")
-                    } else {
-                        List {
-                            if history.loadFailed {
-                                Button {
-                                    Task { await history.load(patientId: patientId, query: query) }
-                                } label: {
-                                    Label(L10n.assistantHistoryLoadFailed, systemImage: "exclamationmark.triangle")
-                                        .font(.footnote)
-                                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                                }
-                                .accessibilityIdentifier("assistant.history.retry")
-                            }
-                            ForEach(sections, id: \.title) { section in
-                                Section {
-                                    ForEach(section.rows) { row in
-                                        rowView(row)
-                                    }
-                                } header: {
-                                    Text(section.title)
-                                }
-                            }
-                        }
-                    }
+                    historyContent
                 }
                 .navigationTitle(L10n.assistantHistoryTitle)
                 .navigationBarTitleDisplayMode(.inline)

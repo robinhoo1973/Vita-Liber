@@ -56,7 +56,6 @@ struct BirthDateWheelSheet: View {
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("birthDate.wheel")
-                    .onChangeCompat(of: working) { _, _ in didChange = true }
                     .opacity(yearOnly ? 0.35 : 1)
                     .allowsHitTesting(!yearOnly)
                     .onChangeCompat(of: date) { _, _ in didChange = true }
@@ -129,6 +128,7 @@ struct BirthDateDateSheet: View {
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("birthDate.wheel")
+                    .onChangeCompat(of: working) { _, _ in didChange = true }
                 Spacer(minLength: 0)
             }
             .padding(.top, 8)
