@@ -38,16 +38,22 @@ enum DocumentSourceRenderer {
         return pdf.pageCount
     }
 
-    nonisolated static func image(data: Data, mimeType: String, pageIndex: Int) throws -> UIImage {
+    nonisolated static func image(data: Data, mimeType: String, pageIndex: Int,
+                                  maxDimension: Int = 2048) throws -> UIImage {
+        // 缩略图路径传小尺寸（如 88pt@2x），不再把整幅 2048 图解码进内存。
+        let limit = CGFloat(max(64, maxDimension))
         if mimeType == "application/pdf" || data.starts(with: Data("%PDF".utf8)) {
             guard let pdf = PDFDocument(data: data), !pdf.isLocked, pageIndex >= 0,
                   let page = pdf.page(at: pageIndex) else { throw Failure.pageMissing }
             let bounds = page.bounds(for: .mediaBox)
             guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else { throw Failure.unreadable }
-            let scale = min(1, 2048 / max(bounds.width, bounds.height))
+            let scale = min(1, limit / max(bounds.width, bounds.height))
             return page.thumbnail(of: CGSize(width: bounds.width * scale, height: bounds.height * scale), for: .mediaBox)
         }
-        guard pageIndex == 0, let image = ImageIOImageLoader.downsample(data: data, maxDimension: 2048) else { throw Failure.unreadable }
+        guard pageIndex == 0,
+              let image = ImageIOImageLoader.downsample(data: data, maxDimension: limit) else {
+            throw Failure.unreadable
+        }
         return image
     }
 }

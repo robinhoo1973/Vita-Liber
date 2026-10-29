@@ -474,6 +474,14 @@ final class DocumentsState {
         catch { lastImportError = L10n.docImportFailed; return nil }
     }
 
+    /// 纯读取（不触发导入错误横幅）：媒体详情/缩略图的文档行真值。
+    /// `fetch(id:)` 供导入流程使用，读失败会写 `lastImportError`——详情页
+    /// 只是回看，不应把一次缩略图读取失败升级成全库错误提示。
+    func documentRow(id: UUID) async -> DocumentStore.DocumentRow? {
+        do { return try await store.fetch(id: id) }
+        catch { return nil }
+    }
+
     /// 速记详情「识别文本」投影（2026-10-29 批三；UX 席 P1 修复）。
     /// 三值语义：页文本 / 旧资料文档级 ocr_text 回落 / 空；读取失败与成员不符
     /// 单列 `.failed`——不得把失败涂成「没有可显示的文本」。成员校验与
@@ -519,6 +527,25 @@ final class DocumentsState {
         do {
             let rows = try await cardStore.cards(documentId: documentId, patientId: patientId)
             return .loaded(kindIds: rows.map { .init(kind: $0.kind, id: $0.id) })
+        } catch {
+            return .failed
+        }
+    }
+
+    /// 速记详情「需要修改」投影（2026-10-29 业主六项复核）：同源待办卡。
+    /// 含 7 天过期卡（过期是提醒语义，不是终态，过期卡仍可补办）；按
+    /// `sourceDocId` 收敛到当前媒体，成员不符不显示。
+    enum PendingCardsProjection: Equatable {
+        case loaded([PendingCard])
+        case failed
+    }
+
+    func pendingCards(documentId: UUID, patientId: UUID) async -> PendingCardsProjection {
+        guard let pendingCardStore else { return .failed }
+        do {
+            let rows = try await pendingCardStore.list(
+                patientId: patientId, statuses: ["pending", "in_progress", "expired"])
+            return .loaded(rows.filter { $0.sourceDocId == documentId })
         } catch {
             return .failed
         }

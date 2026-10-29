@@ -118,23 +118,33 @@ public actor ChatHistoryStore {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let like = "%\(term)%"
         return try await writer.read { db in
+            // 卡片消息不再属于聊天流（2026-10-29 业主：卡片只在媒体详情里）：
+            // 计数/预览/搜索/会话出现都以非 card 消息为准。仅含旧卡片的会话
+            // 没有可读聊天内容，不进入历史列表（否则点开是空会话）。
             let sql = """
                 SELECT c.id, c.title, c.pinned, c.updated_at,
-                  (SELECT COUNT(*) FROM chat_message m WHERE m.conversation_id = c.id) AS message_count,
+                  (SELECT COUNT(*) FROM chat_message m
+                     WHERE m.conversation_id = c.id AND m.kind <> 'card') AS message_count,
                   (SELECT COALESCE(NULLIF(m.text, ''),
-                                   json_extract(m.payload_json, '$.media.transcript'),
-                                   json_extract(m.payload_json, '$.media.filename'),
-                                   json_extract(m.payload_json, '$.card.title'), '')
-                     FROM chat_message m WHERE m.conversation_id = c.id
+                                   CASE WHEN json_valid(m.payload_json)
+                                        THEN json_extract(m.payload_json, '$.media.transcript') END,
+                                   CASE WHEN json_valid(m.payload_json)
+                                        THEN json_extract(m.payload_json, '$.media.filename') END, '')
+                     FROM chat_message m
+                     WHERE m.conversation_id = c.id AND m.kind <> 'card'
                      ORDER BY m.ordinal DESC LIMIT 1) AS preview
                 FROM chat_conversation c
                 WHERE c.patient_id = ?
+                  AND EXISTS (SELECT 1 FROM chat_message m
+                              WHERE m.conversation_id = c.id AND m.kind <> 'card')
                   AND (? = ''
                        OR c.title LIKE ?
                        OR EXISTS (SELECT 1 FROM chat_message m
                                   WHERE m.conversation_id = c.id
+                                    AND m.kind <> 'card'
                                     AND (m.text LIKE ?
-                                         OR json_extract(m.payload_json, '$.media.transcript') LIKE ?)))
+                                         OR (CASE WHEN json_valid(m.payload_json)
+                                                  THEN json_extract(m.payload_json, '$.media.transcript') END) LIKE ?)))
                 ORDER BY c.pinned DESC, c.updated_at DESC
                 LIMIT 300
                 """

@@ -88,7 +88,9 @@ struct PendingCardResumeRouteView: View {
         do {
             let fetched = try await docs.loadPendingCard(id: cardId)
             guard !Task.isCancelled else { return }
-            guard let fetched, ["pending", "in_progress"].contains(fetched.status) else { loaded = true; return }
+            // 7 天过期卡仍可补办（过期=提醒语义，非终态；与 PendingCardStore.upsert
+            // 的恢复口径一致）——否则详情页「需要修改」会指向不可打开的卡。
+            guard let fetched, ["pending", "in_progress", "expired"].contains(fetched.status) else { loaded = true; return }
             pending = fetched
             if let retained = docs.retainedImport(for: fetched) {
                 retainedImportID = retained.id

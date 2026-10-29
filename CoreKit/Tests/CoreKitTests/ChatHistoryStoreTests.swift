@@ -73,5 +73,47 @@ struct ChatHistoryStoreTests {
         let after = try await history.messages(conversationId: conversation)
         #expect(after.isEmpty)
     }
+
+    /// 卡片消息不再属于聊天流（2026-10-29 业主）：计数/预览只算非 card；
+    /// 仅含旧卡片的会话不得以空会话进入历史列表。
+    /// 单条损坏 payload 不得让整张历史列表查询抛错（否则 UI 把全部会话涂成空）。
+    @Test("损坏 payload 不阻断历史列表与搜索")
+    func malformedPayloadDoesNotBreakConversationList() async throws {
+        let patient = UUID()
+        let (history, _) = try await store(patient)
+        let conversation = try await history.createConversation(patientId: patient, title: "损坏快照")
+        _ = try await history.appendMessage(conversationId: conversation, role: "user",
+                                            kind: "text", text: "", payloadJSON: "{not json")
+        let rows = try await history.conversations(patientId: patient)
+        #expect(rows.map(\.id) == [conversation])
+        #expect(rows.first?.messageCount == 1)
+        #expect(rows.first?.preview == "")
+        let search = try await history.conversations(patientId: patient, query: "任意词")
+        #expect(search.isEmpty)
+    }
+
+    @Test("卡片消息不计入历史消息数与预览，卡片专用会话不显示")
+    func cardMessagesExcludedFromHistorySummary() async throws {
+        let patient = UUID()
+        let (history, _) = try await store(patient)
+        let conversation = try await history.createConversation(patientId: patient, title: "对话")
+        _ = try await history.appendMessage(conversationId: conversation, role: "user",
+                                            kind: "text", text: "你好", payloadJSON: nil)
+        let cardPayload = #"{"clientId":"\#(UUID().uuidString)","role":"assistant","text":"","isRefusal":false,"isEmergency":false,"card":{"id":"\#(UUID().uuidString)","kind":"entity","fieldCount":3,"sessionID":"\#(UUID().uuidString)","snapshotState":"done","title":"检验报告"}}"#
+        _ = try await history.appendMessage(conversationId: conversation, role: "assistant",
+                                            kind: "card", text: "", payloadJSON: cardPayload)
+        let rows = try await history.conversations(patientId: patient)
+        #expect(rows.count == 1)
+        #expect(rows.first?.messageCount == 1)
+        #expect(rows.first?.preview == "你好")
+
+        let cardOnly = try await history.createConversation(patientId: patient, title: "旧卡片")
+        _ = try await history.appendMessage(conversationId: cardOnly, role: "assistant",
+                                            kind: "card", text: "", payloadJSON: cardPayload)
+        let after = try await history.conversations(patientId: patient)
+        #expect(after.map(\.id) == [conversation])
+        let search = try await history.conversations(patientId: patient, query: "检验报告")
+        #expect(search.isEmpty)
+    }
 }
 #endif

@@ -1,24 +1,21 @@
 import SwiftUI
-import UIKit
 import Domain
 import Infrastructure
 import Perception
 
-/// 聊天媒体详情（2026-10-29 批三 · mock v4 对照落地；UX 席 P1 修复后）。
-/// 骨架与语音速记详情一致：上=媒体卡（首屏缩略 + 页数 + 「点按看原图」→ 既有
+/// 聊天媒体详情（2026-10-29 批三 · mock v4 对照落地；业主六项 UI/UX 复核后）。
+/// 骨架与语音速记详情一致：上=媒体卡（小圆角缩略 + 页数 + 「点按看原图」→ 既有
 /// `DocumentSourcePageView` 全屏原图），下=双 tab：
 /// - 识别文本：`document_page` 逐页原文；无页行的旧资料回落文档级 `ocr_text`；
-/// - 信息卡片：该文档已确认实体卡（`OCRCardStore.cards` → `MedicalCardDetailView`）。
-/// 三值状态纪律（UX 席 2026-10-29）：文本/卡片/文档/缩略图各自 loading/loaded/failed，
+/// - 信息卡片：分「需要修改」（待核对/过期补办）与「已确认」两区；聊天流不再承载卡片。
+/// 三值状态纪律：文本/已确认卡/待核对卡/文档行各自 loading/loaded/failed，
 /// 读取失败必须可见并可重试——不得把失败涂成空态（「没有可显示的识别文本」是陈述，不是兜底）。
 struct ChatMediaDetailView: View {
     let documentId: UUID
     let patientId: UUID
     let title: String
-    let itemCount: Int
 
     @Environment(DocumentsState.self) private var docs
-    @Environment(AppState.self) private var app
     @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
@@ -31,14 +28,6 @@ struct ChatMediaDetailView: View {
             case .text: return L10n.assistantMediaTabText
             case .cards: return L10n.assistantMediaTabCards
             }
-        }
-    }
-
-    /// UIImage 跨执行器装箱（与 DocumentSourcePageView 的 RenderedImageBox 同模式）。
-    private final class ThumbnailBox: @unchecked Sendable {
-        let image: UIImage
-        init(image: UIImage) {
-            self.image = image
         }
     }
 
@@ -61,57 +50,71 @@ struct ChatMediaDetailView: View {
         case failed
     }
 
+    private enum PendingState: Equatable {
+        case loading
+        case loaded([PendingCard])
+        case failed
+    }
+
+    private struct PendingReviewTarget: Identifiable {
+        let id: String
+    }
+
     private enum DocState: Equatable {
         case loading
         case loaded(grade: String)
         case failed
     }
 
-    private enum ThumbState: Equatable {
-        case loading
-        case ready(UIImage)
-        case failed
-    }
-
     @State private var tab: Tab = .text
     @State private var textState: TextState = .loading
     @State private var cardsState: CardsState = .loading
+    @State private var pendingState: PendingState = .loading
     @State private var docState: DocState = .loading
-    @State private var thumbState: ThumbState = .loading
     @State private var showOriginal = false
-    /// 文档行敏感真值（缩略图 = 原图内容，FR14.2 查看留痕与文案共同依赖）。
-    @State private var docSensitive = false
-    @State private var didAuditThumbnail = false
+    @State private var pendingReview: PendingReviewTarget?
+    /// 文档行敏感真值（出口文案依赖；nil=未知，缩略图留痕由 ChatMediaThumbnail 承担）。
+    @State private var docSensitive: Bool?
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: 14) {
-                    mediaCard
-                    tabPicker
-                    tabContent
+        WithPerceptionTracking {
+            NavigationStack {
+                ScrollView {
+                    VStack(spacing: 14) {
+                        mediaCard
+                        tabPicker
+                        tabContent
+                    }
+                    .padding(16)
                 }
-                .padding(16)
-            }
-            .navigationTitle(L10n.assistantMediaDetailTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(L10n.assistantClose) { dismiss() }
+                .navigationTitle(L10n.assistantMediaDetailTitle)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(L10n.assistantClose) { dismiss() }
+                    }
                 }
+                // 文本/卡片/文档行先就绪（缩略图不 gate 内容）。
+                .task(id: documentId) { await loadBasics() }
+                .sheet(isPresented: $showOriginal) {
+                    DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: 0)
+                }
+                // 待核对卡 → 既有复核页；关闭后重读「需要修改/已确认」两区。
+                .sheet(item: $pendingReview, onDismiss: {
+                    // 确认/放弃卡后文档 grade 也可能 D→C，整页重读。
+                    Task { await loadBasics() }
+                }) { target in
+                    NavigationStack {
+                        PendingCardResumeRouteView(cardId: target.id)
+                    }
+                }
+                // 缩略图即原图内容：退后台时随系统隐私遮罩隐去（与原件页同纪律）。
+                .privacySensitive(scenePhase != .active)
             }
-            // 文本/卡片/文档行先就绪（缩略图不 gate 内容，UX 席 P1-4）。
-            .task(id: documentId) { await loadBasics() }
-            .task(id: documentId) { await loadThumbnail() }
-            .sheet(isPresented: $showOriginal) {
-                DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: 0)
-            }
-            // 缩略图即原图内容：退后台时随系统隐私遮罩隐去（与原件页同纪律）。
-            .privacySensitive(scenePhase != .active)
         }
     }
 
-    // MARK: - 媒体卡（缩略 + 页数 + 看原图）
+    // MARK: - 媒体卡（小缩略 + 页数 + 看原图）
 
     private var mediaCard: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -121,22 +124,20 @@ struct ChatMediaDetailView: View {
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 if case .loaded(let grade) = docState {
-                    GradeBadge(grade: grade)
+                    // 业主 2026-10-29：D 级不再显示文字徽章，统一用橘红编辑/
+                    // 绿色勾图标（与聊天气泡同一出口）。
+                    ChatMediaGradeIcon(grade: grade)
                 }
             }
             if case .failed = docState {
                 unavailableBlock { Task { await loadBasics() } }
             } else {
                 originalButton
-                if let count = pageCount, count > 1 {
-                    Text(L10n.entityCardHeaderPage(1, count))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
-            // 出口边界文案随真实设置（开发席 P2-3）：自动镜像开启且资料
-            // 非敏感时，提交件会生成「文件」App 副本——不得再宣称「仅存本机」。
-            Text(autoMirrorEnabled && !docSensitive
+            // 出口边界文案随真实设置：自动镜像开启且资料非敏感时，提交件会生成
+            // 「文件」App 副本——不得再宣称「仅存本机」。敏感真值未知时按镜像
+            // 已开启的保守口径提示，避免低报对外副本。
+            Text(autoMirrorEnabled && docSensitive != true
                 ? L10n.assistantMediaEgressNoteMirror : L10n.assistantMediaEgressNote)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -155,48 +156,42 @@ struct ChatMediaDetailView: View {
         switch textState {
         case .pages(let pages): return pages.count
         case .legacy: return 1
-        case .loading: return itemCount > 1 ? itemCount : nil
+        // 读取完成前不猜页数（选项数不等于 PDF 页数）。
+        case .loading: return nil
         case .empty, .failed: return nil
         }
     }
 
+    /// 业主 2026-10-29：详情页只留一个小圆角缩略图（不占大半屏），点按看原图。
+    /// 缩略图即原图内容：FR14.2 留痕与退后台遮罩由 ChatMediaThumbnail 统一承担。
     private var originalButton: some View {
         Button {
             showOriginal = true
         } label: {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color("brand-primary", bundle: .main).opacity(0.08))
-                switch thumbState {
-                case .ready(let image):
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                case .loading:
-                    ProgressView()
-                case .failed:
-                    VStack(spacing: 6) {
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                            .foregroundStyle(.secondary)
-                        // 缩略图失败与「无原件路径」同形：原图入口仍可用，
-                        // 真正的失败在原件页里如实呈现（UX 席 P1-4）。
-                        Text(L10n.assistantMediaOpenOriginal)
-                            .font(.caption2)
+            HStack(spacing: 12) {
+                ZStack(alignment: .bottomTrailing) {
+                    ChatMediaThumbnail(documentId: documentId, patientId: patientId,
+                                       size: 76, cornerRadius: 12,
+                                       fallbackSymbol: "photo", auditsSensitive: true)
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.caption2.weight(.semibold))
+                        .padding(5)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(4)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    if let count = pageCount, count > 1 {
+                        Text(L10n.entityCardHeaderPage(1, count))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Text(L10n.assistantMediaOpenOriginal)
+                        .font(.caption)
+                        .foregroundStyle(Color("brand-primary", bundle: .main))
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 180, maxHeight: 280)
-            .overlay(alignment: .bottomTrailing) {
-                Label(L10n.assistantMediaOpenOriginal, systemImage: "arrow.up.left.and.arrow.down.right")
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(.thinMaterial, in: Capsule())
-                    .padding(10)
-            }
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("chat.mediaDetail.original")
@@ -309,25 +304,106 @@ struct ChatMediaDetailView: View {
 
     // MARK: - 信息卡片
 
+    /// 业主 2026-10-29：信息卡片分两区——「需要修改」（待核对/过期补办）
+    /// 在前，「已确认」（修改之后）在后；聊天流不再承载卡片。
     @ViewBuilder
     private var cardsTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            pendingCardsSection
+            committedCardsSection
+        }
+    }
+
+    @ViewBuilder
+    private var pendingCardsSection: some View {
+        switch pendingState {
+        case .loading:
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 72)
+        case .failed:
+            errorBlock { Task { await loadCards() } }
+        case .loaded(let cards):
+            if !cards.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionHeader(L10n.assistantMediaCardsPendingSection)
+                    ForEach(cards, id: \.id) { card in
+                        pendingCardRow(card)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var committedCardsSection: some View {
         switch cardsState {
         case .loading:
             ProgressView()
-                .frame(maxWidth: .infinity, minHeight: 120)
+                .frame(maxWidth: .infinity, minHeight: 72)
         case .failed:
-            errorBlock { Task { await loadBasics() } }
+            errorBlock { Task { await loadCards() } }
         case .loaded(let cards):
             if cards.isEmpty {
-                emptyNote(L10n.assistantMediaCardsEmpty)
+                // 只在待核对区确认「已读且为空」时显示空态；待核对区仍在读取
+                // 或读取失败时不得先画「还没有信息卡片」的误导结论。
+                if case .loaded(let pending) = pendingState, pending.isEmpty {
+                    emptyNote(L10n.assistantMediaCardsEmpty)
+                }
             } else {
-                VStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 8) {
+                    sectionHeader(L10n.assistantMediaCardsCommittedSection)
                     ForEach(cards) { card in
                         cardRow(card)
                     }
                 }
             }
         }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func pendingCardRow(_ card: PendingCard) -> some View {
+        let spec = CardKindIcon.spec(cardKind: card.cardKind)
+        return Button {
+            pendingReview = PendingReviewTarget(id: card.id)
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: spec.symbol)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(spec.tint)
+                    .frame(width: 34, height: 34)
+                    .background(spec.tint.opacity(0.14))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.entityCardKindName(card.cardKind))
+                        .font(.subheadline.weight(.semibold))
+                    Text(L10n.assistantMediaNeedsConfirm)
+                        .font(.caption)
+                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "square.and.pencil")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .accessibilityHidden(true)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("chat.mediaDetail.pending.\(card.id)")
     }
 
     private func cardRow(_ card: CommittedCard) -> some View {
@@ -346,14 +422,18 @@ struct ChatMediaDetailView: View {
                 Text(L10n.entityCardKindName(card.kind))
                     .font(.subheadline.weight(.semibold))
                 Spacer(minLength: 8)
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                    .accessibilityLabel(L10n.assistantMediaConfirmed)
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
             .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .background(Color.secondary.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("chat.mediaDetail.card.\(card.id.uuidString)")
@@ -424,7 +504,6 @@ struct ChatMediaDetailView: View {
 
     private func loadBasics() async {
         textState = .loading
-        cardsState = .loading
         docState = .loading
         switch await docs.mediaText(id: documentId, patientId: patientId) {
         case .pages(let pages): textState = .pages(pages)
@@ -432,48 +511,29 @@ struct ChatMediaDetailView: View {
         case .empty: textState = .empty
         case .failed: textState = .failed
         }
+        await loadCards()
+        if let doc = await docs.documentRow(id: documentId), doc.patientId == patientId {
+            docState = .loaded(grade: doc.grade)
+            docSensitive = doc.isSensitive
+        } else {
+            docState = .failed
+            docSensitive = nil
+        }
+    }
+
+    /// 两区独立三值：待核对失败不得把已确认区涂空，反之亦然。
+    private func loadCards() async {
+        cardsState = .loading
+        pendingState = .loading
         switch await docs.committedCards(documentId: documentId, patientId: patientId) {
         case .loaded(let kindIds):
             cardsState = .loaded(kindIds.map { CommittedCard(kind: $0.kind, id: $0.id) })
         case .failed:
             cardsState = .failed
         }
-        if let doc = await docs.fetch(id: documentId), doc.patientId == patientId {
-            docState = .loaded(grade: doc.grade)
-            docSensitive = doc.isSensitive
-        } else {
-            docState = .failed
-        }
-    }
-
-    private func loadThumbnail() async {
-        thumbState = .loading
-        guard let doc = await docs.fetch(id: documentId), doc.patientId == patientId,
-              let json = doc.metaJSON,
-              let meta = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],   // try?-ok: 元数据损坏=缩略图失败态
-              let path = meta["original_path"] as? String,
-              let resolved = docs.resolveMediaPath(path) else {
-            thumbState = .failed
-            return
-        }
-        let mime = doc.mimeType ?? "image/jpeg"
-        let filePath = resolved.path
-        do {
-            let box = try await Task.detached(priority: .userInitiated) {
-                let data = try Data(contentsOf: URL(fileURLWithPath: filePath))
-                return ThumbnailBox(image: try DocumentSourceRenderer.image(data: data, mimeType: mime, pageIndex: 0))
-            }.value
-            // 页面已关闭时丢弃迟到结果（与原件页 operation 取消同纪律）。
-            guard !Task.isCancelled else { return }
-            thumbState = .ready(box.image)
-            // FR14.2：敏感原图的缩略图展示同样留痕（一次/页面）。
-            if doc.isSensitive, !didAuditThumbnail {
-                app.auditViewSensitiveOriginal(documentId: documentId, title: doc.title ?? "")
-                didAuditThumbnail = true
-            }
-        } catch {
-            guard !Task.isCancelled else { return }
-            thumbState = .failed
+        switch await docs.pendingCards(documentId: documentId, patientId: patientId) {
+        case .loaded(let cards): pendingState = .loaded(cards)
+        case .failed: pendingState = .failed
         }
     }
 }

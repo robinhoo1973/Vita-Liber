@@ -454,9 +454,19 @@ public actor DocumentStore {
                 SELECT COUNT(*) FROM document_file d JOIN patient_profile p ON p.id = d.patient_id
                 WHERE d.id = ? AND d.patient_id = ? AND p.deleted_at IS NULL AND d.status IN ('active','favorite')
                 """, arguments: [id.uuidString, patientId.uuidString]) == 1 else { throw StoreError.invalidSource }
+            // BR-003 存储层闸：只要仍有未走完的待核对卡（含 7 天过期与
+            // 30 天自动归档卡），文本确认不得把文档升 C。此前只在 UI 投影
+            // 用 pending 计数，任何直调 confirmText 都可绕过（D→C 来源造假）。
             try db.execute(sql: """
-                UPDATE document_file SET grade = 'C', updated_at = ? WHERE id = ? AND patient_id = ? AND grade = 'D'
-                """, arguments: [now.timeIntervalSince1970, id.uuidString, patientId.uuidString])
+                UPDATE document_file SET grade = 'C', updated_at = ?
+                WHERE id = ? AND patient_id = ? AND grade = 'D'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM pending_card p
+                    WHERE p.source_doc_id = ?
+                      AND (p.status IN ('pending','in_progress','expired')
+                           OR (p.status = 'archived' AND p.resolved_by = 'expired'))
+                  )
+                """, arguments: [now.timeIntervalSince1970, id.uuidString, patientId.uuidString, id.uuidString])
         }
     }
 

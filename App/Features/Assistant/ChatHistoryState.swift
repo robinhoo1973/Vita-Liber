@@ -9,19 +9,34 @@ import Perception
 final class ChatHistoryState {
     private(set) var conversations: [ChatHistoryStore.ConversationSummary] = []
     private(set) var loadedPatientId: UUID?
+    /// 最近一次搜索词：改名/置顶/删除后重载必须保留搜索结果，
+    /// 否则列表会突然跳回全量（用户正在搜「血压」时删除一条即失焦）。
+    private(set) var lastQuery = ""
+    /// 加载代次：连续输入搜索词时只接受最后一次响应，旧响应不得覆盖新列表。
+    private var loadGeneration: UInt64 = 0
 
     private let store: ChatHistoryStore
 
     init(store: ChatHistoryStore) { self.store = store }
 
     func load(patientId: UUID, query: String = "") async {
+        lastQuery = query
+        loadGeneration &+= 1
+        let generation = loadGeneration
         do {
             let rows = try await store.conversations(patientId: patientId, query: query)
+            guard generation == loadGeneration else { return }
             conversations = rows
             loadedPatientId = patientId
         } catch {
+            guard generation == loadGeneration else { return }
             conversations = []
         }
+    }
+
+    private func reloadCurrentQuery() async {
+        guard let patientId = loadedPatientId else { return }
+        await load(patientId: patientId, query: lastQuery)
     }
 
     func createConversation(patientId: UUID, title: String) async -> UUID? {
@@ -50,21 +65,27 @@ final class ChatHistoryState {
 
     func rename(_ id: UUID, title: String) async {
         try? await store.rename(id, title: title)   // try?-ok: 改名失败不阻断列表
-        if let patientId = loadedPatientId { await load(patientId: patientId) }
+        await reloadCurrentQuery()
     }
 
     func setPinned(_ id: UUID, pinned: Bool) async {
         try? await store.setPinned(id, pinned: pinned)   // try?-ok: 置顶失败不阻断列表
-        if let patientId = loadedPatientId { await load(patientId: patientId) }
+        await reloadCurrentQuery()
     }
 
     func delete(_ id: UUID) async {
         // 先取语音文件名再删行：数据库删除不碰文件系统，录音必须同步真删
         //（2026-10-20 隐私修复）。
         let audio = (try? await store.audioFilenames(conversationId: id)) ?? []   // try?-ok: 读取失败按无音频处理，行删除仍继续
-        try? await store.delete(id)   // try?-ok: 删除失败保留行，下次重试
+        do {
+            try await store.delete(id)
+        } catch {
+            // 删除失败保留行与录音（下次重试）；不得先删录音留下无音频的幽灵会话。
+            await reloadCurrentQuery()
+            return
+        }
         for filename in audio { ChatAudioStore.remove(filename) }
-        if let patientId = loadedPatientId { await load(patientId: patientId) }
+        await reloadCurrentQuery()
     }
 
     func count(patientId: UUID) async -> Int {

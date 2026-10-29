@@ -146,7 +146,9 @@ public actor OCRCardStore {
             }
             var remaining = card
             remaining.rows.removeAll { committed.contains($0.id.uuidString) || EntityCardProjection.isDiscarded($0, in: card) }
-            if let pending, ["resolved", "expired", "archived"].contains(pending.status) { remaining.rows = [] }
+            // 过期卡仍有未确认行：保留 remaining 供补办复核；只有 resolved/archived
+            // 才是「无剩余行」的终态（此前 expired 被清空→过期卡打开即空卡）。
+            if let pending, ["resolved", "archived"].contains(pending.status) { remaining.rows = [] }
             return ReviewState(card: card, remaining: remaining.rows.isEmpty ? nil : remaining, hasCommittedRows: !committed.isEmpty)
         }
     }
@@ -257,7 +259,9 @@ public actor OCRCardStore {
                   pending.sourcePage == card.pageIndex, pending.cardKind == card.kind, pending.sourceType == "ocr" else {
                 throw StoreError.pendingIdentityMismatch
             }
-            guard ["pending", "in_progress", "resolved"].contains(pending.status), pending.note != "discarded" else {
+            // expired 可补办（7 天提醒语义，非终态）：复核页保存时必须能装载草稿。
+            guard ["pending", "in_progress", "expired", "resolved"].contains(pending.status),
+                  pending.note != "discarded" else {
                 throw StoreError.pendingNotActive
             }
         }
@@ -756,7 +760,7 @@ public actor OCRCardStore {
         try db.execute(sql: """
             UPDATE pending_card SET partial_data = ?, incomplete_fields = ?, status = ?, updated_at = ?,
               attempt_count = attempt_count + 1, resolved_at = ?, resolved_by = ?, note = NULL
-            WHERE id = ? AND status IN ('pending','in_progress')
+            WHERE id = ? AND status IN ('pending','in_progress','expired')
             """, arguments: [json, incompleteJSON, resolved ? "resolved" : "in_progress", now.timeIntervalSince1970,
                 resolved ? now.timeIntervalSince1970 : nil, resolved ? "user" : nil, pendingId])
         guard db.changesCount == 1 else { throw StoreError.pendingNotActive }
@@ -818,8 +822,15 @@ public actor OCRCardStore {
         let text = confirmedFields
             .map { field in [field.value, field.unit].compactMap { $0 }.joined(separator: " ") }
             .joined(separator: "\n")
-        let pending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_card WHERE source_doc_id = ? AND status IN ('pending','in_progress')",
-                                      arguments: [documentId.uuidString]) ?? 0
+        // BR-003：7 天过期（expired）与 30 天自动归档（archived + resolved_by='expired'）
+        // 仍属未确认卡——只要还有未走完的核对，文档不得升 C。用户主动放弃
+        // （resolved_by='user'）不是待确认，不阻塞。
+        let pending = try Int.fetchOne(db, sql: """
+            SELECT COUNT(*) FROM pending_card
+            WHERE source_doc_id = ?
+              AND (status IN ('pending','in_progress','expired')
+                   OR (status = 'archived' AND resolved_by = 'expired'))
+            """, arguments: [documentId.uuidString]) ?? 0
         // FR6.9 智能文档命名：若文档标题为空，依据已确认字段自动设置标准化标题
         let currentTitle = try String.fetchOne(db, sql: "SELECT title FROM document_file WHERE id = ? AND patient_id = ?",
                                                arguments: [documentId.uuidString, patientId.uuidString])

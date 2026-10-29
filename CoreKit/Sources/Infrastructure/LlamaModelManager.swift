@@ -130,14 +130,25 @@ public enum LlamaModelManager {
 
     /// 就绪判定（三重一致）：目录条目 × 指针 × 磁盘字节。
     /// 指针与条目必须同文件名同字节同日摘要——任一漂移即不就绪（静默错配比拒绝更糟）。
+    /// 注：**不比版本**——目录升版但字节/摘要不变时旧安装仍可用（更新由安装中心呈现）；
+    /// 版本差异由 `LLMModelDownloadService.install` 的就绪短路单独处理（否则「更新」空转）。
     public static func isModelReady(id: String) -> Bool {
-        guard let entry = catalogDocument()?.entry(id: id),
-              let pointer = readPointer(id: id),
+        guard let entry = catalogDocument()?.entry(id: id) else { return false }
+        return readyModel(for: entry) != nil
+    }
+
+    /// 条目级就绪快照（目录已解析后复用——`activeModel()` 逐条目调用时不再重读/重解析
+    /// 随包目录；该函数此前是逐区域 availability 判定的热路径）。
+    private static func readyModel(for entry: LLMModelCatalog.Entry) -> ActiveModel? {
+        guard let pointer = readPointer(id: entry.id),
               pointer.fileName == entry.fileName,
               pointer.bytes == entry.bytes,
               pointer.sha256 == entry.sha256,
-              let url = installedModelURL(id: id) else { return false }
-        return fileSize(at: url) == entry.bytes
+              let url = installedModelURL(id: entry.id),
+              fileSize(at: url) == entry.bytes else { return nil }
+        return ActiveModel(id: entry.id, url: url, bytes: entry.bytes, sha256: entry.sha256,
+                           frame: entry.frame, kvBytesPerToken: entry.kvBytesPerToken,
+                           stopTokens: entry.stopTokens, addBosToken: entry.addBosToken)
     }
 
     /// 已安装模型字节数（未安装/不可寻址 → 0）。

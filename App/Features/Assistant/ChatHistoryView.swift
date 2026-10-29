@@ -104,32 +104,43 @@ struct ChatHistoryView: View {
         Button {
             onOpen(row)
         } label: {
-            HStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if row.pinned {
                             Image(systemName: "pin.fill")
                                 .font(.caption2)
                                 .foregroundStyle(Color("brand-primary", bundle: .main))
+                                .accessibilityLabel(L10n.assistantHistoryPin)
                         }
+                        // 业主 2026-10-29：标题给两行，信息量优先；第二行不再重复
+                        // 预览标题，改显示消息数量（日期/星期在右侧时间列）。
                         Text(row.title)
                             .font(.body)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
                     }
-                    Text(row.preview.isEmpty ? L10n.assistantHistoryNoPreview : row.preview)
+                    Text(L10n.assistantHistoryMessages(row.messageCount))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(row.updatedAt.formatted(.dateTime.month(.twoDigits)
+                        .day(.twoDigits).weekday(.abbreviated)))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     Text(row.updatedAt.formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                    Text(L10n.assistantHistoryMessages(row.messageCount))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .monospacedDigit()
+                        .lineLimit(1)
                 }
+                // 日期列保持完整（中文「周四」不折行），标题两行可让位。
+                .layoutPriority(1)
             }
             .frame(minHeight: 44)
             .contentShape(Rectangle())
@@ -150,10 +161,10 @@ struct ChatHistoryView: View {
                 deleteTarget = row
             } label: { Label(L10n.assistantHistoryDelete, systemImage: "trash") }
         }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                deleteTarget = row
-            } label: { Label(L10n.assistantHistoryDelete, systemImage: "trash") }
+        // 业主 2026-10-29：删除与置顶不再挤在同一侧。置顶=前缘非破坏操作
+        //（可全滑），删除=后缘破坏操作（禁止全滑，避免误删）。重命名留在
+        // 长按菜单——滑动只保留高频两项，减少图标噪声。
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 Task { await history.setPinned(row.id, pinned: !row.pinned) }
             } label: {
@@ -161,6 +172,11 @@ struct ChatHistoryView: View {
                       systemImage: row.pinned ? "pin.slash" : "pin")
             }
             .tint(Color("brand-primary", bundle: .main))
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                deleteTarget = row
+            } label: { Label(L10n.assistantHistoryDelete, systemImage: "trash") }
         }
     }
 }
