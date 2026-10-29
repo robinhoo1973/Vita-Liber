@@ -120,6 +120,8 @@ extension L10n {
     static var assistantMediaCardsCommittedSection: String { t("assistant.mediaCardsCommittedSection") }
     static var assistantMediaNeedsConfirm: String { t("assistant.mediaNeedsConfirm") }
     static var assistantMediaConfirmed: String { t("assistant.mediaConfirmed") }
+    /// 归档卡补办（业主裁决 A，2026-10-30）。
+    static var assistantMediaArchivedRestore: String { t("assistant.mediaArchivedRestore") }
     static var assistantMediaEgressNoteMirror: String { t("assistant.mediaEgressNoteMirror") }
     // 2026-10-19 对话历史
     static var assistantHistoryTitle: String { t("assistant.historyTitle") }

@@ -103,6 +103,7 @@ extension L10n {
     "assistant.mediaSharedFieldsRow",
     "assistant.mediaNeedsConfirm",
     "assistant.mediaConfirmed",
+    "assistant.mediaArchivedRestore",
     "assistant.mediaPageCount",
     "assistant.mediaPageIndex",
     // 2026-10-29 首启修复批（业主五项）

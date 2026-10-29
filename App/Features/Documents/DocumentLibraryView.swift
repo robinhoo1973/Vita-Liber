@@ -543,11 +543,28 @@ final class DocumentsState {
     func pendingCards(documentId: UUID, patientId: UUID) async -> PendingCardsProjection {
         guard let pendingCardStore else { return .failed }
         do {
+            // 业主裁决 A（2026-10-30）：归档卡进入详情投影（「已归档 · 点按补办」），
+            // 打开即解除归档；可见性规则单一出处 = Domain PendingCardLifecycleRules。
             let rows = try await pendingCardStore.list(
-                patientId: patientId, statuses: ["pending", "in_progress", "expired"])
-            return .loaded(rows.filter { $0.sourceDocId == documentId })
+                patientId: patientId,
+                statuses: Array(PendingCardLifecycleRules.resumableStatuses) + ["archived"])
+            return .loaded(rows.filter {
+                $0.sourceDocId == documentId
+                    && PendingCardLifecycleRules.isVisible(status: $0.status)
+            })
         } catch {
             return .failed
+        }
+    }
+
+    /// 归档卡补办（业主裁决 A）：解除归档回 pending；失败返回 false（UI 可重试）。
+    func restorePendingCard(id: String) async -> Bool {
+        guard let pendingCardStore else { return false }
+        do {
+            try await pendingCardStore.restoreArchived(id: id)
+            return true
+        } catch {
+            return false
         }
     }
 

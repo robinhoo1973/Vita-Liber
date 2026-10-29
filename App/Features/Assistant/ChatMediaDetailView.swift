@@ -383,14 +383,28 @@ struct ChatMediaDetailView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(L10n.entityCardKindName(card.cardKind))
                         .font(.subheadline.weight(.semibold))
-                    Text(L10n.assistantMediaNeedsConfirm)
+                    // 业主裁决 A（2026-10-30）：到期归档卡可补办——行内如实标注，
+                    // 点按即解除归档并打开确认页（resume route 统一处理+审计）。
+                    Text(PendingCardLifecycleRules.canRestore(
+                        status: card.status, resolvedBy: card.resolvedBy)
+                        ? L10n.assistantMediaArchivedRestore
+                        : L10n.assistantMediaNeedsConfirm)
                         .font(.caption)
-                        .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        .foregroundStyle(PendingCardLifecycleRules.canRestore(
+                            status: card.status, resolvedBy: card.resolvedBy)
+                            ? Color("text-secondary", bundle: .main)
+                            : Color("semantic-warning", bundle: .main))
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "square.and.pencil")
+                Image(systemName: PendingCardLifecycleRules.canRestore(
+                    status: card.status, resolvedBy: card.resolvedBy)
+                    ? "arrow.uturn.backward.circle"
+                    : "square.and.pencil")
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                    .foregroundStyle(PendingCardLifecycleRules.canRestore(
+                        status: card.status, resolvedBy: card.resolvedBy)
+                        ? Color("text-secondary", bundle: .main)
+                        : Color("semantic-warning", bundle: .main))
                     .accessibilityHidden(true)
                 Image(systemName: "chevron.right")
                     .font(.caption)

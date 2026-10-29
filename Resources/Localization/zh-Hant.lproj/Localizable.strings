@@ -2675,6 +2675,7 @@
 "assistant.mediaCardsCommittedSection" = "已確認";
 "assistant.mediaSharedFieldsRow" = "共用資訊";
 "assistant.mediaNeedsConfirm" = "待核對";
+"assistant.mediaArchivedRestore" = "已歸檔 · 點按補辦";
 "assistant.mediaConfirmed" = "已確認";
 "assistant.mediaPageCount" = "共 %d 頁";
 "assistant.mediaPageIndex" = "第 %d 頁";

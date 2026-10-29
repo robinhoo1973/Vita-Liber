@@ -14,6 +14,8 @@ struct PendingCardResumeRouteView: View {
     @State private var reimport = false
     @State private var retainedImportID: UUID?
     @Environment(\.dismiss) private var dismiss
+    /// 归档补办审计（业主裁决 A）：只记动作与实体，meta 零 PHI。
+    @Environment(\.auditLog) private var auditLog
 
     var body: some View {
         WithPerceptionTracking {
@@ -88,9 +90,24 @@ struct PendingCardResumeRouteView: View {
         do {
             let fetched = try await docs.loadPendingCard(id: cardId)
             guard !Task.isCancelled else { return }
-            // 7 天过期卡仍可补办（过期=提醒语义，非终态；与 PendingCardStore.upsert
-            // 的恢复口径一致）——否则详情页「需要修改」会指向不可打开的卡。
-            guard let fetched, ["pending", "in_progress", "expired"].contains(fetched.status) else { loaded = true; return }
+            // 7 天过期卡仍可补办（过期=提醒语义，非终态）；业主裁决 A（2026-10-30）
+            // 起 30 天自动归档卡同样可补办：打开即解除归档回 pending（审计留痕），
+            // 再走既有确认链升 C。可见性/可恢复判定单一出处 =
+            // Domain PendingCardLifecycleRules（三处投影曾各自白名单成死路）。
+            guard var fetched, PendingCardLifecycleRules.canResume(
+                status: fetched.status, resolvedBy: fetched.resolvedBy) else { loaded = true; return }
+            if PendingCardLifecycleRules.canRestore(status: fetched.status,
+                                                    resolvedBy: fetched.resolvedBy) {
+                guard await docs.restorePendingCard(id: fetched.id) else {
+                    loadFailed = true; loaded = true; return
+                }
+                recordRestoreAudit(cardId: fetched.id)
+                guard let refreshed = try await docs.loadPendingCard(id: cardId) else {
+                    loadFailed = true; loaded = true; return
+                }
+                guard !Task.isCancelled else { return }
+                fetched = refreshed
+            }
             pending = fetched
             if let retained = docs.retainedImport(for: fetched) {
                 retainedImportID = retained.id
@@ -100,5 +117,20 @@ struct PendingCardResumeRouteView: View {
             _ = await docs.resumePendingCard(fetched)
         } catch { loadFailed = true }
         loaded = true
+    }
+
+    /// 归档补办审计（best-effort：失败不阻断补办，动作本身已回 pending）。
+    private func recordRestoreAudit(cardId: String) {
+        guard let auditLog else { return }
+        Task {
+            do {
+                try await auditLog.record(action: AuditLogWriter.Action.pendingCardRestore,
+                                          entityType: "pending_card",
+                                          entityId: cardId,
+                                          actorLocal: "owner", meta: nil)
+            } catch {
+                // 审计失败不阻断补办；留待 L2 观测。
+            }
+        }
     }
 }

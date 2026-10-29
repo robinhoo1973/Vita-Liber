@@ -272,15 +272,18 @@ public actor PendingCardStore {
         }
     }
 
-    /// 撤销用户放弃：archived → pending（清 resolved_at/by）。过期归档
-    /// （resolved_by='expired'）不得经此复活——生命周期口径仍归 advanceLifecycle。
+    /// 撤销归档：archived → pending（清 resolved_at/by）。业主裁决 A（2026-10-30）：
+    /// **到期归档（resolved_by='expired'）同样可补办**——30 天自动归档不再形成
+    /// D 级死胡同；恢复后确认链与 BR-003 闸门不变（规则单一出处 =
+    /// Domain PendingCardLifecycleRules.canRestore）。
     public func restoreArchived(id: String, now: Date = Date()) async throws {
         let epoch = now.timeIntervalSince1970
         try await writer.write { db in
             try db.execute(sql: """
                 UPDATE pending_card SET status = 'pending',
                     resolved_at = NULL, resolved_by = NULL, updated_at = ?
-                WHERE id = ? AND status = 'archived' AND resolved_by = 'user'
+                WHERE id = ? AND status = 'archived'
+                  AND (resolved_by IN ('user', 'expired') OR resolved_by IS NULL)
                 """, arguments: [epoch, id])
             guard db.changesCount == 1 else { throw StoreError.inactive }
         }

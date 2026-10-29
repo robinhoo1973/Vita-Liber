@@ -346,5 +346,45 @@ struct PendingCardDedupTests {
         #expect(afterRestore.count == 1)
         #expect(restored?.status == "pending")
     }
+
+    /// 业主裁决 A（2026-10-30）：30 天到期归档（resolved_by='expired'）可补办
+    /// ——恢复回 pending、重新进入活跃投影，不再形成 D 级死胡同。
+    @Test("到期归档卡可补办（restoreArchived 接受 expired 归档）")
+    func archivedExpiredRestorable() async throws {
+        let dbQueue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        let patient = UUID()
+        let stamp = Date().addingTimeInterval(-60 * 86400).timeIntervalSince1970
+        try await dbQueue.write { db in
+            try db.execute(sql: SchemaV2.ddl)
+            try db.execute(sql: """
+                INSERT INTO patient_profile
+                  (id, display_name, relation, created_at, updated_at)
+                VALUES (?, '王女士', 'self', ?, ?)
+                """, arguments: [patient.uuidString, stamp, stamp])
+        }
+        let store = PendingCardStore(writer: dbQueue)
+        let draft = PendingCardDraft(patientId: patient, sourceType: "ocr", sourceDocId: UUID(),
+                                     cardKind: "prescription",
+                                     incompleteFields: [IncompleteField(key: "dosage", confidence: 0.5)],
+                                     partialData: ["drug_name": "阿莫西林"],
+                                     rawText: "阿莫西林 每日三次")
+        let id = try await store.upsert(draft)
+        // 老卡（60 天前创建）：直接推进生命周期 → expired → archived(expired)。
+        try await dbQueue.write { db in
+            try db.execute(sql: "UPDATE pending_card SET created_at = ? WHERE id = ?",
+                           arguments: [stamp, id])
+        }
+        _ = try await store.advanceLifecycle()
+        _ = try await store.advanceLifecycle()
+        let archived = try await store.card(id: id)
+        #expect(archived?.status == "archived")
+        #expect(archived?.resolvedBy == "expired")
+        try await store.restoreArchived(id: id)
+        let restored = try await store.card(id: id)
+        #expect(restored?.status == "pending")
+        #expect(restored?.resolvedBy == nil)
+        let active = try await store.aggregationItems(patientId: patient)
+        #expect(active.count == 1)
+    }
 }
 #endif

@@ -2675,6 +2675,7 @@
 "assistant.mediaCardsCommittedSection" = "Confirmed";
 "assistant.mediaSharedFieldsRow" = "Shared details";
 "assistant.mediaNeedsConfirm" = "Needs review";
+"assistant.mediaArchivedRestore" = "Archived · tap to reopen";
 "assistant.mediaConfirmed" = "Confirmed";
 "assistant.mediaPageCount" = "%d pages";
 "assistant.mediaPageIndex" = "Page %d";
