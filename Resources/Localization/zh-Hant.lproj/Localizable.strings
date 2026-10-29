@@ -2665,7 +2665,8 @@
 "assistant.mediaPageFailed" = "本頁辨識失敗";
 "assistant.mediaPageNoText" = "本頁沒有文字";
 "assistant.mediaEgressNote" = "原件保存在本機；對外副本只在匯出設定開啟或你明確匯出時產生";
-"assistant.mediaEgressNoteMirror" = "原件保存在本機；自動鏡像已開啟，非敏感件的副本可能出現在「檔案」App。敏感件僅在你明確匯出時產生副本";
+"assistant.mediaEgressNoteMirror" = "原圖保存在本機；非敏感資料已依你的設定同步到「檔案」App 副本";
+"assistant.historyNoPreview" = "暫無訊息預覽";
 "assistant.mediaCardsPendingSection" = "需要修改";
 "assistant.mediaCardsCommittedSection" = "已確認";
 "assistant.mediaSharedFieldsRow" = "共用資訊";

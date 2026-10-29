@@ -2665,7 +2665,8 @@
 "assistant.mediaPageFailed" = "Recognition failed on this page";
 "assistant.mediaPageNoText" = "No text on this page";
 "assistant.mediaEgressNote" = "Originals stay on this device; external copies are created only when export settings are on or you export explicitly";
-"assistant.mediaEgressNoteMirror" = "Originals stay on this device; with auto-mirror on, copies of non-sensitive items may appear in Files. Sensitive items are copied only when you export explicitly";
+"assistant.mediaEgressNoteMirror" = "Originals stay on this device; non-sensitive items are mirrored to the Files app per your setting";
+"assistant.historyNoPreview" = "No message preview";
 "assistant.mediaCardsPendingSection" = "Needs changes";
 "assistant.mediaCardsCommittedSection" = "Confirmed";
 "assistant.mediaSharedFieldsRow" = "Shared details";

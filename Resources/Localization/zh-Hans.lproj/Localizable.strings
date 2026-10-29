@@ -2665,7 +2665,8 @@
 "assistant.mediaPageFailed" = "本页识别失败";
 "assistant.mediaPageNoText" = "本页没有文字";
 "assistant.mediaEgressNote" = "原件保存在本机；对外副本只在导出设置开启或你显式导出时生成";
-"assistant.mediaEgressNoteMirror" = "原件保存在本机；自动镜像已开启，非敏感件的副本可能出现在「文件」App。敏感件仅在你显式导出时生成副本";
+"assistant.mediaEgressNoteMirror" = "原图保存在本机；非敏感资料已按你的设置同步到「文件」App 副本";
+"assistant.historyNoPreview" = "暂无消息预览";
 "assistant.mediaCardsPendingSection" = "需要修改";
 "assistant.mediaCardsCommittedSection" = "已确认";
 "assistant.mediaSharedFieldsRow" = "共用信息";
