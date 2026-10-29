@@ -36,7 +36,9 @@ struct MigrationReplayMatrixTests {
         defer { try? FileManager.default.removeItem(atPath: path) } // try?-ok: 测试清理
         // 造一个「来自更新版本」的最小库：只写 user_version，不建表——
         // tooNew 守卫在迁移前触发，与表集无关（fail-closed 语义正被测试的点）。
-        let queue = try DatabaseQueue(configuration: GRDBStore.configuration())
+        // 必须落盘到 path（CI 40790911082 红因：漏 path 参数 → 写进了内存队列，
+        // pool(at:) 打开的是全新空路径,无异常可抛）。
+        let queue = try DatabaseQueue(path: path, configuration: GRDBStore.configuration())
         try queue.write { db in
             try db.execute(sql: "PRAGMA user_version = \(SchemaMigrations.latestVersion + 1)")
         }
