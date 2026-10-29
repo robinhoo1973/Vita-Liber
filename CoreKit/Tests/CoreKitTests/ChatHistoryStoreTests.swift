@@ -104,7 +104,7 @@ struct ChatHistoryStoreTests {
         try await dbQueue.write { db in
             try db.execute(sql: """
                 INSERT INTO chat_message
-                  (id, conversation_id, role, kind, text, payload_json, created_at, seq)
+                  (id, conversation_id, role, kind, text, payload_json, created_at, ordinal)
                 VALUES (?, ?, 'user', 'media', '', '{not json', ?, 1)
                 """, arguments: [badId.uuidString, conversation.uuidString, Date().timeIntervalSince1970])
         }
