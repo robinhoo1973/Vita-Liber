@@ -20,6 +20,12 @@ struct DatabaseInitializationView: View {
     @ObservedObject var model: DatabaseBootModel
     /// 终态播报只发一次（retry 后复位）。
     @State private var announcedTerminal = false
+    /// 下载网络门（2026-10-29）：网络确认 + 线路策略（默认蜂窝/Wi-Fi 均可）。
+    /// CI 40867321903 红修复：本环境注入曾漏插（锚点不匹配），descriptor 三处
+    /// 引用先于声明落地——补齐。
+    @Environment(DownloadNetworkGate.self) private var networkGate
+    /// 线路策略拦截提示（仅 Wi-Fi 策略/离线时告知原因）。
+    @State private var networkBlockedShown = false
 
     var body: some View {
         WithPerceptionTracking {
