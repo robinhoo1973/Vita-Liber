@@ -9,6 +9,7 @@ import Testing
 /// SU-M2-SLICE-PROBE（启动时序批收尾项，2026-10-29；测试席「探针真夹具套件」）：
 /// `CatalogSliceProbe.inspectSelfConsistent` 首次直测——合法夹具四 kind 全绿、
 /// 契约/表集/计数/坏文件各失败面如实、只读探测零写入（字节守恒）。
+// binds: SU-M2-SLICE-PROBE（gate-suites.tsv M0 行；启动时序批收尾项）
 @Suite("SU-M2-SLICE-PROBE · 切片自洽探测真夹具")
 struct CatalogSliceProbeTests {
     private static let schemaVersion = CatalogSliceProtocol.supportedSliceSchemaVersion
