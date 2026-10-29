@@ -66,5 +66,9 @@ final class DownloadNetworkGate {
     enum BlockReason: Equatable {
         case offline
         case wifiOnlyPolicy
+
+        /// 离线时建议跳系统设置（2026-10-29 业主）；仅 Wi-Fi 策略属应用内
+        /// 可自解（改「下载线路」），不推用户去系统层。
+        var suggestsSystemSettings: Bool { self == .offline }
     }
 }

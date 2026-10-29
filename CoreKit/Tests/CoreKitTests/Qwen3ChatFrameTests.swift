@@ -31,4 +31,15 @@ struct Qwen3ChatFrameTests {
         #expect(ExtractionPromptBuilder.chatML(system: "S", user: "U")
                 == ExtractionPromptBuilder.chatML(system: "S", user: "U", frame: .chatML))
     }
+
+    @Test func minicpm5NonThinkingMatchesQwen3BytesUnderOwnRawValue() {
+        // 2026-10-29 选型批：MiniCPM5-1B 官方模板 enable_thinking=false 与 Qwen3 逐字节同文；
+        // 独立 rawValue 只为目录/侧车可归因。
+        #expect(ExtractionPromptBuilder.ChatFrameStyle.minicpm5NonThinking.rawValue == "minicpm5-nothink")
+        let frame = ExtractionPromptBuilder.chatML(system: "SYS", user: "USR", frame: .minicpm5NonThinking)
+        #expect(frame == "<|im_start|>system\nSYS<|im_end|>\n<|im_start|>user\nUSR<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n")
+        #expect(frame == ExtractionPromptBuilder.chatML(system: "SYS", user: "USR", frame: .qwen3NonThinking))
+        #expect(ExtractionPromptBuilder.ChatFrameStyle.minicpm5NonThinking.keepsEmptyThinkSegment)
+        #expect(!ExtractionPromptBuilder.ChatFrameStyle.chatML.keepsEmptyThinkSegment)
+    }
 }

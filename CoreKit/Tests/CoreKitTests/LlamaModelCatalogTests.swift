@@ -95,6 +95,63 @@ struct LlamaModelCatalogTests {
         #expect(!LlamaModelManager.isModelReady(id: entry.id))
     }
 
+    @Test func v3EntryFieldsParseAndUnknownFrameIsRejected() throws {
+        // 2026-10-29 MiniCPM5 选型批：v3 三字段 + 显式 frame 未知值拒收（绝不回落 chatML）。
+        let document = """
+        {"formatVersion":3,"models":[
+          {"id":"minicpm5-1b-q4-k-m","role":"default","fileName":"minicpm5-1b-q4_k_m.gguf",
+           "bytes":688065920,"sha256":"\(Self.shaA)",
+           "url":"https://cnb.cool/robinhoo1973/Resources/-/releases/download/llama-models/minicpm5-1b-q4_k_m.gguf",
+           "version":"1","license":"Apache-2.0","frame":"minicpm5-nothink",
+           "kvBytesPerToken":24576,"stopTokens":[130073],"addBosToken":false},
+          {"id":"bad-frame","role":"default","fileName":"bad.gguf","bytes":1,
+           "sha256":"\(Self.shaB)",
+           "url":"https://cnb.cool/robinhoo1973/Resources/-/releases/download/llama-models/bad.gguf",
+           "version":"1","license":"Apache-2.0","frame":"llama3-instruct"}
+        ],"preference":["minicpm5-1b-q4-k-m"]}
+        """
+        let parsed = try #require(LLMModelCatalog.parse(Data(document.utf8)))
+        #expect(parsed.entries.count == 1, "未知 frame 必须拒收该条目（fail-closed）")
+        #expect(parsed.entry(id: "bad-frame") == nil)
+        let entry = try #require(parsed.entry(id: "minicpm5-1b-q4-k-m"))
+        #expect(entry.frame == .minicpm5NonThinking)
+        #expect(entry.kvBytesPerToken == 24_576)
+        #expect(entry.stopTokens == [130_073])
+        #expect(entry.addBosToken == false)
+        #expect(entry.frame.keepsEmptyThinkSegment)
+    }
+
+    @Test func v2DocumentStillParsesWithDefaults() throws {
+        // v2 兼容面：无 v3 键 → kv=nil（消费侧回落保守默认）、stop 空、无 BOS；缺省 frame=chatML。
+        let document = """
+        {"formatVersion":2,"models":[
+          {"id":"legacy","role":"default","fileName":"legacy.gguf","bytes":1024,
+           "sha256":"\(Self.shaA)",
+           "url":"https://cnb.cool/robinhoo1973/Resources/-/releases/download/llama-models/legacy.gguf",
+           "version":"1","license":"Apache-2.0"}
+        ],"preference":[]}
+        """
+        let parsed = try #require(LLMModelCatalog.parse(Data(document.utf8)))
+        let entry = try #require(parsed.entry(id: "legacy"))
+        #expect(entry.frame == .chatML)
+        #expect(entry.kvBytesPerToken == nil)
+        #expect(entry.stopTokens.isEmpty)
+        #expect(entry.addBosToken == false)
+    }
+
+    @Test func v3MalformedStopTokensRejectEntry() throws {
+        let document = """
+        {"formatVersion":3,"models":[
+          {"id":"bad-stops","role":"default","fileName":"bad.gguf","bytes":1,
+           "sha256":"\(Self.shaA)",
+           "url":"https://cnb.cool/robinhoo1973/Resources/-/releases/download/llama-models/bad.gguf",
+           "version":"1","license":"Apache-2.0","stopTokens":["im_end"]}
+        ],"preference":[]}
+        """
+        #expect(LLMModelCatalog.parse(Data(document.utf8))?.entries.isEmpty == true,
+                "stopTokens 非数字数组必须拒收该条目（绝不静默当空集）")
+    }
+
     @Test func preferenceOrderPicksFirstReadyEntry() throws {
         let root = makeTempRoot()
         defer { LlamaModelManager.installRootOverride = nil; LlamaModelManager.catalogOverride = nil }

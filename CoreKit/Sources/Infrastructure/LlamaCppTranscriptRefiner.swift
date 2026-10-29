@@ -58,6 +58,8 @@ public struct LlamaCppTranscriptRefiner: TextRefining {
                 let output = try await LlamaRuntime.shared.complete(
                     prompt: prompt, grammar: Self.freeTextGrammar,
                     modelURL: model.url, modelBytes: model.bytes,
+                    kvBytesPerToken: model.kvBytesPerToken, stopTokens: model.stopTokens,
+                    addBosToken: model.addBosToken,
                     maxTokens: 1_024)
                 try Task.checkCancellation()
                 // 模型加帧（行尾空白/换行）删除；源文本字节一个不动。

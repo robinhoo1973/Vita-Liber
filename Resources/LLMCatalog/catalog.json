@@ -1,5 +1,5 @@
 {
-  "formatVersion": 2,
+  "formatVersion": 3,
   "models": [
     {
       "id": "llm-general-qwen3-0.6b-q4-k-m",
@@ -10,7 +10,8 @@
       "url": "https://cnb.cool/robinhoo1973/Resources/-/releases/download/llama-models/llm-general-qwen3-0.6b-q4-k-m-ac2d97712095a558.gguf",
       "version": "1",
       "license": "Apache-2.0",
-      "frame": "qwen3-nothink"
+      "frame": "qwen3-nothink",
+      "kvBytesPerToken": 114688
     }
   ],
   "preference": ["llm-general-qwen3-0.6b-q4-k-m"]

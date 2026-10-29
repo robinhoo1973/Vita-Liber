@@ -78,6 +78,8 @@ public struct LlamaCppExtractionEngine: CardExtractionEngine {
             let output = try await LlamaRuntime.shared.complete(
                 prompt: prompt, grammar: grammar,
                 modelURL: model.url, modelBytes: model.bytes,
+                kvBytesPerToken: model.kvBytesPerToken, stopTokens: model.stopTokens,
+                addBosToken: model.addBosToken,
                 maxTokens: Int32(spec.outputTokenBudget))
 
             // Qwen3 帧契约（2026-10-09）：空 think 段已在提示帧内给出，
@@ -181,6 +183,7 @@ final class LlamaRuntime: @unchecked Sendable {
 
     /// 文法约束 + 贪心采样的完整推理：返回原始输出文本（JSON 解码在引擎层）。
     func complete(prompt: String, grammar: String, modelURL: URL?, modelBytes: Int64,
+                  kvBytesPerToken: Int64? = nil, stopTokens: [Int32] = [], addBosToken: Bool = false,
                   maxTokens: Int32) async throws -> String {
         let flag = CancelFlag()
         return try await withTaskCancellationHandler {
@@ -189,7 +192,9 @@ final class LlamaRuntime: @unchecked Sendable {
                     do {
                         continuation.resume(returning: try self.decode(
                             prompt: prompt, grammar: grammar, modelURL: modelURL,
-                            modelBytes: modelBytes, maxTokens: maxTokens, cancelFlag: flag))
+                            modelBytes: modelBytes, kvBytesPerToken: kvBytesPerToken,
+                            stopTokens: stopTokens, addBosToken: addBosToken,
+                            maxTokens: maxTokens, cancelFlag: flag))
                     } catch {
                         continuation.resume(throwing: error)
                     }
@@ -202,8 +207,10 @@ final class LlamaRuntime: @unchecked Sendable {
 
     /// 阻塞解码段（只在 inferenceQueue 线程上执行；逐 token/逐 chunk 轮询取消标志）。
     private func decode(prompt: String, grammar: String, modelURL: URL?, modelBytes: Int64,
+                        kvBytesPerToken: Int64?, stopTokens: [Int32], addBosToken: Bool,
                         maxTokens: Int32, cancelFlag: CancelFlag) throws -> String {
-        let nCtx = try loadIfNeeded(url: modelURL, modelBytes: modelBytes, cancelFlag: cancelFlag)
+        let nCtx = try loadIfNeeded(url: modelURL, modelBytes: modelBytes,
+                                    kvBytesPerToken: kvBytesPerToken, cancelFlag: cancelFlag)
         guard model != nil, let context, let vocab else { throw ExtractionEngineError.unavailable }
 
         // —— 文法采样链：GBNF 字符串直出（b11012 起 grammar 走 sampler API）——
@@ -234,9 +241,17 @@ final class LlamaRuntime: @unchecked Sendable {
         guard promptLength > 0, Int(promptLength) <= promptTokenBudget else {
             throw ExtractionEngineError.unavailable   // 负数=需要更大缓冲；超预算=该区域提示超窗
         }
+        // 目录 v3（2026-10-29）：addBosToken=true 时显式前置词表 BOS（GGUF 元数据的
+        // add_bos 来自上游 tokenizer_config，本仓不控制；MiniCPM5/Qwen 系为 false）。
+        var tokens = Array(promptTokens[0..<Int(promptLength)])
+        if addBosToken {
+            let bos = llama_vocab_bos(vocab)
+            if bos >= 0, tokens.first != bos { tokens.insert(bos, at: 0) }
+        }
+        let tokenCount = tokens.count
         // 窗口夹紧（2026-10-09）：提示 + 最大生成必须装进 n_ctx，否则 llama_decode 以非零码
         // 静默落 T3；此处显式判负（与 JSON 解码失败区分——靠调用日志）。
-        guard Int(promptLength) + Int(maxTokens) <= Int(nCtx) else {
+        guard tokenCount + Int(maxTokens) <= Int(nCtx) else {
             throw ExtractionEngineError.unavailable
         }
 
@@ -247,11 +262,11 @@ final class LlamaRuntime: @unchecked Sendable {
         defer { llama_batch_free(batch) }
         var position: Int32 = 0
         var index = 0
-        while index < Int(promptLength) {
+        while index < tokenCount {
             if cancelFlag.isCancelled { throw CancellationError() }
-            let chunk = min(nBatch, Int(promptLength) - index)
+            let chunk = min(nBatch, tokenCount - index)
             for offset in 0..<chunk {
-                batch.token[offset] = promptTokens[index + offset]
+                batch.token[offset] = tokens[index + offset]
                 batch.pos[offset] = position + Int32(offset)
                 batch.n_seq_id[offset] = 1
                 batch.seq_id[offset]![0] = 0
@@ -265,11 +280,16 @@ final class LlamaRuntime: @unchecked Sendable {
 
         // —— 采样生成（单 token 复用同一 batch；logits 仅末位）——
         let eos = llama_vocab_eos(vocab)
+        // 目录 v3 停止集（2026-10-29 MiniCPM5 选型批）：条目显式 stopTokens ∪ 词表单
+        // token 化的 <|im_end|> ∪ eos/EOG。MiniCPM5 的 eos 是 </s>，<|im_end|>(130073)
+        // 是否被转换链标 EOG 不由本仓决定——目录钉 + 词表兜底双保险，绝不靠隐含 EOG。
+        var stopSet = Set(stopTokens)
+        if let imEnd = Self.singleTokenID(vocab: vocab, text: "<|im_end|>") { stopSet.insert(imEnd) }
         var pieces: [String] = []
         for _ in 0..<maxTokens {
             if cancelFlag.isCancelled { throw CancellationError() }
             let newToken = llama_sampler_sample(chain, context, -1)
-            if newToken == eos || llama_vocab_is_eog(vocab, newToken) { break }
+            if newToken == eos || llama_vocab_is_eog(vocab, newToken) || stopSet.contains(newToken) { break }
             var pieceBuffer = [CChar](repeating: 0, count: 256)
             let pieceLength = pieceBuffer.withUnsafeMutableBufferPointer { buffer in
                 llama_token_to_piece(vocab, newToken, buffer.baseAddress, 256, 0, false)
@@ -287,19 +307,37 @@ final class LlamaRuntime: @unchecked Sendable {
         return pieces.joined()
     }
 
+    /// 词表内单 token 化查询（停止集兜底；非单 token → nil，绝不按字面匹配输出文本）。
+    private static func singleTokenID(vocab: OpaquePointer, text: String) -> llama_token? {
+        var buffer = [llama_token](repeating: 0, count: 8)
+        let count = text.withCString { pointer in
+            buffer.withUnsafeMutableBufferPointer { tokens in
+                llama_tokenize(vocab, pointer, Int32(text.utf8.count), tokens.baseAddress,
+                               8, false, true)
+            }
+        }
+        guard count == 1 else { return nil }
+        return buffer[0]
+    }
+
     /// 惰性加载：URL 未变则复用已载模型；首载初始化 backend。
     /// 冷载（数百 MB）不可中断，加载完成后检查取消并抛出（不继续推理）。
     /// 返回选定的 n_ctx（调用侧据此做提示/生成夹紧）。
-    private func loadIfNeeded(url: URL?, modelBytes: Int64, cancelFlag: CancelFlag) throws -> Int {
+    private func loadIfNeeded(url: URL?, modelBytes: Int64, kvBytesPerToken: Int64?,
+                              cancelFlag: CancelFlag) throws -> Int {
         guard let url else { throw ExtractionEngineError.unavailable }
+        // 目录 v3（2026-10-29）：KV 字节由条目钉（MiniCPM5 = 24 KiB/token）；未钉回落
+        // Qwen3 保守常数——宁可高估、不放过注定 jetsam 的配置。
+        let kvPerToken = kvBytesPerToken ?? LLMContextBudget.qwen3KVBytesPerToken
         let nCtx = LLMContextBudget.nCtx(availableBytes: ProcessMemory.availableBytes(),
-                                         modelBytes: modelBytes)
+                                         modelBytes: modelBytes,
+                                         kvBytesPerToken: kvPerToken)
         if loadedURL == url, model != nil, context != nil, vocab != nil { return nCtx }
         if cancelFlag.isCancelled { throw CancellationError() }
         // round5 Q3 举一反三：GB 级原生加载前内存预算门（与 sherpa ASR 同一策略，系数按 mmap+Metal 形态取 1.3）。
         // 2026-10-09：**KV cache 显式加项**（系数只覆盖权重 mmap）——Qwen3 KV/token 9.3× 于旧模型，
         // 不加项会放过注定 jetsam 的配置。不足 → unavailable：T2 降级 T3（而非被系统终止）。
-        let kvBytes = Int64(nCtx) * LLMContextBudget.qwen3KVBytesPerToken
+        let kvBytes = Int64(nCtx) * kvPerToken
         if case .insufficient = ModelMemoryBudget.verdict(modelBytes: modelBytes,
                                                           availableBytes: ProcessMemory.availableBytes(),
                                                           peakFactor: ModelMemoryBudget.llamaPeakFactor,

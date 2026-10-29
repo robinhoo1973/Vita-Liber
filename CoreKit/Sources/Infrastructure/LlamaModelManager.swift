@@ -45,14 +45,25 @@ public enum LlamaModelManager {
         public let bytes: Int64
         public let sha256: String
         public let frame: ExtractionPromptBuilder.ChatFrameStyle
+        /// 目录 v3（2026-10-29）：KV 单 token 字节；nil = 目录未钉 → 运行时回落保守默认。
+        public let kvBytesPerToken: Int64?
+        /// 目录 v3：EOS/EOG 之外的显式停止 token（MiniCPM5 `<|im_end|>` 兜底）。
+        public let stopTokens: [Int32]
+        /// 目录 v3：tokenize 后是否显式前置词表 BOS。
+        public let addBosToken: Bool
 
         public init(id: String, url: URL, bytes: Int64, sha256: String,
-                    frame: ExtractionPromptBuilder.ChatFrameStyle) {
+                    frame: ExtractionPromptBuilder.ChatFrameStyle,
+                    kvBytesPerToken: Int64? = nil, stopTokens: [Int32] = [],
+                    addBosToken: Bool = false) {
             self.id = id
             self.url = url
             self.bytes = bytes
             self.sha256 = sha256
             self.frame = frame
+            self.kvBytesPerToken = kvBytesPerToken
+            self.stopTokens = stopTokens
+            self.addBosToken = addBosToken
         }
     }
 
@@ -147,7 +158,10 @@ public enum LlamaModelManager {
         for entry in document.preferred where isModelReady(id: entry.id) {
             guard let url = installedModelURL(id: entry.id) else { continue }
             return ActiveModel(id: entry.id, url: url, bytes: entry.bytes,
-                               sha256: entry.sha256, frame: entry.frame)
+                               sha256: entry.sha256, frame: entry.frame,
+                               kvBytesPerToken: entry.kvBytesPerToken,
+                               stopTokens: entry.stopTokens,
+                               addBosToken: entry.addBosToken)
         }
         return nil
     }

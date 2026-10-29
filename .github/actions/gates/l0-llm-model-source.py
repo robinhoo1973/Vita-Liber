@@ -100,8 +100,11 @@ else:
         fail(f"catalog.json 非合法 JSON：{error}")
         catalog = None
     if catalog is not None:
-        if catalog.get("formatVersion") != 2:
-            fail(f"catalog formatVersion != 2（实为 {catalog.get('formatVersion')!r}）——v1 已随本批退役")
+        # 2026-10-29 MiniCPM5 选型批：v3 = v2 + per-entry kvBytesPerToken/stopTokens/addBosToken
+        # （与 Domain LLMModelCatalog.parseEntry / integrate_to_vitaliber.py entry_failures 逐条同口径）。
+        if catalog.get("formatVersion") not in (2, 3):
+            fail(f"catalog formatVersion 非 2/3（实为 {catalog.get('formatVersion')!r}）——v1 已随本批退役")
+        known_frames = {"chatml", "qwen3-nothink", "minicpm5-nothink"}
         models = catalog.get("models")
         if not isinstance(models, list) or not models:
             fail("catalog models 为空——下载面永远无货")
@@ -133,11 +136,26 @@ else:
                 version = model.get("version")
                 if not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", version or ""):
                     fail(f"{label} version 非 slug：{version!r}")
+                # v3 字段（2026-10-29）：缺省合法；显式值非法即拒收（App 解析器同口径）。
+                frame = model.get("frame")
+                if frame is not None and frame not in known_frames:
+                    fail(f"{label} frame 非法：{frame!r}（允许 {sorted(known_frames)} 或缺省）")
+                kv = model.get("kvBytesPerToken")
+                if kv is not None and (not isinstance(kv, int) or isinstance(kv, bool) or kv <= 0):
+                    fail(f"{label} kvBytesPerToken 非正整数：{kv!r}")
+                stops = model.get("stopTokens")
+                if stops is not None and (not isinstance(stops, list)
+                                          or any(not isinstance(s, int) or isinstance(s, bool) or s <= 0
+                                                 for s in stops)):
+                    fail(f"{label} stopTokens 非正整数数组：{stops!r}")
+                bos = model.get("addBosToken")
+                if bos is not None and not isinstance(bos, bool):
+                    fail(f"{label} addBosToken 非布尔：{bos!r}")
             preference = catalog.get("preference")
             if not isinstance(preference, list) or any(p not in ids for p in preference):
                 fail(f"preference 悬空或非数组：{preference!r}（ids={sorted(ids)}）")
             if not FAILURES:
-                ok(f"catalog v2 自洽（{len(models)} 条目，preference {len(preference or [])} 项）")
+                ok(f"catalog v{catalog.get('formatVersion')} 自洽（{len(models)} 条目，preference {len(preference or [])} 项）")
 
 if FAILURES:
     print(f"LLM 单源门禁：{len(FAILURES)} 项失败")

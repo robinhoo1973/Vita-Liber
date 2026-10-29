@@ -599,6 +599,11 @@ struct DatabaseInitializationView: View {
                 if autoEnter { model.scheduleAutoEnterIfNeeded() }
             }
             .alert(L10n.downloadNetworkBlockedTitle, isPresented: $networkBlockedShown) {
+                // 2026-10-29 业主：探测到网络不可用 → 建议跳系统设置（公开 API
+                // 只能打开本 App 设置页；文案已含「到系统设置开启」指引）。
+                if networkGate.blockReason()?.suggestsSystemSettings == true {
+                    Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
+                }
                 Button(L10n.onboard_gotIt, role: .cancel) { }
             } message: {
                 Text(L10n.downloadNetworkBlockedBody)

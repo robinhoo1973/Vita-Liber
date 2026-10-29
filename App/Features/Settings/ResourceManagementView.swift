@@ -53,6 +53,9 @@ struct ResourceManagementView: View {
             }
                         .scrollContentBackground(.hidden)   // ui-ux §3.0 surface/tint：渐变画布透出（V4.13 补齐）
             .alert(L10n.downloadNetworkBlockedTitle, isPresented: $networkBlockedShown) {
+                if networkGate.blockReason()?.suggestsSystemSettings == true {
+                    Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
+                }
                 Button(L10n.onboard_gotIt, role: .cancel) { }
             } message: {
                 Text(L10n.downloadNetworkBlockedBody)

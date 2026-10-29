@@ -225,7 +225,7 @@
 "settings.downloadNetwork.wifiOnly" = "仅 Wi-Fi";
 "settings.downloadNetwork.hint" = "医疗数据目录与资源默认允许蜂窝和 Wi-Fi 下载；选择「仅 Wi-Fi」后，蜂窝网络下的检查与安装会被拦截并说明原因。";
 "download.networkBlocked.title" = "当前网络不可用于下载";
-"download.networkBlocked.body" = "没有可用网络，或已设为仅 Wi-Fi 而当前为蜂窝网络。请调整网络，或到「我的 → 设置 → 模型与数据资源 → 下载线路」修改。";
+"download.networkBlocked.body" = "没有可用网络，或已设为仅 Wi-Fi 而当前为蜂窝网络。如系统网络已关闭，请到系统设置开启 Wi-Fi 或蜂窝数据；仅 Wi-Fi 设置可在「我的 → 设置 → 模型与数据资源 → 下载线路」修改。";
 "settings.resource.active" = "进行中";
 "settings.resource.catalog" = "资源清单";
 "settings.resource.catalogRow" = "医疗数据目录";
@@ -2665,6 +2665,7 @@
 "assistant.mediaPageFailed" = "本页识别失败";
 "assistant.mediaPageNoText" = "本页没有文字";
 "assistant.mediaEgressNote" = "原件保存在本机；对外副本只在导出设置开启或你显式导出时生成";
+"assistant.mediaEgressNoteMirror" = "原件保存在本机；自动镜像已开启，非敏感件的副本可能出现在「文件」App。敏感件仅在你显式导出时生成副本";
 "assistant.mediaCardsPendingSection" = "需要修改";
 "assistant.mediaCardsCommittedSection" = "已确认";
 "assistant.mediaSharedFieldsRow" = "共用信息";

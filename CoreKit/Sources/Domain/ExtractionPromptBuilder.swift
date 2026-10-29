@@ -89,6 +89,15 @@ public enum ExtractionPromptBuilder {
     public enum ChatFrameStyle: String, Sendable {
         case chatML = "chatml"
         case qwen3NonThinking = "qwen3-nothink"
+        /// MiniCPM5-1B 非思考渲染（2026-10-29 选型批）：官方 chat_template 在
+        /// `enable_thinking=false` 下与 `qwen3-nothink` **逐字节相同**（空 think 段保留）。
+        /// 独立 case 只为目录/侧车可归因（这段字节是给哪个基座渲染的），渲染路径共用。
+        case minicpm5NonThinking = "minicpm5-nothink"
+
+        /// 非思考硬行为族：assistant 头后保留空 think 段（Qwen3 / MiniCPM5 同文）。
+        public var keepsEmptyThinkSegment: Bool {
+            self == .qwen3NonThinking || self == .minicpm5NonThinking
+        }
     }
 
     /// 空 think 段——与训练侧 `.github/actions/distill/gen/sft_dataset.py` 的
@@ -103,7 +112,7 @@ public enum ExtractionPromptBuilder {
         var text = "<|im_start|>system\n\(system)<|im_end|>\n"
         text += "<|im_start|>user\n\(user)<|im_end|>\n"
         text += "<|im_start|>assistant\n"
-        if frame == .qwen3NonThinking {
+        if frame.keepsEmptyThinkSegment {
             text += emptyThinkSegment
         }
         return text

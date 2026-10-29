@@ -225,7 +225,7 @@
 "settings.downloadNetwork.wifiOnly" = "僅 Wi-Fi";
 "settings.downloadNetwork.hint" = "醫療資料目錄與資源預設允許行動網路和 Wi-Fi 下載；選擇「僅 Wi-Fi」後，行動網路下的檢查與安裝會被攔截並說明原因。";
 "download.networkBlocked.title" = "目前網路不可用於下載";
-"download.networkBlocked.body" = "沒有可用網路，或已設為僅 Wi-Fi 而目前為行動網路。請調整網路，或到「我的 → 設定 → 模型與資料資源 → 下載線路」修改。";
+"download.networkBlocked.body" = "沒有可用網路，或已設為僅 Wi-Fi 而目前為行動網路。如系統網路已關閉，請到系統設定開啟 Wi-Fi 或行動數據；僅 Wi-Fi 設定可在「我的 → 設定 → 模型與資料資源 → 下載線路」修改。";
 "settings.resource.active" = "進行中";
 "settings.resource.catalog" = "資源清單";
 "settings.resource.catalogRow" = "醫療資料目錄";
@@ -2665,6 +2665,7 @@
 "assistant.mediaPageFailed" = "本頁辨識失敗";
 "assistant.mediaPageNoText" = "本頁沒有文字";
 "assistant.mediaEgressNote" = "原件保存在本機；對外副本只在匯出設定開啟或你明確匯出時產生";
+"assistant.mediaEgressNoteMirror" = "原件保存在本機；自動鏡像已開啟，非敏感件的副本可能出現在「檔案」App。敏感件僅在你明確匯出時產生副本";
 "assistant.mediaCardsPendingSection" = "需要修改";
 "assistant.mediaCardsCommittedSection" = "已確認";
 "assistant.mediaSharedFieldsRow" = "共用資訊";

@@ -225,7 +225,7 @@
 "settings.downloadNetwork.wifiOnly" = "Wi-Fi only";
 "settings.downloadNetwork.hint" = "Catalog and resource downloads may use cellular and Wi-Fi by default. With Wi-Fi only selected, checks and installs over cellular are blocked with an explanation.";
 "download.networkBlocked.title" = "Network unavailable for download";
-"download.networkBlocked.body" = "There is no usable network, or Wi-Fi only is set while on cellular. Adjust your network, or change it in Me → Settings → Model & Data Resources → Download network.";
+"download.networkBlocked.body" = "There is no usable network, or Wi-Fi only is set while on cellular. If networking is off system-wide, enable Wi-Fi or cellular data in Settings; the Wi-Fi only option lives in Me → Settings → Model & Data Resources → Download network.";
 "settings.resource.active" = "In Progress";
 "settings.resource.catalog" = "Resources";
 "settings.resource.catalogRow" = "Medical data catalog";
@@ -2665,6 +2665,7 @@
 "assistant.mediaPageFailed" = "Recognition failed on this page";
 "assistant.mediaPageNoText" = "No text on this page";
 "assistant.mediaEgressNote" = "Originals stay on this device; external copies are created only when export settings are on or you export explicitly";
+"assistant.mediaEgressNoteMirror" = "Originals stay on this device; with auto-mirror on, copies of non-sensitive items may appear in Files. Sensitive items are copied only when you export explicitly";
 "assistant.mediaCardsPendingSection" = "Needs changes";
 "assistant.mediaCardsCommittedSection" = "Confirmed";
 "assistant.mediaSharedFieldsRow" = "Shared details";

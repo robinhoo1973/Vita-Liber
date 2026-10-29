@@ -17,6 +17,12 @@ import Foundation
 /// 解析 fail-closed：任一条目字段非法**跳过该条目**（绝不半信）；根结构非法返回
 /// nil。孤条目导致的空目录 = 消费侧「未配置」——绝不假装可用（与既有缺席回落
 /// 语义同族）。
+///
+/// v3（2026-10-29 MiniCPM5 选型批，K-2026-10-29-01 §2.5）：新增 per-entry
+/// `kvBytesPerToken` / `stopTokens` / `addBosToken`；**显式 frame 未知值拒收该条目**
+/// （v2 的「未知即回落 chatML」= 用错帧渲染 = 训推异分布，v3 起 fail-closed；
+/// 缺省无键仍按旧契约取 chatML）。formatVersion 2 与 3 均可解析——随包目录是本仓
+/// 受控文件，无外部运行时旧版兼容面。
 public enum LLMModelCatalog {
 
     /// 条目的消费角色（单值；装配点按 `preference` 顺序取首个就绪者）。
@@ -39,10 +45,20 @@ public enum LLMModelCatalog {
         public let version: String
         public let license: String
         public let frame: ExtractionPromptBuilder.ChatFrameStyle
+        /// v3：KV 单 token 字节数（F16 口径）。nil = 未钉，消费侧回落保守默认
+        /// `LLMContextBudget.qwen3KVBytesPerToken`（宁可高估、不放过 jetsam 配置）。
+        public let kvBytesPerToken: Int64?
+        /// v3：EOS/EOG 之外的显式停止 token（如 MiniCPM5 的 `<|im_end|>` = 130073——
+        /// llama.cpp 转换链是否把它标成 EOG 不由本仓决定，目录兜底）。
+        public let stopTokens: [Int32]
+        /// v3：tokenize 后是否显式前置 BOS（MiniCPM4 类词表 true；MiniCPM5/Qwen 系 false）。
+        public let addBosToken: Bool
 
         public init(id: String, role: Role, fileName: String, bytes: Int64, sha256: String,
                     url: URL, version: String, license: String,
-                    frame: ExtractionPromptBuilder.ChatFrameStyle = .chatML) {
+                    frame: ExtractionPromptBuilder.ChatFrameStyle = .chatML,
+                    kvBytesPerToken: Int64? = nil, stopTokens: [Int32] = [],
+                    addBosToken: Bool = false) {
             self.id = id
             self.role = role
             self.fileName = fileName
@@ -52,6 +68,9 @@ public enum LLMModelCatalog {
             self.version = version
             self.license = license
             self.frame = frame
+            self.kvBytesPerToken = kvBytesPerToken
+            self.stopTokens = stopTokens
+            self.addBosToken = addBosToken
         }
     }
 
@@ -89,7 +108,7 @@ public enum LLMModelCatalog {
     ///   保留首个（确定性优先）。
     public static func parse(_ data: Data) -> Document? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],   // try?-ok: 非法 JSON 即整体拒
-              (root["formatVersion"] as? Int) == 2,
+              let formatVersion = root["formatVersion"] as? Int, (2...3).contains(formatVersion),
               let models = root["models"] as? [[String: Any]] else { return nil }
         var seen = Set<String>()
         var entries: [Entry] = []
@@ -116,9 +135,32 @@ public enum LLMModelCatalog {
               ModelResourcePolicy.allowedURL(url),
               let version = model["version"] as? String, ModelResourcePolicy.isSlug(version),
               let license = model["license"] as? String, !license.isEmpty else { return nil }
-        let frame = (model["frame"] as? String)
-            .flatMap(ExtractionPromptBuilder.ChatFrameStyle.init(rawValue:)) ?? .chatML
+        let frame: ExtractionPromptBuilder.ChatFrameStyle
+        if let rawFrame = model["frame"] as? String {
+            // v3 fail-closed：显式 frame 未知值 = 用错帧渲染 = 训推异分布，拒收该条目
+            // （绝不静默回落 chatML——那正是 v2 的种子缺陷）。
+            guard let parsed = ExtractionPromptBuilder.ChatFrameStyle(rawValue: rawFrame) else { return nil }
+            frame = parsed
+        } else {
+            frame = .chatML   // 无键 = 旧契约缺省（v1/v2 兼容面）
+        }
+        let kvBytesPerToken: Int64?
+        if let rawKV = model["kvBytesPerToken"] {
+            guard let number = rawKV as? NSNumber, number.int64Value > 0 else { return nil }
+            kvBytesPerToken = number.int64Value
+        } else {
+            kvBytesPerToken = nil
+        }
+        var stopTokens: [Int32] = []
+        if let rawStops = model["stopTokens"] {
+            guard let numbers = rawStops as? [NSNumber] else { return nil }
+            stopTokens = numbers.map(\.int32Value)
+            guard !stopTokens.contains(where: { $0 <= 0 }) else { return nil }
+        }
+        let addBosToken = (model["addBosToken"] as? Bool) ?? false
         return Entry(id: id, role: role, fileName: fileName, bytes: bytes, sha256: sha256,
-                     url: url, version: version, license: license, frame: frame)
+                     url: url, version: version, license: license, frame: frame,
+                     kvBytesPerToken: kvBytesPerToken, stopTokens: stopTokens,
+                     addBosToken: addBosToken)
     }
 }

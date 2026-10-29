@@ -23,6 +23,11 @@ public enum LLMContextBudget {
     /// 定标依据：2(K·V) × 28 层 × 8 KV 头 × 128 head_dim × 1.0625(块)＝112 KiB）。
     public static let qwen3KVBytesPerToken: Int64 = 112 * 1024
 
+    /// MiniCPM5-1B 的 KV 单 token 字节数（F16：2 × 24 层 × 2 KV 头 × 128 head_dim × 2 B
+    /// = 24 KiB；config.json 实测 2026-10-29 选型批）。比 Qwen3 低 4.7×——**消费点必须用
+    /// 目录条目的 `kvBytesPerToken`**，本常量只是缺省回落，不得在引擎里硬编码模型值。
+    public static let minicpm5KVBytesPerToken: Int64 = 24 * 1024
+
     /// 选定 n_ctx：从大到小取第一个满足「权重峰值 + KV×n + 计算缓冲 ≤ 可用」的档；
     /// 探针 nil → 默认档；全部不满足 → 最小档（调用侧再由 verdict 做加载许可判定，
     /// 本函数只缩小窗口、不拒绝加载）。
