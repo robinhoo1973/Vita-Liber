@@ -114,6 +114,12 @@ extension L10n {
     static var assistantMediaPageFailed: String { t("assistant.mediaPageFailed") }
     static var assistantMediaPageNoText: String { t("assistant.mediaPageNoText") }
     static var assistantMediaEgressNote: String { t("assistant.mediaEgressNote") }
+    // 2026-10-29 六点收口批（审查席重写版消费）：详情双区标题与 D/C 状态词。
+    // CI 40870743625 红修复：访问器在小批覆盖中丢失（键与三语字符串均在）。
+    static var assistantMediaCardsPendingSection: String { t("assistant.mediaCardsPendingSection") }
+    static var assistantMediaCardsCommittedSection: String { t("assistant.mediaCardsCommittedSection") }
+    static var assistantMediaNeedsConfirm: String { t("assistant.mediaNeedsConfirm") }
+    static var assistantMediaConfirmed: String { t("assistant.mediaConfirmed") }
     static var assistantMediaEgressNoteMirror: String { t("assistant.mediaEgressNoteMirror") }
     // 2026-10-19 对话历史
     static var assistantHistoryTitle: String { t("assistant.historyTitle") }
