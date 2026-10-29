@@ -15,7 +15,7 @@ struct BloodTypeField: View {
     @State private var showPicker = false
 
     private static let abo = ["A", "B", "AB", "O"]
-    private static let standard: [String] = abo.flatMap { [$0 + "+", $0 + "−"] }
+    fileprivate static let standard: [String] = abo.flatMap { [$0 + "+", $0 + "−"] }
     /// 稳定哨兵：不把本地化显示文案写进患者档案。
     static let unknownValue = "unknown"
 

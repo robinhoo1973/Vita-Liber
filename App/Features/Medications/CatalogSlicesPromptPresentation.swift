@@ -32,6 +32,7 @@ enum CatalogSlicesPromptPresentation {
     /// 强制模式判定（2026-10-29 业主两条原则）：**当前基础数据库没有 ∧ 第一次启动**
     /// 时下载不可跳过。任一不满足（已有任一片、或非首次启动）→ 维持常规旁路语义
     /// （V4.87 行为）——更新/补装对老用户不设强制门。
+    @MainActor
     static func mandatoryDownload(state: CatalogSlicesState, firstLaunch: Bool) -> Bool {
         firstLaunch && state.installedCount == 0
     }
