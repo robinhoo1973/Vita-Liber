@@ -49,7 +49,10 @@ struct PhoneCountryCatalogTests {
         for (region, dial) in PhoneCountryCatalog.dialCodeByRegion {
             #expect(region.count == 2, "地区码长度异常：\(region)")
             #expect((1...3).contains(dial.count), "拨号前缀长度异常：\(region)=\(dial)")
-            #expect(dial.allSatisfy(\.isNumber), "拨号前缀非数字：\(region)=\(dial)")
+            // CI 40862004631 红修复：rethrows 闭包参数（allSatisfy）置于
+            // #expect 展开内会丢非抛出推断（call can throw）——先求值再断言。
+            let digitsOnly = dial.allSatisfy { $0.isNumber }
+            #expect(digitsOnly, "拨号前缀非数字：\(region)=\(dial)")
         }
         #expect(PhoneCountryCatalog.dialCodeByRegion[PhoneCountryCatalog.defaultRegion] != nil)
     }
