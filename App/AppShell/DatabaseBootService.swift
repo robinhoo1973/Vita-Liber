@@ -198,7 +198,7 @@ enum DatabaseBootService {
         receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
                       chosen: receiptChosen, mode: label(decision),
                       source: userProbe.observedVersion, target: targetVersion,
-                      outcome: .inProgress)
+                      outcome: .inProgress, at: clock())
         // U-批 B2（架构席 S1/B2）：advisory 快照在决策后、switch/抛出前发射——
         // 失败路径也能拿到存在性/版本/健康事实（行①/②由它 + failure 推导）。
         let plannedSteps: Int?
@@ -272,7 +272,7 @@ enum DatabaseBootService {
             receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
-                          outcome: .success, phases: phaseTimings)
+                          outcome: .success, phases: phaseTimings, at: clock())
         } catch let boot as DatabaseBootFailure {
             throw boot
         } catch let upgrade as DatabaseUpgradeError {
@@ -291,7 +291,7 @@ enum DatabaseBootService {
                           source: userProbe.observedVersion, target: targetVersion,
                           outcome: .verifyFailed,
                           detail: "found=\(found.map(String.init) ?? "nil") expected=\(expected)",
-                          phases: phaseTimings)
+                          phases: phaseTimings, at: clock())
             throw DatabaseBootFailure.migrationIncomplete(
                 found: found ?? -1, expected: expected)
         } catch {
@@ -302,7 +302,7 @@ enum DatabaseBootService {
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
                           outcome: .openFailed, detail: String(describing: error),
-                          phases: phaseTimings)
+                          phases: phaseTimings, at: clock())
             throw DatabaseBootFailure.openFailed(String(describing: error))
         }
 
@@ -387,10 +387,13 @@ enum DatabaseBootService {
                                       source: Int?, target: Int?,
                                       outcome: MigrationReceipt.Event.Outcome,
                                       detail: String? = nil,
-                                      phases: [MigrationReceipt.Event.Phase] = []) {
+                                      phases: [MigrationReceipt.Event.Phase] = [],
+                                      at: Date) {
         guard let receipt else { return }
         do {
-            try receipt.append(.init(bootId: bootId, at: clock().timeIntervalSince1970,
+            // CI 40797584734 红修复：本函数无 clock 参数，裸 clock() 解析到 C 的
+            // clock_t clock(void)（Linux parse 无信号）——改为调用方注入时刻。
+            try receipt.append(.init(bootId: bootId, at: at.timeIntervalSince1970,
                                      candidates: resolution, chosen: chosen, mode: mode,
                                      sourceVersion: source, targetVersion: target,
                                      outcome: outcome, detail: detail,
