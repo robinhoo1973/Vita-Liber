@@ -97,10 +97,13 @@ struct CatalogSliceProbeTests {
         #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .drug) == .unreadable)
     }
 
-    @Test func missingContractKeyIsViolation() throws {
+    @Test func missingCountsKeyIsUnreadableAtSelfCheck() throws {
+        // CI 40803617992 实证语义：自洽探测的前置预读**只取 counts 键**——
+        // 缺失即在预读阶段按不可读处理（.unreadable），走不到后续契约校验的
+        // missingKey 分支。此处钉真实语义，不在本批改动生产行为。
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
-        let path = dir.appendingPathComponent("missing-key.sqlite").path
+        let path = dir.appendingPathComponent("missing-counts.sqlite").path
         try makeLegalSlice(at: path, kind: .facility)
         let queue = try DatabaseQueue(path: path)
         try queue.write { db in
@@ -108,7 +111,22 @@ struct CatalogSliceProbeTests {
         }
         try queue.close()
         #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .facility)
-                == .contractViolation(.missingKey("counts")))
+                == .unreadable)
+    }
+
+    @Test func missingFormatKeyIsViolation() throws {
+        // 删 format：counts 仍可预读，后置契约校验可达 → missingKey("format")。
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
+        let path = dir.appendingPathComponent("missing-format.sqlite").path
+        try makeLegalSlice(at: path, kind: .facility)
+        let queue = try DatabaseQueue(path: path)
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM slice_meta WHERE key = 'format'")
+        }
+        try queue.close()
+        #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .facility)
+                == .contractViolation(.missingKey("format")))
     }
 
     @Test func badPhysicalSchemaIsViolation() throws {
