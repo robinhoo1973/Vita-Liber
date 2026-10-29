@@ -140,7 +140,12 @@ struct AppRootView: View {
             // 立即取消在途同步——此前只在批次开始与提交事务复核许可，撤销后该类型
             // 剩余窗口仍会继续读取历史数据。单一落点：任一设置页写入本键都经此处。
             .onChangeCompat(of: settingsStore.values[.authHealthRead]) { _, newValue in
-                if newValue == "false" { deviceState.permissionRevoked() }
+                // 与视图侧同一解析口径（SettingsRules.resolved == "true"）：备份
+                // 注入的非法值（如 "0"）按关闭处理，不得因字面量不等于 "false"
+                // 而漏掉撤销即时生效。
+                if SettingsRules.resolved(newValue, key: .authHealthRead) != "true" {
+                    deviceState.permissionRevoked()
+                }
             }
             // 四层补偿第 3 层：时区/时间显著变化 → 立即对账（View 级修饰符）
             .onReceive(NotificationCenter.default.publisher(
@@ -263,8 +268,13 @@ struct AppRootView: View {
                     // （V3.86 接线）：授权 + FR14.1 开关双门控后轻量同步——
                     // 杜绝仅靠手动点击；同步服务幂等（锚点/幂等键），
                     // 无新数据时开销为单次锚点探测
-                    let healthAuthOn = settingsStore.values[.authHealthRead] != "false"
-                    if healthAuthOn, settingsStore.values[.healthAutoImport] != "false", await deviceState.currentAuthorization() {
+                    // 与设置页/健康页同一解析口径：非法存值按关闭（此前 `!= "false"`
+                    // 把 "0" 等脏值当开启——界面显示关闭，回前台却仍探测并同步 HealthKit）。
+                    let healthAuthOn = SettingsRules.resolved(
+                        settingsStore.values[.authHealthRead], key: .authHealthRead) == "true"
+                    let healthAutoOn = SettingsRules.resolved(
+                        settingsStore.values[.healthAutoImport], key: .healthAutoImport) == "true"
+                    if healthAuthOn, healthAutoOn, await deviceState.currentAuthorization() {
                         // 业主 2026-10-20：激活即判完成态。初始未完成 → 从断点立即续导
                         // （30s，优先 pending/history）；已完成 → 只更新缺失部分（3 轮）。
                         let mode = await deviceState.currentImportMode()

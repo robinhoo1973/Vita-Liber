@@ -40,6 +40,13 @@ public actor GRDBPatientPersistor: PatientPersisting {
     /// 业主 2026-09-17 定：注册必要字段 = 特征性数据（血型/出生日期/性别）+ 紧急联系人。
     public func saveOwner(_ owner: LocalOwner, profile: PatientProfile,
                           contact: EmergencyContactDraft?) async throws {
+        try await saveOwner(owner, profile: profile, contact: contact, autoMember: nil)
+    }
+
+    /// 2026-10-30：自动家庭成员与 owner/联系人同一事务（第二参 nil = 不建成员）。
+    public func saveOwner(_ owner: LocalOwner, profile: PatientProfile,
+                          contact: EmergencyContactDraft?,
+                          autoMember: PatientProfile?) async throws {
         try await writer.write { db in
             // §4.2 明示纪律：FK 插入顺序不可调换。local_owner.self_patient_id 与
             // patient_profile.owner_local_id 互为环——同事务三段式破环：
@@ -72,6 +79,20 @@ public actor GRDBPatientPersistor: PatientPersisting {
                     arguments: [UUID().uuidString, profile.id.uuidString, contact.name,
                                 contact.relation, contact.phone,
                                 profile.createdAt, profile.updatedAt])
+            }
+            if let autoMember {
+                // 列形态与 GRDBStore.insert(profile:) 一致（成员 owner_local_id 为 NULL）。
+                try db.execute(
+                    sql: """
+                    INSERT INTO patient_profile
+                      (id, display_name, relation, gender, birth_date, blood_type,
+                       note, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    arguments: [autoMember.id.uuidString, autoMember.displayName,
+                                autoMember.relation, autoMember.gender, autoMember.birthDate,
+                                autoMember.bloodType, autoMember.note,
+                                autoMember.createdAt, autoMember.updatedAt])
             }
         }
     }

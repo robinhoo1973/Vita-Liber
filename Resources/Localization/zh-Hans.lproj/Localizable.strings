@@ -2248,10 +2248,7 @@
 "health.importedEmpty" = "尚无已导入的数据。首次同步会优先导入最近一年。";
 "health.sparseWindowsFmt" = "%d 个小时样本稀疏，未形成小时统计。";
 "health.backgroundSyncFailed" = "后台自动导入注册失败——新数据将仅在手动同步时到达（可重新连接，或到「健康」App 检查本应用的读取权限）。";
-"health.importRange.title" = "导入范围";
 "health.importRange.oneYear" = "最近 365 天";
-"health.importRange.fiveYears" = "最近 5 年";
-"health.importRange.all" = "全部历史";
 "health.importRange.hint" = "固定导入最近 365 天，与一年趋势范围一致。";
 "health.initialImport.progressFmt" = "初始导入进行中：仍有 %@ 类数据待完成；每次打开 App 会从断点继续。";
 "health.initialImport.doneFmt" = "初始导入已于 %@ 完成；之后只同步新增与缺失部分。";

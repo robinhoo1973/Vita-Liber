@@ -99,6 +99,17 @@ struct StartupSelfCheckRowTests {
         #expect(rows.catalog == .skipped)
     }
 
+    /// 2026-10-30 修复：决策快照未发射（nil）但已失败（多库并存等 resolve 期抛错）
+    /// ——行①/②不得显示「待检查」。
+    @Test func failureWithoutDecisionMarksFileFailedSchemaSkipped() {
+        let rows = StartupSelfCheckRows.rows(
+            Self.facts(probe: Self.probeMissingNoOriginals, decision: nil,
+                       facadeCommitted: false, didFail: true))
+        #expect(rows.file == .failed)
+        #expect(rows.schema == .skipped)
+        #expect(rows.catalog == .skipped)
+    }
+
     @Test func migrateFailureMarksSchemaFailedNotUpdated() {
         let rows = StartupSelfCheckRows.rows(
             Self.facts(decision: .migrate(from: 48, to: 49),

@@ -165,6 +165,21 @@ struct HealthTabView: View {
                         }
                     }
                 }
+                // §6 行内错误：同步失败/未完成如实提示并可重试（此前只落账 SP-29，
+                // 从健康 Tab 发起的失败在页面上静默消失）。
+                if case .degraded(let message) = deviceState.phase {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        Spacer(minLength: 8)
+                        Button(L10n.retry) { Task { await syncNow() } }
+                            .font(.footnote)
+                            .frame(minHeight: 44)
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("SP-29.health.home.syncFailed")
+                }
                 // 2026-10-05 业主反馈修复批（第 3 项）：原「健康设备与数据」信息卡
                 // 替换为**立即同步**主行动按钮——已连接用户一键同步（本页与 SP-29
                 // 消费同一 F16DeviceState 状态机，不复制第二写面）；管理入口降级为

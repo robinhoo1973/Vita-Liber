@@ -99,6 +99,12 @@ public enum StartupSelfCheckRows {
                     schema = .skipped
                 }
             }
+        } else if facts.didFail {
+            // 2026-10-30 审查修复：失败可能发生在决策快照发射之前（如多库并存的
+            // resolve 阶段抛错，bootSnapshot 恒 nil）。失败卡在屏时行①/②不得
+            // 显示「待检查」——按未校验事实落 failed/skipped（ui-ux §5.12.5）。
+            file = .failed
+            schema = .skipped
         } else {
             file = facts.isWorking ? .running : .pending
             schema = facts.isWorking ? .running : .pending

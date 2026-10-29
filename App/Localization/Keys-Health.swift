@@ -40,11 +40,9 @@ extension L10n {
 
     static var healthImportSettingsTitle: String { t("health.settingsTitle") }
 
-    // 业主 2026-10-20：导入范围选择 + 初始完成态
-    static var healthImportRangeTitle: String { t("health.importRange.title") }
+    // 业主 2026-10-20：导入范围固定最近 365 天（V4.47 起无范围选择；
+    // title/fiveYears/all 三个选项键已随 Picker 退役删除，2026-10-30 清理）。
     static var healthImportRangeOneYear: String { t("health.importRange.oneYear") }
-    static var healthImportRangeFiveYears: String { t("health.importRange.fiveYears") }
-    static var healthImportRangeAll: String { t("health.importRange.all") }
     static var healthImportRangeHint: String { t("health.importRange.hint") }
     static func healthInitialImportProgress(_ remainingKinds: Int) -> String {
         t("health.initialImport.progressFmt").replacingOccurrences(

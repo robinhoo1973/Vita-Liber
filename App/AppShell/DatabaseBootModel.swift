@@ -298,6 +298,9 @@ final class DatabaseBootModel: ObservableObject {
     /// 视图用：强制首启下载态（决定卡片标题「（必需）/（可选）」叙事）。
     var isCatalogMandatory: Bool { mandatoryFirstLaunchDownload }
 
+    /// 首启向导未完成（经注入 defaults 读取；视图不得直连 UserDefaults）。
+    var isFirstLaunchOnboarding: Bool { !defaults.bool(forKey: "onboardingFinished") }
+
     private var mandatoryFirstLaunchDownload: Bool {
         guard !defaults.bool(forKey: "onboardingFinished"),
               let slices = catalogSlices else { return false }
@@ -477,6 +480,10 @@ final class DatabaseBootModel: ObservableObject {
             if !awaitingCatalogChoice { autoEnter.cancel() }
             return
         }
+        // 2026-10-30 审查修复：行④检查/下载可能持续数十秒，首次计时锚点
+        // （bootTerminalAt）早已过期——不重锚则交接立即发生，刚出现的
+        // 「均为最新/失败」结果与播报来不及呈现。结束后从此刻重算可见窗口。
+        bootTerminalAt = now()
         trySchedulePassiveHandoff()
     }
 

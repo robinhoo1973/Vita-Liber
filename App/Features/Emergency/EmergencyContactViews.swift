@@ -94,7 +94,11 @@ struct EmergencyContactListView: View {
                     let saved = await hub.saveEmergencyContact(patientId: patientId,
                                                                id: target.contact?.id,
                                                                draft: draft)
-                    if saved {
+                    // 2026-10-30 审查修复：自动入成员只属于「新建联系人」——
+                    // 编辑既有联系人（哪怕只改电话）重跑规则会把用户已删除的同名
+                    // 成员复活（loadMembers 不含 deleted_at 行，规则判「无同名」），
+                    // 用户在成员页的删除决定被静默推翻。关系改判由成员页显式补录。
+                    if saved, target.contact == nil {
                         await autoAddMemberIfNeeded(draft)
                     }
                     return saved

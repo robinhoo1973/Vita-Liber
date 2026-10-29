@@ -10,6 +10,11 @@ public protocol PatientPersisting: Sendable {
     /// 本机注册原子流（data-flow V2.31，业主 2026-09-17 定）：local_owner + 本人
     /// patient_profile + 首位紧急联系人同一事务落库；contact nil = 只建身份不建联系人。
     func saveOwner(_ owner: LocalOwner, profile: PatientProfile, contact: EmergencyContactDraft?) async throws
+    /// 注册 +（可选）自动家庭成员同一事务落库（2026-10-30 业主：建档时填写的
+    /// 家庭成员紧急联系必须自动进入常用成员；两次写入会留下「联系人已存、
+    /// 成员缺失」的半状态，且磁盘满载/DB busy 时用户看不到任何提示）。
+    func saveOwner(_ owner: LocalOwner, profile: PatientProfile,
+                   contact: EmergencyContactDraft?, autoMember: PatientProfile?) async throws
     /// F3 成员管理（FR3.7 添加家人）：saveOwner 的同族成员写入/读取。
     func saveMember(_ profile: PatientProfile) async throws
     func members() async throws -> [PatientProfile]
@@ -33,6 +38,14 @@ public extension PatientPersisting {
     /// 生产 `GRDBPatientPersistor` 以三参事务覆盖。
     func saveOwner(_ owner: LocalOwner, profile: PatientProfile, contact: EmergencyContactDraft?) async throws {
         try await saveOwner(owner, profile: profile)
+    }
+
+    /// 默认 = 三参形态 + 成员写入（测试替身/旧实现零改动）。
+    /// 生产 `GRDBPatientPersistor` 覆盖为单事务：自动成员不得与联系人分叉。
+    func saveOwner(_ owner: LocalOwner, profile: PatientProfile,
+                   contact: EmergencyContactDraft?, autoMember: PatientProfile?) async throws {
+        try await saveOwner(owner, profile: profile, contact: contact)
+        if let autoMember { try await saveMember(autoMember) }
     }
 
     /// 默认忽略审计（测试替身/旧实现零改动）；生产 GRDB 实现覆盖。

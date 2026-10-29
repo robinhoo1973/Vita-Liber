@@ -28,6 +28,12 @@ struct MemberRelationTests {
         #expect(MemberRelation(tolerant: "妻子") == .partner, "常见同义归并")
         #expect(MemberRelation(tolerant: "舅舅") == .other, "未知值归 other")
         #expect(MemberRelation(tolerant: "") == .other)
+        // 2026-10-30：遗留英文词表（旧引导落库形态）必须可识别为家庭成员，
+        // 否则自动入成员规则在旧数据上静默失效。
+        #expect(MemberRelation(tolerant: "partner") == .partner)
+        #expect(MemberRelation(tolerant: "Spouse") == .partner)
+        #expect(MemberRelation(tolerant: " father ") == .father)
+        #expect(MemberRelation(tolerant: "other") == .other)
     }
 
     @Test("粗粒度归并：父亲/母亲→父母，儿子/女儿→子女")

@@ -120,10 +120,25 @@ final class SecurityGateAcceptanceTests: XCTestCase {
                                        bloodType: "O+", contact: EmergencyContactDraft(
                                            name: "李四", relation: "partner", phone: "13800138000"))
         XCTAssertTrue(ok, "createOwner 落库失败（patient_profile 行缺失）")
+        // 2026-10-30 业主：家庭成员关系的紧急联系人自动加入常用成员——
+        // 建档后 patient_profile = 本人 + 李四（配偶）两行。
         let count = try await container.store.writer.read {
             try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM patient_profile") ?? 0
         }
-        XCTAssertEqual(count, 1, "建档后 patient_profile 必须恰有一行")
+        XCTAssertEqual(count, 2, "建档后 patient_profile 必须恰有两行（本人 + 自动加入的配偶）")
+        let member = try await container.store.writer.read {
+            try Row.fetchOne($0, sql: """
+                SELECT display_name, relation FROM patient_profile WHERE relation <> '本人'
+                """)
+        }
+        if let member {
+            XCTAssertEqual(member["display_name"] as String?, "李四",
+                           "紧急联系人必须自动成为家庭成员")
+            XCTAssertEqual(member["relation"] as String?, "配偶",
+                           "成员关系取粗粒度中文（与成员页显示同一词表）")
+        } else {
+            XCTFail("自动加入的家庭成员行缺失")
+        }
         return app.currentPatientId
     }
 
@@ -239,8 +254,20 @@ final class SecurityGateAcceptanceTests: XCTestCase {
         let ownerCount = try await container.store.writer.read {
             try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM local_owner") ?? 0
         }
-        XCTAssertEqual(profileCount, 1, "patient_profile 必须出现「本人」档案行")
+        // 2026-10-30 业主：配偶关系的紧急联系人自动成为成员（1 本人 + 1 配偶）。
+        XCTAssertEqual(profileCount, 2, "patient_profile 必须出现「本人」+ 自动加入的配偶两行")
         XCTAssertEqual(ownerCount, 1, "local_owner 必须出现所有者行")
+        let autoAdded = try await container.store.writer.read {
+            try Row.fetchOne($0, sql: """
+                SELECT display_name, relation FROM patient_profile WHERE relation = '配偶'
+                """)
+        }
+        if let autoAdded {
+            XCTAssertEqual(autoAdded["display_name"] as String?, "李四")
+            XCTAssertEqual(autoAdded["relation"] as String?, "配偶")
+        } else {
+            XCTFail("配偶关系的紧急联系人未自动加入家庭成员")
+        }
     }
 
     /// BR-003 活管线：确认集未全部确认时，只有已确认字段进入正式区——

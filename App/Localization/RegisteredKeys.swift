@@ -291,8 +291,7 @@ extension L10n {
     "health.backfillLane.history",
     // 2026-09-19 审查修复：后台自动导入注册失败如实呈现（SP-29）
     "health.backgroundSyncFailed",
-    // 业主 2026-10-20：导入范围 + 初始完成态
-    "health.importRange.title",
+    // 业主 2026-10-20：导入范围固定最近 365 天（范围选项键随 Picker 退役）
     "health.syncInterval.title",
     "health.syncInterval.hint",
     "health.syncInterval.hourly",
@@ -303,8 +302,6 @@ extension L10n {
     "home.healthSync.active",
     "home.healthSync.progressFmt",
     "health.importRange.oneYear",
-    "health.importRange.fiveYears",
-    "health.importRange.all",
     "health.importRange.hint",
     "health.initialImport.progressFmt",
     "health.initialImport.doneFmt",

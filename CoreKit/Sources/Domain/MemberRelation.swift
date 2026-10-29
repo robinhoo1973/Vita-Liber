@@ -28,13 +28,29 @@ public enum MemberRelation: String, Sendable, Equatable, CaseIterable, Codable {
 
     /// 容错解析：存储/遗留值 → 枚举。未知值归 `.other`（显示层仍走原文，不丢内容）；
     /// 常见同义（丈夫/妻子）归并到配偶。
+    /// 2026-10-30：补英文旧词表（partner/child/…）——引导流程曾以英文 rawValue
+    /// 落库（`L10n.memberRelationDisplayName` 早有同义映射），此前这里一律归
+    /// `.other`，导致旧数据上的「紧急联系人自动入成员」静默失效。
     public init(tolerant raw: String) {
         if let known = MemberRelation(rawValue: raw) {
             self = known
             return
         }
         switch raw {
-        case "丈夫", "妻子", "丈夫 ", "老婆": self = .partner
+        case "丈夫", "妻子", "丈夫 ", "老婆":
+            self = .partner
+            return
+        default: break
+        }
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "partner", "spouse": self = .partner
+        case "child": self = .child
+        case "parent": self = .parent
+        case "grandparent": self = .grandparent
+        case "father": self = .father
+        case "mother": self = .mother
+        case "son": self = .son
+        case "daughter": self = .daughter
         default: self = .other
         }
     }

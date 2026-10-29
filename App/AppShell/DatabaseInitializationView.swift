@@ -76,13 +76,17 @@ struct DatabaseInitializationView: View {
                 if model.failure == nil && model.awaitingCatalogChoice {
                     catalogCard
                 } else {
+                    // 2026-10-30 业主（启动自检布局）：失败态把补救动作紧跟标题。
+                    // 此前失败卡排在隐私行 + 整份四行清单之后，小屏首屏看不到
+                    // [重试]——用户要先滚动才知道能做什么（HIG 错误态：说明与
+                    // 恢复动作同屏）。清单仍在下方作为诊断详情。
+                    if let failure = model.failure {
+                        failureCard(failure)
+                            .transition(.opacity)
+                    }
                     selfCheckSection
                 }
                 privacyRow
-                if let failure = model.failure {
-                    failureCard(failure)
-                        .transition(.opacity)
-                }
             }
             .padding(24)
             .frame(maxWidth: 520)
@@ -249,8 +253,23 @@ struct DatabaseInitializationView: View {
         }
         .frame(minHeight: 64)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(L10n.startupCheckA11yRowFmt(Int64(index), title, stateText))
+        // 显式 label 会覆盖 children:.combine 的合成结果——detail/note 必须
+        // 并入 label，否则 VoiceOver 只剩「第 N 项，标题，状态」，版本号、
+        // 迁移说明、「可选 · 未安装」等诊断信息全部丢失。
+        .accessibilityLabel(Self.rowAccessibilityLabel(
+            index: index, title: title, stateText: stateText,
+            detail: detail, note: note))
         .accessibilityIdentifier("STARTUP.selfcheck.\(identifier)")
+    }
+
+    /// 行朗读文本：标题行 + 说明 + 注释（空格分隔，无硬编码标点，三语通用）。
+    private static func rowAccessibilityLabel(index: Int, title: String,
+                                              stateText: String,
+                                              detail: String?, note: String?) -> String {
+        var parts = [L10n.startupCheckA11yRowFmt(Int64(index), title, stateText)]
+        if let detail, !detail.isEmpty { parts.append(detail) }
+        if let note, !note.isEmpty { parts.append(note) }
+        return parts.joined(separator: " ")
     }
 
     private func rowHStack(title: String, state: StartupSelfCheckRowState,
@@ -399,14 +418,21 @@ struct DatabaseInitializationView: View {
 
     // MARK: 行③ 医疗数据目录
 
+    /// 展示口径必须走 `displayHealth(for:)`：读面未提交（失败/advisory）的切片
+    /// 即使探测健康也不得计入「已安装」——直接读 sliceHealth 会把未挂载的片
+    /// 报成 ready（假绿，与行③ Domain 推导口径分叉）。
     private var readySliceCount: Int {
-        let health = model.bootSnapshot?.sliceHealth ?? [:]
-        return CatalogSliceKind.allCases.filter { health[$0] == .ready }.count
+        guard let snapshot = model.bootSnapshot else { return 0 }
+        return CatalogSliceKind.allCases.filter { snapshot.displayHealth(for: $0) == .ready }.count
     }
 
     private var missingRequiredSliceCount: Int {
-        let health = model.bootSnapshot?.sliceHealth ?? [:]
-        return CatalogSliceBootPolicy.startupRequiredKinds.filter { health[$0] != .ready }.count
+        guard let snapshot = model.bootSnapshot else {
+            return CatalogSliceBootPolicy.startupRequiredKinds.count
+        }
+        return CatalogSliceBootPolicy.startupRequiredKinds.filter {
+            snapshot.displayHealth(for: $0) != .ready
+        }.count
     }
 
     private func catalogDetail(_ state: StartupSelfCheckRowState) -> String? {
@@ -426,8 +452,8 @@ struct DatabaseInitializationView: View {
     /// profile 第四片「可选 · 未安装」（O4：可选但常显；不阻塞、不告警）。
     private func catalogNote(_ state: StartupSelfCheckRowState) -> String? {
         guard state == .passed,
-              let health = model.bootSnapshot?.sliceHealth,
-              health[.profile] != .ready else { return nil }
+              let snapshot = model.bootSnapshot,
+              snapshot.displayHealth(for: .profile) != .ready else { return nil }
         return L10n.startupCheckStateOptional
     }
 
@@ -450,7 +476,7 @@ struct DatabaseInitializationView: View {
         case .sourcePartial:
             // Aggregate.sourcePartial 无载荷（B3 评审修复：计数经 descriptor 取）。
             if case .sourcePartial(let count) =
-                CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status {
+                CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status {
                 return L10n.startupCheckUpdatesSourcePartialFmt(Int64(count))
             }
             return L10n.resourceCatalogSlicesAllCurrent
@@ -458,7 +484,7 @@ struct DatabaseInitializationView: View {
             // 一败其余最新时 aggregate 亦为 .partialFailure 且候选为空
             // （B3 评审修复：不得显示「0 个可更新」，走失败短语）。
             if slices.candidates.isEmpty {
-                let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status
+                let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status
                 return Self.statusText(status, slices: slices)
             }
             return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
@@ -468,7 +494,9 @@ struct DatabaseInitializationView: View {
             // checker 缺失=未发布/未配置，从未发起网络（B3 评审修复）。
             return L10n.resourceCatalogUnavailable
         case .allFailed:
-            return L10n.startupCheckUpdatesOffline
+            // .allFailed = 四片远端检查全失败，可能是离线，也可能是服务端/
+            // 协议错误——固定「连不上网络」会误导用户去查 Wi-Fi。
+            return L10n.resourceCatalogSlicesCheckFailed
         }
     }
 
@@ -490,21 +518,29 @@ struct DatabaseInitializationView: View {
 
     private var updatesFooterRow: some View {
         let stateText = Self.stateText(updatesState)
-        return HStack(alignment: .top, spacing: 12) {
-            rowIcon("arrow.triangle.2.circlepath", state: updatesState)
-            rowText(title: L10n.startupCheckRowUpdates, detail: updatesDetail, note: nil)
-            Spacer(minLength: 8)
+        // 2026-10-30 业主（启动自检布局）：行④此前是「三行文案 + 竖排 64pt 按钮」
+        // 同一行——按钮被拉成一条细长胶囊、与文字顶部对齐，非常难看。改为
+        // 文案在上、整行按钮在下（与首启卡同一纵向按钮纪律，命中区仍 ≥64pt）。
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                rowIcon("arrow.triangle.2.circlepath", state: updatesState)
+                rowText(title: L10n.startupCheckRowUpdates, detail: updatesDetail, note: nil)
+                Spacer(minLength: 8)
+            }
             Button {
-                model.checkCatalog()
+                // 走 perform(.check) 而非直连模型：网络门（离线/仅 Wi-Fi
+                // 策略）必须先判——直连会绕过提示直接发起网络请求。
+                perform(.check)
             } label: {
                 Text(L10n.startupCheckUpdatesCheck)
-                    .frame(minHeight: 64)
+                    .frame(maxWidth: .infinity, minHeight: 64)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.bordered)
             .disabled(updatesBusy || model.catalogSlices == nil)
             .accessibilityIdentifier("STARTUP.selfcheck.updates.check")
             .accessibilityHint(L10n.startupCheckUpdatesTapNote)
+            .padding(.leading, 40)
         }
         .padding(.vertical, 12)
         // 含子按钮 → 必须 .contain（L0 第 17 节）。
@@ -559,7 +595,7 @@ struct DatabaseInitializationView: View {
     @ViewBuilder
     private var catalogCard: some View {
         if let slices = model.catalogSlices {
-            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: !UserDefaults.standard.bool(forKey: "onboardingFinished"), networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy)
+            let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy)
             let size = Self.candidateSizeText(descriptor.status)
             let statusText = Self.statusText(descriptor.status, slices: slices)
 
@@ -585,11 +621,9 @@ struct DatabaseInitializationView: View {
                 if case .phase(_, let progress) = descriptor.status {
                     catalogProgress(progress)
                 }
-                if case .phase(_, .activating) = descriptor.status {
-                    Text(L10n.startupCatalogActivating)
-                        .font(.footnote)
-                        .foregroundStyle(Color("semantic-warning", bundle: .main))
-                }
+                // 激活阶段「正在完成安装，请勿关闭」由主按钮禁用态标题承载
+                //（primaryTitle .busy → startupCatalogActivating）——此前此处
+                // 再补一行同文案，同屏出现两遍完全相同的提醒。
                 catalogActions(descriptor, sizeText: size)
             }
             .padding(16)
@@ -598,8 +632,11 @@ struct DatabaseInitializationView: View {
             // 容器标识必须配 .contain，否则标识会压到子按钮上（L0 第 17 节）。
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("STARTUP.catalog")
-            // 播报纪律（§5.12.4）：只在状态短语变化时播一次；下载字节变化不播。
-            .onChangeCompat(of: Self.cardPhaseKey(descriptor.status)) { _, _ in
+            // 播报纪律（§5.12.4）：只播结果态（候选/完成/最新/失败/需升级），
+            // 阶段切换（下载/校验/解密/激活）不播——此前每个阶段都整句朗读，
+            // 一次下载连续打断 VoiceOver 五次以上；字节变化本就不触发。
+            .onChangeCompat(of: Self.cardPhaseKey(descriptor.status)) { _, key in
+                guard let key, Self.isAnnounceableCatalogKey(key) else { return }
                 UIAccessibility.post(notification: .announcement, argument: statusText)
             }
             .onChangeCompat(of: descriptor.autoEnter) { _, autoEnter in
@@ -647,7 +684,10 @@ struct DatabaseInitializationView: View {
                     Text(Self.secondaryTitle(secondary))
                         .frame(maxWidth: .infinity, minHeight: 64)
                 }
-                .buttonStyle(.plain)
+                // 2026-10-30 业主（按钮样式）：次动作此前 `.plain`——64pt 命中区
+                // 不可见，整行只剩一行蓝字悬在空中，用户分不清是不是按钮。
+                // 次动作 = 描边按钮（仍低于主按钮的实心强调，符合 HIG 分层）。
+                .buttonStyle(.bordered)
                 .contentShape(Rectangle())
                 .accessibilityIdentifier("STARTUP.catalog.continue")
                 .accessibilityHint(secondaryHint(secondary))
@@ -757,6 +797,13 @@ struct DatabaseInitializationView: View {
         }
     }
 
+    /// 播报白名单：结果态才打断 VoiceOver；进行态（checking/phase）静默。
+    private static func isAnnounceableCatalogKey(_ key: String) -> Bool {
+        key == "completed" || key == "upToDate" || key == "unavailable"
+            || key.hasPrefix("candidate-") || key.hasPrefix("failed-")
+            || key.hasPrefix("appRequired-")
+    }
+
     private static func primaryTitle(_ action: MedicalCatalogPromptAction,
                                      status: CatalogSlicesPromptStatus,
                                      sizeText: String?) -> String {
@@ -821,18 +868,6 @@ struct DatabaseInitializationView: View {
         .accessibilityIdentifier("STARTUP.catalog.progress")
     }
 
-    /// 稳定阶段键：只播报阶段切换，下载字节变化不触发播报。
-    private func catalogPhaseKey(_ progress: MedicalCatalogDownloadProgress?) -> String {
-        guard let progress else { return "idle" }
-        switch progress {
-        case .downloading: return "downloading"
-        case .verifyingPackage: return "verifyingPackage"
-        case .decrypting: return "decrypting"
-        case .verifyingCatalog: return "verifyingCatalog"
-        case .activating: return "activating"
-        }
-    }
-
     private func percentText(_ received: Int64, _ total: Int64) -> String {
         guard total > 0 else { return "" }
         return "\(min(100, received * 100 / total))%"
@@ -847,7 +882,11 @@ struct DatabaseInitializationView: View {
     private var iconBadge: some View {
         Image(systemName: model.failure == nil ? "heart.text.square.fill" : "exclamationmark.triangle.fill")
             .font(VLFont.homeActionIcon)
-            .foregroundStyle(model.failure == nil ? Color.accentColor : Color("semantic-warning", bundle: .main))
+            // token-only（§3.0）：强调色走 brand-primary，不用系统 accentColor
+            //（本页在会话之前，改主题/全局 accent 时不得漂移出品牌色）。
+            .foregroundStyle(model.failure == nil
+                             ? Color("brand-primary", bundle: .main)
+                             : Color("semantic-warning", bundle: .main))
             .frame(width: 88, height: 88)
             .background(.thinMaterial, in: Circle())
             .accessibilityHidden(true)

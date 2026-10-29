@@ -148,6 +148,15 @@ final class F16DeviceState {
         phase = .degraded(L10n.f16AuthDisabled)
     }
 
+    /// 读取许可重新开启（2026-10-30 审查修复）：清掉撤销写入的「已关闭」
+    /// 降级态，否则 SP-29 在功能已开启时仍挂着红色警告直到离开页面。
+    /// 只清这条已知撤销文案——真实同步失败保持可见。
+    func permissionRestored() {
+        if case .degraded(let message) = phase, message == L10n.f16AuthDisabled {
+            phase = .idle
+        }
+    }
+
     /// 本轮同步代次（2026-09-19 审查修复：轮询守卫——只有同代次的中间报告可以
     /// 回填；终态回填后递增使轮询失效，杜绝旧轮询的迟到刻度覆盖终态报告）。
     private var syncEpoch = 0
@@ -581,10 +590,17 @@ struct DeviceConnectionView: View {
             case .disabled:
                 Label(L10n.f16AuthDisabled, systemImage: "heart.slash")
             case .unavailable:
-                // H-N4：设备不提供 HealthKit（iPadOS、无 HealthKit 的设备）——如实说明，
-                // 不再渲染永久禁用的请求按钮（注意 iPhone 模拟器提供 HealthKit，不可达本态）。
-                Label(L10n.healthUnavailable, systemImage: "iphone.slash")
-                    .accessibilityIdentifier("SP-29.health.unavailable")
+                // `available == false` 在探测前同样成立（HealthTabView:72 同族）——
+                // 未探测就渲染「此设备不提供 Apple 健康数据」是对 iPhone 的假事实。
+                if deviceState.availabilityProbed {
+                    // H-N4：设备不提供 HealthKit（iPadOS、无 HealthKit 的设备）——如实说明，
+                    // 不再渲染永久禁用的请求按钮。
+                    Label(L10n.healthUnavailable, systemImage: "iphone.slash")
+                        .accessibilityIdentifier("SP-29.health.unavailable")
+                } else {
+                    ProgressView().controlSize(.small)
+                        .accessibilityIdentifier("SP-29.health.probing")
+                }
             case .ownerMissing:
                 // H-N3：Apple 健康只能导入到本人名下（BR-001）——引导建档，不是同步失败
                 Label(L10n.healthOwnerMissing, systemImage: "person.crop.circle.badge.exclamationmark")
@@ -722,7 +738,10 @@ struct DeviceConnectionView: View {
                 // `HealthImportVisibility.state` 只吃读取许可（authHealthRead），
                 // 「自动导入」开关不影响判定，此前每翻一次都白跑一轮 6 类 COUNT/MAX
                 // 加绑定/档案读取；后台观察注册（updateAutomation）与开关确实相关，保留。
-                if key == .authHealthRead { await deviceState.refreshDashboard() }
+                if key == .authHealthRead {
+                    await deviceState.refreshDashboard()
+                    if value { deviceState.permissionRestored() }
+                }
             }
         })
     }
@@ -959,6 +978,15 @@ struct HealthImportedDataView: View {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
+    /// 日卡标识键：ISO 公历 yyyy-MM-dd（与界面语言无关，XCUITest 稳定定位）。
+    private static func dayKey(_ day: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: day)
+    }
+
     /// 同日折叠分组（审查修复，业主 2026-09-18）：同一日期的读数并为一卡。
     /// 分组在已加载行之上计算——翻页追加后自动重排；键 = Calendar.startOfDay
     /// （日历日，DST 安全）。列表按时间倒序加载，分组序即日期倒序。
@@ -1075,14 +1103,36 @@ struct HealthImportedDataView: View {
                                                 .font(.subheadline)
                                             Text(L10n.healthImportedDayCount(group.rows.count))
                                                 .font(.caption).foregroundStyle(.secondary)
+                                                .accessibilityIdentifier("SP-29.health.importedDayCount")
                                         }
                                     }
                                     .frame(minHeight: 44)
                                 }
-                                .accessibilityIdentifier("SP-29.health.dayCard")
+                                .accessibilityElement(children: .contain)
+                                .accessibilityIdentifier("SP-29.health.dayCard.\(Self.dayKey(group.day))")
                             }
-                            if loading { ProgressView() }
-                            else if hasMore { Button(failed ? L10n.retry : L10n.healthLoadMore) { Task { await load() } } }
+                            if rows.isEmpty && loading {
+                                // §6 加载态：列表首载用骨架屏，禁旋转菊花
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(0..<2, id: \.self) { _ in
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .fill(Color(.systemGray5))
+                                            .frame(height: 56)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                                .accessibilityIdentifier("SP-29.health.data.loading")
+                            } else if hasMore {
+                                Button {
+                                    Task { await load() }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        if loading { ProgressView().controlSize(.small) }
+                                        Text(failed ? L10n.retry : L10n.healthLoadMore)
+                                    }
+                                }
+                                .disabled(loading)
+                            }
                             if failed {
                                 Text(L10n.f16SyncFailed)
                                     .foregroundStyle(Color("semantic-warning", bundle: .main))

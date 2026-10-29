@@ -175,11 +175,18 @@ final class AppState {
         } catch {
             logger.error("持久化加载失败: \(error)")
         }
+        // 2026-10-30 审查修复：owner 已落库但向导未完（在 ④ 添加家人时杀进程），
+        // 重启后 stage 回落到三卡续填 → 全部已确认 → .ownerName，用户被要求
+        // 二次建档（同一身份两条 local_owner/本人档案）。owner 存在即三卡已过，
+        // 直接续到 ④；未完成成员补录不阻断（可跳过）。
+        if owner != nil && !onboardingFinished {
+            stage = .addFamily
+        }
         // 审查修复（FR20.5 断点续填）：裸索引恢复不校验版本——① 卡版本升级后
         // 旧版本确认过的卡被跳过、修订条款永不重新确认；② 完成三卡后杀进程
         // 重启会被 clamp 重放最后一张已接受的卡。重启后从「第一个未以当前版本
         // 确认的卡」续填；全部已确认则越过三卡进入建档。
-        if case .disclosure(let idx) = stage, idx > 0 {
+        else if case .disclosure(let idx) = stage, idx > 0 {
             let firstUnconfirmed = disclosureCards.firstIndex { card in
                 !consentRecords.contains { $0.key == card.key && $0.version == card.version }
             }
@@ -298,16 +305,44 @@ final class AppState {
     /// 身份原子提交单出口：DB 事务成功 → 内存 → defaults → stage。
     private func commitOwner(_ o: LocalOwner, profile: PatientProfile,
                              contact: EmergencyContactDraft?) async -> Bool {
+        // 2026-10-30 业主：首启建档时填写的紧急联系人，若关系是家庭成员
+        //（配偶/子女/父母/祖父母），必须自动进入常用成员——与急救卡编辑
+        //（EmergencyContactListView.autoAddMemberIfNeeded）同一 Domain 规则，
+        // 否则成员列表只剩「本人」，用户需再手工录一遍同一人。
+        // 与 owner/联系人同一事务落库：不得留下「联系人已存、成员缺失」半状态。
+        let autoMember = autoMemberProfile(contact, ownerName: profile.displayName)
         do {
-            try await persistor.saveOwner(o, profile: profile, contact: contact)
+            try await persistor.saveOwner(o, profile: profile, contact: contact,
+                                          autoMember: autoMember)
         } catch {
             logger.error("建档落库失败，不推进向导: \(error)")
             return false
         }
         owner = o
         defaults.set(profile.id.uuidString, forKey: "selfPatientId")
+        // 事务后刷新成员投影（此前要等成员页/首页 .task 才加载：addFamily 步
+        // 的成员计数与首页档案进度在向导窗口内会少算本人）。
+        await loadMembers()
         stage = .addFamily      // FR21.9：建档后进 ④ 添加家人（可跳过）
         return true
+    }
+
+    /// 紧急联系人 → 成员档案（FR3.7 与 SP-05 同一规则出口）；nil = 不自动加入。
+    /// 首次建档时成员数恒为 1（本人），加 1 人不可能越过免费上限——
+    /// 首启属永久免费面，不读 EntitlementStore；成员页入口另判配额。
+    private func autoMemberProfile(_ contact: EmergencyContactDraft?,
+                                   ownerName: String) -> PatientProfile? {
+        guard let contact, EmergencyContactMemberRules.shouldAutoAddMember(
+            name: contact.name,
+            relation: contact.relation,
+            existingMemberNames: members.filter { $0.deletedAt == nil }.map(\.displayName)
+                + [ownerName]
+        ) else { return nil }
+        let relation = MemberRelation(tolerant: contact.relation)
+        let name = contact.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let now = Date().timeIntervalSince1970
+        return PatientProfile(displayName: name, relation: relation.coarse.rawValue,
+                              createdAt: now, updatedAt: now)
     }
 
     /// FR21.9 ④ 添加家人（可跳过）——向导最后一步，完成即结束首启流程
