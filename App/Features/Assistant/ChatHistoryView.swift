@@ -45,10 +45,12 @@ struct ChatHistoryView: View {
     }
 
     private var historyFailedEmpty: some View {
-        VLUnavailableView(L10n.assistantHistoryLoadFailed,
-                          systemImage: "exclamationmark.triangle") {
-            retryButton
-        }
+        // （title, systemImage:）重载没有 actions 槽——重试按钮须走 label+actions 重载
+        // （同 RouteDestinationView 文档失败态；CI 40893094838 编译错「trailing closure
+        // passed to parameter of type 'Text'」的根因）。
+        VLUnavailableView {
+            Label(L10n.assistantHistoryLoadFailed, systemImage: "exclamationmark.triangle")
+        } actions: { retryButton }
     }
 
     private var retryButton: some View {
