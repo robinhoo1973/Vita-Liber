@@ -128,6 +128,9 @@ final class BootSnapshotSequenceTests: XCTestCase {
 
     /// 批 ④（2026-10-29）：`.ready` 决策下切片全验与 open 并发交叠——
     /// 时序确定性证明：probe 开始早于 open 结束，且 open 开始早于 probe 结束。
+    /// run 40821125910 红修复：原实现靠 Thread.sleep 赌 utility 任务被及时调度
+    /// （macOS 跑者较闲时 open 先完成、probe 后启动，两时间戳同秒）。改为两闭包
+    /// 互为门闩的有界等待——交叠由结构保证，不再依赖协作池调度时机。
     func testReadyDecisionOverlapsSliceProbesWithOpen() async throws {
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
@@ -141,6 +144,18 @@ final class BootSnapshotSequenceTests: XCTestCase {
             func time(_ label: String) -> Date? {
                 lock.lock(); defer { lock.unlock() }
                 return events.first { $0.0 == label }?.1
+            }
+
+            /// 有界轮询等待事件出现（协作池只保证 `Task.detached` 创建先于 open
+            /// 调用，不保证 utility 任务在 open 完成前拿到线程——互为门闩把
+            /// 「交叠」从调度运气变成结构必然）。
+            func waitFor(_ label: String, timeout: TimeInterval = 10) -> Bool {
+                let deadline = Date().addingTimeInterval(timeout)
+                while Date() < deadline {
+                    if time(label) != nil { return true }
+                    Thread.sleep(forTimeInterval: 0.001)
+                }
+                return false
             }
         }
         let timeline = Timeline()
@@ -159,13 +174,13 @@ final class BootSnapshotSequenceTests: XCTestCase {
             probePatient: { _, _ in readySnapshot },
             probeSlice: { _, _ in
                 timeline.mark("probeStart")
-                Thread.sleep(forTimeInterval: 0.2)
+                _ = timeline.waitFor("openStart")
                 timeline.mark("probeEnd")
                 return .ready
             },
             open: { _, _, _ in
                 timeline.mark("openStart")
-                Thread.sleep(forTimeInterval: 0.05)
+                _ = timeline.waitFor("probeStart")
                 timeline.mark("openEnd")
                 return try GRDBStore.inMemory()
             })
