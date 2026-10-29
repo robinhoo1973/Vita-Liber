@@ -95,6 +95,26 @@ extension L10n {
     static var assistantVoiceMessage: String { t("assistant.voiceMessage") }
     static var assistantVoiceReplay: String { t("assistant.voiceReplay") }
     static var assistantVoiceToText: String { t("assistant.voiceToText") }
+    // 2026-10-29 批三（mock v4 对照）：OCR/ASR 卡片化回复 + 媒体详情双 tab。
+    // 回复模板只陈述识别事实与边界，不含任何内容解读（BR-006 措辞负清单）。
+    static func assistantOcrReply(_ fields: Int) -> String {
+        String(format: t("assistant.ocrReplyFmt"), fields)
+    }
+    static var assistantVoiceReply: String { t("assistant.voiceReply") }
+    static var assistantOcrReplyPlain: String { t("assistant.ocrReplyPlain") }
+    static var assistantMediaDetailHint: String { t("assistant.mediaDetailHint") }
+    static var assistantMediaLoadFailed: String { t("assistant.mediaLoadFailed") }
+    static var assistantMediaLegacyNote: String { t("assistant.mediaLegacyNote") }
+    static var assistantMediaDetailTitle: String { t("assistant.mediaDetailTitle") }
+    static var assistantMediaTabText: String { t("assistant.mediaTabText") }
+    static var assistantMediaTabCards: String { t("assistant.mediaTabCards") }
+    static var assistantMediaTextEmpty: String { t("assistant.mediaTextEmpty") }
+    static var assistantMediaCardsEmpty: String { t("assistant.mediaCardsEmpty") }
+    static var assistantMediaOpenOriginal: String { t("assistant.mediaOpenOriginal") }
+    static var assistantMediaPageFailed: String { t("assistant.mediaPageFailed") }
+    static var assistantMediaPageNoText: String { t("assistant.mediaPageNoText") }
+    static var assistantMediaEgressNote: String { t("assistant.mediaEgressNote") }
+    static var assistantMediaEgressNoteMirror: String { t("assistant.mediaEgressNoteMirror") }
     // 2026-10-19 对话历史
     static var assistantHistoryTitle: String { t("assistant.historyTitle") }
     static var assistantHistoryNew: String { t("assistant.historyNew") }

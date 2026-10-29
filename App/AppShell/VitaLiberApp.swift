@@ -75,22 +75,35 @@ struct VitaLiberApp: App {
     var body: some Scene {
         WindowGroup {
             WithPerceptionTracking {
+                // CI 40823504306 红修复（2026-10-29）：样张类型整体 #if DEBUG，
+                // 调用点未包守卫——Release 归档（DEBUG=off）首编即红。整支
+                // 样张分支移入 #if DEBUG，Release 走纯产品根。
+                #if DEBUG
                 if isShowingSamples {
                     SamplesRootView()
-                }
-                // U-批 B2 交接门：容器就绪但自检页未放行时继续展示启动页
-                // （session 已在页下创建；用户永远看不到未建 session 的主界面）。
-                else if boot.isShowingReadOnly, let readOnly = boot.readOnlyContainer {
-                    // 只读降级壳（B2）：显式入口进入；不建会话、零写零联网。
-                    ReadOnlyAppRoot(container: readOnly)
-                } else if let container = boot.container, !boot.isShowingBootScreen {
-                    ReadyAppRoot(container: container, router: router, notificationDelegate: notificationDelegate)
                 } else {
-                    DatabaseInitializationView(model: boot)
-                        // 幂等：init 已启动，视图再次触发由 isRunning/container 守卫吸收。
-                        .task { await boot.start() }
+                    productRoot
                 }
+                #else
+                productRoot
+                #endif
             }
+        }
+    }
+
+    /// 产品根链（U-批 B2 交接门）：容器就绪但自检页未放行时继续展示启动页
+    /// （session 已在页下创建；用户永远看不到未建 session 的主界面）。
+    @ViewBuilder
+    private var productRoot: some View {
+        if boot.isShowingReadOnly, let readOnly = boot.readOnlyContainer {
+            // 只读降级壳（B2）：显式入口进入；不建会话、零写零联网。
+            ReadOnlyAppRoot(container: readOnly)
+        } else if let container = boot.container, !boot.isShowingBootScreen {
+            ReadyAppRoot(container: container, router: router, notificationDelegate: notificationDelegate)
+        } else {
+            DatabaseInitializationView(model: boot)
+                // 幂等：init 已启动，视图再次触发由 isRunning/container 守卫吸收。
+                .task { await boot.start() }
         }
     }
 }

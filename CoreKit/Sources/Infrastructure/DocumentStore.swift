@@ -239,6 +239,16 @@ public actor DocumentStore {
         return id
     }
 
+    /// 文档级识别原文（2026-10-29 批三：速记详情「识别文本」tab 的旧资料回落面——
+    /// v21 之前的文档只有 document_file.ocr_text、没有 document_page 行）。
+    /// 敏感语义沿用调用方纪律：本 API 只返回字符串，展示侧不得旁路 BR-007。
+    public func ocrText(id: UUID) async throws -> String? {
+        try await writer.read { db in
+            try String.fetchOne(db, sql: "SELECT ocr_text FROM document_file WHERE id = ?",
+                                arguments: [id.uuidString])
+        }
+    }
+
     /// 文档的全部页（页序升序；无页记录的旧文档返回空——调用方回落 ocr_text）。
     public func pages(documentId: UUID) async throws -> [Page] {
         try await writer.read { db in

@@ -474,6 +474,56 @@ final class DocumentsState {
         catch { lastImportError = L10n.docImportFailed; return nil }
     }
 
+    /// 速记详情「识别文本」投影（2026-10-29 批三；UX 席 P1 修复）。
+    /// 三值语义：页文本 / 旧资料文档级 ocr_text 回落 / 空；读取失败与成员不符
+    /// 单列 `.failed`——不得把失败涂成「没有可显示的文本」。成员校验与
+    /// `DocumentSourcePageView`/`OCRCardStore+Links` 同口径（行 patientId 必须匹配）。
+    enum MediaTextProjection: Equatable {
+        case pages([DocumentStore.Page])
+        case legacy(text: String)
+        case empty
+        case failed
+    }
+
+    func mediaText(id: UUID, patientId: UUID) async -> MediaTextProjection {
+        do {
+            guard let doc = try await store.fetch(id: id), doc.patientId == patientId else {
+                return .failed
+            }
+            let pages = try await store.pages(documentId: id)
+            if !pages.isEmpty { return .pages(pages) }
+            if let legacy = try await store.ocrText(id: id),
+               !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .legacy(text: legacy)
+            }
+            return .empty
+        } catch {
+            return .failed
+        }
+    }
+
+    /// 速记详情「信息卡片」投影（2026-10-29 批三；UX 席 P1 修复）。
+    /// 三值语义：已确认卡列表 / 读面失败（含卡存储未装配）——空列表=真的没有。
+    enum CommittedCardsProjection: Equatable {
+        case loaded(kindIds: [KindId])
+        case failed
+
+        struct KindId: Equatable {
+            let kind: String
+            let id: UUID
+        }
+    }
+
+    func committedCards(documentId: UUID, patientId: UUID) async -> CommittedCardsProjection {
+        guard let cardStore else { return .failed }
+        do {
+            let rows = try await cardStore.cards(documentId: documentId, patientId: patientId)
+            return .loaded(kindIds: rows.map { .init(kind: $0.kind, id: $0.id) })
+        } catch {
+            return .failed
+        }
+    }
+
     func setArchived(id: UUID, archived: Bool) async {
         do {
             try await store.setArchived(id: id, archived: archived)
