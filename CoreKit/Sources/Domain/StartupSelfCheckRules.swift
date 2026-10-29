@@ -31,4 +31,23 @@ public enum StartupSelfCheckRules {
         let visibleSince = max(presentedAt, terminalAt)
         return now >= visibleSince.addingTimeInterval(minDisplay)
     }
+
+    /// 摘要展开暂停交接后的恢复锚点（启动时序批 ②，2026-10-29；测试席裁定）。
+    ///
+    /// 旧复排用 `max(presentedAt, terminalAt) + minDisplay`——floor 已过期时收起
+    /// 摘要会**立即交接**，收起后的 500ms 可见窗口拿不到。故展开/收起单独建模：
+    /// 展开期间交接计时冻结；收起后从 `max(收起时刻 + resumeDelay, floorEnd)` 恢复。
+    public static let expandedResumeDelay: TimeInterval = 0.5
+
+    public static func resumeAnchor(collapsedAt: Date, floorEnd: Date,
+                                    delay: TimeInterval = expandedResumeDelay) -> Date {
+        max(collapsedAt.addingTimeInterval(delay), floorEnd)
+    }
+
+    /// 交接 floor 终点（与 `shouldHandOffUI` 同口径），供恢复锚点计算。
+    public static func floorEnd(presentedAt: Date?, terminalAt: Date,
+                                minDisplay: TimeInterval) -> Date? {
+        guard let presentedAt else { return nil }
+        return max(presentedAt, terminalAt).addingTimeInterval(minDisplay)
+    }
 }

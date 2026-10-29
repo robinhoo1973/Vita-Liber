@@ -40,21 +40,25 @@ public struct StartupSelfCheckRowStates: Sendable, Equatable {
 /// 行推导事实（`BootChecklistSnapshot` 的 Domain 投影）。
 /// `decision == nil` 表示尚未得出启动决策；`isWorking` 表示启动门处于进行态；
 /// `didFail` 表示启动门已抛错（B3 评审修复：失败卡在屏时行①②不得显示通过）。
+/// 批 ③（2026-10-29）：`facadeCommitted` 布尔升级为 `committedKinds` 逐片真值
+///（源=`CatalogSliceReadFacade.availableKinds`）——旧布尔恒 true 造成「全验过
+/// 而读面未挂」假绿；行③=required⊆committed 且 required health==ready 才 passed。
 public struct StartupSelfCheckFacts: Sendable, Equatable {
     public let probe: DatabaseProbeSnapshot
     public let decision: DatabaseBootDecision?
     public let health: [CatalogSliceKind: CatalogSliceBootHealth]
-    public let facadeCommitted: Bool
+    public let committedKinds: Set<CatalogSliceKind>
     public let didFail: Bool
     public let isWorking: Bool
 
     public init(probe: DatabaseProbeSnapshot, decision: DatabaseBootDecision?,
                 health: [CatalogSliceKind: CatalogSliceBootHealth],
-                facadeCommitted: Bool, didFail: Bool = false, isWorking: Bool) {
+                committedKinds: Set<CatalogSliceKind>, didFail: Bool = false,
+                isWorking: Bool) {
         self.probe = probe
         self.decision = decision
         self.health = health
-        self.facadeCommitted = facadeCommitted
+        self.committedKinds = committedKinds
         self.didFail = didFail
         self.isWorking = isWorking
     }
@@ -101,10 +105,10 @@ public enum StartupSelfCheckRows {
         }
 
         let catalog: StartupSelfCheckRowState
-        if !facts.facadeCommitted {
+        if facts.committedKinds.isEmpty {
             catalog = facts.isWorking ? .running : .skipped
         } else if CatalogSliceBootPolicy.startupRequiredKinds.allSatisfy({
-            facts.health[$0] == .ready
+            facts.committedKinds.contains($0) && facts.health[$0] == .ready
         }) {
             catalog = .passed
         } else {

@@ -496,6 +496,14 @@ extension L10n {
     static var startupCheckRowSchema: String { t("startup.check.row.schema") }
     static var startupCheckRowCatalog: String { t("startup.check.row.catalog") }
     static var startupCheckRowUpdates: String { t("startup.check.row.updates") }
+    // 批 ②（2026-10-29）：稳态摘要行（禁「全部通过/数据正常/已是最新」措辞）。
+    static func startupCheckSummaryPassed(_ count: Int64) -> String {
+        String(format: t("startup.check.summary.passedFmt"), count)
+    }
+    static func startupCheckSummaryWarning(_ count: Int64) -> String {
+        String(format: t("startup.check.summary.warningFmt"), count)
+    }
+    static var startupCheckSummaryExpand: String { t("startup.check.summary.expand") }
     static var startupCheckStatePending: String { t("startup.check.state.pending") }
     static var startupCheckStateRunning: String { t("startup.check.state.running") }
     static var startupCheckStatePassed: String { t("startup.check.state.passed") }

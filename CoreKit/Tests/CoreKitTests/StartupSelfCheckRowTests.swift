@@ -23,6 +23,8 @@ struct StartupSelfCheckRowTests {
         return dict
     }
 
+    /// 批 ③：facts 契约由布尔升级为逐片真值；本工厂保留旧签名以零改写 15 例——
+    /// true=全部片已提交（旧语义），false=未提交任何片。新增分歧场景另立用例。
     private static func facts(
         probe: DatabaseProbeSnapshot = probeExists,
         decision: DatabaseBootDecision?,
@@ -32,8 +34,8 @@ struct StartupSelfCheckRowTests {
         isWorking: Bool = false
     ) -> StartupSelfCheckFacts {
         StartupSelfCheckFacts(probe: probe, decision: decision, health: health,
-                              facadeCommitted: facadeCommitted, didFail: didFail,
-                              isWorking: isWorking)
+                              committedKinds: facadeCommitted ? Set(CatalogSliceKind.allCases) : [],
+                              didFail: didFail, isWorking: isWorking)
     }
 
     @Test func pendingBeforeAnyDecision() {

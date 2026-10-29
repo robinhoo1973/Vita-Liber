@@ -62,4 +62,38 @@ struct StartupSelfCheckRulesTests {
             presentedAt: t0, terminalAt: t0, now: t0.addingTimeInterval(0.5),
             minDisplay: 0.5))
     }
+
+    // 批 ②（2026-10-29）：摘要展开/收起恢复锚点（测试席裁定——floor 已过期
+    // 时收起不得立即交接，须保 500ms 可读窗口）。
+
+    @Test("恢复锚点：floor 未过时取 floor（500ms 不延长正常驻留）")
+    func resumeAnchorBeforeFloor() {
+        let floor = t0.addingTimeInterval(2.0)
+        let collapsed = t0.addingTimeInterval(0.2)
+        #expect(StartupSelfCheckRules.resumeAnchor(collapsedAt: collapsed, floorEnd: floor) == floor)
+    }
+
+    @Test("恢复锚点：floor 已过时取收起时刻+500ms（不立即交接）")
+    func resumeAnchorAfterFloor() {
+        let floor = t0
+        let collapsed = t0.addingTimeInterval(5.0)
+        #expect(StartupSelfCheckRules.resumeAnchor(collapsedAt: collapsed, floorEnd: floor)
+                == collapsed.addingTimeInterval(0.5))
+    }
+
+    @Test("floorEnd：headless=nil；有首帧=max(presentedAt,terminalAt)+minDisplay")
+    func floorEndComputation() {
+        #expect(StartupSelfCheckRules.floorEnd(presentedAt: nil, terminalAt: t0,
+                                               minDisplay: 0.8) == nil)
+        let presented = t0.addingTimeInterval(-1)
+        let terminal = t0.addingTimeInterval(3)
+        #expect(StartupSelfCheckRules.floorEnd(presentedAt: presented, terminalAt: terminal,
+                                               minDisplay: 0.8)
+                == terminal.addingTimeInterval(0.8))
+    }
+
+    @Test("恢复延迟常量钉版 0.5s")
+    func resumeDelayConstant() {
+        #expect(StartupSelfCheckRules.expandedResumeDelay == 0.5)
+    }
 }

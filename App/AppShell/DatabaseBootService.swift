@@ -42,12 +42,14 @@ struct DatabaseBootDiagnostics: Sendable, Equatable {
     /// 就绪切片 kind 原始值（带身份；v4 替代集判据/诊断用——勿以计数判语义）。
     let catalogSliceReadyKinds: [String]
     let catalogSliceStates: [String]
-    /// 三片全就绪并已执行 v4 残留清理（启动前置；失败只记日志，不阻断）。
-    let legacyCatalogResidueCleaned: Bool
+    // T8（⓪ 批）：`legacyCatalogResidueCleaned` 字段删除——清理执行点移到
+    // DatabaseBootModel（live 成功后），诊断结构不再承载该布尔（零消费方）。
 }
 
 struct PreparedDatabase: Sendable {
     let store: GRDBStore
+    /// 批 ③（2026-10-29）：切片全验实测健康（open 后采集；final 快照唯一真源）。
+    let sliceHealth: [CatalogSliceKind: CatalogSliceBootHealth]
     let diagnostics: DatabaseBootDiagnostics
 }
 
@@ -57,27 +59,69 @@ struct PreparedDatabase: Sendable {
 enum DatabaseBootService {
     private static let logger = Logger(subsystem: "com.vitaliber", category: "database-boot")
 
-    static func prepare(snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void = { _ in },
+    /// 启动门可测性契约（启动时序批 ①，2026-10-29；测试席裁定终稿）。
+    ///
+    /// 六个闭包=全部副作用面：路径解析/历史库路径/切片路径/原件证据/患者探针/
+    /// 切片探针/唯一迁移入口。生产 `.live` 逐项转发现有静态实现；测试注入
+    /// 临时目录与 spy（断言 advisory 先于 open、失败零探针、final 取实测）。
+    /// 不携带 FileManager（非 Sendable；生产沿用 .default，测试以闭包内嵌路径）。
+    struct BootEnvironment: Sendable {
+        var resolveDatabasePath: @Sendable () throws -> AppContainer.ResolvedDatabasePath
+        var schemaHistoryPath: @Sendable () -> String
+        var catalogSlicePath: @Sendable (String) -> String
+        var originalsPresent: @Sendable () -> Bool
+        var probePatient: @Sendable (String, Bool) -> DatabaseProbeSnapshot
+        var probeSlice: @Sendable (CatalogSliceKind, String) -> CatalogSliceBootHealth
+        var open: @Sendable (String, Int?, Int) throws -> GRDBStore
+
+        static let live = BootEnvironment(
+            resolveDatabasePath: { try AppContainer.resolveDatabasePath() },
+            schemaHistoryPath: { AppContainer.defaultSchemaHistoryPath() },
+            catalogSlicePath: { v5CatalogPath($0) },
+            originalsPresent: { hasOriginalsEvidence() },
+            probePatient: { path, originals in
+                DatabaseProbe.inspect(path: path,
+                                      requiredTables: DatabaseBootPolicy.requiredTables,
+                                      originalsPresent: originals)
+            },
+            probeSlice: { kind, path in
+                bootHealth(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: kind))
+            },
+            open: { path, source, target in
+                try DatabaseUpgradeService.open(at: path, from: source, to: target,
+                                                requiredTables: DatabaseBootPolicy.requiredTables)
+            })
+    }
+
+    static func prepare(environment: BootEnvironment = .live,
+                        clock: @escaping @Sendable () -> Date = Date.init,
+                        snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void = { _ in },
                         progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
         try await Task.detached(priority: .userInitiated) {
-            try await prepareSync(snapshot: snapshot, progress: progress)
+            try await prepareSync(environment: environment, clock: clock,
+                                  snapshot: snapshot, progress: progress)
         }.value
     }
 
-    private static func prepareSync(snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void,
+    private static func prepareSync(environment: BootEnvironment,
+                                    clock: @escaping @Sendable () -> Date,
+                                    snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void,
                                     progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
         // 路径解析必须先于探测：legacy 改名有副作用，失败会回退旧路径；
         // ≥2 个注册名候选并存 = 可解释失败（B0 名字全集，绝不静默建空库）。
         let resolution: AppContainer.ResolvedDatabasePath
         do {
-            resolution = try AppContainer.resolveDatabasePath()
+            resolution = try environment.resolveDatabasePath()
         } catch AppContainer.DatabasePathError.ambiguousCandidates(let names) {
             throw DatabaseBootFailure.databaseAmbiguous(names: names)
         }
         let databasePath = resolution.path
-        let historyPath = AppContainer.defaultSchemaHistoryPath()
+        let historyPath = environment.schemaHistoryPath()
 
         // 1) 历史库：存在则清空，按代码内压缩 base64 SQL 重建。
+        // 批 ⑤ 遥测：阶段耗时桶（仅终止事件携带；单次 append 不扰动时序）。
+        var phaseTimings: [MigrationReceipt.Event.Phase] = []
+        let historyStart = clock()
         await progress(.rebuildingHistory)
         let history: SchemaHistoryStore?
         do {
@@ -87,29 +131,29 @@ enum DatabaseBootService {
             logger.error("schema history rebuild failed: \(String(describing: error), privacy: .public)")
             history = nil
         }
+        phaseTimings.append(.init(name: "history",
+                                  durationMs: clock().timeIntervalSince(historyStart) * 1000,
+                                  status: history == nil ? "failed" : "ok"))
 
         // 2) 按历史库注册表逐库探测；患者库的最终决策仍以物理探测为准。
         await progress(.probing)
-        let originalsPresent = hasOriginalsEvidence()
-        let userProbe = DatabaseProbe.inspect(
-            path: databasePath,
-            requiredTables: DatabaseBootPolicy.requiredTables,
-            originalsPresent: originalsPresent)
-        // 三切片探测（2026-10-28 切片-only）：切片库只有 slice_meta，绝不回落 v4 的
-        // catalog_meta/user_version 语义——每片自洽校验（表集/契约/完整性/COUNT）。
-        let sliceStates: [(kind: CatalogSliceKind, health: CatalogSliceBootHealth)] =
-            CatalogSliceKind.allCases.map { kind in
-                let state = CatalogSliceProbe.inspectSelfConsistent(
-                    path: v5CatalogPath(kind.sqliteEntryName), kind: kind)
-                return (kind, Self.bootHealth(state))
-            }
-        let sliceHealth = Dictionary(uniqueKeysWithValues: sliceStates.map { ($0.kind, $0.health) })
-        let sliceReadyKinds = Set(sliceStates.filter { $0.health == .ready }.map(\.kind))
-        let sliceReady = sliceReadyKinds.count
-        let v5Present = sliceStates.filter { $0.health != .missing }.count
-        // 「自动迁移前一数据库」（2026-10-28；P-批按 kind 子集）：v4 替代集
-        // {drug,facility,reference} 全就绪才清 v4 残留；profile 不参与；未替换前绝不删。
-        let legacyResidueCleaned = LegacyCatalogResidue.cleanIfEligible(readyKinds: sliceReadyKinds)
+        let probeStart = clock()
+        let originalsPresent = environment.originalsPresent()
+        let userProbe = environment.probePatient(databasePath, originalsPresent)
+        phaseTimings.append(.init(name: "patientProbe",
+                                  durationMs: clock().timeIntervalSince(probeStart) * 1000,
+                                  status: "ok"))
+        // 切片探测已移到患者库 open/迁移成功之后（启动时序批 ③，2026-10-29）：
+        // 决策/open 本就不依赖探针（advisory 只喂 UI），旧序让 corrupt/tooNew 等
+        // 失败路径先付 GB 全扫才出失败卡。此处先声明，do 内成功后填充。
+        var sliceStates: [(kind: CatalogSliceKind, health: CatalogSliceBootHealth)] = []
+        var sliceHealth: [CatalogSliceKind: CatalogSliceBootHealth] = [:]
+        var sliceReadyKinds: Set<CatalogSliceKind> = []
+        var sliceReady = 0
+        var v5Present = 0
+        // T8（启动时序批 ⓪，2026-10-29）：v4 残留清理已移出 prepare——旧实现跑在
+        // 失败判定之前，失败启动仍删 v4 文件（违「迁移失败=只读降级」）。现由
+        // `DatabaseBootModel` 在 live + facade 提交成功后调用（失败路径零删除）。
 
         var registeredCount = 0
         if let history {
@@ -165,9 +209,16 @@ enum DatabaseBootService {
         }
         await snapshot(BootChecklistSnapshot(
             probe: userProbe, decision: decision, decisionLabel: label(decision),
-            plannedMigrationSteps: plannedSteps, sliceHealth: sliceHealth,
-            facadeCommitted: false))
+            plannedMigrationSteps: plannedSteps, sliceHealth: [:], committedKinds: []))
 
+        // 批 ④（2026-10-29）：`.ready` 决策下切片全验与患者库 open 并发启动——
+        // 非结构化 Task（TaskGroup 作用域退出必等不可取消的 integrity 跑完，
+        // 会把失败卡拖到全验后——架构席否决结构化并发）；失败路径 cancel 且
+        // **不 await**（defer 兜底）；成功路径在开关后收编。单发调用、无跨尝试
+        // 共享状态，故无需代际令牌；L2 signpost 实测互扰（>20% 则回退串行）。
+        var sliceProbeTask: Task<[(kind: CatalogSliceKind, health: CatalogSliceBootHealth)], Never>?
+        defer { sliceProbeTask?.cancel() }
+        let openStart = clock()
         let store: GRDBStore
         do {
             switch decision {
@@ -179,30 +230,49 @@ enum DatabaseBootService {
                 throw DatabaseBootFailure.corrupt(reason.rawValue)
             case .fresh:
                 await progress(.creating)
-                store = try DatabaseUpgradeService.open(
-                    at: databasePath, from: nil, to: targetVersion,
-                    requiredTables: DatabaseBootPolicy.requiredTables)
+                store = try environment.open(databasePath, nil, targetVersion)
                 await progress(.verifying)
             case .ready(let version):
-                store = try DatabaseUpgradeService.open(
-                    at: databasePath, from: version, to: targetVersion,
-                    requiredTables: DatabaseBootPolicy.requiredTables)
+                // 批 ④：读路径（最常见）并发起全验；迁移/建库保持串行（GB 扫描
+                // 挤占缓存会抬迁移 P95——开发/SRE 席裁定）。
+                sliceProbeTask = Self.startSliceProbes(environment: environment)
+                store = try environment.open(databasePath, version, targetVersion)
                 await progress(.verifying)
             case .migrate(let from, let to):
                 await progress(.migrating(from: from, to: to))
-                store = try DatabaseUpgradeService.open(
-                    at: databasePath, from: from, to: to,
-                    requiredTables: DatabaseBootPolicy.requiredTables)
+                store = try environment.open(databasePath, from, to)
                 // 阶段标签如实反映已完成的工作（2026-10-27 审查 P3）：
                 // .verifying 只在 open 返回后发出，迁移期间不会被误报成「核对」。
                 await progress(.verifying)
             }
+            phaseTimings.append(.init(name: "open.\(label(decision))",
+                                      durationMs: clock().timeIntervalSince(openStart) * 1000,
+                                      status: "ok"))
+            let sliceStart = clock()
+            // 批 ③（2026-10-29）：患者库信任闸全序完成后再做切片自洽全验
+            // （表集/契约/完整性/FK/COUNT）——失败路径不再先付 GB 全扫；
+            // 全验仍在 publish 前完成（Q14=B 字面满足，见 ADR-041 措辞）。
+            // 批 ④：`.ready` 已并发启动则收编其结果；其余决策此处串行收尾。
+            if let sliceProbeTask {
+                sliceStates = await sliceProbeTask.value
+            } else {
+                sliceStates = CatalogSliceKind.allCases.map { kind in
+                    (kind, environment.probeSlice(kind, environment.catalogSlicePath(kind.sqliteEntryName)))
+                }
+            }
+            sliceHealth = Dictionary(uniqueKeysWithValues: sliceStates.map { ($0.kind, $0.health) })
+            phaseTimings.append(.init(name: "sliceVerify",
+                                      durationMs: clock().timeIntervalSince(sliceStart) * 1000,
+                                      status: "ok"))
+            sliceReadyKinds = Set(sliceStates.filter { $0.health == .ready }.map(\.kind))
+            sliceReady = sliceReadyKinds.count
+            v5Present = sliceStates.filter { $0.health != .missing }.count
             record(history, databasePath: databasePath, source: userProbe.observedVersion,
                    target: targetVersion, outcome: "success", detail: nil)
             receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
-                          outcome: .success)
+                          outcome: .success, phases: phaseTimings)
         } catch let boot as DatabaseBootFailure {
             throw boot
         } catch let upgrade as DatabaseUpgradeError {
@@ -220,7 +290,8 @@ enum DatabaseBootService {
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
                           outcome: .verifyFailed,
-                          detail: "found=\(found.map(String.init) ?? "nil") expected=\(expected)")
+                          detail: "found=\(found.map(String.init) ?? "nil") expected=\(expected)",
+                          phases: phaseTimings)
             throw DatabaseBootFailure.migrationIncomplete(
                 found: found ?? -1, expected: expected)
         } catch {
@@ -230,7 +301,8 @@ enum DatabaseBootService {
             receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
-                          outcome: .openFailed, detail: String(describing: error))
+                          outcome: .openFailed, detail: String(describing: error),
+                          phases: phaseTimings)
             throw DatabaseBootFailure.openFailed(String(describing: error))
         }
 
@@ -243,6 +315,7 @@ enum DatabaseBootService {
         }
         return PreparedDatabase(
             store: store,
+            sliceHealth: sliceHealth,
             diagnostics: DatabaseBootDiagnostics(
                 historyAvailable: history != nil,
                 historyStepCount: historyStepCount,
@@ -253,12 +326,22 @@ enum DatabaseBootService {
                 decision: decisionLabel,
                 catalogSliceReadyCount: sliceReady,
                 catalogSliceReadyKinds: sliceReadyKinds.map(\.rawValue).sorted(),
-                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.health.diagnosticLabel)" },
-                legacyCatalogResidueCleaned: legacyResidueCleaned))
+                catalogSliceStates: sliceStates.map { "\($0.kind.rawValue):\($0.health.diagnosticLabel)" }))
     }
 
     // P-批：死列表 `v5CatalogNames`（三片手写名）已删除——命名一律由
     // `CatalogSliceKind.stem` 派生（registry 探测走 sliceStates，无第二真源）。
+
+    /// 批 ④：切片全验并发入口（utility 优先级——不与患者库路径抢 QoS）。
+    /// 失败时调用方不 await、仅 cancel：同步 GRDB 读不可中断，协作取消只省电。
+    private static func startSliceProbes(environment: BootEnvironment)
+        -> Task<[(kind: CatalogSliceKind, health: CatalogSliceBootHealth)], Never> {
+        Task.detached(priority: .utility) {
+            CatalogSliceKind.allCases.map { kind in
+                (kind, environment.probeSlice(kind, environment.catalogSlicePath(kind.sqliteEntryName)))
+            }
+        }
+    }
 
     private static func v5CatalogPath(_ name: String,
                                       fileManager: FileManager = .default) -> String {
@@ -303,13 +386,15 @@ enum DatabaseBootService {
                                       resolution: [String], chosen: String?, mode: String,
                                       source: Int?, target: Int?,
                                       outcome: MigrationReceipt.Event.Outcome,
-                                      detail: String? = nil) {
+                                      detail: String? = nil,
+                                      phases: [MigrationReceipt.Event.Phase] = []) {
         guard let receipt else { return }
         do {
-            try receipt.append(.init(bootId: bootId, at: Date().timeIntervalSince1970,
+            try receipt.append(.init(bootId: bootId, at: clock().timeIntervalSince1970,
                                      candidates: resolution, chosen: chosen, mode: mode,
                                      sourceVersion: source, targetVersion: target,
-                                     outcome: outcome, detail: detail))
+                                     outcome: outcome, detail: detail,
+                                     phases: phases.isEmpty ? nil : phases))
         } catch {
             logger.warning("migration receipt write failed: \(String(describing: error), privacy: .public)")
         }

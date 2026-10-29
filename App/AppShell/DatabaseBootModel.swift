@@ -42,13 +42,34 @@ final class DatabaseBootModel: ObservableObject {
     private let defaults: UserDefaults
     private let now: () -> Date
     private let autoEnter = CatalogAutoEnterScheduler()
+    /// 启动门注入缝（启动时序批 ①，2026-10-29）：默认直连 DatabaseBootService；
+    /// 测试注入假实现以断言快照序列（advisory 先于 open、final 取实测等）。
+    private let prepareDatabase: @Sendable (@escaping @Sendable (BootChecklistSnapshot) async -> Void,
+                                             @escaping @Sendable (DatabaseBootPhase) async -> Void)
+        async throws -> PreparedDatabase
+    /// 被动交接的终态时刻（首排时落定；恢复锚点已过期时不得立即交接，批 ②）。
+    private var bootTerminalAt: Date?
+    /// 批 ③：open 后实测的切片健康（final 快照唯一真源）。
+    private var preparedSliceHealth: [CatalogSliceKind: CatalogSliceBootHealth] = [:]
+    /// 摘要展开态（批 ②）：展开期间冻结被动交接；收起后按 resumeAnchor 恢复。
+    @Published private(set) var isSelfCheckSummaryExpanded = false
+
+    /// B4 hold 钩子对视图可见化（DEBUG）：hold 期间强制展开四行（既有 UI 用例依赖）。
+    var debugHoldForcesExpanded: Bool { uiTestSelfCheckHold }
 
     init(sessionFactory: ((AppContainer, CatalogSlicesState) -> AppSession)? = nil,
          defaults: UserDefaults = .standard,
-         now: @escaping () -> Date = Date.init) {
+         now: @escaping () -> Date = Date.init,
+         prepareDatabase: @escaping @Sendable (
+             @escaping @Sendable (BootChecklistSnapshot) async -> Void,
+             @escaping @Sendable (DatabaseBootPhase) async -> Void)
+             async throws -> PreparedDatabase = { snapshot, progress in
+                 try await DatabaseBootService.prepare(snapshot: snapshot, progress: progress)
+             }) {
         self.sessionFactory = sessionFactory
         self.defaults = defaults
         self.now = now
+        self.prepareDatabase = prepareDatabase
     }
 
     func start() async {
@@ -67,7 +88,7 @@ final class DatabaseBootModel: ObservableObject {
                 probe: Self.uiTestFailureProbe,
                 decision: .tooNew(found: 99, supported: SchemaMigrations.latestVersion),
                 decisionLabel: "uitest-readonly", plannedMigrationSteps: nil,
-                sliceHealth: [:], facadeCommitted: false)
+                sliceHealth: [:], committedKinds: [])
             failure = unsupported
             let path = AppContainer.defaultDatabasePath()
             _ = try? GRDBStore.pool(at: path) // try?-ok: DEBUG 钩子确保测试库存在；生产路径不达
@@ -79,12 +100,12 @@ final class DatabaseBootModel: ObservableObject {
             return
         }
         // B4 失败桩：不经真实启动门，直接落确定性失败态（advisory 语义同真实
-        // 失败路径——快照 facadeCommitted=false，行③恒未校验）。
+        // 失败路径——快照 committedKinds 空，行③恒未校验）。
         if let injected = uiTestSelfCheckFailure {
             bootSnapshot = BootChecklistSnapshot(
                 probe: Self.uiTestFailureProbe, decision: nil,
                 decisionLabel: "uitest-injected", plannedMigrationSteps: nil,
-                sliceHealth: [:], facadeCommitted: false)
+                sliceHealth: [:], committedKinds: [])
             failure = injected
             AppSessionHolder.shared.fail()
             isRunning = false
@@ -92,22 +113,29 @@ final class DatabaseBootModel: ObservableObject {
         }
         do {
             bootSnapshot = nil
-            let prepared = try await DatabaseBootService.prepare(
-                snapshot: { [weak self] advisory in
+            let prepared = try await prepareDatabase(
+                { [weak self] advisory in
                     await MainActor.run { self?.bootSnapshot = advisory }
                 },
-                progress: { [weak self] phase in
+                { [weak self] phase in
                     await MainActor.run { self?.phase = phase }
                 })
             phase = .assembling
             let assembled = try AppContainer.live(store: prepared.store)
             diagnostics = prepared.diagnostics
+            preparedSliceHealth = prepared.sliceHealth
             self.catalogSlices = CatalogSlicesState(
                 facade: assembled.catalogSlices ?? CatalogSliceReadFacade(),
                 checker: assembled.catalogSliceChecker,
                 updater: assembled.catalogSliceUpdater,
                 receiptDirectory: URL(fileURLWithPath: AppContainer.defaultCatalogSliceDirectory(),
                                      isDirectory: true))
+            // T8（启动时序批 ⓪，2026-10-29）：v4 残留清理后置到「live 成功 +
+            // facade 提交」之后——失败/降级路径（catch 各分支）绝不触碰 v4 文件。
+            // 判据仍=替代集三 kind 全就绪（带身份）；幂等、失败只记日志。
+            let readyKinds = Set(prepared.diagnostics.catalogSliceReadyKinds
+                .compactMap(CatalogSliceKind.init(rawValue:)))
+            LegacyCatalogResidue.cleanIfEligible(readyKinds: readyKinds)
             if showsCatalogChoice(diagnostics: prepared.diagnostics) {
                 pendingContainer = assembled
                 awaitingCatalogChoice = true
@@ -340,16 +368,17 @@ final class DatabaseBootModel: ObservableObject {
 
     /// 被动交接：仅「容器就绪、无失败、无待办卡片、已呈现」时计时；
     /// 终态自 `max(presentedAt, readyAt)` 起可见 ≥ 最短展示（VO 3s）。
+    /// 批 ②：摘要展开期间冻结；收起走 `resumeAnchor`（floor 已过期不得立即交接）。
     private func trySchedulePassiveHandoff() {
         guard isShowingBootScreen, failure == nil,
               container != nil, !awaitingCatalogChoice,
               !rowFourBusy,
+              !isSelfCheckSummaryExpanded,   // 批 ②：展开态冻结交接
               !uiTestSelfCheckHold,   // B4：显式 hold 冻结被动交接
               let presentedAt = selfCheckPresentedAt else { return }
-        let terminalAt = now()
-        let minDisplay = UIAccessibility.isVoiceOverRunning
-            ? StartupSelfCheckRules.voiceOverMinDisplaySeconds
-            : StartupSelfCheckRules.minDisplaySeconds
+        if bootTerminalAt == nil { bootTerminalAt = now() }
+        let terminalAt = bootTerminalAt ?? now()
+        let minDisplay = passiveMinDisplay
         let remaining = max(presentedAt, terminalAt)
             .addingTimeInterval(minDisplay).timeIntervalSince(now())
         if remaining <= 0 {
@@ -357,6 +386,40 @@ final class DatabaseBootModel: ObservableObject {
             return
         }
         autoEnter.cancel()
+        autoEnter.schedule(after: .seconds(remaining)) { [weak self] in
+            self?.finishBootScreen()
+        }
+    }
+
+    private var passiveMinDisplay: TimeInterval {
+        UIAccessibility.isVoiceOverRunning
+            ? StartupSelfCheckRules.voiceOverMinDisplaySeconds
+            : StartupSelfCheckRules.minDisplaySeconds
+    }
+
+    /// 摘要展开/收起（批 ②，视图调用）：展开冻结交接计时；收起按
+    /// `max(收起时刻 + 500ms, floorEnd)` 恢复——floor 过期后的收起仍保留
+    /// 500ms 可读窗口（`StartupSelfCheckRules.resumeAnchor`）。
+    func toggleSelfCheckSummary() {
+        isSelfCheckSummaryExpanded.toggle()
+        if isSelfCheckSummaryExpanded {
+            autoEnter.cancel()
+            return
+        }
+        guard isShowingBootScreen, failure == nil, container != nil,
+              !awaitingCatalogChoice, !rowFourBusy, !uiTestSelfCheckHold,
+              let presentedAt = selfCheckPresentedAt else { return }
+        let terminalAt = bootTerminalAt ?? now()
+        guard let floorEnd = StartupSelfCheckRules.floorEnd(
+            presentedAt: presentedAt, terminalAt: terminalAt,
+            minDisplay: passiveMinDisplay) else { return }
+        let resumeAt = StartupSelfCheckRules.resumeAnchor(collapsedAt: now(), floorEnd: floorEnd)
+        let remaining = resumeAt.timeIntervalSince(now())
+        autoEnter.cancel()
+        guard remaining > 0 else {
+            finishBootScreen()
+            return
+        }
         autoEnter.schedule(after: .seconds(remaining)) { [weak self] in
             self?.finishBootScreen()
         }
@@ -393,13 +456,15 @@ final class DatabaseBootModel: ObservableObject {
         }
         container = assembled
         phase = .ready
-        // U-批 S1：final 快照在 facade 装配后发（facadeCommitted=true，行③以 facade 为准）。
+        // 批 ③：final 快照在 facade 装配后发——健康取 open 后实测（PreparedDatabase），
+        // committedKinds 取读面真值（availabieKinds 存在才可宣称 ready；假绿链路闭合）。
         if let advisory = bootSnapshot {
             bootSnapshot = BootChecklistSnapshot(
                 probe: advisory.probe, decision: advisory.decision,
                 decisionLabel: advisory.decisionLabel,
                 plannedMigrationSteps: advisory.plannedMigrationSteps,
-                sliceHealth: advisory.sliceHealth, facadeCommitted: true)
+                sliceHealth: preparedSliceHealth,
+                committedKinds: Set(assembled.catalogSlices?.availableKinds ?? []))
         }
         trySchedulePassiveHandoff()
         // O21（B4）：通用 -uitest-* 默认不渲染自检页（立即放行）；显式

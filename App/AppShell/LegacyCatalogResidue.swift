@@ -27,14 +27,18 @@ enum LegacyCatalogResidue {
 
     /// 返回 true = 满足条件并已执行清理（幂等空跑也返回 true）；未满足条件返回 false。
     /// `readyKinds` = 启动期自洽探测通过的 kind 集合（带身份，非计数）。
+    /// `supportDirectory` 注入口（T8，2026-10-29）：测试传临时目录；生产 nil=沿用
+    /// `AppContainer.defaultMedicalCatalogPath()` 推导（固定白名单不变）。
     @discardableResult
     static func cleanIfEligible(readyKinds: Set<CatalogSliceKind>,
+                                supportDirectory: URL? = nil,
                                 fileManager: FileManager = .default) -> Bool {
         guard Set(CatalogSliceKind.legacyReplacedKinds).isSubset(of: readyKinds) else {
             return false
         }
-        let support = URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath())
-            .deletingLastPathComponent()
+        let support = supportDirectory
+            ?? URL(fileURLWithPath: AppContainer.defaultMedicalCatalogPath())
+                .deletingLastPathComponent()
         for name in fileNames {
             let url = support.appendingPathComponent(name)
             guard fileManager.fileExists(atPath: url.path) else { continue }

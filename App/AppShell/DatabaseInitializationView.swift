@@ -106,7 +106,7 @@ struct DatabaseInitializationView: View {
             probe: snapshot?.probe ?? Self.emptyProbe,
             decision: snapshot?.decision,
             health: snapshot?.sliceHealth ?? [:],
-            facadeCommitted: snapshot?.facadeCommitted ?? false,
+            committedKinds: snapshot?.committedKinds ?? [],
             didFail: model.failure != nil,
             isWorking: isWorking)
     }
@@ -126,7 +126,33 @@ struct DatabaseInitializationView: View {
 
     private var selfCheckSection: some View {
         let rows = StartupSelfCheckRows.rows(facts)
-        return VStack(spacing: 4) {
+        return Group {
+            if showsExpandedRows {
+                expandedChecklist(rows)
+            } else {
+                summaryRow(rows)
+            }
+        }
+        .padding(.vertical, 4)
+        // 容器标识必须配 .contain，否则标识会压到子元素上（L0 第 17 节）。
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("STARTUP.selfcheck")
+    }
+
+    /// 批 ②（2026-10-29）：稳态=一行摘要；异常/首启/迁移/进行中/卡片态/用户展开
+    /// 默认展开四行（UX 席稳态折叠裁决 + 测试席 hold 兼容）。
+    private var showsExpandedRows: Bool {
+        if model.failure != nil || model.isSelfCheckSummaryExpanded
+            || model.debugHoldForcesExpanded { return true }
+        if model.awaitingCatalogChoice || isWorking { return true }
+        switch model.bootSnapshot?.decision {
+        case .fresh, .migrate: return true
+        case .ready, .tooNew, .missingWithOriginals, .corrupt, nil: return false
+        }
+    }
+
+    private func expandedChecklist(_ rows: StartupSelfCheckRowStates) -> some View {
+        VStack(spacing: 4) {
             checklistRow(identifier: "dbFile", index: 1, title: L10n.startupCheckRowDbFile,
                          state: rows.file, detail: fileDetail(rows.file),
                          note: nil, icon: "externaldrive.fill")
@@ -144,10 +170,41 @@ struct DatabaseInitializationView: View {
                 footerNotes(rows)
             }
         }
-        .padding(.vertical, 4)
-        // 容器标识必须配 .contain，否则标识会压到子元素上（L0 第 17 节）。
+    }
+
+    /// 稳态摘要：纯信息（800ms floor 内不可点定案 SS-1）；展开按钮仅供页面驻留
+    /// 场景（hold/慢启动/迁移）——禁「全部通过/数据正常/已是最新」措辞。
+    private func summaryRow(_ rows: StartupSelfCheckRowStates) -> some View {
+        let states = [rows.file, rows.schema, rows.catalog]
+        let passed = states.filter { $0 == .passed }.count
+        let needsAttention = states.contains { $0 == .warning }
+        return HStack(spacing: 12) {
+            Image(systemName: needsAttention ? "exclamationmark.circle.fill" : "checkmark.seal.fill")
+                .font(.title3)
+                .foregroundStyle(needsAttention
+                                 ? Color("semantic-warning", bundle: .main)
+                                 : Color("brand-primary", bundle: .main))
+                .accessibilityHidden(true)
+            Text(needsAttention
+                 ? L10n.startupCheckSummaryWarning(Int64(passed))
+                 : L10n.startupCheckSummaryPassed(Int64(passed)))
+                .font(.body)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+            Button {
+                model.toggleSelfCheckSummary()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color("text-secondary", bundle: .main))
+                    .frame(minWidth: 44, minHeight: 44)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("STARTUP.selfcheck.summary.expand")
+            .accessibilityLabel(L10n.startupCheckSummaryExpand)
+        }
+        .frame(minHeight: 64)
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("STARTUP.selfcheck")
     }
 
     private var rowDivider: some View {
@@ -452,7 +509,9 @@ struct DatabaseInitializationView: View {
 
     private var terminalKey: String? {
         if model.failure != nil { return "failed" }
-        if model.bootSnapshot?.facadeCommitted == true { return "done" }
+        // 批 ③：final 快照=发布完成（与旧布尔同语义；committedKinds 可能为空，
+        // 但发布本身即终态——不得因零切片而吞掉「完成」播报）。
+        if model.bootSnapshot?.decision != nil, model.container != nil { return "done" }
         return nil
     }
 

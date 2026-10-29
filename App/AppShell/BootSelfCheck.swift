@@ -6,7 +6,7 @@ import Domain
 /// 发射语义（测试钉死）：
 /// - **成功路径 2 次**：advisory 在 `prepareSync` 决策得出后、switch/抛出前；
 ///   final 在 `AppContainer.live` + `CatalogSlicesState`（facade）之后——
-///   final 的 `facadeCommitted == true`，行③以 facade 为准。
+///   final 的 `committedKinds` 取 facade.availableKinds 真值（批 ③），行③以读面为准。
 /// - **失败路径 1 次**：advisory（行③标签固定 advisory/未校验，即使 probe 曾
 ///   ready 也不得写 ready）；行①/②由 advisory + failure 推导，行④跳过。
 /// - 每次启动尝试重置计数（重试=新尝试新快照，不得复用）。
@@ -22,25 +22,27 @@ struct BootChecklistSnapshot: Sendable, Equatable {
     let decisionLabel: String
     /// 迁移总步数（`SchemaMigrations.pending(from:).count`；非 migrate 决策为 nil）。
     let plannedMigrationSteps: Int?
-    /// 每片启动健康度（Q14=B 全量校验结果；typed enum）。
+    /// 每片启动健康度（Q14=B 全量校验结果；typed enum）。批 ③ 起=open 后实测，
+    /// advisory 恒空、final 取 `PreparedDatabase.sliceHealth`（不再复制 advisory）。
     let sliceHealth: [CatalogSliceKind: CatalogSliceBootHealth]
-    /// 是否已装配 facade（final 快照 true；advisory 恒 false）。
-    let facadeCommitted: Bool
+    /// 已提交读面的切片（源=`CatalogSliceReadFacade.availableKinds`；批 ③ 取代
+    /// 旧布尔 `facadeCommitted`——布尔恒 true 掩盖「探测 ready 而读面未挂」假绿）。
+    let committedKinds: Set<CatalogSliceKind>
 
     init(probe: DatabaseProbeSnapshot, decision: DatabaseBootDecision?,
          decisionLabel: String,
          plannedMigrationSteps: Int?, sliceHealth: [CatalogSliceKind: CatalogSliceBootHealth],
-         facadeCommitted: Bool) {
+         committedKinds: Set<CatalogSliceKind> = []) {
         self.probe = probe
         self.decision = decision
         self.decisionLabel = decisionLabel
         self.plannedMigrationSteps = plannedMigrationSteps
         self.sliceHealth = sliceHealth
-        self.facadeCommitted = facadeCommitted
+        self.committedKinds = committedKinds
     }
 
-    /// 行③展示口径：facade 未装配（失败/advisory）时不得宣称 ready。
+    /// 行③展示口径：读面未提交（失败/advisory）时不得宣称 ready。
     func displayHealth(for kind: CatalogSliceKind) -> CatalogSliceBootHealth {
-        facadeCommitted ? (sliceHealth[kind] ?? .missing) : .missing
+        committedKinds.contains(kind) ? (sliceHealth[kind] ?? .missing) : .missing
     }
 }

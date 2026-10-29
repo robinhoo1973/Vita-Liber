@@ -40,15 +40,31 @@ public final class MigrationReceipt: @unchecked Sendable {
         public var targetVersion: Int?
         public var outcome: Outcome
         public var detail: String?
+        /// 批 ⑤（2026-10-29）：阶段耗时遥测——每次 boot 仅附加在**终止事件**上
+        /// （单事件设计，避免逐阶段写行扰动时序）；旧行无该键=向后兼容解码。
+        public var phases: [Phase]?
+
+        public struct Phase: Codable, Equatable, Sendable {
+            /// 桶名（history / patientProbe / open.<decision> / sliceVerify）。
+            public var name: String
+            public var durationMs: Double
+            /// ok / failed。
+            public var status: String
+
+            public init(name: String, durationMs: Double, status: String) {
+                self.name = name; self.durationMs = durationMs; self.status = status
+            }
+        }
 
         public init(bootId: String, at: TimeInterval, candidates: [String], chosen: String?,
                     mode: String, sourceVersion: Int?, targetVersion: Int?,
-                    outcome: Outcome, detail: String? = nil) {
+                    outcome: Outcome, detail: String? = nil,
+                    phases: [Phase]? = nil) {
             self.bootId = bootId; self.at = at
             self.candidates = candidates; self.chosen = chosen
             self.mode = mode; self.sourceVersion = sourceVersion
             self.targetVersion = targetVersion; self.outcome = outcome
-            self.detail = detail
+            self.detail = detail; self.phases = phases
         }
     }
 

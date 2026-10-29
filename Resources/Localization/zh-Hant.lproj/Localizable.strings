@@ -1902,6 +1902,9 @@
 "startup.check.title" = "正在開啟你的健康檔案";
 "startup.check.subtitle" = "只在本機檢查，不會上傳任何內容";
 "startup.check.row.dbFile" = "本機檔案";
+"startup.check.summary.passedFmt" = "%1$ld 項本機檢查通過 · 檔案可用";
+"startup.check.summary.warningFmt" = "%1$ld 項本機檢查通過 · 部分需留意";
+"startup.check.summary.expand" = "展開自檢詳情";
 "startup.check.row.schema" = "檔案結構版本";
 "startup.check.row.catalog" = "醫療資料目錄";
 "startup.check.row.updates" = "參考目錄版本";
