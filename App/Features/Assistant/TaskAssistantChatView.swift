@@ -34,8 +34,6 @@ struct TaskAssistantChatView: View {
     /// 已读到真值的文档：开关就绪前禁用，避免「未知=false」被用户误读为
     /// 当前资料不敏感（BR-007/008 对外边界不能靠默认值猜）。
     @State private var sensitiveLoaded: Set<UUID> = []
-    /// 逐条来源徽章缓存（2026-10-29 批三）：气泡只在文档行真值为 D 时显示待确认章。
-    @State private var gradeByDocument: [UUID: String] = [:]
     @State private var input = ""
     @State private var confirmSet: OcrConfirmationSet?
     @State private var pendingPlan: VoiceActionPlan?
@@ -61,12 +59,20 @@ struct TaskAssistantChatView: View {
 
     // 2026-10-19 聊天内采集（业主指令）：媒体 → 全图 OCR → 助理侧信息卡。
     @State private var chatSessionID: UUID?
+    /// 发起导入时的会话代次：OCR 收尾若已切会话，回执/导出不得落到新会话
+    /// （2026-10-30 审查席 P1：自动化导出放大了跨会话串写）。
+    @State private var importGeneration: UUID?
     @State private var importing = false
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var showFileImporter = false
     /// 多选（2026-10-23 业主）：一次可选多张照片，合并为一份多页文档后统一识别。
     @State private var pickedPhotos: [PhotosPickerItem] = []
+    /// 导入前检查（2026-10-30）：确认后才把（已旋转归一的）图片送识别。
+    @State private var importPreview: ImportPreviewRequest?
+    /// 预览呈现的延迟任务（选择器收起竞态）：页面消失/再次选择时取消，
+    /// 避免已关闭的聊天页在下一拍弹出预览。
+    @State private var previewTask: Task<Void, Never>?
 
     // 语音消息重放（2026-10-19；2026-10-20 转写文本常显）：本机音频文件。
     // 播放器已上提 AppState.voicePlayback（2026-10-21），页面只读 playingID。
@@ -75,6 +81,9 @@ struct TaskAssistantChatView: View {
     /// 历史写入串行链：append 必须先于同消息的 update（2026-10-20）。
     @State private var persistenceTail: Task<Void, Never>?
     @State private var conversationID: UUID?
+    /// 当前会话标题真值（2026-10-30：聊天媒体导出目录以会话名命名）。
+    /// 自动命名/历史打开/新建三处同步；用户手动改名暂不回流（目录名首次导出即冻结）。
+    @State private var conversationTitle: String?
     /// 会话代次：切换会话后，晚到的持久化任务不得写进新会话（2026-10-20）。
     @State private var conversationGeneration = UUID()
     @State private var titleCaptured = false
@@ -83,18 +92,38 @@ struct TaskAssistantChatView: View {
     private enum AssistantSheet: Identifiable {
         case history
         /// 媒体详情（2026-10-29 批三）：识别文本 / 信息卡片双 tab。
-        case mediaDetail(documentId: UUID, patientId: UUID, title: String)
+        /// 2026-10-30：携带会话身份，详情内显式导出副本也落「<日期>-<会话名>」目录。
+        case mediaDetail(documentId: UUID, patientId: UUID, title: String,
+                         conversationID: UUID?, conversationTitle: String?)
+        /// 原图直看（2026-10-30 业主：点缩略图进入原图，不再先绕详情页）。
+        case original(documentId: UUID, patientId: UUID, pageIndex: Int)
+        /// 语音详情（2026-10-30 业主；mock v4 第 7 帧）。
+        case voiceDetail(messageID: UUID, media: MediaInfo)
         case sharedReview(sessionID: UUID)
         case cardReview(cardID: UUID, sessionID: UUID)
 
         var id: String {
             switch self {
             case .history: return "history"
-            case .mediaDetail(let doc, _, _): return "media-\(doc.uuidString)"
+            case .mediaDetail(let doc, _, _, _, _): return "media-\(doc.uuidString)"
+            case .original(let doc, _, let page): return "original-\(doc.uuidString)-\(page)"
+            case .voiceDetail(let messageID, _): return "voice-\(messageID.uuidString)"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
             }
         }
+    }
+
+    /// 导入前图片检查请求（2026-10-30 业主）：拍照/相册/文件图片先经预览页
+    /// 放大检查与旋转，确认后才进入 OCR 链。PDF 不进预览（方向由原件决定）。
+    private struct ImportPreviewRequest: Identifiable {
+        let id = UUID()
+        var images: [UIImage]
+        var pdfs: [PDFDocument]
+        var filename: String
+        var kind: MediaInfo.Kind
+        var origin: String
+        var source: MediaSource
     }
 
     /// 媒体来源（2026-10-29 批三 · mock v4 对照）：聊天卡片头图标=来源类型，
@@ -215,13 +244,12 @@ struct TaskAssistantChatView: View {
                 .onChangeCompat(of: activeSheet == nil) { _, closed in
                     if closed {
                         syncCardSnapshots()
-                        // 卡片确认后刷新媒体气泡的来源徽章（UX 席 P2-8：D 章
-                        // 曾一次性加载后整会话停留在待确认）。
-                        refreshDocumentGrades()
                     }
                 }
                 .onDisappear {
                     routeMonitor.stop()
+                    previewTask?.cancel()
+                    previewTask = nil
                     stopVoicePlayback()
                     chatDictation?.stopForDisappear()
                     for url in pendingVoiceURLs.values { ChatAudioStore.removeTemporary(url) }
@@ -250,6 +278,13 @@ struct TaskAssistantChatView: View {
                 guard let last = messages.last else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo(last.id, anchor: .bottom)
+                }
+            }
+            // 挂在消息列表（非根视图）上：根视图已有 `.sheet(activeSheet)` 与
+            // 相机 `.fullScreenCover`，同节点多 presentation 在 iOS 16 会互相覆盖。
+            .fullScreenCover(item: $importPreview) { request in
+                ChatImageImportPreview(images: request.images) { images in
+                    handlePreviewConfirmed(images, request: request)
                 }
             }
         }
@@ -306,23 +341,35 @@ struct TaskAssistantChatView: View {
     }
 
     /// 用户侧媒体记录（2026-10-19 业主：像微信上传文件一样进聊天记录；
-    /// 2026-10-20：OCR 落库后整块可点开原件——当前会话与历史恢复同一路径）。
+    /// 2026-10-20：OCR 落库后整块可点开原件——当前会话与历史恢复同一路径；
+    /// 2026-10-30 业主：多附件每张一个缩略图，点缩略图直入原图，不再显示
+    /// 「N 份附件」「原件保存在本机」类文字，也不在右上角挂编辑图标）。
     @ViewBuilder
     private func mediaBubble(_ media: MediaInfo, messageID: UUID) -> some View {
         if media.kind == .voice {
             voiceBubble(media, messageID: messageID)
         } else if let documentId = media.documentId, let patientId = media.patientId {
-            Button {
-                activeSheet = .mediaDetail(documentId: documentId, patientId: patientId,
-                                           title: media.filename)
-            } label: {
-                mediaContent(media)
+            VStack(alignment: .leading, spacing: 6) {
+                if media.kind == .image {
+                    thumbnailRow(media, documentId: documentId, patientId: patientId)
+                    Button {
+                        openMediaDetail(media, documentId: documentId, patientId: patientId)
+                    } label: {
+                        mediaCaption(media)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("assistant.media.open")
+                } else {
+                    Button {
+                        openMediaDetail(media, documentId: documentId, patientId: patientId)
+                    } label: {
+                        mediaContent(media)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("assistant.media.open")
+                }
             }
-            .buttonStyle(.plain)
-            // 落点已改为速记详情（识别文本/信息卡片），原图是详情内第二步——
-            // VoiceOver 提示同步改口（UX 席 P2-9）。
             .accessibilityHint(L10n.assistantMediaDetailHint)
-            .accessibilityIdentifier("assistant.media.open")
             // 2026-10-27 存储边界（E1/E2）+ 2026-10-28 逐条敏感开关：
             // 默认不敏感（2026-10-28 业主改判，存量记录不追溯）；开=仅内部保存
             // 并删除用户面副本；关=显式授权对外，立即导出副本。
@@ -338,7 +385,8 @@ struct TaskAssistantChatView: View {
                             sensitiveByDocument[documentId] = newValue
                             let failure = await exportState.setRecordSensitive(
                                 documentID: documentId, sensitive: newValue,
-                                conversationID: chatSessionID, conversationTitle: nil)
+                                conversationID: conversationID,
+                                conversationTitle: conversationTitle)
                             if failure != nil { sensitiveByDocument[documentId] = previous }
                             sensitiveLoaded.insert(documentId)
                         }
@@ -347,17 +395,16 @@ struct TaskAssistantChatView: View {
                 Button {
                     Task {
                         _ = await exportState.exportCopy(
-                            documentID: documentId, conversationID: chatSessionID,
-                            conversationTitle: nil, allowSensitive: true)
+                            documentID: documentId, conversationID: conversationID,
+                            conversationTitle: conversationTitle, allowSensitive: true)
                     }
                 } label: { Label(L10n.docExportCopy, systemImage: "folder.badge.plus") }
             }
             .task(id: documentId) {
-                // 一次读取同时取敏感真值与来源徽章；读不到则开关保持禁用，
+                // 一次读取同时取敏感真值；读不到则开关保持禁用，
                 // 不把「未知」画成「关」。
                 if let doc = await docs.documentRow(id: documentId) {
                     sensitiveByDocument[documentId] = doc.isSensitive
-                    gradeByDocument[documentId] = doc.grade
                     sensitiveLoaded.insert(documentId)
                 }
             }
@@ -366,9 +413,63 @@ struct TaskAssistantChatView: View {
         }
     }
 
+    private func openMediaDetail(_ media: MediaInfo, documentId: UUID, patientId: UUID) {
+        activeSheet = .mediaDetail(documentId: documentId, patientId: patientId,
+                                   title: media.filename,
+                                   conversationID: conversationID,
+                                   conversationTitle: conversationTitle)
+    }
+
+    /// 多附件缩略图行（2026-10-30）：每张一个 64pt 方块，点第 N 张直接打开
+    /// 第 N 页原图（合并文档的页序 = 附件选择顺序）。
+    private func thumbnailRow(_ media: MediaInfo, documentId: UUID,
+                              patientId: UUID) -> some View {
+        let count = max(1, media.itemCount)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 6) {
+                ForEach(0..<count, id: \.self) { index in
+                    Button {
+                        activeSheet = .original(documentId: documentId,
+                                                patientId: patientId,
+                                                pageIndex: index)
+                    } label: {
+                        ChatMediaThumbnail(documentId: documentId, patientId: patientId,
+                                           size: 64, cornerRadius: 10,
+                                           pageIndex: index,
+                                           fallbackSymbol: mediaSymbol(media))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(L10n.chatMediaPageAccessibility(index + 1, count))
+                    .accessibilityIdentifier("assistant.media.thumb.\(index)")
+                }
+            }
+        }
+        .frame(maxWidth: 252, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("assistant.media.thumbs")
+    }
+
+    /// 图片气泡底行：文件名 + 状态（点按进详情；缩略图本身直入原图）。
+    private func mediaCaption(_ media: MediaInfo) -> some View {
+        HStack(spacing: 6) {
+            Text(media.filename)
+                .font(.caption)
+                .lineLimit(1)
+            Text(mediaStatusText(media.status))
+                .font(.caption2)
+                .foregroundStyle(media.status == .failed
+                    ? Color("semantic-danger", bundle: .main) : Color.secondary)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: 240, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("assistant.media.caption")
+    }
+
     private func mediaContent(_ media: MediaInfo) -> some View {
         HStack(spacing: 10) {
-            mediaThumbnail(media)
+            mediaIcon(media)
             VStack(alignment: .leading, spacing: 2) {
                 Text(media.filename)
                     .font(.subheadline)
@@ -379,7 +480,6 @@ struct TaskAssistantChatView: View {
                         ? Color("semantic-danger", bundle: .main) : Color.secondary)
             }
             Spacer(minLength: 4)
-            mediaStatusIcon(media)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -390,29 +490,8 @@ struct TaskAssistantChatView: View {
         .accessibilityIdentifier("assistant.media")
     }
 
-    /// 业主 2026-10-29：图片气泡显示真实缩略图（44pt 小圆角方块），
-    /// 来源/多选数量只做角标，不再用文字徽章占宽。
-    @ViewBuilder
-    private func mediaThumbnail(_ media: MediaInfo) -> some View {
-        if media.kind == .image, let documentId = media.documentId, let patientId = media.patientId {
-            ZStack(alignment: .topTrailing) {
-                ChatMediaThumbnail(documentId: documentId, patientId: patientId,
-                                   size: 44, cornerRadius: 10,
-                                   fallbackSymbol: mediaSymbol(media))
-                thumbnailSourceBadge(media)
-            }
-            .accessibilityHidden(true)
-        } else {
-            ZStack(alignment: .topTrailing) {
-                mediaIcon(media)
-                thumbnailSourceBadge(media)
-            }
-            .accessibilityHidden(true)
-        }
-    }
-
     /// 卡片头图标 = 来源类型（2026-10-29 批三）：拍照相机 / 相册相片 /
-    /// 多张叠层 / PDF / 文件（多选由数量角标区分）。
+    /// 多张叠层 / PDF / 文件。
     private func mediaIcon(_ media: MediaInfo) -> some View {
         Image(systemName: mediaSymbol(media))
             .font(.title3)
@@ -421,39 +500,6 @@ struct TaskAssistantChatView: View {
             .background(Color("brand-primary", bundle: .main).opacity(0.14))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private func thumbnailSourceBadge(_ media: MediaInfo) -> some View {
-        if media.itemCount > 1 {
-            Text("\(media.itemCount)")
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 4)
-                .frame(minWidth: 16, minHeight: 16)
-                // 中性计数角标（UX 席 P2-7：不得复用 semantic-warning——
-                // 该令牌专属「转写不完整」等警示语义）。
-                .background(Color("brand-primary", bundle: .main), in: Capsule())
-                .offset(x: 6, y: -6)
-                .accessibilityHidden(true)
-        } else if media.source == .camera {
-            Image(systemName: "camera.fill")
-                .font(.system(size: 8, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 16, height: 16)
-                .background(Color("brand-primary", bundle: .main), in: Circle())
-                .offset(x: 5, y: -5)
-                .accessibilityHidden(true)
-        }
-    }
-
-    /// 气泡只显示状态图标，不再挂 D 级文字徽章（业主 2026-10-29）。
-    @ViewBuilder
-    private func mediaStatusIcon(_ media: MediaInfo) -> some View {
-        if media.status == .ready, let documentId = media.documentId,
-           let grade = gradeByDocument[documentId] {
-            ChatMediaGradeIcon(grade: grade)
-        }
     }
 
     private func mediaSymbol(_ media: MediaInfo) -> String {
@@ -472,13 +518,16 @@ struct TaskAssistantChatView: View {
 
     /// 语音消息（2026-10-19；2026-10-20 业主指令）：本机音频可重放；
     /// 转写文本不再需要手动触发——识别在后台完成，直接展开显示在语音下方。
+    /// 2026-10-30 业主：点标题/转写进入语音详情（播放器 + 转写/摘要双 tab，
+    /// mock v4 第 7 帧），播放键仍在气泡上直接可点。
     private func voiceBubble(_ media: MediaInfo, messageID: UUID) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Button {
                     playVoice(media, messageID: messageID)
                 } label: {
-                    Image(systemName: app.voicePlayback.playingID == messageID ? "stop.circle.fill" : "play.circle.fill")
+                    Image(systemName: app.voicePlayback.isPlaying(id: messageID)
+                        ? "pause.circle.fill" : "play.circle.fill")
                         .font(.title2)
                         .frame(minWidth: 44, minHeight: 44)
                 }
@@ -486,22 +535,42 @@ struct TaskAssistantChatView: View {
                 .accessibilityLabel(L10n.assistantVoiceReplay)
                 .accessibilityIdentifier("assistant.voice.replay")
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L10n.assistantVoiceMessage)
-                        .font(.subheadline)
-                    Text(mediaStatusText(media.status))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                Button {
+                    activeSheet = .voiceDetail(messageID: messageID, media: media)
+                } label: {
+                    HStack(spacing: 4) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.assistantVoiceMessage)
+                                .font(.subheadline)
+                            Text(mediaStatusText(media.status))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                Spacer(minLength: 4)
+                .buttonStyle(.plain)
+                .accessibilityHint(L10n.chatVoiceOpenHint)
+                .accessibilityIdentifier("assistant.voice.open")
             }
             if let transcript = media.transcript,
                !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(transcript)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("assistant.voice.transcript")
+                Button {
+                    activeSheet = .voiceDetail(messageID: messageID, media: media)
+                } label: {
+                    Text(transcript)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("assistant.voice.transcript")
             }
             if media.incomplete {
                 Label(L10n.voiceDictationIncomplete, systemImage: "exclamationmark.triangle")
@@ -527,7 +596,12 @@ struct TaskAssistantChatView: View {
         guard let filename = media.audioFilename,
               let url = ChatAudioStore.fileURL(filename) else { return }
         if app.voicePlayback.playingID == messageID {
-            app.voicePlayback.stop()
+            // 同一消息：出声=停止；暂停=续播（详情页暂停后回到气泡不能变「重播」）。
+            if app.voicePlayback.isPlaying(id: messageID) {
+                app.voicePlayback.stop()
+            } else {
+                app.voicePlayback.togglePause()
+            }
             return
         }
         // 双向互斥：开始重放前停掉 TTS，避免朗读与语音消息叠音。
@@ -955,10 +1029,19 @@ struct TaskAssistantChatView: View {
     @ViewBuilder
     private func sheetContent(_ sheet: AssistantSheet) -> some View {
         switch sheet {
-        case .mediaDetail(let documentId, let patientId, let title):
+        case .mediaDetail(let documentId, let patientId, let title,
+                          let conversationID, let conversationTitle):
             // 2026-10-29 批三：媒体气泡 → 速记详情（识别文本 / 信息卡片）；
             // 原图入口在详情页内（DocumentSourcePageView 全屏）。
-            ChatMediaDetailView(documentId: documentId, patientId: patientId, title: title)
+            ChatMediaDetailView(documentId: documentId, patientId: patientId, title: title,
+                                conversationID: conversationID,
+                                conversationTitle: conversationTitle)
+        case .original(let documentId, let patientId, let pageIndex):
+            DocumentSourcePageView(documentId: documentId, patientId: patientId,
+                                   pageIndex: pageIndex)
+        case .voiceDetail(let messageID, let media):
+            ChatVoiceDetailView(messageID: messageID, audioFilename: media.audioFilename,
+                                transcript: media.transcript, incomplete: media.incomplete)
         case .history:
             ChatHistoryView(
                 patientId: app.currentPatientId,
@@ -967,6 +1050,11 @@ struct TaskAssistantChatView: View {
                 onClose: { activeSheet = nil },
                 onDelete: { id in
                     if id == conversationID { startNewConversation() }
+                },
+                onRename: { id, title in
+                    // 当前会话改名 → 后续导出目录跟随新会话名；
+                    // 已冻结的旧目录不追改（D5）。
+                    if id == conversationID { conversationTitle = title }
                 })
         case .sharedReview(let sessionID):
             if let session = docs.activeImport, session.id == sessionID {
@@ -1048,7 +1136,10 @@ struct TaskAssistantChatView: View {
         let kind = message.media != nil ? "media" : message.card != nil ? "card" : "text"
         let payload = encode(message)
         let title = !titleCaptured ? titleCandidate(message) : nil
-        if title != nil { titleCaptured = true }
+        if let title {
+            titleCaptured = true
+            conversationTitle = title
+        }
         let capturedConversation = conversationID
         let generation = conversationGeneration
         enqueuePersistence {
@@ -1094,7 +1185,7 @@ struct TaskAssistantChatView: View {
                 id = capturedConversation
             } else {
                 guard generation == conversationGeneration,
-                      let created = await ensureConversationID() else { return }
+                      let created = await ensureConversationID(expectedGeneration: generation) else { return }
                 id = created
             }
             await chatHistory.updateMessagePayload(conversationId: id,
@@ -1104,10 +1195,15 @@ struct TaskAssistantChatView: View {
     }
 
     /// 懒创建会话：首条消息落库前不产生空会话；并发首条消息只保留一个会话。
-    private func ensureConversationID() async -> UUID? {
+    private func ensureConversationID(expectedGeneration: UUID? = nil) async -> UUID? {
         if let conversationID { return conversationID }
         guard let created = await chatHistory.createConversation(
             patientId: app.currentPatientId, title: L10n.assistantNewConversation) else { return nil }
+        // 创建期间用户已切会话：删掉刚建的空会话，不得把旧任务写进新会话。
+        if let expectedGeneration, expectedGeneration != conversationGeneration {
+            Task { await chatHistory.delete(created) }
+            return nil
+        }
         if let existing = conversationID {
             Task { await chatHistory.delete(created) }
             return existing
@@ -1134,8 +1230,12 @@ struct TaskAssistantChatView: View {
     /// OCR 会话自动命名（2026-10-20 业主指令）：首个实体卡类型 + 首个识别值
     /// （如「检验报告 · 血红蛋白」「处方 · 阿莫西林」）；无实体卡时用共同信息，
     /// 叙事型资料回落文档类型名；用户已命名/已捕获则不再覆盖。
-    private func autoTitleFromImport(_ session: DocumentsState.ImportSession) {
-        guard !titleCaptured else { return }
+    /// 2026-10-30：改成 async 并返回最终标题——导出的会话目录要等命名完成，
+    /// 才拿到与聊天历史一致的目录名。
+    @discardableResult
+    private func autoTitleFromImport(_ session: DocumentsState.ImportSession) async -> String? {
+        let generation = conversationGeneration
+        guard !titleCaptured else { return conversationTitle }
         let title: String?
         if let card = session.cards.first {
             let kind = L10n.entityCardKindName(card.kind)
@@ -1155,17 +1255,16 @@ struct TaskAssistantChatView: View {
         } else {
             title = nil
         }
-        guard let title else { return }
+        guard let title else { return conversationTitle }
+        // 会话已切换时不得把旧导入的标题写到新会话，也不得给导出提供错名。
+        guard generation == conversationGeneration else { return nil }
         titleCaptured = true
         let trimmed = String(title.prefix(40))
-        let generation = conversationGeneration
-        Task {
-            // 会话已切换时不得把旧导入的标题写到新会话。
-            guard generation == conversationGeneration else { return }
-            guard let id = await ensureConversationID() else { return }
-            guard generation == conversationGeneration else { return }
-            await chatHistory.rename(id, title: trimmed)
-        }
+        conversationTitle = trimmed
+        guard let id = await ensureConversationID(expectedGeneration: generation) else { return nil }
+        guard generation == conversationGeneration else { return nil }
+        await chatHistory.rename(id, title: trimmed)
+        return trimmed
     }
 
     private func encode(_ message: ChatMessage) -> String? {
@@ -1259,23 +1358,6 @@ struct TaskAssistantChatView: View {
         }
     }
 
-    /// 刷新媒体气泡的来源徽章（2026-10-29 批三）：卡片确认会把文档 grade
-    /// D→C，气泡上的待确认图标须随之消失；失败静默保持旧值（旧 D 是安全方向）。
-    /// 会话代次守卫：切换会话后迟到的旧查询不得覆盖新会话的徽章缓存。
-    private func refreshDocumentGrades() {
-        let ids = Set(messages.compactMap { $0.media?.documentId })
-        guard !ids.isEmpty else { return }
-        let generation = conversationGeneration
-        Task {
-            for id in ids {
-                if let doc = await docs.documentRow(id: id) {
-                    guard generation == conversationGeneration else { return }
-                    gradeByDocument[id] = doc.grade
-                }
-            }
-        }
-    }
-
     private func openConversation(_ summary: ChatHistoryStore.ConversationSummary) {
         let generation = UUID()
         conversationGeneration = generation
@@ -1291,7 +1373,9 @@ struct TaskAssistantChatView: View {
                 // 用户快速点开另一会话时，旧请求不得把首个会话内容写回来。
                 guard generation == conversationGeneration else { return }
                 stopVoicePlayback()
+                interruptInFlightImports()
                 conversationID = summary.id
+                conversationTitle = summary.title
                 titleCaptured = true
                 // 旧版本落库的卡片消息不再渲染（业主 2026-10-29：卡片只在
                 // 媒体详情）；过滤在解码后，历史数据保留可回溯。
@@ -1302,11 +1386,23 @@ struct TaskAssistantChatView: View {
         }
     }
 
+    /// 切会话时把仍在 OCR 的图片/PDF 消息落成失败快照。迟到的
+    /// `finishImport` 会被世代守卫丢弃，若不先收尾，旧会话会永久停在
+    /// 「识别中」（2026-10-30 审查席 P1）。语音转写不在此列。
+    private func interruptInFlightImports() {
+        for message in messages
+        where message.media?.status == .processing && message.media?.kind != .voice {
+            updateMedia(message.id, status: .failed)
+        }
+    }
+
     private func startNewConversation() {
         // 懒创建：清空界面即可；首条消息落库时创建会话，避免空行。
         stopVoicePlayback()
+        interruptInFlightImports()
         conversationGeneration = UUID()
         conversationID = nil
+        conversationTitle = nil
         titleCaptured = false
         messages = []
         resetTransient()
@@ -1326,59 +1422,73 @@ struct TaskAssistantChatView: View {
 
     /// 多选照片（2026-10-23 业主）：单张保持原图路径；多张按选择顺序
     /// 合并为一份多页 PDF，只起一个 OCR 会话，跨页内容统一归并。
+    /// 2026-10-30：解码后先进入导入前检查（放大/旋转），确认再识别。
     private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
         pickedPhotos = []
         Task {
-            var datas: [Data] = []
+            var images: [UIImage] = []
             for item in items {
-                if let data = try? await item.loadTransferable(type: Data.self) {   // try?-ok: 逐张跳过读取失败
-                    datas.append(data)
+                if let data = try? await item.loadTransferable(type: Data.self),   // try?-ok: 逐张跳过读取失败
+                   let image = UIImage(data: data) {
+                    images.append(image)
                 }
             }
-            guard !datas.isEmpty else {
+            guard !images.isEmpty else {
                 append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
                 return
             }
-            if datas.count == 1, let data = datas.first {
-                await importImage(data, filename: L10n.assistantAttachPhotos,
-                                  origin: "photoLibrary", source: .photoLibrary)
+            presentImportPreview(ImportPreviewRequest(
+                images: images, pdfs: [],
+                filename: images.count > 1 ? L10n.assistantMergedPhotosFilename
+                                           : L10n.assistantAttachPhotos,
+                kind: .image, origin: "photoLibrary", source: .photoLibrary))
+        }
+    }
+
+    /// 系统选择器/相机正在收起时，同一 presentation 事务里再弹全屏页会被
+    /// iOS 16 丢弃；统一延后一拍（2026-10-30 审查席 P1）。
+    private func presentImportPreview(_ request: ImportPreviewRequest,
+                                      delayNanoseconds: UInt64 = 350_000_000) {
+        previewTask?.cancel()
+        previewTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: delayNanoseconds)
+            } catch {
                 return
             }
-            let images = datas.compactMap { UIImage(data: $0) }
-            guard images.count == datas.count else {
-                append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
-                return
-            }
-            await importMerged(images: images, pdfs: [],
-                               filename: String(format: L10n.assistantAttachmentBatchFmt, images.count),
-                               kind: .image, origin: "photoLibrary",
-                               source: .photoLibrary, itemCount: images.count)
+            guard !Task.isCancelled else { return }
+            importPreview = request
         }
     }
 
     private func handleCameraImage(_ image: UIImage) {
         showCamera = false
-        guard let data = image.jpegData(compressionQuality: 1) else {
-            append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
-            return
-        }
-        Task { await importImage(data, filename: L10n.assistantAttachCamera,
-                                 origin: "camera", source: .camera) }
+        presentImportPreview(ImportPreviewRequest(
+            images: [image], pdfs: [], filename: L10n.assistantAttachCamera,
+            kind: .image, origin: "camera", source: .camera),
+            delayNanoseconds: 450_000_000)
     }
 
     private func handleImportedFiles(_ result: Result<[URL], Error>) {
         guard case .success(let urls) = result, !urls.isEmpty else { return }
-        if urls.count == 1, let url = urls.first {
-            let kind: MediaInfo.Kind = url.pathExtension.lowercased() == "pdf" ? .pdf : .image
-            Task { await importURL(url, filename: url.lastPathComponent, kind: kind) }
+        if urls.count == 1, let url = urls.first, url.pathExtension.lowercased() == "pdf" {
+            // PDF 页方向由原件决定，不走图片预览；直接进导入链。
+            // 文件选择器 URL 是安全作用域：读取期间必须持有访问权，否则
+            // 关闭选择器后再读原件会被系统拒绝（2026-10-30 复审）。
+            Task {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                await importURL(url, filename: url.lastPathComponent, kind: .pdf)
+            }
             return
         }
-        Task { await importFiles(urls) }
+        Task { await prepareFileImport(urls) }
     }
 
-    /// 多文件（图片 + PDF 混合）：保持文件/页顺序，合并为一份多页 PDF。
-    private func importFiles(_ urls: [URL]) async {
+    /// 文件导入：图片先预览（放大/旋转），PDF 随请求一起合并。
+    /// 保持文件顺序（图片在前、PDF 在后，与合并器入参顺序一致）。
+    private func prepareFileImport(_ urls: [URL]) async {
         var scopes: [URL] = []
         for url in urls where url.startAccessingSecurityScopedResource() {
             scopes.append(url)
@@ -1389,23 +1499,67 @@ struct TaskAssistantChatView: View {
         var pdfs: [PDFDocument] = []
         for url in urls {
             if url.pathExtension.lowercased() == "pdf" {
-                if let document = PDFDocument(url: url) { pdfs.append(document) }
+                // 先读进内存再建 PDFDocument：安全作用域关闭后按需读页会失败。
+                if let data = try? Data(contentsOf: url),   // try?-ok: 逐份跳过不可读文件
+                   let document = PDFDocument(data: data) {
+                    pdfs.append(document)
+                }
             } else if let data = try? Data(contentsOf: url),   // try?-ok: 逐份跳过不可读文件
                       let image = UIImage(data: data) {
                 images.append(image)
             }
         }
-        for url in scopes { url.stopAccessingSecurityScopedResource() }
-        scopes.removeAll()
         guard !images.isEmpty || !pdfs.isEmpty else {
             append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
             return
         }
-        let kind: MediaInfo.Kind = pdfs.isEmpty ? .image : .pdf
-        await importMerged(images: images, pdfs: pdfs,
-                           filename: String(format: L10n.assistantAttachmentBatchFmt, urls.count),
-                           kind: kind, origin: "import",
-                           source: .fileImport, itemCount: urls.count)
+        if images.isEmpty {
+            await importMerged(images: [], pdfs: pdfs,
+                               filename: L10n.assistantMergedFilesFilename,
+                               kind: .pdf, origin: "import",
+                               source: .fileImport, itemCount: pdfs.count)
+            return
+        }
+        presentImportPreview(ImportPreviewRequest(
+            images: images, pdfs: pdfs,
+            filename: pdfs.isEmpty ? L10n.assistantMergedFilesFilename
+                                   : L10n.assistantMergedMixedFilename,
+            kind: pdfs.isEmpty ? .image : .pdf,
+            origin: "import", source: .fileImport))
+    }
+
+    /// 检查页确认后：单图走原图路径，其余按序合并为一份多页 PDF。
+    private func handlePreviewConfirmed(_ images: [UIImage], request: ImportPreviewRequest) {
+        Task {
+            if request.pdfs.isEmpty, images.count == 1, let image = images.first {
+                guard let data = Self.normalizedJPEGData(image) else {
+                    append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+                    return
+                }
+                await importImage(data, filename: request.filename,
+                                  origin: request.origin, source: request.source)
+                return
+            }
+            await importMerged(images: images, pdfs: request.pdfs,
+                               filename: request.filename, kind: request.kind,
+                               origin: request.origin, source: request.source,
+                               itemCount: max(1, images.count + request.pdfs.count))
+        }
+    }
+
+    /// 方向归一 + JPEG 编码（EXIF 方向合入像素，OCR 不再读到侧躺/倒置画面）。
+    private static func normalizedJPEGData(_ image: UIImage) -> Data? {
+        let normalized: UIImage
+        if image.imageOrientation == .up {
+            normalized = image
+        } else {
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = image.scale
+            normalized = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: image.size))
+            }
+        }
+        return normalized.jpegData(compressionQuality: 1)
     }
 
     private func importMerged(images: [UIImage], pdfs: [PDFDocument],
@@ -1418,8 +1572,10 @@ struct TaskAssistantChatView: View {
             append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
             return
         }
+        // 页数上限截断后，气泡缩略图数不得超出真实页数（否则尾页是空占位）。
+        let visibleCount = max(1, min(itemCount, merged.pageCount))
         guard let messageID = appendMedia(filename: filename, kind: kind,
-                                          source: source, itemCount: itemCount) else { return }
+                                          source: source, itemCount: visibleCount) else { return }
         importing = true
         defer { importing = false }
         guard let session = startChatSession() else {
@@ -1489,13 +1645,47 @@ struct TaskAssistantChatView: View {
         guard docs.activeImport == nil,
               let session = docs.beginImport(patientId: app.currentPatientId) else { return nil }
         session.captureSensitive = true
+        // 聊天导入的用户面副本统一由 finishImport 在会话命名后导出到
+        // 「<日期时间>-<会话名>-<短ID>」目录；设置里的自动镜像（月桶）跳过，
+        // 避免同件双份（2026-10-30 业主）。
+        session.suppressAutoMirrorHook = true
         chatSessionID = session.id
+        importGeneration = conversationGeneration
         return session
+    }
+
+    /// 导入是否仍属于当前会话（含同代次、同一导入槽）。OCR 耗时较长，
+    /// 用户此时可切历史/新建会话；旧导入不得把回执、标题或用户面副本
+    /// 写进新会话（2026-10-30 审查席 P1）。
+    private func importIsCurrent(_ session: DocumentsState.ImportSession) -> Bool {
+        chatSessionID == session.id && importGeneration == conversationGeneration
+    }
+
+    /// 被切会话甩下的导入：保留已落库原件，未完成卡片整批转待办，释放导入槽。
+    private func discardSupersededImport(_ session: DocumentsState.ImportSession) async {
+        if session.source == nil {
+            docs.cancelImport(sessionID: session.id)
+        } else {
+            _ = await docs.deferRemainingEntityCards()
+            // 卡已全部转待办后补结算（deferRemaining 自身不改 outcome），
+            // 否则 finishImportPresentation 不放槽，后续导入一直提示忙碌。
+            docs.finishEntityQueueIfNeeded()
+        }
+        _ = docs.finishImportPresentation(sessionID: session.id)
+        if chatSessionID == session.id {
+            chatSessionID = nil
+            importGeneration = nil
+        }
     }
 
     private func finishImport(_ draft: DocumentsState.ImportDraft?,
                               session: DocumentsState.ImportSession,
                               messageID: UUID?) async {
+        // 切会话后迟到的 OCR 收尾：不写回执、不命名、不导出到新会话。
+        guard importIsCurrent(session) else {
+            await discardSupersededImport(session)
+            return
+        }
         // 重复资料：聊天内不静默覆盖（ADR-019），保留原件并提示去资料库处理。
         if session.duplicate != nil {
             updateMedia(messageID, status: .failed)
@@ -1503,6 +1693,7 @@ struct TaskAssistantChatView: View {
             _ = await docs.resolveDuplicate(.keep)
             _ = docs.finishImportPresentation(sessionID: session.id)
             chatSessionID = nil
+            importGeneration = nil
             return
         }
         guard let draft else {
@@ -1516,6 +1707,11 @@ struct TaskAssistantChatView: View {
         }
         guard await docs.commitDraft(draft) else {
             await failImport(session: session, messageID: messageID, text: L10n.assistantMediaFailed)
+            return
+        }
+        // 落库期间切换会话：原件已保留，但回执/标题/导出不得进新会话。
+        guard importIsCurrent(session) else {
+            await discardSupersededImport(session)
             return
         }
         updateMedia(messageID, status: .ready,
@@ -1533,7 +1729,46 @@ struct TaskAssistantChatView: View {
         // 业主 2026-10-29：信息卡片不再进聊天流——只保留一句识别回执，
         // 卡片的「需要修改/已确认」两区统一在媒体详情页呈现。
         // OCR 内容命名放在回执之后：会话已创建/已有首条消息，改名命中同一会话。
-        autoTitleFromImport(session)
+        // 2026-10-30：命名完成后立即把（非敏感）原件导出到会话目录，
+        // 「文件」App 才看得到与聊天会话同名、带日期时间前缀的目录。
+        let title = await autoTitleFromImport(session)
+        guard importIsCurrent(session) else {
+            await discardSupersededImport(session)
+            return
+        }
+        await exportChatMedia(session: session, title: title)
+        // 聊天流不再承载信息卡（2026-10-29）：导入卡必须在 OCR 收尾后
+        // 转待办并释放导入槽，否则详情页查不到 pending 卡，且下一份媒体
+        // 会被 activeImport 一直挡在「导入进行中」。
+        await releaseChatImportSession(session)
+    }
+
+    /// 导入收尾：未处理卡整批落待办、结算并释放导入槽（详情页仍可续办）。
+    private func releaseChatImportSession(_ session: DocumentsState.ImportSession) async {
+        guard docs.activeImport?.id == session.id else { return }
+        _ = await docs.deferRemainingEntityCards()
+        docs.finishEntityQueueIfNeeded()
+        _ = docs.finishImportPresentation(sessionID: session.id)
+        if chatSessionID == session.id {
+            chatSessionID = nil
+            importGeneration = nil
+        }
+    }
+
+    /// 聊天媒体用户面副本（2026-10-30 业主：「文件」App 里按会话名建目录）。
+    /// 只导出非敏感件（BR-007/008：敏感媒体不自动出界）；目录名带
+    /// `yyyyMMdd-HHmm` 前缀，首次导出即冻结（D5），同会话后续资料复用同目录。
+    private func exportChatMedia(session: DocumentsState.ImportSession, title: String?) async {
+        guard importIsCurrent(session) else { return }
+        guard let source = session.source else { return }
+        let generation = conversationGeneration
+        guard let conversationID = await ensureConversationID(expectedGeneration: generation),
+              generation == conversationGeneration else { return }
+        _ = await exportState.exportCopy(
+            documentID: source.documentId,
+            conversationID: conversationID,
+            conversationTitle: title ?? conversationTitle,
+            allowSensitive: false)
     }
 
     private func updateMedia(_ messageID: UUID?, status: MediaInfo.Status,
@@ -1566,9 +1801,13 @@ struct TaskAssistantChatView: View {
             docs.cancelImport(sessionID: session.id)
         } else {
             _ = await docs.deferRemainingEntityCards()
+            // deferRemaining 只出队不结算；不补结算则 finishImportPresentation
+            // 不放槽，聊天页后续导入永久卡在「导入进行中」。
+            docs.finishEntityQueueIfNeeded()
         }
         _ = docs.finishImportPresentation(sessionID: session.id)
         chatSessionID = nil
+        importGeneration = nil
     }
 
     /// 关闭聊天时收尾：未完成卡整批落待办（用户的识别成果不丢），释放导入槽。
@@ -1581,10 +1820,14 @@ struct TaskAssistantChatView: View {
                     docs.cancelImport(sessionID: sessionID)
                 } else {
                     _ = await docs.deferRemainingEntityCards()
+                    docs.finishEntityQueueIfNeeded()
                 }
             }
             _ = docs.finishImportPresentation(sessionID: sessionID)
-            chatSessionID = nil
+            if chatSessionID == sessionID {
+                chatSessionID = nil
+                importGeneration = nil
+            }
         }
     }
 

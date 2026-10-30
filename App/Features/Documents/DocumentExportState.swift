@@ -36,7 +36,7 @@ final class DocumentExportState {
     /// 逐项显式导出（菜单点击即显式选择；敏感件调用方须显式传 allowSensitive）。
     @discardableResult
     func exportCopy(documentID: UUID, conversationID: UUID?, conversationTitle: String?,
-                    allowSensitive: Bool) async -> ExportFailure? {
+                    allowSensitive: Bool, now: Date = Date()) async -> ExportFailure? {
         guard !exportingDocumentIds.contains(documentID) else { return nil }
         exportingDocumentIds.insert(documentID)
         defer { exportingDocumentIds.remove(documentID) }
@@ -45,7 +45,7 @@ final class DocumentExportState {
         }
         do {
             _ = try await mirror.export(try await job(for: row, conversationID: conversationID,
-                                                      conversationTitle: conversationTitle),
+                                                      conversationTitle: conversationTitle, now: now),
                                         allowSensitive: allowSensitive)
             return nil
         } catch DocumentExportMirror.MirrorError.sensitiveRequiresExplicitOptIn {
@@ -55,6 +55,13 @@ final class DocumentExportState {
         } catch {
             return .writeFailed
         }
+    }
+
+    /// 已导出的用户面相对路径（聊天详情「存储位置」展示；nil=本机无副本）。
+    func exportedRelativePath(documentID: UUID) async -> String? {
+        guard let record = await ledger.record(documentID: documentID),
+              record.state == "active" else { return nil }
+        return record.relativePath.isEmpty ? nil : record.relativePath
     }
 
     /// 启动/回前台对账（幂等；只置 tombstone，绝不回删 canonical）。
@@ -106,7 +113,7 @@ final class DocumentExportState {
 
     private func job(for row: DocumentStore.DocumentRow,
                      conversationID: UUID?,
-                     conversationTitle: String?) async throws -> DocumentExportMirror.ExportJob {
+                     conversationTitle: String?, now: Date) async throws -> DocumentExportMirror.ExportJob {
         let meta = (row.metaJSON.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String: Any])   // try?-ok: meta 损坏按缺路径处理
         guard let sourcePath = meta?["original_path"] as? String, !sourcePath.isEmpty else {
             throw DocumentExportMirror.MirrorError.sourceUnreadable("missing original_path")
@@ -115,13 +122,21 @@ final class DocumentExportState {
         if let existing = await ledger.record(documentID: row.id)?.directoryName, !existing.isEmpty {
             directory = existing                        // D5：目录名首次导出即冻结
         } else if let conversationID {
-            directory = DocumentExportNaming.directoryName(conversationTitle: conversationTitle,
-                                                           conversationID: conversationID)
+            // 同一会话内后续资料复用首条资料的会话目录（日期前缀不随导入次数漂移）。
+            if let existingConversation = await ledger.records(conversationID: conversationID)
+                .first(where: { !$0.directoryName.isEmpty })?.directoryName {
+                directory = existingConversation
+            } else {
+                directory = DocumentExportNaming.directoryName(
+                    conversationTitle: conversationTitle,
+                    conversationID: conversationID,
+                    datePrefix: Self.timestampText(now))
+            }
         } else {
             // 直接导入归档到「直接导入-YYYY-MM」月桶（不按文档分目录：
             // 资料库入口无会话语义，目录名冻结规则只属于会话）。
             directory = DocumentExportNaming.directImportDirectory(
-                monthText: Self.monthText(Date()))
+                monthText: Self.monthText(now))
         }
         let request = DocumentExportNaming.Request(
             preferredTitle: row.title,
@@ -148,6 +163,15 @@ final class DocumentExportState {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM"
+        return formatter.string(from: date)
+    }
+
+    /// 会话目录日期时间前缀（业主 2026-10-30：「文件」App 按时间排序）。
+    /// 首次导出即冻结（D5），设备时区本地时间。
+    static func timestampText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd-HHmm"
         return formatter.string(from: date)
     }
 

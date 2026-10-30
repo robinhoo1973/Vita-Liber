@@ -3,20 +3,28 @@ import Domain
 import Infrastructure
 import Perception
 
-/// 聊天媒体详情（2026-10-29 批三 · mock v4 对照落地；业主六项 UI/UX 复核后）。
-/// 骨架与语音速记详情一致：上=媒体卡（小圆角缩略 + 页数 + 「点按看原图」→ 既有
-/// `DocumentSourcePageView` 全屏原图），下=双 tab：
-/// - 识别文本：`document_page` 逐页原文；无页行的旧资料回落文档级 `ocr_text`；
-/// - 信息卡片：分「需要修改」（待核对/过期补办）与「已确认」两区；聊天流不再承载卡片。
+/// 聊天媒体详情（2026-10-29 批三 · mock v4 对照落地；2026-10-30 业主五点复核后）。
+///
+/// 结构对齐 mock 第 4/5/6/8 帧：
+/// - 上=媒体卡：多附件/多页时**每张一个缩略图**（不再显示「N 份附件」类文字），
+///   点任一缩略图直接进原图页；底部只保留来源徽章（GradeBadge 单一出口），
+///   不再有右上角编辑图标与「原件保存在本机」长文案。
+/// - 下=双 tab：识别文本（`document_page` 逐页原文；旧资料回落 `ocr_text`）/
+///   信息卡片（「需要修改」在前、「已确认」在后；待核对卡就地展示 D 级字段
+///   摘要与 BR-003 页脚）。
+/// - 工具栏「更多操作」→ 查看原图 / 重新识别 / 文档信息（存储位置）/ 导出副本。
 /// 三值状态纪律：文本/已确认卡/待核对卡/文档行各自 loading/loaded/failed，
-/// 读取失败必须可见并可重试——不得把失败涂成空态（「没有可显示的识别文本」是陈述，不是兜底）。
+/// 读取失败必须可见并可重试——不得把失败涂成空态。
 struct ChatMediaDetailView: View {
     let documentId: UUID
     let patientId: UUID
     let title: String
+    /// 会话身份（2026-10-30）：详情内「导出副本」沿用聊天会话目录；
+    /// 历史/无会话上下文时为 nil（回落直接导入月桶）。
+    var conversationID: UUID?
+    var conversationTitle: String?
 
     @Environment(DocumentsState.self) private var docs
-    @Environment(AppSettingsStore.self) private var settingsStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
@@ -56,14 +64,26 @@ struct ChatMediaDetailView: View {
         case failed
     }
 
-    private struct PendingReviewTarget: Identifiable {
-        let id: String
-    }
-
     private enum DocState: Equatable {
         case loading
         case loaded(grade: String)
         case failed
+    }
+
+    /// 单一 sheet 槽（2026-10-30）：原图 / 待核对卡 / 更多操作共用一次
+    /// presentation，避免同视图多 `.sheet` 在 iOS 16 相互覆盖。
+    private enum DetailSheet: Identifiable {
+        case original(page: Int)
+        case pending(id: String)
+        case actions
+
+        var id: String {
+            switch self {
+            case .original(let page): return "original-\(page)"
+            case .pending(let id): return "pending-\(id)"
+            case .actions: return "actions"
+            }
+        }
     }
 
     @State private var tab: Tab = .text
@@ -71,10 +91,12 @@ struct ChatMediaDetailView: View {
     @State private var cardsState: CardsState = .loading
     @State private var pendingState: PendingState = .loading
     @State private var docState: DocState = .loading
-    @State private var showOriginal = false
-    @State private var pendingReview: PendingReviewTarget?
-    /// 文档行敏感真值（出口文案依赖；nil=未知，缩略图留痕由 ChatMediaThumbnail 承担）。
-    @State private var docSensitive: Bool?
+    @State private var detailSheet: DetailSheet?
+    /// 关闭 sheet 后的刷新范围：看原图不重读；待核对卡只刷卡片区+文档徽章
+    /// （正文/滚动位不塌回 loading）；更多操作可能重新识别，整页重读。
+    @State private var dismissRefresh: DismissRefresh = .none
+
+    private enum DismissRefresh { case none, cards, all }
 
     var body: some View {
         WithPerceptionTracking {
@@ -90,23 +112,28 @@ struct ChatMediaDetailView: View {
                 .navigationTitle(L10n.assistantMediaDetailTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            dismissRefresh = .all
+                            detailSheet = .actions
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel(L10n.chatMediaMoreActions)
+                        .accessibilityIdentifier("chat.mediaDetail.more")
+                    }
                     ToolbarItem(placement: .confirmationAction) {
                         Button(L10n.assistantClose) { dismiss() }
                     }
                 }
-                // 文本/卡片/文档行先就绪（缩略图不 gate 内容）。
                 .task(id: documentId) { await loadBasics() }
-                .sheet(isPresented: $showOriginal) {
-                    DocumentSourcePageView(documentId: documentId, patientId: patientId, pageIndex: 0)
+                // OCR 收尾后卡才从导入会话转入待办表（聊天页释放导入槽）；
+                // 详情若先打开，必须在该时点重读两区，不能停在空态。
+                .onChangeCompat(of: docs.activeImport?.source?.documentId) { _, _ in
+                    Task { await loadCardsAndGrade() }
                 }
-                // 待核对卡 → 既有复核页；关闭后重读「需要修改/已确认」两区。
-                .sheet(item: $pendingReview, onDismiss: {
-                    // 确认/放弃卡后文档 grade 也可能 D→C，整页重读。
-                    Task { await loadCardsOnly() }
-                }) { target in
-                    NavigationStack {
-                        PendingCardResumeRouteView(cardId: target.id)
-                    }
+                .sheet(item: $detailSheet, onDismiss: handleSheetDismiss) { sheet in
+                    sheetContent(sheet)
                 }
                 // 缩略图即原图内容：退后台时随系统隐私遮罩隐去（与原件页同纪律）。
                 .privacySensitive(scenePhase != .active)
@@ -114,87 +141,107 @@ struct ChatMediaDetailView: View {
         }
     }
 
-    // MARK: - 媒体卡（小缩略 + 页数 + 看原图）
+    private func sheetContent(_ sheet: DetailSheet) -> some View {
+        switch sheet {
+        case .original(let page):
+            DocumentSourcePageView(documentId: documentId, patientId: patientId,
+                                   pageIndex: page)
+        case .pending(let id):
+            NavigationStack {
+                PendingCardResumeRouteView(cardId: id)
+            }
+        case .actions:
+            ChatMediaActionsSheet(documentId: documentId, patientId: patientId,
+                                   title: title, pageCount: displayPageCount,
+                                   conversationID: conversationID,
+                                   conversationTitle: conversationTitle)
+        }
+    }
+
+    private func handleSheetDismiss() {
+        let refresh = dismissRefresh
+        dismissRefresh = .none
+        switch refresh {
+        case .none:
+            return
+        case .cards:
+            Task { await loadCardsAndGrade() }
+        case .all:
+            Task { await loadBasics() }
+        }
+    }
+
+    // MARK: - 媒体卡（每张一个缩略图）
 
     private var mediaCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                if case .loaded(let grade) = docState {
-                    // 业主 2026-10-29：D 级不再显示文字徽章，统一用橘红编辑/
-                    // 绿色勾图标（与聊天气泡同一出口）。
-                    ChatMediaGradeIcon(grade: grade)
-                }
-            }
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(2)
             if case .failed = docState {
                 unavailableBlock { Task { await loadBasics() } }
-            } else {
-                originalButton
             }
-            // 出口边界文案随真实设置：自动镜像开启且资料非敏感时，提交件会生成
-            // 「文件」App 副本——不得再宣称「仅存本机」。敏感真值未知时按镜像
-            // 已开启的保守口径提示，避免低报对外副本。
-            Text(autoMirrorEnabled && docSensitive != true
-                ? L10n.assistantMediaEgressNoteMirror : L10n.assistantMediaEgressNote)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            thumbnailStrip
+            HStack(spacing: 8) {
+                if case .loaded(let grade) = docState,
+                   grade == GradeBadge.gradeMachineUnconfirmed
+                    || grade == GradeBadge.gradeConfirmed {
+                    GradeBadge(grade: grade)
+                }
+                Spacer(minLength: 0)
+            }
         }
         .padding(14)
         .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// 自动镜像设置真值（与 AppSession 判定同口径）。
-    private var autoMirrorEnabled: Bool {
-        settingsStore.values[.filesExportAutoMirror] == "true"
-    }
-
-    private var pageCount: Int? {
+    /// 缩略图数 = 文档页数（多附件合并 = 每附件一页）；读取完成前至少 1 张。
+    private var displayPageCount: Int {
         switch textState {
-        case .pages(let pages): return pages.count
+        case .pages(let pages): return max(1, pages.count)
         case .legacy: return 1
-        // 读取完成前不猜页数（选项数不等于 PDF 页数）。
-        case .loading: return nil
-        case .empty, .failed: return nil
+        case .loading, .empty, .failed: return 1
         }
     }
 
-    /// 业主 2026-10-29：详情页只留一个小圆角缩略图（不占大半屏），点按看原图。
-    /// 缩略图即原图内容：FR14.2 留痕与退后台遮罩由 ChatMediaThumbnail 统一承担。
-    private var originalButton: some View {
-        Button {
-            showOriginal = true
-        } label: {
-            HStack(spacing: 12) {
-                ZStack(alignment: .bottomTrailing) {
-                    ChatMediaThumbnail(documentId: documentId, patientId: patientId,
-                                       size: 76, cornerRadius: 12,
-                                       fallbackSymbol: "photo", auditsSensitive: true)
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption2.weight(.semibold))
-                        .padding(5)
-                        .background(.thinMaterial, in: Circle())
-                        .padding(4)
+    private var thumbnailStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 10) {
+                ForEach(0..<displayPageCount, id: \.self) { index in
+                    thumbnailButton(page: index)
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    if let count = pageCount, count > 1 {
-                        Text(L10n.entityCardHeaderPage(1, count))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(L10n.assistantMediaOpenOriginal)
-                        .font(.caption)
-                        .foregroundStyle(Color("brand-primary", bundle: .main))
-                }
-                Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
+            .padding(.vertical, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.mediaDetail.thumbs")
+    }
+
+    private func thumbnailButton(page: Int) -> some View {
+        Button {
+            dismissRefresh = .none
+            detailSheet = .original(page: page)
+        } label: {
+            ZStack(alignment: .bottomTrailing) {
+                ChatMediaThumbnail(documentId: documentId, patientId: patientId,
+                                   size: 84, cornerRadius: 12,
+                                   pageIndex: page,
+                                   fallbackSymbol: "photo", auditsSensitive: page == 0)
+                if displayPageCount > 1 {
+                    Text("\(page + 1)")
+                        .font(.caption2.weight(.bold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.black.opacity(0.55), in: Capsule())
+                        .padding(5)
+                }
+            }
         }
         .buttonStyle(.plain)
-        .accessibilityIdentifier("chat.mediaDetail.original")
+        .accessibilityLabel(L10n.chatMediaPageAccessibility(page + 1, displayPageCount))
+        .accessibilityIdentifier("chat.mediaDetail.thumb.\(page)")
     }
 
     private var tabPicker: some View {
@@ -311,6 +358,10 @@ struct ChatMediaDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             pendingCardsSection
             committedCardsSection
+            Text(L10n.chatMediaCardsFootnote)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -369,55 +420,86 @@ struct ChatMediaDetailView: View {
 
     private func pendingCardRow(_ card: PendingCard) -> some View {
         let spec = CardKindIcon.spec(cardKind: card.cardKind)
-        return Button {
-            pendingReview = PendingReviewTarget(id: card.id)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: spec.symbol)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(spec.tint)
-                    .frame(width: 34, height: 34)
-                    .background(spec.tint.opacity(0.14))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(L10n.entityCardKindName(card.cardKind))
-                        .font(.subheadline.weight(.semibold))
-                    // 业主裁决 A（2026-10-30）：到期归档卡可补办——行内如实标注，
-                    // 点按即解除归档并打开确认页（resume route 统一处理+审计）。
-                    Text(PendingCardLifecycleRules.canRestore(
-                        status: card.status, resolvedBy: card.resolvedBy)
-                        ? L10n.assistantMediaArchivedRestore
-                        : L10n.assistantMediaNeedsConfirm)
-                        .font(.caption)
-                        .foregroundStyle(PendingCardLifecycleRules.canRestore(
-                            status: card.status, resolvedBy: card.resolvedBy)
-                            ? Color("text-secondary", bundle: .main)
-                            : Color("semantic-warning", bundle: .main))
+        let canRestore = PendingCardLifecycleRules.canRestore(
+            status: card.status, resolvedBy: card.resolvedBy)
+        let fields = pendingFieldRows(card)
+        return VStack(alignment: .leading, spacing: 8) {
+            Button {
+                dismissRefresh = .cards
+                detailSheet = .pending(id: card.id)
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: spec.symbol)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(spec.tint)
+                        .frame(width: 34, height: 34)
+                        .background(spec.tint.opacity(0.14))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.entityCardKindName(card.cardKind))
+                            .font(.subheadline.weight(.semibold))
+                        // 业主裁决 A（2026-10-30）：到期归档卡可补办——行内如实标注，
+                        // 点按即解除归档并打开确认页（resume route 统一处理+审计）。
+                        Text(canRestore ? L10n.assistantMediaArchivedRestore
+                                        : L10n.assistantMediaNeedsConfirm)
+                            .font(.caption)
+                            .foregroundStyle(canRestore
+                                ? Color("text-secondary", bundle: .main)
+                                : Color("semantic-warning", bundle: .main))
+                    }
+                    Spacer(minLength: 8)
+                    GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
+                    Image(systemName: canRestore
+                        ? "arrow.uturn.backward.circle" : "chevron.right")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(canRestore
+                            ? Color("text-secondary", bundle: .main) : Color.secondary)
+                        .accessibilityHidden(true)
                 }
-                Spacer(minLength: 8)
-                Image(systemName: PendingCardLifecycleRules.canRestore(
-                    status: card.status, resolvedBy: card.resolvedBy)
-                    ? "arrow.uturn.backward.circle"
-                    : "square.and.pencil")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(PendingCardLifecycleRules.canRestore(
-                        status: card.status, resolvedBy: card.resolvedBy)
-                        ? Color("text-secondary", bundle: .main)
-                        : Color("semantic-warning", bundle: .main))
-                    .accessibilityHidden(true)
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(Color.secondary.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat.mediaDetail.pending.\(card.id)")
+            if !fields.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(Array(fields.enumerated()), id: \.offset) { item in
+                        LabeledContent {
+                            Text(item.element.value)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        } label: {
+                            Text(DocumentsDisplay.fieldLabel(forKey: item.element.key))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.leading, 44)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("chat.mediaDetail.pending.\(card.id)")
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// 待核对卡的可读字段摘要（shared 优先，其次首行；排除内部键与空值，最多 4 条）。
+    private func pendingFieldRows(_ card: PendingCard) -> [(key: String, value: String)] {
+        var seen: Set<String> = []
+        var rows: [(String, String)] = []
+        let candidates = card.partialData.shared.sorted { $0.key < $1.key }
+            + (card.partialData.rows.first ?? [:]).sorted { $0.key < $1.key }
+        for (key, value) in candidates {
+            guard key != "metric_key", !seen.contains(key),
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            seen.insert(key)
+            rows.append((key, value))
+            if rows.count == 4 { break }
+        }
+        return rows.map { (key: $0.0, value: $0.1) }
     }
 
     private func cardRow(_ card: CommittedCard) -> some View {
@@ -516,17 +598,6 @@ struct ChatMediaDetailView: View {
 
     // MARK: - 载入
 
-    /// 只刷新卡片区（核对 sheet 关闭后）：正文/缩略图/文档行保持已读状态，
-    /// 避免整页塌回 ProgressView、滚动位置丢失（审查席 P2）。
-    private func loadCardsOnly() async {
-        switch await docs.committedCards(documentId: documentId, patientId: patientId) {
-        case .loaded(let kindIds):
-            cardsState = .loaded(kindIds.map { CommittedCard(kind: $0.kind, id: $0.id) })
-        case .failed:
-            cardsState = .failed
-        }
-    }
-
     private func loadBasics() async {
         textState = .loading
         docState = .loading
@@ -537,12 +608,22 @@ struct ChatMediaDetailView: View {
         case .failed: textState = .failed
         }
         await loadCards()
+        await refreshGrade()
+    }
+
+    /// 待核对卡关闭后：刷卡片两区（待核对 + 已确认）+ 文档徽章
+    /// （最后一张确认 D→C），不重置识别文本与滚动位（V4.89 纪律；
+    /// 2026-10-30 复核：只刷已确认区会让刚确认的卡仍留在待核对区）。
+    private func loadCardsAndGrade() async {
+        await loadCards()
+        await refreshGrade()
+    }
+
+    private func refreshGrade() async {
         if let doc = await docs.documentRow(id: documentId), doc.patientId == patientId {
             docState = .loaded(grade: doc.grade)
-            docSensitive = doc.isSensitive
         } else {
             docState = .failed
-            docSensitive = nil
         }
     }
 

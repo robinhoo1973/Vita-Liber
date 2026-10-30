@@ -13,6 +13,9 @@ struct ChatHistoryView: View {
     /// 删除完成后通知父页（删除的正是当前会话时必须重置，否则后续消息
     /// 写入已删除会话的外键失败；2026-10-20）。
     var onDelete: (UUID) -> Void = { _ in }
+    /// 改名完成后通知父页：当前会话标题须回流，否则随后导入的「文件」App
+    /// 会话目录仍用旧名（2026-10-30 复审）。
+    var onRename: (UUID, String) -> Void = { _, _ in }
 
     @State private var query = ""
     @State private var renameTarget: ChatHistoryStore.ConversationSummary?
@@ -119,7 +122,12 @@ struct ChatHistoryView: View {
                     Button(L10n.commonCancel, role: .cancel) { renameTarget = nil }
                     Button(L10n.commonConfirm) {
                         if let target = renameTarget {
-                            Task { await history.rename(target.id, title: renameText) }
+                            let title = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                            // 空标题不落库：否则历史行变无名，导出目录也会失去会话名。
+                            if !title.isEmpty {
+                                onRename(target.id, title)
+                                Task { await history.rename(target.id, title: title) }
+                            }
                         }
                         renameTarget = nil
                     }

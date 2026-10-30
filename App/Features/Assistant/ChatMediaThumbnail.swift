@@ -14,6 +14,9 @@ struct ChatMediaThumbnail: View {
     /// 方块边长（pt）。解码按 2x 上限降采样，不把原图整幅读进内存。
     var size: CGFloat = 76
     var cornerRadius: CGFloat = 12
+    /// PDF/合并多页文档的页号（业主 2026-10-30：多附件各出缩略图）。
+    /// 位图只有第 0 页；越界由渲染器失败态承接。
+    var pageIndex: Int = 0
     var fallbackSymbol: String = "photo"
     /// FR14.2 查看留痕（速记详情用；聊天气泡不逐条留痕，避免打开会话即刷屏）。
     var auditsSensitive = false
@@ -28,6 +31,7 @@ struct ChatMediaThumbnail: View {
     /// 已装载的文档身份：视图复用换 documentId 时先清旧图，避免新件读取
     /// 失败还继续显示上一件的缩略图（跨件内容泄漏/误导；2026-10-29 round2）。
     @State private var loadedDocumentId: UUID?
+    @State private var loadedPageIndex = 0
     /// 内容身份（docId+sha/createdAt+size）：同一 documentId 复核/重导入换内容时
     /// 也必须先清旧图——否则新图读取失败会继续显示上一版医学影像。
     @State private var loadedCacheKey: String?
@@ -59,14 +63,15 @@ struct ChatMediaThumbnail: View {
         .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .privacySensitive(scenePhase != .active)
-        .task(id: documentId) { await load() }
+        .task(id: "\(documentId.uuidString)|\(pageIndex)") { await load() }
         .accessibilityHidden(true)
     }
 
     private func load() async {
         failed = false
-        if loadedDocumentId != documentId {
+        if loadedDocumentId != documentId || loadedPageIndex != pageIndex {
             loadedDocumentId = documentId
+            loadedPageIndex = pageIndex
             image = nil
             didAudit = false
             resolvedFallback = ""
@@ -82,7 +87,8 @@ struct ChatMediaThumbnail: View {
         guard !Task.isCancelled, loadedDocumentId == documentId else { return }
         resolvedFallback = (doc.mimeType == "application/pdf") ? "doc.fill" : fallbackSymbol
         let key = ChatMediaThumbnailCache.key(documentId: documentId, contentHash: doc.sha256,
-                                              createdAt: doc.createdAt, size: size)
+                                              createdAt: doc.createdAt, size: size,
+                                              pageIndex: pageIndex)
         if loadedCacheKey != (key as String) {
             loadedCacheKey = key as String
             image = nil
@@ -97,6 +103,7 @@ struct ChatMediaThumbnail: View {
         let filePath = resolved.path
         // PDF 页面渲染按 pt 的 2x 输出；位图由 ImageIO 内置降采样处理。
         let maxDimension = Int(size * 2)
+        let renderPage = pageIndex
         do {
             // detached 不继承父任务取消：用 cancellation handler 把视图消失/
             // 换 documentId 的取消显式转给解码任务，避免大图/PDF 解码跑完
@@ -107,7 +114,7 @@ struct ChatMediaThumbnail: View {
                 let data = try Data(contentsOf: URL(fileURLWithPath: filePath), options: .mappedIfSafe)
                 try Task.checkCancellation()
                 return Box(try DocumentSourceRenderer.image(data: data, mimeType: mime,
-                                                            pageIndex: 0, maxDimension: maxDimension))
+                                                            pageIndex: renderPage, maxDimension: maxDimension))
             }
             let box = try await withTaskCancellationHandler {
                 try await job.value
@@ -133,30 +140,6 @@ struct ChatMediaThumbnail: View {
     }
 }
 
-/// 媒体来源状态图标（气泡与详情共用单一出口）：
-/// D=机器识别未确认（橘红编辑）→ C=用户已确认（绿色勾）；A/B 不挂图标
-///（医院原件/指南来源本就不需用户确认）。文字徽章改图标，少占宽度且
-/// 颜色语义与设计系统一致。
-struct ChatMediaGradeIcon: View {
-    let grade: String
-
-    @ViewBuilder
-    var body: some View {
-        if grade == GradeBadge.gradeMachineUnconfirmed {
-            Image(systemName: "square.and.pencil")
-                .font(.body.weight(.semibold))
-                // 审查席 P2：改用 GradeBadge 校准过的 grade-d 令牌（warning 令牌专属警示语义）。
-                .foregroundStyle(Color("grade-d", bundle: .main))
-                .accessibilityLabel(L10n.assistantMediaNeedsConfirm)
-        } else if grade == GradeBadge.gradeConfirmed {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Color("grade-c", bundle: .main))
-                .accessibilityLabel(L10n.assistantMediaConfirmed)
-        }
-    }
-}
-
 /// 缩略图缓存：键含内容身份（sha256/创建时间）——复核不改原件不失效，
 /// 重新导入换内容即换键，不会显示旧图。
 enum ChatMediaThumbnailCache {
@@ -172,9 +155,10 @@ enum ChatMediaThumbnailCache {
 
     private static let box = CacheBox()
 
-    static func key(documentId: UUID, contentHash: String?, createdAt: Date, size: CGFloat) -> NSString {
+    static func key(documentId: UUID, contentHash: String?, createdAt: Date, size: CGFloat,
+                    pageIndex: Int = 0) -> NSString {
         let identity = contentHash ?? "t\(createdAt.timeIntervalSince1970)"
-        return "\(documentId.uuidString)|\(identity)|\(Int(size))" as NSString
+        return "\(documentId.uuidString)|\(identity)|\(Int(size))|p\(pageIndex)" as NSString
     }
 
     static func image(for key: NSString) -> UIImage? {

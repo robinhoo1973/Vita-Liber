@@ -115,10 +115,13 @@ public enum DocumentExportNaming {
                       source: .fallback, ext: request.fileExtension)
     }
 
-    /// 会话目录名：净化标题（空 → 未命名会话）+ 会话短 ID 消歧。
+    /// 会话目录名：可选日期时间前缀 + 净化标题（空 → 未命名会话）+ 会话短 ID 消歧。
     /// 目录名在首次镜像时冻结（D5）——调用方负责持久化，本函数保持确定性。
+    /// 业主 2026-10-30：AI 聊天会话目录须带日期时间前缀，便于在「文件」App 中
+    /// 按时间排序；`datePrefix` 由调用方按设备时区给出（如 `20261030-1435`）。
     public static func directoryName(conversationTitle: String?,
                                      conversationID: UUID,
+                                     datePrefix: String? = nil,
                                      taken: Set<String> = []) -> String {
         let title = conversationTitle?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -126,11 +129,13 @@ public enum DocumentExportNaming {
         let stem = sanitizeComponent(base)
         let resolved = stem.isEmpty ? "未命名会话" : stem
         let id6 = String(conversationID.uuidString.lowercased().prefix(6))
-        var candidate = sanitizeComponent("\(resolved)-\(id6)")
+        let prefix = datePrefix.map { sanitizeComponent($0) } ?? ""
+        let prefixed = prefix.isEmpty ? resolved : "\(prefix)-\(resolved)"
+        var candidate = sanitizeComponent("\(prefixed)-\(id6)")
         if candidate.isEmpty { candidate = id6 }
         var attempt = 2
         while taken.contains(normalizeKey(candidate)) {
-            candidate = sanitizeComponent("\(resolved)-\(id6)-\(attempt)")
+            candidate = sanitizeComponent("\(prefixed)-\(id6)-\(attempt)")
             attempt += 1
         }
         return candidate

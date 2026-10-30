@@ -160,5 +160,15 @@ struct DocumentExportNamingTests {
         #expect(DocumentExportNaming.directoryName(conversationTitle: "a b", conversationID: id,
                                                    taken: [DocumentExportNaming.normalizeKey("a b-abcdef")])
                 == "a b-abcdef-2")
+        // 业主 2026-10-30：日期时间前缀（「文件」App 按时间排序）。
+        #expect(DocumentExportNaming.directoryName(conversationTitle: "体检报告", conversationID: id,
+                                                   datePrefix: "20261030-1435")
+                == "20261030-1435-体检报告-abcdef")
+        #expect(DocumentExportNaming.directoryName(conversationTitle: "  ", conversationID: id,
+                                                   datePrefix: "20261030-1435")
+                == "20261030-1435-未命名会话-abcdef")
+        #expect(DocumentExportNaming.directoryName(conversationTitle: "x", conversationID: id,
+                                                   datePrefix: "  ")
+                == "x-abcdef")
     }
 }

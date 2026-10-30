@@ -573,6 +573,10 @@ extension View {
 struct DocumentReviewRouteView: View {
     let documentId: UUID
     let patientId: UUID
+    /// 聊天详情「重新识别」：忽略已存 `ocr_review` 快照，按原件重跑本机 OCR。
+    var reprocess = false
+    /// 重识别沿用聊天会话目录（显式导出），不让资料库月桶自动镜像再落一份。
+    var suppressAutoMirror = false
     @Environment(DocumentsState.self) private var docs
     @Environment(\.dismiss) private var dismiss
     @State private var failed = false
@@ -607,8 +611,11 @@ struct DocumentReviewRouteView: View {
     private func prepare() async {
         failed = false
         if docs.activeImport == nil {
-            reviewingSessionID = docs.beginImport(patientId: patientId)?.id
-            failed = await docs.prepareStoredDocument(id: documentId, patientId: patientId) == nil
+            let session = docs.beginImport(patientId: patientId)
+            session?.suppressAutoMirrorHook = suppressAutoMirror
+            reviewingSessionID = session?.id
+            failed = await docs.prepareStoredDocument(id: documentId, patientId: patientId,
+                                                       reuseSnapshot: !reprocess) == nil
         } else if docs.activeImport?.draft?.existingDocumentId == documentId {
             reviewingSessionID = docs.activeImport?.id
         }

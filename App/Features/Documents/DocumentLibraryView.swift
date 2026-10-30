@@ -92,6 +92,9 @@ final class DocumentsState {
         var captureStep: CaptureStep?
         var captureOrigin = "import"
         var captureSensitive = true
+        /// 聊天导入自带会话目录导出（含会话名+日期时间前缀）：抑制全局自动镜像
+        /// hook，避免同一份资料同时落「直接导入-YYYY-MM」月桶（2026-10-30 业主）。
+        var suppressAutoMirrorHook = false
         /// v27（子项目 J）：文档稳定键随会话携带（`MatchedCard` 无该字段）——关联区据此裁决主卡草稿的枢纽与 kind
         ///（体检报告上的检验/检查 → 体检枢纽；急诊病历 → emergency）。commitDraft 时写入。
         var documentTypeKey: String?
@@ -917,7 +920,10 @@ final class DocumentsState {
             session.selectedCardID = cards.first?.id
             session.documentReviewFinished = true
             // 2026-10-27 存储边界（E1）：非敏感提交件按设置自动导出副本。
-            if !draft.isSensitive, let committedID = session.source?.documentId {
+            // 聊天会话导入由聊天页在会话命名后导出到「<日期时间>-<会话名>」目录，
+            // 此处跳过，避免同件双份（月桶 + 会话目录）。
+            if !draft.isSensitive, !session.suppressAutoMirrorHook,
+               let committedID = session.source?.documentId {
                 await autoMirrorHook?(committedID)
             }
             pendingDidChange()
@@ -1040,7 +1046,9 @@ final class DocumentsState {
     }
 
     /// Legacy confirmation opens the retained media/review snapshot; it never flips a grade blindly.
-    func prepareStoredDocument(id: UUID, patientId: UUID) async -> ImportDraft? {
+    /// `reuseSnapshot: false` = 重新识别：忽略旧快照，按原件重跑本机 OCR（更新同一文档）。
+    func prepareStoredDocument(id: UUID, patientId: UUID,
+                               reuseSnapshot: Bool = true) async -> ImportDraft? {
         guard let session = preparationSession(patientId: patientId) else { return nil }
         defer { session.isPreparing = false }
         do {
@@ -1058,7 +1066,7 @@ final class DocumentsState {
                 title: document.title, sha256: document.sha256 ?? "sha:" + Self.hash(processedData),
                 isSensitive: document.isSensitive, origin: document.origin)
             var draft: ImportDraft
-            if let snapshotJSON = meta["ocr_review"] as? String {
+            if reuseSnapshot, let snapshotJSON = meta["ocr_review"] as? String {
                 let snapshot = try JSONDecoder().decode(ReviewSnapshot.self, from: Data(snapshotJSON.utf8))
                 draft = assembleDraft(input, pages: snapshot.pages, qualityTags: [])
                 draft.docType = snapshot.docType; draft.docTypeResolved = snapshot.docTypeResolved

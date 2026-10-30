@@ -89,7 +89,16 @@ public actor DocumentExportMirror {
         // 旧实现用 conversationID ?? UUID() 查账本，无会话时恒空集，同名文件
         // 会撞 relative_path UNIQUE 使导出失败）。
         let existing = await ledger.records(directoryName: directory)
-        let takenStems = Set(existing.map { DocumentExportNaming.normalizeKey($0.displayName) })
+        // 同文档重导（自动副本后再点「导出副本」）必须复用原名覆盖，
+        // 不能把自己的旧记录算作重名，否则产生 `-2` 孤儿副本（2026-10-30）。
+        // 去重比较单位是词干：displayName 含扩展名，直接比较会让同名文件
+        // 逃过去重并撞 relative_path UNIQUE（2026-10-30）。
+        let takenStems = Set(existing
+            .filter { $0.documentID != job.documentID }
+            .map {
+                DocumentExportNaming.normalizeKey(
+                    ($0.displayName as NSString).deletingPathExtension)
+            })
         let name = DocumentExportNaming.name(job.nameRequest)
         let fileName = DocumentExportNaming.deduplicatedStem(name.stem, existing: takenStems)
         let extensionPart = name.fileName.hasSuffix(".\(name.stem)") ? "" : String(name.fileName.dropFirst(name.stem.count))

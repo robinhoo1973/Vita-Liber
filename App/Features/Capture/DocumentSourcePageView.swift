@@ -142,6 +142,11 @@ struct DocumentSourcePageView: View {
                             }
                             .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)) })
                         }
+                        // 2026-10-30 业主（mock v4 第 6 帧）：多页原图加页点，
+                        // 点任意点直接跳页；Stepper 保留（VoiceOver/精确定位）。
+                        if pageCount > 1 {
+                            pageDots
+                        }
                         Stepper(L10n.entityCardHeaderPage(pageIndex + 1, pageCount), value: $pageIndex, in: 0...max(0, pageCount - 1))
                             .padding(.horizontal)
                     }
@@ -158,6 +163,37 @@ struct DocumentSourcePageView: View {
             .onChangeCompat(of: pageIndex) { _, _ in Task { await renderPage() } }
             .onDisappear { operation?.cancel(); operation = nil }
         }
+    }
+
+    /// 多页页点（2026-10-30）：最多 12 点，点按跳页；当前页品牌色。
+    private var pageDots: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<min(pageCount, 12), id: \.self) { index in
+                Button {
+                    pageIndex = index
+                } label: {
+                    Circle()
+                        .fill(index == pageIndex
+                            ? Color("brand-primary", bundle: .main)
+                            : Color.secondary.opacity(0.35))
+                        .frame(width: 7, height: 7)
+                        .frame(width: 24, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
+            }
+            if pageCount > 12 {
+                Text("+\(pageCount - 12)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L10n.entityCardHeaderPage(pageIndex + 1, pageCount))
+        .accessibilityIdentifier("doc.source.pageDots")
     }
 
     private func prepareMetadata() async {

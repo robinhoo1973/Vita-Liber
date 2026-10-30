@@ -75,6 +75,10 @@ extension L10n {
     static var assistantAttach: String { t("assistant.attach") }
     static var assistantAttachPhotos: String { t("assistant.attachPhotos") }
     static var assistantAttachmentBatchFmt: String { t("assistant.attachmentBatchFmt") }
+    // 2026-10-30 业主：多附件不再显示「N 份附件」；合并件用固定名称。
+    static var assistantMergedPhotosFilename: String { t("assistant.mergedPhotosFilename") }
+    static var assistantMergedFilesFilename: String { t("assistant.mergedFilesFilename") }
+    static var assistantMergedMixedFilename: String { t("assistant.mergedMixedFilename") }
     static var assistantAttachmentTruncated: String { t("assistant.attachmentTruncated") }
     static var assistantAttachCamera: String { t("assistant.attachCamera") }
     static var assistantAttachPDF: String { t("assistant.attachPDF") }
@@ -123,6 +127,46 @@ extension L10n {
     /// 归档卡补办（业主裁决 A，2026-10-30）。
     static var assistantMediaArchivedRestore: String { t("assistant.mediaArchivedRestore") }
     static var assistantMediaEgressNoteMirror: String { t("assistant.mediaEgressNoteMirror") }
+    // 2026-10-30 业主（mock v4 第 4/5/6/8 帧）：缩略图直入原图、更多操作、
+    // 待核对卡字段摘要、语音详情、导入前图片检查。
+    static var chatMediaMoreActions: String { t("chat.mediaMoreActions") }
+    static var chatMediaReRecognize: String { t("chat.mediaReRecognize") }
+    static var chatMediaStorageLocation: String { t("chat.mediaStorageLocation") }
+    static var chatMediaStorageOnDevice: String { t("chat.mediaStorageOnDevice") }
+    static var chatMediaStorageLoading: String { t("chat.mediaStorageLoading") }
+    static var chatMediaStorageExportedFmt: String { t("chat.mediaStorageExportedFmt") }
+    static var chatMediaPageCount: String { t("chat.mediaPageCount") }
+    static var chatMediaPageCountFmt: String { t("chat.mediaPageCountFmt") }
+    static func chatMediaPageCountText(_ count: Int) -> String {
+        count == 1 ? t("chat.mediaPageCountOne")
+                   : String(format: t("chat.mediaPageCountFmt"), count)
+    }
+    static var chatMediaExportDone: String { t("chat.mediaExportDone") }
+    static var chatMediaCardsFootnote: String { t("chat.mediaCardsFootnote") }
+    static func chatMediaPageAccessibility(_ page: Int, _ total: Int) -> String {
+        String(format: t("chat.mediaPageAccessibilityFmt"), page, total)
+    }
+    static var chatVoiceDetailTitle: String { t("chat.voiceDetailTitle") }
+    static var chatVoiceTabTranscript: String { t("chat.voiceTabTranscript") }
+    static var chatVoiceTabSummary: String { t("chat.voiceTabSummary") }
+    static var chatVoiceTranscriptEmpty: String { t("chat.voiceTranscriptEmpty") }
+    static var chatVoiceSummaryEmpty: String { t("chat.voiceSummaryEmpty") }
+    static var chatVoiceSummaryNote: String { t("chat.voiceSummaryNote") }
+    static var chatVoiceUnavailable: String { t("chat.voiceUnavailable") }
+    static var chatVoicePlay: String { t("chat.voicePlay") }
+    static var chatVoicePause: String { t("chat.voicePause") }
+    static var chatVoiceBack15: String { t("chat.voiceBack15") }
+    static var chatVoiceForward15: String { t("chat.voiceForward15") }
+    static var chatVoiceRate: String { t("chat.voiceRate") }
+    static var chatVoiceOpenHint: String { t("chat.voiceOpenHint") }
+    static var chatImagePreviewTitle: String { t("chat.imagePreviewTitle") }
+    static var chatImagePreviewImage: String { t("chat.imagePreviewImage") }
+    static var chatImagePreviewPageFmt: String { t("chat.imagePreviewPageFmt") }
+    static var chatImagePreviewRotate: String { t("chat.imagePreviewRotate") }
+    static var chatImagePreviewConfirm: String { t("chat.imagePreviewConfirm") }
+    static var chatImagePreviewHint: String { t("chat.imagePreviewHint") }
+    static var chatImagePreviewPrevious: String { t("chat.imagePreviewPrevious") }
+    static var chatImagePreviewNext: String { t("chat.imagePreviewNext") }
     // 2026-10-19 对话历史
     static var assistantHistoryTitle: String { t("assistant.historyTitle") }
     static var assistantHistoryNew: String { t("assistant.historyNew") }
