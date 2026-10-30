@@ -32,72 +32,133 @@ struct DatabaseRepairView: View {
     private var busyNow: Bool { busy || model.recoveryBusy }
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
+        // 版式对齐 refactor/mock/startup-selfcheck-flow.html 修复 sheet：
+        // 自绘标题栏 + 灰底 + 白色分组卡（非系统 List），行高 ≥64、危险行红色标题。
+        VStack(spacing: 0) {
+            repairHeader
+            ScrollView {
+                VStack(spacing: 14) {
                     Text(L10n.recoveryIntro)
-                        .font(.callout)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                } footer: {
-                    if busyNow {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text(L10n.recoveryBusy).font(.footnote)
-                        }
-                    }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if busyNow { busyRow }
+                    exportCard
+                    Text(L10n.recoveryExportPrivacy)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    importCard
+                    backupCard
+                    if !model.allowsDestructiveRebuild { migrationHintCard }
+                    deleteCard
                 }
-                exportSection
-                importSection
-                backupSection
-                deleteSection
-            }
-            .navigationTitle(L10n.recoveryTitle)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { closeToolbar }
-            .fileImporter(isPresented: $showRepairImporter,
-                          allowedContentTypes: repairContentTypes) { result in
-                guard case .success(let url) = result else { return }
-                inspectRepair(url)
-            }
-            .fileImporter(isPresented: $showBackupImporter,
-                          allowedContentTypes: backupContentTypes) { result in
-                guard case .success(let url) = result else { return }
-                inspectBackup(url)
-            }
-            .sheet(isPresented: $showExportPicker) { exportPickerSheet }
-            .alert(L10n.recoveryImportConfirmTitle, isPresented: $showRepairConfirm) {
-                repairConfirmActions
-            } message: {
-                repairConfirmMessage
-            }
-            .alert(L10n.recoveryBackupConfirmTitle, isPresented: $showBackupConfirm) {
-                backupConfirmActions
-            } message: {
-                backupConfirmMessage
-            }
-            .alert(L10n.recoveryDeleteConfirmTitle, isPresented: $showEraseConfirm) {
-                eraseConfirmActions
-            } message: {
-                Text(L10n.recoveryDeleteConfirmBody)
-            }
-            .alert(L10n.recoveryTitle, isPresented: errorAlertBinding) {
-                Button(L10n.onboard_gotIt, role: .cancel) { errorText = nil }
-            } message: {
-                Text(errorText ?? "")
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 28)
             }
             .disabled(busyNow)
-            .interactiveDismissDisabled(busyNow)
-            .onDisappear {
-                // 忙时不丢弃：install/restore 任务可能仍在读暂存文件。
-                if !busyNow { model.discardStagedRecovery() }
-            }
+        }
+        .background(Color(.systemGroupedBackground))
+        .presentationDetents([.large])
+        .fileImporter(isPresented: $showRepairImporter,
+                      allowedContentTypes: repairContentTypes) { result in
+            guard case .success(let url) = result else { return }
+            inspectRepair(url)
+        }
+        .fileImporter(isPresented: $showBackupImporter,
+                      allowedContentTypes: backupContentTypes) { result in
+            guard case .success(let url) = result else { return }
+            inspectBackup(url)
+        }
+        .sheet(isPresented: $showExportPicker) { exportPickerSheet }
+        .alert(L10n.recoveryImportConfirmTitle, isPresented: $showRepairConfirm) {
+            repairConfirmActions
+        } message: {
+            repairConfirmMessage
+        }
+        .alert(L10n.recoveryBackupConfirmTitle, isPresented: $showBackupConfirm) {
+            backupConfirmActions
+        } message: {
+            backupConfirmMessage
+        }
+        .alert(L10n.recoveryDeleteConfirmTitle, isPresented: $showEraseConfirm) {
+            eraseConfirmActions
+        } message: {
+            Text(L10n.recoveryDeleteConfirmBody)
+        }
+        .alert(L10n.recoveryTitle, isPresented: errorAlertBinding) {
+            Button(L10n.onboard_gotIt, role: .cancel) { errorText = nil }
+        } message: {
+            Text(errorText ?? "")
+        }
+        .interactiveDismissDisabled(busyNow)
+        .onDisappear {
+            // 忙时不丢弃：install/restore 任务可能仍在读暂存文件。
+            if !busyNow { model.discardStagedRecovery() }
         }
     }
 
-    // MARK: - 四段
+    // MARK: - 版式（对齐 mock 修复 sheet）
 
-    private var exportSection: some View {
-        Section {
+    private var repairHeader: some View {
+        HStack(spacing: 12) {
+            Text(L10n.recoveryTitle)
+                .font(.headline)
+            Spacer(minLength: 0)
+            Button {
+                model.discardStagedRecovery()
+                dismiss()
+            } label: {
+                Text(L10n.recoveryClose)
+                    .font(.subheadline.weight(.semibold))
+                    .frame(minHeight: 44)
+            }
+            .disabled(busyNow)
+            .accessibilityIdentifier("STARTUP.repair.close")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .background(Color(.systemGroupedBackground))
+        .overlay(alignment: .bottom) {
+            Divider().opacity(0.5)
+        }
+    }
+
+    private var busyRow: some View {
+        HStack(spacing: 9) {
+            ProgressView().controlSize(.small)
+            Text(L10n.recoveryBusy)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+    }
+
+    private func repairCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) { content() }
+            .padding(.horizontal, 15)
+            .background(Color(.systemBackground),
+                        in: RoundedRectangle(cornerRadius: VLCornerRadius.card))
+    }
+
+    private var cardDivider: some View {
+        Divider().padding(.leading, 38).opacity(0.6)
+    }
+
+    private func successRow(_ text: String) -> some View {
+        Label(text, systemImage: "checkmark.seal")
+            .font(.footnote)
+            .foregroundStyle(Color("semantic-success-text", bundle: .main))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 10)
+            .padding(.leading, 38)
+    }
+
+    private var exportCard: some View {
+        repairCard {
             Button {
                 exportArchive()
             } label: {
@@ -108,17 +169,14 @@ struct DatabaseRepairView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("STARTUP.repair.export")
             if let exportedArchiveName {
-                Label(L10n.recoveryExportDone(exportedArchiveName), systemImage: "checkmark.seal")
-                    .font(.footnote)
-                    .foregroundStyle(Color("semantic-success-text", bundle: .main))
+                cardDivider
+                successRow(L10n.recoveryExportDone(exportedArchiveName))
             }
-        } footer: {
-            Text(L10n.recoveryExportPrivacy)
         }
     }
 
-    private var importSection: some View {
-        Section {
+    private var importCard: some View {
+        repairCard {
             Button {
                 showRepairImporter = true
             } label: {
@@ -129,15 +187,14 @@ struct DatabaseRepairView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("STARTUP.repair.import")
             if let version = stagedRepairVersion {
-                Label(L10n.recoveryImportReport(Int64(version)), systemImage: "checkmark.seal")
-                    .font(.footnote)
-                    .foregroundStyle(Color("semantic-success-text", bundle: .main))
+                cardDivider
+                successRow(L10n.recoveryImportReport(Int64(version)))
             }
         }
     }
 
-    private var backupSection: some View {
-        Section {
+    private var backupCard: some View {
+        repairCard {
             Button {
                 showBackupImporter = true
             } label: {
@@ -148,38 +205,39 @@ struct DatabaseRepairView: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("STARTUP.repair.backup")
             if let inspection = stagedBackup {
-                Label(L10n.recoveryBackupSummary(
+                cardDivider
+                successRow(L10n.recoveryBackupSummary(
                     inspection.exportedAt.formatted(date: .abbreviated, time: .shortened),
-                    Int64(inspection.totalRecords)),
-                      systemImage: "checkmark.seal")
-                    .font(.footnote)
-                    .foregroundStyle(Color("semantic-success-text", bundle: .main))
+                    Int64(inspection.totalRecords)))
             }
         }
     }
 
+    private var migrationHintCard: some View {
+        repairCard {
+            Text(L10n.recoveryMigrationKeepHint)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 14)
+        }
+    }
+
     @ViewBuilder
-    private var deleteSection: some View {
+    private var deleteCard: some View {
         if model.allowsDestructiveRebuild {
-            Section {
+            repairCard {
                 Button(role: .destructive) {
-                showEraseConfirm = true
-            } label: {
-                actionRow(icon: "trash",
-                          title: L10n.recoveryDeleteTitle,
-                          subtitle: L10n.recoveryDeleteSubtitle,
-                          tint: Color("semantic-danger", bundle: .main),
-                          titleTint: Color("semantic-danger", bundle: .main))
-            }
+                    showEraseConfirm = true
+                } label: {
+                    actionRow(icon: "trash",
+                              title: L10n.recoveryDeleteTitle,
+                              subtitle: L10n.recoveryDeleteSubtitle,
+                              tint: Color("semantic-danger", bundle: .main),
+                              titleTint: Color("semantic-danger", bundle: .main))
+                }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("STARTUP.repair.erase")
-            }
-        } else {
-            // 迁移未完成：先导出/导入修复库或从备份恢复；直接删除会销毁可迁移的库。
-            Section {
-                Text(L10n.recoveryMigrationKeepHint)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -207,19 +265,8 @@ struct DatabaseRepairView: View {
             Spacer(minLength: 0)
         }
         .frame(minHeight: 64)
+        .padding(.vertical, 14)
         .contentShape(Rectangle())
-    }
-
-    @ToolbarContentBuilder
-    private var closeToolbar: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button(L10n.recoveryClose) {
-                model.discardStagedRecovery()
-                dismiss()
-            }
-            .disabled(busyNow)
-            .accessibilityIdentifier("STARTUP.repair.close")
-        }
     }
 
     @ViewBuilder

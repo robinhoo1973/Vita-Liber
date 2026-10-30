@@ -64,7 +64,7 @@ struct DatabaseInitializationView: View {
         // 大字号下可滚动（ui-ux §5.12.4「大字号可滚动」）；本页在 session 之前，
         // 无法读取关怀模式，触控目标一律从宽 ≥64pt。
         ScrollView {
-            VStack(spacing: 20) {
+            VStack(spacing: 16) {
                 iconBadge
                 VStack(spacing: 8) {
                     Text(titleText)
@@ -534,8 +534,10 @@ struct DatabaseInitializationView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
                 rowIcon("arrow.triangle.2.circlepath", state: updatesState)
-                rowText(title: L10n.startupCheckRowUpdates, detail: updatesDetail, note: nil)
+                rowText(title: L10n.startupCheckRowUpdates, detail: nil, note: nil)
                 Spacer(minLength: 8)
+                // mock 对照：行④短语直接落状态胶囊（不再在标题下另起一行）。
+                stateChip(updatesState, text: updatesDetail)
             }
             Button {
                 // 走 perform(.check) 而非直连模型：网络门（离线/仅 Wi-Fi
@@ -905,15 +907,16 @@ struct DatabaseInitializationView: View {
     // MARK: - 顶图/隐私行/失败卡
 
     private var iconBadge: some View {
-        Image(systemName: model.failure == nil ? "heart.text.square.fill" : "exclamationmark.triangle.fill")
+        Image(systemName: model.failure == nil ? "book.fill" : "exclamationmark.triangle.fill")
             .font(VLFont.homeActionIcon)
             // token-only（§3.0）：强调色走 brand-primary，不用系统 accentColor
             //（本页在会话之前，改主题/全局 accent 时不得漂移出品牌色）。
             .foregroundStyle(model.failure == nil
                              ? Color("brand-primary", bundle: .main)
                              : Color("semantic-warning", bundle: .main))
-            .frame(width: 88, height: 88)
+            .frame(width: 84, height: 84)
             .background(.thinMaterial, in: Circle())
+            .overlay(Circle().stroke(.white.opacity(0.55), lineWidth: 1))
             .accessibilityHidden(true)
     }
 
