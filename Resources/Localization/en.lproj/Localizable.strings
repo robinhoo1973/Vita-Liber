@@ -1885,6 +1885,7 @@
 "startup.catalog.titleRequired" = "Medical data catalog (required)";
 "startup.catalog.body" = "Your data stays on this device. The app goes online to check the version only when you tap Check for updates, and never uploads your data.";
 "startup.catalog.continue" = "Continue without downloading";
+"startup.catalog.enterFirst" = "Enter first";
 "startup.catalog.sizeHint" = "Wi-Fi recommended. Keep the app open while downloading.";
 "startup.catalog.upgradeUnavailable" = "Catalog upgrade is unavailable; other features are unaffected.";
 "startup.catalog.backgroundGrace" = "Switching away or locking may interrupt it; the system usually allows about 30 seconds to finish, and an interrupted download must start over.";

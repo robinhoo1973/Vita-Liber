@@ -461,6 +461,8 @@ extension L10n {
     static var startupCatalogTitleRequired: String { t("startup.catalog.titleRequired") }
     static var startupCatalogBody: String { t("startup.catalog.body") }
     static var startupCatalogContinue: String { t("startup.catalog.continue") }
+    /// 离线/仅 Wi-Fi 拦截时的强制卡出口（业主措辞「先进入」，与常规「暂不下载，继续」区分）。
+    static var startupCatalogEnterFirst: String { t("startup.catalog.enterFirst") }
     static func startupCatalogInstallFmt(_ size: String) -> String {
         String(format: t("startup.catalog.installFmt"), size)
     }

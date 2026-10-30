@@ -690,7 +690,7 @@ struct DatabaseInitializationView: View {
                 Button {
                     perform(secondary)
                 } label: {
-                    Text(Self.secondaryTitle(secondary))
+                    Text(Self.secondaryTitle(secondary, networkBlocked: networkGate.blockReason() != nil))
                         .frame(maxWidth: .infinity, minHeight: 64)
                 }
                 // 2026-10-30 业主（按钮样式）：次动作此前 `.plain`——64pt 命中区
@@ -839,10 +839,15 @@ struct DatabaseInitializationView: View {
         }
     }
 
-    private static func secondaryTitle(_ action: MedicalCatalogPromptAction) -> String {
+    private static func secondaryTitle(_ action: MedicalCatalogPromptAction,
+                                       networkBlocked: Bool = false) -> String {
         switch action {
         case .cancelCheckAndContinue: return L10n.startupCatalogCancelCheckContinue
         case .cancelUpdateAndContinue: return L10n.startupCatalogCancelUpdateContinue
+        case .continueWithout:
+            // 强制卡离线/仅 Wi-Fi 拦截出口用业主措辞「先进入」；常规跳过仍为
+            // 「暂不下载，继续」（两者都= enter without downloading）。
+            return networkBlocked ? L10n.startupCatalogEnterFirst : L10n.startupCatalogContinue
         default: return L10n.startupCatalogContinue
         }
     }

@@ -1885,6 +1885,7 @@
 "startup.catalog.titleRequired" = "醫療資料目錄（必需）";
 "startup.catalog.body" = "資料保存在本機；只有你點「檢查更新」時才會連網查版本，不會上傳你的資料。";
 "startup.catalog.continue" = "暫不下載，繼續";
+"startup.catalog.enterFirst" = "先進入";
 "startup.catalog.sizeHint" = "建議使用 Wi-Fi；下載時請保持 App 開啟。";
 "startup.catalog.upgradeUnavailable" = "目錄升級暫不可用，其他功能不受影響。";
 "startup.catalog.backgroundGrace" = "切到背景或鎖屏可能中斷；系統通常只允許約 30 秒收尾，中斷後需要重新下載。";

@@ -1371,6 +1371,7 @@ extension L10n {
         "startup.init.failureBackupRestore",
         "startup.catalog.status.idleNoLocalRequired",
         // 2026-10-30 业主：损坏数据库修复（导出/导入/备份恢复/删除重建）
+        "startup.catalog.enterFirst",
         "recovery.title",
         "recovery.intro",
         "recovery.open",

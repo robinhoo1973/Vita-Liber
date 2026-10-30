@@ -1885,6 +1885,7 @@
 "startup.catalog.titleRequired" = "医疗数据目录（必需）";
 "startup.catalog.body" = "资料保存在本机；只有你点「检查更新」时才会联网查版本，不会上传你的资料。";
 "startup.catalog.continue" = "暂不下载，继续";
+"startup.catalog.enterFirst" = "先进入";
 "startup.catalog.sizeHint" = "建议使用 Wi-Fi；下载时请保持 App 打开。";
 "startup.catalog.upgradeUnavailable" = "目录升级暂不可用，其他功能不受影响。";
 "startup.catalog.backgroundGrace" = "切到后台或锁屏可能中断；系统通常只允许约 30 秒收尾，中断后需要重新下载。";
