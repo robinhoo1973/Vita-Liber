@@ -555,7 +555,10 @@ struct DatabaseInitializationView: View {
         .padding(.vertical, 12)
         // 含子按钮 → 必须 .contain（L0 第 17 节）。
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.startupCheckA11yRowFmt(4, L10n.startupCheckRowUpdates, stateText))
+        // 行④与①–③同口径：朗读并入 detail（checker 缺失时「暂不可用」必须可读）。
+        .accessibilityLabel(Self.rowAccessibilityLabel(
+            index: 4, title: L10n.startupCheckRowUpdates, stateText: stateText,
+            detail: updatesDetail, note: nil))
         .accessibilityIdentifier("STARTUP.selfcheck.updates")
     }
 

@@ -45,10 +45,12 @@ final class BootSelfCheckUITests: XCTestCase {
         let button = app.buttons["STARTUP.selfcheck.updates.check"]
         XCTAssertTrue(button.waitForExistence(timeout: 10))
         button.tap()
-        let failed = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "label CONTAINS %@", "未通过"), object: row)
-        XCTAssertEqual(XCTWaiter.wait(for: [failed], timeout: 10), .completed,
-                       "checker 缺失时行④应落「未通过」态")
+        // 2026-10-30 四席复审：checker 缺失（未发布/未配置）不是「未通过」错误，
+        // 行④落中性「待检查」并显示「暂不可用」——失败红态只留给真实检查失败。
+        let unavailable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label CONTAINS %@", "暂不可用"), object: row)
+        XCTAssertEqual(XCTWaiter.wait(for: [unavailable], timeout: 10), .completed,
+                       "checker 缺失时行④应落中性「暂不可用」而非失败态")
     }
 
     /// 失败桩：失败卡 + 重试按钮 + 自检行仍在（失败路径仍展示事实）。
