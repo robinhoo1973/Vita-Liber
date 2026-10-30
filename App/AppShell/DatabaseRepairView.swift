@@ -392,6 +392,7 @@ struct DatabaseRepairView: View {
             case .checksumMismatch: return L10n.recoveryBackupChecksum
             case .unsupportedFormat: return L10n.recoveryBackupFormat
             case .conflictDetected: return L10n.recoveryBackupConflict
+            case .tooLarge: return L10n.recoveryBackupTooLarge
             }
         }
         return L10n.recoveryError(String(describing: error))
