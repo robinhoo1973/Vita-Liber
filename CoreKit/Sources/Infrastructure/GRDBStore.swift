@@ -42,6 +42,12 @@ public struct GRDBStore: Sendable {
         try GRDBStore(writer: DatabasePool(path: path, configuration: configuration()))
     }
 
+    /// 恢复/重建的临时库（同目录、非 WAL）：DatabaseQueue 关闭后主文件自包含，
+    /// 不会留下 -wal/-shm 拖尾，可被 install 原子 rename 吸收。
+    public static func stage(at path: String) throws -> GRDBStore {
+        try GRDBStore(writer: DatabaseQueue(path: path, configuration: configuration()))
+    }
+
     /// 只读降级装配（2026-10-28 只读降级规划轮；B0 实证干净关闭库可只读打开）：
     /// readonly `DatabaseQueue` 单连接（快败；Pool 惰性 reader 不采用），**绝不走
     /// init**（init 必跑建库/迁移/写 user_version）；打开失败即抛，绝不回落读写

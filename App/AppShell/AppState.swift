@@ -175,12 +175,20 @@ final class AppState {
         } catch {
             logger.error("持久化加载失败: \(error)")
         }
-        // 2026-10-30 审查修复：owner 已落库但向导未完（在 ④ 添加家人时杀进程），
-        // 重启后 stage 回落到三卡续填 → 全部已确认 → .ownerName，用户被要求
-        // 二次建档（同一身份两条 local_owner/本人档案）。owner 存在即三卡已过，
-        // 直接续到 ④；未完成成员补录不阻断（可跳过）。
+        // 2026-10-30 审查修复：owner 已落库但向导未完（在 ④ 添加家人时杀进程）——
+        // 若三卡均已按「当前版本」确认，直接续到 ④，不再要求二次建档。
+        // 四席复审修正：owner 存在只证明提交时三卡已过；条款版本升级后必须先按
+        // 当前版本重新确认，不得跳过（FR20.5 版本口径）。
         if owner != nil && !onboardingFinished {
-            stage = .addFamily
+            let firstUnconfirmed = disclosureCards.firstIndex { card in
+                !consentRecords.contains { $0.key == card.key && $0.version == card.version }
+            }
+            if let firstUnconfirmed {
+                stage = .disclosure(index: firstUnconfirmed)
+                defaults.set(firstUnconfirmed, forKey: "disclosureProgress")
+            } else {
+                stage = .addFamily
+            }
         }
         // 审查修复（FR20.5 断点续填）：裸索引恢复不校验版本——① 卡版本升级后
         // 旧版本确认过的卡被跳过、修订条款永不重新确认；② 完成三卡后杀进程

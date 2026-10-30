@@ -168,14 +168,24 @@ struct HealthTabView: View {
                 // §6 行内错误：同步失败/未完成如实提示并可重试（此前只落账 SP-29，
                 // 从健康 Tab 发起的失败在页面上静默消失）。
                 if case .degraded(let message) = deviceState.phase {
+                    // 四席复审：权限关闭等不可重试态不要给「重试」死按钮——
+                    // 给去 SP-29 开启的入口；只有可重试失败才显示重试。
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Label(message, systemImage: "exclamationmark.triangle")
                             .font(.footnote)
-                            .foregroundStyle(Color("semantic-warning", bundle: .main))
+                            .foregroundStyle(Color("semantic-warning-text", bundle: .main))
                         Spacer(minLength: 8)
-                        Button(L10n.retry) { Task { await syncNow() } }
-                            .font(.footnote)
-                            .frame(minHeight: 44)
+                        if healthReadEnabled {
+                            Button(L10n.retry) { Task { await syncNow() } }
+                                .font(.footnote)
+                                .frame(minHeight: 44)
+                        } else {
+                            NavigationLink(value: AppRoute.deviceConnection) {
+                                Text(L10n.healthSyncFixAction)
+                                    .font(.footnote)
+                                    .frame(minHeight: 44)
+                            }
+                        }
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier("SP-29.health.home.syncFailed")
@@ -222,6 +232,11 @@ struct HealthTabView: View {
                 .accessibilityIdentifier("SP-29.health.home.manage")
             }
         }
+    }
+
+    /// 健康读取开关（与设置页/自动同步同一解析口径）。
+    private var healthReadEnabled: Bool {
+        SettingsRules.resolved(settings.values[.authHealthRead], key: .authHealthRead) == "true"
     }
 
     /// 手动同步（与 SP-29 同一状态机与参数口径——quiet hours 经 SettingsRules 解析，

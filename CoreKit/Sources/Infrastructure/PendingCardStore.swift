@@ -279,12 +279,16 @@ public actor PendingCardStore {
     public func restoreArchived(id: String, now: Date = Date()) async throws {
         let epoch = now.timeIntervalSince1970
         try await writer.write { db in
+            // 2026-10-30 四席复审：恢复必须重置生命周期锚点（created_at）——
+            // 否则下一次 advanceLifecycle（7/30 天按 created_at 判龄）会立刻把
+            // 刚补办的归档卡再次 expired→archived，死胡同回归。
             try db.execute(sql: """
                 UPDATE pending_card SET status = 'pending',
-                    resolved_at = NULL, resolved_by = NULL, updated_at = ?
+                    created_at = ?, resolved_at = NULL, resolved_by = NULL,
+                    updated_at = ?
                 WHERE id = ? AND status = 'archived'
                   AND (resolved_by IN ('user', 'expired') OR resolved_by IS NULL)
-                """, arguments: [epoch, id])
+                """, arguments: [epoch, epoch, id])
             guard db.changesCount == 1 else { throw StoreError.inactive }
         }
     }

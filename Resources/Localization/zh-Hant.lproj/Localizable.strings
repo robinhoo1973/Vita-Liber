@@ -262,7 +262,7 @@
 "settings.resource.catalog.upToDate" = "目錄內容已是最新完整版本";
 "settings.resource.catalog.updateAvailableFmt" = "發現可安裝更新（目錄 v%lld）";
 "settings.resource.catalog.noInstallable" = "暫無新的完整可安裝目錄";
-"settings.resource.catalog.unavailable" = "暫不可用（尚未發布或未配置）";
+"settings.resource.catalog.unavailable" = "暫不可用，請稍後再試";
 "settings.resource.catalog.rateLimited" = "受流量限制保護";
 "settings.resource.catalog.rateLimitedFmt" = "受流量限制保護，%@可重試";
 "settings.resource.catalog.verificationFailed" = "資訊驗證失敗，本機目錄不受影響";
@@ -1913,7 +1913,7 @@
 "startup.init.retry" = "重試";
 "startup.init.failureTitle" = "初始化未完成";
 "startup.init.failureMissingOriginals" = "偵測到原始資料仍在，但主資料庫缺失。為避免覆蓋，已停止自動重建。請從備份還原或聯絡支援。";
-"startup.init.failureCorrupt" = "資料庫檔案無法讀取。您的原始資料未被修改；請重新啟動 App 重試，如持續出現請聯絡支援。";
+"startup.init.failureCorrupt" = "資料庫檔案無法讀取。您的原始資料未被修改；可先嘗試下方「資料庫修復」，或重新啟動 App 重試。";
 "startup.init.failureTooNew" = "資料庫來自更新版本的 App。請更新 App 後重試。";
 "startup.init.failureMigrationFmt" = "資料庫升級未完成（目前 v%1$ld，應為 v%2$ld）。資料未被刪除，請重試。";
 "startup.init.failureGeneric" = "本機資料庫暫時無法初始化。資料未被修改，請重試；如持續出現請聯絡支援。";
@@ -1960,7 +1960,7 @@
 "startup.init.failureBackupRestore" = "備份還原未完成。本機已重建空資料庫，可重試或改用其他修復方式。";
 "startup.catalog.status.idleNoLocalRequired" = "本機尚無目錄（必需）";
 "recovery.title" = "資料庫修復";
-"recovery.intro" = "本機資料庫無法讀取。建議先匯出損壞資料庫留存，再選擇匯入修復檔案或從備份還原；確認不再需要時再刪除並重建。";
+"recovery.intro" = "本機資料庫無法正常開啟。建議先匯出損壞資料庫留存，再選擇匯入修復檔案或從備份還原；確認不再需要時再刪除並重建。";
 "recovery.open" = "資料庫修復…";
 "recovery.close" = "關閉";
 "recovery.busy" = "正在處理…";
@@ -1972,9 +1972,9 @@
 "recovery.export.busy" = "正在打包…";
 "recovery.export.doneFmt" = "已匯出：%@";
 "recovery.import.title" = "匯入修復後的資料庫";
-"recovery.import.subtitle" = "選擇修復後的 .sqlite 或 .zip；驗證通過後取代本機資料庫";
+"recovery.import.subtitle" = "選擇修復後的 .sqlite（或僅含一個主資料庫的 .zip）；驗證通過後取代本機資料庫";
 "recovery.import.confirmTitle" = "匯入並取代？";
-"recovery.import.confirmBody" = "將以所選檔案取代本機損壞資料庫。驗證未通過時不會更動本機資料；取代後原損壞檔案會保留為本機副本。";
+"recovery.import.confirmBody" = "將以所選檔案取代本機損壞資料庫。僅使用你自己修復或可信來源的檔案——匯入內容會被視為本機既有資料。驗證未通過時不會更動本機資料；取代後原損壞檔案會保留為本機副本。";
 "recovery.import.action" = "匯入並取代";
 "recovery.import.reportFmt" = "修復檔案驗證通過（結構版本 v%lld）";
 "recovery.backup.title" = "從備份還原";
@@ -1986,8 +1986,9 @@
 "recovery.delete.title" = "刪除損壞資料庫並重新產生";
 "recovery.delete.subtitle" = "清空本機全部醫療資料並建立空資料庫；原始圖片與檔案不會刪除";
 "recovery.delete.confirmTitle" = "刪除並重建？";
-"recovery.delete.confirmBody" = "將永久刪除本機的成員、病歷、用藥、預約、提醒、聊天與待確認卡片等資料，且無法復原。原始圖片與檔案仍會保留。";
+"recovery.delete.confirmBody" = "將永久刪除本機的成員、病歷、用藥、預約、提醒、聊天與待確認卡片等資料，且無法復原；本機保留的損壞資料庫副本（.corrupt-*）也會一併刪除。原始圖片與檔案仍會保留。";
 "recovery.delete.action" = "刪除並重建";
+"recovery.migrationKeepHint" = "遷移未完成的資料庫可能仍可修復：請先匯出留存，再匯入修復後的資料庫或從備份還原；不要直接刪除。";
 "recovery.validation.notSQLite" = "不是有效的 SQLite 資料庫";
 "recovery.validation.unreadable" = "資料庫無法讀取";
 "recovery.validation.integrity" = "完整性驗證未通過";
@@ -1995,6 +1996,9 @@
 "recovery.validation.versionFmt" = "資料庫結構版本無效（v%lld）";
 "recovery.validation.missingTablesFmt" = "缺少必需的資料表：%@";
 "recovery.validation.archive" = "壓縮檔內未找到唯一的資料庫檔案";
+"recovery.validation.archiveMultiple" = "壓縮檔內有多份資料庫檔案，請只保留一份後再試";
+"recovery.validation.archiveSidecars" = "壓縮檔包含 SQLite 伴生檔案（-wal/-shm）；請先在外部合併／檢查點後只匯出主資料庫";
+"recovery.backup.tooLarge" = "備份檔案過大，無法在裝置上安全驗證";
 "recovery.validation.io" = "檔案讀寫失敗";
 "recovery.backup.checksum" = "備份檔案驗證失敗（可能已損壞）";
 "recovery.backup.format" = "不支援的備份格式";
@@ -2292,6 +2296,7 @@
 "health.importedEmpty" = "尚無已匯入的資料。首次同步會優先匯入最近一年。";
 "health.sparseWindowsFmt" = "%d 個小時樣本稀疏，未形成小時統計。";
 "health.backgroundSyncFailed" = "後台自動導入註冊失敗——新資料僅在手動同步時到達（可重新連線，或到「健康」App 檢查本應用的讀取權限）。";
+"health.syncFixAction" = "去開啟";
 "health.importRange.oneYear" = "最近 365 天";
 "health.importRange.hint" = "固定匯入最近 365 天，與一年趨勢範圍一致。";
 "health.initialImport.progressFmt" = "初始匯入進行中：仍有 %@ 類資料待完成；每次開啟 App 會從斷點繼續。";

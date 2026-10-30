@@ -517,10 +517,12 @@ struct DatabaseInitializationView: View {
             return .running
         case .allCurrent, .sourcePartial:
             return .passed
-        case .updatesAvailable, .partialFailure, .appUpdateRequired:
+        case .updatesAvailable, .partialFailure, .appUpdateRequired, .allFailed:
+            // 检查失败但本机副本仍可用：warning 而非 red failed（四席复审）。
             return .warning
-        case .allFailed, .unavailable:
-            return .failed
+        case .unavailable:
+            // 非错误（未发布/不可达）：中性待检查，不放大首启恐慌。
+            return .pending
         }
     }
 
@@ -925,44 +927,74 @@ struct DatabaseInitializationView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button {
-                Task { await model.retry() }
-            } label: {
-                Text(L10n.startupInitRetry)
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("STARTUP.initialization.retry")
-            if model.canOfferDatabaseRepair {
-                // 业主 2026-10-30：损坏库单独接口（导出/导入/从备份恢复/删除重建）。
-                Button {
-                    showDatabaseRepair = true
-                } label: {
-                    Text(L10n.recoveryOpen)
-                        .frame(maxWidth: .infinity, minHeight: 64)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("STARTUP.failure.repair")
-            }
-            if model.readOnlyContainer != nil {
-                // 只读降级入口（B2）：仅 tooNew 且只读打开成功时出现。
-                Button {
-                    model.enterReadOnly()
-                } label: {
-                    Text(L10n.startupReadonlyEnter)
-                        .frame(maxWidth: .infinity, minHeight: 64)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.bordered)
-                .accessibilityIdentifier("STARTUP.readonly.enter")
-            }
+            failureActions(failure)
         }
         .padding(16)
         .background(cardSurface, in: RoundedRectangle(cornerRadius: VLCornerRadius.compact))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("STARTUP.failure")
+    }
+
+    /// 失败卡动作层级（四席复审 2026-10-30）：确定性失败上「重试」不是有效主
+    /// 行动——修复/恢复/只读升为主按钮，重试降为次按钮。
+    @ViewBuilder
+    private func failureActions(_ failure: DatabaseBootFailure) -> some View {
+        if model.readOnlyContainer != nil {
+            failureButton(title: L10n.startupReadonlyEnter, primary: true,
+                          identifier: "STARTUP.readonly.enter") { model.enterReadOnly() }
+            failureButton(title: L10n.startupInitRetry, primary: false,
+                          identifier: "STARTUP.initialization.retry") {
+                Task { await model.retry() }
+            }
+        } else if prefersRepairPrimary(failure), model.canOfferDatabaseRepair {
+            failureButton(title: L10n.recoveryOpen, primary: true,
+                          identifier: "STARTUP.failure.repair") { showDatabaseRepair = true }
+            failureButton(title: L10n.startupInitRetry, primary: false,
+                          identifier: "STARTUP.initialization.retry") {
+                Task { await model.retry() }
+            }
+        } else {
+            failureButton(title: L10n.startupInitRetry, primary: true,
+                          identifier: "STARTUP.initialization.retry") {
+                Task { await model.retry() }
+            }
+            if model.canOfferDatabaseRepair {
+                failureButton(title: L10n.recoveryOpen, primary: false,
+                              identifier: "STARTUP.failure.repair") { showDatabaseRepair = true }
+            }
+        }
+    }
+
+    private func prefersRepairPrimary(_ failure: DatabaseBootFailure) -> Bool {
+        switch failure {
+        case .corrupt, .missingWithOriginals, .migrationIncomplete, .recoveryBackupFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    @ViewBuilder
+    private func failureButton(title: String, primary: Bool,
+                               identifier: String,
+                               action: @escaping () -> Void) -> some View {
+        if primary {
+            Button(action: action) {
+                Text(title)
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityIdentifier(identifier)
+        } else {
+            Button(action: action) {
+                Text(title)
+                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier(identifier)
+        }
     }
 
     private func failureBody(_ failure: DatabaseBootFailure) -> String {

@@ -386,6 +386,13 @@ struct PendingCardDedupTests {
         #expect(restored?.resolvedBy == nil)
         let active = try await store.aggregationItems(patientId: patient)
         #expect(active.count == 1)
+        // 四席复审（2026-10-30）：补办后生命周期锚点必须重置——再次推进不得
+        // 立刻把刚恢复的卡重新归档（否则死胡同回归）。
+        _ = try await store.advanceLifecycle()
+        _ = try await store.advanceLifecycle()
+        let afterAdvance = try await store.card(id: id)
+        #expect(afterAdvance?.status == "pending")
+        #expect(afterAdvance?.resolvedBy == nil)
     }
 }
 #endif

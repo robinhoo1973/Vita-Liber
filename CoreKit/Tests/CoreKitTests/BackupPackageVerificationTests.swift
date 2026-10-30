@@ -46,6 +46,19 @@ struct BackupPackageVerificationTests {
         }
     }
 
+    @Test("未来 schemaVersion 的备份拒绝导入（旧 App 不按旧语义静默丢列）")
+    func rejectsFutureSchemaVersion() {
+        let payload = Data("""
+        {"schemaVersion":99,"exportedAt":123.0,"members":[],"consentRecords":[],
+         "timeline":[],"documents":[],"plans":[],"appointments":[],"observations":[],
+         "allergies":[],"encounters":[],"metrics":[],"immunizations":[],
+         "voiceNotes":[],"healthProblems":[],"sensitiveDocIds":[]}
+        """.utf8)
+        #expect(throws: BackupService.BackupError.unsupportedFormat) {
+            _ = try BackupService.verifyPackage(binaryPackage(payload: payload))
+        }
+    }
+
     @Test("遗留 JSON 信封（v0）继续可校验")
     func verifiesLegacyJSONEnvelope() throws {
         let outer: [String: Any] = [

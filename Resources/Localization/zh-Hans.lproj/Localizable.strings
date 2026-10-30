@@ -262,7 +262,7 @@
 "settings.resource.catalog.upToDate" = "目录内容已是最新完整版本";
 "settings.resource.catalog.updateAvailableFmt" = "发现可安装更新（目录 v%lld）";
 "settings.resource.catalog.noInstallable" = "暂无新的完整可安装目录";
-"settings.resource.catalog.unavailable" = "暂不可用（尚未发布或未配置）";
+"settings.resource.catalog.unavailable" = "暂不可用，请稍后再试";
 "settings.resource.catalog.rateLimited" = "受限流保护";
 "settings.resource.catalog.rateLimitedFmt" = "受限流保护，%@可重试";
 "settings.resource.catalog.verificationFailed" = "信息校验失败，本机目录不受影响";
@@ -1913,7 +1913,7 @@
 "startup.init.retry" = "重试";
 "startup.init.failureTitle" = "初始化未完成";
 "startup.init.failureMissingOriginals" = "检测到原始资料仍在，但主数据库缺失。为避免覆盖，已停止自动重建。请从备份恢复或联系支持。";
-"startup.init.failureCorrupt" = "数据库文件无法读取。您的原始资料未被修改；请重启 App 重试，如持续出现请联系支持。";
+"startup.init.failureCorrupt" = "数据库文件无法读取。您的原始资料未被修改；可先尝试下方「数据库修复」，或重启 App 重试。";
 "startup.init.failureTooNew" = "数据库来自更新版本的 App。请更新 App 后重试。";
 "startup.init.failureMigrationFmt" = "数据库升级未完成（当前 v%1$ld，应为 v%2$ld）。数据未被删除，请重试。";
 "startup.init.failureGeneric" = "本地数据库暂时无法初始化。数据未被修改，请重试；如持续出现请联系支持。";
@@ -1960,7 +1960,7 @@
 "startup.init.failureBackupRestore" = "备份恢复未完成。本机已重建空库，可重试或改走其他修复方式。";
 "startup.catalog.status.idleNoLocalRequired" = "本机尚无目录（必需）";
 "recovery.title" = "数据库修复";
-"recovery.intro" = "本机数据库无法读取。建议先导出损坏数据库留档，再选择导入修复文件或从备份恢复；确认不再需要时再删除并重建。";
+"recovery.intro" = "本机数据库无法正常打开。建议先导出损坏数据库留档，再选择导入修复文件或从备份恢复；确认不再需要时再删除并重建。";
 "recovery.open" = "数据库修复…";
 "recovery.close" = "关闭";
 "recovery.busy" = "正在处理…";
@@ -1972,9 +1972,9 @@
 "recovery.export.busy" = "正在打包…";
 "recovery.export.doneFmt" = "已导出：%@";
 "recovery.import.title" = "导入修复后的数据库";
-"recovery.import.subtitle" = "选择修复后的 .sqlite 或 .zip；校验通过后替换本机数据库";
+"recovery.import.subtitle" = "选择修复后的 .sqlite（或仅含一个主库的 .zip）；校验通过后替换本机数据库";
 "recovery.import.confirmTitle" = "导入并替换？";
-"recovery.import.confirmBody" = "将用所选文件替换本机损坏数据库。校验不通过时不会改动本机数据；替换后原损坏文件会保留为本机副本。";
+"recovery.import.confirmBody" = "将用所选文件替换本机损坏数据库。仅使用你自己修复或可信来源的文件——导入内容会被视为本机既有资料。校验不通过时不会改动本机数据；替换后原损坏文件会保留为本机副本。";
 "recovery.import.action" = "导入并替换";
 "recovery.import.reportFmt" = "修复文件校验通过（结构版本 v%lld）";
 "recovery.backup.title" = "从备份恢复";
@@ -1986,8 +1986,9 @@
 "recovery.delete.title" = "删除损坏数据库并重新生成";
 "recovery.delete.subtitle" = "清空本机全部医疗数据并新建空库；原始图片与文件不会删除";
 "recovery.delete.confirmTitle" = "删除并重建？";
-"recovery.delete.confirmBody" = "将永久删除本机的成员、病历、用药、预约、提醒、聊天与待确认卡片等数据，且无法撤销。原始图片与文件仍会保留。";
+"recovery.delete.confirmBody" = "将永久删除本机的成员、病历、用药、预约、提醒、聊天与待确认卡片等数据，且无法撤销；本机保留的损坏库副本（.corrupt-*）也会一并删除。原始图片与文件仍会保留。";
 "recovery.delete.action" = "删除并重建";
+"recovery.migrationKeepHint" = "迁移未完成的数据库可能仍可修复：请先导出留档，再导入修复后的数据库或从备份恢复；不要直接删除。";
 "recovery.validation.notSQLite" = "不是有效的 SQLite 数据库";
 "recovery.validation.unreadable" = "数据库无法读取";
 "recovery.validation.integrity" = "完整性校验未通过";
@@ -1995,6 +1996,9 @@
 "recovery.validation.versionFmt" = "数据库结构版本无效（v%lld）";
 "recovery.validation.missingTablesFmt" = "缺少必需的数据表：%@";
 "recovery.validation.archive" = "压缩包内未找到唯一的数据库文件";
+"recovery.validation.archiveMultiple" = "压缩包里有多份数据库文件，请只保留一份后再试";
+"recovery.validation.archiveSidecars" = "压缩包包含 SQLite 伴生文件（-wal/-shm）；请先在外部合并/检查点后只导出主库";
+"recovery.backup.tooLarge" = "备份文件过大，无法在设备上安全校验";
 "recovery.validation.io" = "文件读写失败";
 "recovery.backup.checksum" = "备份文件校验失败（可能已损坏）";
 "recovery.backup.format" = "不支持的备份格式";
@@ -2292,6 +2296,7 @@
 "health.importedEmpty" = "尚无已导入的数据。首次同步会优先导入最近一年。";
 "health.sparseWindowsFmt" = "%d 个小时样本稀疏，未形成小时统计。";
 "health.backgroundSyncFailed" = "后台自动导入注册失败——新数据将仅在手动同步时到达（可重新连接，或到「健康」App 检查本应用的读取权限）。";
+"health.syncFixAction" = "去开启";
 "health.importRange.oneYear" = "最近 365 天";
 "health.importRange.hint" = "固定导入最近 365 天，与一年趋势范围一致。";
 "health.initialImport.progressFmt" = "初始导入进行中：仍有 %@ 类数据待完成；每次打开 App 会从断点继续。";

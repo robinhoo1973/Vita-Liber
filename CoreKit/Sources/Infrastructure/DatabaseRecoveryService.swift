@@ -36,6 +36,12 @@ public enum DatabaseRecoveryService {
     /// 损坏库副本前缀（替换时旧文件改名保留；清除时一并删除）。
     public static let corruptMarker = ".corrupt-"
 
+    /// 解包硬上限（用户修复包不可信；防 zip bomb / 磁盘打满）。
+    public static let maxArchiveEntries = 16
+    public static let maxArchiveUncompressedBytes: Int64 = 2 << 30
+    /// 临时替换文件后缀（copy 完成后同卷 rename 原子落位）。
+    public static let incomingMarker = ".incoming-"
+
     /// 打包（`.zip`，deflate）到 destination；返回 destination。
     /// 条目名做最小安全校验（拒绝绝对路径/反斜杠/`..`/控制字符）。
     @discardableResult
@@ -80,30 +86,65 @@ public enum DatabaseRecoveryService {
         } catch {
             throw DatabaseRepairError.archiveInvalid("无法打开压缩包")
         }
-        var candidates: [Entry] = []
+        // 成员选择：优先唯一「注册名主库」（PatientDatabaseNames.all）——App 自身
+        // 导出的包含主库+伴生+历史库，历史库不得造成「多库拒绝」的自闭闭环；
+        // 无注册名候选时接受唯一 .sqlite/.db（第三方修复产物）。多个主库/多个
+        // 未知库一律拒绝。伴生（-wal/-shm）不参与选择也不提取。
+        let canonicalNames = Set(PatientDatabaseNames.all.map { $0.lowercased() })
+        var canonical: [Entry] = []
+        var others: [Entry] = []
+        var count = 0
+        var total: Int64 = 0
         for entry in archive {
+            count += 1
+            guard count <= maxArchiveEntries else {
+                throw DatabaseRepairError.archiveInvalid("压缩包条目过多")
+            }
+            if entry.type == .symlink {
+                throw DatabaseRepairError.archiveInvalid("压缩包包含符号链接")
+            }
             guard entry.type == .file else { continue }
             let name = entry.path
             guard !name.hasPrefix("/"), !name.contains("\\"), !name.contains(":"),
                   !name.split(separator: "/").contains(".."),
                   !name.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
             else { throw DatabaseRepairError.archiveInvalid("压缩包包含不安全路径") }
-            if name.lowercased().hasSuffix(".sqlite") || name.lowercased().hasSuffix(".db") {
-                candidates.append(entry)
+            let size = Int64(entry.uncompressedSize)
+            guard size >= 0, size <= maxArchiveUncompressedBytes,
+                  total <= maxArchiveUncompressedBytes - size else {
+                throw DatabaseRepairError.archiveInvalid("压缩包展开量超限")
+            }
+            total += size
+            let base = (name as NSString).lastPathComponent.lowercased()
+            if base.hasSuffix("-wal") || base.hasSuffix("-shm") || base.hasSuffix("-journal") {
+                // 静默忽略 WAL = 静默丢已提交事务；自包含修复库必须先在外部 checkpoint。
+                throw DatabaseRepairError.archiveHasSidecars
+            }
+            guard base.hasSuffix(".sqlite") || base.hasSuffix(".db") else { continue }
+            if canonicalNames.contains(base) {
+                canonical.append(entry)
+            } else {
+                others.append(entry)
             }
         }
-        guard candidates.count == 1, let entry = candidates.first else {
-            throw DatabaseRepairError.archiveInvalid(
-                candidates.isEmpty ? "压缩包内未找到数据库文件" : "压缩包内存在多个数据库文件")
+        let chosen: Entry
+        if canonical.count == 1 {
+            chosen = canonical[0]
+        } else if canonical.isEmpty, others.count == 1 {
+            chosen = others[0]
+        } else if canonical.count > 1 || others.count > 1 {
+            throw DatabaseRepairError.archiveMultiple
+        } else {
+            throw DatabaseRepairError.archiveInvalid("压缩包内未找到数据库文件")
         }
         do {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let target = directory.appendingPathComponent(
-                (entry.path as NSString).lastPathComponent)
+                (chosen.path as NSString).lastPathComponent)
             if fileManager.fileExists(atPath: target.path) {
                 try fileManager.removeItem(at: target)
             }
-            _ = try archive.extract(entry, to: target)
+            _ = try archive.extract(chosen, to: target)
             return target
         } catch {
             throw DatabaseRepairError.ioFailed("解压失败: \(error)")
@@ -185,28 +226,39 @@ public enum DatabaseRecoveryService {
             throw DatabaseRepairError.missingFile
         }
         let stamp = Int(now.timeIntervalSince1970)
+        let incoming = patientPath + incomingMarker + UUID().uuidString
         var archived: [(from: String, to: String)] = []
         do {
-            for suffix in [""] + sidecarSuffixes {
+            // 0) 磁盘余量预检（新库 + 20 MB 余量）；不足直接拒绝，不进入改名阶段。
+            try Self.requireDiskSpace(for: repairedPath, at: patientPath, fileManager: fileManager)
+            // 1) 新库先完整复制到同目录 incoming（原库完全不动——复制失败无副作用）。
+            try fileManager.copyItem(atPath: repairedPath, toPath: incoming)
+            try Self.synchronizeFile(at: incoming)
+            // 2) 伴生先归档、主库最后（崩溃窗口里主库缺失可由修复入口兜底；
+            //    副本名带 UUID，防同秒二次替换误删上一份）。
+            for suffix in sidecarSuffixes + [""] {
                 let source = patientPath + suffix
                 guard fileManager.fileExists(atPath: source) else { continue }
-                let target = patientPath + corruptMarker + "\(stamp)" + suffix
+                var target = patientPath + corruptMarker + "\(stamp)" + suffix
                 if fileManager.fileExists(atPath: target) {
-                    try fileManager.removeItem(atPath: target)
+                    target = patientPath + corruptMarker + "\(stamp)-" + UUID().uuidString + suffix
                 }
                 try fileManager.moveItem(atPath: source, toPath: target)
                 archived.append((source, target))
+                Self.excludeFromBackup(path: target)
             }
-            // 修复文件复制为新主库；不携带任何伴生文件（新库自带自己的状态）。
-            if fileManager.fileExists(atPath: patientPath) {
-                try fileManager.removeItem(atPath: patientPath)
-            }
-            try fileManager.copyItem(atPath: repairedPath, toPath: patientPath)
+            // 3) 同卷 rename 原子落位（incoming → 患者库路径）。
+            try fileManager.moveItem(atPath: incoming, toPath: patientPath)
+            try Self.synchronizeFile(at: patientPath)
         } catch {
-            // 回滚：删掉可能的半复制新库，把改名副本搬回原路径。
-            if fileManager.fileExists(atPath: patientPath),
-               !archived.contains(where: { $0.from == patientPath }) {
-                try? fileManager.removeItem(atPath: patientPath) // try?-ok: 回滚清理半复制文件，失败不影响回滚语义
+            // 回滚：仅当主库确已归档（患者路径上是新库/半成品）才清患者路径；
+            // 主库尚未归档时它仍是唯一原件，绝不能删（四席复审修正）。
+            let mainArchived = archived.contains { $0.from == patientPath }
+            if mainArchived, fileManager.fileExists(atPath: patientPath) {
+                try? fileManager.removeItem(atPath: patientPath) // try?-ok: 回滚清理新库/半成品，失败仍继续搬回归档
+            }
+            if fileManager.fileExists(atPath: incoming) {
+                try? fileManager.removeItem(atPath: incoming) // try?-ok: 回滚清理未落位副本
             }
             for pair in archived.reversed() {
                 if fileManager.fileExists(atPath: pair.to),
@@ -218,6 +270,47 @@ public enum DatabaseRecoveryService {
         }
     }
 
+    /// 建一个 baseline 空库（用 App 自身迁移链，避免绕过启动门手工造库）。
+    /// 仅供用户显式确认后的「删除重建 / staged 备份恢复」调用；调用后立即关闭池，
+    /// 避免 install/rename 时仍有打开的连接。
+    public static func createBaselineDatabase(at path: String) throws {
+        let store = try GRDBStore.stage(at: path)
+        try store.writer.close()
+    }
+
+    /// 尽力 fsync 文件内容（同目录 rename 原子，但断电持久性需同步；目录级
+    /// fsync 仍需更底层 API，登记崩溃一致性债）。
+    private static func synchronizeFile(at path: String) {
+        guard let handle = FileHandle(forUpdatingAtPath: path) else { return }
+        defer { try? handle.close() } // try?-ok: 同步句柄关闭失败不影响已写入数据
+        try? handle.synchronizeFile() // try?-ok: fsync 尽力而为；失败不改变替换语义
+    }
+
+    /// 磁盘余量预检（新库大小 + 20 MB）。容量字段不可用时放行（不阻断修复）。
+    private static func requireDiskSpace(for sourcePath: String, at patientPath: String,
+                                         fileManager: FileManager) throws {
+        let attributes = try? fileManager.attributesOfItem(atPath: sourcePath) // try?-ok: 容量预检尽力而为，属性不可读则放行
+        let sourceSize = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+        guard sourceSize > 0 else { return }
+        let url = URL(fileURLWithPath: patientPath).deletingLastPathComponent()
+        let values = try? url.resourceValues( // try?-ok: 容量字段不可用则放行，不阻断修复
+            forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        let capacity = values?.volumeAvailableCapacityForImportantUsage
+        guard let capacity else { return }
+        let needed = sourceSize + 20 * 1024 * 1024
+        if capacity < needed {
+            throw DatabaseRepairError.ioFailed("磁盘空间不足")
+        }
+    }
+
+    /// 归档副本不进入 iCloud/设备备份（PHI 全库副本，隐私最小化）。
+    private static func excludeFromBackup(path: String) {
+        var url = URL(fileURLWithPath: path)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? url.setResourceValues(values) // try?-ok: 备份排除尽力而为，不影响替换结果
+    }
+
     /// 删除患者库文件名全集（规范名 + 历史名 + 伴生 + `.corrupt-*` 副本）。
     /// 只在本目录操作；原件目录不动（BR-002）。
     public static func erasePatientDatabase(patientPath: String,
@@ -227,23 +320,21 @@ public enum DatabaseRecoveryService {
         var names = Set(PatientDatabaseNames.all)
         names.insert(baseName)
         do {
+            // 伴生先删、主库最后（崩溃窗口里主库仍在 → 启动门不会判 fresh）。
             for name in names {
-                for suffix in [""] + sidecarSuffixes {
+                for suffix in sidecarSuffixes + [""] {
                     let path = dir.appendingPathComponent(name + suffix).path
                     if fileManager.fileExists(atPath: path) {
                         try fileManager.removeItem(atPath: path)
                     }
                 }
             }
-            // `.corrupt-*` 副本（任意注册名 + 时间戳 + 伴生后缀）。
-            let entries: [String]
-            do {
-                entries = try fileManager.contentsOfDirectory(atPath: dir.path)
-            } catch {
-                entries = []
-            }
-            for entry in entries where entry.contains(corruptMarker) {
-                let isPatientCopy = names.contains { entry.hasPrefix($0 + corruptMarker) }
+            // `.corrupt-*`/`.incoming-*` 副本（任意注册名 + 后缀）。
+            let entries = try fileManager.contentsOfDirectory(atPath: dir.path)
+            for entry in entries where entry.contains(corruptMarker) || entry.contains(incomingMarker) {
+                let isPatientCopy = names.contains {
+                    entry.hasPrefix($0 + corruptMarker) || entry.hasPrefix($0 + incomingMarker)
+                }
                 if isPatientCopy {
                     try fileManager.removeItem(atPath: dir.appendingPathComponent(entry).path)
                 }
@@ -263,6 +354,10 @@ public enum DatabaseRepairError: Error, Equatable, Sendable {
     case unsupportedVersion(Int)
     case missingTables([String])
     case archiveInvalid(String)
+    /// 压缩包内存在多个数据库候选（多个注册名主库或多个未知库）——拒绝猜测。
+    case archiveMultiple
+    /// 压缩包含 SQLite 伴生（-wal/-shm/-journal）——拒绝静默丢 WAL。
+    case archiveHasSidecars
     case ioFailed(String)
 }
 #endif

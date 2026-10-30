@@ -62,6 +62,10 @@ extension L10n {
     }
     static var recoveryValidationArchive: String { t("recovery.validation.archive") }
     static var recoveryValidationIO: String { t("recovery.validation.io") }
+    static var recoveryValidationArchiveMultiple: String { t("recovery.validation.archiveMultiple") }
+    static var recoveryValidationArchiveSidecars: String { t("recovery.validation.archiveSidecars") }
+    static var recoveryBackupTooLarge: String { t("recovery.backup.tooLarge") }
+    static var recoveryMigrationKeepHint: String { t("recovery.migrationKeepHint") }
     static var recoveryBackupChecksum: String { t("recovery.backup.checksum") }
     static var recoveryBackupFormat: String { t("recovery.backup.format") }
     static var recoveryBackupConflict: String { t("recovery.backup.conflict") }

@@ -86,7 +86,11 @@ struct DatabaseRepairView: View {
                 Text(errorText ?? "")
             }
             .disabled(busyNow)
-            .onDisappear { model.discardStagedRecovery() }
+            .interactiveDismissDisabled(busyNow)
+            .onDisappear {
+                // 忙时不丢弃：install/restore 任务可能仍在读暂存文件。
+                if !busyNow { model.discardStagedRecovery() }
+            }
         }
     }
 
@@ -106,7 +110,7 @@ struct DatabaseRepairView: View {
             if let exportedArchiveName {
                 Label(L10n.recoveryExportDone(exportedArchiveName), systemImage: "checkmark.seal")
                     .font(.footnote)
-                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                    .foregroundStyle(Color("semantic-success-text", bundle: .main))
             }
         } footer: {
             Text(L10n.recoveryExportPrivacy)
@@ -127,7 +131,7 @@ struct DatabaseRepairView: View {
             if let version = stagedRepairVersion {
                 Label(L10n.recoveryImportReport(Int64(version)), systemImage: "checkmark.seal")
                     .font(.footnote)
-                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                    .foregroundStyle(Color("semantic-success-text", bundle: .main))
             }
         }
     }
@@ -149,30 +153,42 @@ struct DatabaseRepairView: View {
                     Int64(inspection.totalRecords)),
                       systemImage: "checkmark.seal")
                     .font(.footnote)
-                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                    .foregroundStyle(Color("semantic-success-text", bundle: .main))
             }
         }
     }
 
+    @ViewBuilder
     private var deleteSection: some View {
-        Section {
-            Button(role: .destructive) {
+        if model.allowsDestructiveRebuild {
+            Section {
+                Button(role: .destructive) {
                 showEraseConfirm = true
             } label: {
                 actionRow(icon: "trash",
                           title: L10n.recoveryDeleteTitle,
                           subtitle: L10n.recoveryDeleteSubtitle,
-                          tint: Color("semantic-danger", bundle: .main))
+                          tint: Color("semantic-danger", bundle: .main),
+                          titleTint: Color("semantic-danger", bundle: .main))
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("STARTUP.repair.erase")
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("STARTUP.repair.erase")
+            }
+        } else {
+            // 迁移未完成：先导出/导入修复库或从备份恢复；直接删除会销毁可迁移的库。
+            Section {
+                Text(L10n.recoveryMigrationKeepHint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     // MARK: - 行 / 工具栏 / 选择器
 
     private func actionRow(icon: String, title: String, subtitle: String,
-                           tint: Color = Color("brand-primary", bundle: .main)) -> some View {
+                           tint: Color = Color("brand-primary", bundle: .main),
+                           titleTint: Color? = nil) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.title3)
@@ -182,7 +198,7 @@ struct DatabaseRepairView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(titleTint ?? .primary)
                 Text(subtitle)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -190,7 +206,7 @@ struct DatabaseRepairView: View {
             }
             Spacer(minLength: 0)
         }
-        .frame(minHeight: 52)
+        .frame(minHeight: 64)
         .contentShape(Rectangle())
     }
 
@@ -210,7 +226,8 @@ struct DatabaseRepairView: View {
     private var exportPickerSheet: some View {
         if let exportURL {
             DatabaseExportPicker(url: exportURL) { name in
-                exportedArchiveName = name
+                if let name { exportedArchiveName = name }
+                showExportPicker = false
             }
             .ignoresSafeArea()
             .onDisappear {
@@ -308,6 +325,10 @@ struct DatabaseRepairView: View {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             do {
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0 // try?-ok: 大小读不到按 0 放行，真实读取失败由后续校验兜底
+                guard Int64(size) <= BackupService.maxPackageBytes else {
+                    throw BackupService.BackupError.tooLarge
+                }
                 let data = try await Task.detached(priority: .userInitiated) {
                     try Data(contentsOf: url)
                 }.value
@@ -326,7 +347,8 @@ struct DatabaseRepairView: View {
             defer { busy = false }
             do {
                 try await model.applyStagedRepairAndRebuild()
-                if model.failure == nil { dismiss() }
+                // 成功或被启动门拒绝都不再静默停在本页：关闭后失败卡可见。
+                dismiss()
             } catch {
                 errorText = message(for: error)
             }
@@ -339,7 +361,7 @@ struct DatabaseRepairView: View {
             defer { busy = false }
             do {
                 try await model.restoreStagedBackupAndRebuild()
-                if model.failure == nil { dismiss() }
+                dismiss()
             } catch {
                 errorText = message(for: error)
             }
@@ -352,7 +374,7 @@ struct DatabaseRepairView: View {
             defer { busy = false }
             do {
                 try await model.eraseCorruptDatabaseAndRebuild()
-                if model.failure == nil { dismiss() }
+                dismiss()
             } catch {
                 errorText = message(for: error)
             }
@@ -393,6 +415,10 @@ struct DatabaseRepairView: View {
             return L10n.recoveryValidationMissingTables(names.joined(separator: ", "))
         case .archiveInvalid:
             return L10n.recoveryValidationArchive
+        case .archiveMultiple:
+            return L10n.recoveryValidationArchiveMultiple
+        case .archiveHasSidecars:
+            return L10n.recoveryValidationArchiveSidecars
         }
     }
 }
@@ -400,9 +426,9 @@ struct DatabaseRepairView: View {
 /// 导出压缩包用的系统文件选择器（不把整包读进内存；系统负责落到 Files/iCloud Drive）。
 private struct DatabaseExportPicker: UIViewControllerRepresentable {
     let url: URL
-    let onExported: (String) -> Void
+    let onDone: (String?) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onExported: onExported) }
+    func makeCoordinator() -> Coordinator { Coordinator(onDone: onDone) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let controller = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
@@ -414,14 +440,18 @@ private struct DatabaseExportPicker: UIViewControllerRepresentable {
                                 context: Context) {}
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        private let onExported: (String) -> Void
-        init(onExported: @escaping (String) -> Void) { self.onExported = onExported }
+        private let onDone: (String?) -> Void
+        init(onDone: @escaping (String?) -> Void) { self.onDone = onDone }
 
         func documentPicker(_ controller: UIDocumentPickerViewController,
                             didPickDocumentsAt urls: [URL]) {
             // 导出完成：系统回传落点 URL；给界面一行「已导出：<文件名>」反馈。
-            guard let saved = urls.first else { return }
-            onExported(saved.lastPathComponent)
+            onDone(urls.first?.lastPathComponent)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            // 取消也必须回置 sheet 状态，否则 SwiftUI sheet 可能滞留。
+            onDone(nil)
         }
     }
 }

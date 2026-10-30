@@ -262,7 +262,7 @@
 "settings.resource.catalog.upToDate" = "Catalog content is already the latest complete version";
 "settings.resource.catalog.updateAvailableFmt" = "Installable update available (catalog v%lld)";
 "settings.resource.catalog.noInstallable" = "No new complete installable catalog";
-"settings.resource.catalog.unavailable" = "Unavailable (not published or not configured)";
+"settings.resource.catalog.unavailable" = "Temporarily unavailable; try again later";
 "settings.resource.catalog.rateLimited" = "Rate limited";
 "settings.resource.catalog.rateLimitedFmt" = "Rate limited; retry %@";
 "settings.resource.catalog.verificationFailed" = "Information verification failed; local catalog unaffected";
@@ -1913,7 +1913,7 @@
 "startup.init.retry" = "Retry";
 "startup.init.failureTitle" = "Initialization not complete";
 "startup.init.failureMissingOriginals" = "Original files are still present, but the main database is missing. Automatic rebuild stopped to avoid overwriting data. Restore from a backup or contact support.";
-"startup.init.failureCorrupt" = "The database file cannot be read. Your original files were not modified. Restart the app and try again; contact support if this persists.";
+"startup.init.failureCorrupt" = "The database file cannot be read. Your original files were not modified. Try Database Repair below, or restart the app and try again.";
 "startup.init.failureTooNew" = "The database was created by a newer version of the app. Update the app and try again.";
 "startup.init.failureMigrationFmt" = "Database upgrade did not finish (current v%1$ld, expected v%2$ld). No data was deleted; please retry.";
 "startup.init.failureGeneric" = "The local database could not be initialized. No data was modified; please retry or contact support if this persists.";
@@ -1960,7 +1960,7 @@
 "startup.init.failureBackupRestore" = "Backup restore did not finish. A fresh empty database was created; retry or choose another repair method.";
 "startup.catalog.status.idleNoLocalRequired" = "No catalog on this device (required)";
 "recovery.title" = "Database Repair";
-"recovery.intro" = "The local database cannot be read. Export the damaged database first for safekeeping, then import a repaired file or restore a backup; delete and rebuild only when you no longer need it.";
+"recovery.intro" = "The local database cannot be opened normally. Export the damaged database first for safekeeping, then import a repaired file or restore a backup; delete and rebuild only when you no longer need it.";
 "recovery.open" = "Database Repair…";
 "recovery.close" = "Close";
 "recovery.busy" = "Working…";
@@ -1972,9 +1972,9 @@
 "recovery.export.busy" = "Packaging…";
 "recovery.export.doneFmt" = "Exported: %@";
 "recovery.import.title" = "Import repaired database";
-"recovery.import.subtitle" = "Choose a repaired .sqlite or .zip; it replaces the local database after validation";
+"recovery.import.subtitle" = "Choose a repaired .sqlite (or a .zip containing only the main database); it replaces the local database after validation";
 "recovery.import.confirmTitle" = "Import and replace?";
-"recovery.import.confirmBody" = "The selected file will replace the damaged local database. Nothing is changed unless validation passes; the damaged file is kept as an on-device copy.";
+"recovery.import.confirmBody" = "The selected file will replace the damaged local database. Use only files you repaired yourself or from a trusted source — imported content is treated as existing local data. Nothing is changed unless validation passes; the damaged file is kept as an on-device copy.";
 "recovery.import.action" = "Import and replace";
 "recovery.import.reportFmt" = "Repaired file validated (schema v%lld)";
 "recovery.backup.title" = "Restore from backup";
@@ -1986,8 +1986,9 @@
 "recovery.delete.title" = "Delete damaged database and rebuild";
 "recovery.delete.subtitle" = "Erases all local medical data and creates an empty database; original images and files are kept";
 "recovery.delete.confirmTitle" = "Delete and rebuild?";
-"recovery.delete.confirmBody" = "This permanently deletes members, records, medications, appointments, reminders, chats and pending cards on this device. It cannot be undone. Original images and files are kept.";
+"recovery.delete.confirmBody" = "This permanently deletes members, records, medications, appointments, reminders, chats and pending cards on this device. It cannot be undone; retained damaged-database copies (.corrupt-*) are deleted too. Original images and files are kept.";
 "recovery.delete.action" = "Delete and rebuild";
+"recovery.migrationKeepHint" = "A database that failed migration may still be repairable: export it first, then import a repaired database or restore a backup; do not delete it directly.";
 "recovery.validation.notSQLite" = "Not a valid SQLite database";
 "recovery.validation.unreadable" = "The database cannot be read";
 "recovery.validation.integrity" = "Integrity check failed";
@@ -1995,6 +1996,9 @@
 "recovery.validation.versionFmt" = "Invalid database schema version (v%lld)";
 "recovery.validation.missingTablesFmt" = "Required tables are missing: %@";
 "recovery.validation.archive" = "No single database file found in the archive";
+"recovery.validation.archiveMultiple" = "The archive contains multiple database files; keep only one and try again";
+"recovery.validation.archiveSidecars" = "The archive contains SQLite companion files (-wal/-shm); checkpoint/merge externally and export only the main database";
+"recovery.backup.tooLarge" = "The backup file is too large to validate safely on this device";
 "recovery.validation.io" = "File read/write failed";
 "recovery.backup.checksum" = "Backup validation failed (file may be damaged)";
 "recovery.backup.format" = "Unsupported backup format";
@@ -2292,6 +2296,7 @@
 "health.importedEmpty" = "No imported data yet. The first sync imports the most recent year first.";
 "health.sparseWindowsFmt" = "%d hours had too few samples to form hourly statistics.";
 "health.backgroundSyncFailed" = "Background auto-import registration failed — new data will arrive only on manual sync (reconnect, or check this app's read permissions in the Health app).";
+"health.syncFixAction" = "Open settings";
 "health.importRange.oneYear" = "Last 365 days";
 "health.importRange.hint" = "Imports the last 365 days only, matching the one-year trend range.";
 "health.initialImport.progressFmt" = "Initial import in progress: %@ data type(s) still pending. Each app launch resumes from the checkpoint.";

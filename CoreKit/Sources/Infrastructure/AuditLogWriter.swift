@@ -13,8 +13,9 @@ public struct AuditLogWriter: AuditLogging, Sendable {
         "view_sensitive", "confirm_field", "delete", "export",
         "ai_scope", "grant_change", "unlock", "create", "update",
         "feedback",        // FR6.7 识别问题报告 / FR12.8 AI 反馈（本地记录，P1 上报）
+        // 子项目 D · D4-2：资料建议逐项接受（BR-003 D→C 显式确认；meta 只记留痕）
         "profile_suggestion_accepted",
-        "pending_card.restore",   // 子项目 D · D4-2：资料建议逐项接受（BR-003 D→C 显式确认；meta 只记留痕）
+        "pending_card.restore",   // 业主裁决 A：到期归档卡补办恢复（meta 零 PHI）
         // 全仓审查 2026-09-18（F-I1-02/F-I4 线索）：库存归真此前在 MedicationStore
         // 事务内绕过本白名单直写 audit_event——action 不在集合内即「类型约束」失守。
         // 登记后 MedicationStore 改经 `insert(..., db:)` 同事务写入，白名单成唯一出口。

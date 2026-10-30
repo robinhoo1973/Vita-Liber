@@ -96,10 +96,13 @@ struct DatabaseRecoveryServiceTests {
         let wal = dir.appendingPathComponent("app-local-user_data.sqlite-wal").path
         try Data([0x01, 0x02]).write(to: URL(fileURLWithPath: wal))
 
+        // 自包含修复包（历史库/伴生不属于导入候选）：唯一注册名主库可解出。
+        let history = dir.appendingPathComponent("app-local-schema-history.sqlite").path
+        try makeDatabase(at: history)
         let zip = dir.appendingPathComponent("repair.zip")
         try DatabaseRecoveryService.makeArchive(
             entries: [.init(name: "app-local-user_data.sqlite", path: db),
-                      .init(name: "app-local-user_data.sqlite-wal", path: wal)],
+                      .init(name: "app-local-schema-history.sqlite", path: history)],
             destination: zip)
         #expect(FileManager.default.fileExists(atPath: zip.path))
 
@@ -108,6 +111,17 @@ struct DatabaseRecoveryServiceTests {
         #expect(try Data(contentsOf: extracted) == Data(contentsOf: URL(fileURLWithPath: db)))
         // 解出的库仍应通过完整校验。
         _ = try DatabaseRecoveryService.validateRepairedDatabase(at: extracted)
+
+        // 含 -wal/-shm 的包必须显式拒绝（静默丢已提交事务不可接受）。
+        let walZip = dir.appendingPathComponent("with-wal.zip")
+        try DatabaseRecoveryService.makeArchive(
+            entries: [.init(name: "app-local-user_data.sqlite", path: db),
+                      .init(name: "app-local-user_data.sqlite-wal", path: wal)],
+            destination: walZip)
+        #expect(throws: DatabaseRepairError.archiveHasSidecars) {
+            _ = try DatabaseRecoveryService.extractRepairedDatabase(
+                from: walZip, into: dir.appendingPathComponent("out4", isDirectory: true))
+        }
 
         let second = dir.appendingPathComponent("second.sqlite").path
         try makeDatabase(at: second)
@@ -130,6 +144,19 @@ struct DatabaseRecoveryServiceTests {
             _ = try DatabaseRecoveryService.extractRepairedDatabase(
                 from: evilZip, into: dir.appendingPathComponent("out3", isDirectory: true))
         }
+    }
+
+    @Test("baseline 临时库：非 WAL、版本最新、可直接通过修复校验")
+    func baselineStageIsSelfContained() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
+        let stage = dir.appendingPathComponent("vitaliber-rebuild-test.sqlite").path
+        try DatabaseRecoveryService.createBaselineDatabase(at: stage)
+        let report = try DatabaseRecoveryService.validateRepairedDatabase(
+            at: URL(fileURLWithPath: stage))
+        #expect(report.userVersion == SchemaMigrations.latestVersion)
+        #expect(!FileManager.default.fileExists(atPath: stage + "-wal"))
+        #expect(!FileManager.default.fileExists(atPath: stage + "-shm"))
     }
 
     @Test("替换：新库生效，旧库与 WAL 保留为 .corrupt-<ts> 副本")

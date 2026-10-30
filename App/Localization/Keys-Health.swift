@@ -209,6 +209,7 @@ extension L10n {
     static var healthHistoricalEvaluation: String { t("health.historicalEvaluation") }
 
     static var healthLoadMore: String { t("health.loadMore") }
+    static var healthSyncFixAction: String { t("health.syncFixAction") }
 
     static func healthMetricName(_ key: String) -> String {
         guard let metric = MetricType(grammarKey: key) else { return t("health.metric.unknown") }

@@ -1135,7 +1135,7 @@ struct HealthImportedDataView: View {
                             }
                             if failed {
                                 Text(L10n.f16SyncFailed)
-                                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                                    .foregroundStyle(Color("semantic-warning-text", bundle: .main))
                             }
                         }
                     }

@@ -44,7 +44,11 @@ public actor BackupService {
         case checksumMismatch      // 文件损坏——一律拒绝导入，绝不「尽力恢复」
         case unsupportedFormat
         case conflictDetected      // ADR-019：目标库已有同名数据——不静默覆盖/丢弃
+        case tooLarge              // 超过读取上限（损坏库恢复路径先挡，避免 OOM）
     }
+
+    /// 备份包读取上限（用户文件不可信；OOM 会连带患者库所在进程被杀）。
+    public static let maxPackageBytes: Int64 = 2 << 30
 
     public func createBackup() async throws -> BackupPackage {
         let envelope = try await exporter.exportJSON()
@@ -87,6 +91,7 @@ public actor BackupService {
 
     /// 无 writer 的备份校验（二进制 v1 / 遗留 JSON 双格式；重算 payload sha256）。
     public static func verifyPackage(_ data: Data) throws -> VerifiedBackup {
+        guard Int64(data.count) <= maxPackageBytes else { throw BackupError.tooLarge }
         let envelope = try verifiedEnvelope(from: data)
         return VerifiedBackup(exportedAt: envelope.exportedAt,
                               totalRecords: envelope.totalRecords,
@@ -166,7 +171,12 @@ public actor BackupService {
         guard Self.sha256(payload) == claimedSHA else {
             throw BackupError.checksumMismatch
         }
-        return try ExportService.decodeEnvelope(payload)
+        let envelope = try ExportService.decodeEnvelope(payload)
+        guard envelope.schemaVersion <= ExportService.Envelope.currentSchemaVersion else {
+            // 未来版本的备份在旧 App 上按旧字段语义导入会静默丢列——一律拒绝。
+            throw BackupError.unsupportedFormat
+        }
+        return envelope
     }
 
     static func sha256(_ data: Data) -> String {
