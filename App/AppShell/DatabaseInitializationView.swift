@@ -636,7 +636,7 @@ struct DatabaseInitializationView: View {
             // 阶段切换（下载/校验/解密/激活）不播——此前每个阶段都整句朗读，
             // 一次下载连续打断 VoiceOver 五次以上；字节变化本就不触发。
             .onChangeCompat(of: Self.cardPhaseKey(descriptor.status)) { _, key in
-                guard let key, Self.isAnnounceableCatalogKey(key) else { return }
+                guard Self.isAnnounceableCatalogKey(key) else { return }
                 UIAccessibility.post(notification: .announcement, argument: statusText)
             }
             .onChangeCompat(of: descriptor.autoEnter) { _, autoEnter in
