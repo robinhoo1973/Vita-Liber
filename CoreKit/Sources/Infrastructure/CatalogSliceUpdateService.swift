@@ -169,14 +169,21 @@ public actor CatalogSliceUpdateService: CatalogSliceInstalling {
         do {
             // 复验最终 inode（不信任 staging 路径上的旧结论）。
             try verifySQLite(active, candidate)
-            try journal.complete(pending)
         } catch {
             Self.restoreLastGood(backup, active: active)
             throw MedicalCatalogUpdateError.activationFailed
         }
-        // 回执为派生数据：写失败只记诊断（journal Record 可重建），不影响激活。
-        _ = CatalogSliceReceipt.write(
+        // 回执为派生数据：先写回执再收 journal。写失败时保留 journal/备份，
+        // 下次启动按 journal 身份四元组重建（TD-SLICE-RECEIPT-01）；激活不回滚。
+        let receiptWritten = CatalogSliceReceipt.write(
             CatalogSliceReceipt(candidate: candidate, installedAt: Date()), directory: directory)
+        if receiptWritten {
+            do {
+                try journal.complete(pending)
+            } catch {
+                // 回执已成功；journal 清理失败留给下次恢复幂等收尾，绝不回滚激活。
+            }
+        }
         onActivated?(candidate.kind)
     }
 

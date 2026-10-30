@@ -36,6 +36,22 @@ public struct CatalogSliceReceipt: Codable, Equatable, Sendable {
         self.installedAt = installedAt
     }
 
+    /// journal 重建路径（TD-SLICE-RECEIPT-01）：安装后回执写失败时，journal
+    /// 保留候选身份四元组；下次启动复核 active 后按此构造派生回执。
+    /// 不复用 `candidate` 初始化器——恢复期没有 `VerifiedCatalogSliceCandidate`。
+    public init(kind: CatalogSliceKind, catalogVersion: Int64, rootVersion: Int64,
+                sqliteSHA256: String, sqliteSize: Int64,
+                signedPayloadDigest: String, installedAt: Date) {
+        schemaVersion = Self.schemaVersion
+        self.kind = kind.rawValue
+        self.catalogVersion = catalogVersion
+        self.rootVersion = rootVersion
+        self.sqliteSHA256 = sqliteSHA256
+        self.sqliteSize = sqliteSize
+        self.signedPayloadDigest = signedPayloadDigest
+        self.installedAt = installedAt
+    }
+
     public static func productionURL(kind: CatalogSliceKind, directory: URL) -> URL {
         directory.appendingPathComponent("receipts")
             .appendingPathComponent(kind.stem + ".json")

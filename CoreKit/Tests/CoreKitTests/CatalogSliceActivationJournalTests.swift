@@ -105,6 +105,30 @@ struct CatalogSliceActivationJournalTests {
         try fixture.replaceActiveFromStaging(pending)
         #expect(try journal.recoverBeforeOpen(catalogURL: pending.activeURL) == .completedActivation)
         #expect(!FileManager.default.fileExists(atPath: fixture.file("journal.json").path))
+        // 回执缺失时由 journal 重建（TD-SLICE-RECEIPT-01）。
+        let rebuilt = CatalogSliceReceipt.read(kind: .drug, directory: fixture.directory)
+        #expect(rebuilt?.catalogVersion == pending.catalogVersion)
+        #expect(rebuilt?.sqliteSHA256 == pending.sqliteSHA256)
+        #expect(rebuilt?.sqliteSize == (try CatalogPackageFiles.size(of: pending.activeURL)))
+    }
+
+    @Test("已有合法回执时恢复不覆盖")
+    func recoveryKeepsExistingReceipt() throws {
+        let fixture = Fixture(); defer { fixture.cleanUp() }
+        try fixture.write("active.sqlite", "old")
+        try fixture.write("staging.sqlite", "new")
+        let existing = CatalogSliceReceipt(
+            kind: .drug, catalogVersion: 1, rootVersion: 1,
+            sqliteSHA256: String(repeating: "a", count: 64), sqliteSize: 1,
+            signedPayloadDigest: String(repeating: "d", count: 64),
+            installedAt: Date(timeIntervalSince1970: 1))
+        #expect(CatalogSliceReceipt.write(existing, directory: fixture.directory))
+        let journal = fixture.journal(verify: { _ in })
+        let pending = try fixture.pending()
+        try journal.begin(pending)
+        try fixture.replaceActiveFromStaging(pending)
+        #expect(try journal.recoverBeforeOpen(catalogURL: pending.activeURL) == .completedActivation)
+        #expect(CatalogSliceReceipt.read(kind: .drug, directory: fixture.directory) == existing)
     }
 
     @Test("替换已发生但复核失败：last-good 兜底恢复旧库")

@@ -157,6 +157,9 @@ public struct CatalogSliceActivationJournal: Sendable {
 
         // 分支二：active 是候选新库字节——独立复核（不信任原进程结果）。
         if try matches(active, expectedSHA256: record.sqliteSHA256), passesInstalledGate(active) {
+            // 回执写失败时安装链会保留 journal（TD-SLICE-RECEIPT-01）：
+            // 本次恢复按 journal 身份四元组重建派生回执；已有合法回执不覆盖。
+            rebuildReceiptIfMissing(record: record, active: active)
             if let backup { removeIfPresent(backup) }
             removeIfPresent(journalURL)
             return .completedActivation
@@ -182,6 +185,21 @@ public struct CatalogSliceActivationJournal: Sendable {
     }
 
     // MARK: - Helpers
+
+    /// journal → 回执重建（仅派生数据；失败下次启动再试，不改变恢复判决）。
+    private func rebuildReceiptIfMissing(record: Record, active: URL) {
+        guard let kind = CatalogSliceKind(rawValue: record.kind),
+              CatalogSliceReceipt.read(kind: kind, directory: supportDirectory) == nil,
+              let size = try? CatalogPackageFiles.size(of: active), size > 0 else { return }   // try?-ok: 重建失败下次启动再试
+        let installedAt = (try? FileManager.default.attributesOfItem(atPath: journalURL.path))?[.modificationDate] as? Date   // try?-ok: 时间戳读取失败按当前时间
+            ?? Date()
+        let receipt = CatalogSliceReceipt(
+            kind: kind, catalogVersion: record.catalogVersion,
+            rootVersion: record.rootVersion, sqliteSHA256: record.sqliteSHA256,
+            sqliteSize: size, signedPayloadDigest: record.signedPayloadDigest,
+            installedAt: installedAt)
+        _ = CatalogSliceReceipt.write(receipt, directory: supportDirectory)
+    }
 
     private func quarantineUnverifiedActive(_ active: URL) {
         guard FileManager.default.fileExists(atPath: active.path) else { return }
