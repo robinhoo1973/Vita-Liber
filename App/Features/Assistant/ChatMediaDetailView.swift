@@ -141,6 +141,7 @@ struct ChatMediaDetailView: View {
         }
     }
 
+    @ViewBuilder
     private func sheetContent(_ sheet: DetailSheet) -> some View {
         switch sheet {
         case .original(let page):
