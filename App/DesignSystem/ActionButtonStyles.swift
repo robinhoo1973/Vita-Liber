@@ -47,6 +47,7 @@ struct VLSecondaryActionButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.colorScheme) private var colorScheme
 
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
         let brand = Color("brand-primary", bundle: .main)
         configuration.label
