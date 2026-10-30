@@ -390,7 +390,7 @@ struct TaskAssistantChatView: View {
                 .disabled(!sensitiveLoaded.contains(documentId))
                 Button {
                     Task {
-                        _ = await exportState.exportCopy(
+                        await exportCopyWithFeedback(
                             documentID: documentId, conversationID: conversationID,
                             conversationTitle: conversationTitle, allowSensitive: true)
                     }
@@ -1742,11 +1742,25 @@ struct TaskAssistantChatView: View {
         guard generation == conversationGeneration else { return }
         guard let conversationID = await ensureConversationID(expectedGeneration: generation),
               generation == conversationGeneration else { return }
-        _ = await exportState.exportCopy(
+        await exportCopyWithFeedback(
             documentID: source.documentId,
             conversationID: conversationID,
             conversationTitle: title ?? conversationTitle,
-            allowSensitive: false)
+            allowSensitive: false,
+            expectedGeneration: generation)
+    }
+
+    /// 显式/自动导出统一反馈（2026-10-30 登记遗留）：失败不得静默——
+    /// 用户会以为「文件」App 已有副本。切换会话后迟到失败不写入新会话。
+    private func exportCopyWithFeedback(documentID: UUID, conversationID: UUID?,
+                                        conversationTitle: String?, allowSensitive: Bool,
+                                        expectedGeneration: UUID? = nil) async {
+        let generation = expectedGeneration ?? conversationGeneration
+        let failure = await exportState.exportCopy(
+            documentID: documentID, conversationID: conversationID,
+            conversationTitle: conversationTitle, allowSensitive: allowSensitive)
+        guard failure != nil, generation == conversationGeneration else { return }
+        append(.init(role: .assistant, text: L10n.assistantExportCopyFailed, isRefusal: true))
     }
 
     private func updateMedia(_ messageID: UUID?, status: MediaInfo.Status,

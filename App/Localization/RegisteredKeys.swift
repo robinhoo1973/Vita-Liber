@@ -178,6 +178,7 @@ extension L10n {
     "assistant.historyRenamePrompt",
     "assistant.historyPin",
     "assistant.historyUnpin",
+    "assistant.exportCopyFailed",
     "assistant.historyDelete",
     "assistant.historyDeleteBody",
     "assistant.historyMessages",

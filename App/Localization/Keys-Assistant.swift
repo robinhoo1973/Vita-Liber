@@ -183,6 +183,7 @@ extension L10n {
     static var assistantHistoryRenamePrompt: String { t("assistant.historyRenamePrompt") }
     static var assistantHistoryPin: String { t("assistant.historyPin") }
     static var assistantHistoryUnpin: String { t("assistant.historyUnpin") }
+    static var assistantExportCopyFailed: String { t("assistant.exportCopyFailed") }
     static var assistantHistoryDelete: String { t("assistant.historyDelete") }
     static var assistantHistoryDeleteBody: String { t("assistant.historyDeleteBody") }
     static func assistantHistoryMessages(_ count: Int) -> String {

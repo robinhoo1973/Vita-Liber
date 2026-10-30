@@ -2778,6 +2778,7 @@
 "assistant.historyRenamePrompt" = "对话标题";
 "assistant.historyPin" = "置顶";
 "assistant.historyUnpin" = "取消置顶";
+"assistant.exportCopyFailed" = "「文件」App 中的副本未生成。可在资料详情中再次导出。";
 "assistant.historyDelete" = "删除对话";
 "assistant.historyDeleteBody" = "删除后不可恢复。该对话的消息快照与「文件」App 中的导出副本将一并删除。";
 "assistant.historyMessages" = "%d 条消息";

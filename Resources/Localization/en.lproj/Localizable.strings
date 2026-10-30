@@ -2778,6 +2778,7 @@
 "assistant.historyRenamePrompt" = "Chat title";
 "assistant.historyPin" = "Pin";
 "assistant.historyUnpin" = "Unpin";
+"assistant.exportCopyFailed" = "The copy in the Files app was not created. You can export it again from the document details.";
 "assistant.historyDelete" = "Delete chat";
 "assistant.historyDeleteBody" = "This cannot be undone. The chat's message snapshots and any exported copies in the Files app will be deleted too.";
 "assistant.historyMessages" = "%d messages";
