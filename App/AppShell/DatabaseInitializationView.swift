@@ -73,7 +73,7 @@ struct DatabaseInitializationView: View {
                         .accessibilityIdentifier("STARTUP.initialization.title")
                     if model.failure == nil {
                         Text(model.awaitingCatalogChoice ? L10n.startupCatalogBody : L10n.startupCheckSubtitle)
-                            .font(.body)
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                     }
@@ -222,7 +222,7 @@ struct DatabaseInitializationView: View {
             Text(needsAttention
                  ? L10n.startupCheckSummaryWarning(Int64(passed))
                  : L10n.startupCheckSummaryPassed(Int64(passed)))
-                .font(.body)
+                .font(.subheadline)
                 .foregroundStyle(.primary)
             Spacer(minLength: 0)
             Button {
@@ -312,7 +312,7 @@ struct DatabaseInitializationView: View {
 
     private func rowText(title: String, detail: String?, note: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.subheadline.weight(.medium))
+            Text(title).font(.subheadline.weight(.semibold))
             if let detail {
                 Text(detail)
                     .font(.footnote)
@@ -333,11 +333,11 @@ struct DatabaseInitializationView: View {
         if state == .running {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
-                Text(text).font(.footnote).foregroundStyle(.secondary)
+                Text(text).font(.caption).foregroundStyle(.secondary)
             }
         } else {
             Label(text, systemImage: Self.stateSymbol(state))
-                .font(.footnote)
+                .font(.caption)
                 .foregroundStyle(Self.stateTint(state))
                 .labelStyle(.titleAndIcon)
         }
@@ -545,10 +545,8 @@ struct DatabaseInitializationView: View {
                 perform(.check)
             } label: {
                 Text(L10n.startupCheckUpdatesCheck)
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(VLSecondaryActionButtonStyle())
             .disabled(updatesBusy || model.catalogSlices == nil)
             .accessibilityIdentifier("STARTUP.selfcheck.updates.check")
             .accessibilityHint(L10n.startupCheckUpdatesTapNote)
@@ -625,13 +623,13 @@ struct DatabaseInitializationView: View {
                         .foregroundStyle(Color("semantic-success", bundle: .main))
                 } else {
                     Text(statusText)
-                        .font(.callout)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if case .candidate = descriptor.status {
                     Text(L10n.startupCatalogSizeHint)
-                        .font(.footnote)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 if case .phase(_, let progress) = descriptor.status {
@@ -680,14 +678,13 @@ struct DatabaseInitializationView: View {
             } label: {
                 HStack(spacing: 8) {
                     if descriptor.primary == .busy {
-                        ProgressView().controlSize(.small)
+                        ProgressView().controlSize(.small).tint(.white)
                     }
                     Text(Self.primaryTitle(descriptor.primary, status: descriptor.status,
                                            sizeText: sizeText))
-                        .frame(maxWidth: .infinity, minHeight: 64)
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(VLPrimaryActionButtonStyle())
             .disabled(descriptor.primary == .busy || descriptor.primary == .none)
             .contentShape(Rectangle())
             .accessibilityIdentifier("STARTUP.catalog.primary")
@@ -698,12 +695,9 @@ struct DatabaseInitializationView: View {
                     perform(secondary)
                 } label: {
                     Text(Self.secondaryTitle(secondary, networkBlocked: networkGate.blockReason() != nil))
-                        .frame(maxWidth: .infinity, minHeight: 64)
                 }
-                // 2026-10-30 业主（按钮样式）：次动作此前 `.plain`——64pt 命中区
-                // 不可见，整行只剩一行蓝字悬在空中，用户分不清是不是按钮。
-                // 次动作 = 描边按钮（仍低于主按钮的实心强调，符合 HIG 分层）。
-                .buttonStyle(.bordered)
+                // 次动作 = 描边按钮（低于主按钮实心强调；52pt/圆角 14 与主按钮同族）。
+                .buttonStyle(VLSecondaryActionButtonStyle())
                 .contentShape(Rectangle())
                 .accessibilityIdentifier("STARTUP.catalog.continue")
                 .accessibilityHint(secondaryHint(secondary))
@@ -922,7 +916,7 @@ struct DatabaseInitializationView: View {
 
     private var privacyRow: some View {
         Label(L10n.startupInitPrivacy, systemImage: "lock.shield")
-            .font(.footnote)
+            .font(.caption)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
     }
@@ -930,7 +924,7 @@ struct DatabaseInitializationView: View {
     private func failureCard(_ failure: DatabaseBootFailure) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(failureBody(failure))
-                .font(.callout)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             failureActions(failure)
@@ -987,18 +981,14 @@ struct DatabaseInitializationView: View {
         if primary {
             Button(action: action) {
                 Text(title)
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(VLPrimaryActionButtonStyle())
             .accessibilityIdentifier(identifier)
         } else {
             Button(action: action) {
                 Text(title)
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(VLSecondaryActionButtonStyle())
             .accessibilityIdentifier(identifier)
         }
     }

@@ -150,7 +150,7 @@ struct DatabaseRepairView: View {
 
     private func successRow(_ text: String) -> some View {
         Label(text, systemImage: "checkmark.seal")
-            .font(.footnote)
+            .font(.caption)
             .foregroundStyle(Color("semantic-success-text", bundle: .main))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 10)
@@ -255,10 +255,10 @@ struct DatabaseRepairView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.body.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(titleTint ?? .primary)
                 Text(subtitle)
-                    .font(.footnote)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

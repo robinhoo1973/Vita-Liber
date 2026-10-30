@@ -307,10 +307,10 @@ struct HomeView: View {
                     .accessibilityIdentifier("SP-04.home.memberSwitch")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    // 2026-10-23 业主：三个首页工具统一为 40pt 着色圆 + 44pt
-                    // 命中区；SOS 是唯一实心项。原先裸 SF Symbol 在玻璃导航栏上
-                    // 大小/重量不一致，观感零散。
-                    HStack(spacing: 4) {
+                    // 2026-10-30 业主（HIG）：三个工具改回系统字形（无 40pt 色块），
+                    // 19pt medium、44×44 命中区；强调只靠语义色（AI 品牌蓝 /
+                    // SOS 语义红 / 通知主文字色），HStack 间距 2（视觉间距≈8）。
+                    HStack(spacing: 2) {
                         // 2026-10-18 业主指令：AI 任务助手入口。
                         // B1 定标门：未通过脚本金样定标前入口不可见（FR17.4 不变量）。
                         if FeatureFlags.voiceDeterministicEnabled {
@@ -327,7 +327,6 @@ struct HomeView: View {
                         HomeToolbarIconButton(
                             systemImage: "sos",
                             tint: Color("semantic-danger", bundle: .main),
-                            emphasis: .filled,
                             label: L10n.sosHelpTitle,
                             identifier: "SP-04.home.sos"
                         ) {
@@ -335,7 +334,7 @@ struct HomeView: View {
                         }
                         // FR14.8 通知中心（角标不显示病名药名，§5 通知隐私）
                         HomeToolbarIconButton(
-                            systemImage: "bell.fill",
+                            systemImage: "bell",
                             tint: Color("text-primary", bundle: .main),
                             badgeCount: reminderStore.pendingCount,
                             label: L10n.notificationCenterTitle,
