@@ -1970,6 +1970,7 @@
 "recovery.export.subtitle" = "生成 .zip 供自行修复或留档";
 "recovery.export.privacy" = "压缩包包含本机健康资料，请仅保存于可信位置，不要随意分享。";
 "recovery.export.busy" = "正在打包…";
+"recovery.export.doneFmt" = "已导出：%@";
 "recovery.import.title" = "导入修复后的数据库";
 "recovery.import.subtitle" = "选择修复后的 .sqlite 或 .zip；校验通过后替换本机数据库";
 "recovery.import.confirmTitle" = "导入并替换？";

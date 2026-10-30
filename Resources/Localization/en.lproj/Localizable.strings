@@ -1970,6 +1970,7 @@
 "recovery.export.subtitle" = "Creates a .zip for self-repair or safekeeping";
 "recovery.export.privacy" = "The archive contains your health data. Store it only in a trusted place and do not share it casually.";
 "recovery.export.busy" = "Packaging…";
+"recovery.export.doneFmt" = "Exported: %@";
 "recovery.import.title" = "Import repaired database";
 "recovery.import.subtitle" = "Choose a repaired .sqlite or .zip; it replaces the local database after validation";
 "recovery.import.confirmTitle" = "Import and replace?";

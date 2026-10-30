@@ -15,6 +15,9 @@ extension L10n {
     static var recoveryExportSubtitle: String { t("recovery.export.subtitle") }
     static var recoveryExportPrivacy: String { t("recovery.export.privacy") }
     static var recoveryExportBusy: String { t("recovery.export.busy") }
+    static func recoveryExportDone(_ name: String) -> String {
+        t("recovery.export.doneFmt").replacingOccurrences(of: "%@", with: name)
+    }
 
     static var recoveryImportTitle: String { t("recovery.import.title") }
     static var recoveryImportSubtitle: String { t("recovery.import.subtitle") }

@@ -1383,6 +1383,7 @@ extension L10n {
         "recovery.export.subtitle",
         "recovery.export.privacy",
         "recovery.export.busy",
+        "recovery.export.doneFmt",
         "recovery.import.title",
         "recovery.import.subtitle",
         "recovery.import.confirmTitle",

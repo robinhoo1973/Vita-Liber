@@ -21,6 +21,7 @@ struct DatabaseRepairView: View {
     @State private var showBackupImporter = false
     @State private var showExportPicker = false
     @State private var exportURL: URL?
+    @State private var exportedArchiveName: String?
     @State private var stagedRepairVersion: Int?
     @State private var showRepairConfirm = false
     @State private var stagedBackup: DatabaseBootModel.BackupInspection?
@@ -102,6 +103,11 @@ struct DatabaseRepairView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("STARTUP.repair.export")
+            if let exportedArchiveName {
+                Label(L10n.recoveryExportDone(exportedArchiveName), systemImage: "checkmark.seal")
+                    .font(.footnote)
+                    .foregroundStyle(Color("semantic-success", bundle: .main))
+            }
         } footer: {
             Text(L10n.recoveryExportPrivacy)
         }
@@ -203,11 +209,13 @@ struct DatabaseRepairView: View {
     @ViewBuilder
     private var exportPickerSheet: some View {
         if let exportURL {
-            DatabaseExportPicker(url: exportURL)
-                .ignoresSafeArea()
-                .onDisappear {
-                    try? FileManager.default.removeItem(at: exportURL) // try?-ok: 临时压缩包清理
-                }
+            DatabaseExportPicker(url: exportURL) { name in
+                exportedArchiveName = name
+            }
+            .ignoresSafeArea()
+            .onDisappear {
+                try? FileManager.default.removeItem(at: exportURL) // try?-ok: 临时压缩包清理
+            }
         }
     }
 
@@ -392,11 +400,28 @@ struct DatabaseRepairView: View {
 /// 导出压缩包用的系统文件选择器（不把整包读进内存；系统负责落到 Files/iCloud Drive）。
 private struct DatabaseExportPicker: UIViewControllerRepresentable {
     let url: URL
+    let onExported: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onExported: onExported) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        let controller = UIDocumentPickerViewController(forExporting: [url], asCopy: true)
+        controller.delegate = context.coordinator
+        return controller
     }
 
     func updateUIViewController(_ uiViewController: UIDocumentPickerViewController,
                                 context: Context) {}
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        private let onExported: (String) -> Void
+        init(onExported: @escaping (String) -> Void) { self.onExported = onExported }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController,
+                            didPickDocumentsAt urls: [URL]) {
+            // 导出完成：系统回传落点 URL；给界面一行「已导出：<文件名>」反馈。
+            guard let saved = urls.first else { return }
+            onExported(saved.lastPathComponent)
+        }
+    }
 }
