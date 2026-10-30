@@ -29,6 +29,14 @@ final class DatabaseBootModel: ObservableObject {
     @Published private(set) var readOnlyContainer: AppContainer?
     /// 只读壳路由开关（VitaLiberApp body 用；enterReadOnly 置真）。
     @Published private(set) var isShowingReadOnly = false
+    /// 损坏库恢复（业主 2026-10-30）：文件级操作进行中（打包/校验/替换/恢复）。
+    @Published private(set) var recoveryBusy = false
+    /// 已暂存、待确认导入的修复文件（用户确认前不触碰本机患者库）。
+    private var stagedRepairedPath: String?
+    /// 已校验、待确认恢复的备份（确认后删除损坏库并重建导入）。
+    private var stagedBackupRestore: BackupService.VerifiedBackup?
+    /// 启动内待执行备份恢复（重建空库成功后、发布前导入）。
+    private var pendingBackupRestore: BackupService.VerifiedBackup?
     /// UI 交接门（U-批 B2，B1 口径「页先于主 UI 可见」）：默认 true——主 UI 在
     /// `finishBootScreen()` 前不挂载；session 在 publish 即建、页下存在。
     @Published private(set) var isShowingBootScreen = true
@@ -137,6 +145,17 @@ final class DatabaseBootModel: ObservableObject {
                 })
             phase = .assembling
             let assembled = try AppContainer.live(store: prepared.store)
+            // 损坏库恢复（业主 2026-10-30）：备份已校验 → 重建空库后、发布前导入。
+            // 失败=保留空库并落可解释失败态（重试/导出/改走修复文件均仍可用）。
+            if let restore = pendingBackupRestore {
+                pendingBackupRestore = nil
+                phase = .restoringBackup
+                do {
+                    _ = try await BackupService.restore(verified: restore, store: prepared.store)
+                } catch {
+                    throw DatabaseBootFailure.recoveryBackupFailed(String(describing: error))
+                }
+            }
             diagnostics = prepared.diagnostics
             preparedSliceHealth = prepared.sliceHealth
             self.catalogSlices = CatalogSlicesState(
@@ -187,6 +206,145 @@ final class DatabaseBootModel: ObservableObject {
         failure = nil
         AppSessionHolder.shared.resetForRetry()
         await start()
+    }
+
+    // MARK: - 损坏数据库恢复（业主 2026-10-30 单独接口四动作）
+
+    /// 失败卡是否提供「数据库修复…」入口：仅可解释的库文件损坏；
+    /// 多库并存（需人工核对保留一份）与只读降级（数据可读）不提供。
+    var canOfferDatabaseRepair: Bool {
+        guard let failure else { return false }
+        switch failure {
+        case .corrupt, .openFailed, .recoveryBackupFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    struct BackupInspection: Equatable, Sendable {
+        let exportedAt: Date
+        let totalRecords: Int
+    }
+
+    private struct StagedRepair: Sendable {
+        let path: String
+        let report: DatabaseRecoveryService.RepairReport
+    }
+
+    /// ① 损坏库打包（压缩包供用户自行修复/留档）：主库 + 伴生 + 非权威历史库。
+    func makeCorruptDatabaseArchive() async throws -> URL {
+        let path = try recoveryPatientPath()
+        let history = AppContainer.defaultSchemaHistoryPath()
+        var entries: [DatabaseRecoveryService.ZipEntry] = [
+            .init(name: URL(fileURLWithPath: path).lastPathComponent, path: path)
+        ]
+        for suffix in DatabaseRecoveryService.sidecarSuffixes {
+            let candidate = path + suffix
+            guard FileManager.default.fileExists(atPath: candidate) else { continue }
+            entries.append(.init(name: URL(fileURLWithPath: candidate).lastPathComponent,
+                                 path: candidate))
+        }
+        if FileManager.default.fileExists(atPath: history) {
+            entries.append(.init(name: URL(fileURLWithPath: history).lastPathComponent,
+                                 path: history))
+        }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vitaliber-db-repair-\(Int(now().timeIntervalSince1970)).zip")
+        return try await Task.detached(priority: .userInitiated) {
+            try DatabaseRecoveryService.makeArchive(entries: entries, destination: destination)
+        }.value
+    }
+
+    /// ② 校验用户修复后的文件（.sqlite / .zip）：先复制/解包到应用临时目录再校验
+    /// （picker 的 security-scoped 权限只在本次回调内有效）。通过后暂存，等待确认。
+    func inspectRepairedDatabase(at url: URL) async throws -> DatabaseRecoveryService.RepairReport {
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vitaliber-repair-inspect-\(UUID().uuidString)", isDirectory: true)
+        let staged = try await Task.detached(priority: .userInitiated) { () -> StagedRepair in
+            let fileManager = FileManager.default
+            try fileManager.createDirectory(at: workDir, withIntermediateDirectories: true)
+            let candidate: URL
+            if url.pathExtension.lowercased() == "zip" {
+                candidate = try DatabaseRecoveryService.extractRepairedDatabase(
+                    from: url, into: workDir)
+            } else {
+                candidate = workDir.appendingPathComponent("repaired.sqlite")
+                try fileManager.copyItem(at: url, to: candidate)
+            }
+            let report = try DatabaseRecoveryService.validateRepairedDatabase(at: candidate)
+            return StagedRepair(path: candidate.path, report: report)
+        }.value
+        stagedRepairedPath = staged.path
+        return staged.report
+    }
+
+    /// ③ 用暂存的修复文件替换损坏库并重新启动（原损坏文件保留 .corrupt-<ts> 副本）。
+    func applyStagedRepairAndRebuild() async throws {
+        guard let repaired = stagedRepairedPath else { return }
+        recoveryBusy = true
+        defer { recoveryBusy = false }
+        let patient = try recoveryPatientPath()
+        try await Task.detached(priority: .userInitiated) {
+            try DatabaseRecoveryService.install(repairedPath: repaired, patientPath: patient)
+        }.value
+        stagedRepairedPath = nil
+        failure = nil
+        AppSessionHolder.shared.resetForRetry()
+        await start()
+    }
+
+    /// ④ 校验备份包（.vlbu / 旧 JSON）：无 writer 校验 + 摘要，供用户确认。
+    func inspectBackupPackage(_ data: Data) async throws -> BackupInspection {
+        let verified = try await Task.detached(priority: .userInitiated) {
+            try BackupService.verifyPackage(data)
+        }.value
+        stagedBackupRestore = verified
+        return BackupInspection(exportedAt: Date(timeIntervalSince1970: verified.exportedAt),
+                                totalRecords: verified.totalRecords)
+    }
+
+    /// ④ 用暂存备份恢复：删除损坏库 → 重建空库 → 启动内导入 → 发布。
+    func restoreStagedBackupAndRebuild() async throws {
+        guard let verified = stagedBackupRestore else { return }
+        recoveryBusy = true
+        defer { recoveryBusy = false }
+        let patient = try recoveryPatientPath()
+        try await Task.detached(priority: .userInitiated) {
+            try DatabaseRecoveryService.erasePatientDatabase(patientPath: patient)
+        }.value
+        stagedBackupRestore = nil
+        failure = nil
+        pendingBackupRestore = verified
+        AppSessionHolder.shared.resetForRetry()
+        await start()
+    }
+
+    /// ① 删除损坏库并重新生成空库（调用方必须先做数据丢失确认）。
+    func eraseCorruptDatabaseAndRebuild() async throws {
+        recoveryBusy = true
+        defer { recoveryBusy = false }
+        let patient = try recoveryPatientPath()
+        try await Task.detached(priority: .userInitiated) {
+            try DatabaseRecoveryService.erasePatientDatabase(patientPath: patient)
+        }.value
+        failure = nil
+        AppSessionHolder.shared.resetForRetry()
+        await start()
+    }
+
+    /// 关闭修复页时丢弃暂存（修复文件副本 / 已校验备份）。
+    func discardStagedRecovery() {
+        if let staged = stagedRepairedPath {
+            try? FileManager.default.removeItem( // try?-ok: 临时目录清理，失败由系统回收
+                at: URL(fileURLWithPath: staged).deletingLastPathComponent())
+        }
+        stagedRepairedPath = nil
+        stagedBackupRestore = nil
+    }
+
+    private func recoveryPatientPath() throws -> String {
+        try AppContainer.resolveDatabasePath().path
     }
 
     /// XCUITest 不能驱动首启可选卡；DEBUG 的 `-uitest-*` 默认自动继续。

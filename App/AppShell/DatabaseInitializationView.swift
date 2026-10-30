@@ -26,6 +26,8 @@ struct DatabaseInitializationView: View {
     @Environment(DownloadNetworkGate.self) private var networkGate
     /// 线路策略拦截提示（仅 Wi-Fi 策略/离线时告知原因）。
     @State private var networkBlockedShown = false
+    /// 损坏数据库修复页（业主 2026-10-30 单独接口四动作）。
+    @State private var showDatabaseRepair = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -51,6 +53,9 @@ struct DatabaseInitializationView: View {
                 .onChangeCompat(of: updatesBusy) { _, _ in
                     // 行④进行中 > 被动 hold（五级优先级）：开始/结束后重评估交接。
                     model.rowFourActivityChanged()
+                }
+                .sheet(isPresented: $showDatabaseRepair) {
+                    DatabaseRepairView(model: model)
                 }
         }
     }
@@ -391,6 +396,9 @@ struct DatabaseInitializationView: View {
             if case .migrating(let from, let to) = model.phase {
                 return L10n.startupInitStageMigrate(from, to)
             }
+            if model.phase == .restoringBackup {
+                return L10n.startupInitStageRestore
+            }
             return nil
         case .passed:
             guard let decision = model.bootSnapshot?.decision else { return nil }
@@ -485,7 +493,7 @@ struct DatabaseInitializationView: View {
             // （B3 评审修复：不得显示「0 个可更新」，走失败短语）。
             if slices.candidates.isEmpty {
                 let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status
-                return Self.statusText(status, slices: slices)
+                return Self.statusText(status, slices: slices, mandatory: model.isCatalogMandatory)
             }
             return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
         case .appUpdateRequired:
@@ -597,7 +605,8 @@ struct DatabaseInitializationView: View {
         if let slices = model.catalogSlices {
             let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy)
             let size = Self.candidateSizeText(descriptor.status)
-            let statusText = Self.statusText(descriptor.status, slices: slices)
+            let statusText = Self.statusText(descriptor.status, slices: slices,
+                                            mandatory: model.isCatalogMandatory)
 
             VStack(alignment: .leading, spacing: 12) {
                 Label(model.isCatalogMandatory ? L10n.startupCatalogTitleRequired : L10n.startupCatalogTitle,
@@ -741,12 +750,18 @@ struct DatabaseInitializationView: View {
 
     /// 状态短语（切片聚合；未知进行中片显示其名 + 阶段）。
     private static func statusText(_ status: CatalogSlicesPromptStatus,
-                                   slices: CatalogSlicesState) -> String {
+                                   slices: CatalogSlicesState,
+                                   mandatory: Bool) -> String {
         switch status {
         case .idleNoLocal(let installed):
-            return installed > 0
-                ? L10n.resourceCatalogSlicesNotCheckedFmt(
+            if installed > 0 {
+                return L10n.resourceCatalogSlicesNotCheckedFmt(
                     installed, CatalogSliceKind.allCases.count)
+            }
+            // 2026-10-30：强制首启时状态短语与标题「（必需）」同口径，
+            // 不得出现「（必需）」标题下写「（可选）」的自相矛盾（mock 对照发现）。
+            return mandatory
+                ? L10n.startupCatalogStatusIdleNoLocalRequired
                 : L10n.startupCatalogStatusIdleNoLocal
         case .checking:
             return L10n.resourceCatalogSlicesChecking
@@ -914,6 +929,18 @@ struct DatabaseInitializationView: View {
             }
             .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("STARTUP.initialization.retry")
+            if model.canOfferDatabaseRepair {
+                // 业主 2026-10-30：损坏库单独接口（导出/导入/从备份恢复/删除重建）。
+                Button {
+                    showDatabaseRepair = true
+                } label: {
+                    Text(L10n.recoveryOpen)
+                        .frame(maxWidth: .infinity, minHeight: 64)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("STARTUP.failure.repair")
+            }
             if model.readOnlyContainer != nil {
                 // 只读降级入口（B2）：仅 tooNew 且只读打开成功时出现。
                 Button {
@@ -945,6 +972,8 @@ struct DatabaseInitializationView: View {
             return L10n.startupInitFailureTooNew
         case .migrationIncomplete(let found, let expected):
             return L10n.startupInitFailureMigration(found, expected)
+        case .recoveryBackupFailed:
+            return L10n.startupInitFailureBackupRestore
         case .openFailed, .unexpected:
             return L10n.startupInitFailureGeneric
         }

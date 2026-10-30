@@ -471,6 +471,7 @@ extension L10n {
     static var startupCatalogCancelUpdateContinue: String { t("startup.catalog.cancelUpdateContinue") }
     static var startupCatalogStatusIdleLocal: String { t("startup.catalog.status.idleLocal") }
     static var startupCatalogStatusIdleNoLocal: String { t("startup.catalog.status.idleNoLocal") }
+    static var startupCatalogStatusIdleNoLocalRequired: String { t("startup.catalog.status.idleNoLocalRequired") }
     static func startupCatalogCandidateFmt(_ size: String) -> String {
         String(format: t("startup.catalog.candidateFmt"), size)
     }
@@ -497,6 +498,9 @@ extension L10n {
     static var startupInitFailureTooNew: String { t("startup.init.failureTooNew") }
     static var startupInitFailureGeneric: String { t("startup.init.failureGeneric") }
     static var startupInitFailureAmbiguous: String { t("startup.init.failureAmbiguous") }
+    /// 2026-10-30 损坏库恢复：重建空库后导入备份的阶段与失败文案。
+    static var startupInitStageRestore: String { t("startup.init.stageRestore") }
+    static var startupInitFailureBackupRestore: String { t("startup.init.failureBackupRestore") }
     static func startupInitStageMigrate(_ from: Int, _ to: Int) -> String {
         String(format: t("startup.init.stageMigrateFmt"), from, to)
     }

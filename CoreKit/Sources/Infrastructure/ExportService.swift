@@ -1654,6 +1654,11 @@ public actor ExportService {
     }
 
     public func decode(_ data: Data) throws -> Envelope {
+        try Self.decodeEnvelope(data)
+    }
+
+    /// 无 writer 的纯解码（损坏库恢复路径：下载的备份包先校验，再决定是否替换本机库）。
+    public static func decodeEnvelope(_ data: Data) throws -> Envelope {
         try JSONDecoder().decode(Envelope.self, from: data)
     }
 

@@ -14,6 +14,8 @@ enum DatabaseBootPhase: Equatable, Sendable {
     case assembling
     case catalogChoice
     case ready
+    /// 损坏库恢复：重建空库后、发布前导入已校验备份（业主 2026-10-30）。
+    case restoringBackup
 }
 
 enum DatabaseBootFailure: Error, Equatable, Sendable {
@@ -25,6 +27,8 @@ enum DatabaseBootFailure: Error, Equatable, Sendable {
     case tooNew(found: Int, supported: Int)
     case migrationIncomplete(found: Int, expected: Int)
     case openFailed(String)
+    /// 损坏库恢复：备份已校验但导入失败（本机已重建空库；可重试或改走其他恢复方式）。
+    case recoveryBackupFailed(String)
     case unexpected(String)
 }
 

@@ -72,9 +72,32 @@ public actor BackupService {
         public var envelope: ExportService.Envelope
     }
     public func analyzeConflicts(from data: Data) async throws -> ConflictAnalysis {
-        let envelope = try await verifiedEnvelope(from: data)
+        let envelope = try Self.verifiedEnvelope(from: data)
         return ConflictAnalysis(conflicts: try await exporter.conflictReport(envelope),
                                 envelope: envelope)
+    }
+
+    /// 已校验备份（损坏库恢复用）：不持有 writer，只携带摘要与已解码 envelope。
+    /// 调用方先校验（可展示条数/导出时间），用户确认后再 `restore(verified:store:)`。
+    public struct VerifiedBackup: Sendable {
+        public let exportedAt: TimeInterval
+        public let totalRecords: Int
+        let envelope: ExportService.Envelope
+    }
+
+    /// 无 writer 的备份校验（二进制 v1 / 遗留 JSON 双格式；重算 payload sha256）。
+    public static func verifyPackage(_ data: Data) throws -> VerifiedBackup {
+        let envelope = try verifiedEnvelope(from: data)
+        return VerifiedBackup(exportedAt: envelope.exportedAt,
+                              totalRecords: envelope.totalRecords,
+                              envelope: envelope)
+    }
+
+    /// 把已校验备份导入指定库（损坏库恢复：重建空库后、发布前调用）。
+    /// 冲突语义与既有恢复一致（ADR-019：冲突即抛出，绝不静默覆盖）。
+    public static func restore(verified: VerifiedBackup, store: GRDBStore) async throws -> Int {
+        let service = BackupService(writer: store.writer)
+        return try await service.restore(envelope: verified.envelope)
     }
 
     /// 恢复（已校验 envelope 直用）：导入失败即抛错，**不做任何部分导入**——
@@ -98,12 +121,12 @@ public actor BackupService {
     @discardableResult
     public func restore(from data: Data,
                         resolutions: [UUID: ExportService.ConflictResolution] = [:]) async throws -> Int {
-        let envelope = try await verifiedEnvelope(from: data)
+        let envelope = try Self.verifiedEnvelope(from: data)
         return try await restore(envelope: envelope, resolutions: resolutions)
     }
 
     /// 解码 + 校验（双格式兼容），返回已校验的 envelope
-    private func verifiedEnvelope(from data: Data) async throws -> ExportService.Envelope {
+    static func verifiedEnvelope(from data: Data) throws -> ExportService.Envelope {
         let (payload, claimedSHA): (Data, String)
         if data.starts(with: Self.binaryMagic) {
             guard data.count > Self.binaryMagic.count + 1 + 64 + 8 else {
@@ -143,7 +166,7 @@ public actor BackupService {
         guard Self.sha256(payload) == claimedSHA else {
             throw BackupError.checksumMismatch
         }
-        return try await exporter.decode(payload)
+        return try ExportService.decodeEnvelope(payload)
     }
 
     static func sha256(_ data: Data) -> String {
