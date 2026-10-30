@@ -125,7 +125,14 @@ final class AppSession: ObservableObject {
         self.timelineState = TimelineViewState(
             store: container.timelineQuery, problemStore: container.healthProblems)
         self.questionsState = QuestionsState(store: container.questions)
-        self.chatHistoryState = ChatHistoryState(store: container.chatHistory)
+        // 单一镜像实例：会话删除清理与导出状态共用（2026-10-30 登记项：
+        // 删除会话时同步移除 Files 副本，避免账本外键置 NULL 后的孤儿目录）。
+        let documentExportMirror = DocumentExportMirror(
+            ledger: container.documentExports,
+            exportsBase: MediaRootPaths.documentsBase(),
+            originalsDir: AppContainer.defaultOriginalsDir())
+        self.chatHistoryState = ChatHistoryState(store: container.chatHistory,
+                                                 exportMirror: documentExportMirror)
         // 类型化数据变更信号（先于 DocumentsState 装配——后者携带本实例注入）
         // 局部常量中转（审查修复）：init 内引用 State 包装值（dataChangeCenter）
         // 即触 self 属性访问——Swift 明确初始化纪律禁止全部存储属性就绪前
@@ -186,9 +193,7 @@ final class AppSession: ObservableObject {
         self.documentExportState = DocumentExportState(
             store: container.documents,
             ledger: container.documentExports,
-            mirror: DocumentExportMirror(ledger: container.documentExports,
-                                         exportsBase: MediaRootPaths.documentsBase(),
-                                         originalsDir: AppContainer.defaultOriginalsDir()))
+            mirror: documentExportMirror)
         self.f16DeviceState = F16DeviceState(
             syncService: container.healthSync,
             dataChange: dataChange,

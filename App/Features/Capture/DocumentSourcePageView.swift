@@ -166,22 +166,19 @@ struct DocumentSourcePageView: View {
     }
 
     /// 多页页点（2026-10-30）：最多 12 点，点按跳页；当前页品牌色。
+    /// 2026-10-30 触控面积修复：原每个点 24×44（宽不足 44）且逐点 Button；
+    /// 改为整条 44pt 高命中区 + 位置映射（UIPageControl 语义），
+    /// 点间距 2 + 点径 7 = 9pt 一槽，点缝也落在相邻页上。
     private var pageDots: some View {
         HStack(spacing: 2) {
             ForEach(0..<min(pageCount, 12), id: \.self) { index in
-                Button {
-                    pageIndex = index
-                } label: {
-                    Circle()
-                        .fill(index == pageIndex
-                            ? Color("brand-primary", bundle: .main)
-                            : Color.secondary.opacity(0.35))
-                        .frame(width: 7, height: 7)
-                        .frame(width: 24, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHidden(true)
+                Circle()
+                    .fill(index == pageIndex
+                        ? Color("brand-primary", bundle: .main)
+                        : Color.secondary.opacity(0.35))
+                    .frame(width: 7, height: 7)
+                    .frame(height: 44)
+                    .accessibilityHidden(true)
             }
             if pageCount > 12 {
                 Text(String(format: L10n.chatMediaPageMoreFmt, pageCount - 12))
@@ -189,10 +186,25 @@ struct DocumentSourcePageView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .contentShape(Rectangle())
+        .gesture(SpatialTapGesture().onEnded { value in
+            let shown = min(pageCount, 12)
+            guard shown > 0 else { return }
+            let slot = Int(value.location.x / 9)   // 7pt 点 + 2pt 间距
+            guard slot >= 0, slot < shown else { return }
+            pageIndex = slot
+        })
         .padding(.horizontal, 6)
         .background(.ultraThinMaterial, in: Capsule())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(L10n.entityCardHeaderPage(pageIndex + 1, pageCount))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: pageIndex = min(pageIndex + 1, max(0, pageCount - 1))
+            case .decrement: pageIndex = max(pageIndex - 1, 0)
+            default: break
+            }
+        }
         .accessibilityIdentifier("doc.source.pageDots")
     }
 

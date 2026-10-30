@@ -16,8 +16,14 @@ final class ChatHistoryState {
     private var loadGeneration: UInt64 = 0
 
     private let store: ChatHistoryStore
+    /// 会话删除联动 Files 副本（E2 默认移除；会话行删除后账本外键置 NULL，
+    /// 必须在删行前取快照，见 `delete(_:)`）。
+    private let exportMirror: DocumentExportMirror?
 
-    init(store: ChatHistoryStore) { self.store = store }
+    init(store: ChatHistoryStore, exportMirror: DocumentExportMirror? = nil) {
+        self.store = store
+        self.exportMirror = exportMirror
+    }
 
     func load(patientId: UUID, query: String = "") async {
         lastQuery = query
@@ -91,6 +97,10 @@ final class ChatHistoryState {
         // 先取语音文件名再删行：数据库删除不碰文件系统，录音必须同步真删
         //（2026-10-20 隐私修复）。
         let audio = (try? await store.audioFilenames(conversationId: id)) ?? []   // try?-ok: 读取失败按无音频处理，行删除仍继续
+        // 账本快照必须先于会话行删除：`document_user_export.conversation_id`
+        // 外键 ON DELETE SET NULL，删行后再查 conversationID 恒为空集，
+        // Files 里的导出副本将成为无主孤儿（2026-10-30 登记项）。
+        let copies = await exportMirror?.copies(conversationID: id) ?? []
         do {
             try await store.delete(id)
         } catch {
@@ -99,6 +109,7 @@ final class ChatHistoryState {
             return
         }
         for filename in audio { ChatAudioStore.remove(filename) }
+        if !copies.isEmpty { await exportMirror?.removeCopies(records: copies) }
         await reloadCurrentQuery()
     }
 

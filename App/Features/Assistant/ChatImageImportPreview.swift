@@ -150,13 +150,27 @@ struct ChatImageImportPreview: View {
                             .fill(index == pageIndex
                                 ? Color.white : Color.white.opacity(0.35))
                             .frame(width: 7, height: 7)
-                            .onTapGesture { show(index) }
+                            .frame(height: 44)
+                            .accessibilityHidden(true)
                     }
                 }
-                .frame(minHeight: 44)
+                // 2026-10-30 触控面积修复：整条 44pt 高命中 + 位置映射，
+                // 原 7pt 圆点各自 onTapGesture，手指几乎点不中。
+                .contentShape(Rectangle())
+                .gesture(SpatialTapGesture().onEnded { value in
+                    let slot = Int(value.location.x / 13)   // 7pt 点 + 6pt 间距
+                    show(slot)
+                })
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(String(format: L10n.chatImagePreviewPageFmt,
                                            pageIndex + 1, images.count))
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: show(pageIndex + 1)
+                    case .decrement: show(pageIndex - 1)
+                    default: break
+                    }
+                }
 
                 Button {
                     show(pageIndex + 1)

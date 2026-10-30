@@ -19,7 +19,7 @@ final class VoicePlaybackCoordinator {
     private(set) var playingID: UUID?
     /// 当前音频总时长（秒；未播放 = 0）。
     private(set) var duration: TimeInterval = 0
-    /// 当前播放位置（秒；ticker 约 5Hz 刷新）。
+    /// 当前播放位置（秒；ticker 2Hz 刷新）。
     private(set) var elapsed: TimeInterval = 0
     /// 播放倍速（1 / 1.5 / 2；跨重放保留，与常见语音播放器一致）。
     private(set) var rate: Float = 1
@@ -138,7 +138,9 @@ final class VoicePlaybackCoordinator {
 
     private func startTicker() {
         ticker?.invalidate()
-        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+        // 2Hz（2026-10-30 效率批）：进度条/时间文本 0.5 秒粒度足够，
+        // 原 5Hz 每秒 5 次 MainActor 写入 × 每帧全视图求值，纯功耗浪费。
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshProgress() }
         }
         RunLoop.main.add(timer, forMode: .common)

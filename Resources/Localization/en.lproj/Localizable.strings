@@ -2779,7 +2779,7 @@
 "assistant.historyPin" = "Pin";
 "assistant.historyUnpin" = "Unpin";
 "assistant.historyDelete" = "Delete chat";
-"assistant.historyDeleteBody" = "This cannot be undone. The chat's message snapshots will be deleted too.";
+"assistant.historyDeleteBody" = "This cannot be undone. The chat's message snapshots and any exported copies in the Files app will be deleted too.";
 "assistant.historyMessages" = "%d messages";
 "assistant.historyMessageOne" = "1 message";
 "assistant.newConversation" = "New chat";

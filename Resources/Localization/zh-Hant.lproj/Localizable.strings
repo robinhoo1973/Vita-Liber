@@ -2779,7 +2779,7 @@
 "assistant.historyPin" = "置頂";
 "assistant.historyUnpin" = "取消置頂";
 "assistant.historyDelete" = "刪除對話";
-"assistant.historyDeleteBody" = "刪除後無法復原。此對話的訊息快照將一併刪除。";
+"assistant.historyDeleteBody" = "刪除後無法復原。此對話的訊息快照與「檔案」App 中的匯出副本將一併刪除。";
 "assistant.historyMessages" = "%d 則訊息";
 "assistant.historyMessageOne" = "1 則訊息";
 "assistant.newConversation" = "新對話";

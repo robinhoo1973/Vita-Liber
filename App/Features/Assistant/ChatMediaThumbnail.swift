@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PDFKit
 import Domain
 import Infrastructure
 import Perception
@@ -20,6 +21,17 @@ struct ChatMediaThumbnail: View {
     var fallbackSymbol: String = "photo"
     /// FR14.2 查看留痕（速记详情用；聊天气泡不逐条留痕，避免打开会话即刷屏）。
     var auditsSensitive = false
+    /// 详情缩略图条预解析的文档元数据（父视图一次读行/解析 meta，N 张共享；
+    /// 2026-10-30 效率批：此前每张各自 documentRow+JSON 解析）。
+    struct Preloaded: Sendable {
+        let path: String
+        let mimeType: String
+        let isSensitive: Bool
+        let title: String
+        /// 内容身份（sha256 或 createdAt 时间戳）——缓存键组成部分。
+        let cacheIdentity: String
+    }
+    var preloaded: Preloaded? = nil
 
     @Environment(DocumentsState.self) private var docs
     @Environment(AppState.self) private var app
@@ -63,7 +75,11 @@ struct ChatMediaThumbnail: View {
         .background(Color.secondary.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .privacySensitive(scenePhase != .active)
-        .task(id: "\(documentId.uuidString)|\(pageIndex)") { await load() }
+        // 预载元数据到达后重跑一次（此前任务只按 doc|page 触发，先失败/
+        // 先逐张读行的缩略图不会因父视图一次解析完成而受益）。
+        .task(id: "\(documentId.uuidString)|\(pageIndex)|\(preloaded?.cacheIdentity ?? "-")") {
+            await load()
+        }
         .accessibilityHidden(true)
     }
 
@@ -76,20 +92,28 @@ struct ChatMediaThumbnail: View {
             didAudit = false
             resolvedFallback = ""
         }
-        guard let doc = await docs.documentRow(id: documentId), doc.patientId == patientId,
-              let json = doc.metaJSON,
-              let meta = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],   // try?-ok: 元数据损坏=缩略图占位态
-              let path = meta["original_path"] as? String,
-              let resolved = docs.resolveMediaPath(path) else {
-            if !Task.isCancelled, loadedDocumentId == documentId,
-               loadedPageIndex == pageIndex { failed = true }
-            return
+        let info: (path: String, mime: String, sensitive: Bool, title: String, identity: String)
+        if let preloaded {
+            info = (preloaded.path, preloaded.mimeType, preloaded.isSensitive,
+                    preloaded.title, preloaded.cacheIdentity)
+        } else {
+            guard let doc = await docs.documentRow(id: documentId), doc.patientId == patientId,
+                  let json = doc.metaJSON,
+                  let meta = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],   // try?-ok: 元数据损坏=缩略图占位态
+                  let path = meta["original_path"] as? String,
+                  let resolved = docs.resolveMediaPath(path) else {
+                if !Task.isCancelled, loadedDocumentId == documentId,
+                   loadedPageIndex == pageIndex { failed = true }
+                return
+            }
+            let identity = doc.sha256 ?? "t\(doc.createdAt.timeIntervalSince1970)"
+            info = (resolved.path, doc.mimeType ?? "image/jpeg",
+                    doc.isSensitive, doc.title ?? "", identity)
         }
         guard !Task.isCancelled, loadedDocumentId == documentId else { return }
-        resolvedFallback = (doc.mimeType == "application/pdf") ? "doc.fill" : fallbackSymbol
-        let key = ChatMediaThumbnailCache.key(documentId: documentId, contentHash: doc.sha256,
-                                              createdAt: doc.createdAt, size: size,
-                                              pageIndex: pageIndex)
+        resolvedFallback = (info.mime == "application/pdf") ? "doc.fill" : fallbackSymbol
+        let key = ChatMediaThumbnailCache.key(documentId: documentId, identity: info.identity,
+                                              size: size, pageIndex: pageIndex)
         if loadedCacheKey != (key as String) {
             loadedCacheKey = key as String
             image = nil
@@ -97,15 +121,27 @@ struct ChatMediaThumbnail: View {
         }
         if let cached = ChatMediaThumbnailCache.image(for: key) {
             image = cached
-            auditIfNeeded(isSensitive: doc.isSensitive, title: doc.title ?? "")
+            auditIfNeeded(isSensitive: info.sensitive, title: info.title)
             return
         }
-        let mime = doc.mimeType ?? "image/jpeg"
-        let filePath = resolved.path
+        let mime = info.mime
+        let filePath = info.path
         // PDF 页面渲染按 pt 的 2x 输出；位图由 ImageIO 内置降采样处理。
         let maxDimension = Int(size * 2)
         let renderPage = pageIndex
         do {
+            if mime == "application/pdf" {
+                // PDF 走共享 actor：同一文件只解析一次 PDFDocument，页缩略图串行渲染
+                //（2026-10-30 效率批：此前 N 页=N 次全量解析，10–30MB 文件滚动即卡）。
+                let box = try await ChatMediaPDFThumbnailRenderer.shared.thumbnail(
+                    path: filePath, page: renderPage, maxDimension: maxDimension)
+                guard !Task.isCancelled, loadedDocumentId == documentId,
+                      loadedPageIndex == pageIndex else { return }
+                image = box.image
+                ChatMediaThumbnailCache.store(box.image, for: key)
+                auditIfNeeded(isSensitive: info.sensitive, title: info.title)
+                return
+            }
             // detached 不继承父任务取消：用 cancellation handler 把视图消失/
             // 换 documentId 的取消显式转给解码任务，避免大图/PDF 解码跑完
             // 后才发现结果已无人接收。
@@ -128,7 +164,7 @@ struct ChatMediaThumbnail: View {
                   loadedPageIndex == pageIndex else { return }
             image = box.image
             ChatMediaThumbnailCache.store(box.image, for: key)
-            auditIfNeeded(isSensitive: doc.isSensitive, title: doc.title ?? "")
+            auditIfNeeded(isSensitive: info.sensitive, title: info.title)
         } catch is CancellationError {
             return
         } catch {
@@ -142,6 +178,61 @@ struct ChatMediaThumbnail: View {
         app.auditViewSensitiveOriginal(documentId: documentId, title: title)
         didAudit = true
     }
+}
+
+/// PDF 页缩略图：同一文件缓存 PDFDocument，跨页串行渲染。
+/// PDFKit 文档对象不声明 Sendable；所有访问收敛在本 actor 内，避免
+/// 每张缩略图各自 PDFDocument(data:) 全量解析与跨线程共享。
+actor ChatMediaPDFThumbnailRenderer {
+    enum Failure: Error { case unreadable, pageMissing }
+
+    static let shared = ChatMediaPDFThumbnailRenderer()
+
+    private struct Cached {
+        let key: String
+        let document: PDFDocument
+    }
+    private var cache: [Cached] = []
+    private let capacity = 4
+
+    func thumbnail(path: String, page: Int, maxDimension: Int) throws -> ChatMediaPDFBox {
+        let attrs = try FileManager.default.attributesOfItem(atPath: path)
+        let size = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+        let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+        let key = "\(path)|\(size)|\(mtime)"
+        let document: PDFDocument
+        if let hit = cache.first(where: { $0.key == key }) {
+            document = hit.document
+            cache.removeAll { $0.key == key }
+            cache.insert(hit, at: 0)
+        } else {
+            guard let fresh = PDFDocument(url: URL(fileURLWithPath: path)), !fresh.isLocked else {
+                throw Failure.unreadable
+            }
+            document = fresh
+            cache.insert(Cached(key: key, document: fresh), at: 0)
+            if cache.count > capacity { cache.removeLast() }
+        }
+        guard page >= 0, let pdfPage = document.page(at: page) else {
+            throw Failure.pageMissing
+        }
+        let bounds = pdfPage.bounds(for: .mediaBox)
+        guard bounds.width.isFinite, bounds.height.isFinite, bounds.width > 0, bounds.height > 0 else {
+            throw Failure.unreadable
+        }
+        let limit = CGFloat(max(64, maxDimension))
+        let scale = min(1, limit / max(bounds.width, bounds.height))
+        let image = pdfPage.thumbnail(
+            of: CGSize(width: bounds.width * scale, height: bounds.height * scale),
+            for: .mediaBox)
+        return ChatMediaPDFBox(image)
+    }
+}
+
+/// UIImage 跨执行器装箱（与视图内 Box 同模式）。
+struct ChatMediaPDFBox: @unchecked Sendable {
+    let image: UIImage
+    init(_ image: UIImage) { self.image = image }
 }
 
 /// 缩略图缓存：键含内容身份（sha256/创建时间）——复核不改原件不失效，
@@ -161,8 +252,14 @@ enum ChatMediaThumbnailCache {
 
     static func key(documentId: UUID, contentHash: String?, createdAt: Date, size: CGFloat,
                     pageIndex: Int = 0) -> NSString {
-        let identity = contentHash ?? "t\(createdAt.timeIntervalSince1970)"
-        return "\(documentId.uuidString)|\(identity)|\(Int(size))|p\(pageIndex)" as NSString
+        key(documentId: documentId,
+            identity: contentHash ?? "t\(createdAt.timeIntervalSince1970)",
+            size: size, pageIndex: pageIndex)
+    }
+
+    static func key(documentId: UUID, identity: String, size: CGFloat,
+                    pageIndex: Int = 0) -> NSString {
+        "\(documentId.uuidString)|\(identity)|\(Int(size))|p\(pageIndex)" as NSString
     }
 
     static func image(for key: NSString) -> UIImage? {

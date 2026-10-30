@@ -22,6 +22,9 @@ struct ChatMediaDetailView: View {
     /// 附件数（2026-10-30 业主：缩略图按附件一张——合并导入的页序=附件序；
     /// 单份多页 PDF 仍只出 1 张）。nil=未知，回落文档页数。
     var attachmentCount: Int? = nil
+    /// 每个附件在合并 PDF 中的起始页（0 基；2026-10-30 多页 PDF 页偏移批）。
+    /// nil=旧快照——按「附件序=页序」回落，与历史行为一致。
+    var attachmentPageOffsets: [Int]? = nil
     /// 会话身份（2026-10-30）：详情内「导出副本」沿用聊天会话目录；
     /// 历史/无会话上下文时为 nil（回落直接导入月桶）。
     var conversationID: UUID?
@@ -94,6 +97,8 @@ struct ChatMediaDetailView: View {
     @State private var cardsState: CardsState = .loading
     @State private var pendingState: PendingState = .loading
     @State private var docState: DocState = .loading
+    /// 缩略图条共享的文档元数据（一次读行/解析 meta；2026-10-30 效率批）。
+    @State private var thumbPreload: ChatMediaThumbnail.Preloaded?
     @State private var detailSheet: DetailSheet?
     /// 关闭 sheet 后的刷新范围：看原图不重读；待核对卡只刷卡片区+文档徽章
     /// （正文/滚动位不塌回 loading）；更多操作可能重新识别，整页重读。
@@ -208,14 +213,24 @@ struct ChatMediaDetailView: View {
         }
     }
 
+    /// 已落页的附件起始页（读到逐页文本后只保留真实存在的页；空则回落旧口径）。
+    private var resolvedPageOffsets: [Int]? {
+        guard let attachmentPageOffsets, !attachmentPageOffsets.isEmpty else { return nil }
+        if case .pages(let pages) = textState, !pages.isEmpty {
+            let clipped = attachmentPageOffsets.filter { $0 >= 0 && $0 < pages.count }
+            return clipped.isEmpty ? nil : clipped
+        }
+        return attachmentPageOffsets
+    }
+
     /// 缩略图数 = 附件数（2026-10-30 业主：多附件每个附件一张；单份多页
     /// PDF 仍是一份附件）。附件数未知时回落页数。
-    /// 导入时已按真实页数钳制 itemCount，这里不再二次钳制——否则 legacy/
-    /// 读取中（页数暂按 1）会把多附件条缩成 1 张，加载完成后再跳变。
+    /// 新快照优先用逐附件起始页（多页 PDF 在前时后续附件页号整体偏移）；
+    /// 旧快照按附件序=页序回落。读到逐页文本后按真实页数钳制——否则
+    /// 截断导入的旧记录 itemCount 可能大于实际页数致尾图空占位。
     private var thumbnailCount: Int {
+        if let resolvedPageOffsets { return resolvedPageOffsets.count }
         guard let attachmentCount, attachmentCount > 0 else { return totalPageCount }
-        // 读到逐页文本后按真实页数钳制（截断导入的旧记录 itemCount 可能
-        // 大于实际页数致尾图占位）；读取中/legacy 不钳制，避免数量跳变。
         if case .pages(let pages) = textState, !pages.isEmpty {
             return max(1, min(attachmentCount, pages.count))
         }
@@ -226,7 +241,7 @@ struct ChatMediaDetailView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 10) {
                 ForEach(0..<thumbnailCount, id: \.self) { index in
-                    thumbnailButton(page: index)
+                    thumbnailButton(index: index)
                 }
             }
             .padding(.vertical, 2)
@@ -235,9 +250,10 @@ struct ChatMediaDetailView: View {
         .accessibilityIdentifier("chat.mediaDetail.thumbs")
     }
 
-    /// 第 N 张缩略图 = 第 N 页（合并导入页序=附件选择顺序）。
-    private func thumbnailButton(page: Int) -> some View {
-        Button {
+    /// 第 N 张缩略图 = 第 N 个附件的**起始页**（有偏移表时），否则第 N 页。
+    private func thumbnailButton(index: Int) -> some View {
+        let page = resolvedPageOffsets?[index] ?? index
+        return Button {
             dismissRefresh = .none
             detailSheet = .original(page: page)
         } label: {
@@ -245,9 +261,10 @@ struct ChatMediaDetailView: View {
                 ChatMediaThumbnail(documentId: documentId, patientId: patientId,
                                    size: 84, cornerRadius: 12,
                                    pageIndex: page,
-                                   fallbackSymbol: "photo", auditsSensitive: page == 0)
+                                   fallbackSymbol: "photo", auditsSensitive: index == 0,
+                                   preloaded: thumbPreload)
                 if thumbnailCount > 1 {
-                    Text("\(page + 1)")
+                    Text("\(index + 1)")
                         .font(.caption2.weight(.bold).monospacedDigit())
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
@@ -258,8 +275,8 @@ struct ChatMediaDetailView: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(L10n.chatMediaPageAccessibility(page + 1, thumbnailCount))
-        .accessibilityIdentifier("chat.mediaDetail.thumb.\(page)")
+        .accessibilityLabel(L10n.chatMediaPageAccessibility(index + 1, thumbnailCount))
+        .accessibilityIdentifier("chat.mediaDetail.thumb.\(index)")
     }
 
     private var tabPicker: some View {
@@ -640,8 +657,23 @@ struct ChatMediaDetailView: View {
     private func refreshGrade() async {
         if let doc = await docs.documentRow(id: documentId), doc.patientId == patientId {
             docState = .loaded(grade: doc.grade)
+            // 缩略图条一次解析文档行/meta，N 张共享（此前每张各自读行+JSON）。
+            if let json = doc.metaJSON,
+               let meta = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],   // try?-ok: meta 损坏=缩略图占位态
+               let path = meta["original_path"] as? String,
+               let resolved = docs.resolveMediaPath(path) {
+                thumbPreload = ChatMediaThumbnail.Preloaded(
+                    path: resolved.path,
+                    mimeType: doc.mimeType ?? "image/jpeg",
+                    isSensitive: doc.isSensitive,
+                    title: doc.title ?? "",
+                    cacheIdentity: doc.sha256 ?? "t\(doc.createdAt.timeIntervalSince1970)")
+            } else {
+                thumbPreload = nil
+            }
         } else {
             docState = .failed
+            thumbPreload = nil
         }
     }
 

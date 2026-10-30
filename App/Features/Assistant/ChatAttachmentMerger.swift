@@ -8,7 +8,10 @@ import PDFKit
 /// 平台框架 only（PDFKit + CoreGraphics），零第三方依赖、零网络。
 /// 页面上限 30（与 PDF 导入的 50 页上限同族，避免一次选择耗尽识别预算）。
 enum ChatAttachmentMerger {
-    enum Payload {
+    /// 装箱跨越执行器：合并整体搬到后台（大图重绘/JPEG 级 PDF 编码
+    /// 原在主线程，导入 15–30 张时卡顿）。UIImage/PDFDocument 均只在
+    /// 本次合并内独占使用，调用方不得在并发任务中复用同一实例。
+    enum Payload: @unchecked Sendable {
         case image(UIImage)
         case pdf(PDFDocument)
     }
@@ -19,6 +22,10 @@ enum ChatAttachmentMerger {
         let containsPDF: Bool
         /// 超过页数上限时为 true——调用方必须如实提示，不得静默丢页。
         let truncated: Bool
+        /// 每个成功落页的附件在合并 PDF 中的起始页（0 基；附件序=页序）。
+        /// 详情缩略图点第 N 个附件必须跳 `offsets[N]` 页，而不是第 N 页
+        ///（2026-10-30 登记项：多页 PDF 在前时后续附件页号整体偏移）。
+        let attachmentOffsets: [Int]
     }
 
     /// A4 纵向；横图/横版 PDF 页等比缩入，不裁切。
@@ -27,8 +34,7 @@ enum ChatAttachmentMerger {
     /// 与 PDF 导入的 50 页 OCR 上限同源。
     private static let maxPages = 50
 
-    @MainActor
-    static func merge(_ payloads: [Payload]) -> Output? {
+    nonisolated static func merge(_ payloads: [Payload]) -> Output? {
         guard !payloads.isEmpty else { return nil }
         let output = NSMutableData()
         guard let consumer = CGDataConsumer(data: output as CFMutableData) else { return nil }
@@ -39,9 +45,11 @@ enum ChatAttachmentMerger {
         var pages = 0
         var containsPDF = false
         var truncated = false
+        var attachmentOffsets: [Int] = []
 
         for payload in payloads {
             if pages >= maxPages { truncated = true; break }
+            let startPage = pages
             switch payload {
             case .image(let image):
                 let normalized = MediaImport.normalizedImage(image)
@@ -75,12 +83,13 @@ enum ChatAttachmentMerger {
                     pages += 1
                 }
             }
+            if pages > startPage { attachmentOffsets.append(startPage) }
         }
 
         guard pages > 0 else { return nil }
         context.closePDF()
         return Output(data: output as Data, pageCount: pages, containsPDF: containsPDF,
-                      truncated: truncated)
+                      truncated: truncated, attachmentOffsets: attachmentOffsets)
     }
 
     private static func aspectFit(_ size: CGSize, into rect: CGRect) -> CGRect {

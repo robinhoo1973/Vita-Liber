@@ -15,6 +15,13 @@ import Infrastructure
 /// - 缺必填槽位最多脚本化追问一次（FR17.5/FR17.8）；
 /// - 一律经 FR17.13 标准确认卡 D→C 后才分发；
 /// - 动作闭集与 `VoiceActionPlanner` 一致，模型/助手无权直接执行。
+/// UIImage 跨执行器装箱（方向归一 + JPEG 编码在后台执行器）。
+/// UIKit 图像对象不声明 Sendable；装箱后仅在本次后台任务独占使用。
+private final class MergeImageBox: @unchecked Sendable {
+    let image: UIImage
+    init(_ image: UIImage) { self.image = image }
+}
+
 struct TaskAssistantChatView: View {
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
@@ -95,7 +102,7 @@ struct TaskAssistantChatView: View {
         /// 2026-10-30：携带会话身份，详情内显式导出副本也落「<日期>-<会话名>」目录；
         /// 另带附件数——详情缩略图按附件一张，不按文档页数铺。
         case mediaDetail(documentId: UUID, patientId: UUID, title: String,
-                         attachmentCount: Int,
+                         attachmentCount: Int, attachmentPageOffsets: [Int]?,
                          conversationID: UUID?, conversationTitle: String?)
         /// 语音详情（2026-10-30 业主；mock v4 第 7 帧）。
         case voiceDetail(messageID: UUID, media: MediaInfo)
@@ -105,7 +112,7 @@ struct TaskAssistantChatView: View {
         var id: String {
             switch self {
             case .history: return "history"
-            case .mediaDetail(let doc, _, _, _, _, _): return "media-\(doc.uuidString)"
+            case .mediaDetail(let doc, _, _, _, _, _, _): return "media-\(doc.uuidString)"
             case .voiceDetail(let messageID, _): return "voice-\(messageID.uuidString)"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
@@ -142,6 +149,9 @@ struct TaskAssistantChatView: View {
         var source: MediaSource = .unknown
         /// 合并识别张数（单张=1；多选照片/多文件合并后的入参个数）。
         var itemCount = 1
+        /// 每个附件在合并 PDF 中的起始页（0 基）。nil=旧快照，详情按附件序
+        /// 即页序回落（2026-10-30 多页 PDF 页偏移登记项）。
+        var attachmentPageOffsets: [Int]? = nil
         var audioFilename: String?
         var transcript: String?
         /// OCR 落库后的文档引用（2026-10-20）：图片/PDF 气泡可回看原件，
@@ -402,6 +412,7 @@ struct TaskAssistantChatView: View {
     private func openMediaDetail(_ media: MediaInfo, documentId: UUID, patientId: UUID) {
         activeSheet = .mediaDetail(documentId: documentId, patientId: patientId,
                                    title: media.filename, attachmentCount: media.itemCount,
+                                   attachmentPageOffsets: media.attachmentPageOffsets,
                                    conversationID: conversationID,
                                    conversationTitle: conversationTitle)
     }
@@ -978,11 +989,12 @@ struct TaskAssistantChatView: View {
     private func sheetContent(_ sheet: AssistantSheet) -> some View {
         switch sheet {
         case .mediaDetail(let documentId, let patientId, let title, let attachmentCount,
-                          let conversationID, let conversationTitle):
+                          let attachmentPageOffsets, let conversationID, let conversationTitle):
             // 2026-10-29 批三：媒体气泡 → 速记详情（识别文本 / 信息卡片）；
             // 原图入口在详情页内（DocumentSourcePageView 全屏）。
             ChatMediaDetailView(documentId: documentId, patientId: patientId, title: title,
                                 attachmentCount: attachmentCount,
+                                attachmentPageOffsets: attachmentPageOffsets,
                                 conversationID: conversationID,
                                 conversationTitle: conversationTitle)
         case .voiceDetail(let messageID, let media):
@@ -1058,6 +1070,8 @@ struct TaskAssistantChatView: View {
         /// 2026-10-29 批三新增（可选：旧快照缺键→默认 fileImport/1）。
         var source: String?
         var itemCount: Int?
+        /// 附件起始页（可选：旧快照缺键→按附件序回落）。
+        var attachmentPageOffsets: [Int]?
     }
     private struct PersistedCard: Codable {
         var id: String
@@ -1227,7 +1241,8 @@ struct TaskAssistantChatView: View {
                            documentId: $0.documentId?.uuidString,
                            patientId: $0.patientId?.uuidString,
                            incomplete: $0.incomplete,
-                           source: $0.source.rawValue, itemCount: $0.itemCount)
+                           source: $0.source.rawValue, itemCount: $0.itemCount,
+                           attachmentPageOffsets: $0.attachmentPageOffsets)
         }
         let card = message.card.map {
             PersistedCard(id: $0.id, kind: $0.kind == .shared ? "shared" : "entity",
@@ -1258,6 +1273,7 @@ struct TaskAssistantChatView: View {
                       status: mediaStatus(from: $0.status),
                       source: MediaSource(rawValue: $0.source ?? "") ?? .unknown,
                       itemCount: $0.itemCount ?? 1,
+                      attachmentPageOffsets: $0.attachmentPageOffsets,
                       audioFilename: $0.audioFilename, transcript: $0.transcript,
                       documentId: $0.documentId.flatMap(UUID.init(uuidString:)),
                       patientId: $0.patientId.flatMap(UUID.init(uuidString:)),
@@ -1463,7 +1479,7 @@ struct TaskAssistantChatView: View {
             await importMerged(images: [], pdfs: pdfs,
                                filename: L10n.assistantMergedFilesFilename,
                                kind: .pdf, origin: "import",
-                               source: .fileImport, itemCount: pdfs.count)
+                               source: .fileImport)
             return
         }
         // 单份图片文件保留真实文件名（气泡/资料库/导出副本可对照原件；
@@ -1486,7 +1502,7 @@ struct TaskAssistantChatView: View {
     private func handlePreviewConfirmed(_ images: [UIImage], request: ImportPreviewRequest) {
         Task {
             if request.pdfs.isEmpty, images.count == 1, let image = images.first {
-                guard let data = Self.normalizedJPEGData(image) else {
+                guard let data = await Self.normalizedJPEGData(image) else {
                     append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
                     return
                 }
@@ -1496,31 +1512,43 @@ struct TaskAssistantChatView: View {
             }
             await importMerged(images: images, pdfs: request.pdfs,
                                filename: request.filename, kind: request.kind,
-                               origin: request.origin, source: request.source,
-                               itemCount: max(1, images.count + request.pdfs.count))
+                               origin: request.origin, source: request.source)
         }
     }
 
     /// 方向归一 + JPEG 编码（EXIF 方向合入像素，OCR 不再读到侧躺/倒置画面）。
     /// 归一实现与合并 PDF 共用 `MediaImport.normalizedImage`（单一出口）。
-    private static func normalizedJPEGData(_ image: UIImage) -> Data? {
-        MediaImport.normalizedImage(image).jpegData(compressionQuality: 1)
+    /// 全幅重绘 + quality=1 编码移出主线程（2026-10-30 效率批：12MP 单图
+    /// 主线程编码可达数百毫秒，导入确认按钮后整页卡顿）。
+    private static func normalizedJPEGData(_ image: UIImage) async -> Data? {
+        let box = MergeImageBox(image)
+        return await Task.detached(priority: .userInitiated) {
+            MediaImport.normalizedImage(box.image).jpegData(compressionQuality: 1)
+        }.value
     }
 
     private func importMerged(images: [UIImage], pdfs: [PDFDocument],
                               filename: String, kind: MediaInfo.Kind, origin: String,
-                              source: MediaSource, itemCount: Int) async {
+                              source: MediaSource) async {
         var payloads: [ChatAttachmentMerger.Payload] = []
         payloads.append(contentsOf: images.map { ChatAttachmentMerger.Payload.image($0) })
         payloads.append(contentsOf: pdfs.map { ChatAttachmentMerger.Payload.pdf($0) })
-        guard let merged = ChatAttachmentMerger.merge(payloads) else {
+        // 合并（多图全幅重绘 + 多页 PDF 写入）移出主线程：15–30 张导入时
+        // 主线程连续数百毫秒的重绘/编码是确认后整页卡顿的主因（2026-10-30 效率批）。
+        // let 快照：并发闭包不得捕获 var（Swift 6 发送性检查）。
+        let mergeInput = payloads
+        guard let merged = await Task.detached(priority: .userInitiated, operation: {
+            ChatAttachmentMerger.merge(mergeInput)
+        }).value else {
             append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
             return
         }
-        // 页数上限截断后，气泡缩略图数不得超出真实页数（否则尾页是空占位）。
-        let visibleCount = max(1, min(itemCount, merged.pageCount))
+        // 附件数取合并器实测落页数（页数上限截断/坏页跳过后不虚报；
+        // 每个附件的起始页随快照持久化，详情缩略图点第 N 张跳真实页）。
+        let offsets = merged.attachmentOffsets
         guard let messageID = appendMedia(filename: filename, kind: kind,
-                                          source: source, itemCount: visibleCount) else { return }
+                                          source: source, itemCount: max(1, offsets.count),
+                                          pageOffsets: offsets.isEmpty ? nil : offsets) else { return }
         importing = true
         defer { importing = false }
         guard let session = startChatSession() else {
@@ -1571,7 +1599,8 @@ struct TaskAssistantChatView: View {
 
     @discardableResult
     private func appendMedia(filename: String, kind: MediaInfo.Kind,
-                             source: MediaSource, itemCount: Int = 1) -> UUID? {
+                             source: MediaSource, itemCount: Int = 1,
+                             pageOffsets: [Int]? = nil) -> UUID? {
         guard docs.activeImport == nil else {
             append(.init(role: .assistant, text: L10n.assistantImportBusy, isRefusal: true))
             return nil
@@ -1579,7 +1608,8 @@ struct TaskAssistantChatView: View {
         let message = ChatMessage(role: .user,
                                   media: MediaInfo(kind: kind, filename: filename,
                                                    status: .processing,
-                                                   source: source, itemCount: itemCount))
+                                                   source: source, itemCount: itemCount,
+                                                   attachmentPageOffsets: pageOffsets))
         // 立即落库（processing 快照）：OCR 中被强退/切会话也不丢上传记录；
         // 终态经串行链 update 覆盖（2026-10-20）。
         append(message)
@@ -1681,11 +1711,14 @@ struct TaskAssistantChatView: View {
             await discardSupersededImport(session)
             return
         }
-        await exportChatMedia(session: session, title: title)
-        // 聊天流不再承载信息卡（2026-10-29）：导入卡必须在 OCR 收尾后
-        // 转待办并释放导入槽，否则详情页查不到 pending 卡，且下一份媒体
-        // 会被 activeImport 一直挡在「导入进行中」。
+        // 先释放导入槽再写用户面副本（2026-10-30 效率批）：导出只依赖已
+        // 落库文档与会话代次，不再占住「导入进行中」——否则 10–30MB 文件
+        // 复制期间用户无法开始下一份；代次守卫仍防切换会话后写错目录。
+        let exportGeneration = conversationGeneration
         await releaseChatImportSession(session)
+        guard exportGeneration == conversationGeneration else { return }
+        await exportChatMedia(session: session, title: title,
+                              generation: exportGeneration)
     }
 
     /// 导入收尾：未处理卡整批落待办、结算并释放导入槽（详情页仍可续办）。
@@ -1703,10 +1736,10 @@ struct TaskAssistantChatView: View {
     /// 聊天媒体用户面副本（2026-10-30 业主：「文件」App 里按会话名建目录）。
     /// 只导出非敏感件（BR-007/008：敏感媒体不自动出界）；目录名带
     /// `yyyyMMdd-HHmm` 前缀，首次导出即冻结（D5），同会话后续资料复用同目录。
-    private func exportChatMedia(session: DocumentsState.ImportSession, title: String?) async {
-        guard importIsCurrent(session) else { return }
+    private func exportChatMedia(session: DocumentsState.ImportSession, title: String?,
+                                 generation: UUID) async {
         guard let source = session.source else { return }
-        let generation = conversationGeneration
+        guard generation == conversationGeneration else { return }
         guard let conversationID = await ensureConversationID(expectedGeneration: generation),
               generation == conversationGeneration else { return }
         _ = await exportState.exportCopy(

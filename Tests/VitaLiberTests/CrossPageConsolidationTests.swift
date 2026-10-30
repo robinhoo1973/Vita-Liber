@@ -86,6 +86,8 @@ struct CrossPageConsolidationTests {
         #expect(output?.pageCount == 3)
         #expect(output?.truncated == false)
         #expect(output?.data.starts(with: Data("%PDF".utf8)) == true)
+        // 附件起始页：图 0 / PDF 1 / 图 2（2026-10-30 页偏移语义）。
+        #expect(output?.attachmentOffsets == [0, 1, 2])
     }
 
     @Test("超过 50 页截断并如实标记")
@@ -97,6 +99,8 @@ struct CrossPageConsolidationTests {
         let output = ChatAttachmentMerger.merge(Array(repeating: .image(image), count: 51))
         #expect(output?.pageCount == 50)
         #expect(output?.truncated == true)
+        // 截断后只保留真实落页的附件（第 51 张无页）。
+        #expect(output?.attachmentOffsets.count == 50)
     }
 
     // MARK: - 方向（2026-10-30 业主问题 3：合并导入后上下颠倒）

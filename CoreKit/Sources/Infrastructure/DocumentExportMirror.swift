@@ -162,11 +162,23 @@ public actor DocumentExportMirror {
         try? await ledger.setState(documentID: documentID, state: "removed")   // try?-ok: tombstone 尽力而为
     }
 
-    /// 会话删除联动（E2：默认移除导出、可取消）：删除跟踪行 + 会话目录。
+    /// 会话删除前快照（E2）：会话行删除后账本外键 `ON DELETE SET NULL`，
+    /// 再按 conversationID 查已查不到——删除方必须先取快照，删行后再调用
+    /// `removeCopies(records:)`（2026-10-30 登记项收口：此前副本留在 Files）。
+    public func copies(conversationID: UUID) async -> [DocumentExportStore.Record] {
+        await ledger.records(conversationID: conversationID)
+    }
+
+    /// 会话删除联动（E2：默认移除导出、可取消）：删除会话目录 + 置 tombstone。
     public func removeCopies(conversationID: UUID) async {
-        let records = await ledger.records(conversationID: conversationID)
+        await removeCopies(records: await ledger.records(conversationID: conversationID))
+    }
+
+    /// 按删除前快照清理（会话行已删时唯一可用入口）。
+    /// 只删副本树与账本行（置 removed），绝不触碰 canonical。
+    public func removeCopies(records: [DocumentExportStore.Record]) async {
         let directories = Set(records.map(\.directoryName))
-        for directory in directories {
+        for directory in directories where !directory.isEmpty {
             let url = exportsBase.appendingPathComponent(directory, isDirectory: true)
             try? fileManager.removeItem(at: url)   // try?-ok: 副本删除尽力而为；canonical 不受影响
         }

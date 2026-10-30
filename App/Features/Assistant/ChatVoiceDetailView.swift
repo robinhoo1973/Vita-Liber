@@ -33,12 +33,23 @@ struct ChatVoiceDetailView: View {
     }
 
     @State private var tab: Tab = .transcript
+    /// 音频路径解析一次（2026-10-30 效率批）：原计算属性每次 body 求值
+    /// 都做 fileURL+createDirectory+fileExists 三次系统调用，播放时 2Hz 重算。
+    @State private var resolvedAudioURL: URL?
+
+    init(messageID: UUID, audioFilename: String?, transcript: String?, incomplete: Bool) {
+        self.messageID = messageID
+        self.audioFilename = audioFilename
+        self.transcript = transcript
+        self.incomplete = incomplete
+        _resolvedAudioURL = State(initialValue: Self.resolveAudioURL(audioFilename))
+    }
 
     private var player: VoicePlaybackCoordinator { app.voicePlayback }
 
-    private var audioURL: URL? {
-        guard let audioFilename,
-              let url = ChatAudioStore.fileURL(audioFilename),
+    private static func resolveAudioURL(_ filename: String?) -> URL? {
+        guard let filename,
+              let url = ChatAudioStore.fileURL(filename),
               FileManager.default.fileExists(atPath: url.path) else { return nil }
         return url
     }
@@ -72,6 +83,10 @@ struct ChatVoiceDetailView: View {
                 // 离开详情不停播：播放器是应用级单出口，气泡仍显示暂停键。
                 // 但页面消失时刷一次进度，避免回来看到旧 ticker 末值。
                 .onDisappear { player.refreshProgress() }
+                // 文件可能在录音收尾后才落盘：进页补一次解析（首次已在 init）。
+                .task(id: audioFilename) {
+                    resolvedAudioURL = Self.resolveAudioURL(audioFilename)
+                }
             }
         }
     }
@@ -135,7 +150,7 @@ struct ChatVoiceDetailView: View {
                     .font(.title2)
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .disabled(!isCurrent || audioURL == nil)
+            .disabled(!isCurrent || resolvedAudioURL == nil)
             .accessibilityLabel(L10n.chatVoiceBack15)
 
             Button {
@@ -147,7 +162,7 @@ struct ChatVoiceDetailView: View {
                     .font(VLFont.levelDisplay)
                     .frame(minWidth: 56, minHeight: 56)
             }
-            .disabled(audioURL == nil)
+            .disabled(resolvedAudioURL == nil)
             .accessibilityLabel(isCurrent && player.isAudible ? L10n.chatVoicePause : L10n.chatVoicePlay)
             .accessibilityIdentifier("chat.voice.play")
 
@@ -158,7 +173,7 @@ struct ChatVoiceDetailView: View {
                     .font(.title2)
                     .frame(minWidth: 44, minHeight: 44)
             }
-            .disabled(!isCurrent || audioURL == nil)
+            .disabled(!isCurrent || resolvedAudioURL == nil)
             .accessibilityLabel(L10n.chatVoiceForward15)
 
             Spacer(minLength: 0)
@@ -202,7 +217,7 @@ struct ChatVoiceDetailView: View {
 
     @ViewBuilder
     private var transcriptContent: some View {
-        if audioURL == nil {
+        if resolvedAudioURL == nil {
             // 音频文件缺失不阻断转写阅读：转写是已落库事实，仍完整展示。
             Text(L10n.chatVoiceUnavailable)
                 .font(.caption)
@@ -258,7 +273,7 @@ struct ChatVoiceDetailView: View {
             player.togglePause()
             return
         }
-        guard let url = audioURL else { return }
+        guard let url = resolvedAudioURL else { return }
         // 与 TTS 双向互斥（与气泡同一纪律）。
         app.stopSpeaking()
         if !player.play(url: url, id: messageID) {

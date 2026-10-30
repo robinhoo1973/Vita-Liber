@@ -26,6 +26,9 @@ final class DocumentExportState {
     private(set) var driftCount = 0
     /// 在途导出（防重复点按；视图据此禁用）。
     private(set) var exportingDocumentIds: Set<UUID> = []
+    /// 会话 → 已冻结目录名（D5 首次导出即冻结）。同一会话每份资料原实现
+    /// 都扫一次账本取首目录；缓存后只首份查库（2026-10-30 效率批）。
+    private var conversationDirectories: [UUID: String] = [:]
 
     init(store: DocumentStore, ledger: DocumentExportStore, mirror: DocumentExportMirror) {
         self.store = store
@@ -119,6 +122,7 @@ final class DocumentExportState {
     func wipeAll() async {
         await mirror.wipeAllCopies()
         driftCount = 0
+        conversationDirectories.removeAll()
     }
 
     // MARK: - 组装
@@ -133,16 +137,22 @@ final class DocumentExportState {
         let directory: String
         if let existing = await ledger.record(documentID: row.id)?.directoryName, !existing.isEmpty {
             directory = existing                        // D5：目录名首次导出即冻结
+            if let conversationID { conversationDirectories[conversationID] = existing }
         } else if let conversationID {
             // 同一会话内后续资料复用首条资料的会话目录（日期前缀不随导入次数漂移）。
-            if let existingConversation = await ledger.records(conversationID: conversationID)
+            // 内存缓存先命中；冷启动首份才回落账本扫描。
+            if let cached = conversationDirectories[conversationID] {
+                directory = cached
+            } else if let existingConversation = await ledger.records(conversationID: conversationID)
                 .first(where: { !$0.directoryName.isEmpty })?.directoryName {
+                conversationDirectories[conversationID] = existingConversation
                 directory = existingConversation
             } else {
                 directory = DocumentExportNaming.directoryName(
                     conversationTitle: conversationTitle,
                     conversationID: conversationID,
                     datePrefix: Self.timestampText(now))
+                conversationDirectories[conversationID] = directory
             }
         } else {
             // 直接导入归档到「直接导入-YYYY-MM」月桶（不按文档分目录：
