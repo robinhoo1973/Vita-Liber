@@ -312,9 +312,9 @@ struct ResourceManagementView: View {
     private func actionTitle(_ kind: CatalogSliceKind) -> String {
         switch catalogState.remoteState(kind) {
         case .updateAvailable:
-            return catalogState.localVersion(kind) == nil
-                ? L10n.resourceCatalogSliceActionInstall
-                : L10n.resourceCatalogSliceActionUpdate
+            return catalogState.isInstalled(kind)
+                ? L10n.resourceCatalogSliceActionUpdate
+                : L10n.resourceCatalogSliceActionInstall
         case .checking:
             return L10n.resourceCatalogSliceActionCheck
         default:
@@ -340,19 +340,27 @@ struct ResourceManagementView: View {
     private func rowStatusText(_ kind: CatalogSliceKind) -> String {
         if let error = catalogState.errors[kind] {
             return L10n.resourceCatalogSliceInstallFailedFmt(
-                MedicalCatalogPromptCopy.errorText(error, hasLocal: catalogState.localVersion(kind) != nil))
+                MedicalCatalogPromptCopy.errorText(
+                    error,
+                    hasLocal: catalogState.isInstalled(kind) || catalogState.localVersion(kind) != nil))
         }
         switch catalogState.remoteState(kind) {
         case .idle:
             if let version = catalogState.localVersion(kind) {
                 return L10n.resourceCatalogSliceInstalledFmt(version)
             }
+            if catalogState.receiptPendingKinds.contains(kind) {
+                return L10n.resourceCatalogSliceInstalledReceiptPending
+            }
             return L10n.resourceCatalogSliceNotInstalled
         case .checking:
             return L10n.resourceCatalogSliceChecking
         case .upToDate(let version):
-            return version.map { L10n.resourceCatalogSliceInstalledFmt($0) }
-                ?? L10n.resourceCatalogSliceUpToDate
+            if let version { return L10n.resourceCatalogSliceInstalledFmt(version) }
+            if catalogState.receiptPendingKinds.contains(kind) {
+                return L10n.resourceCatalogSliceInstalledReceiptPending
+            }
+            return L10n.resourceCatalogSliceUpToDate
         case .updateAvailable(let candidate):
             return L10n.resourceCatalogSliceCandidateFmt(
                 candidate.catalogVersion, MedicalCatalogPromptCopy.sizeText(candidate.packageSize))

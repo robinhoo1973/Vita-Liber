@@ -281,6 +281,7 @@
 "settings.resource.catalog.slice.facility.usage" = "医院、科室联想";
 "settings.resource.catalog.slice.reference.usage" = "诊断、检查项目联想";
 "settings.resource.catalog.slice.profile.usage" = "医疗档案的慢性病/手术选择、科室与部位展示";
+"settings.resource.catalog.slice.state.installedReceiptPending" = "已安装 · 版本记录待恢复";
 "settings.resource.catalog.slice.state.notInstalled" = "未安装";
 "settings.resource.catalog.slice.state.installedFmt" = "已安装 v%lld";
 "settings.resource.catalog.slice.state.checking" = "检查中…";

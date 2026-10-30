@@ -211,6 +211,9 @@ extension L10n {
 
     static var resourceCatalogSliceProfileUsage: String { t("settings.resource.catalog.slice.profile.usage") }
 
+    static var resourceCatalogSliceInstalledReceiptPending: String {
+        t("settings.resource.catalog.slice.state.installedReceiptPending")
+    }
     static var resourceCatalogSliceNotInstalled: String { t("settings.resource.catalog.slice.state.notInstalled") }
 
     static func resourceCatalogSliceInstalledFmt(_ a0: Int64) -> String {

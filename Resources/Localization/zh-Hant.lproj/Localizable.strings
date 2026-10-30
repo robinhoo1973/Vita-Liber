@@ -281,6 +281,7 @@
 "settings.resource.catalog.slice.facility.usage" = "醫院、科室聯想";
 "settings.resource.catalog.slice.reference.usage" = "診斷、檢查項目聯想";
 "settings.resource.catalog.slice.profile.usage" = "醫療檔案的慢性病/手術選擇、科室與部位展示";
+"settings.resource.catalog.slice.state.installedReceiptPending" = "已安裝 · 版本記錄待恢復";
 "settings.resource.catalog.slice.state.notInstalled" = "未安裝";
 "settings.resource.catalog.slice.state.installedFmt" = "已安裝 v%lld";
 "settings.resource.catalog.slice.state.checking" = "檢查中…";

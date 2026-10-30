@@ -801,6 +801,7 @@ extension L10n {
         "settings.resource.catalog.slice.reference.usage",
         "settings.resource.catalog.slice.profile.name",
         "settings.resource.catalog.slice.profile.usage",
+        "settings.resource.catalog.slice.state.installedReceiptPending",
         "settings.resource.catalog.slice.state.notInstalled",
         "settings.resource.catalog.slice.state.installedFmt",
         "settings.resource.catalog.slice.state.checking",

@@ -43,6 +43,9 @@ final class CatalogSlicesState {
     /// 一次性成功事件（「已更新至 vN」只在成功后呈现一次）。
     private(set) var completedVersions: [CatalogSliceKind: Int64] = [:]
     private(set) var receipts: [CatalogSliceKind: CatalogSliceReceipt] = [:]
+    /// 已激活但回执缺失（回执写失败/待下次启动 journal 重建）——SP-64 行需如实
+    /// 显示「已安装 · 版本记录待恢复」，不得回落「未安装」（TD-SLICE-RECEIPT-01）。
+    private(set) var receiptPendingKinds: Set<CatalogSliceKind> = []
     /// 处方行匹配缓存（generation 变化即失效；视图观察此表渲染建议）。
     var matchByLineID: [UUID: MedicalCatalogMatch] = [:]
     private var observedGeneration: UInt64 = 0
@@ -62,6 +65,9 @@ final class CatalogSlicesState {
         for kind in CatalogSliceKind.allCases {
             remote[kind] = .idle
             receipts[kind] = CatalogSliceReceipt.read(kind: kind, directory: receiptDirectory)
+            if receipts[kind] == nil, Self.isInstalled(kind, facade: facade) {
+                receiptPendingKinds.insert(kind)
+            }
         }
     }
 
@@ -72,6 +78,11 @@ final class CatalogSlicesState {
     var isAvailable: Bool { checker != nil || updater != nil }
 
     func isInstalled(_ kind: CatalogSliceKind) -> Bool {
+        Self.isInstalled(kind, facade: facade)
+    }
+
+    private static func isInstalled(_ kind: CatalogSliceKind,
+                                    facade: CatalogSliceReadFacade) -> Bool {
         switch kind {
         case .drug: return facade.isDrugAvailable
         case .facility: return facade.isFacilityAvailable
@@ -258,7 +269,7 @@ final class CatalogSlicesState {
                     try await updater.update(candidate) { [weak self] progress in
                         Task { @MainActor in self?.progress[kind] = progress }
                     }
-                    self.finishInstall(kind)
+                    self.finishInstall(kind, fallbackVersion: candidate.catalogVersion)
                 } catch let error as MedicalCatalogDownloadError {
                     self.errors[kind] = error
                     self.progress[kind] = nil
@@ -272,15 +283,23 @@ final class CatalogSlicesState {
     }
 
     /// 装后收口：刷新回执 + 重开该片读面 store（失败保留旧读面，不回滚已激活）。
-    private func finishInstall(_ kind: CatalogSliceKind) {
+    /// 回执缺失但已激活：保留版本事件真值（candidate），并标记待恢复供行内提示
+    /// （TD-SLICE-RECEIPT-01；journal 在下一次启动重建回执）。
+    private func finishInstall(_ kind: CatalogSliceKind, fallbackVersion: Int64) {
         receipts[kind] = CatalogSliceReceipt.read(kind: kind, directory: receiptDirectory)
         reopenStore(kind)
         progress[kind] = nil
         verified[kind] = nil
-        if let version = receipts[kind]?.catalogVersion {
-            completedVersions[kind] = version
-        }
+        let version = receipts[kind]?.catalogVersion ?? fallbackVersion
+        completedVersions[kind] = version
+        // 回执缺失时保留 nil（UI 走「版本记录待恢复」），不得用 candidate 版本
+        // 冒充回执真值；completedVersions 仍记 candidate 版本供一次性完成事件。
         remote[kind] = .upToDate(catalogVersion: receipts[kind]?.catalogVersion)
+        if receipts[kind] == nil, isInstalled(kind) {
+            receiptPendingKinds.insert(kind)
+        } else {
+            receiptPendingKinds.remove(kind)
+        }
     }
 
     private func reopenStore(_ kind: CatalogSliceKind) {

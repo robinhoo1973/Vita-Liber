@@ -281,6 +281,7 @@
 "settings.resource.catalog.slice.facility.usage" = "Hospital and department suggestions";
 "settings.resource.catalog.slice.reference.usage" = "Diagnosis and exam-item suggestions";
 "settings.resource.catalog.slice.profile.usage" = "Chronic conditions and surgeries for your medical profile";
+"settings.resource.catalog.slice.state.installedReceiptPending" = "Installed · version record pending recovery";
 "settings.resource.catalog.slice.state.notInstalled" = "Not installed";
 "settings.resource.catalog.slice.state.installedFmt" = "Installed v%lld";
 "settings.resource.catalog.slice.state.checking" = "Checking…";
