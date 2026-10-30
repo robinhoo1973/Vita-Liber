@@ -70,6 +70,21 @@ enum MediaImport {
         return (results.0.map(\.1), results.1.map(\.1))
     }
 
+    /// UIImage 方向归一（EXIF 方向合入像素，输出方向恒为 `.up`）。
+    /// 聊天导入两条路径共用本实现：单图 JPEG 编码与多附件合并 PDF。
+    /// 2026-10-30 审查批：两处曾各自重绘，`format.scale` 一处 1 一处
+    /// `image.scale`，同一照片因选择张数不同会得到不同像素密度。
+    /// 已 `.up` 原样返回（不重绘、不掉像素）。
+    static func normalizedImage(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+    }
+
     /// ImageIO 下采样核心（EXIF 方向自动矫正）；失败返回 nil。
     private static func downsampledCGImage(_ data: Data, maxPixel: CGFloat) -> CGImage? {
         let opts: [CFString: Any] = [

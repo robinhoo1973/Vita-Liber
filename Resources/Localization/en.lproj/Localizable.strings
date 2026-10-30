@@ -2728,6 +2728,7 @@
 "chat.mediaPageCount" = "Pages";
 "chat.mediaPageCountFmt" = "%d pages";
 "chat.mediaPageCountOne" = "1 page";
+"chat.mediaPageMoreFmt" = "+%d";
 "chat.mediaExportDone" = "Exported to the Files app";
 "chat.mediaCardsFootnote" = "Machine-recognized fields stay grade D until confirmed and are not used as facts for reminders, exports, or AI evidence.";
 "chat.voiceDetailTitle" = "Voice details";
@@ -2742,6 +2743,7 @@
 "chat.voiceBack15" = "Back 15 seconds";
 "chat.voiceForward15" = "Forward 15 seconds";
 "chat.voiceRate" = "Playback speed";
+"chat.voiceRateFmt" = "%gX";
 "chat.voiceOpenHint" = "Open voice details";
 "chat.imagePreviewTitle" = "Check images";
 "chat.imagePreviewImage" = "Image to recognize";

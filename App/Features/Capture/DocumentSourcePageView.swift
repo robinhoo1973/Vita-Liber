@@ -184,7 +184,7 @@ struct DocumentSourcePageView: View {
                 .accessibilityHidden(true)
             }
             if pageCount > 12 {
-                Text("+\(pageCount - 12)")
+                Text(String(format: L10n.chatMediaPageMoreFmt, pageCount - 12))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -203,6 +203,7 @@ struct DocumentSourcePageView: View {
             case .draft(let draft):
                 sensitive = draft.isSensitive; mimeType = draft.mimeType
                 pageCount = max(1, draft.pages.count)
+                clampPageIndex()
             case .document(let id, let patient):
                 guard let doc = await docs.fetch(id: id), doc.patientId == patient,
                       let json = doc.metaJSON,
@@ -218,6 +219,15 @@ struct DocumentSourcePageView: View {
             loading = false
             await loadMedia()
         } catch { loading = false; failed = true }
+    }
+
+    /// 页数落地后钳制页号：入参可能越界（旧记录 itemCount 大于实际页数、
+    /// 合并导入截断到 50 页）。不钳制则标题/Stepper 停在越界页，渲染却
+    /// 显示末页——状态与画面长期不一致，Stepper 范围 0...0 也不可点
+    /// （2026-10-30 复审：详情缩略图第 N 张 → 原图第 N 页后可达）。
+    private func clampPageIndex() {
+        let last = max(0, pageCount - 1)
+        if pageIndex > last { pageIndex = last }
     }
 
     private func startLoad() {
@@ -249,6 +259,7 @@ struct DocumentSourcePageView: View {
                 }.value
                 bytes = loaded.0
                 pageCount = loaded.1
+                clampPageIndex()
             }
             guard !Task.isCancelled else { return }
             data = bytes

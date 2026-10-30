@@ -19,6 +19,9 @@ struct ChatMediaDetailView: View {
     let documentId: UUID
     let patientId: UUID
     let title: String
+    /// 附件数（2026-10-30 业主：缩略图按附件一张——合并导入的页序=附件序；
+    /// 单份多页 PDF 仍只出 1 张）。nil=未知，回落文档页数。
+    var attachmentCount: Int? = nil
     /// 会话身份（2026-10-30）：详情内「导出副本」沿用聊天会话目录；
     /// 历史/无会话上下文时为 nil（回落直接导入月桶）。
     var conversationID: UUID?
@@ -153,7 +156,7 @@ struct ChatMediaDetailView: View {
             }
         case .actions:
             ChatMediaActionsSheet(documentId: documentId, patientId: patientId,
-                                   title: title, pageCount: displayPageCount,
+                                   title: title, pageCount: totalPageCount,
                                    conversationID: conversationID,
                                    conversationTitle: conversationTitle)
         }
@@ -197,19 +200,32 @@ struct ChatMediaDetailView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// 缩略图数 = 文档页数（多附件合并 = 每附件一页）；读取完成前至少 1 张。
-    private var displayPageCount: Int {
+    /// 文档真实页数（识别文本逐页数；读取完成前按 1）。
+    private var totalPageCount: Int {
         switch textState {
         case .pages(let pages): return max(1, pages.count)
-        case .legacy: return 1
-        case .loading, .empty, .failed: return 1
+        case .legacy, .loading, .empty, .failed: return 1
         }
+    }
+
+    /// 缩略图数 = 附件数（2026-10-30 业主：多附件每个附件一张；单份多页
+    /// PDF 仍是一份附件）。附件数未知时回落页数。
+    /// 导入时已按真实页数钳制 itemCount，这里不再二次钳制——否则 legacy/
+    /// 读取中（页数暂按 1）会把多附件条缩成 1 张，加载完成后再跳变。
+    private var thumbnailCount: Int {
+        guard let attachmentCount, attachmentCount > 0 else { return totalPageCount }
+        // 读到逐页文本后按真实页数钳制（截断导入的旧记录 itemCount 可能
+        // 大于实际页数致尾图占位）；读取中/legacy 不钳制，避免数量跳变。
+        if case .pages(let pages) = textState, !pages.isEmpty {
+            return max(1, min(attachmentCount, pages.count))
+        }
+        return attachmentCount
     }
 
     private var thumbnailStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 10) {
-                ForEach(0..<displayPageCount, id: \.self) { index in
+                ForEach(0..<thumbnailCount, id: \.self) { index in
                     thumbnailButton(page: index)
                 }
             }
@@ -219,6 +235,7 @@ struct ChatMediaDetailView: View {
         .accessibilityIdentifier("chat.mediaDetail.thumbs")
     }
 
+    /// 第 N 张缩略图 = 第 N 页（合并导入页序=附件选择顺序）。
     private func thumbnailButton(page: Int) -> some View {
         Button {
             dismissRefresh = .none
@@ -229,7 +246,7 @@ struct ChatMediaDetailView: View {
                                    size: 84, cornerRadius: 12,
                                    pageIndex: page,
                                    fallbackSymbol: "photo", auditsSensitive: page == 0)
-                if displayPageCount > 1 {
+                if thumbnailCount > 1 {
                     Text("\(page + 1)")
                         .font(.caption2.weight(.bold).monospacedDigit())
                         .foregroundStyle(.white)
@@ -241,7 +258,7 @@ struct ChatMediaDetailView: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(L10n.chatMediaPageAccessibility(page + 1, displayPageCount))
+        .accessibilityLabel(L10n.chatMediaPageAccessibility(page + 1, thumbnailCount))
         .accessibilityIdentifier("chat.mediaDetail.thumb.\(page)")
     }
 

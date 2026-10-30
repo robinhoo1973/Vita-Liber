@@ -2728,6 +2728,7 @@
 "chat.mediaPageCount" = "頁數";
 "chat.mediaPageCountFmt" = "%d 頁";
 "chat.mediaPageCountOne" = "1 頁";
+"chat.mediaPageMoreFmt" = "+%d";
 "chat.mediaExportDone" = "已匯出到「檔案」App";
 "chat.mediaCardsFootnote" = "機器辨識欄位在確認前為 D 級，不作為事實用於提醒、匯出或 AI 依據。";
 "chat.voiceDetailTitle" = "語音詳情";
@@ -2742,6 +2743,7 @@
 "chat.voiceBack15" = "後退 15 秒";
 "chat.voiceForward15" = "前進 15 秒";
 "chat.voiceRate" = "播放速度";
+"chat.voiceRateFmt" = "%gX";
 "chat.voiceOpenHint" = "開啟語音詳情";
 "chat.imagePreviewTitle" = "檢查圖片";
 "chat.imagePreviewImage" = "待辨識圖片";

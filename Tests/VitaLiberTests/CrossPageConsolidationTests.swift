@@ -98,4 +98,102 @@ struct CrossPageConsolidationTests {
         #expect(output?.pageCount == 50)
         #expect(output?.truncated == true)
     }
+
+    // MARK: - 方向（2026-10-30 业主问题 3：合并导入后上下颠倒）
+
+    /// 上红下蓝的 8×8 探针图（UIKit 坐标：y=0 为顶）。
+    private func uprightProbeImage() -> UIImage? {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8),
+                                       format: format).image { context in
+            UIColor.red.setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: 8, height: 4))
+            UIColor.blue.setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 4, width: 8, height: 4))
+        }
+    }
+
+    /// 按图像内相对坐标取样单像素（0…255）。
+    private func rgb(in image: UIImage, xFraction: CGFloat,
+                     yFraction: CGFloat) -> (red: Int, green: Int, blue: Int) {
+        let point = CGPoint(x: image.size.width * xFraction,
+                            y: image.size.height * yFraction)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        let sample = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1),
+                                             format: format).image { _ in
+            image.draw(at: CGPoint(x: -point.x, y: -point.y))
+        }
+        var bytes = [UInt8](repeating: 0, count: 4)
+        guard let cg = sample.cgImage,
+              let context = CGContext(data: &bytes, width: 1, height: 1,
+                                      bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return (-1, -1, -1) }
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return (Int(bytes[0]), Int(bytes[1]), Int(bytes[2]))
+    }
+
+    @Test("合并 PDF 的图片页保持正立（不再上下颠倒）")
+    func mergeKeepsImageUpright() throws {
+        let source = try #require(uprightProbeImage())
+        let output = try #require(ChatAttachmentMerger.merge([.image(source)]))
+        let page = try DocumentSourceRenderer.image(
+            data: output.data, mimeType: "application/pdf", pageIndex: 0)
+        // 页面 A4 纵向、内容区等比缩入：图片占据垂直中段，取 0.40/0.60 两个内点。
+        let top = rgb(in: page, xFraction: 0.5, yFraction: 0.40)
+        let bottom = rgb(in: page, xFraction: 0.5, yFraction: 0.60)
+        #expect(top.red > 200 && top.blue < 60)
+        #expect(bottom.blue > 200 && bottom.red < 60)
+    }
+
+    @Test("方向元数据先合入像素再合并")
+    func mergeBakesImageOrientation() throws {
+        let cg = try #require(uprightProbeImage()?.cgImage)
+        let flipped = UIImage(cgImage: cg, scale: 1, orientation: .down)
+        let output = try #require(ChatAttachmentMerger.merge([.image(flipped)]))
+        let page = try DocumentSourceRenderer.image(
+            data: output.data, mimeType: "application/pdf", pageIndex: 0)
+        let top = rgb(in: page, xFraction: 0.5, yFraction: 0.40)
+        let bottom = rgb(in: page, xFraction: 0.5, yFraction: 0.60)
+        #expect(top.blue > 200 && top.red < 60)
+        #expect(bottom.red > 200 && bottom.blue < 60)
+    }
+
+    @Test("方向归一输出 .up 并保留红蓝上下关系")
+    func normalizedImageBakesOrientation() throws {
+        let cg = try #require(uprightProbeImage()?.cgImage)
+        let flipped = UIImage(cgImage: cg, scale: 1, orientation: .down)
+        let baked = MediaImport.normalizedImage(flipped)
+        #expect(baked.imageOrientation == .up)
+        let top = rgb(in: baked, xFraction: 0.5, yFraction: 0.25)
+        let bottom = rgb(in: baked, xFraction: 0.5, yFraction: 0.75)
+        #expect(top.blue > 200 && top.red < 60)
+        #expect(bottom.red > 200 && bottom.blue < 60)
+    }
+
+    @Test("导入前检查顺时针旋转 90°：尺寸互换且左半转到上半")
+    func rotateClockwiseSwapsSides() throws {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        // 横版 8×4：左半红、右半蓝（UIKit 坐标，y=0 为顶）。
+        let source = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 4),
+                                             format: format).image { context in
+            UIColor.red.setFill()
+            context.cgContext.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+            UIColor.blue.setFill()
+            context.cgContext.fill(CGRect(x: 4, y: 0, width: 4, height: 4))
+        }
+        let rotated = ChatImageImportPreview.rotatedClockwise(source)
+        #expect(rotated.size == CGSize(width: 4, height: 8))
+        let top = rgb(in: rotated, xFraction: 0.5, yFraction: 0.25)
+        let bottom = rgb(in: rotated, xFraction: 0.5, yFraction: 0.75)
+        #expect(top.red > 200 && top.blue < 60)
+        #expect(bottom.blue > 200 && bottom.red < 60)
+    }
 }

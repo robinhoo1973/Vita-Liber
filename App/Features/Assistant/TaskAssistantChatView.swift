@@ -92,11 +92,11 @@ struct TaskAssistantChatView: View {
     private enum AssistantSheet: Identifiable {
         case history
         /// 媒体详情（2026-10-29 批三）：识别文本 / 信息卡片双 tab。
-        /// 2026-10-30：携带会话身份，详情内显式导出副本也落「<日期>-<会话名>」目录。
+        /// 2026-10-30：携带会话身份，详情内显式导出副本也落「<日期>-<会话名>」目录；
+        /// 另带附件数——详情缩略图按附件一张，不按文档页数铺。
         case mediaDetail(documentId: UUID, patientId: UUID, title: String,
+                         attachmentCount: Int,
                          conversationID: UUID?, conversationTitle: String?)
-        /// 原图直看（2026-10-30 业主：点缩略图进入原图，不再先绕详情页）。
-        case original(documentId: UUID, patientId: UUID, pageIndex: Int)
         /// 语音详情（2026-10-30 业主；mock v4 第 7 帧）。
         case voiceDetail(messageID: UUID, media: MediaInfo)
         case sharedReview(sessionID: UUID)
@@ -105,8 +105,7 @@ struct TaskAssistantChatView: View {
         var id: String {
             switch self {
             case .history: return "history"
-            case .mediaDetail(let doc, _, _, _, _): return "media-\(doc.uuidString)"
-            case .original(let doc, _, let page): return "original-\(doc.uuidString)-\(page)"
+            case .mediaDetail(let doc, _, _, _, _, _): return "media-\(doc.uuidString)"
             case .voiceDetail(let messageID, _): return "voice-\(messageID.uuidString)"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
@@ -342,34 +341,21 @@ struct TaskAssistantChatView: View {
 
     /// 用户侧媒体记录（2026-10-19 业主：像微信上传文件一样进聊天记录；
     /// 2026-10-20：OCR 落库后整块可点开原件——当前会话与历史恢复同一路径；
-    /// 2026-10-30 业主：多附件每张一个缩略图，点缩略图直入原图，不再显示
-    /// 「N 份附件」「原件保存在本机」类文字，也不在右上角挂编辑图标）。
+    /// 2026-10-30 业主：气泡回到「来源图标 + 状态文字」的整条可点样式
+    /// （与语音消息一致），点整条进媒体详情；缩略图墙只在详情页出现。
     @ViewBuilder
     private func mediaBubble(_ media: MediaInfo, messageID: UUID) -> some View {
         if media.kind == .voice {
             voiceBubble(media, messageID: messageID)
         } else if let documentId = media.documentId, let patientId = media.patientId {
-            VStack(alignment: .leading, spacing: 6) {
-                if media.kind == .image {
-                    thumbnailRow(media, documentId: documentId, patientId: patientId)
-                    Button {
-                        openMediaDetail(media, documentId: documentId, patientId: patientId)
-                    } label: {
-                        mediaCaption(media)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("assistant.media.open")
-                } else {
-                    Button {
-                        openMediaDetail(media, documentId: documentId, patientId: patientId)
-                    } label: {
-                        mediaContent(media)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("assistant.media.open")
-                }
+            Button {
+                openMediaDetail(media, documentId: documentId, patientId: patientId)
+            } label: {
+                mediaContent(media, showsDisclosure: true)
             }
+            .buttonStyle(.plain)
             .accessibilityHint(L10n.assistantMediaDetailHint)
+            .accessibilityIdentifier("assistant.media.open")
             // 2026-10-27 存储边界（E1/E2）+ 2026-10-28 逐条敏感开关：
             // 默认不敏感（2026-10-28 业主改判，存量记录不追溯）；开=仅内部保存
             // 并删除用户面副本；关=显式授权对外，立即导出副本。
@@ -415,59 +401,12 @@ struct TaskAssistantChatView: View {
 
     private func openMediaDetail(_ media: MediaInfo, documentId: UUID, patientId: UUID) {
         activeSheet = .mediaDetail(documentId: documentId, patientId: patientId,
-                                   title: media.filename,
+                                   title: media.filename, attachmentCount: media.itemCount,
                                    conversationID: conversationID,
                                    conversationTitle: conversationTitle)
     }
 
-    /// 多附件缩略图行（2026-10-30）：每张一个 64pt 方块，点第 N 张直接打开
-    /// 第 N 页原图（合并文档的页序 = 附件选择顺序）。
-    private func thumbnailRow(_ media: MediaInfo, documentId: UUID,
-                              patientId: UUID) -> some View {
-        let count = max(1, media.itemCount)
-        return ScrollView(.horizontal, showsIndicators: false) {
-            LazyHStack(spacing: 6) {
-                ForEach(0..<count, id: \.self) { index in
-                    Button {
-                        activeSheet = .original(documentId: documentId,
-                                                patientId: patientId,
-                                                pageIndex: index)
-                    } label: {
-                        ChatMediaThumbnail(documentId: documentId, patientId: patientId,
-                                           size: 64, cornerRadius: 10,
-                                           pageIndex: index,
-                                           fallbackSymbol: mediaSymbol(media))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(L10n.chatMediaPageAccessibility(index + 1, count))
-                    .accessibilityIdentifier("assistant.media.thumb.\(index)")
-                }
-            }
-        }
-        .frame(maxWidth: 252, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("assistant.media.thumbs")
-    }
-
-    /// 图片气泡底行：文件名 + 状态（点按进详情；缩略图本身直入原图）。
-    private func mediaCaption(_ media: MediaInfo) -> some View {
-        HStack(spacing: 6) {
-            Text(media.filename)
-                .font(.caption)
-                .lineLimit(1)
-            Text(mediaStatusText(media.status))
-                .font(.caption2)
-                .foregroundStyle(media.status == .failed
-                    ? Color("semantic-danger", bundle: .main) : Color.secondary)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: 240, alignment: .leading)
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("assistant.media.caption")
-    }
-
-    private func mediaContent(_ media: MediaInfo) -> some View {
+    private func mediaContent(_ media: MediaInfo, showsDisclosure: Bool = false) -> some View {
         HStack(spacing: 10) {
             mediaIcon(media)
             VStack(alignment: .leading, spacing: 2) {
@@ -480,6 +419,12 @@ struct TaskAssistantChatView: View {
                         ? Color("semantic-danger", bundle: .main) : Color.secondary)
             }
             Spacer(minLength: 4)
+            // 可点进详情时给前向箭头（与语音气泡同语义）；无文档引用时不给。
+            if showsDisclosure {
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -532,7 +477,10 @@ struct TaskAssistantChatView: View {
                         .frame(minWidth: 44, minHeight: 44)
                 }
                 .disabled(media.audioFilename == nil)
-                .accessibilityLabel(L10n.assistantVoiceReplay)
+                // 2026-10-30 复审：图标已随播放态双化，标签不得仍说「重放」；
+                // 与详情页同一对键（播放/暂停），VoiceOver 动作与图标一致。
+                .accessibilityLabel(app.voicePlayback.isPlaying(id: messageID)
+                    ? L10n.chatVoicePause : L10n.chatVoicePlay)
                 .accessibilityIdentifier("assistant.voice.replay")
 
                 Button {
@@ -1029,16 +977,14 @@ struct TaskAssistantChatView: View {
     @ViewBuilder
     private func sheetContent(_ sheet: AssistantSheet) -> some View {
         switch sheet {
-        case .mediaDetail(let documentId, let patientId, let title,
+        case .mediaDetail(let documentId, let patientId, let title, let attachmentCount,
                           let conversationID, let conversationTitle):
             // 2026-10-29 批三：媒体气泡 → 速记详情（识别文本 / 信息卡片）；
             // 原图入口在详情页内（DocumentSourcePageView 全屏）。
             ChatMediaDetailView(documentId: documentId, patientId: patientId, title: title,
+                                attachmentCount: attachmentCount,
                                 conversationID: conversationID,
                                 conversationTitle: conversationTitle)
-        case .original(let documentId, let patientId, let pageIndex):
-            DocumentSourcePageView(documentId: documentId, patientId: patientId,
-                                   pageIndex: pageIndex)
         case .voiceDetail(let messageID, let media):
             ChatVoiceDetailView(messageID: messageID, audioFilename: media.audioFilename,
                                 transcript: media.transcript, incomplete: media.incomplete)
@@ -1520,10 +1466,18 @@ struct TaskAssistantChatView: View {
                                source: .fileImport, itemCount: pdfs.count)
             return
         }
+        // 单份图片文件保留真实文件名（气泡/资料库/导出副本可对照原件；
+        // 2026-10-30 复审：重构丢掉 lastPathComponent 后一律显示「文件速记」）。
+        let singleImageName: String? = {
+            guard urls.count == 1, pdfs.isEmpty, images.count == 1,
+                  urls[0].pathExtension.lowercased() != "pdf" else { return nil }
+            return urls[0].lastPathComponent
+        }()
         presentImportPreview(ImportPreviewRequest(
             images: images, pdfs: pdfs,
-            filename: pdfs.isEmpty ? L10n.assistantMergedFilesFilename
-                                   : L10n.assistantMergedMixedFilename,
+            filename: singleImageName
+                ?? (pdfs.isEmpty ? L10n.assistantMergedFilesFilename
+                                 : L10n.assistantMergedMixedFilename),
             kind: pdfs.isEmpty ? .image : .pdf,
             origin: "import", source: .fileImport))
     }
@@ -1548,18 +1502,9 @@ struct TaskAssistantChatView: View {
     }
 
     /// 方向归一 + JPEG 编码（EXIF 方向合入像素，OCR 不再读到侧躺/倒置画面）。
+    /// 归一实现与合并 PDF 共用 `MediaImport.normalizedImage`（单一出口）。
     private static func normalizedJPEGData(_ image: UIImage) -> Data? {
-        let normalized: UIImage
-        if image.imageOrientation == .up {
-            normalized = image
-        } else {
-            let format = UIGraphicsImageRendererFormat.default()
-            format.scale = image.scale
-            normalized = UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
-                image.draw(in: CGRect(origin: .zero, size: image.size))
-            }
-        }
-        return normalized.jpegData(compressionQuality: 1)
+        MediaImport.normalizedImage(image).jpegData(compressionQuality: 1)
     }
 
     private func importMerged(images: [UIImage], pdfs: [PDFDocument],

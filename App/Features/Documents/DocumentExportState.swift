@@ -97,6 +97,18 @@ final class DocumentExportState {
         }
         if sensitive {
             await mirror.removeCopy(documentID: documentID)
+            // 在途自动导出（导入收尾 allowSensitive:false 路径）可能已取到旧的
+            // isSensitive=false 行，正卡在 mirror 内写副本——上面这次删除会先执行，
+            // 副本随后重新落盘并 upsert 回 active（BR-007 对外边界竞态）。
+            // 等该文档导出退出在途集合后再删一次；最多等约 2 秒，不无限阻塞。
+            var waited = false
+            for _ in 0..<40 where exportingDocumentIds.contains(documentID) {
+                try? await Task.sleep(nanoseconds: 50_000_000)   // try?-ok: 取消时立即重试删除
+                waited = true
+            }
+            if waited {
+                await mirror.removeCopy(documentID: documentID)
+            }
             return nil
         }
         return await exportCopy(documentID: documentID, conversationID: conversationID,

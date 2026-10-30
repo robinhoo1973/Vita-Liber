@@ -137,6 +137,8 @@ extension L10n {
     static var chatMediaStorageExportedFmt: String { t("chat.mediaStorageExportedFmt") }
     static var chatMediaPageCount: String { t("chat.mediaPageCount") }
     static var chatMediaPageCountFmt: String { t("chat.mediaPageCountFmt") }
+    /// 原图页点数超过 12 时的溢出徽标（"+N"，2026-10-30 复审走 L10n 单一出口）。
+    static var chatMediaPageMoreFmt: String { t("chat.mediaPageMoreFmt") }
     static func chatMediaPageCountText(_ count: Int) -> String {
         count == 1 ? t("chat.mediaPageCountOne")
                    : String(format: t("chat.mediaPageCountFmt"), count)
@@ -158,6 +160,8 @@ extension L10n {
     static var chatVoiceBack15: String { t("chat.voiceBack15") }
     static var chatVoiceForward15: String { t("chat.voiceForward15") }
     static var chatVoiceRate: String { t("chat.voiceRate") }
+    /// 倍速徽标（"1X"/"1.5X"/"2X"）——含用户可见字符，必须经 L10n。
+    static var chatVoiceRateFmt: String { t("chat.voiceRateFmt") }
     static var chatVoiceOpenHint: String { t("chat.voiceOpenHint") }
     static var chatImagePreviewTitle: String { t("chat.imagePreviewTitle") }
     static var chatImagePreviewImage: String { t("chat.imagePreviewImage") }

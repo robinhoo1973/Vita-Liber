@@ -28,6 +28,10 @@ struct ChatMediaCopyTests {
             ("pageNoText", L10n.assistantMediaPageNoText),
             ("egressNote", L10n.assistantMediaEgressNote),
             ("egressNoteMirror", L10n.assistantMediaEgressNoteMirror),
+            // 2026-10-30 批新增边界句（卡片页脚 D 级 / 语音摘要仅摘录）：
+            // 同纳入负向措辞清单，防后续改文案绕过 BR-003/BR-006。
+            ("mediaCardsFootnote", L10n.chatMediaCardsFootnote),
+            ("voiceSummaryNote", L10n.chatVoiceSummaryNote),
         ]
     }
 

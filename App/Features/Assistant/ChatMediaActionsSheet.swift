@@ -28,9 +28,7 @@ struct ChatMediaActionsSheet: View {
     @State private var exportNote: String?
 
     private var storageText: String {
-        if !storageLoaded { return L10n.chatMediaStorageLoading }
-        guard let storagePath, !storagePath.isEmpty else { return L10n.chatMediaStorageOnDevice }
-        return String(format: L10n.chatMediaStorageExportedFmt, storagePath)
+        chatMediaStorageText(loaded: storageLoaded, path: storagePath)
     }
 
     var body: some View {
@@ -137,6 +135,9 @@ struct ChatMediaInfoView: View {
     @State private var createdAt: Date?
     @State private var storagePath: String?
     @State private var loaded = false
+    /// 文档行读取失败/成员不符单列失败态：不得把失败画成「—」空值
+    /// （与详情页 .failed 三值纪律一致；2026-10-30 复审）。
+    @State private var loadFailed = false
 
     var body: some View {
         List {
@@ -147,26 +148,45 @@ struct ChatMediaInfoView: View {
                                value: L10n.chatMediaPageCountText(pageCount))
                 LabeledContent(L10n.chatMediaStorageLocation, value: storageText)
             }
+            if loadFailed {
+                Section {
+                    Button(L10n.retry) { Task { await load() } }
+                        .accessibilityIdentifier("chat.mediaInfo.retry")
+                }
+            }
         }
         .navigationTitle(L10n.docTitleSection)
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            if let doc = await docs.documentRow(id: documentId), doc.patientId == patientId {
-                createdAt = doc.createdAt
-            }
-            storagePath = await exportState.exportedRelativePath(documentID: documentId)
-            loaded = true
+        .task { await load() }
+    }
+
+    private func load() async {
+        loaded = false
+        loadFailed = false
+        if let doc = await docs.documentRow(id: documentId), doc.patientId == patientId {
+            createdAt = doc.createdAt
+        } else {
+            createdAt = nil
+            loadFailed = true
         }
+        storagePath = await exportState.exportedRelativePath(documentID: documentId)
+        loaded = true
     }
 
     private var dateText: String {
+        if loadFailed { return L10n.assistantMediaLoadFailed }
         guard let createdAt else { return loaded ? "—" : L10n.chatMediaStorageLoading }
         return createdAt.formatted(date: .abbreviated, time: .shortened)
     }
 
     private var storageText: String {
-        if !loaded { return L10n.chatMediaStorageLoading }
-        guard let storagePath, !storagePath.isEmpty else { return L10n.chatMediaStorageOnDevice }
-        return String(format: L10n.chatMediaStorageExportedFmt, storagePath)
+        chatMediaStorageText(loaded: loaded, path: storagePath)
     }
+}
+
+/// 存储位置三态文案单一出口（更多操作 / 文档信息共用；2026-10-30 审查批）。
+private func chatMediaStorageText(loaded: Bool, path: String?) -> String {
+    if !loaded { return L10n.chatMediaStorageLoading }
+    guard let path, !path.isEmpty else { return L10n.chatMediaStorageOnDevice }
+    return String(format: L10n.chatMediaStorageExportedFmt, path)
 }

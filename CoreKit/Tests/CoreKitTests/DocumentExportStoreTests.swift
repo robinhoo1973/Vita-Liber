@@ -131,5 +131,19 @@ struct DocumentExportStoreTests {
         #expect(removed?.removedAt != nil)
         #expect(await store.activeRecords().isEmpty)
     }
+
+    @Test("同目录去重基准包含 tombstone：relative_path UNIQUE 覆盖已删行")
+    func directoryRecordsIncludeTombstones() async throws {
+        let queue = try makeQueue()
+        let doc = UUID()
+        try await queue.write { try self.insertDocument($0, id: doc) }
+        let store = DocumentExportStore(writer: queue)
+        _ = try await store.upsert(record(doc: doc, conv: nil))
+        try await store.setState(documentID: doc, state: "removed")
+        let rows = await store.records(directoryName: "体检报告-abcdef")
+        #expect(rows.count == 1)
+        #expect(rows.first?.documentID == doc)
+        #expect(rows.first?.removedAt != nil)
+    }
 }
 #endif

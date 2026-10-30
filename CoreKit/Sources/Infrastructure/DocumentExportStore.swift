@@ -106,11 +106,14 @@ public actor DocumentExportStore {
     }
 
     /// 同目录已用显示名（去重基准；无会话的「直接导入」月桶按目录取）。
+    /// 不过滤 `removed_at`：`relative_path` 的 UNIQUE 约束覆盖 tombstone 行，
+    /// 只按 active 行去重会让新文档复用已删副本的路径 → upsert 撞 UNIQUE
+    /// 报 writeFailed，而文件已写入 = 无账本孤儿副本（2026-10-30 复审）。
     public func records(directoryName: String) async -> [Record] {
         (try? await writer.read { db in        // try?-ok: 读取失败按空集呈现
             try Row.fetchAll(db, sql: """
                 SELECT * FROM document_user_export
-                 WHERE directory_name = ? AND removed_at IS NULL
+                 WHERE directory_name = ?
                  ORDER BY created_at
                 """, arguments: [directoryName]).map(Self.record(from:))
         }) ?? []

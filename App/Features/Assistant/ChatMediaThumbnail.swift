@@ -81,7 +81,8 @@ struct ChatMediaThumbnail: View {
               let meta = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],   // try?-ok: 元数据损坏=缩略图占位态
               let path = meta["original_path"] as? String,
               let resolved = docs.resolveMediaPath(path) else {
-            if !Task.isCancelled, loadedDocumentId == documentId { failed = true }
+            if !Task.isCancelled, loadedDocumentId == documentId,
+               loadedPageIndex == pageIndex { failed = true }
             return
         }
         guard !Task.isCancelled, loadedDocumentId == documentId else { return }
@@ -121,7 +122,10 @@ struct ChatMediaThumbnail: View {
             } onCancel: {
                 job.cancel()
             }
-            guard !Task.isCancelled, loadedDocumentId == documentId else { return }
+            // 页号也要校验：视图复用换页后旧页结果不得写回（缓存键含页号，
+            // 写回守卫原先只看 documentId，快速翻页会显示错页；2026-10-30 复审）。
+            guard !Task.isCancelled, loadedDocumentId == documentId,
+                  loadedPageIndex == pageIndex else { return }
             image = box.image
             ChatMediaThumbnailCache.store(box.image, for: key)
             auditIfNeeded(isSensitive: doc.isSensitive, title: doc.title ?? "")

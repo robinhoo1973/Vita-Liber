@@ -143,7 +143,8 @@ struct ChatVoiceDetailView: View {
             } label: {
                 Image(systemName: isCurrent && player.isAudible
                     ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 44))
+                    // 44pt 超标度字号走 VLFont 单一出口（§3.2 禁止硬编码字号）。
+                    .font(VLFont.levelDisplay)
                     .frame(minWidth: 56, minHeight: 56)
             }
             .disabled(audioURL == nil)
@@ -308,6 +309,7 @@ struct ChatVoiceDetailView: View {
     }
 
     static func rateText(_ rate: Float) -> String {
-        rate == rate.rounded() ? "\(Int(rate))X" : String(format: "%.1fX", rate)
+        // 含用户可见字符（X），经 L10n 单一出口（三语键集一致由 L0 §13 校验）。
+        String(format: L10n.chatVoiceRateFmt, Double(rate))
     }
 }

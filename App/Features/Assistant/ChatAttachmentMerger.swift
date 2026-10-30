@@ -44,15 +44,15 @@ enum ChatAttachmentMerger {
             if pages >= maxPages { truncated = true; break }
             switch payload {
             case .image(let image):
-                let normalized = normalizedImage(image)
+                let normalized = MediaImport.normalizedImage(image)
                 guard let cgImage = normalized.cgImage else { continue }
                 let rect = aspectFit(CGSize(width: cgImage.width, height: cgImage.height), into: content)
                 context.beginPDFPage(nil)
-                context.saveGState()
-                context.translateBy(x: rect.minX, y: rect.maxY)
-                context.scaleBy(x: 1, y: -1)
-                context.draw(cgImage, in: CGRect(origin: .zero, size: rect.size))
-                context.restoreGState()
+                // 原始 CGPDF 上下文是 y-up（与 UIKit 的翻转上下文不同）：
+                // `draw(cgImage:in:)` 直接按 rect 绘制即为正立。旧实现在此再
+                // translate+scaleBy(1,-1) 翻转一次，合并导入的图片页上下颠倒
+                //（2026-10-30 业主问题 3 根因）。
+                context.draw(cgImage, in: rect)
                 context.endPDFPage()
                 pages += 1
 
@@ -81,18 +81,6 @@ enum ChatAttachmentMerger {
         context.closePDF()
         return Output(data: output as Data, pageCount: pages, containsPDF: containsPDF,
                       truncated: truncated)
-    }
-
-    /// UIImage 的 orientation 只有经 UIKit 绘制才生效；先归一化再取 CGImage。
-    @MainActor
-    private static func normalizedImage(_ image: UIImage) -> UIImage {
-        guard image.imageOrientation != .up else { return image }
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        format.opaque = false
-        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }
     }
 
     private static func aspectFit(_ size: CGSize, into rect: CGRect) -> CGRect {
