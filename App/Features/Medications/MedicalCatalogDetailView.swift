@@ -11,6 +11,7 @@ struct MedicalCatalogDetailView: View {
     @State private var drug: MedicalCatalogDrug?
     @State private var detail: MedicalCatalogDrugDetail?
     @State private var references: [MedicalCatalogReference] = []
+    @State private var leaflets: CatalogSlicesState.LeafletResult = .unavailable
 
     var body: some View {
         WithPerceptionTracking {
@@ -28,6 +29,7 @@ struct MedicalCatalogDetailView: View {
                 drug = value
                 detail = await catalog.detail(for: value)
                 references = await catalog.references(for: value)
+                leaflets = await catalog.leaflets(for: value)
             }
         }
     }
@@ -62,6 +64,7 @@ struct MedicalCatalogDetailView: View {
                     }
                 }
             }
+            leafletSection
             if !references.isEmpty {
                 Section(L10n.medicalCatalogDetailSectionSources) {
                     ForEach(references, id: \.referenceID) { reference in
@@ -90,4 +93,65 @@ struct MedicalCatalogDetailView: View {
     private struct CatalogURL: Decodable {
         let url: String
     }
+    @ViewBuilder
+    private var leafletSection: some View {
+        switch leaflets {
+        case .unavailable:
+            Section(L10n.medicalCatalogDetailSectionLeaflet) {
+                Text(L10n.medicalCatalogDetailLeafletNotCollected)
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        case .legacySchema:
+            Section(L10n.medicalCatalogDetailSectionLeaflet) {
+                Text(L10n.medicalCatalogDetailLeafletLegacy)
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        case .failed:
+            Section(L10n.medicalCatalogDetailSectionLeaflet) {
+                Text(L10n.medicalCatalogDetailLeafletNotCollected)
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        case .loaded(let bundles):
+            if bundles.isEmpty {
+                Section(L10n.medicalCatalogDetailSectionLeaflet) {
+                    Text(L10n.medicalCatalogDetailLeafletNotCollected)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            } else {
+                Section(L10n.medicalCatalogDetailSectionLeaflet) {
+                    ForEach(bundles) { bundle in
+                        DisclosureGroup {
+                            ForEach(bundle.sections) { section in
+                                if let text = sectionText(section, bundle: bundle) {
+                                    Text(text)
+                                        .font(.footnote)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(bundle.leaflet.nameZh)
+                                Text(bundle.leaflet.matchVerified
+                                     ? bundle.leaflet.sourceID
+                                     : L10n.medicalCatalogDetailLeafletUnverified)
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Text(L10n.medicalCatalogDetailDisclaimer)
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func sectionText(_ section: MedicalCatalogLeafletSection,
+                             bundle: CatalogSlicesState.MedicalCatalogLeafletBundle) -> String? {
+        let characters = Array(bundle.text)
+        guard section.charStart >= 0, section.charEnd > section.charStart,
+              section.charEnd <= characters.count else { return nil }
+        return String(characters[section.charStart..<section.charEnd])
+    }
+
 }

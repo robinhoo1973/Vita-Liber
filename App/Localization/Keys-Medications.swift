@@ -354,6 +354,10 @@ extension L10n {
     static var medicalCatalogDetailIndications: String { t("medicalCatalog.detail.indications") }
     static var medicalCatalogDetailDisclaimer: String { t("medicalCatalog.detail.disclaimer") }
     static var medicalCatalogDetailSectionSources: String { t("medicalCatalog.detail.section.sources") }
+    static var medicalCatalogDetailSectionLeaflet: String { t("medicalCatalog.detail.section.leaflet") }
+    static var medicalCatalogDetailLeafletNotCollected: String { t("medicalCatalog.detail.leaflet.notCollected") }
+    static var medicalCatalogDetailLeafletLegacy: String { t("medicalCatalog.detail.leaflet.legacy") }
+    static var medicalCatalogDetailLeafletUnverified: String { t("medicalCatalog.detail.leaflet.unverified") }
     static var medicalCatalogDetailOfficialLink: String { t("medicalCatalog.detail.officialLink") }
 
     static var medicalCatalogMatchSection: String { t("medicalCatalog.match.section") }

@@ -2899,3 +2899,7 @@
 "doc.exportCopy" = "导出副本到「文件」";
 
 "chat.recordSensitiveToggle" = "仅本机保留（敏感）";
+"medicalCatalog.detail.section.leaflet" = "说明书";
+"medicalCatalog.detail.leaflet.notCollected" = "该药品的说明书尚未收录。";
+"medicalCatalog.detail.leaflet.legacy" = "当前医疗数据版本较旧，未包含说明书。";
+"medicalCatalog.detail.leaflet.unverified" = "同名匹配·未核验";

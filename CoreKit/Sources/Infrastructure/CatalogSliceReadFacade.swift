@@ -121,6 +121,20 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
         try await withDrug { try await $0.drug(id: id) }
     }
 
+    // MARK: - 说明书（v7 切片；缺片或旧布局返回空）
+
+    public func leafletSources(forDrugID drugID: Int) async throws -> [MedicalCatalogLeaflet] {
+        try await withDrug { try await $0.leafletSources(forDrugID: drugID) }
+    }
+
+    public func leafletSections(docSHA256: Data) async throws -> [MedicalCatalogLeafletSection] {
+        try await withDrug { try await $0.leafletSections(docSHA256: docSHA256) }
+    }
+
+    public func leafletText(docSHA256: Data) async throws -> String {
+        try await withDrug { try await $0.leafletText(docSHA256: docSHA256) }
+    }
+
     // MARK: - MedicalReferenceCatalogReading（facility/reference 切片；缺片返回空集）
 
     public func hospitalSuggest(query: String, region: String?, limit: Int) async throws -> [MedicalCatalogHospital] {

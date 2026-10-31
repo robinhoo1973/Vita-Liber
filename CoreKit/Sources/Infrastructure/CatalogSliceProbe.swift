@@ -63,6 +63,29 @@ public enum CatalogSliceProbe {
                        verifyCounts: true, fileManager: fileManager)
     }
 
+    /// 每布局必须存在的列（缺列在安装期即拒绝，而不是等 App 查询时崩）。
+    /// 2026-10-31：列此前完全不在契约链上——L0/manifest/探针全绿而 App 缺列。
+    public static func requiredColumns(_ kind: CatalogSliceKind, schemaVersion: Int) -> [String: Set<String>] {
+        switch (kind, schemaVersion) {
+        case (.drug, 3):
+            return [
+                "drug": ["id", "region", "source_id", "name_zh", "usage_text", "indications"],
+                "drug_package": ["drug_id", "source_id"],
+                "drug_reference": ["reference_id", "drug_id", "image_urls_json", "match_status"],
+                "leaflet_doc": ["doc_sha256", "text_zlib", "section_count", "text_bytes"],
+                "leaflet_source": ["source_id", "doc_sha256", "source_url", "fetched_at"],
+                "leaflet_section": ["doc_sha256", "ordinal", "kind", "char_start", "char_end"],
+                "leaflet_link": ["source_id", "drug_id", "match_method", "match_verified"],
+            ]
+        case (.drug, 1):
+            return ["drug": ["id", "region", "source_id", "name_zh"],
+                    "drug_detail": ["region", "source_id", "usage_text", "indications"],
+                    "drug_reference": ["reference_id", "region", "source_id", "match_status"]]
+        default:
+            return [:]
+        }
+    }
+
     /// `expectedTables`/`expectedCounts` 来自已验签 manifest（`CatalogSliceManifestDecoder`）；
     /// `verifyCounts` 由调用方决定：2026-10-28 U-批业主裁决 Q14=B——启动探测即全量
     /// （integrity/FK/逐表 COUNT），旧注释「启动只做元数据级」与实现不符已删。
@@ -81,6 +104,12 @@ public enum CatalogSliceProbe {
                     SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
                     """))
                 guard tables == expectedTables.union(["slice_meta"]) else { return .tableSetMismatch }
+                let layoutVersion = tables.contains("leaflet_section") ? 3 : 1
+                for (table, required) in Self.requiredColumns(kind, schemaVersion: layoutVersion) {
+                    let present = Set(try Row.fetchAll(db, sql: "PRAGMA table_info(\"\(table)\")")
+                        .map { $0["name"] as String })
+                    guard required.isSubset(of: present) else { return .tableSetMismatch }
+                }
                 let rows = try Row.fetchAll(db, sql: "SELECT key, value FROM slice_meta")
                     .map { (key: $0["key"] as String, value: $0["value"] as String) }
                 let observed: CatalogSliceMetaContract.Observed

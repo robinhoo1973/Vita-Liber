@@ -2899,3 +2899,7 @@
 "doc.exportCopy" = "Export Copy to Files";
 
 "chat.recordSensitiveToggle" = "Keep On Device Only (Sensitive)";
+"medicalCatalog.detail.section.leaflet" = "Leaflet";
+"medicalCatalog.detail.leaflet.notCollected" = "No leaflet has been collected for this drug.";
+"medicalCatalog.detail.leaflet.legacy" = "This medical data version predates leaflet support.";
+"medicalCatalog.detail.leaflet.unverified" = "Matched by name (unverified)";

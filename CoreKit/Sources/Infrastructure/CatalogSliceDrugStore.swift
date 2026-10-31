@@ -180,5 +180,62 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
             indications: row["indications"], activeIngredients: row["active_ingredients"],
             usageReferenceJSON: row["usage_ref_json"] ?? "{}", rawJSON: row["raw_json"] ?? "{}")
     }
+
+    // MARK: - 说明书（v7；正文压缩一份，章节只存位置）
+
+    public func leafletSources(forDrugID drugID: Int) async throws -> [MedicalCatalogLeaflet] {
+        guard isV7Layout else { return [] }
+        return try await pool.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT s.source_id, s.doc_sha256, s.name_zh, s.manufacturer,
+                       s.source_url, s.fetched_at, l.match_method, l.match_verified
+                FROM leaflet_link l JOIN leaflet_source s ON s.source_id = l.source_id
+                WHERE l.drug_id = ?
+                ORDER BY l.match_verified DESC, s.fetched_at DESC
+                """, arguments: [drugID]).map { row in
+                MedicalCatalogLeaflet(
+                    sourceID: row["source_id"], docSHA256: row["doc_sha256"],
+                    nameZh: row["name_zh"], manufacturer: row["manufacturer"],
+                    matchMethod: row["match_method"],
+                    matchVerified: (row["match_verified"] as Int64) == 1,
+                    sourceURL: row["source_url"], fetchedAt: row["fetched_at"])
+            }
+        }
+    }
+
+    public func leafletSections(docSHA256: Data) async throws -> [MedicalCatalogLeafletSection] {
+        guard isV7Layout else { return [] }
+        return try await pool.read { db in
+            try Row.fetchAll(db, sql: """
+                SELECT ordinal, kind, char_start, char_end FROM leaflet_section
+                WHERE doc_sha256 = ? ORDER BY ordinal
+                """, arguments: [docSHA256]).map { row in
+                MedicalCatalogLeafletSection(ordinal: row["ordinal"], kind: row["kind"],
+                                             charStart: row["char_start"], charEnd: row["char_end"])
+            }
+        }
+    }
+
+    /// 解压整份说明书；损坏时报错，不返回空串冒充「没有内容」。
+    public func leafletText(docSHA256: Data) async throws -> String {
+        guard isV7Layout else { throw CatalogSliceLeafletFailure.legacySchema }
+        let payload: (Data, Int)? = try await pool.read { db in
+            try Row.fetchOne(db, sql: "SELECT text_zlib, text_bytes FROM leaflet_doc WHERE doc_sha256 = ?",
+                             arguments: [docSHA256]).map { ($0["text_zlib"] as Data, $0["text_bytes"] as Int) }
+        }
+        guard let (compressed, expected) = payload else { throw CatalogSliceLeafletFailure.unavailable }
+        guard let decoded = CatalogSliceLeafletCodec.inflate(compressed), decoded.utf8.count == expected else {
+            throw CatalogSliceLeafletFailure.corruptText
+        }
+        return decoded
+    }
+
+    /// 一节正文；偏移是 Unicode 码点（与解析器一致），不是 UTF-8 字节。
+    public func leafletSectionText(_ section: MedicalCatalogLeafletSection, in text: String) -> String? {
+        let characters = Array(text)
+        guard section.charStart >= 0, section.charEnd > section.charStart,
+              section.charEnd <= characters.count else { return nil }
+        return String(characters[section.charStart..<section.charEnd])
+    }
 }
 #endif

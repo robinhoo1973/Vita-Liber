@@ -159,6 +159,46 @@ final class CatalogSlicesState {
         return readGeneration() == started ? value : nil
     }
 
+    /// 说明书分节结果：未收录 / 旧目录 / 读失败 三态必须分开，不能压成「没有」。
+    enum LeafletResult: Sendable, Equatable {
+        case unavailable
+        case legacySchema
+        case failed
+        case loaded([MedicalCatalogLeafletBundle])
+    }
+
+    struct MedicalCatalogLeafletBundle: Sendable, Equatable, Identifiable {
+        var id: String { leaflet.sourceID }
+        let leaflet: MedicalCatalogLeaflet
+        let sections: [MedicalCatalogLeafletSection]
+        let text: String
+    }
+
+    func leaflets(for drug: MedicalCatalogDrug) async -> LeafletResult {
+        let started = readGeneration()
+        do {
+            let sources = try await facade.leafletSources(forDrugID: drug.id)
+            guard readGeneration() == started else { return .failed }
+            if sources.isEmpty { return .loaded([]) }
+            var bundles: [MedicalCatalogLeafletBundle] = []
+            for leaflet in sources {
+                let sections = try await facade.leafletSections(docSHA256: leaflet.docSHA256)
+                let text = try await facade.leafletText(docSHA256: leaflet.docSHA256)
+                bundles.append(MedicalCatalogLeafletBundle(leaflet: leaflet, sections: sections, text: text))
+            }
+            guard readGeneration() == started else { return .failed }
+            return .loaded(bundles)
+        } catch let error as CatalogSliceLeafletFailure {
+            switch error {
+            case .legacySchema: return .legacySchema
+            case .unavailable: return .unavailable
+            case .corruptText: return .failed
+            }
+        } catch {
+            return .failed
+        }
+    }
+
     private func readGeneration() -> UInt64 {
         let current = facade.catalogGeneration
         if observedGeneration != current {
