@@ -1897,7 +1897,6 @@
 "startup.catalog.candidateFmt" = "有新版本，约 %@。";
 "startup.catalog.status.idleNoLocal" = "本机尚无目录（可选）";
 "startup.catalog.status.idleLocalFmt" = "本机已有目录 %1$lld/%2$lld；尚未检查更新";
-"startup.catalog.status.idleLocal" = "本机已有目录；尚未检查更新";
 "startup.catalog.cancelUpdateContinue" = "取消下载并继续";
 "startup.catalog.cancelCheckContinue" = "取消并继续";
 "startup.catalog.useWhileUpdating" = "先去使用（下载继续）";

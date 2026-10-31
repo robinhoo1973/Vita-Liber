@@ -471,7 +471,6 @@ extension L10n {
     static var startupCatalogUseWhileUpdating: String { t("startup.catalog.useWhileUpdating") }
     static var startupCatalogCancelCheckContinue: String { t("startup.catalog.cancelCheckContinue") }
     static var startupCatalogCancelUpdateContinue: String { t("startup.catalog.cancelUpdateContinue") }
-    static var startupCatalogStatusIdleLocal: String { t("startup.catalog.status.idleLocal") }
     static func startupCatalogStatusIdleLocalFmt(_ installed: Int, _ total: Int) -> String {
         String(format: t("startup.catalog.status.idleLocalFmt"),
                Int64(installed), Int64(total))

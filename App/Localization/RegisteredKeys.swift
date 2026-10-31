@@ -1349,7 +1349,6 @@ extension L10n {
         "startup.catalog.useWhileUpdating",
         "startup.catalog.cancelCheckContinue",
         "startup.catalog.cancelUpdateContinue",
-        "startup.catalog.status.idleLocal",
         "startup.catalog.status.idleLocalFmt",
         "startup.catalog.status.idleNoLocal",
         "startup.catalog.candidateFmt",

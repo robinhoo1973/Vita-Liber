@@ -46,6 +46,14 @@ for key in contract.get("requiredKeys") or []:
     if f't("{key}")' not in app_text:
         errors.append(f"mock 契约键未被 App 消费：{key}")
 
+# mock 专用命名空间死键扫描（owner rule：零引用即缺陷）。
+strings_path = repo / "Resources/Localization/zh-Hans.lproj/Localizable.strings"
+if strings_path.exists():
+    strings_text = strings_path.read_text(encoding="utf-8", errors="ignore")
+    for key in re.findall(r'"(startup\.catalog\.[^"]+)"\s*=', strings_text):
+        if f't("{key}")' not in app_text:
+            errors.append(f"mock 专用 L10n 键零引用：{key}")
+
 mock_path = None
 for base in (repo, repo.parent, repo.parent.parent):
     candidate = base / contract["mockFile"]

@@ -97,7 +97,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference] {
         try await pool.read { db in
-            if isV7Layout {
+            if self.isV7Layout {
                 // v7 keeps only link + status; region/name/licence come from drug.
                 return try Row.fetchAll(db, sql: """
                     SELECT reference_id, image_urls_json, match_status
@@ -122,7 +122,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail? {
         try await pool.read { db in
-            if isV7Layout {
+            if self.isV7Layout {
                 return try Row.fetchOne(db, sql: """
                     SELECT usage_text, indications, active_ingredients
                     FROM drug WHERE id = ?

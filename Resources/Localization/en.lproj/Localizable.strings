@@ -1897,7 +1897,6 @@
 "startup.catalog.candidateFmt" = "New version available, about %@.";
 "startup.catalog.status.idleNoLocal" = "No catalog on this device (optional)";
 "startup.catalog.status.idleLocalFmt" = "Local catalogs %1$lld/%2$lld · not checked yet";
-"startup.catalog.status.idleLocal" = "Catalog already on this device; not checked yet";
 "startup.catalog.cancelUpdateContinue" = "Cancel download and continue";
 "startup.catalog.cancelCheckContinue" = "Cancel and continue";
 "startup.catalog.useWhileUpdating" = "Use the app while downloading";
