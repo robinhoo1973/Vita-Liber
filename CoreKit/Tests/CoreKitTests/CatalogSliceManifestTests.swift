@@ -128,7 +128,9 @@ struct CatalogSliceManifestTests {
         #expect(try candidate(.reference).tables.sorted() == ["diagnosis", "exam_item"])
         #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 1)
                 == ["drug", "drug_detail", "drug_reference"])
-        #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 2) == nil)
+        #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 2)
+                == ["drug", "drug_detail", "drug_reference", "drug_package"])
+        #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 4) == nil)
         #expect(CatalogSliceManifestDecoder.installedTableSet(.facility, schemaVersion: 1)
                 == ["department", "hospital", "slice_meta"])
         // profile 第四切片：13 表冻结集（extension_meta 永不进包；视图不入表集）。
@@ -138,7 +140,7 @@ struct CatalogSliceManifestTests {
                     "ext_source", "kg_extension_release", "surgery", "surgery_department",
                     "surgery_organ"])
         #expect(CatalogSliceManifestDecoder.installedTableSet(.profile, schemaVersion: 1)?.count == 14)
-        #expect(CatalogSliceManifestDecoder.expectedTables(.profile, schemaVersion: 2) == nil)
+        #expect(CatalogSliceManifestDecoder.expectedTables(.profile, schemaVersion: 4) == nil)
     }
 
     @Test("未知键与缺键一律拒；note 是唯一可缺省键")
@@ -168,7 +170,7 @@ struct CatalogSliceManifestTests {
     @Test("schemaVersion/containerFormat/installable/scope 门")
     func versionGates() throws {
         #expect(throws: CatalogSliceManifestError.unsupportedSliceSchemaVersion) {
-            _ = try candidate(.drug) { $0["schemaVersion"] = 2 }
+            _ = try candidate(.drug) { $0["schemaVersion"] = 4 }
         }
         #expect(throws: CatalogSliceManifestError.unsupportedContainerFormat) {
             _ = try candidate(.drug) { $0["containerFormat"] = "zip" }

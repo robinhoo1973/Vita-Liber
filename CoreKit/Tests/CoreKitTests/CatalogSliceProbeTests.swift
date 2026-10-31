@@ -98,10 +98,9 @@ struct CatalogSliceProbeTests {
         #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .drug) == .unreadable)
     }
 
-    @Test func missingCountsKeyIsUnreadableAtSelfCheck() throws {
-        // CI 40803617992 实证语义：自洽探测的前置预读**只取 counts 键**——
-        // 缺失即在预读阶段按不可读处理（.unreadable），走不到后续契约校验的
-        // missingKey 分支。此处钉真实语义，不在本批改动生产行为。
+    @Test func missingCountsKeyIsContractViolationAtSelfCheck() throws {
+        // v7 探测改为预读全部 slice_meta 后再解析 counts：缺失 counts 属契约
+        // 违规（badValue），不再与文件不可读混为一谈。
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
         let path = dir.appendingPathComponent("missing-counts.sqlite").path
@@ -112,7 +111,7 @@ struct CatalogSliceProbeTests {
         }
         try queue.close()
         #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .facility)
-                == .unreadable)
+                == .contractViolation(.badValue("counts")))
     }
 
     @Test func missingFormatKeyIsViolation() throws {
