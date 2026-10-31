@@ -76,13 +76,10 @@ enum CatalogSlicesPromptPresentation {
             // catalogPrimary() 在 phase 恒返回 null，renderCatalogCard 以
             // disabled + spinner 呈现。强制模式无次动作；常规模式只保留
             // 「取消下载并继续」。activating 阶段不可取消（journal 契约）。
-            if case .activating = progress {
-                return .init(primary: .busy, secondary: nil, autoEnter: false,
-                             status: .phase(kind: kind, progress: progress))
-            }
-            return .init(primary: .busy,
-                         secondary: mandatoryDownload(state: state, firstLaunch: firstLaunch)
-                            ? nil : .cancelUpdateAndContinue,
+            let actions = phaseActions(
+                progress: progress,
+                mandatory: mandatoryDownload(state: state, firstLaunch: firstLaunch))
+            return .init(primary: actions.primary, secondary: actions.secondary,
                          autoEnter: false, status: .phase(kind: kind, progress: progress))
         }
         let strict = mandatoryDownload(state: state, firstLaunch: firstLaunch)
@@ -129,6 +126,15 @@ enum CatalogSlicesPromptPresentation {
             // 理论不可达（进行中已在上面 activeProgress 分支拦截）；保守返回 busy。
             return .init(primary: .busy, secondary: nil, autoEnter: false, status: .checking)
         }
+    }
+
+    /// phase 动作纯映射（mock `catalogPrimary()/catalogSecondary()` 1:1）：
+    /// activating 无次动作；强制模式无次动作；非强制仅取消下载并继续。
+    static func phaseActions(progress: MedicalCatalogDownloadProgress,
+                             mandatory: Bool) -> (primary: MedicalCatalogPromptAction,
+                                                  secondary: MedicalCatalogPromptAction?) {
+        if case .activating = progress { return (.busy, nil) }
+        return (.busy, mandatory ? nil : .cancelUpdateAndContinue)
     }
 
     @MainActor

@@ -493,7 +493,7 @@ struct DatabaseInitializationView: View {
             // （B3 评审修复：不得显示「0 个可更新」，走失败短语）。
             if slices.candidates.isEmpty {
                 let status = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy).status
-                return Self.statusText(status, mandatory: model.isCatalogMandatory)
+                return StartupCatalogCopy.statusText(status, mandatory: model.isCatalogMandatory)
             }
             return L10n.startupCheckUpdatesCandidatesFmt(Int64(slices.candidates.count))
         case .appUpdateRequired:
@@ -618,7 +618,7 @@ struct DatabaseInitializationView: View {
         if let slices = model.catalogSlices {
             let descriptor = CatalogSlicesPromptPresentation.descriptor(for: slices, firstLaunch: model.isFirstLaunchOnboarding, networkAvailable: networkGate.isConnected, policyBlocked: networkGate.blockReason() == .wifiOnlyPolicy)
             let size = Self.candidateSizeText(descriptor.status)
-            let statusText = Self.statusText(descriptor.status,
+            let statusText = StartupCatalogCopy.statusText(descriptor.status,
                                             mandatory: model.isCatalogMandatory)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -688,7 +688,7 @@ struct DatabaseInitializationView: View {
                     if descriptor.primary == .busy {
                         ProgressView().controlSize(.small).tint(.white)
                     }
-                    Text(Self.primaryTitle(descriptor.primary, status: descriptor.status,
+                    Text(StartupCatalogCopy.primaryTitle(descriptor.primary, status: descriptor.status,
                                            sizeText: sizeText))
                 }
             }
@@ -702,7 +702,7 @@ struct DatabaseInitializationView: View {
                 Button {
                     perform(secondary)
                 } label: {
-                    Text(Self.secondaryTitle(secondary, networkBlocked: networkGate.blockReason() != nil))
+                    Text(StartupCatalogCopy.secondaryTitle(secondary, networkBlocked: networkGate.blockReason() != nil))
                 }
                 // 次动作 = 描边按钮（低于主按钮实心强调；52pt/圆角 14 与主按钮同族）。
                 .buttonStyle(VLSecondaryActionButtonStyle())
@@ -757,50 +757,6 @@ struct DatabaseInitializationView: View {
         return ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file)
     }
 
-    /// 状态短语（切片聚合；未知进行中片显示其名 + 阶段）。
-    private static func statusText(_ status: CatalogSlicesPromptStatus,
-                                   mandatory: Bool) -> String {
-        switch status {
-        case .idleNoLocal(let installed):
-            if installed > 0 {
-                // mock 1:1：「本机已有目录 N/4；尚未检查更新」。
-                return L10n.startupCatalogStatusIdleLocalFmt(
-                    installed, CatalogSliceKind.allCases.count)
-            }
-            // 2026-10-30：强制首启时状态短语与标题「（必需）」同口径，
-            // 不得出现「（必需）」标题下写「（可选）」的自相矛盾（mock 对照发现）。
-            return mandatory
-                ? L10n.startupCatalogStatusIdleNoLocalRequired
-                : L10n.startupCatalogStatusIdleNoLocal
-        case .checking:
-            return L10n.resourceCatalogSlicesChecking
-        case .candidate(_, let totalSize):
-            // mock 1:1（2026-10-31）：候选状态短语用 mock 专用键
-            // 「有新版本，约 %@。」——`startup.catalog.candidateFmt` 此前
-            // 定义后零消费（视图误接了设置页 summary 文案），是 mock
-            // 与实现两套映射并存的直接证据。
-            return L10n.startupCatalogCandidateFmt(
-                ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file))
-        case .phase(let kind, let progress):
-            return kindName(kind) + " · " + MedicalCatalogPromptCopy.phaseText(progress)
-        case .completed(let version):
-            return version.map { L10n.startupCatalogCompletedFmt($0) }
-                ?? L10n.startupCatalogCompleted
-        case .upToDate:
-            return L10n.resourceCatalogSlicesAllCurrent
-        case .sourcePartial(let count):
-            return L10n.resourceCatalogSlicesSourcePartialFmt(count)
-        case .failure(let failed, let hasLocal):
-            return hasLocal
-                ? L10n.resourceCatalogSlicesPartialFailureFmt(failed)
-                : L10n.resourceCatalogUpdateFailedNoLocal
-        case .appUpdateRequired(let count):
-            return L10n.resourceCatalogSlicesAppUpdateRequiredFmt(count)
-        case .unavailable:
-            return L10n.resourceCatalogUnavailable
-        }
-    }
-
     /// 阶段/状态稳定键：只反映短语类别与阶段，不随下载字节变化（播报去抖）。
     private static func cardPhaseKey(_ status: CatalogSlicesPromptStatus) -> String {
         switch status {
@@ -829,54 +785,6 @@ struct DatabaseInitializationView: View {
         key == "completed" || key == "upToDate" || key == "unavailable"
             || key.hasPrefix("candidate-") || key.hasPrefix("failed-")
             || key.hasPrefix("appRequired-")
-    }
-
-    private static func primaryTitle(_ action: MedicalCatalogPromptAction,
-                                     status: CatalogSlicesPromptStatus,
-                                     sizeText: String?) -> String {
-        switch action {
-        case .check: return L10n.resourceCatalogCheck
-        case .recheck: return L10n.resourceCatalogRecheck
-        case .install: return L10n.startupCatalogInstallFmt(sizeText ?? "")
-        case .retryInstall: return L10n.startupCatalogRetryInstall
-        case .enter: return L10n.startupCatalogEnter
-        case .enterKeepingUpdate: return L10n.startupCatalogUseWhileUpdating
-        case .continueWithout: return L10n.startupCatalogContinue
-        case .cancelCheckAndContinue: return L10n.startupCatalogCancelCheckContinue
-        case .cancelUpdateAndContinue: return L10n.startupCatalogCancelUpdateContinue
-        case .busy:
-            // mock 1:1（2026-10-31）：阶段忙碌主按钮按 mock primaryLabel——
-            // 激活=「正在完成安装，请勿关闭」；下载/校验/解密=「正在下载…」；
-            // 仅检查态才是「正在检查…」。旧实现把 phase 一律落到检查文案。
-            if case .phase(_, let progress) = status {
-                if case .activating = progress { return L10n.startupCatalogActivating }
-                return L10n.startupCatalogDownloading
-            }
-            return L10n.resourceCatalogChecking
-        case .none: return L10n.startupCatalogUpgradeUnavailable
-        }
-    }
-
-    private static func secondaryTitle(_ action: MedicalCatalogPromptAction,
-                                       networkBlocked: Bool = false) -> String {
-        switch action {
-        case .cancelCheckAndContinue: return L10n.startupCatalogCancelCheckContinue
-        case .cancelUpdateAndContinue: return L10n.startupCatalogCancelUpdateContinue
-        case .continueWithout:
-            // 强制卡离线/仅 Wi-Fi 拦截出口用业主措辞「先进入」；常规跳过仍为
-            // 「暂不下载，继续」（两者都= enter without downloading）。
-            return networkBlocked ? L10n.startupCatalogEnterFirst : L10n.startupCatalogContinue
-        default: return L10n.startupCatalogContinue
-        }
-    }
-
-    private static func kindName(_ kind: CatalogSliceKind) -> String {
-        switch kind {
-        case .drug: return L10n.resourceCatalogSliceDrugName
-        case .facility: return L10n.resourceCatalogSliceFacilityName
-        case .reference: return L10n.resourceCatalogSliceReferenceName
-        case .profile: return L10n.resourceCatalogSliceProfileName
-        }
     }
 
     @ViewBuilder
