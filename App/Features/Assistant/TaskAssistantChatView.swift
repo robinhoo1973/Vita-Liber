@@ -108,6 +108,9 @@ struct TaskAssistantChatView: View {
         case voiceDetail(messageID: UUID, media: MediaInfo)
         case sharedReview(sessionID: UUID)
         case cardReview(cardID: UUID, sessionID: UUID)
+        /// 资料类型补选（2026-10-31 业主）：OCR 无法判定类型时在聊天内补选，
+        /// 不再把整次导入判死、也不再提示「请到拍摄入口处理」。
+        case docTypePick(sessionID: UUID, messageID: UUID?)
 
         var id: String {
             switch self {
@@ -116,6 +119,8 @@ struct TaskAssistantChatView: View {
             case .voiceDetail(let messageID, _): return "voice-\(messageID.uuidString)"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
+            case .docTypePick(let sessionID, let messageID):
+                return "docType-\(sessionID.uuidString)-\(messageID?.uuidString ?? "nil")"
             }
         }
     }
@@ -1028,6 +1033,26 @@ struct TaskAssistantChatView: View {
             }
         case .cardReview(let cardID, let sessionID):
             ChatCardReviewSheet(cardID: cardID, sessionID: sessionID)
+        case .docTypePick(let sessionID, let messageID):
+            // 2026-10-31 业主：类型无法判定时在聊天内补选（与资料库
+            // DocumentImportConfirmView 同一确认语义：显式选择才落库）。
+            if let session = docs.activeImport, session.id == sessionID,
+               let draft = session.draft {
+                ChatDocTypePickerSheet(
+                    candidates: draft.documentTypeCandidates,
+                    onConfirm: { label in
+                        activeSheet = nil
+                        Task { await resolveDocType(label, session: session,
+                                                    messageID: messageID) }
+                    },
+                    onCancel: {
+                        activeSheet = nil
+                        Task { await cancelDocTypePick(session: session,
+                                                       messageID: messageID) }
+                    })
+            } else {
+                reviewUnavailable
+            }
         }
     }
 
@@ -1676,8 +1701,45 @@ struct TaskAssistantChatView: View {
             return
         }
         guard draft.docTypeResolved else {
-            await failImport(session: session, messageID: messageID,
-                             text: L10n.assistantDocTypeUnresolved)
+            // 2026-10-31 业主（多图上传无法识别）：类型未判定不再把整次导入
+            // 判死——在聊天内补选（与资料库 DocumentImportConfirmView 同一
+            // 语义：用户显式选择后才允许落库）。旧实现直接 failImport，
+            // 媒体气泡无 documentId，因而整条不可点、详情页永远打不开。
+            presentDocTypePicker(session: session, messageID: messageID)
+            return
+        }
+        await completeImport(draft, session: session, messageID: messageID)
+    }
+
+    /// 与 `presentImportPreview` 同纪律：图片预览/系统选择器的关闭动画尚未
+    /// 结束就切换 presentation 会被系统吞掉——延后一拍再呈现补选页。
+    private func presentDocTypePicker(session: DocumentsState.ImportSession,
+                                      messageID: UUID?) {
+        let sheet = AssistantSheet.docTypePick(sessionID: session.id,
+                                               messageID: messageID)
+        Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 350_000_000)
+            } catch {
+                return
+            }
+            guard importIsCurrent(session), docs.activeImport?.id == session.id else {
+                // 延迟窗口内切会话/取消：必须收尾释放导入槽，不得留下
+                // 永不呈现的 picker 与永久「导入进行中」。
+                await discardSupersededImport(session)
+                return
+            }
+            activeSheet = sheet
+        }
+    }
+
+    /// 类型确定后的唯一收尾：落库 → 回执 → 自动命名 → 用户面副本导出。
+    /// 补选类型（`resolveDocType`）与直接识别共用——避免两条收尾路径再次漂移。
+    private func completeImport(_ draft: DocumentsState.ImportDraft,
+                                session: DocumentsState.ImportSession,
+                                messageID: UUID?) async {
+        guard importIsCurrent(session) else {
+            await discardSupersededImport(session)
             return
         }
         guard await docs.commitDraft(draft) else {
@@ -1719,6 +1781,36 @@ struct TaskAssistantChatView: View {
         guard exportGeneration == conversationGeneration else { return }
         await exportChatMedia(session: session, title: title,
                               generation: exportGeneration)
+    }
+
+    /// 用户在聊天内补选资料类型后继续原导入（显式选择 = 用户确认类型）。
+    private func resolveDocType(_ label: String,
+                                session: DocumentsState.ImportSession,
+                                messageID: UUID?) async {
+        guard importIsCurrent(session) else {
+            await discardSupersededImport(session)
+            return
+        }
+        guard var draft = session.draft else {
+            await failImport(session: session, messageID: messageID,
+                             text: L10n.assistantMediaFailed)
+            return
+        }
+        // 与 DocumentImportConfirmView Picker 同口径（单一语义源）。
+        draft.docType = label
+        draft.docTypeResolved = true
+        draft.docTypeManuallyChosen = true
+        draft.documentTypeKey = DocumentsState.docTypeKey(forLabel: label)
+        draft.docTypeLowConfidence = false
+        session.draft = draft
+        await completeImport(draft, session: session, messageID: messageID)
+    }
+
+    /// 补选取消：原图未落库，释放导入槽并给可读回执（不得静默卡住）。
+    private func cancelDocTypePick(session: DocumentsState.ImportSession,
+                                   messageID: UUID?) async {
+        await failImport(session: session, messageID: messageID,
+                         text: L10n.assistantDocTypePickCancelled)
     }
 
     /// 导入收尾：未处理卡整批落待办、结算并释放导入槽（详情页仍可续办）。
@@ -2094,6 +2186,83 @@ private struct ChatCardReviewSheet: View {
                 }
             }
         }
+    }
+}
+
+/// 聊天内资料类型补选（2026-10-31 业主）：多图上传 OCR 无法判定类型时，
+/// 不再提示「请到拍摄入口处理」并判死整次导入。选项与资料库
+/// `DocumentImportConfirmView` 同源（`DocumentsState.docTypeLabelOptions`）
+/// ——候选类型在前、完整类型目录在后；必须显式选择，确认才落库。
+private struct ChatDocTypePickerSheet: View {
+    let options: [String]
+    let onConfirm: (String) -> Void
+    let onCancel: () -> Void
+    @State private var selected: String?
+
+    init(candidates: [String],
+         onConfirm: @escaping (String) -> Void,
+         onCancel: @escaping () -> Void) {
+        var seen = Set<String>()
+        self.options = (candidates + DocumentsState.docTypeLabelOptions)
+            .filter { seen.insert($0).inserted }
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(L10n.assistantDocTypeUnresolved)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 8)],
+                              alignment: .leading, spacing: 8) {
+                        ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                            Button {
+                                selected = option
+                            } label: {
+                                Text(option)
+                                    .font(.subheadline)
+                                    .lineLimit(2)
+                                    .minimumScaleFactor(0.85)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity, minHeight: 44)
+                                    .padding(.horizontal, 8)
+                                    .background(
+                                        selected == option
+                                            ? Color("brand-primary", bundle: .main).opacity(0.18)
+                                            : Color(.secondarySystemBackground),
+                                        in: RoundedRectangle(cornerRadius: 10,
+                                                             style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("assistant.docTypePick.option.\(index)")
+                        }
+                    }
+                }
+            }
+            .padding(20)
+            .navigationTitle(L10n.docConfirmDocType)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.commonCancel) { onCancel() }
+                        .accessibilityIdentifier("assistant.docTypePick.cancel")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.commonConfirm) {
+                        if let selected { onConfirm(selected) }
+                    }
+                    .disabled(selected == nil)
+                    .accessibilityIdentifier("assistant.docTypePick.confirm")
+                }
+            }
+            // 显式二选一：滑动关闭会留下无人处理的导入槽（永久「导入进行中」）。
+            .interactiveDismissDisabled()
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

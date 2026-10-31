@@ -34,7 +34,22 @@ enum CatalogSlicesPromptPresentation {
     /// （V4.87 行为）——更新/补装对老用户不设强制门。
     @MainActor
     static func mandatoryDownload(state: CatalogSlicesState, firstLaunch: Bool) -> Bool {
-        firstLaunch && state.installedCount == 0
+        mandatoryDownload(firstLaunch: firstLaunch,
+                          installedCount: state.installedCount,
+                          installedCountAtUpdateStart: state.installedCountAtUpdateStart)
+    }
+
+    /// 纯判定（可单测）：一次安装会话内「本机 0 片」冻结在开始下载那一刻——
+    /// installAll 逐片完成会让 installedCount 递增，旧实现据此把强制卡中途翻成
+    /// 「可选」，下载中突然长出「取消下载并继续」第二个按钮。mock 的
+    /// `mandatory()` 等价于 `firstLaunch && installed === 0`，且演示状态
+    /// 只在四片全部完成后才把 installed 置 4——冻结起点即 1:1。
+    static func mandatoryDownload(firstLaunch: Bool,
+                                  installedCount: Int,
+                                  installedCountAtUpdateStart: Int?) -> Bool {
+        guard firstLaunch else { return false }
+        if let startCount = installedCountAtUpdateStart { return startCount == 0 }
+        return installedCount == 0
     }
 
     @MainActor
@@ -55,24 +70,19 @@ enum CatalogSlicesPromptPresentation {
                          status: .unavailable)
         }
         if let (kind, progress) = activeProgress(state) {
-            if mandatoryDownload(state: state, firstLaunch: firstLaunch) {
-                // 审查席 P1：强制模式区分「不可取消」与「不可进入」——
-                // activating 保持 busy（写盘临界区），其余阶段给「先用（下载继续）」
-                // 出口：不取消在途下载 = 未跳过下载，只避免 GB 级任务挂起时死锁。
-                if case .activating = progress {
-                    return .init(primary: .busy, secondary: nil, autoEnter: false,
-                                 status: .phase(kind: kind, progress: progress))
-                }
-                return .init(primary: .enterKeepingUpdate, secondary: nil, autoEnter: false,
-                             status: .phase(kind: kind, progress: progress))
-            }
-            // 常规模式：进行中允许「先去使用（下载继续）」/「取消更新并进入」；
-            // activating 阶段不可取消（journal 契约）。
+            // mock 1:1（2026-10-31）：进行中主按钮恒为禁用忙碌态（下载/校验/
+            // 解密显示「正在下载…」，激活显示「正在完成安装，请勿关闭」），
+            // 不再给「先去使用（下载继续）」的**可点**主按钮——mock 的
+            // catalogPrimary() 在 phase 恒返回 null，renderCatalogCard 以
+            // disabled + spinner 呈现。强制模式无次动作；常规模式只保留
+            // 「取消下载并继续」。activating 阶段不可取消（journal 契约）。
             if case .activating = progress {
                 return .init(primary: .busy, secondary: nil, autoEnter: false,
                              status: .phase(kind: kind, progress: progress))
             }
-            return .init(primary: .enterKeepingUpdate, secondary: .cancelUpdateAndContinue,
+            return .init(primary: .busy,
+                         secondary: mandatoryDownload(state: state, firstLaunch: firstLaunch)
+                            ? nil : .cancelUpdateAndContinue,
                          autoEnter: false, status: .phase(kind: kind, progress: progress))
         }
         let strict = mandatoryDownload(state: state, firstLaunch: firstLaunch)

@@ -1891,10 +1891,12 @@
 "startup.catalog.upgradeUnavailable" = "Catalog upgrade is unavailable; other features are unaffected.";
 "startup.catalog.backgroundGrace" = "Switching away or locking may interrupt it; the system usually allows about 30 seconds to finish, and an interrupted download must start over.";
 "startup.catalog.activating" = "Finishing installation. Do not close the app.";
+"startup.catalog.downloading" = "Downloading…";
 "startup.catalog.completed" = "Medical data catalog updated.";
 "startup.catalog.completedFmt" = "Updated to v%1$lld";
 "startup.catalog.candidateFmt" = "New version available, about %@.";
 "startup.catalog.status.idleNoLocal" = "No catalog on this device (optional)";
+"startup.catalog.status.idleLocalFmt" = "Local catalogs %1$lld/%2$lld · not checked yet";
 "startup.catalog.status.idleLocal" = "Catalog already on this device; not checked yet";
 "startup.catalog.cancelUpdateContinue" = "Cancel download and continue";
 "startup.catalog.cancelCheckContinue" = "Cancel and continue";
@@ -2699,7 +2701,8 @@
 "assistant.mediaFailed" = "Recognition failed";
 "assistant.mediaDuplicate" = "Duplicate document found — handle it in the library";
 "assistant.importBusy" = "Finish the current import first";
-"assistant.docTypeUnresolved" = "Could not determine the document type";
+"assistant.docTypeUnresolved" = "Could not determine the document type. Choose one to continue.";
+"assistant.docTypePickCancelled" = "Import cancelled; the original was not saved.";
 "assistant.captureSaved" = "Saved";
 "assistant.voiceMessage" = "Voice message";
 "assistant.voiceReplay" = "Replay";

@@ -95,6 +95,8 @@ extension L10n {
     static var assistantMediaDuplicate: String { t("assistant.mediaDuplicate") }
     static var assistantImportBusy: String { t("assistant.importBusy") }
     static var assistantDocTypeUnresolved: String { t("assistant.docTypeUnresolved") }
+    /// 聊天内资料类型补选被取消（原图未落库）；不再提示「去拍摄入口」。
+    static var assistantDocTypePickCancelled: String { t("assistant.docTypePickCancelled") }
     static var assistantCaptureSaved: String { t("assistant.captureSaved") }
     static var assistantVoiceMessage: String { t("assistant.voiceMessage") }
     static var assistantVoiceReplay: String { t("assistant.voiceReplay") }

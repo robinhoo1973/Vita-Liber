@@ -1891,10 +1891,12 @@
 "startup.catalog.upgradeUnavailable" = "目錄升級暫不可用，其他功能不受影響。";
 "startup.catalog.backgroundGrace" = "切到背景或鎖屏可能中斷；系統通常只允許約 30 秒收尾，中斷後需要重新下載。";
 "startup.catalog.activating" = "正在完成安裝，請勿關閉";
+"startup.catalog.downloading" = "正在下載…";
 "startup.catalog.completed" = "醫療資料目錄已更新。";
 "startup.catalog.completedFmt" = "已更新至 v%1$lld";
 "startup.catalog.candidateFmt" = "有新版本，約 %@。";
 "startup.catalog.status.idleNoLocal" = "本機尚無目錄（選用）";
+"startup.catalog.status.idleLocalFmt" = "本機已有目錄 %1$lld/%2$lld；尚未檢查更新";
 "startup.catalog.status.idleLocal" = "本機已有目錄；尚未檢查更新";
 "startup.catalog.cancelUpdateContinue" = "取消下載並繼續";
 "startup.catalog.cancelCheckContinue" = "取消並繼續";
@@ -2699,7 +2701,8 @@
 "assistant.mediaFailed" = "辨識失敗";
 "assistant.mediaDuplicate" = "發現重複資料：請到資料庫處理";
 "assistant.importBusy" = "有未完成的匯入，請先處理";
-"assistant.docTypeUnresolved" = "無法確定資料類型，請到拍攝入口處理";
+"assistant.docTypeUnresolved" = "無法確定資料類型，請選擇後繼續";
+"assistant.docTypePickCancelled" = "已取消匯入，原圖未儲存";
 "assistant.captureSaved" = "已儲存";
 "assistant.voiceMessage" = "語音訊息";
 "assistant.voiceReplay" = "重播";

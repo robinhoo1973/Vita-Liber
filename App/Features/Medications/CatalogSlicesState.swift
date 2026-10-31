@@ -36,6 +36,9 @@ final class CatalogSlicesState {
     private var verified: [CatalogSliceKind: VerifiedCatalogSliceCandidate] = [:]
     private var checkTask: Task<Void, Never>?
     private var updateTask: Task<Void, Never>?
+    /// 本次安装开始时的已装片数（mock 1:1：`mandatory()` 的「本机 0 片」
+    /// 在一次安装会话内必须冻结——逐片完成不得把强制卡中途翻成可选）。
+    private(set) var installedCountAtUpdateStart: Int?
 
     private(set) var remote: [CatalogSliceKind: CatalogSliceRemoteState] = [:]
     private(set) var progress: [CatalogSliceKind: MedicalCatalogDownloadProgress] = [:]
@@ -259,6 +262,7 @@ final class CatalogSlicesState {
             errors[kind] = nil
             completedVersions[kind] = nil
         }
+        installedCountAtUpdateStart = installedCount
         updateTask = Task { [weak self] in
             guard let self else { return }
             for kind in kinds {
@@ -279,6 +283,7 @@ final class CatalogSlicesState {
                 }
             }
             self.updateTask = nil
+            self.installedCountAtUpdateStart = nil
         }
     }
 

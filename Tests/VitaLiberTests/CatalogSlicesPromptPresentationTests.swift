@@ -68,6 +68,22 @@ final class CatalogSlicesPromptPresentationTests: XCTestCase {
         }
     }
 
+    /// 2026-10-31 业主（mock 1:1 回归）：强制首启下载一旦开始，逐片完成
+    /// 不得把 mandatory 翻成 false（下载中途长出第二个按钮的直接根因）。
+    func testMandatoryDownloadFreezesAtUpdateStart() {
+        XCTAssertTrue(CatalogSlicesPromptPresentation.mandatoryDownload(
+            firstLaunch: true, installedCount: 1, installedCountAtUpdateStart: 0),
+            "安装会话从 0 片开始：中途已装 1 片仍须保持强制，与 mock 一致")
+        XCTAssertFalse(CatalogSlicesPromptPresentation.mandatoryDownload(
+            firstLaunch: true, installedCount: 4, installedCountAtUpdateStart: 4),
+            "更新会话开始时就已有目录：属于常规更新，不设强制门")
+        XCTAssertTrue(CatalogSlicesPromptPresentation.mandatoryDownload(
+            firstLaunch: true, installedCount: 0, installedCountAtUpdateStart: nil))
+        XCTAssertFalse(CatalogSlicesPromptPresentation.mandatoryDownload(
+            firstLaunch: false, installedCount: 1, installedCountAtUpdateStart: 0),
+            "非首启永不强制")
+    }
+
     func testAllCurrentAutoEnters() async throws {
         let state = try await stateAfterCheck(.upToDate(catalogVersion: 1))
         let descriptor = CatalogSlicesPromptPresentation.descriptor(for: state)

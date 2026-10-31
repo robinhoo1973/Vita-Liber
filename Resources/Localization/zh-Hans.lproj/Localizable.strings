@@ -1891,10 +1891,12 @@
 "startup.catalog.upgradeUnavailable" = "目录升级暂不可用，其他功能不受影响。";
 "startup.catalog.backgroundGrace" = "切到后台或锁屏可能中断；系统通常只允许约 30 秒收尾，中断后需要重新下载。";
 "startup.catalog.activating" = "正在完成安装，请勿关闭";
+"startup.catalog.downloading" = "正在下载…";
 "startup.catalog.completed" = "医疗数据目录已更新。";
 "startup.catalog.completedFmt" = "已更新至 v%1$lld";
 "startup.catalog.candidateFmt" = "有新版本，约 %@。";
 "startup.catalog.status.idleNoLocal" = "本机尚无目录（可选）";
+"startup.catalog.status.idleLocalFmt" = "本机已有目录 %1$lld/%2$lld；尚未检查更新";
 "startup.catalog.status.idleLocal" = "本机已有目录；尚未检查更新";
 "startup.catalog.cancelUpdateContinue" = "取消下载并继续";
 "startup.catalog.cancelCheckContinue" = "取消并继续";
@@ -2699,7 +2701,8 @@
 "assistant.mediaFailed" = "识别失败";
 "assistant.mediaDuplicate" = "发现重复资料：请到资料库处理";
 "assistant.importBusy" = "有未完成的导入，请先处理";
-"assistant.docTypeUnresolved" = "无法确定资料类型，请到拍摄入口处理";
+"assistant.docTypeUnresolved" = "无法确定资料类型，请选择后继续";
+"assistant.docTypePickCancelled" = "已取消导入，原图未保存";
 "assistant.captureSaved" = "已保存";
 "assistant.voiceMessage" = "语音消息";
 "assistant.voiceReplay" = "重放";

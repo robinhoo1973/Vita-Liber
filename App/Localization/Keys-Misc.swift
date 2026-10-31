@@ -472,6 +472,10 @@ extension L10n {
     static var startupCatalogCancelCheckContinue: String { t("startup.catalog.cancelCheckContinue") }
     static var startupCatalogCancelUpdateContinue: String { t("startup.catalog.cancelUpdateContinue") }
     static var startupCatalogStatusIdleLocal: String { t("startup.catalog.status.idleLocal") }
+    static func startupCatalogStatusIdleLocalFmt(_ installed: Int, _ total: Int) -> String {
+        String(format: t("startup.catalog.status.idleLocalFmt"),
+               Int64(installed), Int64(total))
+    }
     static var startupCatalogStatusIdleNoLocal: String { t("startup.catalog.status.idleNoLocal") }
     static var startupCatalogStatusIdleNoLocalRequired: String { t("startup.catalog.status.idleNoLocalRequired") }
     static func startupCatalogCandidateFmt(_ size: String) -> String {
@@ -482,6 +486,8 @@ extension L10n {
     }
     static var startupCatalogCompleted: String { t("startup.catalog.completed") }
     static var startupCatalogActivating: String { t("startup.catalog.activating") }
+    /// mock 1:1（2026-10-31）：下载/校验/解密阶段忙碌主按钮。
+    static var startupCatalogDownloading: String { t("startup.catalog.downloading") }
     static var startupCatalogBackgroundGrace: String { t("startup.catalog.backgroundGrace") }
     static var startupCatalogUpgradeUnavailable: String { t("startup.catalog.upgradeUnavailable") }
     static var startupCatalogSizeHint: String { t("startup.catalog.sizeHint") }
