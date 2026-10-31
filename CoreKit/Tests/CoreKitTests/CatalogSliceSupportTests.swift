@@ -15,7 +15,7 @@ struct CatalogSliceTrustTests {
                            sqlite: Character = "a", rootVersion: Int64 = 1,
                            payloadDigest: Character = "d") -> VerifiedCatalogSliceCandidate {
         VerifiedCatalogSliceCandidate(
-            kind: kind, rootVersion: rootVersion, catalogVersion: catalogVersion,
+            kind: kind, schemaVersion: 1, rootVersion: rootVersion, catalogVersion: catalogVersion,
             assetName: kind.packageAssetName, sqliteEntryName: kind.sqliteEntryName,
             sqliteSHA256: digest(sqlite), sqliteSize: 2_000,
             contentSHA256: digest(sqlite),
@@ -111,7 +111,7 @@ struct CatalogSliceReceiptTests {
 
     private func candidate(_ kind: CatalogSliceKind) -> VerifiedCatalogSliceCandidate {
         VerifiedCatalogSliceCandidate(
-            kind: kind, rootVersion: 1, catalogVersion: 5,
+            kind: kind, schemaVersion: 1, rootVersion: 1, catalogVersion: 5,
             assetName: kind.packageAssetName, sqliteEntryName: kind.sqliteEntryName,
             sqliteSHA256: digest("a"), sqliteSize: 2_000,
             contentSHA256: digest("a"),
