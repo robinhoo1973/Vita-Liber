@@ -203,6 +203,7 @@ struct AppContainer {
             currentBuild: sliceBuild,
             verifySQLite: { url, candidate in
                 switch CatalogSliceProbe.inspect(path: url.path, kind: candidate.kind,
+                                               schemaVersion: candidate.schemaVersion,
                                                  expectedTables: Set(candidate.tables),
                                                  expectedCounts: candidate.counts,
                                                  verifyCounts: true) {

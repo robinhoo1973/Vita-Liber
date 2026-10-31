@@ -20,12 +20,13 @@ public enum CatalogSliceProtocol {
     /// 切片**内容 schema** 版本（每片表集随 kind 在此版本冻结）。原名
     /// `supportedManifestSchemaVersion`——2026-10-28 二轮质询正名：清单格式在
     /// `format` 字符串，此字段描述的是包内 SQLite 的表布局契约。
-    public static let supportedSliceSchemaVersion = 1
+    public static let supportedSliceSchemaVersion = 4
     /// Layouts this build understands. 1 = v4 three-table slices (facility,
-    /// reference, profile); 3 = v7 drug slice (merged drug rows, compressed
-    /// label text, span-only sections). A slice declares its own layout in the
-    /// manifest, so old and new slices can coexist during migration.
-    public static let supportedSliceSchemaVersions: Set<Int> = [1, 2, 3]
+    /// reference, profile); 2 = v5; 3 = v7 drug slice (merged drug rows,
+    /// compressed label text, span-only sections); 4 = v8 drug slice (fullest
+    /// drug schema, values may be NULL, no drug_package). A slice declares its
+    /// own layout in the manifest, so old and new slices coexist.
+    public static let supportedSliceSchemaVersions: Set<Int> = [1, 2, 3, 4]
     /// 包内单成员容器格式（与 v4/ASR 同构，复用同一 opener）。
     public static let containerFormat = "zip+aes256gcm-v1"
     /// 信封/载荷尺寸上限（与既有 `MedicalCatalogReleaseProtocol.maxEnvelopeBytes/

@@ -50,6 +50,7 @@ public enum CatalogSliceProbe {
         case "catalog-v4": schemaVersion = 1
         case "catalog-v5": schemaVersion = 2
         case "catalog-v7": schemaVersion = 3
+        case "catalog-v8": schemaVersion = 4
         default: return .contractViolation(.badValue("physical_schema"))
         }
         guard let tables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: schemaVersion) else {
@@ -59,7 +60,8 @@ public enum CatalogSliceProbe {
               let counts = try? JSONDecoder().decode([String: Int64].self, from: raw) else {   // try?-ok: 形态错按契约违规
             return .contractViolation(.badValue("counts"))
         }
-        return inspect(path: path, kind: kind, expectedTables: tables, expectedCounts: counts,
+        return inspect(path: path, kind: kind, schemaVersion: schemaVersion,
+                       expectedTables: tables, expectedCounts: counts,
                        verifyCounts: true, fileManager: fileManager)
     }
 
@@ -77,6 +79,14 @@ public enum CatalogSliceProbe {
                 "leaflet_section": ["doc_sha256", "ordinal", "kind", "char_start", "char_end"],
                 "leaflet_link": ["source_id", "drug_id", "match_method", "match_verified"],
             ]
+        case (.drug, 4):
+            // v8 final: App SQL 静态引用列；其余列可缺值不可缺列（发布器校验）。
+            return [
+                "drug": ["id", "region", "source_id", "name_zh", "name_en", "brand_name",
+                          "insurance_code", "drug_code", "usage_text", "indications"],
+                "drug_reference": ["drug_id", "reference_id", "image_urls_json", "match_status"],
+                "drug_sections": ["drug_id", "source_id", "field", "ordinal", "kind", "value"],
+            ]
         case (.drug, 1):
             return ["drug": ["id", "region", "source_id", "name_zh"],
                     "drug_detail": ["region", "source_id", "usage_text", "indications"],
@@ -89,7 +99,7 @@ public enum CatalogSliceProbe {
     /// `expectedTables`/`expectedCounts` 来自已验签 manifest（`CatalogSliceManifestDecoder`）；
     /// `verifyCounts` 由调用方决定：2026-10-28 U-批业主裁决 Q14=B——启动探测即全量
     /// （integrity/FK/逐表 COUNT），旧注释「启动只做元数据级」与实现不符已删。
-    public static func inspect(path: String, kind: CatalogSliceKind,
+    public static func inspect(path: String, kind: CatalogSliceKind, schemaVersion: Int,
                                expectedTables: Set<String>, expectedCounts: [String: Int64],
                                verifyCounts: Bool, fileManager: FileManager = .default) -> State {
         guard fileManager.fileExists(atPath: path) else { return .missing }
@@ -104,8 +114,7 @@ public enum CatalogSliceProbe {
                     SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
                     """))
                 guard tables == expectedTables.union(["slice_meta"]) else { return .tableSetMismatch }
-                let layoutVersion = tables.contains("leaflet_section") ? 3 : 1
-                for (table, required) in Self.requiredColumns(kind, schemaVersion: layoutVersion) {
+                for (table, required) in Self.requiredColumns(kind, schemaVersion: schemaVersion) {
                     let present = Set(try Row.fetchAll(db, sql: "PRAGMA table_info(\"\(table)\")")
                         .map { $0["name"] as String })
                     guard required.isSubset(of: present) else { return .tableSetMismatch }

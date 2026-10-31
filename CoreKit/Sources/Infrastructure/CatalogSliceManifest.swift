@@ -34,6 +34,8 @@ public enum CatalogSliceManifestError: Error, Equatable {
 /// 只有 `CatalogSliceManifestDecoder`（聚合于 `verifySlice`）能产出。
 public struct VerifiedCatalogSliceCandidate: Sendable, Equatable {
     public let kind: CatalogSliceKind
+    /// 已验签的内容 schema 版本（安装期列契约按它选择，不靠表名猜测）。
+    public let schemaVersion: Int
     /// 签名载荷声明的信任根版本（只做 1...pinned root.version 界限 + 回执审计；
     /// 不要求与 pinned 等值——固定名资产在 root 轮换窗口需同时服务新旧 rootVersion）。
     public let rootVersion: Int64
@@ -82,6 +84,16 @@ public enum CatalogSliceManifestDecoder {
             case .profile: return nil
             }
         }
+        if schemaVersion == 4 {
+            // v8 final: three data tables; label text shared by content hash
+            // inside drug_sections.
+            switch kind {
+            case .drug: return ["drug", "drug_reference", "drug_sections"]
+            case .facility: return ["hospital", "department", "hospital_department"]
+            case .reference: return ["diagnosis", "exam_item", "exam_service", "exam_item_price"]
+            case .profile: return nil
+            }
+        }
         if schemaVersion == 3 {
             // v7 drug slice: drug/detail merged, label text compressed once,
             // sections are span-only rows.
@@ -100,6 +112,13 @@ public enum CatalogSliceManifestDecoder {
                     "ext_source", "kg_extension_release", "surgery", "surgery_department",
                     "surgery_organ"]
         }
+    }
+
+    /// v8 起允许为 0 的副表（数据尚未采集；表仍必须声明）。核心表不得为 0。
+    public static func mayBeEmpty(_ kind: CatalogSliceKind, schemaVersion: Int,
+                                  table: String) -> Bool {
+        guard schemaVersion >= 4, kind == .drug else { return false }
+        return ["drug_reference", "drug_sections"].contains(table)
     }
 
     /// 安装期允许的表集 = 数据表 ∪ {`slice_meta`}（禁 `catalog_meta`/FTS/其它表）。
@@ -126,7 +145,9 @@ public enum CatalogSliceManifestDecoder {
             throw CatalogSliceManifestError.invalidField
         }
 
-        guard payload.schemaVersion == CatalogSliceProtocol.supportedSliceSchemaVersion else {
+        // 集合成员语义：本 build 支持 1/2/3（后续加 4），逐片各自声明布局。
+        // 旧实现用与会话常量 1 的等值门，导致线上 v7（schemaVersion=3）被拒装。
+        guard CatalogSliceProtocol.supportedSliceSchemaVersions.contains(payload.schemaVersion) else {
             throw CatalogSliceManifestError.unsupportedSliceSchemaVersion
         }
         guard payload.app == MedicalCatalogReleaseProtocol.app,
@@ -164,7 +185,12 @@ public enum CatalogSliceManifestDecoder {
               payload.tables.count == tableSet.count,
               tableSet == expected,
               Set(payload.counts.keys) == tableSet,
-              payload.counts.values.allSatisfy({ $0 > 0 }) else {
+              payload.counts.values.allSatisfy({ $0 >= 0 }),
+              payload.counts.contains(where: { $0.value > 0 }),
+              payload.counts.allSatisfy({ table, count in
+                  count > 0 || CatalogSliceManifestDecoder.mayBeEmpty(
+                      kind, schemaVersion: payload.schemaVersion, table: table)
+              }) else {
             throw CatalogSliceManifestError.invalidField
         }
         guard let created = rfc3339(payload.createdAt) else {
@@ -172,6 +198,7 @@ public enum CatalogSliceManifestDecoder {
         }
         return VerifiedCatalogSliceCandidate(
             kind: kind,
+            schemaVersion: payload.schemaVersion,
             rootVersion: payload.rootVersion,
             catalogVersion: payload.catalogVersion,
             assetName: payload.assetName,

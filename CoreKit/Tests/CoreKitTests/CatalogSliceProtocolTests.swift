@@ -65,6 +65,6 @@ struct CatalogSliceProtocolTests {
         #expect(CatalogSliceProtocol.manifestFormat == "vita-liber-app-slice-manifest/v1")
         #expect(CatalogSliceProtocol.manifestAssetKind == "app-catalog-slice")
         #expect(CatalogSliceProtocol.containerFormat == "zip+aes256gcm-v1")
-        #expect(CatalogSliceProtocol.supportedSliceSchemaVersion == 1)
+        #expect(CatalogSliceProtocol.supportedSliceSchemaVersion == 4)
     }
 }

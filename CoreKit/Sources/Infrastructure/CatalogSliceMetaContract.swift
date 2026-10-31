@@ -16,7 +16,7 @@ import Foundation
 /// 不靠「加键」演进（否则 f7 每加一个诊断键三片联动重签、旧 App 全线 fail-closed）。
 public enum CatalogSliceMetaContract {
     public static let format = "vita-liber-catalog-slice/v1"
-    public static let supportedPhysicalSchemas: Set<String> = ["catalog-v4", "catalog-v5", "catalog-v7"]
+    public static let supportedPhysicalSchemas: Set<String> = ["catalog-v4", "catalog-v5", "catalog-v7", "catalog-v8"]
     public static let requiredKeys: Set<String> = [
         "format", "source_sha256", "dedupe", "tables", "counts",
         "physical_schema", "source_user_version",
@@ -64,7 +64,10 @@ public enum CatalogSliceMetaContract {
         }
         guard Set(tables) == expectedTables else { throw Violation.tablesMismatch }
         let counts = try decodeJSON([String: Int64].self, meta["counts"] ?? "", key: "counts")
-        guard counts == expectedCounts, counts.values.allSatisfy({ $0 > 0 }) else {
+        // v8 起副表允许 0 行（数据尚未采集），但整片至少要有一张非空表。
+        guard counts == expectedCounts,
+              counts.values.allSatisfy({ $0 >= 0 }),
+              counts.contains(where: { $0.value > 0 }) else {
             throw Violation.countsMismatch
         }
         // source_user_version 仅形态信息（v4 库 user_version，v5 将变化；不作身份）
