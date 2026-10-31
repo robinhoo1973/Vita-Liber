@@ -65,8 +65,13 @@ public enum CatalogSliceMetaContract {
         guard Set(tables) == expectedTables else { throw Violation.tablesMismatch }
         let counts = try decodeJSON([String: Int64].self, meta["counts"] ?? "", key: "counts")
         // v8 起副表允许 0 行（数据尚未采集），但整片至少要有一张非空表。
+        // 只有 catalog-v8 的副表允许 0 行；其余布局仍要求全正。
+        let zeroAllowed: Set<String> = physical == "catalog-v8"
+            ? ["drug_reference", "drug_sections"] : []
         guard counts == expectedCounts,
-              counts.values.allSatisfy({ $0 >= 0 }),
+              counts.allSatisfy({ table, value in
+                  value > 0 || (value == 0 && zeroAllowed.contains(table))
+              }),
               counts.contains(where: { $0.value > 0 }) else {
             throw Violation.countsMismatch
         }

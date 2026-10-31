@@ -1,3 +1,5 @@
+#if canImport(Compression)
+// linux-blind: Compression 仅 Apple 平台；Linux 编译空单元（预推钩子 [2]）。
 import Compression
 import Foundation
 
@@ -26,3 +28,4 @@ enum CatalogSliceLeafletCodec {
         return nil
     }
 }
+#endif

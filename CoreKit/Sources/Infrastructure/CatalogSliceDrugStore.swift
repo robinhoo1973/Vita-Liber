@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 // linux-blind: GRDB 只读池/目录匹配 —— Linux 型检编译空单元，改动须经 macOS CI 验证
+import CryptoKit
 import Domain
 import Foundation
 import GRDB
@@ -99,8 +100,8 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference] {
         try await pool.read { db in
-            if self.isV7Layout {
-                // v7 keeps only link + status; region/name/licence come from drug.
+            if self.isV7Layout || self.isV8Layout {
+                // v7/v8 keep only link + status; region/name/licence come from drug.
                 return try Row.fetchAll(db, sql: """
                     SELECT reference_id, image_urls_json, match_status
                     FROM drug_reference WHERE drug_id = ? ORDER BY reference_id
@@ -253,6 +254,9 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                         matchMethod: slot.verified ? "license_no" : "name",
                         matchVerified: slot.verified,
                         sourceURL: slot.url ?? "", fetchedAt: slot.at ?? "")
+                }.sorted { lhs, rhs in
+                    if lhs.matchVerified != rhs.matchVerified { return lhs.matchVerified }
+                    return lhs.fetchedAt > rhs.fetchedAt
                 }
             }
         }
@@ -284,8 +288,8 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                     GROUP BY field, ordinal ORDER BY ordinal
                     """, arguments: [docSHA256]).compactMap { row in
                     guard let value = row["value"] as Data?, value.count == 8 else { return nil }
-                    let start = value.withUnsafeBytes { $0.load(fromByteOffset: 0, as: UInt32.self) }
-                    let end = value.withUnsafeBytes { $0.load(fromByteOffset: 4, as: UInt32.self) }
+                    let start = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
+                    let end = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
                     return MedicalCatalogLeafletSection(ordinal: row["ordinal"], kind: row["field"],
                                                         charStart: Int(UInt32(littleEndian: start)),
                                                         charEnd: Int(UInt32(littleEndian: end)))
@@ -308,14 +312,20 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
     public func leafletText(docSHA256: Data) async throws -> String {
         if isV8Layout {
             let payload: (Data, Int)? = try await pool.read { db in
-                try Row.fetchOne(db, sql: """
+                guard let row = try Row.fetchOne(db, sql: """
                     SELECT value, text_bytes FROM drug_sections
                     WHERE content_sha256 = ? AND kind = 'zlib' LIMIT 1
-                    """, arguments: [docSHA256]).map { ($0["value"] as Data, $0["text_bytes"] as Int) }
+                    """, arguments: [docSHA256]),
+                      let compressed = row["value"] as Data?,
+                      let expected = row["text_bytes"] as Int? else { return nil }
+                return (compressed, expected)
             }
             guard let (compressed, expected) = payload else { throw CatalogSliceLeafletFailure.unavailable }
             guard let decoded = CatalogSliceLeafletCodec.inflate(compressed),
-                  decoded.utf8.count == expected else { throw CatalogSliceLeafletFailure.corruptText }
+                  decoded.utf8.count == expected,
+                  Data(SHA256.hash(data: Data(decoded.utf8))) == docSHA256 else {
+                throw CatalogSliceLeafletFailure.corruptText
+            }
             return decoded
         }
         guard isV7Layout else { throw CatalogSliceLeafletFailure.legacySchema }

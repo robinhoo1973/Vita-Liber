@@ -12,7 +12,7 @@ import Testing
 // binds: SU-M2-SLICE-PROBE（gate-suites.tsv M0 行；启动时序批收尾项）
 @Suite("SU-M2-SLICE-PROBE · 切片自洽探测真夹具")
 struct CatalogSliceProbeTests {
-    private static let schemaVersion = CatalogSliceProtocol.supportedSliceSchemaVersion
+    private static let schemaVersion = 1   // legacy v4 fixtures; v8 has its own test
 
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
@@ -34,9 +34,14 @@ struct CatalogSliceProbeTests {
         }
         let queue = try DatabaseQueue(path: path)
         try queue.write { db in
+            let required = CatalogSliceProbe.requiredColumns(kind, schemaVersion: Self.schemaVersion)
             for table in tables.sorted() {
-                try db.execute(sql: "CREATE TABLE \"\(table)\" (id TEXT PRIMARY KEY, payload TEXT)")
-                try db.execute(sql: "INSERT INTO \"\(table)\" (id) VALUES (?)", arguments: ["row-\(table)"])
+                let columns = (required[table] ?? ["id"]).sorted()
+                let definitions = columns.map { "\"\($0)\" TEXT" }.joined(separator: ", ")
+                try db.execute(sql: "CREATE TABLE \"\(table)\" (\(definitions))")
+                let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ",")
+                try db.execute(sql: "INSERT INTO \"\(table)\" VALUES (\(placeholders))",
+                               arguments: StatementArguments(columns.map { _ in "x" }))
             }
             try db.execute(sql: "CREATE TABLE slice_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             let countsJSON = try JSONEncoder().encode(
@@ -172,5 +177,45 @@ struct CatalogSliceProbeTests {
         #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .drug)
                 == .countsMismatch)
     }
+    /// v8 三表布局：必需列齐 → ready；deleted 任一必需列 → tableSetMismatch。
+    @Test func v8ThreeTableLayout() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
+        let path = dir.appendingPathComponent("v8.sqlite").path
+        let required = CatalogSliceProbe.requiredColumns(.drug, schemaVersion: 4)
+        let tables = CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 4) ?? []
+        #expect(tables == ["drug", "drug_reference", "drug_sections"])
+        let queue = try DatabaseQueue(path: path)
+        try queue.write { db in
+            for table in tables.sorted() {
+                let columns = (required[table] ?? []).sorted()
+                let definitions = columns.map { "\"\($0)\" TEXT" }.joined(separator: ", ")
+                try db.execute(sql: "CREATE TABLE \"\(table)\" (\(definitions))")
+                let placeholders = Array(repeating: "?", count: columns.count).joined(separator: ",")
+                try db.execute(sql: "INSERT INTO \"\(table)\" VALUES (\(placeholders))",
+                               arguments: StatementArguments(columns.map { _ in "x" }))
+            }
+            try db.execute(sql: "CREATE TABLE slice_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            let countsJSON = try JSONEncoder().encode(
+                Dictionary(uniqueKeysWithValues: tables.map { ($0, Int64(1)) }))
+            let tablesJSON = try JSONEncoder().encode(Array(tables))
+            let rows: [(String, String)] = [
+                ("format", CatalogSliceMetaContract.format), ("dedupe", "1"),
+                ("physical_schema", "catalog-v8"), ("source_sha256", sha256Hex64()),
+                ("source_user_version", "0"), ("tables", String(decoding: tablesJSON, as: UTF8.self)),
+                ("counts", String(decoding: countsJSON, as: UTF8.self)),
+            ]
+            for (key, value) in rows {
+                try db.execute(sql: "INSERT INTO slice_meta (key, value) VALUES (?, ?)",
+                               arguments: [key, value])
+            }
+        }
+        try queue.close()
+        guard case .ready = CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .drug) else {
+            Issue.record("v8 三表夹具应为 ready")
+            return
+        }
+    }
+
 }
 #endif

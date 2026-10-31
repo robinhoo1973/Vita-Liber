@@ -83,9 +83,11 @@ public enum CatalogSliceProbe {
             // v8 final: App SQL 静态引用列；其余列可缺值不可缺列（发布器校验）。
             return [
                 "drug": ["id", "region", "source_id", "name_zh", "name_en", "brand_name",
-                          "insurance_code", "drug_code", "usage_text", "indications"],
+                          "manufacturer", "insurance_code", "drug_code", "usage_text",
+                          "indications"],
                 "drug_reference": ["drug_id", "reference_id", "image_urls_json", "match_status"],
-                "drug_sections": ["drug_id", "source_id", "field", "ordinal", "kind", "value"],
+                "drug_sections": ["drug_id", "source_id", "field", "ordinal", "kind",
+                                   "value", "content_sha256", "text_bytes"],
             ]
         case (.drug, 1):
             return ["drug": ["id", "region", "source_id", "name_zh"],

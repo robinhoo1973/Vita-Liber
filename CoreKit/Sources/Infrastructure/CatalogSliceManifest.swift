@@ -87,12 +87,8 @@ public enum CatalogSliceManifestDecoder {
         if schemaVersion == 4 {
             // v8 final: three data tables; label text shared by content hash
             // inside drug_sections.
-            switch kind {
-            case .drug: return ["drug", "drug_reference", "drug_sections"]
-            case .facility: return ["hospital", "department", "hospital_department"]
-            case .reference: return ["diagnosis", "exam_item", "exam_service", "exam_item_price"]
-            case .profile: return nil
-            }
+            // v8 is drug-only until other kinds get their own column contracts.
+            return kind == .drug ? ["drug", "drug_reference", "drug_sections"] : nil
         }
         if schemaVersion == 3 {
             // v7 drug slice: drug/detail merged, label text compressed once,

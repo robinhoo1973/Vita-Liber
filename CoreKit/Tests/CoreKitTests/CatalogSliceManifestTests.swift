@@ -131,8 +131,7 @@ struct CatalogSliceManifestTests {
         #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 2)
                 == ["drug", "drug_detail", "drug_reference", "drug_package"])
         #expect(CatalogSliceManifestDecoder.expectedTables(.drug, schemaVersion: 4)
-                == ["drug", "drug_reference", "leaflet_doc", "leaflet_source",
-                    "leaflet_section", "leaflet_link"])
+                == ["drug", "drug_reference", "drug_sections"])
         #expect(CatalogSliceManifestDecoder.installedTableSet(.facility, schemaVersion: 1)
                 == ["department", "hospital", "slice_meta"])
         // profile 第四切片：13 表冻结集（extension_meta 永不进包；视图不入表集）。
@@ -143,10 +142,8 @@ struct CatalogSliceManifestTests {
                     "surgery_organ"])
         #expect(CatalogSliceManifestDecoder.installedTableSet(.profile, schemaVersion: 1)?.count == 14)
         #expect(CatalogSliceManifestDecoder.expectedTables(.profile, schemaVersion: 4) == nil)
-        #expect(CatalogSliceManifestDecoder.expectedTables(.facility, schemaVersion: 4)
-                == ["hospital", "department", "hospital_department"])
-        #expect(CatalogSliceManifestDecoder.expectedTables(.reference, schemaVersion: 4)
-                == ["diagnosis", "exam_item", "exam_service", "exam_item_price"])
+        #expect(CatalogSliceManifestDecoder.expectedTables(.facility, schemaVersion: 4) == nil)
+        #expect(CatalogSliceManifestDecoder.expectedTables(.reference, schemaVersion: 4) == nil)
     }
 
     @Test("未知键与缺键一律拒；note 是唯一可缺省键")

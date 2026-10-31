@@ -1113,6 +1113,9 @@ extension L10n {
         "encounter.summary.docFieldsFmt", "encounter.summary.note", "encounter.summary.noteText",
         "encounter.form.title", "encounter.form.basic", "encounter.form.kind", "encounter.form.date",
         "encounter.form.hospital", "encounter.form.department", "encounter.form.doctor", "catalog.suggest.title", "medicalCatalog.detail.title", "medicalCatalog.match.section", "medicalCatalog.match.exact", "medicalCatalog.match.candidates", "medicalCatalog.match.none", "medicalCatalog.detail.section.basic", "medicalCatalog.detail.nameZh", "medicalCatalog.detail.notProvided", "medicalCatalog.detail.nameEn", "medicalCatalog.detail.brand", "medicalCatalog.detail.region", "medicalCatalog.detail.license", "medicalCatalog.detail.code", "medicalCatalog.detail.section.spec", "medicalCatalog.detail.spec", "medicalCatalog.detail.dosageForm", "medicalCatalog.detail.ingredient", "medicalCatalog.detail.usage", "medicalCatalog.detail.indications", "medicalCatalog.detail.disclaimer", "medicalCatalog.detail.section.sources", "medicalCatalog.detail.officialLink",
+        // 2026-10-31 说明书展示：分节/未收录/旧布局/未核验
+        "medicalCatalog.detail.section.leaflet", "medicalCatalog.detail.leaflet.notCollected",
+        "medicalCatalog.detail.leaflet.legacy", "medicalCatalog.detail.leaflet.unverified",
         "encounter.form.clinical", "encounter.form.complaint", "encounter.form.diagnosis",
         "encounter.form.advice", "encounter.form.followUp", "encounter.form.fee",
         "timeline.title", "timeline.emptyHint", "timeline.filter.all",
