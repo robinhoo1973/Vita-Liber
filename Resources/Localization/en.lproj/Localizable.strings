@@ -2702,6 +2702,9 @@
 "assistant.mediaDuplicate" = "Duplicate document found — handle it in the library";
 "assistant.importBusy" = "Finish the current import first";
 "assistant.docTypeUnresolved" = "Could not determine the document type. Choose one to continue.";
+"assistant.failedMediaTitle" = "Recognition incomplete";
+"assistant.failedMediaBody" = "This item was not saved to the library, so the original cannot be viewed. Select the material again to retry.";
+"assistant.failedMediaRetry" = "Select material again";
 "assistant.docTypePickCancelled" = "Import cancelled; the original was not saved.";
 "assistant.captureSaved" = "Saved";
 "assistant.voiceMessage" = "Voice message";

@@ -27,27 +27,37 @@ public enum CatalogSliceProbe {
     public static func inspectSelfConsistent(path: String, kind: CatalogSliceKind,
                                              fileManager: FileManager = .default) -> State {
         guard fileManager.fileExists(atPath: path) else { return .missing }
-        guard let tables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: 1) else {
-            return .contractViolation(.badValue("tables"))
-        }
         var configuration = Configuration()
         configuration.readonly = true
         configuration.foreignKeysEnabled = false
         configuration.busyMode = .timeout(1)
-        let counts: [String: Int64]
+        let rows: [(key: String, value: String)]
         do {
-            counts = try DatabaseQueue(path: path, configuration: configuration).read { db in
-                let rows: [(key: String, value: String)] = try Row.fetchAll(db, sql: "SELECT key, value FROM slice_meta")
+            rows = try DatabaseQueue(path: path, configuration: configuration).read { db in
+                try Row.fetchAll(db, sql: "SELECT key, value FROM slice_meta")
                     .map { (key: $0["key"] as String, value: $0["value"] as String) }
-                let meta = Dictionary(rows.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
-                guard let raw = meta["counts"].flatMap({ $0.data(using: .utf8) }),
-                      let decoded = try? JSONDecoder().decode([String: Int64].self, from: raw) else {   // try?-ok: 形态错按契约违规
-                    throw CatalogSliceMetaContract.Violation.badValue("counts")
-                }
-                return decoded
             }
         } catch {
             return .unreadable
+        }
+        let meta = Dictionary(rows.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
+        // The physical layout is stored inside the slice, so the probe no longer
+        // hard-codes schemaVersion 1: catalog-v4 slices are layout 1, catalog-v7
+        // slices are layout 3.
+        let layout = meta["physical_schema"] ?? ""
+        let schemaVersion: Int
+        switch layout {
+        case "catalog-v4": schemaVersion = 1
+        case "catalog-v5": schemaVersion = 2
+        case "catalog-v7": schemaVersion = 3
+        default: return .contractViolation(.badValue("physical_schema"))
+        }
+        guard let tables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: schemaVersion) else {
+            return .contractViolation(.badValue("tables"))
+        }
+        guard let raw = meta["counts"].flatMap({ $0.data(using: .utf8) }),
+              let counts = try? JSONDecoder().decode([String: Int64].self, from: raw) else {   // try?-ok: 形态错按契约违规
+            return .contractViolation(.badValue("counts"))
         }
         return inspect(path: path, kind: kind, expectedTables: tables, expectedCounts: counts,
                        verifyCounts: true, fileManager: fileManager)

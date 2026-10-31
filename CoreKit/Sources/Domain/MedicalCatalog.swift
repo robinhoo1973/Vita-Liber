@@ -131,3 +131,45 @@ public protocol MedicalCatalogReading: MedicalCatalogGenerationReading {
     /// 2026-09-27 委员会 P3a：App 状态层经端口取单药——视图不再直接依赖具体 store 类型。
     func drug(id: Int) async throws -> MedicalCatalogDrug?
 }
+
+/// 说明书（v7 切片）：来源一行；正文压缩在 `leaflet_doc`，章节只存起止。
+public struct MedicalCatalogLeaflet: Sendable, Equatable, Identifiable {
+    public var id: String { sourceID }
+    public let sourceID: String
+    public let docSHA256: Data
+    public let nameZh: String
+    public let manufacturer: String
+    public let matchMethod: String
+    public let matchVerified: Bool
+    public let sourceURL: String
+    public let fetchedAt: String
+
+    public init(sourceID: String, docSHA256: Data, nameZh: String, manufacturer: String,
+                matchMethod: String, matchVerified: Bool, sourceURL: String, fetchedAt: String) {
+        self.sourceID = sourceID
+        self.docSHA256 = docSHA256
+        self.nameZh = nameZh
+        self.manufacturer = manufacturer
+        self.matchMethod = matchMethod
+        self.matchVerified = matchVerified
+        self.sourceURL = sourceURL
+        self.fetchedAt = fetchedAt
+    }
+}
+
+/// 说明书章节：只有位置，正文由解压后的全文切片得到。
+public struct MedicalCatalogLeafletSection: Sendable, Equatable, Identifiable {
+    public var id: Int { ordinal }
+    public let ordinal: Int
+    public let kind: String
+    public let charStart: Int
+    public let charEnd: Int
+
+    public init(ordinal: Int, kind: String, charStart: Int, charEnd: Int) {
+        self.ordinal = ordinal
+        self.kind = kind
+        self.charStart = charStart
+        self.charEnd = charEnd
+    }
+}
+

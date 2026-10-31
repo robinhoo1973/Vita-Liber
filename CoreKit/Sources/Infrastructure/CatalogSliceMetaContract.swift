@@ -16,7 +16,7 @@ import Foundation
 /// 不靠「加键」演进（否则 f7 每加一个诊断键三片联动重签、旧 App 全线 fail-closed）。
 public enum CatalogSliceMetaContract {
     public static let format = "vita-liber-catalog-slice/v1"
-    public static let supportedPhysicalSchemas: Set<String> = ["catalog-v4"]
+    public static let supportedPhysicalSchemas: Set<String> = ["catalog-v4", "catalog-v5", "catalog-v7"]
     public static let requiredKeys: Set<String> = [
         "format", "source_sha256", "dedupe", "tables", "counts",
         "physical_schema", "source_user_version",

@@ -97,6 +97,9 @@ extension L10n {
     static var assistantDocTypeUnresolved: String { t("assistant.docTypeUnresolved") }
     /// 聊天内资料类型补选被取消（原图未落库）；不再提示「去拍摄入口」。
     static var assistantDocTypePickCancelled: String { t("assistant.docTypePickCancelled") }
+    static var assistantFailedMediaTitle: String { t("assistant.failedMediaTitle") }
+    static var assistantFailedMediaBody: String { t("assistant.failedMediaBody") }
+    static var assistantFailedMediaRetry: String { t("assistant.failedMediaRetry") }
     static var assistantCaptureSaved: String { t("assistant.captureSaved") }
     static var assistantVoiceMessage: String { t("assistant.voiceMessage") }
     static var assistantVoiceReplay: String { t("assistant.voiceReplay") }

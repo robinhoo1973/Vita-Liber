@@ -93,6 +93,11 @@ struct TaskAssistantChatView: View {
     @State private var conversationTitle: String?
     /// 会话代次：切换会话后，晚到的持久化任务不得写进新会话（2026-10-20）。
     @State private var conversationGeneration = UUID()
+    /// 聊天导入的 presenter 所有权令牌（2026-10-31 F8）：资料库
+    /// `OCRImportReviewHost` 只认领 presenterID 为 nil 的会话；聊天不设令牌时，
+    /// 用户在导入中切回资料库可能被其抢注并弹出资料库确认页。设非 nil 即声明
+    /// 「本会话由聊天侧呈现」，资料库 host 不再争用。
+    @State private var chatImportPresenterID = UUID()
     @State private var titleCaptured = false
     @State private var showHistory = false
 
@@ -111,6 +116,9 @@ struct TaskAssistantChatView: View {
         /// 资料类型补选（2026-10-31 业主）：OCR 无法判定类型时在聊天内补选，
         /// 不再把整次导入判死、也不再提示「请到拍摄入口处理」。
         case docTypePick(sessionID: UUID, messageID: UUID?)
+        /// 失败媒体详情（2026-10-31 F7）：非类型失败没有 documentId，
+        /// 原图未落库；给可读失败态与「重新选择资料」出口，不伪造原件。
+        case failedMedia(messageID: UUID, title: String)
 
         var id: String {
             switch self {
@@ -121,6 +129,8 @@ struct TaskAssistantChatView: View {
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
             case .docTypePick(let sessionID, let messageID):
                 return "docType-\(sessionID.uuidString)-\(messageID?.uuidString ?? "nil")"
+            case .failedMedia(let messageID, _):
+                return "failed-media-\(messageID.uuidString)"
             }
         }
     }
@@ -409,6 +419,17 @@ struct TaskAssistantChatView: View {
                     sensitiveLoaded.insert(documentId)
                 }
             }
+        } else if media.status == .failed {
+            // 2026-10-31 F7：失败媒体无 documentId，原图未落库；仍给可读
+            // 详情出口（失败态+重新选择），不得让整条气泡变成死区。
+            Button {
+                activeSheet = .failedMedia(messageID: messageID, title: media.filename)
+            } label: {
+                mediaContent(media, showsDisclosure: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(L10n.assistantMediaDetailHint)
+            .accessibilityIdentifier("assistant.media.failed.open")
         } else {
             mediaContent(media)
         }
@@ -1053,6 +1074,11 @@ struct TaskAssistantChatView: View {
             } else {
                 reviewUnavailable
             }
+        case .failedMedia(_, let title):
+            ChatFailedMediaSheet(title: title) {
+                activeSheet = nil
+                attachmentPanel = true
+            }
         }
     }
 
@@ -1649,6 +1675,7 @@ struct TaskAssistantChatView: View {
         // 「<日期时间>-<会话名>-<短ID>」目录；设置里的自动镜像（月桶）跳过，
         // 避免同件双份（2026-10-30 业主）。
         session.suppressAutoMirrorHook = true
+        session.presenterID = chatImportPresenterID
         chatSessionID = session.id
         importGeneration = conversationGeneration
         return session
@@ -2186,6 +2213,44 @@ private struct ChatCardReviewSheet: View {
                 }
             }
         }
+    }
+}
+
+/// 失败媒体详情（2026-10-31 F7）：失败导入没有持久化原件，
+/// 只陈述失败事实与重选出口，绝不展示不存在的「原图」。
+private struct ChatFailedMediaSheet: View {
+    let title: String
+    let onRetry: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Label(title, systemImage: "exclamationmark.triangle")
+                    .font(.headline)
+                Text(L10n.assistantFailedMediaBody)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button(L10n.assistantFailedMediaRetry) {
+                    dismiss()
+                    onRetry()
+                }
+                .buttonStyle(VLPrimaryActionButtonStyle())
+                .accessibilityIdentifier("assistant.failedMedia.retry")
+            }
+            .padding(20)
+            .navigationTitle(L10n.assistantFailedMediaTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.assistantClose) { dismiss() }
+                        .accessibilityIdentifier("assistant.failedMedia.close")
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }
 

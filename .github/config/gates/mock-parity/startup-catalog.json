@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "mockFile": "refactor/mock/startup-selfcheck-flow.html",
+  "swiftTest": "Tests/VitaLiberTests/StartupCatalogCopyParityTests.swift",
+  "requiredTestNames": [
+    "testPhaseActionsMatchMock",
+    "testBusyTitleUsesMockPhaseCopy",
+    "testIdleStatusCopyMatchesMock",
+    "testSecondaryTitlesMatchMock",
+    "testCandidateStatusUsesMockKey"
+  ],
+  "requiredKeys": [
+    "startup.catalog.downloading",
+    "startup.catalog.activating",
+    "startup.catalog.candidateFmt",
+    "startup.catalog.status.idleLocalFmt"
+  ],
+  "mockSnippets": [
+    "if (st === 'checking' || st === 'phase') return null;",
+    "if (st === 'phase') return 'cancelUpdate';",
+    "'正在下载…'",
+    "'正在完成安装，请勿关闭'"
+  ],
+  "rows": [
+    {"id": "phase-downloading-mandatory", "primary": "busy", "secondary": null, "primaryKey": "startupCatalogDownloading"},
+    {"id": "phase-downloading-normal", "primary": "busy", "secondary": "cancelUpdateAndContinue", "primaryKey": "startupCatalogDownloading"},
+    {"id": "phase-activating", "primary": "busy", "secondary": null, "primaryKey": "startupCatalogActivating"},
+    {"id": "busy-checking", "primary": "busy", "secondary": null, "primaryKey": "resourceCatalogChecking"},
+    {"id": "idle-partial", "primary": "check", "secondary": null, "primaryKey": "startupCatalogStatusIdleLocalFmt"},
+    {"id": "candidate", "primary": "install", "secondary": null, "primaryKey": "startupCatalogCandidateFmt"}
+  ]
+}

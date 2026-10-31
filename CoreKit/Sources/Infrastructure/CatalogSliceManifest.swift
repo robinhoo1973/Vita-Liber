@@ -73,7 +73,21 @@ public enum CatalogSliceManifestDecoder {
 
     /// 每片 schemaVersion 冻结表集（新增表必须升 schemaVersion 并重签；未知版本 nil）。
     public static func expectedTables(_ kind: CatalogSliceKind, schemaVersion: Int) -> Set<String>? {
-        guard schemaVersion == CatalogSliceProtocol.supportedSliceSchemaVersion else { return nil }
+        guard CatalogSliceProtocol.supportedSliceSchemaVersions.contains(schemaVersion) else { return nil }
+        if schemaVersion == 2 {
+            switch kind {
+            case .drug: return ["drug", "drug_detail", "drug_reference", "drug_package"]
+            case .facility: return ["hospital", "department", "hospital_department"]
+            case .reference: return ["diagnosis", "exam_item", "exam_service", "exam_item_price"]
+            case .profile: return nil
+            }
+        }
+        if schemaVersion == 3 {
+            // v7 drug slice: drug/detail merged, label text compressed once,
+            // sections are span-only rows.
+            return kind == .drug ? ["drug", "drug_package", "drug_reference", "leaflet_doc",
+                                    "leaflet_source", "leaflet_section", "leaflet_link"] : nil
+        }
         switch kind {
         case .drug: return ["drug", "drug_detail", "drug_reference"]
         case .facility: return ["department", "hospital"]

@@ -2702,6 +2702,9 @@
 "assistant.mediaDuplicate" = "发现重复资料：请到资料库处理";
 "assistant.importBusy" = "有未完成的导入，请先处理";
 "assistant.docTypeUnresolved" = "无法确定资料类型，请选择后继续";
+"assistant.failedMediaTitle" = "识别未完成";
+"assistant.failedMediaBody" = "本次资料未保存到资料库，无法查看原图。可重新选择资料后再试。";
+"assistant.failedMediaRetry" = "重新选择资料";
 "assistant.docTypePickCancelled" = "已取消导入，原图未保存";
 "assistant.captureSaved" = "已保存";
 "assistant.voiceMessage" = "语音消息";

@@ -2702,6 +2702,9 @@
 "assistant.mediaDuplicate" = "發現重複資料：請到資料庫處理";
 "assistant.importBusy" = "有未完成的匯入，請先處理";
 "assistant.docTypeUnresolved" = "無法確定資料類型，請選擇後繼續";
+"assistant.failedMediaTitle" = "識別未完成";
+"assistant.failedMediaBody" = "本次資料未儲存到資料庫，無法檢視原圖。可重新選擇資料後再試。";
+"assistant.failedMediaRetry" = "重新選擇資料";
 "assistant.docTypePickCancelled" = "已取消匯入，原圖未儲存";
 "assistant.captureSaved" = "已儲存";
 "assistant.voiceMessage" = "語音訊息";

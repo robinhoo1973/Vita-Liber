@@ -16,6 +16,9 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
     public let sqliteSHA256: String
     public let sliceMeta: CatalogSliceMetaContract.Observed
     private let pool: DatabasePool
+    /// v7 merged `drug_detail` into `drug` and trimmed `drug_reference`; the
+    /// query branches on the layout declared inside the slice itself.
+    private let isV7Layout: Bool
 
     public init(path: URL) throws {
         let observed = try Self.inspectSliceMeta(path: path)
@@ -25,6 +28,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
         let opened = try DatabasePool(path: path.path, configuration: configuration)
         self.pool = opened
         self.sliceMeta = observed
+        self.isV7Layout = observed.physicalSchema == "catalog-v7"
         self.sqliteSHA256 = try StreamingFileHasher.sha256(of: path)
     }
 
@@ -93,7 +97,22 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference] {
         try await pool.read { db in
-            try Row.fetchAll(db, sql: """
+            if isV7Layout {
+                // v7 keeps only link + status; region/name/licence come from drug.
+                return try Row.fetchAll(db, sql: """
+                    SELECT reference_id, image_urls_json, match_status
+                    FROM drug_reference WHERE drug_id = ? ORDER BY reference_id
+                    """, arguments: [drug.id]).map { row in
+                    MedicalCatalogReference(
+                        referenceID: String(row["reference_id"] as Int64),
+                        region: drug.region, sourceID: drug.sourceID,
+                        licenseNo: drug.licenseNo, nameZh: drug.nameZh, nameEn: drug.nameEn,
+                        brandName: drug.brandName, specificationRaw: drug.spec,
+                        imageURLsJSON: row["image_urls_json"] as String? ?? "[]",
+                        matchStatus: MedicalCatalogMatchStatus(rawValue: row["match_status"] as String? ?? "unmatched") ?? .unmatched)
+                }
+            }
+            return try Row.fetchAll(db, sql: """
                 SELECT reference_id, region, source_id, license_no, name_zh, name_en, brand_name,
                        spec_raw, image_urls_json, match_status
                 FROM drug_reference WHERE region = ? AND source_id = ? ORDER BY reference_id
@@ -103,7 +122,20 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail? {
         try await pool.read { db in
-            try Row.fetchOne(db, sql: """
+            if isV7Layout {
+                return try Row.fetchOne(db, sql: """
+                    SELECT usage_text, indications, active_ingredients
+                    FROM drug WHERE id = ?
+                    """, arguments: [drug.id]).map { row in
+                    MedicalCatalogDrugDetail(
+                        region: drug.region, sourceID: drug.sourceID,
+                        usageText: row["usage_text"] as String?,
+                        indications: row["indications"] as String?,
+                        activeIngredients: row["active_ingredients"] as String?,
+                        usageReferenceJSON: "{}", rawJSON: "{}")
+                }
+            }
+            return try Row.fetchOne(db, sql: """
                 SELECT region, source_id, usage_text, indications, active_ingredients,
                        usage_ref_json, raw_json
                 FROM drug_detail WHERE region = ? AND source_id = ?
