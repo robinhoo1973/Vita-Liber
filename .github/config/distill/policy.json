@@ -79,7 +79,7 @@
     }
   },
   "noise": {
-    "version": "2.1",
+    "version": "2.2",
     "_bandComment": "字级 CER 目标(校准对象=4-8 字 span);alpha 席终案,现实锚定:OCR 手机翻拍 3-13.5%/ASR 9-16%",
     "bandTargets": {
       "clean": 0.0,
@@ -116,7 +116,7 @@
       "confusionSource": "unihan-pycorrector",
       "optional": "scrambledtext(MIT,自举对照轨)"
     },
-    "version_comment": "2.1=长度补偿 L_eff=max(len,7)(2026-10-08:R0 首测 0.73× → 锚 6 实测 → 锚 7 反推落点 0.112/0.266/0.485/0.707 全入容差)"
+    "version_comment": "2.1=长度补偿 L_eff=max(len,7)(2026-10-08:R0 首测 0.73× → 锚 6 实测 → 锚 7 反推落点 0.112/0.266/0.485/0.707 全入容差); 2.2=噪声 v2.2 落地(latin 镜像层/预算不丢/繁体回投/数值位掩码/ASR 句式框架), 与 extraction_noise.NOISE_VERSION 同步(2026-10-30)"
   },
   "training": {
     "_comment": "CPU 分块训练链(2026-10-09 无私仓/无 GPU;公开仓 ubuntu 4vCPU/6h job)。chain_chain 状态机三重闸:失败即停/maxChunks/零进度;产物=Release llama-models(draft,autoPromote=false)。",

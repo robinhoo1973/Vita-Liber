@@ -320,22 +320,22 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                       let expected = row["text_bytes"] as Int? else { return nil }
                 return (compressed, expected)
             }
-            guard let (compressed, expected) = payload else { throw CatalogSliceLeafletFailure.unavailable }
-            guard let decoded = CatalogSliceLeafletCodec.inflate(compressed),
+            guard let (compressed, expected) = payload else { throw CatalogSliceDrugSectionsFailure.unavailable }
+            guard let decoded = CatalogSliceDrugSectionsCodec.inflate(compressed),
                   decoded.utf8.count == expected,
                   Data(SHA256.hash(data: Data(decoded.utf8))) == docSHA256 else {
-                throw CatalogSliceLeafletFailure.corruptText
+                throw CatalogSliceDrugSectionsFailure.corruptText
             }
             return decoded
         }
-        guard isV7Layout else { throw CatalogSliceLeafletFailure.legacySchema }
+        guard isV7Layout else { throw CatalogSliceDrugSectionsFailure.legacySchema }
         let payload: (Data, Int)? = try await pool.read { db in
             try Row.fetchOne(db, sql: "SELECT text_zlib, text_bytes FROM leaflet_doc WHERE doc_sha256 = ?",
                              arguments: [docSHA256]).map { ($0["text_zlib"] as Data, $0["text_bytes"] as Int) }
         }
-        guard let (compressed, expected) = payload else { throw CatalogSliceLeafletFailure.unavailable }
-        guard let decoded = CatalogSliceLeafletCodec.inflate(compressed), decoded.utf8.count == expected else {
-            throw CatalogSliceLeafletFailure.corruptText
+        guard let (compressed, expected) = payload else { throw CatalogSliceDrugSectionsFailure.unavailable }
+        guard let decoded = CatalogSliceDrugSectionsCodec.inflate(compressed), decoded.utf8.count == expected else {
+            throw CatalogSliceDrugSectionsFailure.corruptText
         }
         return decoded
     }

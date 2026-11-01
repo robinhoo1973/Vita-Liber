@@ -3,13 +3,13 @@
 import Compression
 import Foundation
 
-public enum CatalogSliceLeafletFailure: Error, Equatable {
+public enum CatalogSliceDrugSectionsFailure: Error, Equatable {
     case unavailable
     case legacySchema
     case corruptText
 }
 
-enum CatalogSliceLeafletCodec {
+enum CatalogSliceDrugSectionsCodec {
     static func inflate(_ data: Data) -> String? {
         guard !data.isEmpty else { return nil }
         var capacity = max(64, data.count * 8)

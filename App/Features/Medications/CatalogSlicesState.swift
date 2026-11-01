@@ -188,7 +188,7 @@ final class CatalogSlicesState {
             }
             guard readGeneration() == started else { return .failed }
             return .loaded(bundles)
-        } catch let error as CatalogSliceLeafletFailure {
+        } catch let error as CatalogSliceDrugSectionsFailure {
             switch error {
             case .legacySchema: return .legacySchema
             case .unavailable: return .unavailable
