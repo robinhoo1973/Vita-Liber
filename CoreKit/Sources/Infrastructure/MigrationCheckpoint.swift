@@ -256,7 +256,8 @@ public enum MigrationCheckpointStore {
         try? handle.synchronizeFile() // try?-ok: fsync 尽力而为；失败由下次校验暴露
     }
 
-    private static func applyPrivacyAttributes(at url: URL, fileManager: FileManager) {
+    private static func applyPrivacyAttributes(at sourceURL: URL, fileManager: FileManager) {
+        var url = sourceURL
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try? url.setResourceValues(values) // try?-ok: 备份排除尽力而为
