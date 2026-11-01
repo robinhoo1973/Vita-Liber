@@ -31,6 +31,10 @@ final class DatabaseBootModel: ObservableObject {
     @Published private(set) var isShowingReadOnly = false
     /// 损坏库恢复（业主 2026-10-30）：文件级操作进行中（打包/校验/替换/恢复）。
     @Published private(set) var recoveryBusy = false
+    /// 2026-11-01 迁移安全网：快照创建中 / 逐 step 进度 / 可恢复快照。
+    @Published private(set) var isCreatingCheckpoint = false
+    @Published private(set) var migrationProgress: MigrationStepProgress?
+    @Published private(set) var checkpoint: MigrationCheckpoint?
     /// 已暂存、待确认导入的修复文件（用户确认前不触碰本机患者库）。
     private var stagedRepairedPath: String?
     /// 已校验、待确认恢复的备份（确认后删除损坏库并重建导入）。
@@ -51,7 +55,10 @@ final class DatabaseBootModel: ObservableObject {
     /// 启动门注入缝（启动时序批 ①，2026-10-29）：默认直连 DatabaseBootService；
     /// 测试注入假实现以断言快照序列（advisory 先于 open、final 取实测等）。
     private let prepareDatabase: @Sendable (@escaping @Sendable (BootChecklistSnapshot) async -> Void,
-                                             @escaping @Sendable (DatabaseBootPhase) async -> Void)
+                                             @escaping @Sendable (DatabaseBootPhase) async -> Void,
+                                             @escaping @Sendable (MigrationStepProgress) -> Void,
+                                             @escaping @Sendable (Bool) -> Void,
+                                             @escaping @Sendable (MigrationCheckpoint?) -> Void)
         async throws -> PreparedDatabase
     /// 被动交接的终态时刻（首排时落定；恢复锚点已过期时不得立即交接，批 ②）。
     private var bootTerminalAt: Date?
@@ -83,9 +90,14 @@ final class DatabaseBootModel: ObservableObject {
          now: @escaping () -> Date = Date.init,
          prepareDatabase: @escaping @Sendable (
              @escaping @Sendable (BootChecklistSnapshot) async -> Void,
-             @escaping @Sendable (DatabaseBootPhase) async -> Void)
-             async throws -> PreparedDatabase = { snapshot, progress in
-                 try await DatabaseBootService.prepare(snapshot: snapshot, progress: progress)
+             @escaping @Sendable (DatabaseBootPhase) async -> Void,
+             @escaping @Sendable (MigrationStepProgress) -> Void,
+             @escaping @Sendable (Bool) -> Void,
+             @escaping @Sendable (MigrationCheckpoint?) -> Void)
+             async throws -> PreparedDatabase = { snapshot, progress, step, checkpointing, checkpoint in
+                 try await DatabaseBootService.prepare(
+                     snapshot: snapshot, progress: progress,
+                     migrationStep: step, checkpointing: checkpointing, checkpoint: checkpoint)
              }) {
         self.sessionFactory = sessionFactory
         self.defaults = defaults
@@ -100,6 +112,20 @@ final class DatabaseBootModel: ObservableObject {
         phase = .idle
         readOnlyContainer = nil
         isShowingReadOnly = false
+        isCreatingCheckpoint = false
+        migrationProgress = nil
+        checkpoint = nil
+        #if canImport(UIKit)
+        // 迁移可能超过 iOS 后台宽限（约 30s）；只作尽力延长，过期不取消迁移
+        // （步骤可续 + 快照/收据兜底）。结束时间点由 defer 覆盖所有返回路径。
+        let backgroundTask = UIApplication.shared.beginBackgroundTask(
+            withName: "database-boot") {}
+        defer {
+            if backgroundTask != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTask)
+            }
+        }
+        #endif
         // B3 只读壳钩子（仅 DEBUG 生效）：合成 tooNew + 确保测试库存在 →
         // 只读打开 → 失败卡显示「只读查看」。
         if uiTestBootReadOnly {
@@ -140,10 +166,26 @@ final class DatabaseBootModel: ObservableObject {
                 },
                 { [weak self] phase in
                     await MainActor.run { self?.phase = phase }
+                },
+                { [weak self] step in
+                    Task { @MainActor in self?.applyMigrationStep(step) }
+                },
+                { [weak self] creating in
+                    Task { @MainActor in self?.isCreatingCheckpoint = creating }
+                },
+                { [weak self] checkpoint in
+                    Task { @MainActor in self?.checkpoint = checkpoint }
                 })
             phase = .assembling
             let assembled = try AppContainer.live(store: prepared.store)
             diagnostics = prepared.diagnostics
+            // 2026-11-01 安全网：迁移成功且容器已装配 → 删除迁移前 PHI 快照。
+            // 失败路径（catch）保留；`.ready` 遗留快照由启动门先 quick_check 再删。
+            MigrationCheckpointStore.discardAll(
+                databasePath: AppContainer.defaultDatabasePath())
+            checkpoint = nil
+            migrationProgress = nil
+            isCreatingCheckpoint = false
             preparedSliceHealth = prepared.sliceHealth
             self.catalogSlices = CatalogSlicesState(
                 facade: assembled.catalogSlices ?? CatalogSliceReadFacade(),
@@ -165,6 +207,8 @@ final class DatabaseBootModel: ObservableObject {
                 publish(assembled)
             }
         } catch let boot as DatabaseBootFailure {
+            isCreatingCheckpoint = false
+            migrationProgress = nil
             failure = boot
             // 只读降级适格（B2）：仅 tooNew 且只读打开成功才给「只读查看」入口；
             // 打开失败（热 WAL 等）=graceful，不显入口（讨论稿 2026-10-28 round1）。
@@ -196,6 +240,49 @@ final class DatabaseBootModel: ObservableObject {
         await start()
     }
 
+    /// 进度回投递可能因 Task 调度乱序；按 index/phase 做单调守卫。
+    private func applyMigrationStep(_ step: MigrationStepProgress) {
+        if let current = migrationProgress {
+            if step.index < current.index { return }
+            if step.index == current.index,
+               current.phase == .finished, step.phase == .started { return }
+        }
+        migrationProgress = step
+    }
+
+    /// 「恢复到迁移前状态」仅对「迁移未完成/迁移后校验失败/上次恢复失败」且快照
+    /// 仍在时开放；恢复是唯一回到已知良好数据的路径（重试只会重放同一失败迁移）。
+    var canRestoreCheckpoint: Bool {
+        guard checkpoint != nil, let failure else { return false }
+        switch failure {
+        case .migrationIncomplete, .postCheckFailed, .openFailed,
+             .checkpointRestoreFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// 校验并原子替换为迁移前快照；成功后**不自动重试**，停在专用「已恢复」卡，
+    /// 由用户显式选择 [重试升级] 或 [数据库修复]。当前半升级库由 install 归档
+    /// 为 `.corrupt-<ts>`，不删除。
+    func restorePreMigrationCheckpoint() async {
+        guard let checkpoint, canRestoreCheckpoint, !isRunning, !recoveryBusy else { return }
+        recoveryBusy = true
+        defer { recoveryBusy = false }
+        do {
+            let patient = try recoveryPatientPath()
+            try await Task.detached(priority: .userInitiated) {
+                try MigrationCheckpointStore.restore(checkpoint, patientPath: patient)
+            }.value
+            migrationProgress = nil
+            isCreatingCheckpoint = false
+            failure = .restoredToPreMigration(sourceVersion: checkpoint.sourceVersion)
+        } catch {
+            failure = .checkpointRestoreFailed(String(describing: error))
+        }
+    }
+
     // MARK: - 损坏数据库恢复（业主 2026-10-30 单独接口四动作）
 
     /// 失败卡是否提供「数据库修复…」入口：库文件损坏/打开失败/旧的恢复失败，
@@ -205,7 +292,9 @@ final class DatabaseBootModel: ObservableObject {
         guard let failure else { return false }
         switch failure {
         case .corrupt, .openFailed, .recoveryBackupFailed,
-             .missingWithOriginals, .migrationIncomplete:
+             .missingWithOriginals, .migrationIncomplete,
+             .checkpointFailed, .postCheckFailed,
+             .restoredToPreMigration, .checkpointRestoreFailed:
             return true
         default:
             return false
@@ -215,8 +304,14 @@ final class DatabaseBootModel: ObservableObject {
     /// 迁移未完成不得直接「删除重建」（可能仍是可迁移的库）——只给导入/备份。
     var allowsDestructiveRebuild: Bool {
         guard let failure else { return false }
-        if case .migrationIncomplete = failure { return false }
-        return true
+        switch failure {
+        case .migrationIncomplete, .postCheckFailed, .checkpointFailed,
+             .restoredToPreMigration, .checkpointRestoreFailed:
+            // 库仍可能是可迁移/可还原的；破坏性重建会丢数据。
+            return false
+        default:
+            return true
+        }
     }
 
     struct BackupInspection: Equatable, Sendable {
@@ -293,6 +388,8 @@ final class DatabaseBootModel: ObservableObject {
         try await Task.detached(priority: .userInitiated) {
             try DatabaseRecoveryService.install(repairedPath: repaired, patientPath: patient)
         }.value
+        MigrationCheckpointStore.discardAll(databasePath: patient)
+        checkpoint = nil
         stagedRepairedPath = nil
         failure = nil
         AppSessionHolder.shared.resetForRetry()
@@ -338,6 +435,8 @@ final class DatabaseBootModel: ObservableObject {
             try? FileManager.default.removeItem(atPath: stage) // try?-ok: 失败路径清理临时库
             throw error
         }
+        MigrationCheckpointStore.discardAll(databasePath: patient)
+        checkpoint = nil
         stagedBackupRestore = nil
         failure = nil
         AppSessionHolder.shared.resetForRetry()
@@ -363,6 +462,8 @@ final class DatabaseBootModel: ObservableObject {
             try? FileManager.default.removeItem(atPath: stage) // try?-ok: 失败路径清理临时库
             throw error
         }
+        MigrationCheckpointStore.discardAll(databasePath: patient)
+        checkpoint = nil
         failure = nil
         AppSessionHolder.shared.resetForRetry()
         await start()
@@ -447,6 +548,9 @@ final class DatabaseBootModel: ObservableObject {
             case "missingOriginals": return .missingWithOriginals
             case "migrationIncomplete":
                 return .migrationIncomplete(found: 48, expected: SchemaMigrations.latestVersion)
+            case "checkpointFailed": return .checkpointFailed("uitest")
+            case "postCheckFailed": return .postCheckFailed("uitest")
+            case "checkpointRestoreFailed": return .checkpointRestoreFailed("uitest")
             case "openFailed": return .openFailed("uitest")
             default: return .unexpected("uitest")
             }

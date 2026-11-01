@@ -1908,6 +1908,17 @@
 "startup.init.stageProbe" = "Checking local records…";
 "startup.init.stageCreate" = "Creating the local database…";
 "startup.init.stageMigrateFmt" = "Upgrading the database (v%1$ld → v%2$ld)…";
+"startup.init.stageCheckpoint" = "Creating a local safety copy before the upgrade…";
+"startup.init.migrationStepFmt" = "Upgrading the data structure (step %1$ld of %2$ld)…";
+"startup.init.failureCheckpoint" = "Could not create the pre-upgrade safety copy (not enough space or the database is temporarily unavailable). Your database was not changed; please retry.";
+"startup.init.failurePostCheck" = "The upgrade ran, but the structure check did not pass. Restore the pre-upgrade safety copy, or open database repair.";
+"startup.init.failureRestoreFmt" = "Restoring to the pre-upgrade state failed: %@. The current database was not replaced; retry or open database repair.";
+"startup.init.restoreAction" = "Restore pre-upgrade state";
+"startup.init.restoreConfirmTitle" = "Restore pre-upgrade state?";
+"startup.init.restoreConfirmBody" = "The current database will be replaced with the local safety copy from before the upgrade. The current database is kept as a repair copy, not deleted. The safety copy is removed after a successful upgrade.";
+"startup.init.restoreDoneTitle" = "Restored to pre-upgrade state";
+"startup.init.restoreDoneBodyFmt" = "Restored to v%lld from before the migration. You can retry the upgrade or open database repair to export data.";
+"startup.init.restoreRetry" = "Retry upgrade";
 "startup.init.stageVerify" = "Verifying the data structure…";
 "startup.init.stageAssemble" = "Preparing the interface…";
 "startup.init.privacy" = "All data stays on this device · Nothing is uploaded";

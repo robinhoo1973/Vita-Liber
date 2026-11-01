@@ -62,6 +62,37 @@ public enum DatabaseProbe {
         }
     }
 
+    /// 迁移后/遗留快照收尾用的结构校验。返回 `"ok"` 或错误摘要；`nil` =
+    /// 文件不可读（调用方按「无法证明损坏」处理，不删除快照）。
+    public static func quickCheck(path: String,
+                                  fileManager: FileManager = .default) -> String? {
+        guard fileManager.fileExists(atPath: path) else { return nil }
+        var readonly = Configuration()
+        readonly.readonly = true
+        readonly.foreignKeysEnabled = false
+        readonly.busyMode = .timeout(1)
+        if let result = runQuickCheck(path: path, configuration: readonly) {
+            return result
+        }
+        // 热 WAL 只读打开失败时退回读写连接再试一次；文件已存在，不会静默建库。
+        guard fileManager.fileExists(atPath: path) else { return nil }
+        var writable = Configuration()
+        writable.foreignKeysEnabled = false
+        writable.busyMode = .timeout(1)
+        return runQuickCheck(path: path, configuration: writable)
+    }
+
+    private static func runQuickCheck(path: String, configuration: Configuration) -> String? {
+        guard let queue = try? DatabaseQueue(path: path, configuration: configuration) else { // try?-ok: 打不开=不判定损坏，调用方保留快照
+            return nil
+        }
+        defer { try? queue.close() } // try?-ok: 校验连接关闭失败由系统回收
+        guard let rows = try? queue.read({ db in // try?-ok: 读取失败=不判定损坏
+            try String.fetchAll(db, sql: "PRAGMA quick_check")
+        }) else { return nil }
+        return rows.isEmpty ? "quick_check returned no rows" : rows.joined(separator: "; ")
+    }
+
     private static func readState(_ queue: DatabaseQueue) throws -> (Int?, [String]) {
         try queue.read { db in
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version")

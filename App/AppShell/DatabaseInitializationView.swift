@@ -28,6 +28,8 @@ struct DatabaseInitializationView: View {
     @State private var networkBlockedShown = false
     /// 损坏数据库修复页（业主 2026-10-30 单独接口四动作）。
     @State private var showDatabaseRepair = false
+    /// 2026-11-01 迁移安全网：恢复到迁移前状态确认。
+    @State private var showRestoreCheckpointConfirm = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -56,6 +58,15 @@ struct DatabaseInitializationView: View {
                 }
                 .sheet(isPresented: $showDatabaseRepair) {
                     DatabaseRepairView(model: model)
+                }
+                .alert(L10n.startupInitRestoreConfirmTitle,
+                       isPresented: $showRestoreCheckpointConfirm) {
+                    Button(L10n.startupInitRestoreAction) {
+                        Task { await model.restorePreMigrationCheckpoint() }
+                    }
+                    Button(L10n.recoveryCancel, role: .cancel) {}
+                } message: {
+                    Text(L10n.startupInitRestoreConfirmBody)
                 }
         }
     }
@@ -107,9 +118,19 @@ struct DatabaseInitializationView: View {
     }
 
     private var titleText: String {
+        if isRestored { return L10n.startupInitRestoreDoneTitle }
         if model.failure != nil { return L10n.startupInitFailureTitle }
         if model.awaitingCatalogChoice { return L10n.startupInitReadyTitle }
         return L10n.startupCheckTitle
+    }
+
+    /// 恢复成功是终态但非「失败」语义：标题/图标/卡片用成功样式，动作仍
+    /// 只有重试升级与修复页。`failure` 仍非 nil，是为了沿用行状态推导。
+    private var isRestored: Bool {
+        if let failure = model.failure, case .restoredToPreMigration = failure {
+            return true
+        }
+        return false
     }
 
     // MARK: - 启动自检四行清单（U-批 B3）
@@ -194,6 +215,9 @@ struct DatabaseInitializationView: View {
             checklistRow(identifier: "schema", index: 2, title: L10n.startupCheckRowSchema,
                          state: rows.schema, detail: schemaDetail(rows.schema),
                          note: schemaNote(rows.schema), icon: "square.stack.3d.up.fill")
+            if showsMigrationProgress {
+                migrationProgressRow
+            }
             rowDivider
             checklistRow(identifier: "catalog", index: 3, title: L10n.startupCheckRowCatalog,
                          state: rows.catalog, detail: catalogDetail(rows.catalog),
@@ -393,6 +417,12 @@ struct DatabaseInitializationView: View {
     private func schemaDetail(_ state: StartupSelfCheckRowState) -> String? {
         switch state {
         case .running:
+            if model.isCreatingCheckpoint {
+                return L10n.startupInitStageCheckpoint
+            }
+            if case .migrating = model.phase, let progress = model.migrationProgress {
+                return L10n.startupInitMigrationStep(progress.index, progress.total)
+            }
             if case .migrating(let from, let to) = model.phase {
                 return L10n.startupInitStageMigrate(from, to)
             }
@@ -415,6 +445,38 @@ struct DatabaseInitializationView: View {
         default:
             return nil
         }
+    }
+
+    /// 只在快照阶段或迁移阶段显示进度；`.verifying` 后不再显示上一步的
+    /// 100% 进度，避免行②文案与阶段错位。
+    private var showsMigrationProgress: Bool {
+        if model.isCreatingCheckpoint { return true }
+        if case .migrating = model.phase, model.migrationProgress != nil { return true }
+        return false
+    }
+
+    /// 迁移安全网（2026-11-01）：行②下方的确定/不确定进度条。
+    /// 进度条本身不参与无障碍焦点；n/N 已并入行② label（避免重复播报）。
+    @ViewBuilder
+    private var migrationProgressRow: some View {
+        Group {
+            if let progress = model.migrationProgress {
+                ProgressView(value: Double(progress.completedSteps),
+                             total: Double(max(progress.total, 1)))
+                    .tint(Color("brand-primary", bundle: .main))
+                    .accessibilityHidden(true)
+            } else {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(Color("brand-primary", bundle: .main))
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.leading, 52)
+        .padding(.trailing, 12)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("STARTUP.selfcheck.schema.progress")
     }
 
     /// 单向迁移提示（O5）：升级后旧版本 App 打不开此档案，一屏一句。
@@ -826,13 +888,17 @@ struct DatabaseInitializationView: View {
     // MARK: - 顶图/隐私行/失败卡
 
     private var iconBadge: some View {
-        Image(systemName: model.failure == nil ? "book.fill" : "exclamationmark.triangle.fill")
+        Image(systemName: isRestored
+              ? "checkmark.seal.fill"
+              : (model.failure == nil ? "book.fill" : "exclamationmark.triangle.fill"))
             .font(VLFont.homeActionIcon)
             // token-only（§3.0）：强调色走 brand-primary，不用系统 accentColor
             //（本页在会话之前，改主题/全局 accent 时不得漂移出品牌色）。
-            .foregroundStyle(model.failure == nil
-                             ? Color("brand-primary", bundle: .main)
-                             : Color("semantic-warning", bundle: .main))
+            .foregroundStyle(isRestored
+                             ? Color("semantic-success", bundle: .main)
+                             : (model.failure == nil
+                                ? Color("brand-primary", bundle: .main)
+                                : Color("semantic-warning", bundle: .main)))
             .frame(width: 84, height: 84)
             .background(.thinMaterial, in: Circle())
             .overlay(Circle().stroke(.white.opacity(0.55), lineWidth: 1))
@@ -871,6 +937,28 @@ struct DatabaseInitializationView: View {
                           identifier: "STARTUP.initialization.retry") {
                 Task { await model.retry() }
             }
+        } else if case .restoredToPreMigration = failure {
+            // 已恢复到迁移前 vN：重试升级是唯一前进路径；修复页可导出/核对。
+            failureButton(title: L10n.startupInitRestoreRetry, primary: true,
+                          identifier: "STARTUP.restore.retry") {
+                Task { await model.retry() }
+            }
+            failureButton(title: L10n.recoveryOpen, primary: false,
+                          identifier: "STARTUP.failure.repair") { showDatabaseRepair = true }
+        } else if model.canRestoreCheckpoint {
+            // 迁移未完成/迁移后校验失败：恢复是唯一回到已知良好数据的路径。
+            failureButton(title: L10n.startupInitRestoreAction, primary: true,
+                          identifier: "STARTUP.failure.restoreCheckpoint") {
+                showRestoreCheckpointConfirm = true
+            }
+            if model.canOfferDatabaseRepair {
+                failureButton(title: L10n.recoveryOpen, primary: false,
+                              identifier: "STARTUP.failure.repair") { showDatabaseRepair = true }
+            }
+            failureButton(title: L10n.startupInitRetry, primary: false,
+                          identifier: "STARTUP.initialization.retry") {
+                Task { await model.retry() }
+            }
         } else if prefersRepairPrimary(failure), model.canOfferDatabaseRepair {
             failureButton(title: L10n.recoveryOpen, primary: true,
                           identifier: "STARTUP.failure.repair") { showDatabaseRepair = true }
@@ -892,7 +980,8 @@ struct DatabaseInitializationView: View {
 
     private func prefersRepairPrimary(_ failure: DatabaseBootFailure) -> Bool {
         switch failure {
-        case .corrupt, .missingWithOriginals, .migrationIncomplete, .recoveryBackupFailed:
+        case .corrupt, .missingWithOriginals, .migrationIncomplete,
+             .postCheckFailed, .recoveryBackupFailed:
             return true
         default:
             return false
@@ -932,6 +1021,14 @@ struct DatabaseInitializationView: View {
             return L10n.startupInitFailureMigration(found, expected)
         case .recoveryBackupFailed:
             return L10n.startupInitFailureBackupRestore
+        case .checkpointFailed:
+            return L10n.startupInitFailureCheckpoint
+        case .postCheckFailed:
+            return L10n.startupInitFailurePostCheck
+        case .restoredToPreMigration(let version):
+            return L10n.startupInitRestoreDoneBody(Int64(version))
+        case .checkpointRestoreFailed(let detail):
+            return L10n.startupInitFailureRestore(detail)
         case .openFailed, .unexpected:
             return L10n.startupInitFailureGeneric
         }

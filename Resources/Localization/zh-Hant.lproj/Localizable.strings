@@ -1908,6 +1908,17 @@
 "startup.init.stageProbe" = "正在檢查本機檔案…";
 "startup.init.stageCreate" = "正在建立本機資料庫…";
 "startup.init.stageMigrateFmt" = "正在升級資料庫（v%1$ld → v%2$ld）…";
+"startup.init.stageCheckpoint" = "正在建立升級前的本機安全副本…";
+"startup.init.migrationStepFmt" = "正在升級資料結構（第 %1$ld/%2$ld 步）…";
+"startup.init.failureCheckpoint" = "無法建立升級前的安全副本（空間不足或檔案暫時不可用）。檔案未被修改，請重試。";
+"startup.init.failurePostCheck" = "升級已執行，但結構校驗未通過。可用升級前安全副本恢復，或進入資料庫修復。";
+"startup.init.failureRestoreFmt" = "恢復到升級前狀態失敗：%@。目前檔案未被覆蓋，請重試或進入資料庫修復。";
+"startup.init.restoreAction" = "恢復到升級前狀態";
+"startup.init.restoreConfirmTitle" = "恢復到升級前狀態？";
+"startup.init.restoreConfirmBody" = "將用升級前的本機安全副本取代目前檔案。目前檔案會保留為修復副本，不會被刪除；升級成功後安全副本自動刪除。";
+"startup.init.restoreDoneTitle" = "已恢復到升級前狀態";
+"startup.init.restoreDoneBodyFmt" = "已恢復到遷移前的 v%lld。可重試升級，或先進入資料庫修復匯出檔案。";
+"startup.init.restoreRetry" = "重試升級";
 "startup.init.stageVerify" = "正在核對資料結構…";
 "startup.init.stageAssemble" = "正在準備介面…";
 "startup.init.privacy" = "全部資料保存在本機 · 不會上傳";
