@@ -15,8 +15,20 @@ struct MigrationCheckpointTests {
         return url
     }
 
+    /// 快照目录是全局 Application Support（与生产同路径），并行测试必须用
+    /// 唯一库名隔离，否则同 from/to 的 final 名互相覆盖（CI 41302224850）。
+    private func databasePath(in directory: URL) -> String {
+        directory.appendingPathComponent(
+            "app-local-user_data-\(UUID().uuidString).sqlite").path
+    }
+
     /// 最小可校验患者库：三个必需表 + 指定 user_version。
     private func makeDatabase(at path: String, version: Int) throws {
+        // 允许同一路径二次建库（restore 测试模拟半升级后的当前库）。
+        try? FileManager.default.removeItem(atPath: path) // try?-ok: 测试重置
+        for suffix in ["-wal", "-shm", "-journal"] {
+            try? FileManager.default.removeItem(atPath: path + suffix) // try?-ok: 测试重置
+        }
         let queue = try DatabaseQueue(path: path)
         try queue.write { db in
             try db.execute(sql: """
@@ -31,8 +43,11 @@ struct MigrationCheckpointTests {
 
     @Test func prepareCopiesSourceVersionAndReuses() throws {
         let dir = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
-        let databasePath = dir.appendingPathComponent("app-local-user_data.sqlite").path
+        let databasePath = databasePath(in: dir)
+        defer {
+            MigrationCheckpointStore.discardAll(databasePath: databasePath)
+            try? FileManager.default.removeItem(at: dir) // try?-ok: 测试清理
+        }
         try makeDatabase(at: databasePath, version: 48)
 
         let checkpoint = try MigrationCheckpointStore.prepare(
@@ -52,8 +67,11 @@ struct MigrationCheckpointTests {
 
     @Test func restoreReplacesCurrentDatabaseAndArchivesIt() throws {
         let dir = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
-        let databasePath = dir.appendingPathComponent("app-local-user_data.sqlite").path
+        let databasePath = databasePath(in: dir)
+        defer {
+            MigrationCheckpointStore.discardAll(databasePath: databasePath)
+            try? FileManager.default.removeItem(at: dir) // try?-ok: 测试清理
+        }
         try makeDatabase(at: databasePath, version: 48)
         let checkpoint = try MigrationCheckpointStore.prepare(
             databasePath: databasePath, from: 48, to: 50)
@@ -72,8 +90,11 @@ struct MigrationCheckpointTests {
 
     @Test func discardAllRemovesCheckpoint() throws {
         let dir = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
-        let databasePath = dir.appendingPathComponent("app-local-user_data.sqlite").path
+        let databasePath = databasePath(in: dir)
+        defer {
+            MigrationCheckpointStore.discardAll(databasePath: databasePath)
+            try? FileManager.default.removeItem(at: dir) // try?-ok: 测试清理
+        }
         try makeDatabase(at: databasePath, version: 48)
         let checkpoint = try MigrationCheckpointStore.prepare(
             databasePath: databasePath, from: 48, to: 50)
