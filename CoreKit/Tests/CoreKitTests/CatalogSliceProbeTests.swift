@@ -141,7 +141,7 @@ struct CatalogSliceProbeTests {
         try makeLegalSlice(at: path, kind: .reference)
         let queue = try DatabaseQueue(path: path)
         try queue.write { db in
-            try db.execute(sql: "UPDATE slice_meta SET value = 'catalog-v9' WHERE key = 'physical_schema'")
+            try db.execute(sql: "UPDATE slice_meta SET value = 'catalog-v99' WHERE key = 'physical_schema'")
         }
         try queue.close()
         #expect(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: .reference)
