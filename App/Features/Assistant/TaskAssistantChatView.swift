@@ -23,6 +23,10 @@ private final class MergeImageBox: @unchecked Sendable {
 }
 
 struct TaskAssistantChatView: View {
+    /// 聊天导入的敏感分类策略单源：默认非敏感（V4.63）；会话目录自动导出
+    /// 只带非敏感件，敏感件仍只经显式导出（BR-007/008 对外边界）。
+    private static let chatImportSensitive = false
+
     @Environment(AppState.self) private var app
     @Environment(AppRouter.self) private var router
     @Environment(VoiceNoteState.self) private var voiceNotes
@@ -285,6 +289,8 @@ struct TaskAssistantChatView: View {
                     previewTask = nil
                     restoreSheetTask?.cancel()
                     restoreSheetTask = nil
+                    // 视图离开即丢弃待恢复意图，避免同一实例稍后回前台重挂旧 sheet。
+                    sheetBeforeBackground = nil
                     stopVoicePlayback()
                     chatDictation?.stopForDisappear()
                     for url in pendingVoiceURLs.values { ChatAudioStore.removeTemporary(url) }
@@ -1037,8 +1043,13 @@ struct TaskAssistantChatView: View {
                 } catch {
                     return
                 }
-                guard !Task.isCancelled, scenePhase == .active, activeSheet == nil else { return }
-                activeSheet = saved
+                guard !Task.isCancelled else { return }
+                // 用户已自行打开其他页面：丢弃陈旧恢复意图，避免下次回前台重挂旧 sheet。
+                // 不再读 scenePhase：闭包捕获的是创建时的 View 快照，值恒为 .active；
+                // 退后台由 .inactive/.background 分支取消本任务兜底。
+                if activeSheet == nil {
+                    activeSheet = saved
+                }
                 sheetBeforeBackground = nil
             }
         @unknown default:
@@ -1701,7 +1712,7 @@ struct TaskAssistantChatView: View {
         }
         // 2026-11-02 真机：聊天导入恢复非敏感默认，才能自动导出到 Files 会话目录。
         let draft = await docs.importPDFData(patientId: session.patientId, data: merged.data,
-                                             title: filename, isSensitive: false, origin: origin)
+                                             title: filename, isSensitive: Self.chatImportSensitive, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
         if merged.truncated {
             append(.init(role: .assistant, text: L10n.assistantAttachmentTruncated,
@@ -1719,7 +1730,7 @@ struct TaskAssistantChatView: View {
             return
         }
         let draft = await docs.importPDFData(patientId: session.patientId, data: data,
-                                             title: filename, isSensitive: false, origin: origin)
+                                             title: filename, isSensitive: Self.chatImportSensitive, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
@@ -1738,7 +1749,7 @@ struct TaskAssistantChatView: View {
             patientId: session.patientId,
             originalData: data, processedData: data,
             mimeType: ImageInputRules.sniffMimeType(of: data),
-            docType: nil, title: nil, isSensitive: false, origin: origin)
+            docType: nil, title: nil, isSensitive: Self.chatImportSensitive, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
@@ -1780,7 +1791,7 @@ struct TaskAssistantChatView: View {
     private func startChatSession() -> DocumentsState.ImportSession? {
         guard docs.activeImport == nil,
               let session = docs.beginImport(patientId: app.currentPatientId) else { return nil }
-        session.captureSensitive = false
+        session.captureSensitive = Self.chatImportSensitive
         // 2026-11-02 真机：恢复非敏感件的会话目录自动导出；敏感件仍由
         // commitDraft/镜像过滤，用户面副本只经显式导出。
         session.suppressAutoMirrorHook = true

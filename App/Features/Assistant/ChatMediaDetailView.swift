@@ -51,6 +51,10 @@ struct ChatMediaDetailView: View {
         let title: String
         let subtitle: String
         let editable: Bool
+        /// 共享字段在部分行已提交后不得再行内改写：事实行已按旧共享值落库，
+        /// store 的 `mergeDraft` 会拒绝这类快照（committedDataChanged）。
+        /// 与其让保存必然失败，不如在入口处如实锁定并引导去卡片页。
+        let sharedLocked: Bool
         var id: String { group.id }
     }
 
@@ -91,7 +95,8 @@ struct ChatMediaDetailView: View {
         case original(page: Int)
         case pending(id: String)
         case actions
-        case sourceLine(cardID: String, fieldKey: String, rowID: UUID?, pageIndex: Int)
+        case sourceLine(cardID: String, fieldKey: String, rowID: UUID?,
+                        pageIndex: Int, lines: [String], canQuote: Bool)
         case sourceCrop(pageIndex: Int, lineIndex: Int?, text: String)
 
         var id: String {
@@ -99,7 +104,7 @@ struct ChatMediaDetailView: View {
             case .original(let page): return "original-\(page)"
             case .pending(let id): return "pending-\(id)"
             case .actions: return "actions"
-            case .sourceLine(let cardID, let key, let rowID, _):
+            case .sourceLine(let cardID, let key, let rowID, _, _, _):
                 return "line-\(cardID)-\(key)-\(rowID?.uuidString ?? "shared")"
             case .sourceCrop(let page, let line, _):
                 return "crop-\(page)-\(line ?? -1)"
@@ -120,7 +125,18 @@ struct ChatMediaDetailView: View {
     @State private var dirtyCards: Set<String> = []
     @State private var savedCards: Set<String> = []
     @State private var savingCards: Set<String> = []
+    /// 在途保存任务：重复点按（保存/去核对）复用同一次落库，不静默丢弃。
+    @State private var saveTasks: [String: Task<Bool, Never>] = [:]
     @State private var elementSaveError: String?
+    /// 保存失败时仍允许打开现有核对卡，避免共享字段/已提交行冲突造成死路。
+    @State private var pendingCardAfterSaveFailure: String?
+    /// 有未保存修正时关闭确认。
+    @State private var showDiscardEdits = false
+    /// 有识别文本的页（避免每次键入都在 body 里整页 split 原文）。
+    @State private var pagesWithText: Set<Int> = []
+    /// 数据信息元手风琴：同一时刻只展开一组；首次加载默认第一组。
+    @State private var expandedElementGroup: String?
+    @State private var didInitializeExpandedGroup = false
     /// 关闭 sheet 后的刷新范围：看原图不重读；待核对卡只刷卡片区+文档徽章
     /// （正文/滚动位不塌回 loading）；更多操作可能重新识别，整页重读。
     @State private var dismissRefresh: DismissRefresh = .none
@@ -134,6 +150,9 @@ struct ChatMediaDetailView: View {
                     VStack(spacing: 14) {
                         mediaCard
                         tabPicker
+                        // 页级识别状态属于整份文档：两个页签都必须看见，
+                        // 否则卡片页会让人误以为全部页都已识别。
+                        pageStatusNotices
                         tabContent
                     }
                     .padding(16)
@@ -152,7 +171,10 @@ struct ChatMediaDetailView: View {
                         .accessibilityIdentifier("chat.mediaDetail.more")
                     }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.assistantClose) { dismiss() }
+                        Button(L10n.assistantClose) {
+                            if dirtyCards.isEmpty { dismiss() }
+                            else { showDiscardEdits = true }
+                        }
                     }
                 }
                 .task(id: documentId) { await loadBasics() }
@@ -166,12 +188,34 @@ struct ChatMediaDetailView: View {
                 }
                 // 缩略图即原图内容：退后台时随系统隐私遮罩隐去（与原件页同纪律）。
                 .privacySensitive(scenePhase != .active)
+                .interactiveDismissDisabled(!dirtyCards.isEmpty)
                 .alert(L10n.chatMediaElementSaveFailed,
                        isPresented: Binding(get: { elementSaveError != nil },
                                             set: { if !$0 { elementSaveError = nil } })) {
-                    Button(L10n.onboard_gotIt, role: .cancel) { elementSaveError = nil }
+                    if let id = pendingCardAfterSaveFailure {
+                        Button(L10n.chatMediaGoConfirm) {
+                            elementSaveError = nil
+                            pendingCardAfterSaveFailure = nil
+                            dismissRefresh = .cards
+                            detailSheet = .pending(id: id)
+                        }
+                        Button(L10n.commonCancel, role: .cancel) {
+                            elementSaveError = nil
+                            pendingCardAfterSaveFailure = nil
+                        }
+                    } else {
+                        Button(L10n.onboard_gotIt, role: .cancel) { elementSaveError = nil }
+                    }
                 } message: {
                     Text(elementSaveError ?? "")
+                }
+                .confirmationDialog(L10n.chatMediaDiscardEditsTitle,
+                                    isPresented: $showDiscardEdits,
+                                    titleVisibility: .visible) {
+                    Button(L10n.chatMediaDiscardEditsAction, role: .destructive) {
+                        dismiss()
+                    }
+                    Button(L10n.commonCancel, role: .cancel) {}
                 }
             }
         }
@@ -192,13 +236,13 @@ struct ChatMediaDetailView: View {
                                    title: title, pageCount: totalPageCount,
                                    conversationID: conversationID,
                                    conversationTitle: conversationTitle)
-        case .sourceLine(let cardID, let fieldKey, let rowID, let pageIndex):
-            SourceLineSheet(lines: pageLines(pageIndex),
+        case .sourceLine(let cardID, let fieldKey, let rowID, _, let lines, let canQuote):
+            SourceLineSheet(lines: lines,
                             highlight: elementSourceLine(cardID: cardID, key: fieldKey, rowID: rowID),
-                            onPick: elementDrafts[cardID] == nil ? nil : { (lines: [String], indices: [Int]) in
+                            onPick: canQuote ? { (lines: [String], indices: [Int]) in
                                 quoteElement(cardID: cardID, fieldKey: fieldKey,
                                              rowID: rowID, lines: lines, indices: indices)
-                            })
+                            } : nil)
         case .sourceCrop(let pageIndex, let lineIndex, let sourceText):
             ChatMediaSourceCropView(documentId: documentId, patientId: patientId,
                                      pageIndex: pageIndex, lineIndex: lineIndex,
@@ -375,6 +419,10 @@ struct ChatMediaDetailView: View {
                     ForEach(rows) { row in
                         elementGroup(row)
                     }
+                    .onAppear { ensureExpandedElementGroup(ids: rows.map(\.id)) }
+                    .onChangeCompat(of: rows.map(\.id)) { _, ids in
+                        ensureExpandedElementGroup(ids: ids)
+                    }
                 }
             }
 
@@ -411,6 +459,60 @@ struct ChatMediaDetailView: View {
         }
     }
 
+    /// 页级识别状态必须可见（旧「文件」页签删掉后不能连失败页一起消失）：
+    /// 读取失败可重试；识别失败/纯影像页/跳过页逐页标注，用户不得误以为整份已识别。
+    /// 整份文档的状态，两个页签共用。
+    @ViewBuilder
+    private var pageStatusNotices: some View {
+        switch textState {
+        case .failed:
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                Text(L10n.assistantMediaLoadFailed)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button(L10n.retry) { Task { await loadBasics() } }
+                    .font(.caption.weight(.semibold))
+                    .frame(minHeight: 44)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color("semantic-warning", bundle: .main).opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        case .pages(let pages):
+            let broken = pages.filter {
+                $0.status == "failed" || $0.status == "no_text" || $0.status == "skipped"
+            }
+            if !broken.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(broken, id: \.index) { page in
+                        Label {
+                            Text("\(page.index + 1) · ").font(.caption2)
+                                + Text(page.status == "no_text"
+                                       ? L10n.assistantMediaPageNoText
+                                       : page.status == "skipped"
+                                           ? L10n.assistantMediaPageSkipped
+                                           : L10n.assistantMediaPageFailed)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(Color("semantic-warning", bundle: .main))
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color("semantic-warning", bundle: .main).opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        case .loading, .legacy, .empty:
+            EmptyView()
+        }
+    }
+
     private func elementRows(from cards: [PendingCard]) -> [ElementRow] {
         cards.flatMap { card -> [ElementRow] in
             let matched = try? card.matchedCard()   // try?-ok: 旧卡缺页身份时回落 partialData 投影
@@ -438,7 +540,8 @@ struct ChatMediaDetailView: View {
                     pageIndex: pageIndex,
                     title: title,
                     subtitle: L10n.chatMediaElementSubtitle(pageIndex + 1, group.fields.count),
-                    editable: draft != nil)
+                    editable: draft != nil,
+                    sharedLocked: docs.pendingReviews[card.id]?.sharedCommitted == true)
             }
         }
     }
@@ -449,43 +552,103 @@ struct ChatMediaDetailView: View {
         }
     }
 
+    /// 共享面：任一行已提交后只读（行内保存会被 store 的合并规则拒绝）；
+    /// 行面仍可编辑——已提交行自身另有 C 级只读判定。
+    private func allowsInlineEdit(_ row: ElementRow) -> Bool {
+        row.editable && !(row.sharedLocked && row.group.rowId == nil)
+    }
+
     private func elementGroup(_ row: ElementRow) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.title)
-                        .font(.subheadline.weight(.semibold))
-                    Text(row.subtitle)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                if row.editable {
-                    if savingCards.contains(row.cardID) {
-                        ProgressView().controlSize(.small)
-                            .accessibilityLabel(L10n.chatMediaElementSaving)
-                    } else if dirtyCards.contains(row.cardID) {
-                        Button(L10n.chatMediaElementSave) {
-                            Task { await saveElementCard(row.cardID) }
-                        }
-                        .font(.caption.weight(.bold))
-                        .frame(minHeight: 44)
-                        .accessibilityIdentifier("chat.mediaDetail.elements.save.\(row.cardID)")
-                    } else if savedCards.contains(row.cardID) {
-                        Label(L10n.chatMediaElementSaved, systemImage: "checkmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(Color("semantic-success", bundle: .main))
-                            .accessibilityIdentifier("chat.mediaDetail.elements.saved.\(row.cardID)")
+        let expanded = expandedElementGroup == row.group.id
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 8) {
+                Button {
+                    didInitializeExpandedGroup = true
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        expandedElementGroup = expanded ? nil : row.group.id
                     }
+                } label: {
+                    HStack(alignment: .center, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(row.subtitle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(expanded ? 0 : -90))
+                            .animation(.easeInOut(duration: 0.2), value: expanded)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .accessibilityLabel(row.title)
+                .accessibilityValue(expanded ? L10n.chatMediaElementCollapse
+                                               : L10n.chatMediaElementExpand)
+                .accessibilityIdentifier("chat.mediaDetail.elementGroup.toggle.\(row.group.id)")
+
+                switch ChatMediaElementGrouping.groupAction(
+                    editable: allowsInlineEdit(row),
+                    saving: savingCards.contains(row.cardID),
+                    dirty: dirtyCards.contains(row.cardID),
+                    saved: savedCards.contains(row.cardID)) {
+                case .none:
+                    EmptyView()
+                case .saving:
+                    ProgressView().controlSize(.small)
+                        .accessibilityLabel(L10n.chatMediaElementSaving)
+                case .save:
+                    Button(L10n.chatMediaElementSave) {
+                        Task { await saveElementCard(row.cardID) }
+                    }
+                    .font(.caption.weight(.bold))
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("chat.mediaDetail.elements.save.\(row.cardID)")
+                case .saved:
+                    Label(L10n.chatMediaElementSaved, systemImage: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Color("semantic-success", bundle: .main))
+                        .accessibilityIdentifier("chat.mediaDetail.elements.saved.\(row.cardID)")
                 }
             }
-            ForEach(row.group.fields) { field in
-                elementFieldCard(field, row: row)
+            if expanded {
+                if row.sharedLocked, row.group.rowId == nil {
+                    Text(L10n.chatMediaElementSharedLocked)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(row.group.fields) { field in
+                    elementFieldCard(field, row: row)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.mediaDetail.elementGroup.\(row.group.id)")
+    }
+
+    /// 首次加载默认展开第一组；用户手动全收起后，刷新不强行重开。
+    private func ensureExpandedElementGroup(ids: [String]) {
+        guard !ids.isEmpty else {
+            expandedElementGroup = nil
+            return
+        }
+        if !didInitializeExpandedGroup {
+            expandedElementGroup = ids.first
+            didInitializeExpandedGroup = true
+            return
+        }
+        if let current = expandedElementGroup, !ids.contains(current) {
+            expandedElementGroup = nil
+        }
     }
 
     private func elementFieldCard(_ field: ChatMediaElementField, row: ElementRow) -> some View {
@@ -494,10 +657,18 @@ struct ChatMediaDetailView: View {
                 Text(DocumentsDisplay.fieldLabel(forKey: field.key))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                GradeBadge(grade: field.grade)
+                if field.isRejected {
+                    Text(L10n.docConfirmReject)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    GradeBadge(grade: field.grade)
+                }
                 Spacer(minLength: 0)
             }
-            if row.editable {
+            // 已拒绝=用户显式否定，已确认 C=已落库行：行内键入不得静默撤销拒绝
+            // 或改写已提交数据（BR-003；与确认页 readOnly/rejected 同口径）。
+            if allowsInlineEdit(row), !field.isRejected, field.grade != GradeBadge.gradeConfirmed {
                 HStack(spacing: 5) {
                     TextField("", text: elementValueBinding(field, row: row))
                         .font(.subheadline.weight(.semibold))
@@ -516,6 +687,7 @@ struct ChatMediaDetailView: View {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
                     Text(field.value)
                         .font(.subheadline.weight(.semibold))
+                        .strikethrough(field.isRejected)
                         .fixedSize(horizontal: false, vertical: true)
                     if let unit = field.unit, !unit.isEmpty {
                         Text(unit).font(.caption2).foregroundStyle(.secondary)
@@ -527,11 +699,18 @@ struct ChatMediaDetailView: View {
                 Button(L10n.chatMediaSourceText) {
                     dismissRefresh = .none
                     detailSheet = .sourceLine(cardID: row.cardID, fieldKey: field.key,
-                                              rowID: row.group.rowId, pageIndex: row.pageIndex)
+                                              rowID: row.group.rowId, pageIndex: row.pageIndex,
+                                              lines: sourceLines(for: field, row: row),
+                                              // 合成回落行（页文本缺失时）不提供引用：
+                                              // SourceLineSheet 按数组下标回写行号，会对
+                                              // 字段锚点写入假的行 0。只许展示原行，不许引用。
+                                              canQuote: allowsInlineEdit(row) && !field.isRejected
+                                                  && field.grade != GradeBadge.gradeConfirmed
+                                                  && pageIndexHasText(row.pageIndex))
                 }
                 .font(.caption.weight(.bold))
                 .frame(minHeight: 44)
-                .disabled(pageLines(row.pageIndex).isEmpty)
+                .disabled(!pageIndexHasText(row.pageIndex) && field.sourceText.isEmpty)
                 .accessibilityIdentifier("chat.mediaDetail.element.source.\(field.id)")
 
                 Button(L10n.chatMediaViewSourceImage) {
@@ -548,9 +727,12 @@ struct ChatMediaDetailView: View {
                     dismissRefresh = .cards
                     if dirtyCards.contains(row.cardID) {
                         Task {
-                            if await saveElementCard(row.cardID) {
-                                detailSheet = .pending(id: row.cardID)
-                            }
+                            // 保存窗口内继续键入时再存一次，带着未保存编辑去核对会丢改动。
+                            var saved = false
+                            repeat {
+                                saved = await saveElementCard(row.cardID, offerOpenCardOnFailure: true)
+                            } while saved && dirtyCards.contains(row.cardID)
+                            if saved { detailSheet = .pending(id: row.cardID) }
                         }
                     } else {
                         detailSheet = .pending(id: row.cardID)
@@ -591,17 +773,28 @@ struct ChatMediaDetailView: View {
                                  row: ElementRow) {
         guard var card = elementDrafts[row.cardID] else { return }
         if currentElementValue(field, row: row) == value { return }
+        // 逐键只改草稿值；修订留痕/证据键失效/编码失效在保存时一次性归并
+        // （`draftApplyingEdits`），避免每键入一字符追加一条 revisionHistory。
         if let rowID = row.group.rowId {
             guard let r = card.rows.firstIndex(where: { $0.id == rowID }),
                   let i = card.rows[r].fields.firstIndex(where: { $0.key == field.key }) else { return }
-            CardConfirmationRules.reviseDraft(&card, at: i, rowId: rowID, to: value)
+            card.rows[r].fields[i].value = value
         } else {
             guard let i = card.shared.firstIndex(where: { $0.key == field.key }) else { return }
-            CardConfirmationRules.reviseDraft(&card, at: i, rowId: nil, to: value)
+            card.shared[i].value = value
         }
         elementDrafts[row.cardID] = card
         dirtyCards.insert(row.cardID)
         savedCards.remove(row.cardID)
+    }
+
+    /// 引原文行：优先存储页原文；页文本读取失败时回落字段自带原始行
+    /// （卡片载荷里始终有值），不得让证据入口静默消失。
+    private func sourceLines(for field: ChatMediaElementField, row: ElementRow) -> [String] {
+        let lines = pageLines(row.pageIndex)
+        if !lines.isEmpty { return lines }
+        let fallback = field.sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? [] : [fallback]
     }
 
     /// 裁片匹配文本只取原始行（field.rawText → 存储页原文行），绝不使用当前编辑值：
@@ -635,23 +828,84 @@ struct ChatMediaDetailView: View {
     }
 
     @discardableResult
-    private func saveElementCard(_ cardID: String) async -> Bool {
-        guard let card = elementDrafts[cardID], !savingCards.contains(cardID) else { return false }
-        savingCards.insert(cardID)
-        defer { savingCards.remove(cardID) }
-        if await docs.updatePendingCardDraft(id: cardID, card: card) {
-            dirtyCards.remove(cardID)
-            savedCards.insert(cardID)
-            return true
-        } else {
-            elementSaveError = L10n.chatMediaElementSaveFailed
-            return false
+    private func saveElementCard(_ cardID: String, offerOpenCardOnFailure: Bool = false) async -> Bool {
+        // 保存/去核对重复点按：等待同一次在途落库，不得静默返回失败。
+        if let inFlight = saveTasks[cardID] {
+            return await inFlight.value
         }
+        guard let card = elementDrafts[cardID] else { return false }
+        // 以最后一次落库快照为基线归并编辑：修订留痕每字段只记一条，
+        // 证据键失效/编码失效也在这次应用（逐键路径不再调用 reviseDraft）。
+        let finalCard = storedMatchedCard(cardID).map {
+            CardConfirmationRules.draftApplyingEdits(base: $0, edited: card)
+        } ?? card
+        let task = Task { @MainActor in
+            defer { saveTasks[cardID] = nil }
+            savingCards.insert(cardID)
+            defer { savingCards.remove(cardID) }
+            let saved = await docs.updatePendingCardDraft(id: cardID, card: finalCard)
+            guard saved else {
+                // 「去核对」触发失败时，弹窗直接给「去核对」（打开现有卡）；
+                // 保存按钮触发的失败只陈述失败，不把用户强行带离当前页。
+                // 不用三元表达式：`? cardID : nil` 会被类型层门禁误读为
+                // `cardID: nil` 实参（族 N 假阳性），显式分支更清楚。
+                if offerOpenCardOnFailure {
+                    pendingCardAfterSaveFailure = cardID
+                    elementSaveError = L10n.chatMediaElementSaveFailedOpenCard
+                } else {
+                    pendingCardAfterSaveFailure = nil
+                    elementSaveError = L10n.chatMediaElementSaveFailed
+                }
+                return false
+            }
+            // 落库窗口内继续键入：新值尚未落库，不得显示「已保存」。
+            // 草稿已被外部归档/移除（nil）时不得再标脏：脏卡没有可保存的
+            // 草稿会永久卡住保存全部与「去卡片页查看」。
+            if elementDrafts[cardID] == card {
+                dirtyCards.remove(cardID)
+                savedCards.insert(cardID)
+            } else if elementDrafts[cardID] != nil {
+                dirtyCards.insert(cardID)
+                savedCards.remove(cardID)
+            } else {
+                dirtyCards.remove(cardID)
+                savedCards.remove(cardID)
+            }
+            await refreshPendingCards()
+            return true
+        }
+        saveTasks[cardID] = task
+        return await task.value
     }
 
     private func saveAllElementCards() async {
+        // 单卡失败不得中止整批：否则失败卡之后的脏卡永远不落库，
+        // 且「去卡片页查看」会因 dirty 非空永久禁用（真机反馈）。
         for cardID in dirtyCards.sorted() {
-            guard await saveElementCard(cardID) else { return }
+            _ = await saveElementCard(cardID)
+        }
+    }
+
+    /// 待核对区的落库快照（行内编辑归并的基线）；解析失败时由调用方退回编辑值。
+    private func storedMatchedCard(_ cardID: String) -> MatchedCard? {
+        guard case .loaded(let cards) = pendingState,
+              let pending = cards.first(where: { $0.id == cardID }) else { return nil }
+        return try? pending.matchedCard()   // try?-ok: 旧卡无身份 → 不归并
+    }
+
+    /// 行内保存后同步「医疗信息卡片」区的待核对摘要（不重放编辑草稿）。
+    private func refreshPendingCards() async {
+        let projection = await docs.pendingCards(documentId: documentId, patientId: patientId)
+        guard case .loaded(let cards) = projection else { return }
+        pendingState = .loaded(cards)
+        syncElementDrafts(from: cards)
+    }
+
+    private func pageIndexHasText(_ pageIndex: Int) -> Bool {
+        switch textState {
+        case .pages: return pagesWithText.contains(pageIndex)
+        case .legacy(let text): return !text.isEmpty
+        case .loading, .empty, .failed: return false
         }
     }
 
@@ -921,10 +1175,21 @@ struct ChatMediaDetailView: View {
         textState = .loading
         docState = .loading
         switch await docs.mediaText(id: documentId, patientId: patientId) {
-        case .pages(let pages): textState = .pages(pages)
-        case .legacy(let text): textState = .legacy(text: text)
-        case .empty: textState = .empty
-        case .failed: textState = .failed
+        case .pages(let pages):
+            textState = .pages(pages)
+            pagesWithText = Set(pages.compactMap { page in
+                guard let text = page.text, !text.isEmpty else { return nil }
+                return page.index
+            })
+        case .legacy(let text):
+            textState = .legacy(text: text)
+            pagesWithText = text.isEmpty ? [] : [0]
+        case .empty:
+            textState = .empty
+            pagesWithText = []
+        case .failed:
+            textState = .failed
+            pagesWithText = []
         }
         await loadCards()
         await refreshGrade()
@@ -975,6 +1240,7 @@ struct ChatMediaDetailView: View {
         case .loaded(let cards):
             pendingState = .loaded(cards)
             syncElementDrafts(from: cards)
+            ensureExpandedElementGroup(ids: elementRows(from: cards).map(\.id))
         case .failed:
             pendingState = .failed
         }
@@ -988,14 +1254,16 @@ struct ChatMediaDetailView: View {
         dirtyCards.formIntersection(ids)
         savedCards.formIntersection(ids)
         savingCards.formIntersection(ids)
-        for card in cards where !dirtyCards.contains(card.id) {
+        for card in cards {
             // 归档卡只读：先走[去核对]补办恢复，行内保存不得直写归档卡。
-            guard card.status != "archived" else {
+            // 归档判定先于 dirty 保护——外部归档后未保存草稿不得继续可编辑。
+            if card.status == "archived" {
                 elementDrafts.removeValue(forKey: card.id)
                 dirtyCards.remove(card.id)
                 savedCards.remove(card.id)
                 continue
             }
+            guard !dirtyCards.contains(card.id) else { continue }
             if let matched = try? card.matchedCard() {   // try?-ok: 旧卡无身份 → 只读投影
                 elementDrafts[card.id] = matched
             } else {

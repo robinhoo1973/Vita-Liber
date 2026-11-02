@@ -87,10 +87,42 @@ struct ChatMediaElementGroupingTests {
         #expect(editable[0].fields[0].value.isEmpty)
     }
 
+    @Test("组头动作：保存中优先、脏才保存、只读无动作")
+    func groupActionPriority() {
+        #expect(ChatMediaElementGrouping.groupAction(editable: true, saving: false,
+                                                      dirty: false, saved: false) == .none)
+        #expect(ChatMediaElementGrouping.groupAction(editable: true, saving: false,
+                                                      dirty: true, saved: false) == .save)
+        #expect(ChatMediaElementGrouping.groupAction(editable: true, saving: true,
+                                                      dirty: true, saved: false) == .saving)
+        #expect(ChatMediaElementGrouping.groupAction(editable: true, saving: false,
+                                                      dirty: false, saved: true) == .saved)
+        #expect(ChatMediaElementGrouping.groupAction(editable: false, saving: false,
+                                                      dirty: true, saved: false) == .none)
+    }
+
     @Test("完全空卡不产生任何组")
     func emptyCardProducesNoGroups() {
         let groups = ChatMediaElementGrouping.groups(
             cardID: "c4", shared: [], rows: [[], []])
         #expect(groups.isEmpty)
+    }
+
+    @Test("拒绝字段保留拒绝标记；C 徽章以 isConfirmed 为准")
+    func keepsRejectedAndConfirmationProvenance() {
+        let rejected = FieldDraft(key: "result", value: "12", confidence: 0.8,
+                                  grade: .rejected)
+        let confirmed = FieldDraft(key: "item", value: "血红蛋白", confidence: 0.8,
+                                   grade: .userConfirmed)
+        var overstated = FieldDraft(key: "unit", value: "g/L", confidence: 0.8)
+        overstated.grade = .userConfirmed   // 无 reviewedValue：不是真的已核对
+        let groups = ChatMediaElementGrouping.groups(
+            cardID: "c7", shared: [rejected, confirmed, overstated], rows: [])
+        #expect(groups.count == 1)
+        #expect(groups[0].fields[0].isRejected)
+        #expect(groups[0].fields[0].grade == "D")
+        #expect(!groups[0].fields[1].isRejected)
+        #expect(groups[0].fields[1].grade == "C")
+        #expect(groups[0].fields[2].grade == "D")
     }
 }

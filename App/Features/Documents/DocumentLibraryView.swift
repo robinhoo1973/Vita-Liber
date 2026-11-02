@@ -224,6 +224,8 @@ final class DocumentsState {
     var entityQueueTotal: Int { activeImport?.totalCards ?? 0 }
     var canSkipForLater: Bool { pendingCardStore != nil }
     var importSlotFree: Bool { activeImport == nil }
+    /// FR14.1：任何 OCR 消费点（含来源裁片的旧文档复跑）都必须先过此授权。
+    var canRunOCR: Bool { ocrAuthorized() }
 
     init(store: DocumentStore, pipeline: OCRPipeline,
          decoder: (any ImageDecoding)? = nil,

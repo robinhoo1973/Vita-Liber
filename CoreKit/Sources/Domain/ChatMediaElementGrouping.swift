@@ -1,7 +1,7 @@
 import Foundation
 
 /// 聊天媒体详情「识别结果」页的要素分组（2026-11-01 业主；mock
-/// `chat-import-staging.html` 第 3 帧）。
+/// `chat-import-device-round1.html` 数据信息元帧）。
 ///
 /// 分组纪律：要素不能跨卡/跨行平铺——药名、规格、剂量、频次必须留在同一
 /// 处方行；检验项目、结果、单位必须留在同一检验行。共享字段单独成组，
@@ -19,10 +19,12 @@ public struct ChatMediaElementField: Sendable, Equatable, Identifiable {
     public let sourceLineIndex: Int?
     /// 当前字段级来源：C=已确认，D=机器识别未确认。
     public let grade: String
+    /// 用户已明确放弃（拒绝）该值：只读展示，编辑不得静默撤销拒绝（BR-003）。
+    public let isRejected: Bool
 
     public init(id: String, key: String, value: String, unit: String? = nil,
                 confidence: Double, sourceText: String, sourceLineIndex: Int? = nil,
-                grade: String = "D") {
+                grade: String = "D", isRejected: Bool = false) {
         self.id = id
         self.key = key
         self.value = value
@@ -31,6 +33,7 @@ public struct ChatMediaElementField: Sendable, Equatable, Identifiable {
         self.sourceText = sourceText
         self.sourceLineIndex = sourceLineIndex
         self.grade = grade
+        self.isRejected = isRejected
     }
 }
 
@@ -51,9 +54,28 @@ public struct ChatMediaElementGroup: Sendable, Equatable, Identifiable {
     }
 }
 
+/// 组头右侧动作（mock parity 契约 elements-default/dirty/saved 的可执行映射）。
+public enum ChatMediaElementGroupAction: String, Sendable, Equatable {
+    case none
+    case save
+    case saving
+    case saved
+}
+
 public enum ChatMediaElementGrouping {
     /// 内部键不进入识别结果页（与待核对卡字段摘要同一排除口径）。
     static let excludedKeys: Set<String> = ["metric_key"]
+
+    /// 组头动作的单一判定（视图与契约测试共用）：
+    /// 不可编辑 → 无动作；保存中优先于脏态；脏 → 保存；刚保存 → 已保存。
+    public static func groupAction(editable: Bool, saving: Bool, dirty: Bool,
+                                   saved: Bool) -> ChatMediaElementGroupAction {
+        guard editable else { return .none }
+        if saving { return .saving }
+        if dirty { return .save }
+        if saved { return .saved }
+        return .none
+    }
 
     public static func groups(cardID: String, card: MatchedCard,
                               includeEmpty: Bool = false) -> [ChatMediaElementGroup] {
@@ -109,7 +131,8 @@ public enum ChatMediaElementGrouping {
                 confidence: field.confidence,
                 sourceText: field.rawText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "",
                 sourceLineIndex: field.sourceLineIndex,
-                grade: field.grade == .userConfirmed ? "C" : "D"))
+                grade: field.isConfirmed ? "C" : "D",
+                isRejected: field.grade == .rejected))
         }
         guard !projected.isEmpty else { return nil }
         return ChatMediaElementGroup(id: id, rowIndex: rowIndex, rowId: rowId, fields: projected)

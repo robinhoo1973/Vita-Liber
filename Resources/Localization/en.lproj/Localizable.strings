@@ -2723,13 +2723,12 @@
 "assistant.ocrReplyFmt" = "%d fields recognized (not yet confirmed). Tap the media message above to review the recognized text and info cards; until confirmed, nothing enters medication plans, the emergency card, or AI facts.";
 "assistant.voiceReply" = "This recording has been transcribed into the input field. Tap the play button on the voice message to replay it.";
 "assistant.mediaDetailTitle" = "Note details";
-"assistant.mediaTabText" = "Recognized text";
-"assistant.mediaTabCards" = "Info cards";
 "assistant.mediaTextEmpty" = "No recognized text to show";
 "assistant.mediaCardsEmpty" = "No info cards for this item yet";
 "assistant.mediaOpenOriginal" = "Tap to view original";
 "assistant.mediaPageFailed" = "Recognition failed on this page";
 "assistant.mediaPageNoText" = "No text on this page";
+"assistant.mediaPageSkipped" = "Page not recognized (skipped)";
 "assistant.mediaEgressNote" = "Originals stay on this device; external copies are created only when export settings are on or you export explicitly";
 "assistant.mediaEgressNoteMirror" = "Originals stay on this device; non-sensitive items are mirrored to the Files app per your setting";
 "assistant.mergedPhotosFilename" = "Photo note";
@@ -2915,8 +2914,7 @@
 "medicalCatalog.detail.document.legacy" = "This medical data version predates drug information support.";
 "medicalCatalog.detail.document.unverified" = "Matched by name (unverified)";
 
-/* 2026-11-01 chat import staging + detail three tabs (mock chat-import-staging.html) */
-"assistant.mediaTabElements" = "Elements";
+/* 2026-11-01 chat import staging + detail two tabs (mock chat-import-staging.html / device-round1) */
 "chat.importStaging.title" = "Pending submission";
 "chat.importStaging.hintFmt" = "%d items · about %d pages; add more or submit to start recognition.";
 "chat.importStaging.imageBadge" = "Image";
@@ -2974,3 +2972,11 @@
 "chat.mediaCropFullPageNote" = "The source region could not be located; the full page is shown.";
 
 "chat.mediaElementSaveAll" = "Save all edits";
+
+"chat.mediaElementExpand" = "Expand";
+"chat.mediaElementCollapse" = "Collapse";
+
+"chat.mediaElementSaveFailedOpenCard" = "The edit could not be saved. Open the existing card to review and try again.";
+"chat.mediaElementSharedLocked" = "Some rows are already confirmed. Edit shared fields on the card page.";
+"chat.mediaDiscardEditsTitle" = "Discard unsaved edits?";
+"chat.mediaDiscardEditsAction" = "Discard edits";

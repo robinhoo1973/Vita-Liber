@@ -115,14 +115,13 @@ extension L10n {
     static var assistantMediaLoadFailed: String { t("assistant.mediaLoadFailed") }
     static var assistantMediaLegacyNote: String { t("assistant.mediaLegacyNote") }
     static var assistantMediaDetailTitle: String { t("assistant.mediaDetailTitle") }
-    static var assistantMediaTabText: String { t("assistant.mediaTabText") }
-    static var assistantMediaTabElements: String { t("assistant.mediaTabElements") }
-    static var assistantMediaTabCards: String { t("assistant.mediaTabCards") }
     static var assistantMediaTextEmpty: String { t("assistant.mediaTextEmpty") }
     static var assistantMediaCardsEmpty: String { t("assistant.mediaCardsEmpty") }
     static var assistantMediaOpenOriginal: String { t("assistant.mediaOpenOriginal") }
     static var assistantMediaPageFailed: String { t("assistant.mediaPageFailed") }
     static var assistantMediaPageNoText: String { t("assistant.mediaPageNoText") }
+    /// 页级状态三值：failed / no_text / skipped（未授权、超页数上限或被取消）。
+    static var assistantMediaPageSkipped: String { t("assistant.mediaPageSkipped") }
     static var assistantMediaEgressNote: String { t("assistant.mediaEgressNote") }
     // 2026-10-29 六点收口批（审查席重写版消费）：详情双区标题与 D/C 状态词。
     // CI 40870743625 红修复：访问器在小批覆盖中丢失（键与三语字符串均在）。
@@ -241,9 +240,15 @@ extension L10n {
     static var chatMediaViewSourceImage: String { t("chat.mediaViewSourceImage") }
     static var chatMediaElementSave: String { t("chat.mediaElementSave") }
     static var chatMediaElementSaveAll: String { t("chat.mediaElementSaveAll") }
+    static var chatMediaElementExpand: String { t("chat.mediaElementExpand") }
+    static var chatMediaElementCollapse: String { t("chat.mediaElementCollapse") }
     static var chatMediaElementSaving: String { t("chat.mediaElementSaving") }
     static var chatMediaElementSaved: String { t("chat.mediaElementSaved") }
     static var chatMediaElementSaveFailed: String { t("chat.mediaElementSaveFailed") }
+    static var chatMediaElementSaveFailedOpenCard: String { t("chat.mediaElementSaveFailedOpenCard") }
+    static var chatMediaElementSharedLocked: String { t("chat.mediaElementSharedLocked") }
+    static var chatMediaDiscardEditsTitle: String { t("chat.mediaDiscardEditsTitle") }
+    static var chatMediaDiscardEditsAction: String { t("chat.mediaDiscardEditsAction") }
     static var chatMediaCropTitle: String { t("chat.mediaCropTitle") }
     static var chatMediaCropLoading: String { t("chat.mediaCropLoading") }
     static var chatMediaCropFailed: String { t("chat.mediaCropFailed") }

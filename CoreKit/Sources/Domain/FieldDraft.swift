@@ -134,9 +134,13 @@ public struct FieldDraft: Codable, Sendable, Equatable, Identifiable {
     public mutating func reenable() { grade = .ocrUnconfirmed; reviewedValue = nil; codeApproval = nil }
     public mutating func clearCodeResolution() { codeResolution = nil; codeApproval = nil }
 
+    /// 修订历史时间戳格式（静态缓存——行内逐键编辑会高频调用，逐次构造
+    /// `ISO8601DateFormatter` 是纯浪费；与 `OcrConfirmation` 同纪律）。
+    private static let revisionStampFormatter = ISO8601DateFormatter()
+
     public mutating func revise(to newValue: String, by actor: String = "owner", at date: Date = Date()) {
         guard value != newValue else { return }
-        revisionHistory.append("\(value) -> \(newValue) | \(actor) | \(ISO8601DateFormatter().string(from: date))")
+        revisionHistory.append("\(value) -> \(newValue) | \(actor) | \(Self.revisionStampFormatter.string(from: date))")
         value = newValue
     }
 

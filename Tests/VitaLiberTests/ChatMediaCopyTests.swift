@@ -19,19 +19,24 @@ struct ChatMediaCopyTests {
             ("mediaDetailHint", L10n.assistantMediaDetailHint),
             ("mediaLoadFailed", L10n.assistantMediaLoadFailed),
             ("mediaLegacyNote", L10n.assistantMediaLegacyNote),
-            ("tabText", L10n.assistantMediaTabText),
-            ("tabCards", L10n.assistantMediaTabCards),
+            ("tabElements", L10n.chatMediaTabElements),
+            ("tabCards", L10n.chatMediaTabCards),
             ("textEmpty", L10n.assistantMediaTextEmpty),
             ("cardsEmpty", L10n.assistantMediaCardsEmpty),
             ("openOriginal", L10n.assistantMediaOpenOriginal),
             ("pageFailed", L10n.assistantMediaPageFailed),
             ("pageNoText", L10n.assistantMediaPageNoText),
+            ("pageSkipped", L10n.assistantMediaPageSkipped),
             ("egressNote", L10n.assistantMediaEgressNote),
             ("egressNoteMirror", L10n.assistantMediaEgressNoteMirror),
             // 2026-10-30 批新增边界句（卡片页脚 D 级 / 语音摘要仅摘录）：
             // 同纳入负向措辞清单，防后续改文案绕过 BR-003/BR-006。
             ("mediaCardsFootnote", L10n.chatMediaCardsFootnote),
             ("voiceSummaryNote", L10n.chatVoiceSummaryNote),
+            // 2026-11-02 两页签（数据信息元/医疗信息卡片）新增边界与说明文案：
+            ("elementsP1Note", L10n.chatMediaElementsP1Note),
+            ("elementsFooter", L10n.chatMediaElementsFooter),
+            ("cardsAssemblyNote", L10n.chatMediaCardsAssemblyNote),
         ]
     }
 
@@ -50,7 +55,7 @@ struct ChatMediaCopyTests {
     @Test("OCR 两模板均带 D 级边界句（确认前不进入计划/急救卡/AI 事实）")
     func ocrTemplatesCarryBoundary() {
         for reply in [L10n.assistantOcrReply(3), L10n.assistantOcrReplyPlain] {
-            if L10n.assistantMediaTabText.contains("识别") {
+            if L10n.chatMediaTabElements.contains("数据") {
                 // zh 语区：边界句关键片段
                 #expect(reply.contains("确认前不会进入"))
                 #expect(reply.contains("用药计划"))

@@ -2723,13 +2723,12 @@
 "assistant.ocrReplyFmt" = "已辨識 %d 個欄位（辨識未確認，請核對）。點上方的媒體訊息檢視辨識文字與資訊卡片；確認前不會進入用藥計畫、急救卡或 AI 事實。";
 "assistant.voiceReply" = "這段話已轉寫成文字，已放進輸入框；點語音訊息的播放鍵可回聽錄音。";
 "assistant.mediaDetailTitle" = "速記詳情";
-"assistant.mediaTabText" = "辨識文字";
-"assistant.mediaTabCards" = "資訊卡片";
 "assistant.mediaTextEmpty" = "沒有可顯示的辨識文字";
 "assistant.mediaCardsEmpty" = "這份資料還沒有資訊卡片";
 "assistant.mediaOpenOriginal" = "點按看原圖";
 "assistant.mediaPageFailed" = "本頁辨識失敗";
 "assistant.mediaPageNoText" = "本頁沒有文字";
+"assistant.mediaPageSkipped" = "本頁未辨識（已略過）";
 "assistant.mediaEgressNote" = "原件保存在本機；對外副本只在匯出設定開啟或你明確匯出時產生";
 "assistant.mediaEgressNoteMirror" = "原圖保存在本機；非敏感資料已依你的設定同步到「檔案」App 副本";
 "assistant.mergedPhotosFilename" = "圖片速記";
@@ -2915,8 +2914,7 @@
 "medicalCatalog.detail.document.legacy" = "目前醫療資料版本較舊，未包含說明書。";
 "medicalCatalog.detail.document.unverified" = "同名匹配·未核驗";
 
-/* 2026-11-01 聊天匯入待提交區 + 詳情三頁（mock chat-import-staging.html） */
-"assistant.mediaTabElements" = "識別結果";
+/* 2026-11-01 聊天匯入待提交區 + 詳情兩頁（mock chat-import-staging.html / device-round1） */
 "chat.importStaging.title" = "待提交";
 "chat.importStaging.hintFmt" = "%d 項 · 預計 %d 頁；可繼續拍/選，提交後才回聊天並開始識別。";
 "chat.importStaging.imageBadge" = "圖片";
@@ -2974,3 +2972,11 @@
 "chat.mediaCropFullPageNote" = "未定位到該資訊元的原文區域，已顯示整頁。";
 
 "chat.mediaElementSaveAll" = "儲存全部修正";
+
+"chat.mediaElementExpand" = "展開";
+"chat.mediaElementCollapse" = "摺疊";
+
+"chat.mediaElementSaveFailedOpenCard" = "修正未能儲存，可開啟現有卡片核對後重試。";
+"chat.mediaElementSharedLocked" = "共享欄位已有部分行確認，請到卡片頁修改。";
+"chat.mediaDiscardEditsTitle" = "放棄未儲存的修正？";
+"chat.mediaDiscardEditsAction" = "放棄修正";

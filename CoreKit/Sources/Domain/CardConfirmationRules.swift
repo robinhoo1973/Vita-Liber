@@ -214,6 +214,41 @@ public enum CardConfirmationRules {
         revise(&card, at: index, rowId: rowId, to: value, confirmingEmpty: false)
     }
 
+    /// 行内逐键编辑的提交前归并（2026-11-02 复审）：视图在每次键入时只改草稿值，
+    /// 落库前以最后一次 store 快照为基线，把最终值**一次性**经 `reviseDraft` 应用。
+    /// 逐键调用 `reviseDraft` 会让 `revisionHistory` 每键追加一条（长值可产生几十条
+    /// 中间态），并重复执行证据键失效/编码失效；归并后每条字段每次保存只留一条。
+    ///
+    /// 字段集合（键/行 id）不一致说明不是纯值编辑（增删字段），退回 `edited`，
+    /// 由 store 的合并规则裁决，不在这里猜意图。
+    public static func draftApplyingEdits(base: MatchedCard, edited: MatchedCard) -> MatchedCard {
+        guard base.id == edited.id, base.kind == edited.kind, base.pageIndex == edited.pageIndex,
+              base.shared.map(\.key) == edited.shared.map(\.key),
+              base.rows.map(\.id) == edited.rows.map(\.id) else { return edited }
+        var result = base
+        for (index, field) in edited.shared.enumerated() where result.shared.indices.contains(index) {
+            if result.shared[index].value != field.value {
+                reviseDraft(&result, at: index, rowId: nil, to: field.value)
+            }
+            // 原文引用改的是「值 + 出处」两件：值经 reviseDraft 落痕，rawText/
+            // sourceLineIndex 必须一并带回，否则保存后 [原文] 锚与裁片锚丢失。
+            result.shared[index].rawText = field.rawText
+            result.shared[index].sourceLineIndex = field.sourceLineIndex
+        }
+        for row in edited.rows {
+            guard let r = result.rows.firstIndex(where: { $0.id == row.id }),
+                  result.rows[r].fields.map(\.key) == row.fields.map(\.key) else { continue }
+            for (index, field) in row.fields.enumerated() where result.rows[r].fields.indices.contains(index) {
+                if result.rows[r].fields[index].value != field.value {
+                    reviseDraft(&result, at: index, rowId: row.id, to: field.value)
+                }
+                result.rows[r].fields[index].rawText = field.rawText
+                result.rows[r].fields[index].sourceLineIndex = field.sourceLineIndex
+            }
+        }
+        return result
+    }
+
     private static func revise(_ card: inout MatchedCard, at index: Int, rowId: UUID?,
                                to value: String, confirmingEmpty: Bool) {
         guard let rowId else {

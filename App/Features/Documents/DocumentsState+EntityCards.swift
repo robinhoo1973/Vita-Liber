@@ -402,7 +402,14 @@ extension DocumentsState {
         do {
             let effective = try await pendingCardStore.upsert(pendingDraft(card, source: source))
             guard effective == id else { throw ImportError.unreadableMedia }
-            pendingReviews[id]?.card = card
+            // 以店里合并后的快照回填评审态（提交行/共享字段可能被合并），
+            // 不让内存卡与落库卡各说各话。
+            if let stored = try? await pendingCardStore.card(id: id),   // try?-ok: 回读失败保留入参投影
+               let merged = try? stored.matchedCard() {   // try?-ok: 解析失败保留入参投影
+                pendingReviews[id]?.card = merged
+            } else {
+                pendingReviews[id]?.card = card
+            }
             pendingDidChange()
             return true
         } catch {

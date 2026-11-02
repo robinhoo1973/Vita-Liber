@@ -278,6 +278,26 @@ struct CardConfirmationRulesTests {
         #expect(c.shared[0].isConfirmed, "卡确认面仍保留 fillByUser 语义")
     }
 
+    @Test("行内逐键归并：以落库快照为基线只留一条修订，未改字段原样")
+    func draftApplyingEditsCoalescesTypingHistory() {
+        let base = card([field("hospital", "市一院"), field("doctor", "张三")])
+        var edited = base
+        // 模拟 TextField 逐键：只改值，不调用 reviseDraft
+        edited.shared[0].value = "市二"
+        edited.shared[0].value = "市二院"
+        edited.shared[0].rawText = "市二院"
+        edited.shared[0].sourceLineIndex = 3
+        let merged = CardConfirmationRules.draftApplyingEdits(base: base, edited: edited)
+        #expect(merged.shared[0].value == "市二院")
+        #expect(merged.shared[0].rawText == "市二院", "引用出处必须随值归并")
+        #expect(merged.shared[0].sourceLineIndex == 3, "原文行锚必须随值归并")
+        #expect(merged.shared[0].revisionHistory.count == 1,
+                "逐键中间态不膨胀；实得 \(merged.shared[0].revisionHistory.count)")
+        #expect(merged.shared[0].revisionHistory[0].contains("市一院")
+                && merged.shared[0].revisionHistory[0].contains("市二院"))
+        #expect(merged.shared[1] == base.shared[1], "未编辑字段不比基线多出任何状态")
+    }
+
     @Test("编辑纪律：.suggested 被编辑即回未选择")
     /// 原名：编辑使建议失效
     func editInvalidatesSuggestion() {
