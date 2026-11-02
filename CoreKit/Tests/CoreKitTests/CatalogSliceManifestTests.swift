@@ -173,7 +173,7 @@ struct CatalogSliceManifestTests {
     @Test("schemaVersion/containerFormat/installable/scope 门")
     func versionGates() throws {
         #expect(throws: CatalogSliceManifestError.unsupportedSliceSchemaVersion) {
-            _ = try candidate(.drug) { $0["schemaVersion"] = 5 }
+            _ = try candidate(.drug) { $0["schemaVersion"] = 6 }
         }
         #expect(throws: CatalogSliceManifestError.unsupportedContainerFormat) {
             _ = try candidate(.drug) { $0["containerFormat"] = "zip" }

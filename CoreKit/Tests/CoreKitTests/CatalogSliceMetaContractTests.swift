@@ -79,9 +79,13 @@ struct CatalogSliceMetaContractTests {
         }
         #expect(throws: CatalogSliceMetaContract.Violation.badValue("physical_schema")) {
             _ = try CatalogSliceMetaContract.validate(
-                rows: rows(overrides: ["physical_schema": "catalog-v9"]),
+                rows: rows(overrides: ["physical_schema": "catalog-v99"]),
                 expectedTables: expectedTables, expectedCounts: expectedCounts)
         }
+        let v9 = try? CatalogSliceMetaContract.validate(   // try?-ok: 下一行断言
+            rows: rows(overrides: ["physical_schema": "catalog-v9"]),
+            expectedTables: expectedTables, expectedCounts: expectedCounts)
+        #expect(v9?.physicalSchema == "catalog-v9")
         #expect(throws: CatalogSliceMetaContract.Violation.badValue("source_user_version")) {
             _ = try CatalogSliceMetaContract.validate(
                 rows: rows(overrides: ["source_user_version": "nine"]),
