@@ -558,7 +558,9 @@ jobs:
           for attempt in 1 2 3; do
             if MAX="$(KEYFILE="$KEY" KEYID="$APPLE_API_KEY_ID" ISS="$APPLE_API_KEY_ISSUER_ID" \
                  python3 .github/actions/release/asc-max-build.py --version "$VERSION")"; then
-              FLOOR=$((MAX + 1))
+              # 2026-11-02 实证：上一 run 刚上传的 build 在 ASC 列表有可见性延迟，
+              # floor=max+1 仍会撞号（852/853 连续两次）。留一个空号吸收延迟。
+              FLOOR=$((MAX + 2))
               break
             fi
             echo "::warning::ASC build 查询失败（第 $attempt 次），5s 后重试"
