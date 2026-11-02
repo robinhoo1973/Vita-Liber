@@ -68,8 +68,19 @@ final class DocumentExportState {
     }
 
     /// 启动/回前台对账（幂等；只置 tombstone，绝不回删 canonical）。
+    /// 先迁移旧「Vita Liber」根再对账：顺序反了会把刚搬走的旧账本行误标 missing。
     func reconcile() async {
+        await migrateLegacyExportRootIfNeeded()
         driftCount = await mirror.reconcile()
+    }
+
+    /// 旧「Vita Liber」用户面根迁移（启动一次；幂等）。只动副本与账本，
+    /// 不触碰 canonical 原件。迁移改了目录名时清掉会话目录缓存，
+    /// 否则该会话后续导出会按旧缓存重建 wrapper。
+    func migrateLegacyExportRootIfNeeded() async {
+        if await mirror.migrateLegacyExportRootIfNeeded() {
+            conversationDirectories.removeAll()
+        }
     }
 
     /// 移除跟踪（用户对 missing 副本的显式处理）：只删账本行，不碰 canonical。
@@ -135,9 +146,21 @@ final class DocumentExportState {
             throw DocumentExportMirror.MirrorError.sourceUnreadable("missing original_path")
         }
         let directory: String
-        if let existing = await ledger.record(documentID: row.id)?.directoryName, !existing.isEmpty {
-            directory = existing                        // D5：目录名首次导出即冻结
-            if let conversationID { conversationDirectories[conversationID] = existing }
+        let frozen = await ledger.record(documentID: row.id)?.directoryName
+        let legacyPrefix = DocumentExportMirror.legacyExportFolderName + "/"
+        var reuseFrozen = false
+        if let frozen, !frozen.isEmpty {
+            if frozen.hasPrefix(legacyPrefix) {
+                // 旧版「Vita Liber/」前缀已撤销：目录已被迁移/删除时不得按
+                // 旧账本复活 wrapper；旧目录仍在则继续复用，避免会话内拆树。
+                reuseFrozen = await mirror.hasDirectory(named: frozen)
+            } else {
+                reuseFrozen = true
+            }
+        }
+        if let frozen, reuseFrozen {
+            directory = frozen
+            if let conversationID { conversationDirectories[conversationID] = frozen }
         } else if let conversationID {
             // 同一会话内后续资料复用首条资料的会话目录（日期前缀不随导入次数漂移）。
             // 内存缓存先命中；冷启动首份才回落账本扫描。
@@ -148,17 +171,17 @@ final class DocumentExportState {
                 conversationDirectories[conversationID] = existingConversation
                 directory = existingConversation
             } else {
-                directory = Self.namedDirectory(DocumentExportNaming.directoryName(
+                directory = DocumentExportNaming.directoryName(
                     conversationTitle: conversationTitle,
                     conversationID: conversationID,
-                    datePrefix: Self.timestampText(now)))
+                    datePrefix: Self.timestampText(now))
                 conversationDirectories[conversationID] = directory
             }
         } else {
             // 直接导入归档到「直接导入-YYYY-MM」月桶（不按文档分目录：
             // 资料库入口无会话语义，目录名冻结规则只属于会话）。
-            directory = Self.namedDirectory(DocumentExportNaming.directImportDirectory(
-                monthText: Self.monthText(now)))
+            directory = DocumentExportNaming.directImportDirectory(
+                monthText: Self.monthText(now))
         }
         let request = DocumentExportNaming.Request(
             preferredTitle: row.title,
@@ -172,12 +195,6 @@ final class DocumentExportState {
             documentID: row.id, conversationID: conversationID,
             directoryName: directory, nameRequest: request,
             sourcePath: sourcePath, isSensitive: row.isSensitive)
-    }
-
-    /// 新导出一律落在「文件」App 的 `Vita Liber/` 根下；旧账本目录名保持原样
-    /// （D5 首次冻结），避免既有副本漂移。
-    private static func namedDirectory(_ name: String) -> String {
-        "\(MediaRootPaths.exportFolderName)/\(name)"
     }
 
     static func dayText(_ date: Date) -> String {

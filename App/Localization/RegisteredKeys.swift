@@ -65,6 +65,8 @@ extension L10n {
     "chat.mediaElementSaveFailed",
     "chat.mediaElementSaveFailedOpenCard",
     "chat.mediaElementSharedLocked",
+    "chat.mediaPreviousPage",
+    "chat.mediaNextPage",
     "chat.mediaDiscardEditsTitle",
     "chat.mediaDiscardEditsAction",
     "chat.mediaCropTitle",

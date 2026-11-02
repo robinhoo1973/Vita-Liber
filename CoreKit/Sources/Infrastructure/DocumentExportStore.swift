@@ -155,6 +155,33 @@ public actor DocumentExportStore {
         }
     }
 
+    /// 旧根前缀下的目录名（迁移扫描用；精确前缀匹配，不用 LIKE 通配）。
+    public func legacyDirectories(prefix: String) async -> [String] {
+        (try? await writer.read { db in        // try?-ok: 读取失败按无旧目录
+            try String.fetchAll(db, sql: """
+                SELECT DISTINCT directory_name FROM document_user_export
+                 WHERE substr(directory_name, 1, length(?) + 1) = ? || '/'
+                 ORDER BY directory_name
+                """, arguments: [prefix, prefix])
+        }) ?? []
+    }
+
+    /// 用户面目录迁移（v49 旧「Vita Liber」根 → Documents 根）：
+    /// 同事务改写 `directory_name` 与 `relative_path`，只动账本不碰文件；
+    /// 文件搬移失败时调用方回滚账本。相对路径由「新目录 + display_name」
+    /// 重建，不依赖旧相对路径格式（display_name 即目录内文件名）。
+    public func relocateDirectory(from old: String, to new: String, now: Date = Date()) async throws {
+        try await writer.write { db in
+            try db.execute(sql: """
+                UPDATE document_user_export
+                   SET directory_name = ?,
+                       relative_path = ? || '/' || display_name,
+                       updated_at = ?
+                 WHERE directory_name = ?
+                """, arguments: [new, new, now.timeIntervalSince1970, old])
+        }
+    }
+
     /// 清空全部/成员清理：账本整体擦除（先于文件树删除；文件删除由调用方执行）。
     public func wipe() async throws {
         try await writer.write { db in

@@ -145,5 +145,25 @@ struct DocumentExportStoreTests {
         #expect(rows.first?.documentID == doc)
         #expect(rows.first?.removedAt != nil)
     }
+
+    @Test("relocateDirectory：旧 Vita Liber 根的目录名与相对路径同步改写")
+    func relocateLegacyDirectory() async throws {
+        let queue = try makeQueue()
+        let doc = UUID(), conv = UUID()
+        try await queue.write { try self.insertDocument($0, id: doc) }
+        try await queue.write { try self.insertConversation($0, id: conv) }
+        let store = DocumentExportStore(writer: queue)
+        var old = record(doc: doc, conv: conv)
+        old.directoryName = "Vita Liber/体检报告-abcdef"
+        old.relativePath = "Vita Liber/体检报告-abcdef/检验报告-2026-10-01.jpg"
+        _ = try await store.upsert(old)
+
+        try await store.relocateDirectory(from: "Vita Liber/体检报告-abcdef",
+                                          to: "体检报告-abcdef")
+        let moved = await store.record(documentID: doc)
+        #expect(moved?.directoryName == "体检报告-abcdef")
+        #expect(moved?.relativePath == "体检报告-abcdef/检验报告-2026-10-01.jpg")
+        #expect(moved?.displayName == old.displayName, "只改目录前缀，文件名不漂移")
+    }
 }
 #endif

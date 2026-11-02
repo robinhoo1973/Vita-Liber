@@ -2980,3 +2980,6 @@
 "chat.mediaElementSharedLocked" = "Some rows are already confirmed. Edit shared fields on the card page.";
 "chat.mediaDiscardEditsTitle" = "Discard unsaved edits?";
 "chat.mediaDiscardEditsAction" = "Discard edits";
+
+"chat.mediaPreviousPage" = "Previous page";
+"chat.mediaNextPage" = "Next page";

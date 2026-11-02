@@ -253,19 +253,40 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         XCTAssertNil(DocumentSourcePageReference(sourceRef: "doc:\(documentID.uuidString)#p-1"))
     }
 
-    func test_notificationFailureKeepsSavedPendingCardAndDoesNotReportDeferralSuccess() async throws {
+    func test_notificationFailureKeepsSavedPendingCardAndStillDequeues() async throws {
         let f = try await fixture(pages: [lab], scheduler: FailingScheduler())
         let draft = try await imageDraft(f)
         let saved = await f.docs.commitDraft(draft)
         XCTAssertTrue(saved)
         let card = try XCTUnwrap(f.docs.currentEntityCard)
         let deferred = await f.docs.deferEntityCard(card)
-        XCTAssertFalse(deferred)
+        XCTAssertTrue(deferred, "通知失败不得让待办卡流失/卡在队列")
         XCTAssertNotNil(f.docs.activeImport?.notificationError)
-        XCTAssertEqual(f.docs.currentEntityCard?.id, card.id)
+        XCTAssertNil(f.docs.currentEntityCard, "卡已移出导入队列")
         let pending = try await f.pending.list(patientId: f.patient)
         XCTAssertEqual(pending.count, 1)
         XCTAssertEqual(pending[0].partialData.card?.id, card.id)
+    }
+
+    func test_bulkDeferralSurvivesNotificationFailureAndFinishesPresentation() async throws {
+        let f = try await fixture(pages: [lab], scheduler: FailingScheduler())
+        let draft = try await imageDraft(f)
+        XCTAssertTrue(await f.docs.commitDraft(draft))
+        XCTAssertFalse(f.docs.entityQueue.isEmpty)
+        let documentID = try XCTUnwrap(f.docs.activeImport?.source?.documentId)
+        XCTAssertTrue(await f.docs.deferRemainingEntityCards())
+        f.docs.finishEntityQueueIfNeeded()
+        XCTAssertTrue(f.docs.entityQueue.isEmpty)
+        XCTAssertNotNil(f.docs.activeImport?.notificationError)
+        XCTAssertNotNil(f.docs.activeImport?.outcome, "整批转待办后必须能收尾释放导入槽")
+        let pending = try await f.pending.list(patientId: f.patient)
+        XCTAssertEqual(pending.count, 1)
+        let projection = await f.docs.pendingCards(
+            documentId: documentID, patientId: f.patient)
+        guard case .loaded(let projected) = projection else {
+            return XCTFail("详情页待办投影读取失败")
+        }
+        XCTAssertEqual(projected.map(\.id), pending.map(\.id), "详情页必须看到刚转待办的卡")
     }
 
     func test_reenteringPendingCardUsesUnwrittenCurrentQueueEdits() async throws {

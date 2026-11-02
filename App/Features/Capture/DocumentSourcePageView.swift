@@ -77,6 +77,9 @@ struct DocumentSourcePageView: View {
     /// 2026-10-24 业主裁决 B：敏感标记只约束对外分享/导出，页内媒体直接显示。
     @State private var didAuditViewing = false
     @State private var scale: CGFloat = 1
+    /// 捏合起点倍率：MagnificationGesture 给的是相对本次手势的增量，
+    /// 不记住起点会在每次 onChanged 把已有缩放乘回去（抖动/回弹）。
+    @State private var lastScale: CGFloat = 1
     @State private var operation: Task<Void, Never>?
     /// prepareMetadata 已取到的文档行（2026-09-20 修复：loadMedia 不再二次 fetch——）
     /// 敏感解锁路径此前每开一次页面查两遍同一行，且解锁后重查窗口内文档可被
@@ -140,15 +143,71 @@ struct DocumentSourcePageView: View {
                                     }
                                     .accessibilityIdentifier("OCR.source.page.\(pageIndex)")
                             }
-                            .gesture(MagnificationGesture().onChanged { scale = min(5, max(1, $0)) })
+                            // 缩放：捏合相对起点倍率；双击 1×/2.5×；缩放态由
+                            // ScrollView 双向平移，非缩放态横滑翻页。
+                            .simultaneousGesture(
+                                MagnificationGesture()
+                                    .onChanged { value in
+                                        scale = min(5, max(1, lastScale * value))
+                                    }
+                                    .onEnded { _ in
+                                        if scale <= 1.02 { scale = 1 }
+                                        lastScale = scale
+                                    })
+                            .simultaneousGesture(
+                                DragGesture(minimumDistance: 40)
+                                    .onEnded { value in
+                                        guard scale <= 1.02,
+                                              abs(value.translation.width) > abs(value.translation.height) * 1.5
+                                        else { return }
+                                        if value.translation.width < -50 {
+                                            pageIndex = min(pageCount - 1, pageIndex + 1)
+                                        } else if value.translation.width > 50 {
+                                            pageIndex = max(0, pageIndex - 1)
+                                        }
+                                    })
+                            .onTapGesture(count: 2) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    scale = scale > 1.02 ? 1 : 2.5
+                                    lastScale = scale
+                                }
+                            }
                         }
-                        // 2026-10-30 业主（mock v4 第 6 帧）：多页原图加页点，
-                        // 点任意点直接跳页；Stepper 保留（VoiceOver/精确定位）。
+                        // 2026-10-30 业主（mock v4 第 6 帧）：多页原图加页点；
+                        // 2026-11-02 真机：系统 Stepper 显示「-/+」，改为左右箭头 +
+                        // 页码，并保留 44pt 触控与 VoiceOver 可调。
                         if pageCount > 1 {
                             pageDots
-                        }
-                        Stepper(L10n.entityCardHeaderPage(pageIndex + 1, pageCount), value: $pageIndex, in: 0...max(0, pageCount - 1))
+                            HStack(spacing: 18) {
+                                Button {
+                                    pageIndex = max(0, pageIndex - 1)
+                                } label: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.body.weight(.semibold))
+                                        .frame(width: 44, height: 44)
+                                }
+                                .disabled(pageIndex <= 0)
+                                .accessibilityLabel(L10n.chatMediaPreviousPage)
+                                .accessibilityIdentifier("OCR.source.previousPage")
+
+                                Text(L10n.entityCardHeaderPage(pageIndex + 1, pageCount))
+                                    .font(.footnote.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
+
+                                Button {
+                                    pageIndex = min(pageCount - 1, pageIndex + 1)
+                                } label: {
+                                    Image(systemName: "chevron.right")
+                                        .font(.body.weight(.semibold))
+                                        .frame(width: 44, height: 44)
+                                }
+                                .disabled(pageIndex >= pageCount - 1)
+                                .accessibilityLabel(L10n.chatMediaNextPage)
+                                .accessibilityIdentifier("OCR.source.nextPage")
+                            }
                             .padding(.horizontal)
+                        }
                     }
                     Spacer(minLength: 0)
                 }
@@ -304,7 +363,7 @@ struct DocumentSourcePageView: View {
             }.value
             guard generation == renderGeneration else { return }   // 迟到的旧页结果弃件
             image = box.image
-            scale = 1; failed = false
+            scale = 1; lastScale = 1; failed = false
         } catch {
             guard generation == renderGeneration else { return }
             image = nil; failed = true

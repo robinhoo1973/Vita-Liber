@@ -15,9 +15,6 @@ public enum MediaRootPaths {
 
     /// meta_json / asset.relative_path 的相对前缀（相对 mediaBase）。
     public static let relativePrefix = "MedicalNotes"
-    /// 「文件」App 用户面根目录名（真机 2026-11-02：在 App 容器下显式出现
-    /// 「Vita Liber」目录；会话副本在其下，避免只看到系统 App 显示名而找不到）。
-    public static let exportFolderName = "Vita Liber"
 
     // MARK: - 基址
 

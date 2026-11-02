@@ -183,6 +183,11 @@ struct ChatMediaDetailView: View {
                 .onChangeCompat(of: docs.activeImport?.source?.documentId) { _, _ in
                     Task { await loadCardsAndGrade() }
                 }
+                // 导入收尾把卡转待办后才写 pending_card；只等 activeImport
+                // 变化会漏掉「导入槽已释放但卡稍后落库」的时序，详情保持空态。
+                .onChangeCompat(of: docs.pendingVersion) { _, _ in
+                    Task { await loadCardsAndGrade() }
+                }
                 .sheet(item: $detailSheet, onDismiss: handleSheetDismiss) { sheet in
                     sheetContent(sheet)
                 }

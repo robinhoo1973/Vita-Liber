@@ -1961,7 +1961,11 @@ struct TaskAssistantChatView: View {
     /// 导入收尾：未处理卡整批落待办、结算并释放导入槽（详情页仍可续办）。
     private func releaseChatImportSession(_ session: DocumentsState.ImportSession) async {
         guard docs.activeImport?.id == session.id else { return }
-        _ = await docs.deferRemainingEntityCards()
+        let deferredAll = await docs.deferRemainingEntityCards()
+        if !deferredAll {
+            // 通知类失败已在 deferral 内降级；走到这里说明个别卡确实没落库。
+            append(.init(role: .assistant, text: L10n.entityCardSaveFailed, isRefusal: true))
+        }
         docs.finishEntityQueueIfNeeded()
         _ = docs.finishImportPresentation(sessionID: session.id)
         if chatSessionID == session.id {
@@ -1996,6 +2000,10 @@ struct TaskAssistantChatView: View {
         let failure = await exportState.exportCopy(
             documentID: documentID, conversationID: conversationID,
             conversationTitle: conversationTitle, allowSensitive: allowSensitive)
+        // 自动导出只带非敏感件：敏感件不出界是策略结果，不是失败。
+        // 旧实现把 `.sensitiveNeedsConsent` 也当失败弹「副本未生成」，
+        // 与「已识别」回执同屏出现，误导用户以为识别/导出出错。
+        if failure == DocumentExportState.ExportFailure.sensitiveNeedsConsent, !allowSensitive { return }
         guard failure != nil, generation == conversationGeneration else { return }
         append(.init(role: .assistant, text: L10n.assistantExportCopyFailed, isRefusal: true))
     }

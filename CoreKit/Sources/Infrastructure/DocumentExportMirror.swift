@@ -81,7 +81,9 @@ public actor DocumentExportMirror {
         let directoryURL = exportsBase.appendingPathComponent(directory, isDirectory: true)
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try Self.excludeFromBackup(directoryURL)
+            // 备份排除是尽力而为：某些容器/文件保护状态下 setResourceValues 会
+            // 抛错，但副本已写到用户面，不能因此报「副本未生成」。
+            try? Self.excludeFromBackup(directoryURL)   // try?-ok: 备份排除失败不影响副本可用
         } catch {
             throw MirrorError.writeFailed(String(describing: error))
         }
@@ -106,7 +108,7 @@ public actor DocumentExportMirror {
         let target = directoryURL.appendingPathComponent(finalName)
         do {
             try bytes.write(to: target, options: [.atomic, .completeFileProtection])
-            try Self.excludeFromBackup(target)
+            try? Self.excludeFromBackup(target)   // try?-ok: 备份排除失败不影响副本可用
         } catch {
             throw MirrorError.writeFailed(String(describing: error))
         }
@@ -151,6 +153,83 @@ public actor DocumentExportMirror {
             }
         }
         return drifted
+    }
+
+    /// 旧「Vita Liber」二级根迁移（2026-11-02 真机：App 容器已显示为
+    /// 「青囊书」，会话目录应直接落 Documents 根）。幂等：
+    /// - 目标已存在（冲突）→ 保留旧目录，不覆盖；
+    /// - 目录搬移成功但账本更新失败 → 尽力搬回，下次启动重试；
+    /// - 旧根清空后删除。
+    /// 历史副本搬移不是导出语义变更，账本 directory_name/relative_path 同步改写。
+    @discardableResult
+    public func migrateLegacyExportRootIfNeeded() async -> Bool {
+        let legacy = exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)
+        let oldDirectories = await ledger.legacyDirectories(prefix: Self.legacyExportFolderName)
+        var changed = false
+        for oldDirectory in oldDirectories {
+            let leaf = String(oldDirectory.dropFirst(Self.legacyExportFolderName.count + 1))
+            guard !leaf.isEmpty, !leaf.contains("/") else { continue }
+            let oldURL = exportsBase.appendingPathComponent(oldDirectory, isDirectory: true)
+            let newURL = exportsBase.appendingPathComponent(leaf, isDirectory: true)
+            let oldExists = fileManager.fileExists(atPath: oldURL.path)
+            let newExists = fileManager.fileExists(atPath: newURL.path)
+            if oldExists && !newExists {
+                do {
+                    try fileManager.moveItem(at: oldURL, to: newURL)
+                } catch {
+                    continue
+                }
+                do {
+                    try await ledger.relocateDirectory(from: oldDirectory, to: leaf)
+                    changed = true
+                } catch {
+                    try? fileManager.moveItem(at: newURL, to: oldURL)   // try?-ok: 回滚尽力而为，下次启动重试
+                }
+            } else if !oldExists && newExists {
+                // 上次搬移后账本未改（崩溃/回滚失败）：只有账本登记的每个
+                // 文件都能在新目录找到，才认领新目录，绝不吞用户自建目录。
+                let records = await ledger.records(directoryName: oldDirectory)
+                let verified = !records.isEmpty && records.allSatisfy {
+                    fileManager.fileExists(atPath: newURL.appendingPathComponent($0.displayName).path)
+                }
+                if verified {
+                    do {
+                        try await ledger.relocateDirectory(from: oldDirectory, to: leaf)
+                        changed = true
+                    } catch { /* 下次启动重试 */ }
+                }
+            }
+            // 新旧同时存在 / 两边都不存在：保留旧账本，交给 reconcile。
+        }
+        // 无账本行的孤儿目录（导出写盘成功但记账失败）：wrapper 是 App 专用树，
+        // 目标不冲突时一并搬到根，避免旧层因孤儿文件永久残留。
+        let known = Set(oldDirectories)
+        let diskEntries = (try? fileManager.contentsOfDirectory(   // try?-ok: 枚举失败按无孤儿
+            at: legacy, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])) ?? []
+        for entry in diskEntries {
+            guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }   // try?-ok: 资源读取失败跳过
+            let name = entry.lastPathComponent
+            guard !known.contains("\(Self.legacyExportFolderName)/\(name)") else { continue }
+            let target = exportsBase.appendingPathComponent(name, isDirectory: true)
+            guard !fileManager.fileExists(atPath: target.path) else { continue }
+            do {
+                try fileManager.moveItem(at: entry, to: target)
+                changed = true
+            } catch { continue }
+        }
+        if let remaining = try? fileManager.contentsOfDirectory(atPath: legacy.path), remaining.isEmpty {   // try?-ok: 读取失败保留旧根
+            try? fileManager.removeItem(at: legacy)   // try?-ok: 空旧根删除尽力而为
+        }
+        return changed
+    }
+
+    public static let legacyExportFolderName = "Vita Liber"
+
+    /// 该用户面目录是否仍存在（迁移/冻结目录复用判定用）。
+    public func hasDirectory(named name: String) -> Bool {
+        fileManager.fileExists(
+            atPath: exportsBase.appendingPathComponent(name, isDirectory: true).path)
     }
 
     /// 单条副本删除（2026-10-28 业主：记录转敏感时副本必须离开用户面）。

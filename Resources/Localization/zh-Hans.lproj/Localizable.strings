@@ -2980,3 +2980,6 @@
 "chat.mediaElementSharedLocked" = "共享字段已有部分行确认，请到卡片页修改。";
 "chat.mediaDiscardEditsTitle" = "放弃未保存的修正？";
 "chat.mediaDiscardEditsAction" = "放弃修正";
+
+"chat.mediaPreviousPage" = "上一页";
+"chat.mediaNextPage" = "下一页";

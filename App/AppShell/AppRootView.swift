@@ -258,7 +258,8 @@ struct AppRootView: View {
             if appState.onboardingFinished {
                 Task {
                     await reminderStore.refreshTriggered(patientId: appState.currentPatientId)
-                    // 2026-10-27 存储边界（D8）：回前台对账导出副本漂移（幂等只读元数据）
+                    // 2026-10-27 存储边界（D8）：回前台对账导出副本漂移（幂等只读元数据）；
+                    // 2026-11-02 起 reconcile 内部先迁移旧「Vita Liber」根，再对账。
                     _ = await exportState.reconcile()
                     // 2026-09-23 修复（后台注册假警报自愈 + 排期重试）：回前台统一维护——
                     // 复核观察注册真相并重排刷新/回填请求；此前提交失败被误记注册失败后

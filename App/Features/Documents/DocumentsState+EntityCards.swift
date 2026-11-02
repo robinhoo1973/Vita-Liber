@@ -263,13 +263,11 @@ extension DocumentsState {
                 guard let scheduler else { throw ImportError.storeUnavailable }
                 try await scheduler.schedule(dose: "pending-\(id)", at: Date().addingTimeInterval(3600), route: .pendingCard(id))
             } catch {
-                // 审查修复（E6，提交/通知非对称）：通知排程失败时**回滚**
-                // 已落库的待办卡——旧实现返回失败但卡已持久化：卡同时存在
-                // 于导入队列与待办表，重试再 upsert 一份，队列与待办双计。
-                // 回滚 = markResolved（软删）；通知没排上就没有触达损失。
-                try? await pendingCardStore.markResolved(id: id, by: "system", note: "rollback-defer")   // try?-ok: 回滚尽力而为，失败留待办行（不再双计——卡未出队，重试走同一 upsert 键）
+                // 通知是触达增强，不是待办成立条件（BR-003：未确认字段的
+                // D 草稿必须留存）。旧实现排程失败即回滚/中止整批，通知权限
+                // 被拒时会直接把识别结果从聊天详情里「弄没」；upsert 已按
+                // sourceDoc/page/kind 幂等，重试不会双计，无需回滚。
                 session.notificationError = L10n.ocrReviewNotificationFailed
-                return false
             }
             session.hadDeferrals = true
             dequeueEntityCard(card)
@@ -284,10 +282,13 @@ extension DocumentsState {
         guard let session = activeImport, !session.isBulkDeferring else { return false }
         session.isBulkDeferring = true
         defer { session.isBulkDeferring = false }
+        // 单卡失败不得中止整批：否则一张坏卡会让其余已识别的 D 草稿
+        // 永远进不了待办表，聊天详情整页空白（2026-11-02 真机）。
+        var allSucceeded = true
         for card in entityQueue {
-            guard await deferEntityCard(card) else { return false }
+            if await deferEntityCard(card) == false { allSucceeded = false }
         }
-        return true
+        return allSucceeded
     }
 
     static func discarded(_ input: MatchedCard) -> MatchedCard {

@@ -247,6 +247,8 @@ extension L10n {
     static var chatMediaElementSaveFailed: String { t("chat.mediaElementSaveFailed") }
     static var chatMediaElementSaveFailedOpenCard: String { t("chat.mediaElementSaveFailedOpenCard") }
     static var chatMediaElementSharedLocked: String { t("chat.mediaElementSharedLocked") }
+    static var chatMediaPreviousPage: String { t("chat.mediaPreviousPage") }
+    static var chatMediaNextPage: String { t("chat.mediaNextPage") }
     static var chatMediaDiscardEditsTitle: String { t("chat.mediaDiscardEditsTitle") }
     static var chatMediaDiscardEditsAction: String { t("chat.mediaDiscardEditsAction") }
     static var chatMediaCropTitle: String { t("chat.mediaCropTitle") }
