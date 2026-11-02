@@ -58,6 +58,30 @@ final class AssistantChatUITests: XCTestCase {
         XCTAssertTrue(app.buttons["assistant.attach.photos"].waitForNonExistence(timeout: 5))
     }
 
+    /// 2026-11-01 待提交区（mock `chat-import-staging.html` 第 1 帧）：
+    /// 系统相册无法自动化，用 DEBUG 注入一条暂存项验证闸门与渲染；
+    /// 不进入 OCR、不产生聊天泡。
+    func testChatImportStagingSheetRendersAndCancels() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uitest-reset", "-uitest-seed-finished",
+                               "-uitest-gate-bypass", "-uitest-chat-staging"]
+        app.launch()
+        let entry = app.buttons["SP-04.home.assistant"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+        entry.tap()
+
+        let grid = app.descendants(matching: .any)["chat.staging.grid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: 10), "待提交区必须显示暂存网格")
+        let submit = app.buttons["chat.staging.submit"]
+        XCTAssertTrue(submit.exists)
+        XCTAssertTrue(submit.isEnabled, "有项目时提交可用")
+        XCTAssertTrue(app.buttons["chat.staging.add.photos"].exists)
+        XCTAssertTrue(app.buttons["chat.staging.add.files"].exists)
+
+        app.buttons["chat.staging.cancel"].tap()
+        XCTAssertTrue(grid.waitForNonExistence(timeout: 5), "取消必须关闭待提交区")
+    }
+
     func testNoteFlowReachesStandardConfirmation() {
         let app = launchToHome()
         let entry = app.buttons["SP-04.home.assistant"]

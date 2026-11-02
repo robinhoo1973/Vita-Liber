@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "mockFile": "refactor/mock/chat-import-staging.html",
+  "swiftTest": "Tests/VitaLiberTests/ChatImportStagingParityTests.swift",
+  "requiredTestNames": [
+    "testEmptyStagingDisablesSubmit",
+    "testStagedItemsEnableSubmitAndPreserveOrder",
+    "testCapsRejectWithoutTruncation",
+    "testReadingDisablesSubmit",
+    "testReplaceKeepsPageCountAndIdentity",
+    "testMoveChangesSubmissionOrder",
+    "testMockSpecificKeysAreConsumed"
+  ],
+  "requiredKeys": [
+    "chat.importStaging.title",
+    "chat.importStaging.hintFmt",
+    "chat.importStaging.submitFmt",
+    "chat.importStaging.privacy",
+    "chat.importStaging.tooManyItems",
+    "chat.importStaging.tooManyPages",
+    "chat.importStaging.tooLarge",
+    "chat.mediaResultTitle",
+    "chat.mediaFilesOriginal",
+    "chat.mediaFilesText",
+    "chat.mediaElementsP1Note",
+    "chat.mediaElementsToCards",
+    "chat.mediaCardsAssemblyNote"
+  ],
+  "mockSnippets": [
+    "<h3>待提交</h3>",
+    "提交并识别（3 项）",
+    "≤20 页 / 64MB / 20 项",
+    "按要素分组 · 保留药品/检验行",
+    "由已确认要素组装"
+  ],
+  "rows": [
+    {
+      "id": "staging-empty",
+      "primary": "submit",
+      "secondary": "cancel",
+      "primaryKey": "chatImportStagingSubmitFmt",
+      "enabled": false
+    },
+    {
+      "id": "staging-items",
+      "primary": "submit",
+      "secondary": "cancel",
+      "primaryKey": "chatImportStagingSubmitFmt",
+      "enabled": true
+    },
+    {
+      "id": "staging-reading",
+      "primary": "submit",
+      "secondary": "cancel",
+      "primaryKey": "chatImportStagingReading",
+      "enabled": false
+    },
+    {
+      "id": "staging-cap-items",
+      "primary": "add",
+      "secondary": "remove",
+      "primaryKey": "chatImportStagingTooManyItems",
+      "enabled": false
+    },
+    {
+      "id": "staging-cap-pages",
+      "primary": "add",
+      "secondary": "remove",
+      "primaryKey": "chatImportStagingTooManyPages",
+      "enabled": false
+    },
+    {
+      "id": "staging-cap-bytes",
+      "primary": "add",
+      "secondary": "remove",
+      "primaryKey": "chatImportStagingTooLarge",
+      "enabled": false
+    },
+    {
+      "id": "files-original",
+      "primary": "reprocess",
+      "secondary": "textMode",
+      "primaryKey": "chatMediaFilesOriginal",
+      "enabled": true
+    },
+    {
+      "id": "files-text",
+      "primary": "reprocess",
+      "secondary": "originalMode",
+      "primaryKey": "chatMediaFilesText",
+      "enabled": true
+    },
+    {
+      "id": "elements-loaded",
+      "primary": "toCards",
+      "secondary": "goConfirm",
+      "primaryKey": "chatMediaElementsToCards",
+      "enabled": true
+    },
+    {
+      "id": "elements-empty",
+      "primary": "toCards",
+      "secondary": null,
+      "primaryKey": "chatMediaElementsEmpty",
+      "enabled": true
+    },
+    {
+      "id": "cards-pending",
+      "primary": "goConfirm",
+      "secondary": null,
+      "primaryKey": "assistantMediaNeedsConfirm",
+      "enabled": true
+    },
+    {
+      "id": "cards-committed",
+      "primary": "openCard",
+      "secondary": null,
+      "primaryKey": "assistantMediaConfirmed",
+      "enabled": true
+    }
+  ],
+  "uiTest": "UITests/VitaLiberUITests/AssistantChatUITests.swift",
+  "uiTestName": "testChatImportStagingSheetRendersAndCancels"
+}

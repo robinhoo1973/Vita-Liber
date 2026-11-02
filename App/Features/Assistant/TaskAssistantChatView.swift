@@ -75,11 +75,17 @@ struct TaskAssistantChatView: View {
     @State private var showFileImporter = false
     /// 多选（2026-10-23 业主）：一次可选多张照片，合并为一份多页文档后统一识别。
     @State private var pickedPhotos: [PhotosPickerItem] = []
-    /// 导入前检查（2026-10-30）：确认后才把（已旋转归一的）图片送识别。
-    @State private var importPreview: ImportPreviewRequest?
-    /// 预览呈现的延迟任务（选择器收起竞态）：页面消失/再次选择时取消，
-    /// 避免已关闭的聊天页在下一拍弹出预览。
+    /// 聊天导入待提交区（2026-11-01 业主；mock `chat-import-staging.html`）：
+    /// 拍摄/相册/文件选中后先进入本模型，不立即产生气泡；提交才进识别链。
+    @StateObject private var importStaging = ChatImportStagingModel()
+    /// 待提交页呈现的延迟任务（选择器收起竞态）：页面消失/再次选择时取消，
+    /// 避免已关闭的聊天页在下一拍弹出。
     @State private var previewTask: Task<Void, Never>?
+    #if DEBUG
+    /// XCUITest 无法驱动系统相册；`-uitest-chat-staging` 注入一条确定性暂存项，
+    /// 仅验证待提交页渲染/闸门/取消，不进入 OCR。
+    @State private var stagingUITestSeeded = false
+    #endif
 
     // 语音消息重放（2026-10-19；2026-10-20 转写文本常显）：本机音频文件。
     // 播放器已上提 AppState.voicePlayback（2026-10-21），页面只读 playingID。
@@ -111,6 +117,8 @@ struct TaskAssistantChatView: View {
                          conversationID: UUID?, conversationTitle: String?)
         /// 语音详情（2026-10-30 业主；mock v4 第 7 帧）。
         case voiceDetail(messageID: UUID, media: MediaInfo)
+        /// 待提交区（2026-11-01）：选中媒体后先暂存，提交才回聊天并识别。
+        case importStaging
         case sharedReview(sessionID: UUID)
         case cardReview(cardID: UUID, sessionID: UUID)
         /// 资料类型补选（2026-10-31 业主）：OCR 无法判定类型时在聊天内补选，
@@ -125,6 +133,7 @@ struct TaskAssistantChatView: View {
             case .history: return "history"
             case .mediaDetail(let doc, _, _, _, _, _, _): return "media-\(doc.uuidString)"
             case .voiceDetail(let messageID, _): return "voice-\(messageID.uuidString)"
+            case .importStaging: return "import-staging"
             case .sharedReview(let id): return "shared-\(id.uuidString)"
             case .cardReview(let cardID, _): return "card-\(cardID.uuidString)"
             case .docTypePick(let sessionID, let messageID):
@@ -133,18 +142,6 @@ struct TaskAssistantChatView: View {
                 return "failed-media-\(messageID.uuidString)"
             }
         }
-    }
-
-    /// 导入前图片检查请求（2026-10-30 业主）：拍照/相册/文件图片先经预览页
-    /// 放大检查与旋转，确认后才进入 OCR 链。PDF 不进预览（方向由原件决定）。
-    private struct ImportPreviewRequest: Identifiable {
-        let id = UUID()
-        var images: [UIImage]
-        var pdfs: [PDFDocument]
-        var filename: String
-        var kind: MediaInfo.Kind
-        var origin: String
-        var source: MediaSource
     }
 
     /// 媒体来源（2026-10-29 批三 · mock v4 对照）：聊天卡片头图标=来源类型，
@@ -249,7 +246,12 @@ struct TaskAssistantChatView: View {
                               allowedContentTypes: [.pdf, .image],
                               allowsMultipleSelection: true,
                               onCompletion: handleImportedFiles)
-                .onAppear { routeMonitor.start() }
+                .onAppear {
+                    routeMonitor.start()
+                    #if DEBUG
+                    seedStagingForUITestsIfNeeded()
+                    #endif
+                }
                 // 任一录音路径开始（含 DictationInteraction 手势）都停止语音消息重放。
                 .onChangeCompat(of: chatDictation?.phase) { _, phase in
                     if phase == .recording { stopVoicePlayback() }
@@ -278,6 +280,8 @@ struct TaskAssistantChatView: View {
                     chatDictation?.stopForDisappear()
                     for url in pendingVoiceURLs.values { ChatAudioStore.removeTemporary(url) }
                     pendingVoiceURLs.removeAll()
+                    importStaging.clear()
+                    importStaging.notice = nil
                     releaseChatSessionIfNeeded()
                 }
             }
@@ -302,13 +306,6 @@ struct TaskAssistantChatView: View {
                 guard let last = messages.last else { return }
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo(last.id, anchor: .bottom)
-                }
-            }
-            // 挂在消息列表（非根视图）上：根视图已有 `.sheet(activeSheet)` 与
-            // 相机 `.fullScreenCover`，同节点多 presentation 在 iOS 16 会互相覆盖。
-            .fullScreenCover(item: $importPreview) { request in
-                ChatImageImportPreview(images: request.images) { images in
-                    handlePreviewConfirmed(images, request: request)
                 }
             }
         }
@@ -1004,6 +1001,10 @@ struct TaskAssistantChatView: View {
     private func startCapture(_ source: QuickCaptureView.InitialSource) {
         withAnimation(.easeOut(duration: 0.2)) { attachmentPanel = false }
         inputFocused = false
+        guard docs.activeImport == nil else {
+            append(.init(role: .assistant, text: L10n.assistantImportBusy, isRefusal: true))
+            return
+        }
         switch source {
         case .photos: showPhotoPicker = true
         case .camera: showCamera = true
@@ -1026,6 +1027,18 @@ struct TaskAssistantChatView: View {
         case .voiceDetail(let messageID, let media):
             ChatVoiceDetailView(messageID: messageID, audioFilename: media.audioFilename,
                                 transcript: media.transcript, incomplete: media.incomplete)
+        case .importStaging:
+            ChatImportStagingView(
+                model: importStaging,
+                onSubmit: { items in
+                    activeSheet = nil
+                    Task { @MainActor in
+                        // 与预览/选择器同纪律：sheet 收起动画结束再开始导入。
+                        try? await Task.sleep(nanoseconds: 350_000_000)   // try?-ok: 取消即放弃本次提交
+                        await importStaged(items)
+                    }
+                },
+                onCancel: { activeSheet = nil })
         case .history:
             ChatHistoryView(
                 patientId: app.currentPatientId,
@@ -1241,8 +1254,8 @@ struct TaskAssistantChatView: View {
     /// OCR 会话自动命名（2026-10-20 业主指令）：首个实体卡类型 + 首个识别值
     /// （如「检验报告 · 血红蛋白」「处方 · 阿莫西林」）；无实体卡时用共同信息，
     /// 叙事型资料回落文档类型名；用户已命名/已捕获则不再覆盖。
-    /// 2026-10-30：改成 async 并返回最终标题——导出的会话目录要等命名完成，
-    /// 才拿到与聊天历史一致的目录名。
+    /// 2026-10-30：改成 async 并返回最终标题（历史改名与显式导出目录共用）。
+    /// 2026-11-01：导入收尾不再自动导出，标题仍用于聊天历史。
     @discardableResult
     private func autoTitleFromImport(_ session: DocumentsState.ImportSession) async -> String? {
         let generation = conversationGeneration
@@ -1429,40 +1442,41 @@ struct TaskAssistantChatView: View {
         isSaving = false
         input = ""
         persistedMessageIDs = []
+        importStaging.clear()
+        importStaging.notice = nil
     }
 
     // MARK: - 媒体采集 → 全图 OCR → 信息卡（2026-10-19 业主指令）
 
-    /// 多选照片（2026-10-23 业主）：单张保持原图路径；多张按选择顺序
-    /// 合并为一份多页 PDF，只起一个 OCR 会话，跨页内容统一归并。
-    /// 2026-10-30：解码后先进入导入前检查（放大/旋转），确认再识别。
+    /// 多选照片（2026-10-23 业主；2026-11-01 待提交区改造）：
+    /// 选择后先按顺序追加到待提交区，不再立即预览/识别；提交才走合并链。
     private func handlePickedPhotos(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
         pickedPhotos = []
-        Task {
-            var images: [UIImage] = []
+        Task { @MainActor in
+            var added = false
             for item in items {
-                if let data = try? await item.loadTransferable(type: Data.self),   // try?-ok: 逐张跳过读取失败
-                   let image = UIImage(data: data) {
-                    images.append(image)
+                do {
+                    guard let data = try await item.loadTransferable(type: Data.self),
+                          !data.isEmpty else { continue }
+                    let result = importStaging.add(data: data, filename: L10n.assistantAttachPhotos,
+                                                   isPDF: false, pageCount: 1,
+                                                   source: .photoLibrary)
+                    if result == .added { added = true } else { noteStagingFailure(result) }
+                } catch {
+                    importStaging.notice = L10n.chatImportStagingReadFailed
                 }
             }
-            guard !images.isEmpty else {
-                append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
-                return
+            if !added, importStaging.notice == nil {
+                importStaging.notice = L10n.chatImportStagingReadFailed
             }
-            presentImportPreview(ImportPreviewRequest(
-                images: images, pdfs: [],
-                filename: images.count > 1 ? L10n.assistantMergedPhotosFilename
-                                           : L10n.assistantAttachPhotos,
-                kind: .image, origin: "photoLibrary", source: .photoLibrary))
+            presentImportStaging()
         }
     }
 
-    /// 系统选择器/相机正在收起时，同一 presentation 事务里再弹全屏页会被
+    /// 系统选择器/相机正在收起时，同一 presentation 事务里再弹 sheet 会被
     /// iOS 16 丢弃；统一延后一拍（2026-10-30 审查席 P1）。
-    private func presentImportPreview(_ request: ImportPreviewRequest,
-                                      delayNanoseconds: UInt64 = 350_000_000) {
+    private func presentImportStaging(delayNanoseconds: UInt64 = 350_000_000) {
         previewTask?.cancel()
         previewTask = Task { @MainActor in
             do {
@@ -1471,106 +1485,93 @@ struct TaskAssistantChatView: View {
                 return
             }
             guard !Task.isCancelled else { return }
-            importPreview = request
+            activeSheet = .importStaging
         }
     }
+
+    #if DEBUG
+    private func seedStagingForUITestsIfNeeded() {
+        guard !stagingUITestSeeded,
+              ProcessInfo.processInfo.arguments.contains("-uitest-chat-staging") else { return }
+        stagingUITestSeeded = true
+        _ = importStaging.add(data: Data([0xFF, 0xD8, 0xFF, 0xD9]),
+                              filename: "sample.jpg", isPDF: false,
+                              pageCount: 1, source: .photoLibrary)
+        previewTask?.cancel()
+        previewTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: 450_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            activeSheet = .importStaging
+        }
+    }
+    #endif
 
     private func handleCameraImage(_ image: UIImage) {
         showCamera = false
-        presentImportPreview(ImportPreviewRequest(
-            images: [image], pdfs: [], filename: L10n.assistantAttachCamera,
-            kind: .image, origin: "camera", source: .camera),
-            delayNanoseconds: 450_000_000)
+        if let data = image.jpegData(compressionQuality: 0.95) {
+            noteStagingFailure(importStaging.add(
+                data: data, filename: L10n.assistantAttachCamera,
+                isPDF: false, pageCount: 1, source: .camera))
+        } else {
+            importStaging.notice = L10n.chatImportStagingReadFailed
+        }
+        presentImportStaging(delayNanoseconds: 450_000_000)
     }
 
+    /// 文件选择：全部先进入待提交区；保持选择顺序，PDF 保留真实页数。
+    /// 安全作用域 URL 只在读取期间持有，暂存只保存已读字节。
     private func handleImportedFiles(_ result: Result<[URL], Error>) {
         guard case .success(let urls) = result, !urls.isEmpty else { return }
-        if urls.count == 1, let url = urls.first, url.pathExtension.lowercased() == "pdf" {
-            // PDF 页方向由原件决定，不走图片预览；直接进导入链。
-            // 文件选择器 URL 是安全作用域：读取期间必须持有访问权，否则
-            // 关闭选择器后再读原件会被系统拒绝（2026-10-30 复审）。
-            Task {
+        Task { @MainActor in
+            var added = false
+            for url in urls {
                 let scoped = url.startAccessingSecurityScopedResource()
                 defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                await importURL(url, filename: url.lastPathComponent, kind: .pdf)
+                do {
+                    let data = try Data(contentsOf: url)
+                    let isPDF = url.pathExtension.lowercased() == "pdf"
+                    let pages = isPDF ? (PDFDocument(data: data)?.pageCount ?? 0) : 1
+                    guard !isPDF || pages > 0 else {
+                        importStaging.notice = L10n.chatImportStagingReadFailed
+                        continue
+                    }
+                    let result = importStaging.add(
+                        data: data, filename: url.lastPathComponent,
+                        isPDF: isPDF, pageCount: pages, source: .fileImport)
+                    if result == .added { added = true } else { noteStagingFailure(result) }
+                } catch {
+                    importStaging.notice = L10n.chatImportStagingReadFailed
+                }
             }
-            return
+            if !added, importStaging.notice == nil {
+                importStaging.notice = L10n.chatImportStagingReadFailed
+            }
+            presentImportStaging()
         }
-        Task { await prepareFileImport(urls) }
     }
 
-    /// 文件导入：图片先预览（放大/旋转），PDF 随请求一起合并。
-    /// 保持文件顺序（图片在前、PDF 在后，与合并器入参顺序一致）。
-    private func prepareFileImport(_ urls: [URL]) async {
-        var scopes: [URL] = []
-        for url in urls where url.startAccessingSecurityScopedResource() {
-            scopes.append(url)
-        }
-        defer { for url in scopes { url.stopAccessingSecurityScopedResource() } }
-
-        var images: [UIImage] = []
-        var pdfs: [PDFDocument] = []
-        for url in urls {
-            if url.pathExtension.lowercased() == "pdf" {
-                // 先读进内存再建 PDFDocument：安全作用域关闭后按需读页会失败。
-                if let data = try? Data(contentsOf: url),   // try?-ok: 逐份跳过不可读文件
-                   let document = PDFDocument(data: data) {
-                    pdfs.append(document)
-                }
-            } else if let data = try? Data(contentsOf: url),   // try?-ok: 逐份跳过不可读文件
-                      let image = UIImage(data: data) {
-                images.append(image)
-            }
-        }
-        guard !images.isEmpty || !pdfs.isEmpty else {
-            append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+    private func noteStagingFailure(_ result: ChatImportStagingModel.AddResult) {
+        switch result {
+        case .added:
             return
-        }
-        if images.isEmpty {
-            await importMerged(images: [], pdfs: pdfs,
-                               filename: L10n.assistantMergedFilesFilename,
-                               kind: .pdf, origin: "import",
-                               source: .fileImport)
-            return
-        }
-        // 单份图片文件保留真实文件名（气泡/资料库/导出副本可对照原件；
-        // 2026-10-30 复审：重构丢掉 lastPathComponent 后一律显示「文件速记」）。
-        let singleImageName: String? = {
-            guard urls.count == 1, pdfs.isEmpty, images.count == 1,
-                  urls[0].pathExtension.lowercased() != "pdf" else { return nil }
-            return urls[0].lastPathComponent
-        }()
-        presentImportPreview(ImportPreviewRequest(
-            images: images, pdfs: pdfs,
-            filename: singleImageName
-                ?? (pdfs.isEmpty ? L10n.assistantMergedFilesFilename
-                                 : L10n.assistantMergedMixedFilename),
-            kind: pdfs.isEmpty ? .image : .pdf,
-            origin: "import", source: .fileImport))
-    }
-
-    /// 检查页确认后：单图走原图路径，其余按序合并为一份多页 PDF。
-    private func handlePreviewConfirmed(_ images: [UIImage], request: ImportPreviewRequest) {
-        Task {
-            if request.pdfs.isEmpty, images.count == 1, let image = images.first {
-                guard let data = await Self.normalizedJPEGData(image) else {
-                    append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
-                    return
-                }
-                await importImage(data, filename: request.filename,
-                                  origin: request.origin, source: request.source)
-                return
-            }
-            await importMerged(images: images, pdfs: request.pdfs,
-                               filename: request.filename, kind: request.kind,
-                               origin: request.origin, source: request.source)
+        case .tooManyItems:
+            importStaging.notice = L10n.chatImportStagingTooManyItems
+        case .tooManyPages:
+            importStaging.notice = L10n.chatImportStagingTooManyPages
+        case .tooLarge:
+            importStaging.notice = L10n.chatImportStagingTooLarge
+        case .empty:
+            importStaging.notice = L10n.chatImportStagingReadFailed
         }
     }
 
     /// 方向归一 + JPEG 编码（EXIF 方向合入像素，OCR 不再读到侧躺/倒置画面）。
     /// 归一实现与合并 PDF 共用 `MediaImport.normalizedImage`（单一出口）。
-    /// 全幅重绘 + quality=1 编码移出主线程（2026-10-30 效率批：12MP 单图
-    /// 主线程编码可达数百毫秒，导入确认按钮后整页卡顿）。
+    /// 全幅重绘 + quality=1 编码移出主线程（2026-10-30 效率批）。
     private static func normalizedJPEGData(_ image: UIImage) async -> Data? {
         let box = MergeImageBox(image)
         return await Task.detached(priority: .userInitiated) {
@@ -1578,15 +1579,60 @@ struct TaskAssistantChatView: View {
         }.value
     }
 
-    private func importMerged(images: [UIImage], pdfs: [PDFDocument],
-                              filename: String, kind: MediaInfo.Kind, origin: String,
-                              source: MediaSource) async {
+    /// 待提交区提交：按用户排序合并为一份多页文档（或单图/单 PDF 原路径），
+    /// 只起一个 OCR 会话。提交后不再提供页重排/重拍——页身份由回执冻结。
+    private func importStaged(_ items: [ChatImportStagingModel.Item]) async {
+        guard !items.isEmpty else { return }
+        guard docs.activeImport == nil else {
+            append(.init(role: .assistant, text: L10n.assistantImportBusy, isRefusal: true))
+            return
+        }
+        let first = items[0]
+        let uniformSource = items.allSatisfy { $0.source == first.source }
+        let source = uniformSource ? mediaSource(first.source) : .fileImport
+        let origin = uniformSource ? stagingOrigin(first.source) : "import"
+        let containsPDF = items.contains(where: \.isPDF)
+        let containsImage = items.contains(where: { !$0.isPDF })
+        let kind: MediaInfo.Kind = containsPDF ? .pdf : .image
+        let filename: String = {
+            guard items.count > 1 else { return first.filename }
+            if containsPDF && containsImage { return L10n.assistantMergedMixedFilename }
+            return containsPDF ? L10n.assistantMergedFilesFilename
+                               : L10n.assistantMergedPhotosFilename
+        }()
+
+        // 单图 / 单 PDF 保持原路径，不经过合并器（单份多页 PDF 仍是一份附件）。
+        if items.count == 1 {
+            if first.isPDF {
+                await importStagedPDF(first.data, filename: first.filename,
+                                      origin: origin, source: source)
+            } else if let image = UIImage(data: first.data),
+                      let data = await Self.normalizedJPEGData(image) {
+                await importImage(data, filename: first.filename, origin: origin, source: source)
+            } else {
+                append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+            }
+            return
+        }
+
+        // 有序负载：任何一项无法解码都整批拒绝，不静默丢页/丢项。
         var payloads: [ChatAttachmentMerger.Payload] = []
-        payloads.append(contentsOf: images.map { ChatAttachmentMerger.Payload.image($0) })
-        payloads.append(contentsOf: pdfs.map { ChatAttachmentMerger.Payload.pdf($0) })
-        // 合并（多图全幅重绘 + 多页 PDF 写入）移出主线程：15–30 张导入时
-        // 主线程连续数百毫秒的重绘/编码是确认后整页卡顿的主因（2026-10-30 效率批）。
-        // let 快照：并发闭包不得捕获 var（Swift 6 发送性检查）。
+        for item in items {
+            if item.isPDF {
+                guard let document = PDFDocument(data: item.data) else {
+                    append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+                    return
+                }
+                payloads.append(.pdf(document))
+            } else {
+                guard let image = UIImage(data: item.data) else {
+                    append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
+                    return
+                }
+                payloads.append(.image(image))
+            }
+        }
+        // 合并（多图全幅重绘 + 多页 PDF 写入）移出主线程（2026-10-30 效率批）。
         let mergeInput = payloads
         guard let merged = await Task.detached(priority: .userInitiated, operation: {
             ChatAttachmentMerger.merge(mergeInput)
@@ -1594,11 +1640,9 @@ struct TaskAssistantChatView: View {
             append(.init(role: .assistant, text: L10n.assistantMediaFailed, isRefusal: true))
             return
         }
-        // 附件数取合并器实测落页数（页数上限截断/坏页跳过后不虚报；
-        // 每个附件的起始页随快照持久化，详情缩略图点第 N 张跳真实页）。
         let offsets = merged.attachmentOffsets
-        guard let messageID = appendMedia(filename: filename, kind: kind,
-                                          source: source, itemCount: max(1, offsets.count),
+        guard let messageID = appendMedia(filename: filename, kind: kind, source: source,
+                                          itemCount: max(1, offsets.count),
                                           pageOffsets: offsets.isEmpty ? nil : offsets) else { return }
         importing = true
         defer { importing = false }
@@ -1606,13 +1650,28 @@ struct TaskAssistantChatView: View {
             failMedia(messageID, text: L10n.assistantImportBusy)
             return
         }
+        // 聊天默认敏感回正（2026-11-01 业主；与 mock 安全段一致）。
         let draft = await docs.importPDFData(patientId: session.patientId, data: merged.data,
-                                             title: filename, isSensitive: false, origin: origin)
+                                             title: filename, isSensitive: true, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
         if merged.truncated {
             append(.init(role: .assistant, text: L10n.assistantAttachmentTruncated,
                          isRefusal: true))
         }
+    }
+
+    private func importStagedPDF(_ data: Data, filename: String, origin: String,
+                                 source: MediaSource) async {
+        guard let messageID = appendMedia(filename: filename, kind: .pdf, source: source) else { return }
+        importing = true
+        defer { importing = false }
+        guard let session = startChatSession() else {
+            failMedia(messageID, text: L10n.assistantImportBusy)
+            return
+        }
+        let draft = await docs.importPDFData(patientId: session.patientId, data: data,
+                                             title: filename, isSensitive: true, origin: origin)
+        await finishImport(draft, session: session, messageID: messageID)
     }
 
     /// 全图识别：originalData == processedData，跳过区域/遮挡选择（业主 2026-10-19）。
@@ -1630,22 +1689,24 @@ struct TaskAssistantChatView: View {
             patientId: session.patientId,
             originalData: data, processedData: data,
             mimeType: ImageInputRules.sniffMimeType(of: data),
-            docType: nil, title: nil, isSensitive: false, origin: origin)
+            docType: nil, title: nil, isSensitive: true, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
-    private func importURL(_ url: URL, filename: String, kind: MediaInfo.Kind) async {
-        guard let messageID = appendMedia(filename: filename, kind: kind,
-                                          source: .fileImport) else { return }
-        importing = true
-        defer { importing = false }
-        guard let session = startChatSession() else {
-            failMedia(messageID, text: L10n.assistantImportBusy)
-            return
+    private func mediaSource(_ source: ChatImportStagingModel.Source) -> MediaSource {
+        switch source {
+        case .camera: return .camera
+        case .photoLibrary: return .photoLibrary
+        case .fileImport: return .fileImport
         }
-        let draft = await docs.importDocument(patientId: session.patientId, url: url,
-                                              docType: nil, isSensitive: false)
-        await finishImport(draft, session: session, messageID: messageID)
+    }
+
+    private func stagingOrigin(_ source: ChatImportStagingModel.Source) -> String {
+        switch source {
+        case .camera: return "camera"
+        case .photoLibrary: return "photoLibrary"
+        case .fileImport: return "import"
+        }
     }
 
     @discardableResult
@@ -1671,9 +1732,8 @@ struct TaskAssistantChatView: View {
         guard docs.activeImport == nil,
               let session = docs.beginImport(patientId: app.currentPatientId) else { return nil }
         session.captureSensitive = true
-        // 聊天导入的用户面副本统一由 finishImport 在会话命名后导出到
-        // 「<日期时间>-<会话名>-<短ID>」目录；设置里的自动镜像（月桶）跳过，
-        // 避免同件双份（2026-10-30 业主）。
+        // 2026-11-01 业主（mock 安全段）：聊天导入默认敏感、取消自动导出；
+        // 设置里的自动镜像（月桶）同样跳过，副本只在用户显式操作时生成。
         session.suppressAutoMirrorHook = true
         session.presenterID = chatImportPresenterID
         chatSessionID = session.id
@@ -1682,8 +1742,8 @@ struct TaskAssistantChatView: View {
     }
 
     /// 导入是否仍属于当前会话（含同代次、同一导入槽）。OCR 耗时较长，
-    /// 用户此时可切历史/新建会话；旧导入不得把回执、标题或用户面副本
-    /// 写进新会话（2026-10-30 审查席 P1）。
+    /// 用户此时可切历史/新建会话；旧导入不得把回执或标题写进新会话
+    /// （2026-10-30 审查席 P1；2026-11-01 取消自动导出后同样适用）。
     private func importIsCurrent(_ session: DocumentsState.ImportSession) -> Bool {
         chatSessionID == session.id && importGeneration == conversationGeneration
     }
@@ -1738,7 +1798,7 @@ struct TaskAssistantChatView: View {
         await completeImport(draft, session: session, messageID: messageID)
     }
 
-    /// 与 `presentImportPreview` 同纪律：图片预览/系统选择器的关闭动画尚未
+    /// 与 `presentImportStaging` 同纪律：待提交页/系统选择器的关闭动画尚未
     /// 结束就切换 presentation 会被系统吞掉——延后一拍再呈现补选页。
     private func presentDocTypePicker(session: DocumentsState.ImportSession,
                                       messageID: UUID?) {
@@ -1760,8 +1820,9 @@ struct TaskAssistantChatView: View {
         }
     }
 
-    /// 类型确定后的唯一收尾：落库 → 回执 → 自动命名 → 用户面副本导出。
+    /// 类型确定后的唯一收尾：落库 → 回执 → 自动命名。
     /// 补选类型（`resolveDocType`）与直接识别共用——避免两条收尾路径再次漂移。
+    /// 2026-11-01 业主：聊天导入默认敏感，取消自动导出；副本只在用户显式操作时生成。
     private func completeImport(_ draft: DocumentsState.ImportDraft,
                                 session: DocumentsState.ImportSession,
                                 messageID: UUID?) async {
@@ -1793,21 +1854,12 @@ struct TaskAssistantChatView: View {
         // 业主 2026-10-29：信息卡片不再进聊天流——只保留一句识别回执，
         // 卡片的「需要修改/已确认」两区统一在媒体详情页呈现。
         // OCR 内容命名放在回执之后：会话已创建/已有首条消息，改名命中同一会话。
-        // 2026-10-30：命名完成后立即把（非敏感）原件导出到会话目录，
-        // 「文件」App 才看得到与聊天会话同名、带日期时间前缀的目录。
-        let title = await autoTitleFromImport(session)
+        _ = await autoTitleFromImport(session)
         guard importIsCurrent(session) else {
             await discardSupersededImport(session)
             return
         }
-        // 先释放导入槽再写用户面副本（2026-10-30 效率批）：导出只依赖已
-        // 落库文档与会话代次，不再占住「导入进行中」——否则 10–30MB 文件
-        // 复制期间用户无法开始下一份；代次守卫仍防切换会话后写错目录。
-        let exportGeneration = conversationGeneration
         await releaseChatImportSession(session)
-        guard exportGeneration == conversationGeneration else { return }
-        await exportChatMedia(session: session, title: title,
-                              generation: exportGeneration)
     }
 
     /// 用户在聊天内补选资料类型后继续原导入（显式选择 = 用户确认类型）。
@@ -1852,24 +1904,7 @@ struct TaskAssistantChatView: View {
         }
     }
 
-    /// 聊天媒体用户面副本（2026-10-30 业主：「文件」App 里按会话名建目录）。
-    /// 只导出非敏感件（BR-007/008：敏感媒体不自动出界）；目录名带
-    /// `yyyyMMdd-HHmm` 前缀，首次导出即冻结（D5），同会话后续资料复用同目录。
-    private func exportChatMedia(session: DocumentsState.ImportSession, title: String?,
-                                 generation: UUID) async {
-        guard let source = session.source else { return }
-        guard generation == conversationGeneration else { return }
-        guard let conversationID = await ensureConversationID(expectedGeneration: generation),
-              generation == conversationGeneration else { return }
-        await exportCopyWithFeedback(
-            documentID: source.documentId,
-            conversationID: conversationID,
-            conversationTitle: title ?? conversationTitle,
-            allowSensitive: false,
-            expectedGeneration: generation)
-    }
-
-    /// 显式/自动导出统一反馈（2026-10-30 登记遗留）：失败不得静默——
+    /// 显式导出统一反馈（2026-10-30 登记遗留）：失败不得静默——
     /// 用户会以为「文件」App 已有副本。切换会话后迟到失败不写入新会话。
     private func exportCopyWithFeedback(documentID: UUID, conversationID: UUID?,
                                         conversationTitle: String?, allowSensitive: Bool,

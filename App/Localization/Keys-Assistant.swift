@@ -116,6 +116,8 @@ extension L10n {
     static var assistantMediaLegacyNote: String { t("assistant.mediaLegacyNote") }
     static var assistantMediaDetailTitle: String { t("assistant.mediaDetailTitle") }
     static var assistantMediaTabText: String { t("assistant.mediaTabText") }
+    static var assistantMediaTabFiles: String { t("assistant.mediaTabFiles") }
+    static var assistantMediaTabElements: String { t("assistant.mediaTabElements") }
     static var assistantMediaTabCards: String { t("assistant.mediaTabCards") }
     static var assistantMediaTextEmpty: String { t("assistant.mediaTextEmpty") }
     static var assistantMediaCardsEmpty: String { t("assistant.mediaCardsEmpty") }
@@ -199,5 +201,69 @@ extension L10n {
     static var assistantHistoryNoPreview: String { t("assistant.historyNoPreview") }
     static var assistantHistoryLoadFailed: String { t("assistant.historyLoadFailed") }
     static var assistantNewConversation: String { t("assistant.newConversation") }
+
+    // 2026-11-01 业主（mock chat-import-staging.html）：聊天导入待提交区 +
+    // 媒体详情三页（文件 / 识别结果 / 信息卡片）。所有用户可见文案单出口。
+    static var chatImportStagingTitle: String { t("chat.importStaging.title") }
+    static func chatImportStagingHint(_ count: Int, _ pages: Int) -> String {
+        String(format: t("chat.importStaging.hintFmt"), count, pages)
+    }
+    static var chatImportStagingImageBadge: String { t("chat.importStaging.imageBadge") }
+    static func chatImportStagingPDFPages(_ pages: Int) -> String {
+        String(format: t("chat.importStaging.pdfPagesFmt"), pages)
+    }
+    static func chatImportStagingPageOrdinal(_ page: Int) -> String {
+        String(format: t("chat.importStaging.pageOrdinalFmt"), page)
+    }
+    static func chatImportStagingPreview(_ name: String) -> String {
+        String(format: t("chat.importStaging.previewFmt"), name)
+    }
+    static var chatImportStagingReorder: String { t("chat.importStaging.reorder") }
+    static var chatImportStagingMoveEarlier: String { t("chat.importStaging.moveEarlier") }
+    static var chatImportStagingMoveLater: String { t("chat.importStaging.moveLater") }
+    static var chatImportStagingAddCamera: String { t("chat.importStaging.addCamera") }
+    static var chatImportStagingAddPhotos: String { t("chat.importStaging.addPhotos") }
+    static var chatImportStagingAddFiles: String { t("chat.importStaging.addFiles") }
+    static var chatImportStagingReading: String { t("chat.importStaging.reading") }
+    static var chatImportStagingPrivacy: String { t("chat.importStaging.privacy") }
+    static func chatImportStagingSubmit(_ count: Int) -> String {
+        String(format: t("chat.importStaging.submitFmt"), count)
+    }
+    static var chatImportStagingEmpty: String { t("chat.importStaging.empty") }
+    static var chatImportStagingNoticeTitle: String { t("chat.importStaging.noticeTitle") }
+    static var chatImportStagingReadFailed: String { t("chat.importStaging.readFailed") }
+    static var chatImportStagingTooManyItems: String { t("chat.importStaging.tooManyItems") }
+    static var chatImportStagingTooManyPages: String { t("chat.importStaging.tooManyPages") }
+    static var chatImportStagingTooLarge: String { t("chat.importStaging.tooLarge") }
+
+    static var chatMediaResultTitle: String { t("chat.mediaResultTitle") }
+    static var chatMediaFilesOriginal: String { t("chat.mediaFilesOriginal") }
+    static var chatMediaFilesText: String { t("chat.mediaFilesText") }
+    static var chatMediaFilesReadOnlyNote: String { t("chat.mediaFilesReadOnlyNote") }
+    static var chatMediaPageStatusSection: String { t("chat.mediaPageStatusSection") }
+    static func chatMediaPageStatusDone(_ lines: Int) -> String {
+        String(format: t("chat.mediaPageStatusDoneFmt"), lines)
+    }
+    static var chatMediaPageStatusFailed: String { t("chat.mediaPageStatusFailed") }
+    static var chatMediaPageStatusPending: String { t("chat.mediaPageStatusPending") }
+    static var chatMediaStatusOK: String { t("chat.mediaStatusOK") }
+    static func chatMediaSummary(_ attachments: Int, _ pages: Int) -> String {
+        String(format: t("chat.mediaSummaryFmt"), attachments, pages)
+    }
+    static var chatMediaElementsP1Note: String { t("chat.mediaElementsP1Note") }
+    static var chatMediaElementsGroupHeader: String { t("chat.mediaElementsGroupHeader") }
+    static var chatMediaElementsEmpty: String { t("chat.mediaElementsEmpty") }
+    static func chatMediaElementRowTitle(_ kind: String, _ row: Int) -> String {
+        String(format: t("chat.mediaElementRowTitleFmt"), kind, row)
+    }
+    static func chatMediaElementSubtitle(_ page: Int, _ count: Int) -> String {
+        String(format: t("chat.mediaElementSubtitleFmt"), page, count)
+    }
+    static var chatMediaGoConfirm: String { t("chat.mediaGoConfirm") }
+    static var chatMediaSourceText: String { t("chat.mediaSourceText") }
+    static var chatMediaSourceTextTitle: String { t("chat.mediaSourceTextTitle") }
+    static var chatMediaElementsToCards: String { t("chat.mediaElementsToCards") }
+    static var chatMediaElementsFooter: String { t("chat.mediaElementsFooter") }
+    static var chatMediaCardsAssemblyNote: String { t("chat.mediaCardsAssemblyNote") }
 
 }
