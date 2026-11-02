@@ -203,18 +203,33 @@ public enum CardConfirmationRules {
     /// 用户清空重填或补填缺失必填）写入即记 C；机器已有值仍"改动即失效、需重新确认"。
     /// 本方法是卡确认面唯一的用户编辑入口（实体卡 + 主卡草稿同经此路）。
     public static func revise(_ card: inout MatchedCard, at index: Int, rowId: UUID? = nil, to value: String) {
+        revise(&card, at: index, rowId: rowId, to: value, confirmingEmpty: true)
+    }
+
+    /// 非确认面（数据信息元行内修正）的编辑入口：与 `revise` 同一失联/编码纪律，
+    /// 但**绝不**因原值为空而自动升 C。保存后仍是 D 级待办快照，D→C 只能
+    /// 经卡确认面（BR-003 唯一出口）。
+    public static func reviseDraft(_ card: inout MatchedCard, at index: Int,
+                                   rowId: UUID? = nil, to value: String) {
+        revise(&card, at: index, rowId: rowId, to: value, confirmingEmpty: false)
+    }
+
+    private static func revise(_ card: inout MatchedCard, at index: Int, rowId: UUID?,
+                               to value: String, confirmingEmpty: Bool) {
         guard let rowId else {
             guard card.shared.indices.contains(index) else { return }
             if case .suggested = card.encounterAssociation { card.encounterAssociation = .unselected }
             if case .newHub = card.encounterAssociation, EncounterResolver.evidenceKeys.contains(card.shared[index].key),
                card.shared[index].value != value { card.encounterAssociation = .unselected }
-            card.shared[index].fillByUser(value)
+            if confirmingEmpty { card.shared[index].fillByUser(value) }
+            else { card.shared[index].revise(to: value) }
             return
         }
         guard let r = card.rows.firstIndex(where: { $0.id == rowId }), card.rows[r].fields.indices.contains(index),
               card.rows[r].fields[index].value != value else { return }
         let key = card.rows[r].fields[index].key
-        card.rows[r].fields[index].fillByUser(value)
+        if confirmingEmpty { card.rows[r].fields[index].fillByUser(value) }
+        else { card.rows[r].fields[index].revise(to: value) }
         if card.kind == "metric_sample", key == "raw_label" || key == "unit" {
             if let label = card.rows[r].fields.firstIndex(where: { $0.key == "raw_label" }) {
                 card.rows[r].fields[label].clearCodeResolution()

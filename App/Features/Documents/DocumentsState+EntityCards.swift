@@ -391,6 +391,26 @@ extension DocumentsState {
         }
     }
 
+    /// 数据信息元页的行内修正：只更新待办卡 D 级快照，不写事实、不排提醒。
+    /// 确认仍走 `completePendingCard`（BR-003 D→C 唯一出口）。
+    func updatePendingCardDraft(id: String, card: MatchedCard) async -> Bool {
+        guard let pendingCardStore, let pending = try? await pendingCardStore.card(id: id),   // try?-ok: 读失败按不可修正
+              let documentID = pending.sourceDocId, let page = pending.sourcePage,
+              card.kind == pending.cardKind, card.pageIndex == page else { return false }
+        let source = ImportSource(documentId: documentID, patientId: pending.patientId,
+            pages: [.init(index: page, lines: pending.rawText.components(separatedBy: "\n"), fields: [])])
+        do {
+            let effective = try await pendingCardStore.upsert(pendingDraft(card, source: source))
+            guard effective == id else { throw ImportError.unreadableMedia }
+            pendingReviews[id]?.card = card
+            pendingDidChange()
+            return true
+        } catch {
+            setImportError(L10n.entityCardSaveFailed)
+            return false
+        }
+    }
+
     func deferPendingCard(_ pending: PendingCard, edited: MatchedCard) async -> Bool {
         guard let documentID = pending.sourceDocId, let pendingCardStore,
               edited.kind == pending.cardKind, edited.pageIndex == pending.sourcePage else { return false }

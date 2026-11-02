@@ -2763,11 +2763,11 @@
 "chat.voiceRateFmt" = "%gX";
 "chat.voiceOpenHint" = "打开语音详情";
 "chat.imagePreviewTitle" = "检查图片";
-"chat.imagePreviewImage" = "待识别图片";
+"chat.imagePreviewImage" = "待提交图片";
 "chat.imagePreviewPageFmt" = "第 %d / %d 张";
 "chat.imagePreviewRotate" = "旋转";
-"chat.imagePreviewConfirm" = "开始识别";
-"chat.imagePreviewHint" = "双指放大检查文字是否完整清晰；方向不对点右上角旋转。确认后开始识别。";
+"chat.imagePreviewConfirm" = "完成";
+"chat.imagePreviewHint" = "双指放大检查文字是否完整清晰；方向不对点右上角旋转。点完成返回待提交，识别在统一提交后开始。";
 "chat.imagePreviewPrevious" = "上一张";
 "chat.imagePreviewNext" = "下一张";
 "assistant.historyNoPreview" = "暂无消息预览";
@@ -2916,7 +2916,6 @@
 "medicalCatalog.detail.document.unverified" = "同名匹配·未核验";
 
 /* 2026-11-01 聊天导入待提交区 + 详情三页（mock chat-import-staging.html） */
-"assistant.mediaTabFiles" = "文件";
 "assistant.mediaTabElements" = "识别结果";
 "chat.importStaging.title" = "待提交";
 "chat.importStaging.hintFmt" = "%d 项 · 预计 %d 页；可继续拍/选，提交后才回聊天并开始识别。";
@@ -2940,23 +2939,38 @@
 "chat.importStaging.tooManyPages" = "总页数超过 20 页；请先删除再添加。";
 "chat.importStaging.tooLarge" = "总大小超过 64MB；请先删除再添加。";
 "chat.mediaResultTitle" = "识别结果";
-"chat.mediaFilesOriginal" = "原件";
-"chat.mediaFilesText" = "识别文本";
-"chat.mediaFilesReadOnlyNote" = "原件不可改：提交后不提供重排/重拍/重传；如需重拍请新建资料并关联就诊。重新识别可能因回执失败，需可见提示。";
-"chat.mediaPageStatusSection" = "页状态";
-"chat.mediaPageStatusDoneFmt" = "识别完成 · %d 行";
-"chat.mediaPageStatusFailed" = "识别失败";
-"chat.mediaPageStatusPending" = "识别中";
-"chat.mediaStatusOK" = "ok";
 "chat.mediaSummaryFmt" = "%d 附件 · %d 页 · 本机识别";
-"chat.mediaElementsP1Note" = "P1：只读分组索引；点 [去核对] 进现有卡级，不在本页新建确认面。";
+"chat.mediaElementsP1Note" = "可直接修改数值，或从原文选择词条；修改先保存为 D 级草稿，确认仍走现有卡级。";
 "chat.mediaElementsGroupHeader" = "按要素分组 · 保留药品/检验行";
 "chat.mediaElementsEmpty" = "没有待核对的要素";
 "chat.mediaElementRowTitleFmt" = "%@ · 第 %d 行";
 "chat.mediaElementSubtitleFmt" = "第 %d 页 · %d 项";
 "chat.mediaGoConfirm" = "去核对";
 "chat.mediaSourceText" = "原文";
-"chat.mediaSourceTextTitle" = "原文";
 "chat.mediaElementsToCards" = "去卡片页查看";
-"chat.mediaElementsFooter" = "P1：本页只做分组索引；确认在卡片页/卡级完成。";
+"chat.mediaElementsFooter" = "修改后仍需核对确认；确认前不进入事实链。";
 "chat.mediaCardsAssemblyNote" = "由已确认要素组装";
+
+"chat.mediaTabElements" = "数据信息元";
+
+"chat.mediaTabCards" = "医疗信息卡片";
+
+"chat.mediaViewSourceImage" = "看图";
+
+"chat.mediaElementSave" = "保存修正";
+
+"chat.mediaElementSaving" = "保存中";
+
+"chat.mediaElementSaved" = "已保存";
+
+"chat.mediaElementSaveFailed" = "修正保存失败";
+
+"chat.mediaCropTitle" = "识别来源";
+
+"chat.mediaCropLoading" = "正在定位原文区域…";
+
+"chat.mediaCropFailed" = "无法读取识别来源";
+
+"chat.mediaCropFullPageNote" = "未定位到该信息元的原文区域，已显示整页。";
+
+"chat.mediaElementSaveAll" = "保存全部修正";

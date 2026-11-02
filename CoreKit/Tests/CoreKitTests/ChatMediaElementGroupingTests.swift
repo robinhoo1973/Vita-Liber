@@ -53,6 +53,40 @@ struct ChatMediaElementGroupingTests {
         #expect(groups[0].fields[0].value == "协和医院")
     }
 
+
+    @Test("保留行 ID 与字段源行号，供裁片/引文锚定")
+    func keepsRowIdentityAndSourceLine() {
+        let row = MatchedCardRow(id: UUID(), fields: [
+            FieldDraft(key: "drug_name", value: "氨氯地平", confidence: 0.8,
+                       rawText: "氨氯地平 5mg 每日一次", sourceLineIndex: 4)
+        ])
+        let card = MatchedCard(id: UUID(), kind: "prescription", pageIndex: 0,
+                               shared: [], rows: [row], allFieldCoverage: 0,
+                               requiredCoverage: 0, missingRequired: [],
+                               level: .partiallyComplete)
+        let groups = ChatMediaElementGrouping.groups(cardID: "c5", card: card)
+        #expect(groups.count == 1)
+        #expect(groups[0].rowId == row.id)
+        #expect(groups[0].fields[0].sourceLineIndex == 4)
+        #expect(groups[0].fields[0].sourceText == "氨氯地平 5mg 每日一次")
+    }
+
+
+    @Test("编辑模式保留空值字段，避免清空后卡片消失")
+    func includeEmptyKeepsEditableField() {
+        let card = MatchedCard(id: UUID(), kind: "encounter", pageIndex: 0,
+                               shared: [FieldDraft(key: "hospital", value: "", confidence: 0.8)],
+                               rows: [MatchedCardRow(id: UUID(), fields: [])],
+                               allFieldCoverage: 0, requiredCoverage: 0,
+                               missingRequired: [], level: .partiallyComplete)
+        let readOnly = ChatMediaElementGrouping.groups(cardID: "c6", card: card)
+        #expect(readOnly.isEmpty)
+        let editable = ChatMediaElementGrouping.groups(cardID: "c6", card: card, includeEmpty: true)
+        #expect(editable.count == 1)
+        #expect(editable[0].fields.map(\.key) == ["hospital"])
+        #expect(editable[0].fields[0].value.isEmpty)
+    }
+
     @Test("完全空卡不产生任何组")
     func emptyCardProducesNoGroups() {
         let groups = ChatMediaElementGrouping.groups(

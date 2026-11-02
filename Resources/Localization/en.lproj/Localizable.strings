@@ -2763,11 +2763,11 @@
 "chat.voiceRateFmt" = "%gX";
 "chat.voiceOpenHint" = "Open voice details";
 "chat.imagePreviewTitle" = "Check images";
-"chat.imagePreviewImage" = "Image to recognize";
+"chat.imagePreviewImage" = "Image to submit";
 "chat.imagePreviewPageFmt" = "Image %d of %d";
 "chat.imagePreviewRotate" = "Rotate";
-"chat.imagePreviewConfirm" = "Start recognition";
-"chat.imagePreviewHint" = "Pinch to check that text is complete and sharp; rotate if the orientation is wrong, then start recognition.";
+"chat.imagePreviewConfirm" = "Done";
+"chat.imagePreviewHint" = "Pinch to check that the text is complete and sharp. Rotate at the top right if needed. Done returns to the pending list; recognition starts only after you submit.";
 "chat.imagePreviewPrevious" = "Previous";
 "chat.imagePreviewNext" = "Next";
 "assistant.historyNoPreview" = "No message preview";
@@ -2916,7 +2916,6 @@
 "medicalCatalog.detail.document.unverified" = "Matched by name (unverified)";
 
 /* 2026-11-01 chat import staging + detail three tabs (mock chat-import-staging.html) */
-"assistant.mediaTabFiles" = "Files";
 "assistant.mediaTabElements" = "Elements";
 "chat.importStaging.title" = "Pending submission";
 "chat.importStaging.hintFmt" = "%d items · about %d pages; add more or submit to start recognition.";
@@ -2940,23 +2939,38 @@
 "chat.importStaging.tooManyPages" = "The total exceeds 20 pages. Remove one before adding.";
 "chat.importStaging.tooLarge" = "The total exceeds 64 MB. Remove one before adding.";
 "chat.mediaResultTitle" = "Recognition result";
-"chat.mediaFilesOriginal" = "Original";
-"chat.mediaFilesText" = "Recognized text";
-"chat.mediaFilesReadOnlyNote" = "The original is read-only. Pages cannot be reordered or retaken after submission; create a new record to retake. Re-recognition may be refused by receipts and must show a clear message.";
-"chat.mediaPageStatusSection" = "Page status";
-"chat.mediaPageStatusDoneFmt" = "Recognized · %d lines";
-"chat.mediaPageStatusFailed" = "Recognition failed";
-"chat.mediaPageStatusPending" = "Recognizing";
-"chat.mediaStatusOK" = "ok";
 "chat.mediaSummaryFmt" = "%d attachments · %d pages · on-device OCR";
-"chat.mediaElementsP1Note" = "P1: read-only grouped index. Use [Review] to open the existing card; this page does not add a second confirmation surface.";
+"chat.mediaElementsP1Note" = "Edit values directly or quote a source line. Edits are saved as grade-D drafts; confirmation still uses the existing card.";
 "chat.mediaElementsGroupHeader" = "Grouped by element · medication and lab rows kept together";
 "chat.mediaElementsEmpty" = "No elements need review";
 "chat.mediaElementRowTitleFmt" = "%@ · row %d";
 "chat.mediaElementSubtitleFmt" = "Page %d · %d items";
 "chat.mediaGoConfirm" = "Review";
 "chat.mediaSourceText" = "Source";
-"chat.mediaSourceTextTitle" = "Source text";
 "chat.mediaElementsToCards" = "Go to cards";
-"chat.mediaElementsFooter" = "P1: this page only indexes groups. Confirm on the cards page or the card itself.";
+"chat.mediaElementsFooter" = "Saved edits are still unconfirmed and do not enter the fact chain until reviewed.";
 "chat.mediaCardsAssemblyNote" = "Assembled from confirmed elements";
+
+"chat.mediaTabElements" = "Data elements";
+
+"chat.mediaTabCards" = "Medical cards";
+
+"chat.mediaViewSourceImage" = "Source image";
+
+"chat.mediaElementSave" = "Save edit";
+
+"chat.mediaElementSaving" = "Saving";
+
+"chat.mediaElementSaved" = "Saved";
+
+"chat.mediaElementSaveFailed" = "Could not save the edit";
+
+"chat.mediaCropTitle" = "Recognition source";
+
+"chat.mediaCropLoading" = "Locating the source region…";
+
+"chat.mediaCropFailed" = "Could not load the recognition source";
+
+"chat.mediaCropFullPageNote" = "The source region could not be located; the full page is shown.";
+
+"chat.mediaElementSaveAll" = "Save all edits";

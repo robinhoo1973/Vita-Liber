@@ -2763,11 +2763,11 @@
 "chat.voiceRateFmt" = "%gX";
 "chat.voiceOpenHint" = "開啟語音詳情";
 "chat.imagePreviewTitle" = "檢查圖片";
-"chat.imagePreviewImage" = "待辨識圖片";
+"chat.imagePreviewImage" = "待提交圖片";
 "chat.imagePreviewPageFmt" = "第 %d / %d 張";
 "chat.imagePreviewRotate" = "旋轉";
-"chat.imagePreviewConfirm" = "開始辨識";
-"chat.imagePreviewHint" = "雙指放大檢查文字是否完整清晰；方向不對點右上角旋轉。確認後開始辨識。";
+"chat.imagePreviewConfirm" = "完成";
+"chat.imagePreviewHint" = "雙指放大檢查文字是否完整清晰；方向不對點右上角旋轉。點完成返回待提交，識別在統一提交後開始。";
 "chat.imagePreviewPrevious" = "上一張";
 "chat.imagePreviewNext" = "下一張";
 "assistant.historyNoPreview" = "暫無訊息預覽";
@@ -2916,7 +2916,6 @@
 "medicalCatalog.detail.document.unverified" = "同名匹配·未核驗";
 
 /* 2026-11-01 聊天匯入待提交區 + 詳情三頁（mock chat-import-staging.html） */
-"assistant.mediaTabFiles" = "檔案";
 "assistant.mediaTabElements" = "識別結果";
 "chat.importStaging.title" = "待提交";
 "chat.importStaging.hintFmt" = "%d 項 · 預計 %d 頁；可繼續拍/選，提交後才回聊天並開始識別。";
@@ -2940,23 +2939,38 @@
 "chat.importStaging.tooManyPages" = "總頁數超過 20 頁；請先刪除再新增。";
 "chat.importStaging.tooLarge" = "總大小超過 64MB；請先刪除再新增。";
 "chat.mediaResultTitle" = "識別結果";
-"chat.mediaFilesOriginal" = "原件";
-"chat.mediaFilesText" = "識別文字";
-"chat.mediaFilesReadOnlyNote" = "原件不可改：提交後不提供重排/重拍/重傳；如需重拍請新建資料並關聯就診。重新識別可能因回執失敗，需可見提示。";
-"chat.mediaPageStatusSection" = "頁狀態";
-"chat.mediaPageStatusDoneFmt" = "識別完成 · %d 行";
-"chat.mediaPageStatusFailed" = "識別失敗";
-"chat.mediaPageStatusPending" = "識別中";
-"chat.mediaStatusOK" = "ok";
 "chat.mediaSummaryFmt" = "%d 附件 · %d 頁 · 本機識別";
-"chat.mediaElementsP1Note" = "P1：唯讀分組索引；點 [去核對] 進現有卡級，不在本頁新建確認面。";
+"chat.mediaElementsP1Note" = "可直接修改數值，或從原文選擇詞條；修改先儲存為 D 級草稿，確認仍走現有卡級。";
 "chat.mediaElementsGroupHeader" = "按要素分組 · 保留藥品/檢驗列";
 "chat.mediaElementsEmpty" = "沒有待核對的要素";
 "chat.mediaElementRowTitleFmt" = "%@ · 第 %d 列";
 "chat.mediaElementSubtitleFmt" = "第 %d 頁 · %d 項";
 "chat.mediaGoConfirm" = "去核對";
 "chat.mediaSourceText" = "原文";
-"chat.mediaSourceTextTitle" = "原文";
 "chat.mediaElementsToCards" = "去卡片頁查看";
-"chat.mediaElementsFooter" = "P1：本頁只做分組索引；確認在卡片頁/卡級完成。";
+"chat.mediaElementsFooter" = "修改後仍需核對確認；確認前不進入事實鏈。";
 "chat.mediaCardsAssemblyNote" = "由已確認要素組裝";
+
+"chat.mediaTabElements" = "資料資訊元";
+
+"chat.mediaTabCards" = "醫療資訊卡片";
+
+"chat.mediaViewSourceImage" = "看圖";
+
+"chat.mediaElementSave" = "儲存修正";
+
+"chat.mediaElementSaving" = "儲存中";
+
+"chat.mediaElementSaved" = "已儲存";
+
+"chat.mediaElementSaveFailed" = "修正儲存失敗";
+
+"chat.mediaCropTitle" = "識別來源";
+
+"chat.mediaCropLoading" = "正在定位原文區域…";
+
+"chat.mediaCropFailed" = "無法讀取識別來源";
+
+"chat.mediaCropFullPageNote" = "未定位到該資訊元的原文區域，已顯示整頁。";
+
+"chat.mediaElementSaveAll" = "儲存全部修正";

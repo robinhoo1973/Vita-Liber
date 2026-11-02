@@ -5,11 +5,10 @@ import Perception
 
 /// 聊天媒体详情（2026-10-29 批三 · mock v4 对照落地；2026-10-30 业主五点复核后）。
 ///
-/// 结构对齐 mock `chat-import-staging.html`（2026-11-01 业主）：
-/// - 上=媒体卡：标题 + 附件/页数摘要 + 来源徽章（GradeBadge 单一出口）。
-/// - 下=三 tab：文件（原件 / 识别文本、重新识别、页状态；提交后只读）/
-///   识别结果（按卡类 + 页 + 行分组，去核对仍进现有卡级）/
-///   信息卡片（「需要修改」在前、「已确认」在后；BR-003 页脚）。
+/// 结构对齐真机修订（2026-11-02 业主）：
+/// - 上=媒体卡：标题 + 附件/页数 + 上传缩略图（点图看原件）+ 来源徽章。
+/// - 下=两个 tab：数据信息元（每字段一张卡，可改值/引原文/看裁片/去核对）/
+///   医疗信息卡片（「需要修改」在前、「已确认」在后；BR-003 页脚）。
 /// - 工具栏「更多操作」→ 查看原图 / 重新识别 / 文档信息（存储位置）/ 导出副本。
 /// 三值状态纪律：文本/已确认卡/待核对卡/文档行各自 loading/loaded/failed，
 /// 读取失败必须可见并可重试——不得把失败涂成空态。
@@ -32,38 +31,26 @@ struct ChatMediaDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
-    /// 2026-11-01 业主（mock `chat-import-staging.html`）：文件 / 识别结果 /
-    /// 信息卡片三页。文件页只读；要素确认仍走既有卡级，不新建第二套管线。
+    /// 2026-11-02 真机：缩略图在上，下面两个 tab——数据信息元 / 医疗信息卡片。
     private enum Tab: String, CaseIterable, Identifiable {
-        case files, elements, cards
+        case elements, cards
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .files: return L10n.assistantMediaTabFiles
-            case .elements: return L10n.assistantMediaTabElements
-            case .cards: return L10n.assistantMediaTabCards
+            case .elements: return L10n.chatMediaTabElements
+            case .cards: return L10n.chatMediaTabCards
             }
         }
     }
 
-    private enum FileMode: String, CaseIterable, Identifiable {
-        case original, text
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .original: return L10n.chatMediaFilesOriginal
-            case .text: return L10n.chatMediaFilesText
-            }
-        }
-    }
-
-    /// 识别结果页的分组投影（卡片是保存单位，本页只读索引）。
+    /// 数据信息元的分组投影：每个字段一张卡，保留卡片/行/原文锚点。
     private struct ElementRow: Identifiable {
         let group: ChatMediaElementGroup
         let cardID: String
+        let pageIndex: Int
         let title: String
         let subtitle: String
-        let rawText: String
+        let editable: Bool
         var id: String { group.id }
     }
 
@@ -104,22 +91,23 @@ struct ChatMediaDetailView: View {
         case original(page: Int)
         case pending(id: String)
         case actions
-        case reprocess
-        case sourceText(title: String, text: String)
+        case sourceLine(cardID: String, fieldKey: String, rowID: UUID?, pageIndex: Int)
+        case sourceCrop(pageIndex: Int, lineIndex: Int?, text: String)
 
         var id: String {
             switch self {
             case .original(let page): return "original-\(page)"
             case .pending(let id): return "pending-\(id)"
             case .actions: return "actions"
-            case .reprocess: return "reprocess"
-            case .sourceText(let title, _): return "source-\(title)"
+            case .sourceLine(let cardID, let key, let rowID, _):
+                return "line-\(cardID)-\(key)-\(rowID?.uuidString ?? "shared")"
+            case .sourceCrop(let page, let line, _):
+                return "crop-\(page)-\(line ?? -1)"
             }
         }
     }
 
-    @State private var tab: Tab = .files
-    @State private var fileMode: FileMode = .original
+    @State private var tab: Tab = .elements
     @State private var textState: TextState = .loading
     @State private var cardsState: CardsState = .loading
     @State private var pendingState: PendingState = .loading
@@ -127,6 +115,12 @@ struct ChatMediaDetailView: View {
     /// 缩略图条共享的文档元数据（一次读行/解析 meta；2026-10-30 效率批）。
     @State private var thumbPreload: ChatMediaThumbnail.Preloaded?
     @State private var detailSheet: DetailSheet?
+    /// 数据信息元的编辑草稿（cardID → 完整 MatchedCard）；仅 OCR 卡可编辑。
+    @State private var elementDrafts: [String: MatchedCard] = [:]
+    @State private var dirtyCards: Set<String> = []
+    @State private var savedCards: Set<String> = []
+    @State private var savingCards: Set<String> = []
+    @State private var elementSaveError: String?
     /// 关闭 sheet 后的刷新范围：看原图不重读；待核对卡只刷卡片区+文档徽章
     /// （正文/滚动位不塌回 loading）；更多操作可能重新识别，整页重读。
     @State private var dismissRefresh: DismissRefresh = .none
@@ -172,6 +166,13 @@ struct ChatMediaDetailView: View {
                 }
                 // 缩略图即原图内容：退后台时随系统隐私遮罩隐去（与原件页同纪律）。
                 .privacySensitive(scenePhase != .active)
+                .alert(L10n.chatMediaElementSaveFailed,
+                       isPresented: Binding(get: { elementSaveError != nil },
+                                            set: { if !$0 { elementSaveError = nil } })) {
+                    Button(L10n.onboard_gotIt, role: .cancel) { elementSaveError = nil }
+                } message: {
+                    Text(elementSaveError ?? "")
+                }
             }
         }
     }
@@ -191,29 +192,17 @@ struct ChatMediaDetailView: View {
                                    title: title, pageCount: totalPageCount,
                                    conversationID: conversationID,
                                    conversationTitle: conversationTitle)
-        case .reprocess:
-            NavigationStack {
-                DocumentReviewRouteView(documentId: documentId, patientId: patientId,
-                                        reprocess: true, suppressAutoMirror: true)
-            }
-        case .sourceText(let sourceTitle, let text):
-            NavigationStack {
-                ScrollView {
-                    Text(text)
-                        .font(.callout)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                }
-                .navigationTitle(sourceTitle)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.assistantClose) { detailSheet = nil }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
+        case .sourceLine(let cardID, let fieldKey, let rowID, let pageIndex):
+            SourceLineSheet(lines: pageLines(pageIndex),
+                            highlight: elementSourceLine(cardID: cardID, key: fieldKey, rowID: rowID),
+                            onPick: elementDrafts[cardID] == nil ? nil : { (lines: [String], indices: [Int]) in
+                                quoteElement(cardID: cardID, fieldKey: fieldKey,
+                                             rowID: rowID, lines: lines, indices: indices)
+                            })
+        case .sourceCrop(let pageIndex, let lineIndex, let sourceText):
+            ChatMediaSourceCropView(documentId: documentId, patientId: patientId,
+                                     pageIndex: pageIndex, lineIndex: lineIndex,
+                                     sourceText: sourceText)
         }
     }
 
@@ -240,6 +229,8 @@ struct ChatMediaDetailView: View {
             Text(L10n.chatMediaSummary(thumbnailCount, totalPageCount))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+            thumbnailStrip
+                .padding(.top, 4)
             if case .failed = docState {
                 unavailableBlock { Task { await loadBasics() } }
                     .padding(.top, 6)
@@ -348,8 +339,6 @@ struct ChatMediaDetailView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
-        case .files:
-            filesTab
         case .elements:
             elementsTab
         case .cards:
@@ -357,193 +346,7 @@ struct ChatMediaDetailView: View {
         }
     }
 
-    // MARK: - 文件（原件 / 识别文本）
-
-    @ViewBuilder
-    private var filesTab: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Picker(L10n.chatMediaFilesOriginal, selection: $fileMode) {
-                ForEach(FileMode.allCases) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(minHeight: 44)
-            .accessibilityIdentifier("chat.mediaDetail.fileMode")
-
-            if fileMode == .original {
-                thumbnailStrip
-            } else {
-                textTab
-            }
-
-            Button {
-                dismissRefresh = .all
-                detailSheet = .reprocess
-            } label: {
-                Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
-                    .font(.footnote.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("chat.mediaDetail.reprocess")
-
-            Text(L10n.chatMediaFilesReadOnlyNote)
-                .font(.caption2)
-                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                .fixedSize(horizontal: false, vertical: true)
-
-            pageStatusSection
-        }
-    }
-
-    @ViewBuilder
-    private var pageStatusSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionHeader(L10n.chatMediaPageStatusSection)
-            switch textState {
-            case .loading:
-                ProgressView()
-                    .frame(maxWidth: .infinity, minHeight: 60)
-            case .failed:
-                errorBlock { Task { await loadBasics() } }
-            case .empty:
-                emptyNote(L10n.assistantMediaTextEmpty)
-            case .legacy(let text):
-                pageStatusRow(ordinal: 1, status: text.isEmpty ? "failed" : "ok",
-                              lineCount: Self.lineCount(text))
-            case .pages(let pages):
-                VStack(spacing: 0) {
-                    ForEach(Array(pages.enumerated()), id: \.offset) { offset, page in
-                        pageStatusRow(ordinal: page.index + 1, status: page.status,
-                                      lineCount: Self.lineCount(page.text ?? ""))
-                        if offset < pages.count - 1 { Divider() }
-                    }
-                }
-                .background(Color(.systemBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            }
-        }
-    }
-
-    private func pageStatusRow(ordinal: Int, status: String, lineCount: Int) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L10n.entityCardHeaderPage(ordinal, max(ordinal, totalPageCount)))
-                    .font(.subheadline.weight(.semibold))
-                Text(status == "ok"
-                     ? L10n.chatMediaPageStatusDone(lineCount)
-                     : status == "failed" ? L10n.chatMediaPageStatusFailed
-                                          : L10n.chatMediaPageStatusPending)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            if status == "ok" {
-                Text(L10n.chatMediaStatusOK)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Color("semantic-success", bundle: .main), in: RoundedRectangle(cornerRadius: 5))
-            }
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
-        .frame(minHeight: 44)
-    }
-
-    private static func lineCount(_ text: String) -> Int {
-        text.split(whereSeparator: \.isNewline)
-            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            .count
-    }
-
-    // MARK: - 识别文本
-
-    @ViewBuilder
-    private var textTab: some View {
-        switch textState {
-        case .loading:
-            ProgressView()
-                .frame(maxWidth: .infinity, minHeight: 120)
-        case .failed:
-            errorBlock { Task { await loadBasics() } }
-        case .empty:
-            emptyNote(L10n.assistantMediaTextEmpty)
-        case .legacy(let text):
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.assistantMediaLegacyNote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color.secondary.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        case .pages(let pages):
-            let total = pages.count
-            VStack(alignment: .leading, spacing: 12) {
-                // DocumentStore.Page 非 Identifiable：以页号做稳定身份。
-                ForEach(pages, id: \.index) { page in
-                    pageSection(page, total: total)
-                }
-            }
-        }
-    }
-
-    private func pageSection(_ page: DocumentStore.Page, total: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(L10n.entityCardHeaderPage(page.index + 1, max(total, page.index + 1)))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                pageStatusLabel(page.status)
-            }
-            if let text = page.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(text)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(page.status == "failed" ? L10n.assistantMediaPageFailed : L10n.assistantMediaPageNoText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        // 容器标识 + contain：防标识符掩蔽子元素（L0 第 18 节同族纪律）。
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("chat.mediaDetail.page.\(page.index)")
-    }
-
-    @ViewBuilder
-    private func pageStatusLabel(_ status: String) -> some View {
-        switch status {
-        case "ok":
-            Image(systemName: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(Color("semantic-success", bundle: .main))
-                .accessibilityHidden(true)
-        case "failed":
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.caption)
-                .foregroundStyle(Color("semantic-warning", bundle: .main))
-                .accessibilityHidden(true)
-        default:
-            EmptyView()
-        }
-    }
-
-    // MARK: - 识别结果（按卡/行分组，只读索引）
+    // MARK: - 数据信息元（可修正的字段卡；确认仍走既有卡级）
 
     @ViewBuilder
     private var elementsTab: some View {
@@ -570,13 +373,29 @@ struct ChatMediaDetailView: View {
                 } else {
                     sectionHeader(L10n.chatMediaElementsGroupHeader)
                     ForEach(rows) { row in
-                        elementGroupCard(row)
+                        elementGroup(row)
                     }
                 }
             }
 
+            if !dirtyCards.isEmpty {
+                Button {
+                    Task { await saveAllElementCards() }
+                } label: {
+                    Text(L10n.chatMediaElementSaveAll)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!savingCards.isEmpty)
+                .accessibilityIdentifier("chat.mediaDetail.elements.saveAll")
+            }
+
             Button {
-                tab = .cards
+                Task {
+                    await saveAllElementCards()
+                    if dirtyCards.isEmpty { tab = .cards }
+                }
             } label: {
                 Text(L10n.chatMediaElementsToCards)
                     .font(.subheadline.weight(.semibold))
@@ -597,22 +416,30 @@ struct ChatMediaDetailView: View {
             let matched = try? card.matchedCard()   // try?-ok: 旧卡缺页身份时回落 partialData 投影
             let pageIndex = card.sourcePage ?? matched?.pageIndex ?? 0
             let kindName = L10n.entityCardKindName(card.cardKind)
-            let shared = matched?.shared ?? Self.legacyFields(card.partialData.shared)
-            let rowFields = matched?.rows.map(\.fields)
-                ?? card.partialData.rows.map(Self.legacyFields)
-            return ChatMediaElementGrouping
-                .groups(cardID: card.id, shared: shared, rows: rowFields)
-                .map { group in
-                    let title = group.rowIndex.map {
-                        L10n.chatMediaElementRowTitle(kindName, $0 + 1)
-                    } ?? kindName
-                    return ElementRow(
-                        group: group,
-                        cardID: card.id,
-                        title: title,
-                        subtitle: L10n.chatMediaElementSubtitle(pageIndex + 1, group.fields.count),
-                        rawText: card.rawText)
-                }
+            let draft = elementDrafts[card.id]
+            let groups: [ChatMediaElementGroup]
+            if let draft {
+                groups = ChatMediaElementGrouping.groups(cardID: card.id, card: draft, includeEmpty: true)
+            } else if let matched {
+                groups = ChatMediaElementGrouping.groups(cardID: card.id, card: matched)
+            } else {
+                let shared = Self.legacyFields(card.partialData.shared)
+                let rowFields = card.partialData.rows.map(Self.legacyFields)
+                groups = ChatMediaElementGrouping.groups(cardID: card.id, shared: shared,
+                                                         rows: rowFields)
+            }
+            return groups.map { group in
+                let title = group.rowIndex.map {
+                    L10n.chatMediaElementRowTitle(kindName, $0 + 1)
+                } ?? kindName
+                return ElementRow(
+                    group: group,
+                    cardID: card.id,
+                    pageIndex: pageIndex,
+                    title: title,
+                    subtitle: L10n.chatMediaElementSubtitle(pageIndex + 1, group.fields.count),
+                    editable: draft != nil)
+            }
         }
     }
 
@@ -622,8 +449,8 @@ struct ChatMediaDetailView: View {
         }
     }
 
-    private func elementGroupCard(_ row: ElementRow) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+    private func elementGroup(_ row: ElementRow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(row.title)
@@ -633,66 +460,211 @@ struct ChatMediaDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Text("0/\(row.group.fields.count)")
-                    .font(.caption2.weight(.bold).monospacedDigit())
-                    .foregroundStyle(Color("brand-primary", bundle: .main))
-            }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 8)
-            .background(Color(.systemBackground))
-            .overlay(alignment: .bottom) { Divider() }
-
-            VStack(spacing: 0) {
-                ForEach(Array(row.group.fields.enumerated()), id: \.offset) { index, field in
-                    elementFieldRow(field: field, row: row)
-                    if index < row.group.fields.count - 1 { Divider() }
+                if row.editable {
+                    if savingCards.contains(row.cardID) {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel(L10n.chatMediaElementSaving)
+                    } else if dirtyCards.contains(row.cardID) {
+                        Button(L10n.chatMediaElementSave) {
+                            Task { await saveElementCard(row.cardID) }
+                        }
+                        .font(.caption.weight(.bold))
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier("chat.mediaDetail.elements.save.\(row.cardID)")
+                    } else if savedCards.contains(row.cardID) {
+                        Label(L10n.chatMediaElementSaved, systemImage: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(Color("semantic-success", bundle: .main))
+                            .accessibilityIdentifier("chat.mediaDetail.elements.saved.\(row.cardID)")
+                    }
                 }
             }
-            .background(Color(.systemBackground))
+            ForEach(row.group.fields) { field in
+                elementFieldCard(field, row: row)
+            }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat.mediaDetail.elementGroup.\(row.group.id)")
     }
 
-    private func elementFieldRow(field: ChatMediaElementField, row: ElementRow) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+    private func elementFieldCard(_ field: ChatMediaElementField, row: ElementRow) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Text(DocumentsDisplay.fieldLabel(forKey: field.key))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                GradeBadge(grade: GradeBadge.gradeMachineUnconfirmed)
+                GradeBadge(grade: field.grade)
                 Spacer(minLength: 0)
             }
-            Text(field.value)
-                .font(.subheadline.weight(.semibold))
-                .fixedSize(horizontal: false, vertical: true)
+            if row.editable {
+                HStack(spacing: 5) {
+                    TextField("", text: elementValueBinding(field, row: row))
+                        .font(.subheadline.weight(.semibold))
+                        .textFieldStyle(.plain)
+                        .accessibilityLabel(DocumentsDisplay.fieldLabel(forKey: field.key))
+                        .accessibilityIdentifier("chat.mediaDetail.element.value.\(field.id)")
+                    if let unit = field.unit, !unit.isEmpty {
+                        Text(unit).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 9)
+                .frame(minHeight: 44)
+                .background(Color.secondary.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(field.value)
+                        .font(.subheadline.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let unit = field.unit, !unit.isEmpty {
+                        Text(unit).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+            }
             HStack(spacing: 8) {
+                Button(L10n.chatMediaSourceText) {
+                    dismissRefresh = .none
+                    detailSheet = .sourceLine(cardID: row.cardID, fieldKey: field.key,
+                                              rowID: row.group.rowId, pageIndex: row.pageIndex)
+                }
+                .font(.caption.weight(.bold))
+                .frame(minHeight: 44)
+                .disabled(pageLines(row.pageIndex).isEmpty)
+                .accessibilityIdentifier("chat.mediaDetail.element.source.\(field.id)")
+
+                Button(L10n.chatMediaViewSourceImage) {
+                    dismissRefresh = .none
+                    detailSheet = .sourceCrop(pageIndex: row.pageIndex,
+                                              lineIndex: field.sourceLineIndex,
+                                              text: sourceTextForCrop(field, row: row))
+                }
+                .font(.caption.weight(.bold))
+                .frame(minHeight: 44)
+                .accessibilityIdentifier("chat.mediaDetail.element.crop.\(field.id)")
+
                 Button(L10n.chatMediaGoConfirm) {
                     dismissRefresh = .cards
-                    detailSheet = .pending(id: row.cardID)
+                    if dirtyCards.contains(row.cardID) {
+                        Task {
+                            if await saveElementCard(row.cardID) {
+                                detailSheet = .pending(id: row.cardID)
+                            }
+                        }
+                    } else {
+                        detailSheet = .pending(id: row.cardID)
+                    }
                 }
                 .font(.caption.weight(.bold))
                 .frame(minHeight: 44)
                 .accessibilityIdentifier("chat.mediaDetail.element.confirm.\(field.id)")
 
-                Button(L10n.chatMediaSourceText) {
-                    let source = field.sourceText.isEmpty ? row.rawText : field.sourceText
-                    detailSheet = .sourceText(title: L10n.chatMediaSourceTextTitle,
-                                              text: source)
-                }
-                .font(.caption.weight(.bold))
-                .frame(minHeight: 44)
-                .disabled(field.sourceText.isEmpty
-                          && row.rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .accessibilityIdentifier("chat.mediaDetail.element.source.\(field.id)")
-
                 Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 9)
+        .padding(11)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.systemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.mediaDetail.element.\(field.id)")
+    }
+
+    private func elementValueBinding(_ field: ChatMediaElementField,
+                                     row: ElementRow) -> Binding<String> {
+        Binding(
+            get: { currentElementValue(field, row: row) },
+            set: { setElementValue($0, field: field, row: row) })
+    }
+
+    private func currentElementValue(_ field: ChatMediaElementField, row: ElementRow) -> String {
+        guard let card = elementDrafts[row.cardID] else { return field.value }
+        if let rowID = row.group.rowId {
+            return card.rows.first { $0.id == rowID }?
+                .fields.first { $0.key == field.key }?.value ?? field.value
+        }
+        return card.shared.first { $0.key == field.key }?.value ?? field.value
+    }
+
+    private func setElementValue(_ value: String, field: ChatMediaElementField,
+                                 row: ElementRow) {
+        guard var card = elementDrafts[row.cardID] else { return }
+        if currentElementValue(field, row: row) == value { return }
+        if let rowID = row.group.rowId {
+            guard let r = card.rows.firstIndex(where: { $0.id == rowID }),
+                  let i = card.rows[r].fields.firstIndex(where: { $0.key == field.key }) else { return }
+            CardConfirmationRules.reviseDraft(&card, at: i, rowId: rowID, to: value)
+        } else {
+            guard let i = card.shared.firstIndex(where: { $0.key == field.key }) else { return }
+            CardConfirmationRules.reviseDraft(&card, at: i, rowId: nil, to: value)
+        }
+        elementDrafts[row.cardID] = card
+        dirtyCards.insert(row.cardID)
+        savedCards.remove(row.cardID)
+    }
+
+    /// 裁片匹配文本只取原始行（field.rawText → 存储页原文行），绝不使用当前编辑值：
+    /// 编辑值不是来源，拿它搜会匹配到无关行。
+    private func sourceTextForCrop(_ field: ChatMediaElementField, row: ElementRow) -> String {
+        if !field.sourceText.isEmpty { return field.sourceText }
+        let lines = pageLines(row.pageIndex)
+        if let index = field.sourceLineIndex, lines.indices.contains(index) {
+            return lines[index]
+        }
+        return ""
+    }
+
+    private func elementSourceLine(cardID: String, key: String, rowID: UUID?) -> Int? {
+        guard let card = elementDrafts[cardID] else { return nil }
+        if let rowID {
+            return card.rows.first { $0.id == rowID }?
+                .fields.first { $0.key == key }?.sourceLineIndex
+        }
+        return card.shared.first { $0.key == key }?.sourceLineIndex
+    }
+
+    private func quoteElement(cardID: String, fieldKey: String, rowID: UUID?,
+                              lines: [String], indices: [Int]) {
+        guard var card = elementDrafts[cardID] else { return }
+        CardConfirmationRules.quote(&card, key: fieldKey, rowId: rowID,
+                                    lines: lines, sourceLineIndices: indices)
+        elementDrafts[cardID] = card
+        dirtyCards.insert(cardID)
+        savedCards.remove(cardID)
+    }
+
+    @discardableResult
+    private func saveElementCard(_ cardID: String) async -> Bool {
+        guard let card = elementDrafts[cardID], !savingCards.contains(cardID) else { return false }
+        savingCards.insert(cardID)
+        defer { savingCards.remove(cardID) }
+        if await docs.updatePendingCardDraft(id: cardID, card: card) {
+            dirtyCards.remove(cardID)
+            savedCards.insert(cardID)
+            return true
+        } else {
+            elementSaveError = L10n.chatMediaElementSaveFailed
+            return false
+        }
+    }
+
+    private func saveAllElementCards() async {
+        for cardID in dirtyCards.sorted() {
+            guard await saveElementCard(cardID) else { return }
+        }
+    }
+
+    private func pageLines(_ pageIndex: Int) -> [String] {
+        switch textState {
+        case .pages(let pages):
+            return pages.first { $0.index == pageIndex }?.text?
+                .components(separatedBy: "\n") ?? []
+        case .legacy(let text):
+            return text.components(separatedBy: "\n")
+        case .loading, .empty, .failed:
+            return []
+        }
     }
 
     // MARK: - 信息卡片
@@ -1000,8 +972,35 @@ struct ChatMediaDetailView: View {
             cardsState = .failed
         }
         switch await docs.pendingCards(documentId: documentId, patientId: patientId) {
-        case .loaded(let cards): pendingState = .loaded(cards)
-        case .failed: pendingState = .failed
+        case .loaded(let cards):
+            pendingState = .loaded(cards)
+            syncElementDrafts(from: cards)
+        case .failed:
+            pendingState = .failed
+        }
+    }
+
+    /// 待办卡刷新时同步编辑草稿：未保存的编辑不得被外部刷新覆盖；
+    /// 已消失的卡（确认/丢弃）清掉草稿与状态。
+    private func syncElementDrafts(from cards: [PendingCard]) {
+        let ids = Set(cards.map(\.id))
+        elementDrafts = elementDrafts.filter { ids.contains($0.key) }
+        dirtyCards.formIntersection(ids)
+        savedCards.formIntersection(ids)
+        savingCards.formIntersection(ids)
+        for card in cards where !dirtyCards.contains(card.id) {
+            // 归档卡只读：先走[去核对]补办恢复，行内保存不得直写归档卡。
+            guard card.status != "archived" else {
+                elementDrafts.removeValue(forKey: card.id)
+                dirtyCards.remove(card.id)
+                savedCards.remove(card.id)
+                continue
+            }
+            if let matched = try? card.matchedCard() {   // try?-ok: 旧卡无身份 → 只读投影
+                elementDrafts[card.id] = matched
+            } else {
+                elementDrafts.removeValue(forKey: card.id)
+            }
         }
     }
 }

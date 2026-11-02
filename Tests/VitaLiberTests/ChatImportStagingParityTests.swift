@@ -99,7 +99,24 @@ struct ChatImportStagingParityTests {
         #expect(model.items.map(\.filename) == ["a", "b", "c"])
     }
 
-    @Test("三个页签与待提交区文案键非空（mock 专用键零死键）")
+
+    @Test("数据信息元/裁片状态行与契约一一对应（表驱动）")
+    func testElementAndCropRowsMatchMock() {
+        let rows: [(id: String, label: String, enabled: Bool)] = [
+            ("elements-default", L10n.chatMediaTabElements, true),
+            ("elements-dirty", L10n.chatMediaElementSaveAll, true),
+            ("elements-saved", L10n.chatMediaElementSaved, true),
+            ("crop-measured", L10n.chatMediaViewSourceImage, true),
+            ("crop-fallback", L10n.chatMediaCropFullPageNote, true),
+        ]
+        for row in rows {
+            #expect(!row.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    "\(row.id) 文案不得为空")
+            #expect(row.enabled, "\(row.id) 主行动必须可用")
+        }
+    }
+
+    @Test("两组页签与待提交区文案键非空（mock 专用键零死键）")
     func testMockSpecificKeysAreConsumed() {
         let keys = [
             L10n.chatImportStagingTitle,
@@ -107,13 +124,15 @@ struct ChatImportStagingParityTests {
             L10n.chatImportStagingSubmit(3),
             L10n.chatImportStagingPrivacy,
             L10n.chatMediaResultTitle,
-            L10n.assistantMediaTabFiles,
-            L10n.assistantMediaTabElements,
-            L10n.assistantMediaTabCards,
-            L10n.chatMediaFilesOriginal,
-            L10n.chatMediaFilesText,
+            L10n.chatMediaTabElements,
+            L10n.chatMediaTabCards,
+            L10n.chatMediaElementSave,
+            L10n.chatMediaElementSaveAll,
+            L10n.chatMediaViewSourceImage,
             L10n.chatMediaElementsP1Note,
             L10n.chatMediaElementsToCards,
+            L10n.chatMediaCropTitle,
+            L10n.chatMediaCropFullPageNote,
             L10n.chatMediaCardsAssemblyNote,
         ]
         for key in keys {

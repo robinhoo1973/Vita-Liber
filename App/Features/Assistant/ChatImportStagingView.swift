@@ -131,7 +131,7 @@ struct ChatImportStagingView: View {
                 } label: {
                     StagingThumbnail(item: item)
                         .frame(maxWidth: .infinity)
-                        .aspectRatio(0.78, contentMode: .fit)
+                        .frame(height: 132)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 .buttonStyle(.plain)

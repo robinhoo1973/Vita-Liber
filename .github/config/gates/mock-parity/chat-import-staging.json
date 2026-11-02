@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "mockFile": "refactor/mock/chat-import-staging.html",
+  "mockFile": "refactor/mock/chat-import-device-round1.html",
   "swiftTest": "Tests/VitaLiberTests/ChatImportStagingParityTests.swift",
   "requiredTestNames": [
     "testEmptyStagingDisablesSubmit",
@@ -9,7 +9,8 @@
     "testReadingDisablesSubmit",
     "testReplaceKeepsPageCountAndIdentity",
     "testMoveChangesSubmissionOrder",
-    "testMockSpecificKeysAreConsumed"
+    "testMockSpecificKeysAreConsumed",
+    "testElementAndCropRowsMatchMock"
   ],
   "requiredKeys": [
     "chat.importStaging.title",
@@ -20,18 +21,21 @@
     "chat.importStaging.tooManyPages",
     "chat.importStaging.tooLarge",
     "chat.mediaResultTitle",
-    "chat.mediaFilesOriginal",
-    "chat.mediaFilesText",
+    "chat.mediaTabElements",
+    "chat.mediaTabCards",
+    "chat.mediaElementSave",
+    "chat.mediaElementSaveAll",
+    "chat.mediaViewSourceImage",
     "chat.mediaElementsP1Note",
-    "chat.mediaElementsToCards",
-    "chat.mediaCardsAssemblyNote"
+    "chat.mediaCropTitle",
+    "chat.mediaCropFullPageNote"
   ],
   "mockSnippets": [
     "<h3>待提交</h3>",
     "提交并识别（3 项）",
-    "≤20 页 / 64MB / 20 项",
-    "按要素分组 · 保留药品/检验行",
-    "由已确认要素组装"
+    "数据信息元",
+    "医疗信息卡片",
+    "识别来源"
   ],
   "rows": [
     {
@@ -77,31 +81,38 @@
       "enabled": false
     },
     {
-      "id": "files-original",
-      "primary": "reprocess",
-      "secondary": "textMode",
-      "primaryKey": "chatMediaFilesOriginal",
+      "id": "elements-default",
+      "primary": "edit",
+      "secondary": "toCards",
+      "primaryKey": "chatMediaTabElements",
       "enabled": true
     },
     {
-      "id": "files-text",
-      "primary": "reprocess",
-      "secondary": "originalMode",
-      "primaryKey": "chatMediaFilesText",
-      "enabled": true
-    },
-    {
-      "id": "elements-loaded",
-      "primary": "toCards",
+      "id": "elements-dirty",
+      "primary": "saveAll",
       "secondary": "goConfirm",
-      "primaryKey": "chatMediaElementsToCards",
+      "primaryKey": "chatMediaElementSaveAll",
       "enabled": true
     },
     {
-      "id": "elements-empty",
-      "primary": "toCards",
+      "id": "elements-saved",
+      "primary": "status",
+      "secondary": "goConfirm",
+      "primaryKey": "chatMediaElementSaved",
+      "enabled": true
+    },
+    {
+      "id": "crop-measured",
+      "primary": "open",
       "secondary": null,
-      "primaryKey": "chatMediaElementsEmpty",
+      "primaryKey": "chatMediaViewSourceImage",
+      "enabled": true
+    },
+    {
+      "id": "crop-fallback",
+      "primary": "status",
+      "secondary": null,
+      "primaryKey": "chatMediaCropFullPageNote",
       "enabled": true
     },
     {

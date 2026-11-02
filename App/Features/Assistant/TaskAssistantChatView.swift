@@ -34,6 +34,7 @@ struct TaskAssistantChatView: View {
     @Environment(M2HubStore.self) private var hub
     @Environment(\.auditLog) private var auditLog
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var messages: [ChatMessage] = []
     /// 逐条敏感态缓存（2026-10-28：气泡菜单敏感开关初值；.task 按 documentId 加载）
@@ -81,6 +82,9 @@ struct TaskAssistantChatView: View {
     /// 待提交页呈现的延迟任务（选择器收起竞态）：页面消失/再次选择时取消，
     /// 避免已关闭的聊天页在下一拍弹出。
     @State private var previewTask: Task<Void, Never>?
+    /// 锁屏/退后台时系统可能拆掉子 sheet；记录返回前台要恢复的页面（2026-11-02 真机）。
+    @State private var sheetBeforeBackground: AssistantSheet?
+    @State private var restoreSheetTask: Task<Void, Never>?
     #if DEBUG
     /// XCUITest 无法驱动系统相册；`-uitest-chat-staging` 注入一条确定性暂存项，
     /// 仅验证待提交页渲染/闸门/取消，不进入 OCR。
@@ -252,6 +256,9 @@ struct TaskAssistantChatView: View {
                     seedStagingForUITestsIfNeeded()
                     #endif
                 }
+                .onChangeCompat(of: scenePhase) { _, phase in
+                    handleScenePhase(phase)
+                }
                 // 任一录音路径开始（含 DictationInteraction 手势）都停止语音消息重放。
                 .onChangeCompat(of: chatDictation?.phase) { _, phase in
                     if phase == .recording { stopVoicePlayback() }
@@ -276,6 +283,8 @@ struct TaskAssistantChatView: View {
                     routeMonitor.stop()
                     previewTask?.cancel()
                     previewTask = nil
+                    restoreSheetTask?.cancel()
+                    restoreSheetTask = nil
                     stopVoicePlayback()
                     chatDictation?.stopForDisappear()
                     for url in pendingVoiceURLs.values { ChatAudioStore.removeTemporary(url) }
@@ -451,6 +460,15 @@ struct TaskAssistantChatView: View {
                     .font(.caption2)
                     .foregroundStyle(media.status == .failed
                         ? Color("semantic-danger", bundle: .main) : Color.secondary)
+                if media.status == .processing {
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(Color("brand-primary", bundle: .main))
+                        .frame(height: 2)
+                        .padding(.top, 2)
+                        .accessibilityLabel(L10n.assistantMediaProcessing)
+                        .accessibilityIdentifier("assistant.media.progress")
+                }
             }
             Spacer(minLength: 4)
             // 可点进详情时给前向箭头（与语音气泡同语义）；无文档引用时不给。
@@ -995,6 +1013,37 @@ struct TaskAssistantChatView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+    }
+
+    /// 锁屏恢复（2026-11-02 真机）：退后台前记住当前 sheet；回前台若系统已拆掉
+    /// 子 sheet（activeSheet 变为 nil），延迟到锁屏遮罩退场后恢复同一页。
+    private func handleScenePhase(_ phase: ScenePhase) {
+        switch phase {
+        case .inactive, .background:
+            // 再次退后台：取消尚未执行的恢复，避免在后台把 sheet 重新挂出来。
+            restoreSheetTask?.cancel()
+            restoreSheetTask = nil
+            if activeSheet != nil { sheetBeforeBackground = activeSheet }
+        case .active:
+            guard let saved = sheetBeforeBackground else { return }
+            guard activeSheet == nil else {
+                sheetBeforeBackground = nil
+                return
+            }
+            restoreSheetTask?.cancel()
+            restoreSheetTask = Task { @MainActor in
+                do {
+                    try await Task.sleep(nanoseconds: 500_000_000)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled, scenePhase == .active, activeSheet == nil else { return }
+                activeSheet = saved
+                sheetBeforeBackground = nil
+            }
+        @unknown default:
+            break
+        }
     }
 
     /// 附件选项直接开系统选择器（2026-10-19 业主：不显示 OCR 前的选择页）。
@@ -1650,9 +1699,9 @@ struct TaskAssistantChatView: View {
             failMedia(messageID, text: L10n.assistantImportBusy)
             return
         }
-        // 聊天默认敏感回正（2026-11-01 业主；与 mock 安全段一致）。
+        // 2026-11-02 真机：聊天导入恢复非敏感默认，才能自动导出到 Files 会话目录。
         let draft = await docs.importPDFData(patientId: session.patientId, data: merged.data,
-                                             title: filename, isSensitive: true, origin: origin)
+                                             title: filename, isSensitive: false, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
         if merged.truncated {
             append(.init(role: .assistant, text: L10n.assistantAttachmentTruncated,
@@ -1670,7 +1719,7 @@ struct TaskAssistantChatView: View {
             return
         }
         let draft = await docs.importPDFData(patientId: session.patientId, data: data,
-                                             title: filename, isSensitive: true, origin: origin)
+                                             title: filename, isSensitive: false, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
@@ -1689,7 +1738,7 @@ struct TaskAssistantChatView: View {
             patientId: session.patientId,
             originalData: data, processedData: data,
             mimeType: ImageInputRules.sniffMimeType(of: data),
-            docType: nil, title: nil, isSensitive: true, origin: origin)
+            docType: nil, title: nil, isSensitive: false, origin: origin)
         await finishImport(draft, session: session, messageID: messageID)
     }
 
@@ -1731,9 +1780,9 @@ struct TaskAssistantChatView: View {
     private func startChatSession() -> DocumentsState.ImportSession? {
         guard docs.activeImport == nil,
               let session = docs.beginImport(patientId: app.currentPatientId) else { return nil }
-        session.captureSensitive = true
-        // 2026-11-01 业主（mock 安全段）：聊天导入默认敏感、取消自动导出；
-        // 设置里的自动镜像（月桶）同样跳过，副本只在用户显式操作时生成。
+        session.captureSensitive = false
+        // 2026-11-02 真机：恢复非敏感件的会话目录自动导出；敏感件仍由
+        // commitDraft/镜像过滤，用户面副本只经显式导出。
         session.suppressAutoMirrorHook = true
         session.presenterID = chatImportPresenterID
         chatSessionID = session.id
@@ -1743,7 +1792,7 @@ struct TaskAssistantChatView: View {
 
     /// 导入是否仍属于当前会话（含同代次、同一导入槽）。OCR 耗时较长，
     /// 用户此时可切历史/新建会话；旧导入不得把回执或标题写进新会话
-    /// （2026-10-30 审查席 P1；2026-11-01 取消自动导出后同样适用）。
+    /// （2026-10-30 审查席 P1；2026-11-02 恢复自动导出后仍适用）。
     private func importIsCurrent(_ session: DocumentsState.ImportSession) -> Bool {
         chatSessionID == session.id && importGeneration == conversationGeneration
     }
@@ -1820,9 +1869,9 @@ struct TaskAssistantChatView: View {
         }
     }
 
-    /// 类型确定后的唯一收尾：落库 → 回执 → 自动命名。
+    /// 类型确定后的唯一收尾：落库 → 回执 → 自动命名 → 会话目录副本导出。
     /// 补选类型（`resolveDocType`）与直接识别共用——避免两条收尾路径再次漂移。
-    /// 2026-11-01 业主：聊天导入默认敏感，取消自动导出；副本只在用户显式操作时生成。
+    /// 2026-11-02 真机：恢复非敏感件的自动导出（文件 App 会话目录可见）。
     private func completeImport(_ draft: DocumentsState.ImportDraft,
                                 session: DocumentsState.ImportSession,
                                 messageID: UUID?) async {
@@ -1854,12 +1903,18 @@ struct TaskAssistantChatView: View {
         // 业主 2026-10-29：信息卡片不再进聊天流——只保留一句识别回执，
         // 卡片的「需要修改/已确认」两区统一在媒体详情页呈现。
         // OCR 内容命名放在回执之后：会话已创建/已有首条消息，改名命中同一会话。
-        _ = await autoTitleFromImport(session)
+        let title = await autoTitleFromImport(session)
         guard importIsCurrent(session) else {
             await discardSupersededImport(session)
             return
         }
+        // 2026-11-02 真机：恢复聊天导入自动导出用户面副本到会话目录，
+        // 「文件」App 才出现会话命名的导入文件目录；默认非敏感（V4.63）。
+        let exportGeneration = conversationGeneration
         await releaseChatImportSession(session)
+        guard exportGeneration == conversationGeneration else { return }
+        await exportChatMedia(session: session, title: title,
+                              generation: exportGeneration)
     }
 
     /// 用户在聊天内补选资料类型后继续原导入（显式选择 = 用户确认类型）。
@@ -1902,6 +1957,23 @@ struct TaskAssistantChatView: View {
             chatSessionID = nil
             importGeneration = nil
         }
+    }
+
+    /// 聊天媒体用户面副本（2026-10-30 业主；2026-11-02 真机恢复）：
+    /// 目录名「<yyyyMMdd-HHmm>-<会话名>-<短ID>」首次导出冻结，同会话复用。
+    /// 只导出非敏感件；敏感件仍只经显式导出。
+    private func exportChatMedia(session: DocumentsState.ImportSession, title: String?,
+                                 generation: UUID) async {
+        guard let source = session.source else { return }
+        guard generation == conversationGeneration else { return }
+        guard let conversationID = await ensureConversationID(expectedGeneration: generation),
+              generation == conversationGeneration else { return }
+        await exportCopyWithFeedback(
+            documentID: source.documentId,
+            conversationID: conversationID,
+            conversationTitle: title ?? conversationTitle,
+            allowSensitive: false,
+            expectedGeneration: generation)
     }
 
     /// 显式导出统一反馈（2026-10-30 登记遗留）：失败不得静默——

@@ -148,17 +148,17 @@ final class DocumentExportState {
                 conversationDirectories[conversationID] = existingConversation
                 directory = existingConversation
             } else {
-                directory = DocumentExportNaming.directoryName(
+                directory = Self.namedDirectory(DocumentExportNaming.directoryName(
                     conversationTitle: conversationTitle,
                     conversationID: conversationID,
-                    datePrefix: Self.timestampText(now))
+                    datePrefix: Self.timestampText(now)))
                 conversationDirectories[conversationID] = directory
             }
         } else {
             // 直接导入归档到「直接导入-YYYY-MM」月桶（不按文档分目录：
             // 资料库入口无会话语义，目录名冻结规则只属于会话）。
-            directory = DocumentExportNaming.directImportDirectory(
-                monthText: Self.monthText(now))
+            directory = Self.namedDirectory(DocumentExportNaming.directImportDirectory(
+                monthText: Self.monthText(now)))
         }
         let request = DocumentExportNaming.Request(
             preferredTitle: row.title,
@@ -172,6 +172,12 @@ final class DocumentExportState {
             documentID: row.id, conversationID: conversationID,
             directoryName: directory, nameRequest: request,
             sourcePath: sourcePath, isSensitive: row.isSensitive)
+    }
+
+    /// 新导出一律落在「文件」App 的 `Vita Liber/` 根下；旧账本目录名保持原样
+    /// （D5 首次冻结），避免既有副本漂移。
+    private static func namedDirectory(_ name: String) -> String {
+        "\(MediaRootPaths.exportFolderName)/\(name)"
     }
 
     static func dayText(_ date: Date) -> String {

@@ -265,6 +265,19 @@ struct CardConfirmationRulesTests {
         #expect(CardConfirmationRules.confirmingDraft(untouched) == untouched, "非 newHub 零变换")
     }
 
+
+    @Test("数据信息元行内修正：原值为空也保持 D，不得经 fillByUser 自动升 C")
+    func draftRevisionDoesNotConfirmEmptyField() {
+        var c = card([field("hospital", "")])
+        CardConfirmationRules.reviseDraft(&c, at: 0, to: "协和医院")
+        #expect(c.shared[0].value == "协和医院")
+        #expect(c.shared[0].grade == .ocrUnconfirmed)
+        #expect(!c.shared[0].isConfirmed)
+
+        CardConfirmationRules.revise(&c, at: 0, to: "市一院")
+        #expect(c.shared[0].isConfirmed, "卡确认面仍保留 fillByUser 语义")
+    }
+
     @Test("编辑纪律：.suggested 被编辑即回未选择")
     /// 原名：编辑使建议失效
     func editInvalidatesSuggestion() {

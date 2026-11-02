@@ -127,6 +127,12 @@ final class AppSession: ObservableObject {
         self.questionsState = QuestionsState(store: container.questions)
         // 单一镜像实例：会话删除清理与导出状态共用（2026-10-30 登记项：
         // 删除会话时同步移除 Files 副本，避免账本外键置 NULL 后的孤儿目录）。
+        // 真机 2026-11-02：先建用户面根目录，Files「我的 iPhone」即可看到
+        // 「<App 容器>/Vita Liber」；失败不阻断启动（首次导出会再建）。
+        try? FileManager.default.createDirectory(   // try?-ok: 目录创建失败不阻断启动
+            at: MediaRootPaths.documentsBase()
+                .appendingPathComponent(MediaRootPaths.exportFolderName, isDirectory: true),
+            withIntermediateDirectories: true)
         let documentExportMirror = DocumentExportMirror(
             ledger: container.documentExports,
             exportsBase: MediaRootPaths.documentsBase(),

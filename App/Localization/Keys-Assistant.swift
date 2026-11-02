@@ -116,7 +116,6 @@ extension L10n {
     static var assistantMediaLegacyNote: String { t("assistant.mediaLegacyNote") }
     static var assistantMediaDetailTitle: String { t("assistant.mediaDetailTitle") }
     static var assistantMediaTabText: String { t("assistant.mediaTabText") }
-    static var assistantMediaTabFiles: String { t("assistant.mediaTabFiles") }
     static var assistantMediaTabElements: String { t("assistant.mediaTabElements") }
     static var assistantMediaTabCards: String { t("assistant.mediaTabCards") }
     static var assistantMediaTextEmpty: String { t("assistant.mediaTextEmpty") }
@@ -237,16 +236,18 @@ extension L10n {
     static var chatImportStagingTooLarge: String { t("chat.importStaging.tooLarge") }
 
     static var chatMediaResultTitle: String { t("chat.mediaResultTitle") }
-    static var chatMediaFilesOriginal: String { t("chat.mediaFilesOriginal") }
-    static var chatMediaFilesText: String { t("chat.mediaFilesText") }
-    static var chatMediaFilesReadOnlyNote: String { t("chat.mediaFilesReadOnlyNote") }
-    static var chatMediaPageStatusSection: String { t("chat.mediaPageStatusSection") }
-    static func chatMediaPageStatusDone(_ lines: Int) -> String {
-        String(format: t("chat.mediaPageStatusDoneFmt"), lines)
-    }
-    static var chatMediaPageStatusFailed: String { t("chat.mediaPageStatusFailed") }
-    static var chatMediaPageStatusPending: String { t("chat.mediaPageStatusPending") }
-    static var chatMediaStatusOK: String { t("chat.mediaStatusOK") }
+    static var chatMediaTabElements: String { t("chat.mediaTabElements") }
+    static var chatMediaTabCards: String { t("chat.mediaTabCards") }
+    static var chatMediaViewSourceImage: String { t("chat.mediaViewSourceImage") }
+    static var chatMediaElementSave: String { t("chat.mediaElementSave") }
+    static var chatMediaElementSaveAll: String { t("chat.mediaElementSaveAll") }
+    static var chatMediaElementSaving: String { t("chat.mediaElementSaving") }
+    static var chatMediaElementSaved: String { t("chat.mediaElementSaved") }
+    static var chatMediaElementSaveFailed: String { t("chat.mediaElementSaveFailed") }
+    static var chatMediaCropTitle: String { t("chat.mediaCropTitle") }
+    static var chatMediaCropLoading: String { t("chat.mediaCropLoading") }
+    static var chatMediaCropFailed: String { t("chat.mediaCropFailed") }
+    static var chatMediaCropFullPageNote: String { t("chat.mediaCropFullPageNote") }
     static func chatMediaSummary(_ attachments: Int, _ pages: Int) -> String {
         String(format: t("chat.mediaSummaryFmt"), attachments, pages)
     }
@@ -261,7 +262,6 @@ extension L10n {
     }
     static var chatMediaGoConfirm: String { t("chat.mediaGoConfirm") }
     static var chatMediaSourceText: String { t("chat.mediaSourceText") }
-    static var chatMediaSourceTextTitle: String { t("chat.mediaSourceTextTitle") }
     static var chatMediaElementsToCards: String { t("chat.mediaElementsToCards") }
     static var chatMediaElementsFooter: String { t("chat.mediaElementsFooter") }
     static var chatMediaCardsAssemblyNote: String { t("chat.mediaCardsAssemblyNote") }
