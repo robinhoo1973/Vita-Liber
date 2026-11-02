@@ -123,16 +123,16 @@ public final class CatalogSliceReadFacade: MedicalCatalogReading, MedicalReferen
 
     // MARK: - 说明书（v7 切片；缺片或旧布局返回空）
 
-    public func leafletSources(forDrugID drugID: Int) async throws -> [MedicalCatalogLeaflet] {
-        try await withDrug { try await $0.leafletSources(forDrugID: drugID) }
+    public func documentSources(forDrugID drugID: Int) async throws -> [MedicalCatalogDrugDocument] {
+        try await withDrug { try await $0.documentSources(forDrugID: drugID) }
     }
 
-    public func leafletSections(docSHA256: Data) async throws -> [MedicalCatalogLeafletSection] {
-        try await withDrug { try await $0.leafletSections(docSHA256: docSHA256) }
+    public func documentSections(docSHA256: Data) async throws -> [MedicalCatalogDrugSection] {
+        try await withDrug { try await $0.documentSections(docSHA256: docSHA256) }
     }
 
-    public func leafletText(docSHA256: Data) async throws -> String {
-        try await withDrug { try await $0.leafletText(docSHA256: docSHA256) }
+    public func documentText(docSHA256: Data) async throws -> String {
+        try await withDrug { try await $0.documentText(docSHA256: docSHA256) }
     }
 
     // MARK: - MedicalReferenceCatalogReading（facility/reference 切片；缺片返回空集）

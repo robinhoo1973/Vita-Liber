@@ -11,7 +11,7 @@ struct MedicalCatalogDetailView: View {
     @State private var drug: MedicalCatalogDrug?
     @State private var detail: MedicalCatalogDrugDetail?
     @State private var references: [MedicalCatalogReference] = []
-    @State private var leaflets: CatalogSlicesState.LeafletResult = .unavailable
+    @State private var documents: CatalogSlicesState.DocumentResult = .unavailable
 
     var body: some View {
         WithPerceptionTracking {
@@ -29,7 +29,7 @@ struct MedicalCatalogDetailView: View {
                 drug = value
                 detail = await catalog.detail(for: value)
                 references = await catalog.references(for: value)
-                leaflets = await catalog.leaflets(for: value)
+                documents = await catalog.documents(for: value)
             }
         }
     }
@@ -64,7 +64,7 @@ struct MedicalCatalogDetailView: View {
                     }
                 }
             }
-            leafletSection
+            documentSection
             if !references.isEmpty {
                 Section(L10n.medicalCatalogDetailSectionSources) {
                     ForEach(references, id: \.referenceID) { reference in
@@ -94,31 +94,31 @@ struct MedicalCatalogDetailView: View {
         let url: String
     }
     @ViewBuilder
-    private var leafletSection: some View {
-        switch leaflets {
+    private var documentSection: some View {
+        switch documents {
         case .unavailable:
-            Section(L10n.medicalCatalogDetailSectionLeaflet) {
-                Text(L10n.medicalCatalogDetailLeafletNotCollected)
+            Section(L10n.medicalCatalogDetailSectionDocument) {
+                Text(L10n.medicalCatalogDetailDocumentNotCollected)
                     .font(.footnote).foregroundStyle(.secondary)
             }
         case .legacySchema:
-            Section(L10n.medicalCatalogDetailSectionLeaflet) {
-                Text(L10n.medicalCatalogDetailLeafletLegacy)
+            Section(L10n.medicalCatalogDetailSectionDocument) {
+                Text(L10n.medicalCatalogDetailDocumentLegacy)
                     .font(.footnote).foregroundStyle(.secondary)
             }
         case .failed:
-            Section(L10n.medicalCatalogDetailSectionLeaflet) {
-                Text(L10n.medicalCatalogDetailLeafletNotCollected)
+            Section(L10n.medicalCatalogDetailSectionDocument) {
+                Text(L10n.medicalCatalogDetailDocumentNotCollected)
                     .font(.footnote).foregroundStyle(.secondary)
             }
         case .loaded(let bundles):
             if bundles.isEmpty {
-                Section(L10n.medicalCatalogDetailSectionLeaflet) {
-                    Text(L10n.medicalCatalogDetailLeafletNotCollected)
+                Section(L10n.medicalCatalogDetailSectionDocument) {
+                    Text(L10n.medicalCatalogDetailDocumentNotCollected)
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             } else {
-                Section(L10n.medicalCatalogDetailSectionLeaflet) {
+                Section(L10n.medicalCatalogDetailSectionDocument) {
                     ForEach(bundles) { bundle in
                         DisclosureGroup {
                             ForEach(bundle.sections) { section in
@@ -131,10 +131,10 @@ struct MedicalCatalogDetailView: View {
                             }
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(bundle.leaflet.nameZh)
-                                Text(bundle.leaflet.matchVerified
-                                     ? bundle.leaflet.sourceID
-                                     : L10n.medicalCatalogDetailLeafletUnverified)
+                                Text(bundle.document.nameZh)
+                                Text(bundle.document.matchVerified
+                                     ? bundle.document.sourceID
+                                     : L10n.medicalCatalogDetailDocumentUnverified)
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -146,12 +146,16 @@ struct MedicalCatalogDetailView: View {
         }
     }
 
-    private func sectionText(_ section: MedicalCatalogLeafletSection,
-                             bundle: CatalogSlicesState.MedicalCatalogLeafletBundle) -> String? {
-        let characters = Array(bundle.text)
+    private func sectionText(_ section: MedicalCatalogDrugSection,
+                             bundle: CatalogSlicesState.MedicalCatalogDrugDocumentBundle) -> String? {
+        // 偏移是 Unicode 码点；字素簇会错位。
+        let scalars = bundle.text.unicodeScalars
         guard section.charStart >= 0, section.charEnd > section.charStart,
-              section.charEnd <= characters.count else { return nil }
-        return String(characters[section.charStart..<section.charEnd])
+              let start = scalars.index(scalars.startIndex, offsetBy: section.charStart,
+                                        limitedBy: scalars.endIndex),
+              let end = scalars.index(start, offsetBy: section.charEnd - section.charStart,
+                                      limitedBy: scalars.endIndex) else { return nil }
+        return String(scalars[start..<end])
     }
 
 }

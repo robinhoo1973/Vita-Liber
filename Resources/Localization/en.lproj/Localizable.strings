@@ -2910,10 +2910,10 @@
 "doc.exportCopy" = "Export Copy to Files";
 
 "chat.recordSensitiveToggle" = "Keep On Device Only (Sensitive)";
-"medicalCatalog.detail.section.leaflet" = "Leaflet";
-"medicalCatalog.detail.leaflet.notCollected" = "No leaflet has been collected for this drug.";
-"medicalCatalog.detail.leaflet.legacy" = "This medical data version predates leaflet support.";
-"medicalCatalog.detail.leaflet.unverified" = "Matched by name (unverified)";
+"medicalCatalog.detail.section.document" = "Drug information";
+"medicalCatalog.detail.document.notCollected" = "No drug information has been collected for this drug.";
+"medicalCatalog.detail.document.legacy" = "This medical data version predates drug information support.";
+"medicalCatalog.detail.document.unverified" = "Matched by name (unverified)";
 
 /* 2026-11-01 chat import staging + detail three tabs (mock chat-import-staging.html) */
 "assistant.mediaTabFiles" = "Files";
