@@ -70,14 +70,14 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                 var exact: [MedicalCatalogDrug] = []
                 if !codeValues.isEmpty {
                     let placeholders = Array(repeating: "?", count: codeValues.count).joined(separator: ",")
-                    exact = try Row.fetchAll(db, sql: """
+                    exact = try Self.v9Rows(db, sql: """
                         SELECT DISTINCT d.* FROM drug d
                         JOIN drug_sections s ON s.drug_id = d.id
                         WHERE s.kind = 'text'
                           AND s.field IN ('insurance_code', 'drug_code')
                           AND s.value IN (\(placeholders))
                         ORDER BY d.id LIMIT 20
-                        """, arguments: StatementArguments(codeValues)).map(Self.drug)
+                        """, arguments: StatementArguments(codeValues))
                 }
                 if !exact.isEmpty {
                     return MedicalCatalogMatching.resolve(exact: exact, candidates: [])
@@ -87,7 +87,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                     return MedicalCatalogMatch(status: .unmatched, exact: nil, candidates: [])
                 }
                 let like = "%" + CatalogSQLLike.escaped(name) + "%"
-                var candidates = try Self.rows(db, sql: """
+                var candidates = try Self.v9Rows(db, sql: """
                     SELECT * FROM drug
                     WHERE name_zh = ? OR name_en = ? OR brand_name = ?
                        OR name_zh LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR brand_name LIKE ? ESCAPE '\\'
@@ -232,7 +232,10 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func drug(id: Int) async throws -> MedicalCatalogDrug? {
         try await pool.read { db in
-            try Row.fetchOne(db, sql: "SELECT * FROM drug WHERE id = ?", arguments: [id]).map(Self.drug)
+            if self.isV9Layout {
+                return try Self.v9Rows(db, sql: "SELECT * FROM drug WHERE id = ?", arguments: [id]).first
+            }
+            return try Row.fetchOne(db, sql: "SELECT * FROM drug WHERE id = ?", arguments: [id]).map(Self.drug)
         }
     }
 
@@ -240,6 +243,44 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     private static func rows(_ db: Database, sql: String, arguments: StatementArguments) throws -> [MedicalCatalogDrug] {
         try Row.fetchAll(db, sql: sql, arguments: arguments).map(drug)
+    }
+
+    /// v9 moved 20 registry columns out of `drug`; the model still exposes the
+    /// same shape, so load the text rows for the result ids and map them back.
+    private static let v9TextFields = ["license_no", "dosage_form", "spec", "drug_category",
+                                       "license_holder", "manufacturer", "insurance_code", "drug_code"]
+
+    private static func v9Rows(_ db: Database, sql: String,
+                               arguments: StatementArguments) throws -> [MedicalCatalogDrug] {
+        let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+        let ids = rows.map { $0["id"] as Int }
+        guard !ids.isEmpty else { return [] }
+        let idPlaceholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        // Field names are code constants (not user input); binding only ids
+        // keeps StatementArguments homogeneous.
+        let fieldList = v9TextFields.map { "'\($0)'" }.joined(separator: ",")
+        let fieldRows = try Row.fetchAll(db, sql: """
+            SELECT drug_id, field, value FROM drug_sections
+            WHERE kind = 'text' AND drug_id IN (\(idPlaceholders))
+              AND field IN (\(fieldList))
+            """, arguments: StatementArguments(ids))
+        var text: [Int: [String: String]] = [:]
+        for row in fieldRows {
+            guard let value = row["value"] as String? else { continue }
+            text[row["drug_id"] as Int, default: [:]][row["field"] as String] = value
+        }
+        return rows.map { drug($0, text: text[$0["id"] as Int] ?? [:]) }
+    }
+
+    private static func drug(_ row: Row, text: [String: String]) -> MedicalCatalogDrug {
+        MedicalCatalogDrug(
+            id: row["id"], region: row["region"], sourceID: row["source_id"],
+            licenseNo: text["license_no"],
+            nameZh: row["name_zh"], nameEn: row["name_en"], brandName: row["brand_name"],
+            dosageForm: text["dosage_form"], spec: text["spec"], drugCategory: text["drug_category"],
+            licenseHolder: text["license_holder"], manufacturer: text["manufacturer"],
+            insuranceCode: text["insurance_code"], drugCode: text["drug_code"],
+            activeIngredients: nil, usageReferenceJSON: "{}")
     }
 
     private static func drug(_ row: Row) -> MedicalCatalogDrug {
