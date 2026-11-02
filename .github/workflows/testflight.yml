@@ -42,9 +42,10 @@ on:
   # 来源 version.txt，tag run 独立并发组可与上传并行造成重复构建）。
 
 concurrency:
-  group: testflight-${{ github.ref }}
-  # 2026-09-27 委员会裁决 P9：发布路径取消语义 → 排队——新 push 取消进行中的
-  # TestFlight 上传会造成半上传态 + build 号已占（重跑 90189 终态）+ 发布面半成品。
+  # 2026-11-02 实证：按 ref 分组会让 master 与 feat/* 同时构建/上传同一 App，
+  # 两边 ASC floor 查询撞在同一 build 号（852 重复，上传闸红）。构建号登记簿
+  # 是全 App 唯一资源，必须跨 ref 全局串行；取消语义仍为排队（P9 裁决）。
+  group: testflight-global
   cancel-in-progress: false
 
 permissions:
