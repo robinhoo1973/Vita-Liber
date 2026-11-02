@@ -339,6 +339,10 @@ public enum DatabaseRecoveryService {
                     try fileManager.removeItem(atPath: dir.appendingPathComponent(entry).path)
                 }
             }
+            // 2026-11-01 迁移安全网：删除重建必须同时清除迁移前 PHI 快照，
+            // 否则「删除重建」会留下旧库的完整副本。
+            MigrationCheckpointStore.discardAll(databasePath: patientPath,
+                                                fileManager: fileManager)
         } catch {
             throw DatabaseRepairError.ioFailed("删除失败: \(error)")
         }

@@ -511,6 +511,24 @@ extension L10n {
     static func startupInitStageMigrate(_ from: Int, _ to: Int) -> String {
         String(format: t("startup.init.stageMigrateFmt"), from, to)
     }
+    /// 2026-11-01 迁移安全网：快照阶段 / 逐 step / 恢复动作。
+    static var startupInitStageCheckpoint: String { t("startup.init.stageCheckpoint") }
+    static func startupInitMigrationStep(_ index: Int, _ total: Int) -> String {
+        String(format: t("startup.init.migrationStepFmt"), index, total)
+    }
+    static var startupInitFailureCheckpoint: String { t("startup.init.failureCheckpoint") }
+    static var startupInitFailurePostCheck: String { t("startup.init.failurePostCheck") }
+    static func startupInitFailureRestore(_ detail: String) -> String {
+        String(format: t("startup.init.failureRestoreFmt"), detail)
+    }
+    static var startupInitRestoreAction: String { t("startup.init.restoreAction") }
+    static var startupInitRestoreConfirmTitle: String { t("startup.init.restoreConfirmTitle") }
+    static var startupInitRestoreConfirmBody: String { t("startup.init.restoreConfirmBody") }
+    static var startupInitRestoreDoneTitle: String { t("startup.init.restoreDoneTitle") }
+    static func startupInitRestoreDoneBody(_ version: Int64) -> String {
+        String(format: t("startup.init.restoreDoneBodyFmt"), version)
+    }
+    static var startupInitRestoreRetry: String { t("startup.init.restoreRetry") }
     static func startupInitFailureMigration(_ found: Int, _ expected: Int) -> String {
         String(format: t("startup.init.failureMigrationFmt"), found, expected)
     }

@@ -38,8 +38,12 @@ public struct GRDBStore: Sendable {
     }
 
     /// 生产装配：文件库 + WAL（§4.4 唯一共享 DatabasePool，并发读/串行写）
-    public static func pool(at path: String) throws -> GRDBStore {
-        try GRDBStore(writer: DatabasePool(path: path, configuration: configuration()))
+    /// - Parameter migrationProgress: 迁移 step 进度（2026-11-01 安全网）；
+    ///   回调运行在数据库写线程内，调用方必须非阻塞投递，不得 await UI。
+    public static func pool(at path: String,
+                            migrationProgress: MigrationProgressHandler? = nil) throws -> GRDBStore {
+        try GRDBStore(writer: DatabasePool(path: path, configuration: configuration()),
+                      migrationProgress: migrationProgress)
     }
 
     /// 恢复/重建的临时库（同目录、非 WAL）：DatabaseQueue 关闭后主文件自包含，
@@ -79,7 +83,8 @@ public struct GRDBStore: Sendable {
     ///
     /// 旧实现在 `version > 0` 分支什么都不做，等于**新列永远不会到达已装机的库**；
     /// 这是滞留项 #7 的实质内容，随本批清偿。
-    public init(writer: any DatabaseWriter) throws {
+    public init(writer: any DatabaseWriter,
+                migrationProgress: MigrationProgressHandler? = nil) throws {
         self.writer = writer
         try writer.write { db in
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
@@ -90,7 +95,7 @@ public struct GRDBStore: Sendable {
                 return
             }
         }
-        try migrateIncremental(writer: writer)
+        try migrateIncremental(writer: writer, progress: migrationProgress)
     }
 
     /// 既有库增量迁移：在**事务外**执行并临时关闭外键检查。
@@ -116,7 +121,8 @@ public struct GRDBStore: Sendable {
     ///   fkCheckTable，走下方 default 路径的 applyTransactional 分支，无代码回填（doc_type_key 由 App 层首启任务反查）。
     /// - 纯 SQL 步沿用 addColumnParts 幂等守卫（executeIdempotent，两条路径共用）。
     /// - user_version 只随成功步骤推进；崩溃重放从最近成功版本续跑。
-    private func migrateIncremental(writer: any DatabaseWriter) throws {
+    private func migrateIncremental(writer: any DatabaseWriter,
+                                    progress: MigrationProgressHandler?) throws {
         try writer.writeWithoutTransaction { db in
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
             guard version != SchemaMigrations.latestVersion else { return }
@@ -129,7 +135,23 @@ public struct GRDBStore: Sendable {
             guard version > 0 else { return }
             try db.execute(sql: "PRAGMA foreign_keys = OFF")
             defer { try? db.execute(sql: "PRAGMA foreign_keys = ON") }   // try?-ok: 兜底复位；主路径见循环后的显式校验
-            for step in SchemaMigrations.pending(from: version) {
+            let pending = SchemaMigrations.pending(from: version)
+            let total = pending.count
+            for (offset, step) in pending.enumerated() {
+                let index = offset + 1
+                progress?(MigrationStepProgress(
+                    version: step.version, index: index, total: total,
+                    name: step.name, phase: .started))
+                // 只有本步成功才发 finished；`continue` 分支也走 defer，
+                // 避免 UI 卡在 n/N（三席二轮：`continue` 漏发是主风险）。
+                var completed = false
+                defer {
+                    if completed {
+                        progress?(MigrationStepProgress(
+                            version: step.version, index: index, total: total,
+                            name: step.name, phase: .finished))
+                    }
+                }
                 switch step.version {
                 case 13:
                     try Self.rebuildDoseLogWithFK(db)
@@ -152,22 +174,26 @@ public struct GRDBStore: Sendable {
                     // 软删列、HK 多成员、热索引、审计 append-only。事务内完成；
                     // 失败整体回滚，版本留 45。
                     try Self.applyTransactional(db, step, then: Self.migrateV46)
+                    completed = true
                     continue
                 case 47:
                     // v47 health-problem-catalog-mapping（2026-10-24 业主）：官方
                     // 目录身份 + 个人别名；只加列/回填，不改既有医疗事实。
                     try Self.applyTransactional(db, step, then: Self.migrateV47)
+                    completed = true
                     continue
                 case 48:
                     // v48 health-problem-department（2026-10-24 业主）：慢性病
                     // 相关科室；仅加列/回填，手术保持空。
                     try Self.applyTransactional(db, step, then: Self.migrateV48)
+                    completed = true
                     continue
                 case 49:
                     // v49 document-user-export（2026-10-27 存储边界委员会）：导出账本
                     // （步内 SQL）+ 媒体根迁出 Documents（代码迁移）。搬移失败整体
                     // 回滚（版本留 48），下次启动重试。
                     try Self.applyTransactional(db, step, then: Self.migrateV49)
+                    completed = true
                     continue
                 case 45:
                     // v45 medication-schedule-default（2026-10-24 业主）：每成员一个
@@ -184,6 +210,7 @@ public struct GRDBStore: Sendable {
                     // v43 medication-schedule-entries（2026-10-23 业主）：常用提醒范围
                     // 与时段身份。RENAME + 行重写同一事务；time 原样保留，绝不改既有提醒。
                     try Self.applyTransactional(db, step, then: Self.rewriteScheduleEntries)
+                    completed = true
                     continue
                 case 42:
                     // v42 medication-schedule-template（2026-10-23 业主）：计划与药品
@@ -191,12 +218,14 @@ public struct GRDBStore: Sendable {
                     // 抄成模板并回写 schedule_id；非 fixed 调度（interval/meal/按需）
                     // 建空模板，计划自身 schedule_json 仍是排程唯一事实源。
                     try Self.applyTransactional(db, step, then: Self.backfillScheduleTemplates)
+                    completed = true
                     continue
                 case 25:
                     // v25 recognition-fact-lines：DDL/ocr_card_commit 重建 + FK 校验 +
                     // 回执确定性回填（GRDBStore+V25Backfill）+ 版本推进同一事务——
                     // 回填半途失败整体回滚，绝不留下「表已升级、行只回填一半」的库。
                     try Self.applyTransactional(db, step, then: Self.backfillRecognitionFactLines)
+                    completed = true
                     continue
                 default:
                     // 表重建类迁移（步级声明 transactional）：DDL/搬运 + FK
@@ -205,11 +234,13 @@ public struct GRDBStore: Sendable {
                     // runner 不该认识具体版本号——语义随 Step 声明携带。
                     if step.transactional {
                         try Self.applyTransactional(db, step)
+                        completed = true
                         continue
                     }
                     try Self.executeIdempotent(db, step.sql)
                 }
                 try db.execute(sql: "PRAGMA user_version = \(step.version)")
+                completed = true
             }
             // 显式复位并校验：迁移后连接必须回到 FK 执法开启——静默留在 OFF 会让
             // 后续所有写入失去引用完整性（L0 门禁断言读的是 reader 连接，检测不到）。

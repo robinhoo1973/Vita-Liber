@@ -43,6 +43,27 @@ public final class MigrationReceipt: @unchecked Sendable {
         /// 批 ⑤（2026-10-29）：阶段耗时遥测——每次 boot 仅附加在**终止事件**上
         /// （单事件设计，避免逐阶段写行扰动时序）；旧行无该键=向后兼容解码。
         public var phases: [Phase]?
+        /// 2026-11-01 迁移安全网：迁移前快照的登记（仅终止事件携带）。
+        /// 旧行无该键=向后兼容解码。
+        public var checkpoint: Checkpoint?
+
+        public struct Checkpoint: Codable, Equatable, Sendable {
+            public var name: String
+            public var sourceVersion: Int
+            public var targetVersion: Int
+            public var sizeBytes: Int64
+            /// available / verified / restored / discarded。
+            public var outcome: String
+
+            public init(name: String, sourceVersion: Int, targetVersion: Int,
+                        sizeBytes: Int64, outcome: String) {
+                self.name = name
+                self.sourceVersion = sourceVersion
+                self.targetVersion = targetVersion
+                self.sizeBytes = sizeBytes
+                self.outcome = outcome
+            }
+        }
 
         public struct Phase: Codable, Equatable, Sendable {
             /// 桶名（history / patientProbe / open.<decision> / sliceVerify）。
@@ -59,12 +80,12 @@ public final class MigrationReceipt: @unchecked Sendable {
         public init(bootId: String, at: TimeInterval, candidates: [String], chosen: String?,
                     mode: String, sourceVersion: Int?, targetVersion: Int?,
                     outcome: Outcome, detail: String? = nil,
-                    phases: [Phase]? = nil) {
+                    phases: [Phase]? = nil, checkpoint: Checkpoint? = nil) {
             self.bootId = bootId; self.at = at
             self.candidates = candidates; self.chosen = chosen
             self.mode = mode; self.sourceVersion = sourceVersion
             self.targetVersion = targetVersion; self.outcome = outcome
-            self.detail = detail; self.phases = phases
+            self.detail = detail; self.phases = phases; self.checkpoint = checkpoint
         }
     }
 

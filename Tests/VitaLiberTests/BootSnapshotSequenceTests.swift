@@ -13,16 +13,35 @@ final class BootSnapshotSequenceTests: XCTestCase {
         private var _snapshots: [BootChecklistSnapshot] = []
         private var _openCount = 0
         private var _openObservedSnapshots = 0
+        private var _checkpointCount = 0
+        private var _checkpointBeforeOpen = -1
 
         func record(_ snapshot: BootChecklistSnapshot) {
             lock.lock(); defer { lock.unlock() }
             _snapshots.append(snapshot)
         }
 
+        func recordCheckpoint() {
+            lock.lock(); defer { lock.unlock() }
+            _checkpointCount += 1
+        }
+
         func recordOpen() {
             lock.lock(); defer { lock.unlock() }
             _openCount += 1
             _openObservedSnapshots = _snapshots.count
+            _checkpointBeforeOpen = _checkpointCount
+        }
+
+        var checkpointCount: Int {
+            lock.lock(); defer { lock.unlock() }
+            return _checkpointCount
+        }
+
+        /// open 被调用时已创建的 checkpoint 数（断言 checkpoint 先于 open）。
+        var checkpointBeforeOpen: Int {
+            lock.lock(); defer { lock.unlock() }
+            return _checkpointBeforeOpen
         }
 
         var snapshots: [BootChecklistSnapshot] {
@@ -72,7 +91,17 @@ final class BootSnapshotSequenceTests: XCTestCase {
             originalsPresent: { false },
             probePatient: { _, _ in probe },
             probeSlice: { _, _ in .missing },
-            open: { _, _, _ in
+            prepareCheckpoint: { _, from, to in
+                MigrationCheckpoint(
+                    path: dir.appendingPathComponent("checkpoint.sqlite").path,
+                    databaseName: "app-local-user_data.sqlite",
+                    sourceVersion: from, targetVersion: to,
+                    sizeBytes: 1, createdAt: Date(timeIntervalSince1970: 0))
+            },
+            leftoverCheckpoint: { _, _ in nil },
+            quickCheck: { _ in "ok" },
+            discardCheckpoints: { _ in },
+            open: { _, _, _, _ in
                 recorder.recordOpen()
                 if openThrows { throw DatabaseBootFailure.openFailed("stub") }
                 return try GRDBStore.inMemory()
@@ -178,7 +207,17 @@ final class BootSnapshotSequenceTests: XCTestCase {
                 timeline.mark("probeEnd")
                 return .ready
             },
-            open: { _, _, _ in
+            prepareCheckpoint: { _, from, to in
+                MigrationCheckpoint(
+                    path: dir.appendingPathComponent("checkpoint.sqlite").path,
+                    databaseName: "app-local-user_data.sqlite",
+                    sourceVersion: from, targetVersion: to,
+                    sizeBytes: 1, createdAt: Date(timeIntervalSince1970: 0))
+            },
+            leftoverCheckpoint: { _, _ in nil },
+            quickCheck: { _ in "ok" },
+            discardCheckpoints: { _ in },
+            open: { _, _, _, _ in
                 timeline.mark("openStart")
                 _ = timeline.waitFor("probeStart")
                 timeline.mark("openEnd")
@@ -207,5 +246,91 @@ final class BootSnapshotSequenceTests: XCTestCase {
                 snapshot: { recorder.record($0) }, progress: { _ in })
         }
         XCTAssertEqual(recorder.snapshots.count, 2, "每次尝试独立发射（重置语义由模型层 bootSnapshot=nil 承担）")
+    }
+
+    /// 2026-11-01 迁移安全网：`.migrate` 必须先建快照再 open。
+    func testMigrateCreatesCheckpointBeforeOpen() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
+        let recorder = Recorder()
+        let databasePath = dir.appendingPathComponent("app-local-user_data.sqlite").path
+        let migrateProbe = DatabaseProbeSnapshot(
+            exists: true, sizeBytes: 4096, headerValid: true,
+            observedVersion: 48, tableCount: 30,
+            requiredTablesPresent: 3, requiredTablesExpected: 3,
+            originalsPresent: false)
+        let environment = DatabaseBootService.BootEnvironment(
+            resolveDatabasePath: {
+                .init(path: databasePath, candidates: ["app-local-user_data.sqlite"])
+            },
+            schemaHistoryPath: { dir.appendingPathComponent("history.sqlite").path },
+            catalogSlicePath: { name in dir.appendingPathComponent(name).path },
+            originalsPresent: { false },
+            probePatient: { _, _ in migrateProbe },
+            probeSlice: { _, _ in .missing },
+            prepareCheckpoint: { _, from, to in
+                recorder.recordCheckpoint()
+                return MigrationCheckpoint(
+                    path: dir.appendingPathComponent("checkpoint.sqlite").path,
+                    databaseName: "app-local-user_data.sqlite",
+                    sourceVersion: from, targetVersion: to,
+                    sizeBytes: 1, createdAt: Date(timeIntervalSince1970: 0))
+            },
+            leftoverCheckpoint: { _, _ in nil },
+            quickCheck: { _ in "ok" },
+            discardCheckpoints: { _ in },
+            open: { _, _, _, _ in
+                recorder.recordOpen()
+                return try GRDBStore.inMemory()
+            })
+        _ = try await DatabaseBootService.prepare(
+            environment: environment, clock: Date.init,
+            snapshot: { recorder.record($0) }, progress: { _ in })
+        XCTAssertEqual(recorder.checkpointCount, 1)
+        XCTAssertEqual(recorder.checkpointBeforeOpen, 1, "checkpoint 必须先于 open")
+        XCTAssertEqual(recorder.openCount, 1)
+    }
+
+    /// 2026-11-01：快照失败 fail-closed，绝不 open/迁移。
+    func testCheckpointFailureDoesNotOpen() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) } // try?-ok: 测试清理
+        let recorder = Recorder()
+        let databasePath = dir.appendingPathComponent("app-local-user_data.sqlite").path
+        let migrateProbe = DatabaseProbeSnapshot(
+            exists: true, sizeBytes: 4096, headerValid: true,
+            observedVersion: 48, tableCount: 30,
+            requiredTablesPresent: 3, requiredTablesExpected: 3,
+            originalsPresent: false)
+        let environment = DatabaseBootService.BootEnvironment(
+            resolveDatabasePath: {
+                .init(path: databasePath, candidates: ["app-local-user_data.sqlite"])
+            },
+            schemaHistoryPath: { dir.appendingPathComponent("history.sqlite").path },
+            catalogSlicePath: { name in dir.appendingPathComponent(name).path },
+            originalsPresent: { false },
+            probePatient: { _, _ in migrateProbe },
+            probeSlice: { _, _ in .missing },
+            prepareCheckpoint: { _, _, _ in
+                throw MigrationCheckpointError.checkpointFailed("stub")
+            },
+            leftoverCheckpoint: { _, _ in nil },
+            quickCheck: { _ in "ok" },
+            discardCheckpoints: { _ in },
+            open: { _, _, _, _ in
+                recorder.recordOpen()
+                return try GRDBStore.inMemory()
+            })
+        do {
+            _ = try await DatabaseBootService.prepare(
+                environment: environment, clock: Date.init,
+                snapshot: { recorder.record($0) }, progress: { _ in })
+            XCTFail("checkpoint 失败必须抛出")
+        } catch let failure as DatabaseBootFailure {
+            if case .checkpointFailed = failure { } else {
+                XCTFail("期望 checkpointFailed，得到 \(failure)")
+            }
+        }
+        XCTAssertEqual(recorder.openCount, 0, "快照失败不得 open/迁移")
     }
 }

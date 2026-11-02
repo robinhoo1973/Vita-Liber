@@ -29,6 +29,15 @@ enum DatabaseBootFailure: Error, Equatable, Sendable {
     case openFailed(String)
     /// 损坏库恢复：备份已校验但导入失败（本机已重建空库；可重试或改走其他恢复方式）。
     case recoveryBackupFailed(String)
+    /// 2026-11-01 迁移安全网：迁移前快照创建失败（库未动；释放空间/修复后可重试）。
+    case checkpointFailed(String)
+    /// 2026-11-01：迁移已执行，但 `PRAGMA quick_check` 未通过（保留快照可恢复）。
+    case postCheckFailed(String)
+    /// 2026-11-01：用户已恢复到迁移前状态；库仍是旧版本，等待重试升级或修复。
+    /// 语义上属「迁移未完成、数据已还原」终态，按 failure 卡片专用样式呈现。
+    case restoredToPreMigration(sourceVersion: Int)
+    /// 2026-11-01：快照校验/替换失败；当前库未被覆盖，可再次恢复或进入修复。
+    case checkpointRestoreFailed(String)
     case unexpected(String)
 }
 
@@ -76,7 +85,14 @@ enum DatabaseBootService {
         var originalsPresent: @Sendable () -> Bool
         var probePatient: @Sendable (String, Bool) -> DatabaseProbeSnapshot
         var probeSlice: @Sendable (CatalogSliceKind, String) -> CatalogSliceBootHealth
-        var open: @Sendable (String, Int?, Int) throws -> GRDBStore
+        /// 2026-11-01 迁移安全网：迁移前快照（GRDB backup API）。
+        var prepareCheckpoint: @Sendable (String, Int, Int) throws -> MigrationCheckpoint
+        /// `.ready` 启动时查找「目标版本=当前版本」的遗留快照。
+        var leftoverCheckpoint: @Sendable (String, Int) -> MigrationCheckpoint?
+        /// 结构校验：`"ok"` / 错误摘要 / nil=不可读。
+        var quickCheck: @Sendable (String) -> String?
+        var discardCheckpoints: @Sendable (String) -> Void
+        var open: @Sendable (String, Int?, Int, MigrationProgressHandler?) throws -> GRDBStore
 
         static let live = BootEnvironment(
             resolveDatabasePath: { try AppContainer.resolveDatabasePath() },
@@ -91,26 +107,46 @@ enum DatabaseBootService {
             probeSlice: { kind, path in
                 bootHealth(CatalogSliceProbe.inspectSelfConsistent(path: path, kind: kind))
             },
-            open: { path, source, target in
-                try DatabaseUpgradeService.open(at: path, from: source, to: target,
-                                                requiredTables: DatabaseBootPolicy.requiredTables)
+            prepareCheckpoint: { path, from, to in
+                try MigrationCheckpointStore.prepare(databasePath: path, from: from, to: to)
+            },
+            leftoverCheckpoint: { path, version in
+                MigrationCheckpointStore.leftover(databasePath: path, currentVersion: version)
+            },
+            quickCheck: { path in DatabaseProbe.quickCheck(path: path) },
+            discardCheckpoints: { path in
+                MigrationCheckpointStore.discardAll(databasePath: path)
+            },
+            open: { path, source, target, progress in
+                try DatabaseUpgradeService.open(
+                    at: path, from: source, to: target,
+                    requiredTables: DatabaseBootPolicy.requiredTables,
+                    migrationProgress: progress)
             })
     }
 
     static func prepare(environment: BootEnvironment = .live,
                         clock: @escaping @Sendable () -> Date = Date.init,
                         snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void = { _ in },
-                        progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
+                        progress: @escaping @Sendable (DatabaseBootPhase) async -> Void,
+                        migrationStep: @escaping @Sendable (MigrationStepProgress) -> Void = { _ in },
+                        checkpointing: @escaping @Sendable (Bool) -> Void = { _ in },
+                        checkpoint: @escaping @Sendable (MigrationCheckpoint?) -> Void = { _ in }) async throws -> PreparedDatabase {
         try await Task.detached(priority: .userInitiated) {
             try await prepareSync(environment: environment, clock: clock,
-                                  snapshot: snapshot, progress: progress)
+                                  snapshot: snapshot, progress: progress,
+                                  migrationStep: migrationStep, checkpointing: checkpointing,
+                                  checkpoint: checkpoint)
         }.value
     }
 
     private static func prepareSync(environment: BootEnvironment,
                                     clock: @escaping @Sendable () -> Date,
                                     snapshot: @escaping @Sendable (BootChecklistSnapshot) async -> Void,
-                                    progress: @escaping @Sendable (DatabaseBootPhase) async -> Void) async throws -> PreparedDatabase {
+                                    progress: @escaping @Sendable (DatabaseBootPhase) async -> Void,
+                                    migrationStep: @escaping @Sendable (MigrationStepProgress) -> Void,
+                                    checkpointing: @escaping @Sendable (Bool) -> Void,
+                                    checkpoint: @escaping @Sendable (MigrationCheckpoint?) -> Void) async throws -> PreparedDatabase {
         // 路径解析必须先于探测：legacy 改名有副作用，失败会回退旧路径；
         // ≥2 个注册名候选并存 = 可解释失败（B0 名字全集，绝不静默建空库）。
         let resolution: AppContainer.ResolvedDatabasePath
@@ -224,7 +260,47 @@ enum DatabaseBootService {
         defer { sliceProbeTask?.cancel() }
         let openStart = clock()
         let store: GRDBStore
+        var activeCheckpoint: MigrationCheckpoint?
         do {
+            // 2026-11-01 迁移安全网（三席两轮）：
+            // - `.migrate`：先建快照再 open；快照失败 fail-closed（库未动）；
+            // - `.ready` 且存在目标版本=当前版本的遗留快照：补跑 quick_check，
+            //   通过后删除（覆盖「user_version 已推进、success 收据未写」崩溃窗口）；
+            // - `.fresh`：清理旧快照。
+            // 快照删除点：App 在容器发布成功后统一删除（失败路径保留）。
+            if case .migrate(let from, _) = decision {
+                checkpointing(true)
+                do {
+                    activeCheckpoint = try environment.prepareCheckpoint(
+                        databasePath, from, targetVersion)
+                } catch {
+                    checkpointing(false)
+                    throw DatabaseBootFailure.checkpointFailed(String(describing: error))
+                }
+                checkpointing(false)
+                checkpoint(activeCheckpoint)
+            } else if case .ready(let version) = decision {
+                if let leftover = environment.leftoverCheckpoint(databasePath, version),
+                   leftover.targetVersion == version {
+                    activeCheckpoint = leftover
+                    checkpoint(leftover)
+                    if let result = environment.quickCheck(databasePath) {
+                        if result.caseInsensitiveCompare("ok") != .orderedSame {
+                            // 结构已坏但版本号仍是目标版本：保留快照并把失败交给
+                            // 失败卡（有快照 → 恢复主动作），绝不静默进入主界面。
+                            throw DatabaseBootFailure.postCheckFailed(result)
+                        }
+                        environment.discardCheckpoints(databasePath)
+                        checkpoint(nil)
+                    }
+                    // quickCheck 返回 nil（暂时不可读）=不判损坏、不删快照；
+                    // 下次 .ready 启动再收尾。
+                } else {
+                    environment.discardCheckpoints(databasePath)
+                }
+            } else if case .fresh = decision {
+                environment.discardCheckpoints(databasePath)
+            }
             switch decision {
             case .missingWithOriginals:
                 throw DatabaseBootFailure.missingWithOriginals
@@ -234,17 +310,17 @@ enum DatabaseBootService {
                 throw DatabaseBootFailure.corrupt(reason.rawValue)
             case .fresh:
                 await progress(.creating)
-                store = try environment.open(databasePath, nil, targetVersion)
+                store = try environment.open(databasePath, nil, targetVersion, migrationStep)
                 await progress(.verifying)
             case .ready(let version):
                 // 批 ④：读路径（最常见）并发起全验；迁移/建库保持串行（GB 扫描
                 // 挤占缓存会抬迁移 P95——开发/SRE 席裁定）。
                 sliceProbeTask = Self.startSliceProbes(environment: environment)
-                store = try environment.open(databasePath, version, targetVersion)
+                store = try environment.open(databasePath, version, targetVersion, migrationStep)
                 await progress(.verifying)
             case .migrate(let from, let to):
                 await progress(.migrating(from: from, to: to))
-                store = try environment.open(databasePath, from, to)
+                store = try environment.open(databasePath, from, to, migrationStep)
                 // 阶段标签如实反映已完成的工作（2026-10-27 审查 P3）：
                 // .verifying 只在 open 返回后发出，迁移期间不会被误报成「核对」。
                 await progress(.verifying)
@@ -276,16 +352,43 @@ enum DatabaseBootService {
             receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
-                          outcome: .success, phases: phaseTimings, at: clock())
+                          outcome: .success, phases: phaseTimings,
+                          checkpoint: receiptCheckpoint(activeCheckpoint, outcome: "verified"),
+                          at: clock())
         } catch let boot as DatabaseBootFailure {
+            // fail-closed 决策（tooNew/corrupt/missingWithOriginals/checkpointFailed）
+            // 也必须有终止收据：否则末行 in-progress 会被误判成「死在迁移中」。
+            record(history, databasePath: databasePath, source: userProbe.observedVersion,
+                   target: targetVersion, outcome: failureLabel(boot),
+                   detail: failureDetail(boot))
+            receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
+                          chosen: receiptChosen, mode: label(decision),
+                          source: userProbe.observedVersion, target: targetVersion,
+                          outcome: .failed, detail: failureDetail(boot),
+                          phases: phaseTimings,
+                          checkpoint: receiptCheckpoint(activeCheckpoint, outcome: "available"),
+                          at: clock())
             throw boot
         } catch let upgrade as DatabaseUpgradeError {
+            if case .postCheckFailed(let detail) = upgrade {
+                record(history, databasePath: databasePath, source: userProbe.observedVersion,
+                       target: targetVersion, outcome: "post-check-failed", detail: detail)
+                receiptAppend(receipt, bootId: receiptBootId, resolution: resolution.candidates,
+                              chosen: receiptChosen, mode: label(decision),
+                              source: userProbe.observedVersion, target: targetVersion,
+                              outcome: .verifyFailed, detail: detail,
+                              phases: phaseTimings,
+                              checkpoint: receiptCheckpoint(activeCheckpoint, outcome: "available"),
+                              at: clock())
+                throw DatabaseBootFailure.postCheckFailed(detail)
+            }
             let found: Int?
             let expected: Int
             switch upgrade {
             case .sourceMismatch(let e, let f): found = f; expected = e
             case .targetMismatch(let e, let f): found = f; expected = e
             case .missingRequiredTables: found = userProbe.observedVersion; expected = targetVersion
+            case .postCheckFailed: found = userProbe.observedVersion; expected = targetVersion
             }
             record(history, databasePath: databasePath, source: userProbe.observedVersion,
                    target: targetVersion, outcome: "verify-failed",
@@ -295,7 +398,9 @@ enum DatabaseBootService {
                           source: userProbe.observedVersion, target: targetVersion,
                           outcome: .verifyFailed,
                           detail: "found=\(found.map(String.init) ?? "nil") expected=\(expected)",
-                          phases: phaseTimings, at: clock())
+                          phases: phaseTimings,
+                          checkpoint: receiptCheckpoint(activeCheckpoint, outcome: "available"),
+                          at: clock())
             throw DatabaseBootFailure.migrationIncomplete(
                 found: found ?? -1, expected: expected)
         } catch {
@@ -306,7 +411,9 @@ enum DatabaseBootService {
                           chosen: receiptChosen, mode: label(decision),
                           source: userProbe.observedVersion, target: targetVersion,
                           outcome: .openFailed, detail: String(describing: error),
-                          phases: phaseTimings, at: clock())
+                          phases: phaseTimings,
+                          checkpoint: receiptCheckpoint(activeCheckpoint, outcome: "available"),
+                          at: clock())
             throw DatabaseBootFailure.openFailed(String(describing: error))
         }
 
@@ -392,6 +499,7 @@ enum DatabaseBootService {
                                       outcome: MigrationReceipt.Event.Outcome,
                                       detail: String? = nil,
                                       phases: [MigrationReceipt.Event.Phase] = [],
+                                      checkpoint: MigrationReceipt.Event.Checkpoint? = nil,
                                       at: Date) {
         guard let receipt else { return }
         do {
@@ -401,9 +509,52 @@ enum DatabaseBootService {
                                      candidates: resolution, chosen: chosen, mode: mode,
                                      sourceVersion: source, targetVersion: target,
                                      outcome: outcome, detail: detail,
-                                     phases: phases.isEmpty ? nil : phases))
+                                     phases: phases.isEmpty ? nil : phases,
+                                     checkpoint: checkpoint))
         } catch {
             logger.warning("migration receipt write failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private static func receiptCheckpoint(_ checkpoint: MigrationCheckpoint?,
+                                          outcome: String) -> MigrationReceipt.Event.Checkpoint? {
+        guard let checkpoint else { return nil }
+        return .init(name: URL(fileURLWithPath: checkpoint.path).lastPathComponent,
+                     sourceVersion: checkpoint.sourceVersion,
+                     targetVersion: checkpoint.targetVersion,
+                     sizeBytes: checkpoint.sizeBytes,
+                     outcome: outcome)
+    }
+
+    private static func failureLabel(_ failure: DatabaseBootFailure) -> String {
+        switch failure {
+        case .missingWithOriginals: return "missing-with-originals"
+        case .databaseAmbiguous: return "database-ambiguous"
+        case .corrupt: return "corrupt"
+        case .tooNew: return "too-new"
+        case .migrationIncomplete: return "migration-incomplete"
+        case .openFailed: return "open-failed"
+        case .recoveryBackupFailed: return "recovery-backup-failed"
+        case .checkpointFailed: return "checkpoint-failed"
+        case .postCheckFailed: return "post-check-failed"
+        case .restoredToPreMigration(_): return "restored-to-pre-migration"
+        case .checkpointRestoreFailed: return "checkpoint-restore-failed"
+        case .unexpected: return "unexpected"
+        }
+    }
+
+    private static func failureDetail(_ failure: DatabaseBootFailure) -> String? {
+        switch failure {
+        case .corrupt(let reason): return reason
+        case .tooNew(let found, let supported): return "found=\(found) supported=\(supported)"
+        case .migrationIncomplete(let found, let expected): return "found=\(found) expected=\(expected)"
+        case .openFailed(let detail), .recoveryBackupFailed(let detail),
+             .checkpointFailed(let detail), .postCheckFailed(let detail),
+             .checkpointRestoreFailed(let detail), .unexpected(let detail):
+            return detail
+        case .databaseAmbiguous(let names): return names.joined(separator: ",")
+        case .missingWithOriginals, .restoredToPreMigration:
+            return nil
         }
     }
 
