@@ -160,31 +160,31 @@ final class CatalogSlicesState {
     }
 
     /// 说明书分节结果：未收录 / 旧目录 / 读失败 三态必须分开，不能压成「没有」。
-    enum LeafletResult: Sendable, Equatable {
+    enum DocumentResult: Sendable, Equatable {
         case unavailable
         case legacySchema
         case failed
-        case loaded([MedicalCatalogLeafletBundle])
+        case loaded([MedicalCatalogDrugDocumentBundle])
     }
 
-    struct MedicalCatalogLeafletBundle: Sendable, Equatable, Identifiable {
-        var id: String { leaflet.sourceID }
-        let leaflet: MedicalCatalogLeaflet
-        let sections: [MedicalCatalogLeafletSection]
+    struct MedicalCatalogDrugDocumentBundle: Sendable, Equatable, Identifiable {
+        var id: String { document.sourceID }
+        let document: MedicalCatalogDrugDocument
+        let sections: [MedicalCatalogDrugSection]
         let text: String
     }
 
-    func leaflets(for drug: MedicalCatalogDrug) async -> LeafletResult {
+    func documents(for drug: MedicalCatalogDrug) async -> DocumentResult {
         let started = readGeneration()
         do {
-            let sources = try await facade.leafletSources(forDrugID: drug.id)
+            let sources = try await facade.documentSources(forDrugID: drug.id)
             guard readGeneration() == started else { return .failed }
             if sources.isEmpty { return .loaded([]) }
-            var bundles: [MedicalCatalogLeafletBundle] = []
-            for leaflet in sources {
-                let sections = try await facade.leafletSections(docSHA256: leaflet.docSHA256)
-                let text = try await facade.leafletText(docSHA256: leaflet.docSHA256)
-                bundles.append(MedicalCatalogLeafletBundle(leaflet: leaflet, sections: sections, text: text))
+            var bundles: [MedicalCatalogDrugDocumentBundle] = []
+            for document in sources {
+                let sections = try await facade.documentSections(docSHA256: document.docSHA256)
+                let text = try await facade.documentText(docSHA256: document.docSHA256)
+                bundles.append(MedicalCatalogDrugDocumentBundle(document: document, sections: sections, text: text))
             }
             guard readGeneration() == started else { return .failed }
             return .loaded(bundles)

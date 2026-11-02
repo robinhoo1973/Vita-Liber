@@ -133,7 +133,7 @@ public protocol MedicalCatalogReading: MedicalCatalogGenerationReading {
 }
 
 /// 说明书（v7 切片）：来源一行；正文压缩在 `leaflet_doc`，章节只存起止。
-public struct MedicalCatalogLeaflet: Sendable, Equatable, Identifiable {
+public struct MedicalCatalogDrugDocument: Sendable, Equatable, Identifiable {
     public var id: String { sourceID }
     public let sourceID: String
     public let docSHA256: Data
@@ -158,8 +158,9 @@ public struct MedicalCatalogLeaflet: Sendable, Equatable, Identifiable {
 }
 
 /// 说明书章节：只有位置，正文由解压后的全文切片得到。
-public struct MedicalCatalogLeafletSection: Sendable, Equatable, Identifiable {
-    public var id: Int { ordinal }
+public struct MedicalCatalogDrugSection: Sendable, Equatable, Identifiable {
+    /// v9 的 ordinal 按 (drug_id, field) 各自从 1 起，跨字段会重复；用复合 ID。
+    public var id: String { "\(kind)#\(ordinal)" }
     public let ordinal: Int
     public let kind: String
     public let charStart: Int

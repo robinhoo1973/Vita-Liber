@@ -21,6 +21,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
     /// query branches on the layout declared inside the slice itself.
     private let isV7Layout: Bool
     private let isV8Layout: Bool
+    private let isV9Layout: Bool
 
     public init(path: URL) throws {
         let observed = try Self.inspectSliceMeta(path: path)
@@ -32,6 +33,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
         self.sliceMeta = observed
         self.isV7Layout = observed.physicalSchema == "catalog-v7"
         self.isV8Layout = observed.physicalSchema == "catalog-v8"
+        self.isV9Layout = observed.physicalSchema == "catalog-v9"
         self.sqliteSHA256 = try StreamingFileHasher.sha256(of: path)
     }
 
@@ -64,6 +66,39 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
     public func match(line: PrescriptionLine) async throws -> MedicalCatalogMatch {
         try await pool.read { db in
             let codeValues = [line.insuranceCode, line.itemCodeText].compactMap { $0 }.filter { !$0.isEmpty }
+            if self.isV9Layout {
+                var exact: [MedicalCatalogDrug] = []
+                if !codeValues.isEmpty {
+                    let placeholders = Array(repeating: "?", count: codeValues.count).joined(separator: ",")
+                    exact = try Row.fetchAll(db, sql: """
+                        SELECT DISTINCT d.* FROM drug d
+                        JOIN drug_sections s ON s.drug_id = d.id
+                        WHERE s.kind = 'text'
+                          AND s.field IN ('insurance_code', 'drug_code')
+                          AND s.value IN (\(placeholders))
+                        ORDER BY d.id LIMIT 20
+                        """, arguments: StatementArguments(codeValues)).map(Self.drug)
+                }
+                if !exact.isEmpty {
+                    return MedicalCatalogMatching.resolve(exact: exact, candidates: [])
+                }
+                let name = line.printedName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else {
+                    return MedicalCatalogMatch(status: .unmatched, exact: nil, candidates: [])
+                }
+                let like = "%" + CatalogSQLLike.escaped(name) + "%"
+                var candidates = try Self.rows(db, sql: """
+                    SELECT * FROM drug
+                    WHERE name_zh = ? OR name_en = ? OR brand_name = ?
+                       OR name_zh LIKE ? ESCAPE '\\' OR name_en LIKE ? ESCAPE '\\' OR brand_name LIKE ? ESCAPE '\\'
+                    ORDER BY id LIMIT 50
+                    """, arguments: [name, name, name, like, like, like])
+                if let spec = line.spec?.trimmingCharacters(in: .whitespacesAndNewlines), !spec.isEmpty {
+                    let specCandidates = candidates.filter { $0.spec == spec }
+                    if !specCandidates.isEmpty { candidates = specCandidates }
+                }
+                return MedicalCatalogMatching.resolve(exact: [], candidates: candidates)
+            }
             var exact: [MedicalCatalogDrug] = []
             if !codeValues.isEmpty {
                 let placeholders = Array(repeating: "?", count: codeValues.count).joined(separator: ",")
@@ -99,7 +134,11 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
     }
 
     public func reference(for drug: MedicalCatalogDrug) async throws -> [MedicalCatalogReference] {
-        try await pool.read { db in
+        if isV9Layout {
+            // v9 主库不再保存 drug_reference；参考链接入口应随契约移除。
+            return []
+        }
+        return try await pool.read { db in
             if self.isV7Layout || self.isV8Layout {
                 // v7/v8 keep only link + status; region/name/licence come from drug.
                 return try Row.fetchAll(db, sql: """
@@ -125,6 +164,25 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     public func detail(for drug: MedicalCatalogDrug) async throws -> MedicalCatalogDrugDetail? {
         try await pool.read { db in
+            if self.isV9Layout {
+                let rows = try Row.fetchAll(db, sql: """
+                    SELECT field, value FROM drug_sections
+                    WHERE drug_id = ? AND kind = 'text'
+                      AND field IN ('usage_text', 'indications')
+                    """, arguments: [drug.id])
+                var usage: String?
+                var indications: String?
+                for row in rows {
+                    let field: String = row["field"]
+                    let value = row["value"] as String?
+                    if field == "usage_text" { usage = value } else { indications = value }
+                }
+                return MedicalCatalogDrugDetail(
+                    region: drug.region, sourceID: drug.sourceID,
+                    usageText: usage, indications: indications,
+                    activeIngredients: nil,
+                    usageReferenceJSON: "{}", rawJSON: "{}")
+            }
             if self.isV8Layout {
                 let detail = try Row.fetchOne(db, sql: """
                     SELECT usage_text, indications FROM drug WHERE id = ?
@@ -212,7 +270,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
 
     // MARK: - 说明书（v7；正文压缩一份，章节只存位置）
 
-    public func leafletSources(forDrugID drugID: Int) async throws -> [MedicalCatalogLeaflet] {
+    public func documentSources(forDrugID drugID: Int) async throws -> [MedicalCatalogDrugDocument] {
         if isV8Layout {
             return try await pool.read { db in
                 let rows = try Row.fetchAll(db, sql: """
@@ -246,9 +304,9 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                     name = drug["name_zh"] ?? ""
                     maker = drug["manufacturer"] ?? ""
                 }
-                return bySource.compactMap { sourceID, slot -> MedicalCatalogLeaflet? in
+                return bySource.compactMap { sourceID, slot -> MedicalCatalogDrugDocument? in
                     guard let hash = slot.hash else { return nil }
-                    return MedicalCatalogLeaflet(
+                    return MedicalCatalogDrugDocument(
                         sourceID: sourceID, docSHA256: hash,
                         nameZh: name, manufacturer: maker,
                         matchMethod: slot.verified ? "license_no" : "name",
@@ -260,6 +318,30 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                 }
             }
         }
+        if isV9Layout {
+            return try await pool.read { db in
+                guard let row = try Row.fetchOne(db, sql: """
+                    SELECT name_zh,
+                           (SELECT value FROM drug_sections
+                            WHERE drug_id = drug.id AND kind = 'text'
+                              AND field = 'manufacturer' LIMIT 1) AS manufacturer,
+                           document_source_id, document_sha256,
+                           document_source_url, document_fetched_at, document_match_verified
+                    FROM drug WHERE id = ? AND document_sha256 IS NOT NULL
+                    """, arguments: [drugID]),
+                      let hash = row["document_sha256"] as Data? else { return [] }
+                let verified = (row["document_match_verified"] as Int64? ?? 0) == 1
+                return [MedicalCatalogDrugDocument(
+                    sourceID: (row["document_source_id"] as String?) ?? "39net",
+                    docSHA256: hash,
+                    nameZh: (row["name_zh"] as String?) ?? "",
+                    manufacturer: (row["manufacturer"] as String?) ?? "",
+                    matchMethod: verified ? "license_no" : "name",
+                    matchVerified: verified,
+                    sourceURL: (row["document_source_url"] as String?) ?? "",
+                    fetchedAt: (row["document_fetched_at"] as String?) ?? "")]
+            }
+        }
         guard isV7Layout else { return [] }
         return try await pool.read { db in
             try Row.fetchAll(db, sql: """
@@ -269,7 +351,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                 WHERE l.drug_id = ?
                 ORDER BY l.match_verified DESC, s.fetched_at DESC
                 """, arguments: [drugID]).map { row in
-                MedicalCatalogLeaflet(
+                MedicalCatalogDrugDocument(
                     sourceID: row["source_id"], docSHA256: row["doc_sha256"],
                     nameZh: row["name_zh"], manufacturer: row["manufacturer"],
                     matchMethod: row["match_method"],
@@ -279,7 +361,28 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
         }
     }
 
-    public func leafletSections(docSHA256: Data) async throws -> [MedicalCatalogLeafletSection] {
+    public func documentSections(docSHA256: Data) async throws -> [MedicalCatalogDrugSection] {
+        if isV9Layout {
+            return try await pool.read { db in
+                let sections = try Row.fetchAll(db, sql: """
+                    SELECT field, ordinal, value FROM drug_sections
+                    WHERE kind = 'span'
+                      AND drug_id = (SELECT id FROM drug WHERE document_sha256 = ? LIMIT 1)
+                    """, arguments: [docSHA256]).compactMap { row -> MedicalCatalogDrugSection? in
+                    guard let value = row["value"] as Data?, value.count == 8 else { return nil }
+                    let start = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
+                    let end = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
+                    return MedicalCatalogDrugSection(ordinal: row["ordinal"], kind: row["field"],
+                                                        charStart: Int(UInt32(littleEndian: start)),
+                                                        charEnd: Int(UInt32(littleEndian: end)))
+                }
+                return sections.sorted { lhs, rhs in
+                    if lhs.charStart != rhs.charStart { return lhs.charStart < rhs.charStart }
+                    if lhs.kind != rhs.kind { return lhs.kind < rhs.kind }
+                    return lhs.ordinal < rhs.ordinal
+                }
+            }
+        }
         if isV8Layout {
             return try await pool.read { db in
                 try Row.fetchAll(db, sql: """
@@ -290,7 +393,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                     guard let value = row["value"] as Data?, value.count == 8 else { return nil }
                     let start = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 0, as: UInt32.self) }
                     let end = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
-                    return MedicalCatalogLeafletSection(ordinal: row["ordinal"], kind: row["field"],
+                    return MedicalCatalogDrugSection(ordinal: row["ordinal"], kind: row["field"],
                                                         charStart: Int(UInt32(littleEndian: start)),
                                                         charEnd: Int(UInt32(littleEndian: end)))
                 }
@@ -302,14 +405,32 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                 SELECT ordinal, kind, char_start, char_end FROM leaflet_section
                 WHERE doc_sha256 = ? ORDER BY ordinal
                 """, arguments: [docSHA256]).map { row in
-                MedicalCatalogLeafletSection(ordinal: row["ordinal"], kind: row["kind"],
+                MedicalCatalogDrugSection(ordinal: row["ordinal"], kind: row["kind"],
                                              charStart: row["char_start"], charEnd: row["char_end"])
             }
         }
     }
 
     /// 解压整份说明书；损坏时报错，不返回空串冒充「没有内容」。
-    public func leafletText(docSHA256: Data) async throws -> String {
+    public func documentText(docSHA256: Data) async throws -> String {
+        if isV9Layout {
+            let payload: (Data, Int)? = try await pool.read { db in
+                guard let row = try Row.fetchOne(db, sql: """
+                    SELECT document_zlib, document_text_bytes FROM drug
+                    WHERE document_sha256 = ? AND document_zlib IS NOT NULL LIMIT 1
+                    """, arguments: [docSHA256]),
+                      let compressed = row["document_zlib"] as Data?,
+                      let expected = row["document_text_bytes"] as Int? else { return nil }
+                return (compressed, expected)
+            }
+            guard let (compressed, expected) = payload else { throw CatalogSliceDrugSectionsFailure.unavailable }
+            guard let decoded = CatalogSliceDrugSectionsCodec.inflate(compressed),
+                  decoded.utf8.count == expected,
+                  Data(SHA256.hash(data: Data(decoded.utf8))) == docSHA256 else {
+                throw CatalogSliceDrugSectionsFailure.corruptText
+            }
+            return decoded
+        }
         if isV8Layout {
             let payload: (Data, Int)? = try await pool.read { db in
                 guard let row = try Row.fetchOne(db, sql: """
@@ -341,11 +462,15 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
     }
 
     /// 一节正文；偏移是 Unicode 码点（与解析器一致），不是 UTF-8 字节。
-    public func leafletSectionText(_ section: MedicalCatalogLeafletSection, in text: String) -> String? {
-        let characters = Array(text)
+    public func sectionText(_ section: MedicalCatalogDrugSection, in text: String) -> String? {
+        // 偏移是 Unicode 码点；`Array(text)` 是字素簇，遇到 CRLF/组合字符会错位。
+        let scalars = text.unicodeScalars
         guard section.charStart >= 0, section.charEnd > section.charStart,
-              section.charEnd <= characters.count else { return nil }
-        return String(characters[section.charStart..<section.charEnd])
+              let start = scalars.index(scalars.startIndex, offsetBy: section.charStart,
+                                        limitedBy: scalars.endIndex),
+              let end = scalars.index(start, offsetBy: section.charEnd - section.charStart,
+                                      limitedBy: scalars.endIndex) else { return nil }
+        return String(scalars[start..<end])
     }
 }
 #endif

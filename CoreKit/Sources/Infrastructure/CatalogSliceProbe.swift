@@ -51,6 +51,7 @@ public enum CatalogSliceProbe {
         case "catalog-v5": schemaVersion = 2
         case "catalog-v7": schemaVersion = 3
         case "catalog-v8": schemaVersion = 4
+        case "catalog-v9": schemaVersion = 5
         default: return .contractViolation(.badValue("physical_schema"))
         }
         guard let tables = CatalogSliceManifestDecoder.expectedTables(kind, schemaVersion: schemaVersion) else {
@@ -88,6 +89,17 @@ public enum CatalogSliceProbe {
                 "drug_reference": ["drug_id", "reference_id", "image_urls_json", "match_status"],
                 "drug_sections": ["drug_id", "source_id", "field", "ordinal", "kind",
                                    "value", "content_sha256", "text_bytes"],
+            ]
+        case (.drug, 5):
+            // v9: drug 仅身份列 + document_*；登记字段迁入 kind='text' 分节；
+            // 正文在 drug 行的 document_* 列；span 分节带 kind。
+            return [
+                "drug": ["id", "region", "source_id", "name_zh", "name_en", "brand_name",
+                          "document_source_id", "document_zlib", "document_sha256",
+                          "document_text_bytes", "document_source_url",
+                          "document_fetched_at", "document_match_verified"],
+                "drug_reference": ["drug_id", "reference_id", "image_urls_json", "match_status"],
+                "drug_sections": ["drug_id", "kind", "field", "ordinal", "value", "heading"],
             ]
         case (.drug, 1):
             return ["drug": ["id", "region", "source_id", "name_zh"],

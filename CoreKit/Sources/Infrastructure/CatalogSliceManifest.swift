@@ -90,6 +90,11 @@ public enum CatalogSliceManifestDecoder {
             // v8 is drug-only until other kinds get their own column contracts.
             return kind == .drug ? ["drug", "drug_reference", "drug_sections"] : nil
         }
+        if schemaVersion == 5 {
+            // v9: same three tables; label text moved into the drug row and
+            // drug_sections is span-only (no content hash).
+            return kind == .drug ? ["drug", "drug_reference", "drug_sections"] : nil
+        }
         if schemaVersion == 3 {
             // v7 drug slice: drug/detail merged, label text compressed once,
             // sections are span-only rows.
