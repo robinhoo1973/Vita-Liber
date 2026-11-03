@@ -61,6 +61,11 @@ final class DocumentExportState {
     }
 
     /// 已导出的用户面相对路径（聊天详情「存储位置」展示；nil=本机无副本）。
+    /// 会话目录调试日志（2026-11-03 调参批）：镜像层只写已存在的导出目录。
+    func appendDebugLog(documentID: UUID, fileName: String, contents: String) async {
+        await mirror.appendDebugLog(documentID: documentID, fileName: fileName, contents: contents)
+    }
+
     func exportedRelativePath(documentID: UUID) async -> String? {
         guard let record = await ledger.record(documentID: documentID),
               record.state == "active" else { return nil }

@@ -1,0 +1,199 @@
+/*
+ * PP-OCRv6 rec-only ONNX Runtime C bridge.
+ *
+ * The Apple slices link the already-present `onnxruntime-libs` static
+ * framework (the same package identity used by sherpa-onnx). Linux builds a
+ * stub so CoreKit swift test stays green without ORT.
+ */
+#include "ocr_bridge.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if defined(__APPLE__)
+#if __has_include(<onnxruntime/onnxruntime_c_api.h>)
+#include <onnxruntime/onnxruntime_c_api.h>
+#else
+#include <onnxruntime_c_api.h>
+#endif
+
+typedef struct {
+    OrtEnv *env;
+    OrtSession *session;
+    OrtMemoryInfo *memory_info;
+} OCRSession;
+
+static char g_error[1024];
+
+static const OrtApi *ocr_api(void) {
+    static const OrtApi *api = NULL;
+    if (api == NULL) {
+        const OrtApiBase *base = OrtGetApiBase();
+        if (base != NULL) api = base->GetApi(ORT_API_VERSION);
+    }
+    return api;
+}
+
+static int ocr_check(const OrtApi *api, OrtStatus *status, const char *where) {
+    if (status == NULL) return 0;
+    const char *message = api->GetErrorMessage(status);
+    snprintf(g_error, sizeof(g_error), "%s: %s", where, message == NULL ? "unknown ORT error" : message);
+    api->ReleaseStatus(status);
+    return -1;
+}
+
+void *ocr_session_create(const void *model_data, size_t model_len, int intra_threads) {
+    g_error[0] = '\0';
+    const OrtApi *api = ocr_api();
+    if (api == NULL) { snprintf(g_error, sizeof(g_error), "OrtGetApiBase returned no API"); return NULL; }
+    if (model_data == NULL || model_len == 0) { snprintf(g_error, sizeof(g_error), "empty model"); return NULL; }
+
+    OCRSession *ctx = (OCRSession *)calloc(1, sizeof(OCRSession));
+    if (ctx == NULL) { snprintf(g_error, sizeof(g_error), "out of memory"); return NULL; }
+
+    if (ocr_check(api, api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "vitalocr", &ctx->env), "CreateEnv") != 0) goto fail;
+
+    OrtSessionOptions *options = NULL;
+    if (ocr_check(api, api->CreateSessionOptions(&options), "CreateSessionOptions") != 0) goto fail;
+    if (intra_threads > 0) {
+        if (ocr_check(api, api->SetIntraOpNumThreads(options, intra_threads), "SetIntraOpNumThreads") != 0) {
+            api->ReleaseSessionOptions(options);
+            goto fail;
+        }
+    }
+    if (ocr_check(api, api->CreateSessionFromArray(ctx->env, model_data, model_len, options, &ctx->session), "CreateSessionFromArray") != 0) {
+        api->ReleaseSessionOptions(options);
+        goto fail;
+    }
+    api->ReleaseSessionOptions(options);
+
+    if (ocr_check(api, api->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &ctx->memory_info), "CreateCpuMemoryInfo") != 0) goto fail;
+    return ctx;
+
+fail:
+    if (ctx->memory_info != NULL) api->ReleaseMemoryInfo(ctx->memory_info);
+    if (ctx->session != NULL) api->ReleaseSession(ctx->session);
+    if (ctx->env != NULL) api->ReleaseEnv(ctx->env);
+    free(ctx);
+    return NULL;
+}
+
+void ocr_session_free(void *handle) {
+    if (handle == NULL) return;
+    OCRSession *ctx = (OCRSession *)handle;
+    const OrtApi *api = ocr_api();
+    if (api != NULL) {
+        if (ctx->memory_info != NULL) api->ReleaseMemoryInfo(ctx->memory_info);
+        if (ctx->session != NULL) api->ReleaseSession(ctx->session);
+        if (ctx->env != NULL) api->ReleaseEnv(ctx->env);
+    }
+    free(ctx);
+}
+
+int ocr_session_run(void *handle,
+                    const float *input,
+                    int64_t height,
+                    int64_t width,
+                    float **out_buffer,
+                    size_t *out_count,
+                    int64_t *out_timesteps,
+                    int64_t *out_classes) {
+    g_error[0] = '\0';
+    if (out_buffer != NULL) *out_buffer = NULL;
+    if (out_count != NULL) *out_count = 0;
+    if (out_timesteps != NULL) *out_timesteps = 0;
+    if (out_classes != NULL) *out_classes = 0;
+    if (handle == NULL || input == NULL || out_buffer == NULL || out_count == NULL ||
+        out_timesteps == NULL || out_classes == NULL) {
+        snprintf(g_error, sizeof(g_error), "invalid arguments");
+        return -1;
+    }
+    OCRSession *ctx = (OCRSession *)handle;
+    const OrtApi *api = ocr_api();
+    if (api == NULL) { snprintf(g_error, sizeof(g_error), "ORT API unavailable"); return -1; }
+
+    const int64_t shape[4] = {1, 3, height, width};
+    const size_t element_count = (size_t)(3 * height * width);
+    OrtValue *input_tensor = NULL;
+    if (ocr_check(api, api->CreateTensorWithDataAsOrtValue(
+                          ctx->memory_info, (void *)input, element_count * sizeof(float),
+                          shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor),
+                  "CreateTensor") != 0) return -1;
+
+    const char *input_names[] = {"x"};
+    const char *output_names[] = {"fetch_name_0"};
+    OrtValue *output = NULL;
+    int failed = ocr_check(api, api->Run(ctx->session, NULL, input_names,
+                                         (const OrtValue *const *)&input_tensor, 1,
+                                         output_names, 1, &output),
+                            "Run");
+    api->ReleaseValue(input_tensor);
+    if (failed != 0) return -1;
+
+    OrtTensorTypeAndShapeInfo *info = NULL;
+    if (ocr_check(api, api->GetTensorTypeAndShape(output, &info), "GetTensorTypeAndShape") != 0) {
+        api->ReleaseValue(output);
+        return -1;
+    }
+    size_t count = 0;
+    size_t dim_count = 0;
+    int64_t dims[3] = {0, 0, 0};
+    if (ocr_check(api, api->GetTensorShapeElementCount(info, &count), "GetTensorShapeElementCount") != 0 ||
+        ocr_check(api, api->GetDimensionsCount(info, &dim_count), "GetDimensionsCount") != 0 ||
+        dim_count != 3 ||
+        ocr_check(api, api->GetDimensions(info, dims, 3), "GetDimensions") != 0) {
+        api->ReleaseTensorTypeAndShapeInfo(info);
+        api->ReleaseValue(output);
+        return -1;
+    }
+    api->ReleaseTensorTypeAndShapeInfo(info);
+
+    void *raw = NULL;
+    if (ocr_check(api, api->GetTensorMutableData(output, &raw), "GetTensorMutableData") != 0 || raw == NULL) {
+        api->ReleaseValue(output);
+        return -1;
+    }
+    float *copy = (float *)malloc(count * sizeof(float));
+    if (copy == NULL) {
+        snprintf(g_error, sizeof(g_error), "out of memory for output");
+        api->ReleaseValue(output);
+        return -1;
+    }
+    memcpy(copy, raw, count * sizeof(float));
+    api->ReleaseValue(output);
+
+    *out_buffer = copy;
+    *out_count = count;
+    *out_timesteps = dims[1];
+    *out_classes = dims[2];
+    return 0;
+}
+
+void ocr_buffer_free(float *buffer) { free(buffer); }
+
+const char *ocr_last_error(void) { return g_error; }
+
+#else
+
+static const char *k_unavailable = "ONNX Runtime bridge is only available on Apple platforms";
+
+void *ocr_session_create(const void *model_data, size_t model_len, int intra_threads) {
+    (void)model_data; (void)model_len; (void)intra_threads;
+    return NULL;
+}
+void ocr_session_free(void *handle) { (void)handle; }
+int ocr_session_run(void *handle, const float *input, int64_t height, int64_t width,
+                    float **out_buffer, size_t *out_count, int64_t *out_timesteps,
+                    int64_t *out_classes) {
+    (void)handle; (void)input; (void)height; (void)width;
+    if (out_buffer != NULL) *out_buffer = NULL;
+    if (out_count != NULL) *out_count = 0;
+    if (out_timesteps != NULL) *out_timesteps = 0;
+    if (out_classes != NULL) *out_classes = 0;
+    return -1;
+}
+void ocr_buffer_free(float *buffer) { (void)buffer; }
+const char *ocr_last_error(void) { return k_unavailable; }
+
+#endif

@@ -29,12 +29,16 @@ public struct OCRPipeline: Sendable {
         /// FR5.5 版面（子项目 E1）：透传识别层 `Recognition.layout`（块 bbox / 表格 / 段落）；
         /// 引擎不给版面或失败 → nil，消费方以 `PageLayout.linesOnly(lines)` 退化。
         public var layout: PageLayout?
+        /// 影子识别诊断（2026-11-03 调参批）：只透传，不参与确认/事实链。
+        public var debugTrace: OCRDebugTrace?
         public init(lines: [String], hasText: Bool, qualityTags: [String] = [],
-                    failed: Bool = false, confidence: Double = 0, layout: PageLayout? = nil) {
+                    failed: Bool = false, confidence: Double = 0, layout: PageLayout? = nil,
+                    debugTrace: OCRDebugTrace? = nil) {
             self.lines = lines; self.hasText = hasText
             self.qualityTags = qualityTags; self.failed = failed
             self.confidence = confidence.isFinite ? min(1, max(0, confidence)) : 0
             self.layout = layout
+            self.debugTrace = debugTrace
         }
     }
 
@@ -57,7 +61,7 @@ public struct OCRPipeline: Sendable {
             let normalized = normalizeAndMerge(recognition)
             return Result(lines: normalized.lines, hasText: !normalized.lines.isEmpty,
                           qualityTags: tags, confidence: recognition.confidence,
-                          layout: normalized.layout)
+                          layout: normalized.layout, debugTrace: recognition.debugTrace)
         } catch is CancellationError {
             // 审查修复（取消透明性）：用户取消 ≠ 引擎崩溃——旧实现吞掉
             // CancellationError 并落 failed=true（FR6.6 引擎失败 UI），

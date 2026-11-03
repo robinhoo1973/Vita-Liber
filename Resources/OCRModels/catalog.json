@@ -1,0 +1,30 @@
+{
+  "formatVersion": 1,
+  "family": "PP-OCRv6-small",
+  "version": "pp-ocrv6-small-2026-06-18",
+  "source": "PaddlePaddle/PaddleOCR v3.7.0 official ONNX inference bundle",
+  "runtime": "onnxruntime",
+  "license": "Apache-2.0",
+  "assets": {
+    "rec": {
+      "file": "ppocrv6_small_rec.onnx",
+      "bytes": 21159378,
+      "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
+      "dictFile": "ppocrv6_small_rec_dict.json",
+      "dictBytes": 112366,
+      "dictSha256": "679f4f4cbbb4f762e84fae998e02c08a556afbd115968104ca3b4aeee5cb2b19",
+      "dictCount": 18708,
+      "classes": 18710,
+      "blankIndex": 0,
+      "height": 48,
+      "maxWidth": 3200,
+      "inputName": "x",
+      "outputName": "fetch_name_0",
+      "opset": 11,
+      "channelOrder": "BGR",
+      "scale": "[-1,1]",
+      "pad": "right-zero"
+    }
+  },
+  "notes": "Recognition-only shadow engine. Vision remains the primary OCR and layout source. No network access; model bytes verified at load."
+}

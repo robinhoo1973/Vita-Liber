@@ -2069,6 +2069,91 @@ struct TaskAssistantChatView: View {
             conversationID: conversationID,
             conversationTitle: title ?? conversationTitle,
             generation: generation)
+        await writeOCRDebugLog(session: session, generation: generation)
+    }
+
+    /// 2026-11-03 调参批：把 PP-OCRv6 rec 影子逐行对照写入该会话目录。
+    /// 只写非敏感件；无影子轨迹/无导出目录时不写。内容为 JSONL：
+    /// 首行会话/抽取摘要，其后每页一行 OCRDebugTrace。绝不包含图片字节。
+    private func writeOCRDebugLog(session: DocumentsState.ImportSession, generation: UUID) async {
+        guard generation == conversationGeneration,
+              let source = session.source,
+              let draft = session.draft,
+              !draft.isSensitive else { return }
+        let traces = docs.ocrDebugTraces(documentID: source.documentId)
+        guard !traces.isEmpty else { return }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = formatter.string(from: Date())
+        let iso = ISO8601DateFormatter().string(from: Date())
+        let header: [String: Any] = [
+            "type": "header",
+            "schemaVersion": 1,
+            "createdAt": iso,
+            "documentId": source.documentId.uuidString,
+            "title": draft.title ?? "",
+            "docType": draft.docType,
+            "docTypeKey": draft.documentTypeKey ?? "",
+            "pageCount": source.pages.count,
+            "lineCount": source.pages.reduce(0) { $0 + $1.lines.count },
+            "fieldCount": draft.allFields.count,
+            "cardCount": session.cards.count,
+            "isSensitive": false,
+            "engine": "PP-OCRv6_small_rec/onnxruntime shadow",
+            "vision": "VNRecognizeTextRequest accurate / RecognizeDocumentsRequest",
+        ]
+        var output: [String] = []
+        if let data = try? JSONSerialization.data(withJSONObject: header, options: [.sortedKeys]),   // try?-ok: 摘要编码失败只丢首行，轨迹行仍写
+           let line = String(data: data, encoding: .utf8) {
+            output.append(line)
+        }
+        // 字段/卡片摘要与 OCR 轨迹同文件：调参时可直接看「识别 → 抽取 → 卡片」断点。
+        for page in draft.pages.sorted(by: { $0.index < $1.index }) {
+            let fields: [[String: Any]] = page.fields.map { field in
+                ["key": field.key,
+                 "value": field.value,
+                 "unit": field.unit ?? "",
+                 "confidence": field.confidence,
+                 "source": field.source?.rawValue ?? "",
+                 "grade": String(describing: field.grade),
+                 "sourceLineIndex": field.sourceLineIndex ?? -1]
+            }
+            let summary: [String: Any] = [
+                "type": "fields",
+                "pageIndex": page.index,
+                "status": page.status,
+                "documentTypeKey": page.documentTypeKey ?? "",
+                "typeConfidence": page.typeConfidence ?? 0,
+                "pageConfidence": page.confidence,
+                "fields": fields,
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]),   // try?-ok: 单页摘要编码失败跳过该行
+               let line = String(data: data, encoding: .utf8) {
+                output.append(line)
+            }
+        }
+        for card in session.cards {
+            let summary: [String: Any] = [
+                "type": "card",
+                "kind": card.kind,
+                "pageIndex": card.pageIndex,
+                "sharedFieldKeys": card.shared.map(\.key),
+                "rowCount": card.rows.count,
+                "rowFieldKeys": card.rows.map { $0.fields.map(\.key) },
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: summary, options: [.sortedKeys]),   // try?-ok: 卡片摘要编码失败跳过
+               let line = String(data: data, encoding: .utf8) {
+                output.append(line)
+            }
+        }
+        output.append(contentsOf: traces.map { $0.jsonLine() })
+        let contents = output.joined(separator: "\n") + "\n"
+        await exportState.appendDebugLog(
+            documentID: source.documentId,
+            fileName: "ocr-debug-\(stamp).jsonl",
+            contents: contents)
     }
 
     /// 自动副本：失败不在聊天流刷错误气泡（识别已成功，副本可在详情重试）；
