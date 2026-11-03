@@ -66,6 +66,11 @@ final class DocumentExportState {
         await mirror.appendDebugLog(documentID: documentID, fileName: fileName, contents: contents)
     }
 
+    /// 关闭诊断开关时清除全部 OCR 调试日志。
+    func removeAllDebugLogs() async {
+        await mirror.removeAllDebugLogs()
+    }
+
     func exportedRelativePath(documentID: UUID) async -> String? {
         guard let record = await ledger.record(documentID: documentID),
               record.state == "active" else { return nil }

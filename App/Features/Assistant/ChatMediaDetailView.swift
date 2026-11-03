@@ -7,9 +7,9 @@ import Perception
 ///
 /// 结构对齐真机修订（2026-11-02 业主）：
 /// - 上=媒体卡：标题 + 附件/页数 + 上传缩略图（点图看原件）+ 来源徽章。
-/// - 下=两个 tab：数据信息元（每字段一张卡，可改值/引原文/看裁片/去核对）/
-///   医疗信息卡片（「需要修改」在前、「已确认」在后；BR-003 页脚）。
-/// - 工具栏「更多操作」→ 查看原图 / 重新识别 / 文档信息（存储位置）/ 导出副本。
+/// - 下=三个 tab：识别原文（按页） / 数据信息元（每字段一张卡，可改值/引原文/
+///   看裁片/去核对） / 医疗信息卡片（「需要修改」在前、「已确认」在后；BR-003 页脚）。
+/// - 工具栏「更多操作」→ 查看原图 / 重新识别 / 资料信息（存储位置）/ 导出副本。
 /// 三值状态纪律：文本/已确认卡/待核对卡/文档行各自 loading/loaded/failed，
 /// 读取失败必须可见并可重试——不得把失败涂成空态。
 struct ChatMediaDetailView: View {
@@ -452,7 +452,7 @@ struct ChatMediaDetailView: View {
     private func textPageCard(text: String, index: Int, pageCount: Int, status: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text(L10n.entityCardHeaderPage(index + 1, pageCount))
+                Text(L10n.assistantMediaTextPageHeader(index + 1))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)

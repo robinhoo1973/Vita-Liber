@@ -58,6 +58,11 @@ final class DocumentsState {
         (ocrDebugTracesByDocument[documentID] ?? []).sorted { $0.pageIndex < $1.pageIndex }
     }
 
+    /// 诊断日志写完/放弃后立即释放该文档的整页 OCR 文本，防长期导入内存只增不减。
+    func clearOCRDebugTraces(documentID: UUID) {
+        ocrDebugTracesByDocument.removeValue(forKey: documentID)
+    }
+
     /// 手选类型重抽（`DocumentsState+EntityCards` 扩展）入口：`understandingEngine`
     /// 是 private，跨文件扩展不可直接访问。
     func understand(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
@@ -991,6 +996,10 @@ final class DocumentsState {
                 }
                 session.source = ImportSource(documentId: documentID, patientId: draft.patientId, pages: draft.pages)
                 if !draft.ocrDebugTraces.isEmpty {
+                    // 仅诊断开启时产生；上限 8 份文档，防资料库路径长期导入无界增长。
+                    if ocrDebugTracesByDocument.count >= 8 {
+                        ocrDebugTracesByDocument.removeAll()
+                    }
                     ocrDebugTracesByDocument[documentID] = draft.ocrDebugTraces.values
                         .sorted { $0.pageIndex < $1.pageIndex }
                 }

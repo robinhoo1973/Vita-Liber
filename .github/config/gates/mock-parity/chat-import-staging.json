@@ -10,7 +10,8 @@
     "testReplaceKeepsPageCountAndIdentity",
     "testMoveChangesSubmissionOrder",
     "testMockSpecificKeysAreConsumed",
-    "testElementAndCropRowsMatchMock"
+    "testElementAndCropRowsMatchMock",
+    "testTextAndActionsRowsMatchMock"
   ],
   "requiredKeys": [
     "chat.importStaging.title",
@@ -28,14 +29,17 @@
     "chat.mediaViewSourceImage",
     "chat.mediaElementsP1Note",
     "chat.mediaCropTitle",
-    "chat.mediaCropFullPageNote"
+    "chat.mediaCropFullPageNote",
+    "assistant.mediaTextPageHeaderFmt",
+    "doc.exportCopy"
   ],
   "mockSnippets": [
     "<h3>待提交</h3>",
     "提交并识别（3 项）",
     "数据信息元",
     "医疗信息卡片",
-    "识别来源"
+    "识别来源",
+    "识别原文"
   ],
   "rows": [
     {
@@ -127,6 +131,20 @@
       "primary": "openCard",
       "secondary": null,
       "primaryKey": "assistantMediaConfirmed",
+      "enabled": true
+    },
+    {
+      "id": "text-page",
+      "primary": "page",
+      "secondary": "next",
+      "primaryKey": "assistantMediaTextPageHeaderFmt",
+      "enabled": true
+    },
+    {
+      "id": "actions-export",
+      "primary": "export",
+      "secondary": "info",
+      "primaryKey": "docExportCopy",
       "enabled": true
     }
   ],

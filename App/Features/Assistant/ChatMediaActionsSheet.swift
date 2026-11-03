@@ -62,6 +62,7 @@ struct ChatMediaActionsSheet: View {
                     } label: {
                         Label(L10n.docTitleSection, systemImage: "info.circle")
                     }
+                    .accessibilityIdentifier("chat.mediaActions.info")
                 }
                 Section {
                     Text(L10n.chatMediaExportCopyNote)
@@ -77,6 +78,7 @@ struct ChatMediaActionsSheet: View {
                         }
                     }
                     .disabled(exporting)
+                    .accessibilityIdentifier("chat.mediaActions.export")
                     if let exportNote {
                         Text(exportNote)
                             .font(.caption)

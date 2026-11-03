@@ -21,7 +21,8 @@ public enum CTCDecoder {
 
     public static func decode(probabilities: [Float], timesteps: Int, classes: Int,
                               vocabulary: [String], blankIndex: Int = 0) -> Output {
-        guard timesteps > 0, classes > 0, vocabulary.count == classes,
+        guard timesteps > 0, classes > 0, blankIndex >= 0, blankIndex < classes,
+              vocabulary.count == classes,
               probabilities.count >= timesteps * classes else {
             return Output(text: "", confidence: 0, emittedCharacters: 0)
         }

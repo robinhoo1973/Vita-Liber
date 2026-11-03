@@ -9,6 +9,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 
 #if defined(__APPLE__)
@@ -109,12 +110,22 @@ int ocr_session_run(void *handle,
         snprintf(g_error, sizeof(g_error), "invalid arguments");
         return -1;
     }
+    if (height <= 0 || width <= 0 ||
+        (uint64_t)height > SIZE_MAX / 3 / (uint64_t)width) {
+        snprintf(g_error, sizeof(g_error), "invalid input shape %lldx%lld",
+                 (long long)height, (long long)width);
+        return -1;
+    }
     OCRSession *ctx = (OCRSession *)handle;
     const OrtApi *api = ocr_api();
     if (api == NULL) { snprintf(g_error, sizeof(g_error), "ORT API unavailable"); return -1; }
 
     const int64_t shape[4] = {1, 3, height, width};
-    const size_t element_count = (size_t)(3 * height * width);
+    const size_t element_count = (size_t)3 * (size_t)height * (size_t)width;
+    if (element_count > SIZE_MAX / sizeof(float)) {
+        snprintf(g_error, sizeof(g_error), "input tensor too large");
+        return -1;
+    }
     OrtValue *input_tensor = NULL;
     if (ocr_check(api, api->CreateTensorWithDataAsOrtValue(
                           ctx->memory_info, (void *)input, element_count * sizeof(float),
@@ -129,7 +140,10 @@ int ocr_session_run(void *handle,
                                          output_names, 1, &output),
                             "Run");
     api->ReleaseValue(input_tensor);
-    if (failed != 0) return -1;
+    if (failed != 0) {
+        if (output != NULL) api->ReleaseValue(output);
+        return -1;
+    }
 
     OrtTensorTypeAndShapeInfo *info = NULL;
     if (ocr_check(api, api->GetTensorTypeAndShape(output, &info), "GetTensorTypeAndShape") != 0) {
@@ -139,15 +153,28 @@ int ocr_session_run(void *handle,
     size_t count = 0;
     size_t dim_count = 0;
     int64_t dims[3] = {0, 0, 0};
+    ONNXTensorElementDataType element_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
     if (ocr_check(api, api->GetTensorShapeElementCount(info, &count), "GetTensorShapeElementCount") != 0 ||
         ocr_check(api, api->GetDimensionsCount(info, &dim_count), "GetDimensionsCount") != 0 ||
         dim_count != 3 ||
-        ocr_check(api, api->GetDimensions(info, dims, 3), "GetDimensions") != 0) {
+        ocr_check(api, api->GetDimensions(info, dims, 3), "GetDimensions") != 0 ||
+        ocr_check(api, api->GetTensorElementType(info, &element_type), "GetTensorElementType") != 0 ||
+        element_type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
         api->ReleaseTensorTypeAndShapeInfo(info);
         api->ReleaseValue(output);
         return -1;
     }
     api->ReleaseTensorTypeAndShapeInfo(info);
+
+    if (dims[0] != 1 || dims[1] <= 0 || dims[2] <= 0 ||
+        (uint64_t)dims[1] > SIZE_MAX / (uint64_t)dims[2] ||
+        (uint64_t)dims[1] * (uint64_t)dims[2] != (uint64_t)count ||
+        count > SIZE_MAX / sizeof(float)) {
+        snprintf(g_error, sizeof(g_error), "invalid output shape %lldx%lldx%lld (count=%zu)",
+                 (long long)dims[0], (long long)dims[1], (long long)dims[2], count);
+        api->ReleaseValue(output);
+        return -1;
+    }
 
     void *raw = NULL;
     if (ocr_check(api, api->GetTensorMutableData(output, &raw), "GetTensorMutableData") != 0 || raw == NULL) {

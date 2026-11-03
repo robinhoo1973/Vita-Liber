@@ -762,6 +762,10 @@
 "help.diag.dataHealth" = "数据与存储健康";
 "help.diag.system" = "系统诊断";
 "help.diag.systemHint" = "检查权限状态、提醒调度和存储健康状况";
+"help.ocrShadow.title" = "OCR 调参诊断";
+"help.ocrShadow.toggle" = "写入 OCR 对照日志";
+"help.ocrShadow.confirm" = "开启并写入";
+"help.ocrShadow.hint" = "仅调参时开启。开启后，非敏感聊天导入会把 OCR 识别原文、字段值与卡片摘要写入“文件”App 的会话目录；敏感资料不写入。关闭后不再新增日志。";
 "help.about.legal" = "版本与法律";
 "help.perm.section" = "权限状态";
 "help.perm.camera" = "相机";
@@ -2727,6 +2731,7 @@
 "assistant.mediaCardsEmpty" = "这份资料还没有信息卡片";
 "assistant.mediaOpenOriginal" = "点按看原图";
 "assistant.mediaPageFailed" = "本页识别失败";
+"assistant.mediaTextPageHeaderFmt" = "第 %1$ld 页 · 识别原文";
 "assistant.mediaPageNoText" = "本页没有文字";
 "assistant.mediaPageSkipped" = "本页未识别（已跳过）";
 "assistant.mediaEgressNote" = "原件保存在本机；对外副本只在导出设置开启或你显式导出时生成";
