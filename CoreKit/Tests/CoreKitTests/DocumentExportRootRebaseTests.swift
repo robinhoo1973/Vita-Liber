@@ -96,7 +96,7 @@ struct DocumentExportRootRebaseTests {
     func completesInterruptedMove() async throws {
         let f = try await makeFixture()
         let leaf = "20261102-1435-会话-abcdef"
-        try writeFile(f.exports.appendingPathComponent("\(leaf)/report.jpg"))
+        try writeFile(f.exports.appendingPathComponent("conversation/\(leaf)/report.jpg"))
         try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg",
                                        conversationID: UUID())
 
