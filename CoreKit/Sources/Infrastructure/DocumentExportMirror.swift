@@ -255,6 +255,24 @@ public actor DocumentExportMirror {
             atPath: exportsBase.appendingPathComponent(name, isDirectory: true).path)
     }
 
+    /// 会话目录追加调试日志（2026-11-03 调参批）。
+    /// 只写已存在的导出会话目录；不建账本行、不触碰 canonical；敏感件由
+    /// 调用方拦截。`.completeFileProtection` + 排除备份。
+    public func appendDebugLog(documentID: UUID, fileName: String, contents: String) async {
+        guard let record = await ledger.record(documentID: documentID),
+              !record.directoryName.isEmpty,
+              let data = contents.data(using: .utf8) else { return }
+        let directory = exportsBase.appendingPathComponent(record.directoryName, isDirectory: true)
+        guard fileManager.fileExists(atPath: directory.path) else { return }
+        let target = directory.appendingPathComponent(fileName)
+        do {
+            try data.write(to: target, options: [.atomic, .completeFileProtection])
+            try? Self.excludeFromBackup(target)   // try?-ok: 调试日志排除备份失败不影响可读
+        } catch {
+            // 诊断日志是尽力而为，不影响 OCR/导入主链路。
+        }
+    }
+
     /// 单条副本删除（2026-10-28 业主：记录转敏感时副本必须离开用户面）。
     /// 只删副本文件与账本行（置 removed），绝不触碰 canonical。
     public func removeCopy(documentID: UUID) async {

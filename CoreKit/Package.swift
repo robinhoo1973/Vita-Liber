@@ -21,6 +21,10 @@ let package = Package(
         // 包装器/二进制匹配的钉版；ITMS-90208在归档的framework元数据校正及IPA校验处处理。
         .package(url: "https://github.com/k2-fsa/sherpa-onnx.git",
                  revision: "5e4232db78d0150801ae3244c9e2ddc41e5e02d8"),
+        // 2026-11-03 PaddleOCR 影子批：与 sherpa-onnx 声明**同一包身份/同一
+        // requirement kind**（branch master），复用已链接的 ORT 1.28.2；不得改
+        // 用 revision 或 microsoft/onnxruntime-swift-package-manager（重复 ORT）。
+        .package(url: "https://github.com/csukuangfj/onnxruntime-libs", branch: "master"),
         // 注意：onnxruntime-libs 是 sherpa-onnx 的传递依赖，其 manifest 用
         // `branch: "master"` 声明——根包不得再用 revision 直接声明同一包身份，
         // 否则同图出现两种 requirement kind（revision vs branch），SwiftPM
@@ -50,6 +54,15 @@ let package = Package(
         .target(name: "Domain", resources: [.process("Resources")]),
         .target(name: "Protocols", dependencies: ["Domain"]),
         .target(
+            name: "OCRBridge",
+            dependencies: [
+                .product(name: "onnxruntime-ios", package: "onnxruntime-libs",
+                         condition: .when(platforms: [.iOS])),
+                .product(name: "onnxruntime-macos", package: "onnxruntime-libs",
+                         condition: .when(platforms: [.macOS])),
+            ],
+            path: "Sources/OCRBridge"),
+        .target(
             name: "Infrastructure",
             dependencies: [
                 "Domain",
@@ -67,6 +80,9 @@ let package = Package(
                 // 由信封 opener 魔数预检响亮拒绝（负例测试钉住）。
                 .product(name: "sherpa-onnx", package: "sherpa-onnx",
                          condition: .when(platforms: [.iOS, .macOS])),
+                // PaddleOCR rec-only 影子引擎的 C 桥（ORT C API 封装）。
+                // Linux 为桩目标（C 内 #if __APPLE__）。
+                .target(name: "OCRBridge"),
                 // T2 本机 LLM（业主 2026-09-17 定：llama 模型随包内置）。
                 // 模块名 = llama（binaryTarget 的 module map）；引擎代码
                 // #if canImport(llama) 守卫——Linux/无框架平台编译为不可用。
