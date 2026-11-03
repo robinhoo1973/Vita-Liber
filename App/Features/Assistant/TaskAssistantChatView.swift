@@ -1502,6 +1502,9 @@ struct TaskAssistantChatView: View {
     private func openConversation(_ summary: ChatHistoryStore.ConversationSummary) {
         let generation = UUID()
         conversationGeneration = generation
+        // 开始载入时是否空闲：载入期间用户懒创建了新会话（发消息）时，
+        // 旧恢复结果不得把 conversationID 覆盖回去（消息会落进被顶掉的会话）。
+        let wasIdle = conversationID == nil
         Task {
             // 审查席 P2：nil=读取失败，不得把失败当空会话打开（三值纪律）。
             guard let stored = await chatHistory.loadMessages(conversationId: summary.id) else {
@@ -1513,6 +1516,9 @@ struct TaskAssistantChatView: View {
             await MainActor.run {
                 // 用户快速点开另一会话时，旧请求不得把首个会话内容写回来。
                 guard generation == conversationGeneration else { return }
+                // 聊天已关闭（close 后不得再写回恢复指针），或空闲期间用户
+                // 已发送消息创建了新会话：均不覆盖。
+                guard AssistantSessionStore.isOpen, !wasIdle || conversationID == nil else { return }
                 stopVoicePlayback()
                 interruptInFlightImports()
                 conversationID = summary.id
@@ -1549,9 +1555,26 @@ struct TaskAssistantChatView: View {
         didAttemptSessionRestore = true
         guard conversationID == nil, AssistantSessionStore.isOpen,
               let savedID = AssistantSessionStore.conversationID else { return }
+        // 载入期间用户点「新会话」会换 generation（conversationID 仍为 nil），
+        // 恢复结果不得把用户刚清空的会话又顶回旧会话。
+        let restoreGeneration = conversationGeneration
+        // 冷启动时 fullScreenCover 可能先于 AppRootView.startTasks 挂载：owner
+        // 未载入时 currentPatientId 回落到进程级随机 UUID，按患者过滤的历史
+        // 查询恒空 → 下段会把恢复指针误删。等启动链锚点（最多 5s）。
+        var waited = 0
+        while !app.startupWorkFinished, waited < 50 {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)   // try?-ok: 取消由上方 Task.isCancelled 守卫
+            waited += 1
+        }
+        guard app.startupWorkFinished else { return }
         await chatHistory.load(patientId: app.currentPatientId)
-        // 载入期间用户可能已发送消息（懒创建会话）——不覆盖当前会话。
-        guard conversationID == nil else { return }
+        // 读取失败 ≠ 会话不存在（三值纪律）：保留指针，下次再试。
+        guard !chatHistory.loadFailed else { return }
+        // 载入期间用户可能已发送消息（懒创建会话）、点「新会话」或关闭了
+        // 聊天——三种情况都不得覆盖当前界面。
+        guard conversationGeneration == restoreGeneration, conversationID == nil,
+              AssistantSessionStore.isOpen else { return }
         guard let summary = chatHistory.conversations.first(where: { $0.id == savedID }) else {
             AssistantSessionStore.saveConversation(nil)
             return
@@ -2317,7 +2340,12 @@ struct TaskAssistantChatView: View {
             route(.voiceReminderDraft, plan: plan, action: action, set: set)
         case .appendProfile:
             // 语音引导档案已退役（2026-10-22）：只跳转成员档案，由用户手动完善。
+            // 与 route() 同款收尾：聊天本次会话结束，回前台不重开，且先关
+            // fullScreenCover 再切页，否则成员档案被封面压在下面。
+            isSaving = false
+            AssistantSessionStore.close()
             router.navigate(to: .memberList)
+            dismiss()
         case .recordObservation:
             route(.observationCreate, plan: plan, action: action, set: set)
         case .createAppointment:

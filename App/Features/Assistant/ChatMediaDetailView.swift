@@ -37,7 +37,7 @@ struct ChatMediaDetailView: View {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .text: return L10n.chatMediaTabText
+            case .text: return L10n.pendingCardRawText
             case .elements: return L10n.chatMediaTabElements
             case .cards: return L10n.chatMediaTabCards
             }
@@ -307,20 +307,20 @@ struct ChatMediaDetailView: View {
     private var documentStatusTag: some View {
         if case .loaded(let grade) = docState {
             if grade == GradeBadge.gradeConfirmed {
-                Text(L10n.assistantMediaConfirmed)
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color("semantic-success", bundle: .main).opacity(0.16)))
-                    .foregroundStyle(Color("semantic-success", bundle: .main))
+                PillBadge(text: L10n.assistantMediaConfirmed, style: .success, bold: true)
             } else if grade == GradeBadge.gradeMachineUnconfirmed {
-                Text(L10n.gradeBadgePending)
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.16)))
-                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+                PillBadge(text: L10n.gradeBadgePending, style: .warning, bold: true)
             }
+        }
+    }
+
+    /// 页状态 → 文案：识别原文页头与页级提示共用一份映射（避免两处漂移）。
+    private func pageStatusText(_ status: String) -> String? {
+        switch status {
+        case "no_text": return L10n.assistantMediaPageNoText
+        case "failed": return L10n.assistantMediaPageFailed
+        case "skipped": return L10n.assistantMediaPageSkipped
+        default: return nil
         }
     }
 
@@ -456,15 +456,12 @@ struct ChatMediaDetailView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 8)
-                if status == "no_text" {
-                    Text(L10n.assistantMediaPageNoText)
-                        .font(.caption2).foregroundStyle(.secondary)
-                } else if status == "failed" {
-                    Text(L10n.assistantMediaPageFailed)
-                        .font(.caption2).foregroundStyle(Color("semantic-danger", bundle: .main))
-                } else if status == "skipped" {
-                    Text(L10n.assistantMediaPageSkipped)
-                        .font(.caption2).foregroundStyle(.secondary)
+                if let label = pageStatusText(status) {
+                    Text(label)
+                        .font(.caption2)
+                        .foregroundStyle(status == "failed"
+                                         ? Color("semantic-danger", bundle: .main)
+                                         : .secondary)
                 }
             }
             // 外层详情已是 ScrollView：原文直接铺开（长文本随页面滚动），
@@ -625,11 +622,7 @@ struct ChatMediaDetailView: View {
                     ForEach(broken, id: \.index) { page in
                         Label {
                             Text("\(page.index + 1) · ").font(.caption2)
-                                + Text(page.status == "no_text"
-                                       ? L10n.assistantMediaPageNoText
-                                       : page.status == "skipped"
-                                           ? L10n.assistantMediaPageSkipped
-                                           : L10n.assistantMediaPageFailed)
+                                + Text(pageStatusText(page.status) ?? L10n.assistantMediaPageFailed)
                         } icon: {
                             Image(systemName: "exclamationmark.triangle")
                                 .foregroundStyle(Color("semantic-warning", bundle: .main))
@@ -1327,6 +1320,9 @@ struct ChatMediaDetailView: View {
     // MARK: - 载入
 
     private func loadBasics() async {
+        // 重新识别/更新卡片会改变页数：页码回到首页，避免停在越界后被
+        // min/max 悄悄夹到最后一页（原实现只在渲染时夹取）。
+        textPageIndex = 0
         textState = .loading
         docState = .loading
         switch await docs.mediaText(id: documentId, patientId: patientId) {

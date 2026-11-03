@@ -2949,7 +2949,6 @@
 "chat.mediaElementsFooter" = "修改后仍需核对确认；确认前不进入事实链。";
 "chat.mediaCardsAssemblyNote" = "由已确认要素组装";
 
-"chat.mediaTabText" = "识别原文";
 "chat.mediaTabElements" = "数据信息元";
 
 "chat.mediaTabCards" = "医疗信息卡片";

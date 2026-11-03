@@ -42,32 +42,52 @@ extension DocumentsState {
     /// 只处理 status=ok 页；生成轨恒关闭（BR-003，D 级草稿）；失败页保持原样。
     func reextractFields(for draft: ImportDraft, documentTypeKey: String) async -> ImportDraft {
         var updated = draft
+        var didReextract = false
         for index in updated.pages.indices where updated.pages[index].status == "ok" {
             let page = updated.pages[index]
+            // 页级只补「仍是未触碰 line_N」的页：已有语义字段、已确认/驳回或
+            // 改过值的页保持原样（重抽会覆盖用户修正）；其余页照常补字段。
+            // 整稿 allSatisfy 会把多页文档的空白页一起放弃。
+            guard Self.pageNeedsTypeReextract(page) else { continue }
             let input = TextUnderstandingInput(
                 text: page.lines.joined(separator: "\n"), lines: page.lines,
                 layout: page.layout, source: .ocr(documentTypeHint: documentTypeKey),
                 allowsGenerativeProcessing: false)
             let understanding: UnderstandingResult
             do { understanding = try await understand(input) }
+            catch is CancellationError { return draft }
             catch { continue }
+            // 引擎全不可用返回 engineUnavailable（字段为空、不抛错）：不得把
+            // line_N 当「已按类型重抽」写回并锁死 manualTypeReextracted。
+            guard !understanding.engineUnavailable else { continue }
             let confidence = page.confidence.isFinite ? min(1, max(0, page.confidence)) : 0
             var fields = Self.extractPageFields(
                 lines: page.lines, understood: understanding.fields, confidence: confidence)
-            // 表格 OCR 常把「项目 / 结果 / 单位」拆成独立块，逐行正则失配；
-            // 无任何语义字段时按几何行拼回整行再抽一次（D 级，rawText 为拼行）。
-            if !fields.contains(where: { !$0.key.hasPrefix("line_") }),
-               let layout = page.layout {
-                let semantic = Self.tableRowFallbackFields(layout: layout, confidence: confidence)
-                if !semantic.isEmpty { fields += semantic }
-            }
+            // 表格回退 + F25 词表锚定 + 编码解析与首次识别共用尾链，
+            // 避免手选类型路径的字段集系统性弱于 analyze()。
+            fields = await finalizePageFields(fields, lines: page.lines, layout: page.layout,
+                                              confidence: confidence,
+                                              documentTypeKey: understanding.suggestedTarget)
             updated.pages[index].fields = fields
             updated.pages[index].documentTypeKey = documentTypeKey
             updated.pages[index].typeConfidence = max(page.typeConfidence ?? 0, 0.9)
+            didReextract = true
         }
-        updated.previousCards = Self.matchPages(updated.pages, manualTypeKey: documentTypeKey)
-        updated.manualTypeReextracted = true
+        // previousCards 保持既有快照（已落库卡的稳定 id）；entityCards 经
+        // reconcileCards 以它为锚保留身份。重算 matchPages 会生成全新 UUID，
+        // 使 reviewState 的 pendingIdentityMismatch 必然命中。
+        if didReextract { updated.manualTypeReextracted = true }
         return updated
+    }
+
+    /// 该页是否仍需按手选类型补语义字段：ok 页且字段仍是未触碰的 line_N。
+    static func pageNeedsTypeReextract(_ page: PageAnalysis) -> Bool {
+        guard page.status == "ok" else { return false }
+        return page.fields.allSatisfy {
+            $0.key.hasPrefix("line_")
+                && !$0.isConfirmed && $0.grade != .rejected
+                && $0.value == $0.originalValue && $0.unit == $0.originalUnit
+        }
     }
 
     /// 表格行聚合回退：Vision 逐格观察 → 同视觉行按 x 拼回「项目 结果 单位」，
@@ -78,7 +98,11 @@ extension DocumentsState {
             let text = row.cells.map(\.text).joined(separator: " ")
             for var draft in DocumentTypeClassifierFallback.guessFields(line: text) {
                 draft.rawText = text
-                draft.sourceLineIndex = row.cells.first?.lineIndex
+                // 锚到「值实际所在格」：拼行值通常来自结果格，锚首格会让
+                // 原文/裁片指向项目名行（找不到值）。找不到时回落首格。
+                draft.sourceLineIndex = row.cells.first(where: {
+                    !draft.value.isEmpty && $0.text.contains(draft.value)
+                })?.lineIndex ?? row.cells.first?.lineIndex
                 draft.confidence = min(draft.confidence, max(0.3, min(0.6, confidence)))
                 out.append(draft)
             }

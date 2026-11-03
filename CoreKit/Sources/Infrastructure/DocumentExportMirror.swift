@@ -295,6 +295,14 @@ public actor DocumentExportMirror {
     /// 只在 App 专用的 `conversation/`、旧 `Vita Liber/` 根内按后缀匹配；
     /// 根目录仅接受严格会话名格式，避免误删用户自建目录。canonical 不受影响。
     public func removeConversationArtifacts(conversationID: UUID) async {
+        // 先按账本精确删：超长标题目录名在 240B 截断后会丢 `-id6` 后缀，
+        // 后缀/扁平正则都扫不到（finding 9），但账本仍记着完整目录名。
+        let ownedNames = Set(await ledger.records(conversationID: conversationID).map(\.directoryName))
+        for name in ownedNames {
+            let url = exportsBase.appendingPathComponent(name, isDirectory: true)
+            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }   // try?-ok: 非目录跳过
+            await removeArtifacts(at: url, ledgerDirectoryName: name, conversationID: conversationID)
+        }
         let id6 = String(conversationID.uuidString.lowercased().prefix(6))
         // 同名目录消解会在短 ID 后再加 `-2`/`-3`（DocumentExportNaming），
         // 后缀匹配必须容许该段，否则碰撞过的会话目录会留下。
@@ -305,16 +313,25 @@ public actor DocumentExportMirror {
             let range = NSRange(lower.startIndex..<lower.endIndex, in: lower)
             return suffixPattern?.firstMatch(in: lower, range: range) != nil
         }
+        // 删除目录 + 账本墓碑：账本里可能存在 conversation_id 为 NULL 的重导行
+        // （会话内导入后在库页再次导出）——它不在删除前快照里，不墓碑就会在
+        // 下次 reconcile 被误报「副本缺失」。短 ID 碰撞（24-bit）时若目录
+        // 账本归属另一会话，绝不删除。
         let conversationRoot = exportsBase.appendingPathComponent(
             MediaRootPaths.conversationFolderName, isDirectory: true)
         let legacyRoot = exportsBase.appendingPathComponent(
             Self.legacyExportFolderName, isDirectory: true)
         for root in [conversationRoot, legacyRoot] where fileManager.fileExists(atPath: root.path) {
+            let prefix = root.lastPathComponent + "/"
             for entry in (try? fileManager.contentsOfDirectory(   // try?-ok: 枚举失败跳过
                 at: root, includingPropertiesForKeys: [.isDirectoryKey],
                 options: [.skipsHiddenFiles])) ?? [] {
-                guard matchesSuffix(entry.lastPathComponent) else { continue }
-                try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
+                guard matchesSuffix(entry.lastPathComponent),
+                      (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true   // try?-ok: 非目录跳过
+                else { continue }
+                await removeArtifacts(at: entry,
+                                      ledgerDirectoryName: prefix + entry.lastPathComponent,
+                                      conversationID: conversationID)
             }
         }
         // 11-02 扁平会话目录（迁移前删除的会话）：严格 `yyyyMMdd-HHmm-…-id6[-n]`。
@@ -325,21 +342,72 @@ public actor DocumentExportMirror {
             options: [.skipsHiddenFiles])) ?? [] {
             let name = entry.lastPathComponent
             let range = NSRange(name.startIndex..<name.endIndex, in: name)
-            if flatPattern?.firstMatch(in: name, range: range) != nil {
-                try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
-            }
+            guard flatPattern?.firstMatch(in: name, range: range) != nil,
+                  (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true   // try?-ok: 非目录跳过
+            else { continue }
+            await removeArtifacts(at: entry, ledgerDirectoryName: name,
+                                  conversationID: conversationID)
+        }
+    }
+
+    /// 删除一个已确认属于本会话的目录，并把其账本行置 removed。
+    /// 目录短 ID 的账本归属若是另一会话（24-bit 碰撞），跳过不删。
+    private func removeArtifacts(at url: URL, ledgerDirectoryName: String,
+                                 conversationID: UUID) async {
+        let records = await ledger.records(directoryName: ledgerDirectoryName)
+        if records.contains(where: {
+            $0.conversationID != nil && $0.conversationID != conversationID
+        }) { return }
+        try? fileManager.removeItem(at: url)   // try?-ok: 尽力而为
+        for record in records {
+            try? await ledger.setState(documentID: record.documentID, state: "removed", now: Date())   // try?-ok: tombstone 尽力而为
         }
     }
 
     /// 清空全部数据：擦账本 + 删除全部会话目录副本（canonical 由各自链路负责）。
+    /// 除账本目录外，还清扫 App 自有命名空间里的孤儿目录（导出写盘成功但记账
+    /// 失败/已墓碑），否则「清空全部数据」后 Files 仍可见医疗副本（finding 19）。
     public func wipeAllCopies() async {
-        let records = await ledger.activeRecords()
-        let directories = Set(records.map(\.directoryName))
-        for directory in directories {
-            let url = exportsBase.appendingPathComponent(directory, isDirectory: true)
-            try? fileManager.removeItem(at: url)   // try?-ok: 尽力而为
+        // 账本内目录（含已墓碑行）：目录名是 App 生成的完整相对路径。
+        for name in Set(await ledger.directories().map(\.name)) {
+            removeDirectoryIfPresent(named: name)
+        }
+        // 会话根与旧「Vita Liber」根：App 专用树，整层子目录都属副本。
+        let conversationRoot = exportsBase.appendingPathComponent(
+            MediaRootPaths.conversationFolderName, isDirectory: true)
+        let legacyRoot = exportsBase.appendingPathComponent(
+            Self.legacyExportFolderName, isDirectory: true)
+        for root in [conversationRoot, legacyRoot] where fileManager.fileExists(atPath: root.path) {
+            for entry in directoryChildren(of: root) {
+                try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
+            }
+        }
+        // Documents 根的 App 命名目录：`直接导入-YYYY-MM` 月桶与扁平会话目录。
+        let flatPattern = try? NSRegularExpression(   // try?-ok: 静态模式
+            pattern: #"^\d{8}-\d{4}-.+-(?:[0-9a-f]{6})(?:-\d+)?$"#)
+        for entry in directoryChildren(of: exportsBase) {
+            let name = entry.lastPathComponent
+            let isDirectImport = name.hasPrefix(DocumentExportNaming.directImportPrefix)
+            let range = NSRange(name.startIndex..<name.endIndex, in: name)
+            let isFlat = flatPattern?.firstMatch(in: name, range: range) != nil
+            guard isDirectImport || isFlat else { continue }
+            try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
         }
         try? await ledger.wipe()   // try?-ok: 尽力而为
+    }
+
+    private func removeDirectoryIfPresent(named name: String) {
+        guard !name.isEmpty, !name.hasPrefix("/"), !name.contains("..") else { return }
+        let url = exportsBase.appendingPathComponent(name, isDirectory: true)
+        try? fileManager.removeItem(at: url)   // try?-ok: 尽力而为
+    }
+
+    private func directoryChildren(of root: URL) -> [URL] {
+        ((try? fileManager.contentsOfDirectory(   // try?-ok: 枚举失败跳过
+            at: root, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])) ?? []).filter {
+            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true   // try?-ok: 非目录跳过
+        }
     }
 
     private static func excludeFromBackup(_ url: URL) throws {

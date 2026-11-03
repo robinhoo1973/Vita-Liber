@@ -2949,7 +2949,6 @@
 "chat.mediaElementsFooter" = "Saved edits are still unconfirmed and do not enter the fact chain until reviewed.";
 "chat.mediaCardsAssemblyNote" = "Assembled from confirmed elements";
 
-"chat.mediaTabText" = "Recognized text";
 "chat.mediaTabElements" = "Data elements";
 
 "chat.mediaTabCards" = "Medical cards";

@@ -53,7 +53,6 @@ public actor NLTextUnderstanding: TextUnderstanding {
     /// DocumentTypeClassifierFallback.guessFields；其余由调用方通用 line_N 兜底——本层只产理解结果，不产 UI。
     private func classifyOCR(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
         let lines = input.lines ?? input.text.components(separatedBy: .newlines)
-        let classification = DocumentTypeClassifierFallback.classify(lines: lines)
         // 用户显式选定类型（稳定键）：跳过自动判定，直接按该类型抽取。
         // 只认稳定键/旧标签键；自由标签不猜（保持自动判定）。
         let forcedTarget: String? = {
@@ -61,12 +60,26 @@ public actor NLTextUnderstanding: TextUnderstanding {
                   let key = DocumentTypeKey(legacyLabelKey: hint) else { return nil }
             return key.rawValue
         }()
-        guard let target = forcedTarget ?? classification.target else {
+        // 自动判定只在无显式类型时计算：forced 分支的 target/置信度/次级
+        // 候选都被覆盖，旧实现每页白跑一遍 evidenceTable × 全行扫描。
+        let classification = forcedTarget == nil
+            ? DocumentTypeClassifierFallback.classify(lines: lines) : nil
+        guard let target = forcedTarget ?? classification?.target else {
             // 零命中：无法判定——调用方引导用户选择类型（§5 不预选数据去向）；
             // 全部行视为 line_N 草稿已认领（调用方不再补兜底行）
             return UnderstandingResult(suggestedTarget: nil, targetConfidence: 0,
                                        fields: Self.lineDrafts(lines),
                                        claimedLineIndices: Set(lines.indices))
+        }
+        // 仅附件类型（医嘱单/护理记录/麻醉记录/手术核查/知情同意，§A.3）
+        // 恒不出字段抽取——手选目标同样受此约束（此前 forced 分支会误跑
+        // guessFields 产出语义字段）。调用方以 line_N 兜底。
+        if DocumentTypeKey(rawValue: target)?.attachmentOnly == true {
+            return UnderstandingResult(suggestedTarget: target,
+                                       targetConfidence: forcedTarget == nil
+                                           ? (classification?.confidence ?? 0) : 0.9,
+                                       secondaryTargets: classification?.secondary ?? [],
+                                       fields: [], claimedLineIndices: [])
         }
         var fields: [FieldDraft] = []
         var claimed = Set<Int>()
@@ -78,7 +91,7 @@ public actor NLTextUnderstanding: TextUnderstanding {
             let cards = try await orchestrator.analyze(lines: lines,
                                                        layout: input.layout,
                                                        documentTypeKey: target,
-                                                       pageConfidence: classification.confidence,
+                                                       pageConfidence: classification?.confidence ?? 0.9,
                                                        allowsGenerativeProcessing: false)
             let grounded = cards.first { $0.kind == spec.kind }
             // 旧模板 mapping 的理解层键：department → dept（CardTemplateMatcher 处方模板别名）。
@@ -139,8 +152,8 @@ public actor NLTextUnderstanding: TextUnderstanding {
         }
         return UnderstandingResult(suggestedTarget: target,
                                    targetConfidence: forcedTarget == nil
-                                       ? classification.confidence : max(classification.confidence, 0.9),
-                                   secondaryTargets: classification.secondary,
+                                       ? (classification?.confidence ?? 0) : 0.9,
+                                   secondaryTargets: classification?.secondary ?? [],
                                    fields: fields,
                                    claimedLineIndices: claimed)
     }

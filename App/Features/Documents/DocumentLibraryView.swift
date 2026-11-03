@@ -727,6 +727,11 @@ final class DocumentsState {
             }
             var pages: [PageAnalysis] = []
             var tags: [String] = []
+            // 理解层只认稳定键：输入侧标签（当前语言/曾用标签）先反查，否则
+            // forcedTarget 恒 nil，用户显式选的类型在首轮识别被静默忽略。
+            let hintKey = input.docType.flatMap { label in
+                DocumentTypeKey(rawValue: label)?.rawValue ?? Self.docTypeKey(forLabel: label)
+            }
             if input.mimeType == "application/pdf" {
                 let count = try DocumentSourceRenderer.pageCount(data: input.originalData, mimeType: input.mimeType)
                 // The decoder's existing 50-page bound is explicit: all later indexes remain skipped.
@@ -735,7 +740,7 @@ final class DocumentsState {
                 if ocrAuthorized() {
                     do {
                         try await decoder.decodePDFPages(input.originalData, scale: 2, maxPages: limit) { page in
-                            let analysis = await self.analyze(imageData: page.bitmapData, index: page.pageIndex, hint: input.docType)
+                            let analysis = await self.analyze(imageData: page.bitmapData, index: page.pageIndex, hint: hintKey)
                             await results.append(analysis)
                         }
                     } catch {
@@ -752,7 +757,7 @@ final class DocumentsState {
                 // 单图分支赋值，多页 PDF 的模糊/反光页提示（FR5.3）永不呈现。
                 tags = recognized.flatMap(\.qualityTags)
             } else {
-                let page = await analyze(imageData: input.processedData, index: 0, hint: input.docType)
+                let page = await analyze(imageData: input.processedData, index: 0, hint: hintKey)
                 pages = [page]
                 tags = page.qualityTags
             }
@@ -790,11 +795,6 @@ final class DocumentsState {
             let confidence = result.confidence.isFinite ? min(1, max(0, result.confidence)) : 0
             var fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields,
                                                 confidence: confidence)
-            // 表格逐格 OCR：逐行文法全失配时按视觉行拼回再抽（D 级）。
-            if !fields.contains(where: { !$0.key.hasPrefix("line_") }), let layout = result.layout {
-                let semantic = Self.tableRowFallbackFields(layout: layout, confidence: confidence)
-                if !semantic.isEmpty { fields += semantic }
-            }
             // 审查修复（撤销清洗 + 无重复 NL）：只在「理解期间授权被撤回/代际
             // 变化且字段含生成轨产出」时重跑——以无生成授权重跑**注入引擎**
             // （FallbackTextUnderstanding 的门控自然切到 NL 轨；不再直接构造
@@ -807,32 +807,9 @@ final class DocumentsState {
                 understanding = try await understandingEngine.understand(gated)
                 fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields, confidence: confidence)
             }
-            // F25 词表锚定（2026-09-21，FR25.12⑬）：识别后先过词表扫描补字段缺口
-            // （指标行/处方行锚定 + 近失配候选），再统一过解析链贴码——锚定值恒为
-            // 原文子串（grounding 可逐字定位），全 D 级（BR-003）。词表不可用不阻断主链路。
-            if let lexiconSource {
-                if cachedLexicon == nil {
-                    do {
-                        let entries = try await lexiconSource.lexiconEntries()
-                        cachedLexicon = MedicalLexicon(entries: entries)
-                    } catch {
-                        cachedLexicon = nil
-                    }
-                }
-                if let lexicon = cachedLexicon {
-                    let anchored = LexiconExtraction.propose(lines: result.lines, lexicon: lexicon,
-                                                             existing: fields,
-                                                             documentTypeKey: understanding.suggestedTarget)
-                    if !anchored.isEmpty { fields += anchored }
-                }
-            }
-            if let codeIndex {
-                let locale = uiLocale()
-                fields = await UnderstandingCodeResolution.resolve(fields, locale: locale,
-                                                                     index: codeIndex, units: codeIndex)
-                fields = await UnderstandingCodeResolution.attachCandidateResolutions(
-                    fields, locale: locale, index: codeIndex)
-            }
+            fields = await finalizePageFields(fields, lines: result.lines, layout: result.layout,
+                                              confidence: confidence,
+                                              documentTypeKey: understanding.suggestedTarget)
             guard ocrAuthorized(), !Task.isCancelled else { return .init(index: index, lines: result.lines, status: "skipped", fields: []) }
             return .init(index: index, lines: result.lines, fields: fields,
                          documentTypeKey: understanding.suggestedTarget, confidence: confidence,
@@ -845,6 +822,51 @@ final class DocumentsState {
         } catch {
             return .init(index: index, lines: [], status: "failed", fields: [])
         }
+    }
+
+    /// 页字段后处理（表格行回退 + F25 词表锚定 + 编码解析）——首次识别与
+    /// 手选类型重抽共用同一条尾链，避免两条路径的字段集漂移。
+    /// 词表/编码不可用不阻断主链路（同 analyze 既有语义）。
+    func finalizePageFields(_ fields: [FieldDraft], lines: [String], layout: PageLayout?,
+                            confidence: Double, documentTypeKey: String?) async -> [FieldDraft] {
+        var fields = fields
+        // 仅附件类型（§A.3）恒零语义字段：表格回退/词表锚定/编码解析都不得
+        // 为它们补出字段（NLTextUnderstanding 只保证自身零产出）。
+        if let documentTypeKey, DocumentTypeKey(rawValue: documentTypeKey)?.attachmentOnly == true {
+            return fields
+        }
+        // 表格逐格 OCR：逐行文法全失配时按视觉行拼回再抽（D 级）。
+        if !fields.contains(where: { !$0.key.hasPrefix("line_") }), let layout {
+            let semantic = Self.tableRowFallbackFields(layout: layout, confidence: confidence)
+            if !semantic.isEmpty { fields += semantic }
+        }
+        // F25 词表锚定（2026-09-21，FR25.12⑬）：识别后先过词表扫描补字段缺口
+        // （指标行/处方行锚定 + 近失配候选），再统一过解析链贴码——锚定值恒为
+        // 原文子串（grounding 可逐字定位），全 D 级（BR-003）。
+        if let lexiconSource {
+            if cachedLexicon == nil {
+                do {
+                    let entries = try await lexiconSource.lexiconEntries()
+                    cachedLexicon = MedicalLexicon(entries: entries)
+                } catch {
+                    cachedLexicon = nil
+                }
+            }
+            if let lexicon = cachedLexicon {
+                let anchored = LexiconExtraction.propose(lines: lines, lexicon: lexicon,
+                                                         existing: fields,
+                                                         documentTypeKey: documentTypeKey)
+                if !anchored.isEmpty { fields += anchored }
+            }
+        }
+        if let codeIndex {
+            let locale = uiLocale()
+            fields = await UnderstandingCodeResolution.resolve(fields, locale: locale,
+                                                                 index: codeIndex, units: codeIndex)
+            fields = await UnderstandingCodeResolution.attachCandidateResolutions(
+                fields, locale: locale, index: codeIndex)
+        }
+        return fields
     }
 
     private func assembleDraft(_ input: PendingDocument, pages: [PageAnalysis], qualityTags: [String]) -> ImportDraft {
@@ -892,29 +914,31 @@ final class DocumentsState {
 
     @discardableResult
     func commitDraft(_ input: ImportDraft) async -> Bool {
+        // 未解析类型先拒绝：避免为一个必败的提交创建 activeImport 孤儿会话。
+        guard input.docTypeResolved else { return false }
         var draft = input
-        // 手选类型但页字段仍只有 line_N：按选定类型补跑理解层（数据信息元空态
-        // 根因之一）。只补「无任何语义字段」的草稿——已有语义字段可能已被用户
-        // 改值（pages[].fields 是卡片修正的落点），重抽会覆盖修正。
-        let onlyUntouchedLineFields = draft.pages.allSatisfy { page in
-            page.fields.allSatisfy {
-                $0.key.hasPrefix("line_")
-                    && $0.value == $0.originalValue && $0.unit == $0.originalUnit
-            }
-        }
-        if draft.docTypeManuallyChosen, !draft.manualTypeReextracted, onlyUntouchedLineFields,
-           let key = Self.docTypeKey(forLabel: draft.docType) {
-            draft = await reextractFields(for: draft, documentTypeKey: key)
-        }
+        // 手选类型但页字段仍只有未触碰 line_N：按选定类型补跑理解层（数据信息元
+        // 空态根因之一）。页级判定在 reextractFields 内：已有语义字段、已确认/
+        // 驳回或改过值的页不重抽（不会覆盖用户修正），其余空白页照常补。
+        let needsReextract = draft.pages.contains(where: Self.pageNeedsTypeReextract)
         let session = activeImport ?? beginImport(patientId: draft.patientId)
         guard let session, session.patientId == draft.patientId, !session.isSaving,
               session.draft == nil || session.draft?.id == draft.id,
-              !session.documentReviewFinished, draft.docTypeResolved else { return false }
+              !session.documentReviewFinished else { return false }
+        // 先置 isSaving 再 await 重抽：抽取期间取消/双击/编辑都被禁用。
+        // 否则取消后仍会落库，且 commit 快照会覆盖用户期间改的敏感开关/类型。
+        session.isSaving = true; session.errorMessage = nil; lastImportError = nil
+        defer { session.isSaving = false }
+        if draft.docTypeManuallyChosen, !draft.manualTypeReextracted, needsReextract,
+           let key = Self.docTypeKey(forLabel: draft.docType) {
+            draft = await reextractFields(for: draft, documentTypeKey: key)
+            // 抽取期间会话被取消/移交或任务已取消：不得落已取消的导入。
+            guard !Task.isCancelled, session.outcome == nil,
+                  !session.documentReviewFinished else { return false }
+        }
         session.draft = draft
         // 稳定键：用户手选优先（标签反查），否则页判定；供关联区裁决主卡草稿（hub(for:documentTypeKey:)）
         session.documentTypeKey = (draft.docTypeManuallyChosen ? Self.docTypeKey(forLabel: draft.docType) : nil) ?? draft.documentTypeKey
-        session.isSaving = true; session.errorMessage = nil; lastImportError = nil
-        defer { session.isSaving = false }
         do {
             if session.source == nil {
                 let meta = try persistMediaPaths(draft, session: session)

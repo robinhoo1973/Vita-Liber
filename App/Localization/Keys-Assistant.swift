@@ -236,7 +236,6 @@ extension L10n {
     static var chatImportStagingTooLarge: String { t("chat.importStaging.tooLarge") }
 
     static var chatMediaResultTitle: String { t("chat.mediaResultTitle") }
-    static var chatMediaTabText: String { t("chat.mediaTabText") }
     static var chatMediaTabElements: String { t("chat.mediaTabElements") }
     static var chatMediaTabCards: String { t("chat.mediaTabCards") }
     static var chatMediaViewSourceImage: String { t("chat.mediaViewSourceImage") }

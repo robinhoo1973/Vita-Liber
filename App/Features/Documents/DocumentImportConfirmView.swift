@@ -23,6 +23,9 @@ struct DocumentImportConfirmView: View {
                         draft.docType = $0; draft.docTypeResolved = true; draft.docTypeManuallyChosen = true
                         draft.documentTypeKey = DocumentsState.docTypeKey(forLabel: $0)
                         draft.docTypeLowConfidence = false
+                        // 改类型必须允许再次重抽（上次提交失败/改型后 flag 仍为 true
+                        // 会让新类型沿用旧类型的字段）。
+                        draft.manualTypeReextracted = false
                     })) {
                         ForEach(typeOptions, id: \.self) { Text($0).tag($0) }
                     }
@@ -35,6 +38,7 @@ struct DocumentImportConfirmView: View {
                                         draft.docType = type; draft.docTypeResolved = true
                                         draft.docTypeManuallyChosen = true; draft.docTypeLowConfidence = false
                                         draft.documentTypeKey = DocumentsState.docTypeKey(forLabel: type)
+                                        draft.manualTypeReextracted = false
                                     }.buttonStyle(.bordered).frame(minHeight: 44)
                                 }
                             }

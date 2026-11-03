@@ -8,11 +8,12 @@ import SwiftUI
 /// - brand:brand-primary 0.15 底 + brand 前景（主语言/主标签类）
 /// - neutral:bg-grouped 底 + text-secondary 前景（尽力识别/从属标注类）
 /// - warning / danger:semantic-warning/danger 0.15 底 + 同色前景（状态警示类）
+/// - success:semantic-success 0.15 底 + 同色前景（已确认/完成态）
 /// 统一不透明度 0.15（原 0.12 变体视觉并入）。
 /// 两档尺寸与旧形态一致:small = caption2/6/2(行内徽标),regular = caption/8/4(卡片类别徽章)。
 struct PillBadge: View {
     enum Style {
-        case brand, neutral, warning, danger
+        case brand, neutral, warning, danger, success
     }
 
     enum Sizing {
@@ -40,6 +41,7 @@ struct PillBadge: View {
         case .neutral: return Color("bg-grouped", bundle: .main)
         case .warning: return Color("semantic-warning", bundle: .main).opacity(0.15)
         case .danger: return Color("semantic-danger", bundle: .main).opacity(0.15)
+        case .success: return Color("semantic-success", bundle: .main).opacity(0.15)
         }
     }
 
@@ -49,6 +51,7 @@ struct PillBadge: View {
         case .neutral: return Color("text-secondary", bundle: .main)
         case .warning: return Color("semantic-warning", bundle: .main)
         case .danger: return Color("semantic-danger", bundle: .main)
+        case .success: return Color("semantic-success", bundle: .main)
         }
     }
 }
