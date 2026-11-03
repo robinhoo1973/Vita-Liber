@@ -2735,7 +2735,7 @@
 "assistant.mergedFilesFilename" = "File note";
 "assistant.mergedMixedFilename" = "Images and files note";
 "chat.mediaPageAccessibilityFmt" = "Image %d of %d";
-"chat.mediaMoreActions" = "More actions";
+"chat.mediaMoreActions" = "Document info";
 "chat.mediaReRecognize" = "Re-recognize";
 "chat.mediaStorageLocation" = "Storage location";
 "chat.mediaStorageOnDevice" = "Stored on this device (no Files app copy yet; export below to retry)";
@@ -2945,10 +2945,11 @@
 "chat.mediaElementSubtitleFmt" = "Page %d · %d items";
 "chat.mediaGoConfirm" = "Review";
 "chat.mediaSourceText" = "Source";
-"chat.mediaElementsToCards" = "Go to cards";
+"chat.mediaElementsToCards" = "Update cards";
 "chat.mediaElementsFooter" = "Saved edits are still unconfirmed and do not enter the fact chain until reviewed.";
 "chat.mediaCardsAssemblyNote" = "Assembled from confirmed elements";
 
+"chat.mediaTabText" = "Recognized text";
 "chat.mediaTabElements" = "Data elements";
 
 "chat.mediaTabCards" = "Medical cards";
@@ -2983,3 +2984,4 @@
 
 "chat.mediaPreviousPage" = "Previous page";
 "chat.mediaNextPage" = "Next page";
+"chat.mediaExportCopyNote" = "Export creates a shareable copy in the Files app session folder. The original stays on this device; the copy is not a medical fact.";

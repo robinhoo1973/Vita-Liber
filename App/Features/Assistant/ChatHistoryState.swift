@@ -110,6 +110,9 @@ final class ChatHistoryState {
         }
         for filename in audio { ChatAudioStore.remove(filename) }
         if !copies.isEmpty { await exportMirror?.removeCopies(records: copies) }
+        // 账本缺行（自动导出写盘后记账失败/删除-导出竞态）时目录仍可能留在
+        // 「文件」App；按会话短 ID 兜底删除 App 专用根内的目录。
+        await exportMirror?.removeConversationArtifacts(conversationID: id)
         await reloadCurrentQuery()
     }
 

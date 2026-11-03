@@ -59,6 +59,7 @@ struct TaskAssistantChatView: View {
     /// 单 sheet 槽（2026-10-19）：语音与附件采集共用一次 presentation，
     /// 避免同视图多 `.sheet` 在 iOS 16 的相互覆盖。
     @State private var activeSheet: AssistantSheet?
+    @State private var didAttemptSessionRestore = false
     @State private var voiceMode = false
     /// 聊天内语音输入（2026-10-20）：复用 VoiceDictationModel，轻点开始/再点结束，
     /// 波形悬浮在当前页，不再打开 AssistantVoiceInputSheet。
@@ -230,8 +231,11 @@ struct TaskAssistantChatView: View {
                         .accessibilityIdentifier("assistant.history")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button(L10n.assistantClose) { dismiss() }
-                            .accessibilityIdentifier("assistant.close")
+                        Button(L10n.assistantClose) {
+                            AssistantSessionStore.close()
+                            dismiss()
+                        }
+                        .accessibilityIdentifier("assistant.close")
                     }
                 }
                 // FR17.13-entry: task-assistant（唯一确认映射 VoiceInputTemplate.confirmationSet）
@@ -257,6 +261,7 @@ struct TaskAssistantChatView: View {
                               allowsMultipleSelection: true,
                               onCompletion: handleImportedFiles)
                 .onAppear {
+                    Task { await restoreSessionIfNeeded() }
                     routeMonitor.start()
                     #if DEBUG
                     seedStagingForUITestsIfNeeded()
@@ -941,6 +946,7 @@ struct TaskAssistantChatView: View {
         model.onFailure = { sessionID, _ in receiveVoiceFailure(sessionID: sessionID) }
         model.onEmergency = { _ in
             chatDictation?.stopForDisappear()
+            AssistantSessionStore.close()
             dismiss()
             router.navigate(to: .sosHelp)
         }
@@ -1341,6 +1347,7 @@ struct TaskAssistantChatView: View {
             return existing
         }
         conversationID = created
+        AssistantSessionStore.saveConversation(created)
         return created
     }
 
@@ -1511,6 +1518,7 @@ struct TaskAssistantChatView: View {
                 conversationID = summary.id
                 conversationTitle = summary.title
                 titleCaptured = true
+                AssistantSessionStore.saveConversation(summary.id)
                 // 旧版本落库的卡片消息不再渲染（业主 2026-10-29：卡片只在
                 // 媒体详情）；过滤在解码后，历史数据保留可回溯。
                 // 旧版本把自动副本失败写成常驻聊天消息；升级后不再产生，
@@ -1535,12 +1543,29 @@ struct TaskAssistantChatView: View {
         }
     }
 
+    /// 冷启动/系统拆掉 fullScreenCover 后恢复同一会话（2026-11-03 真机）。
+    private func restoreSessionIfNeeded() async {
+        guard !didAttemptSessionRestore else { return }
+        didAttemptSessionRestore = true
+        guard conversationID == nil, AssistantSessionStore.isOpen,
+              let savedID = AssistantSessionStore.conversationID else { return }
+        await chatHistory.load(patientId: app.currentPatientId)
+        // 载入期间用户可能已发送消息（懒创建会话）——不覆盖当前会话。
+        guard conversationID == nil else { return }
+        guard let summary = chatHistory.conversations.first(where: { $0.id == savedID }) else {
+            AssistantSessionStore.saveConversation(nil)
+            return
+        }
+        openConversation(summary)
+    }
+
     private func startNewConversation() {
         // 懒创建：清空界面即可；首条消息落库时创建会话，避免空行。
         stopVoicePlayback()
         interruptInFlightImports()
         conversationGeneration = UUID()
         conversationID = nil
+        AssistantSessionStore.saveConversation(nil)
         conversationTitle = nil
         titleCaptured = false
         messages = []
@@ -2000,6 +2025,9 @@ struct TaskAssistantChatView: View {
         draft.docTypeManuallyChosen = true
         draft.documentTypeKey = DocumentsState.docTypeKey(forLabel: label)
         draft.docTypeLowConfidence = false
+        if let key = draft.documentTypeKey {
+            draft = await docs.reextractFields(for: draft, documentTypeKey: key)
+        }
         session.draft = draft
         await completeImport(draft, session: session, messageID: messageID)
     }
@@ -2202,6 +2230,7 @@ struct TaskAssistantChatView: View {
         isSaving = false
         append(.init(role: .assistant, text: L10n.assistantEmergencyHandoff,
                      isRefusal: true, isEmergency: true))
+        AssistantSessionStore.close()
         dismiss()
         router.navigate(to: .sosHelp)
     }
@@ -2326,6 +2355,8 @@ struct TaskAssistantChatView: View {
             sourcePlanId: plan.planId, confirmationId: action.confirmationId,
             idempotencyKey: action.idempotencyKey, actionKind: action.kind.rawValue)
         isSaving = false
+        // 交给其他页面处理（语音动作路由）：聊天本次会话结束，回前台不重开。
+        AssistantSessionStore.close()
         router.navigate(to: target)
         dismiss()
     }

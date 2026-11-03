@@ -289,6 +289,48 @@ public actor DocumentExportMirror {
         }
     }
 
+    /// 删除会话时兜底清理目录（2026-11-03 真机：删历史对话后 Files 目录仍在）。
+    /// 账本可能没有行（自动导出写盘后记账失败、tombstone、删除与导出竞态），
+    /// 仅凭 `copies(conversationID:)` 删不掉。会话目录名以 `-<会话短ID>` 结尾，
+    /// 只在 App 专用的 `conversation/`、旧 `Vita Liber/` 根内按后缀匹配；
+    /// 根目录仅接受严格会话名格式，避免误删用户自建目录。canonical 不受影响。
+    public func removeConversationArtifacts(conversationID: UUID) async {
+        let id6 = String(conversationID.uuidString.lowercased().prefix(6))
+        // 同名目录消解会在短 ID 后再加 `-2`/`-3`（DocumentExportNaming），
+        // 后缀匹配必须容许该段，否则碰撞过的会话目录会留下。
+        let suffixPattern = try? NSRegularExpression(   // try?-ok: 静态模式
+            pattern: #"-\#(id6)(?:-\d+)?$"#)
+        func matchesSuffix(_ name: String) -> Bool {
+            let lower = name.lowercased()
+            let range = NSRange(lower.startIndex..<lower.endIndex, in: lower)
+            return suffixPattern?.firstMatch(in: lower, range: range) != nil
+        }
+        let conversationRoot = exportsBase.appendingPathComponent(
+            MediaRootPaths.conversationFolderName, isDirectory: true)
+        let legacyRoot = exportsBase.appendingPathComponent(
+            Self.legacyExportFolderName, isDirectory: true)
+        for root in [conversationRoot, legacyRoot] where fileManager.fileExists(atPath: root.path) {
+            for entry in (try? fileManager.contentsOfDirectory(   // try?-ok: 枚举失败跳过
+                at: root, includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles])) ?? [] {
+                guard matchesSuffix(entry.lastPathComponent) else { continue }
+                try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
+            }
+        }
+        // 11-02 扁平会话目录（迁移前删除的会话）：严格 `yyyyMMdd-HHmm-…-id6[-n]`。
+        let flatPattern = try? NSRegularExpression(   // try?-ok: 静态模式
+            pattern: #"^\d{8}-\d{4}-.+-\#(id6)(?:-\d+)?$"#)
+        for entry in (try? fileManager.contentsOfDirectory(   // try?-ok: 枚举失败跳过
+            at: exportsBase, includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles])) ?? [] {
+            let name = entry.lastPathComponent
+            let range = NSRange(name.startIndex..<name.endIndex, in: name)
+            if flatPattern?.firstMatch(in: name, range: range) != nil {
+                try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
+            }
+        }
+    }
+
     /// 清空全部数据：擦账本 + 删除全部会话目录副本（canonical 由各自链路负责）。
     public func wipeAllCopies() async {
         let records = await ledger.activeRecords()

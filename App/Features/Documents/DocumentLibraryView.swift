@@ -52,6 +52,12 @@ final class DocumentsState {
     /// 与 load() 的代次守卫对齐，乱序晚到的旧集合响应不得覆盖新投影。
     private var pendingRequestPatientIds: [UUID] = []
 
+    /// 手选类型重抽（`DocumentsState+EntityCards` 扩展）入口：`understandingEngine`
+    /// 是 private，跨文件扩展不可直接访问。
+    func understand(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
+        try await understandingEngine.understand(input)
+    }
+
     enum ImportOutcome: Equatable { case saved, deferred, cancelled }
     enum CaptureStep: Equatable { case camera, photos, file, region, occlusion, review }
 
@@ -177,6 +183,8 @@ final class DocumentsState {
         var existingDocumentId: UUID?
         var retainedMeta: [String: Any] = [:]
         var previousCards: [MatchedCard] = []
+        /// 用户手选类型后是否已按该类型重跑理解层（避免 commit 重复抽取）。
+        var manualTypeReextracted = false
 
         var isPrescription: Bool { docType == L10n.docTypePrescription }
         var allFields: [FieldDraft] { pages.flatMap(\.fields) }
@@ -782,6 +790,11 @@ final class DocumentsState {
             let confidence = result.confidence.isFinite ? min(1, max(0, result.confidence)) : 0
             var fields = Self.extractPageFields(lines: result.lines, understood: understanding.fields,
                                                 confidence: confidence)
+            // 表格逐格 OCR：逐行文法全失配时按视觉行拼回再抽（D 级）。
+            if !fields.contains(where: { !$0.key.hasPrefix("line_") }), let layout = result.layout {
+                let semantic = Self.tableRowFallbackFields(layout: layout, confidence: confidence)
+                if !semantic.isEmpty { fields += semantic }
+            }
             // 审查修复（撤销清洗 + 无重复 NL）：只在「理解期间授权被撤回/代际
             // 变化且字段含生成轨产出」时重跑——以无生成授权重跑**注入引擎**
             // （FallbackTextUnderstanding 的门控自然切到 NL 轨；不再直接构造
@@ -878,7 +891,21 @@ final class DocumentsState {
     }
 
     @discardableResult
-    func commitDraft(_ draft: ImportDraft) async -> Bool {
+    func commitDraft(_ input: ImportDraft) async -> Bool {
+        var draft = input
+        // 手选类型但页字段仍只有 line_N：按选定类型补跑理解层（数据信息元空态
+        // 根因之一）。只补「无任何语义字段」的草稿——已有语义字段可能已被用户
+        // 改值（pages[].fields 是卡片修正的落点），重抽会覆盖修正。
+        let onlyUntouchedLineFields = draft.pages.allSatisfy { page in
+            page.fields.allSatisfy {
+                $0.key.hasPrefix("line_")
+                    && $0.value == $0.originalValue && $0.unit == $0.originalUnit
+            }
+        }
+        if draft.docTypeManuallyChosen, !draft.manualTypeReextracted, onlyUntouchedLineFields,
+           let key = Self.docTypeKey(forLabel: draft.docType) {
+            draft = await reextractFields(for: draft, documentTypeKey: key)
+        }
         let session = activeImport ?? beginImport(patientId: draft.patientId)
         guard let session, session.patientId == draft.patientId, !session.isSaving,
               session.draft == nil || session.draft?.id == draft.id,

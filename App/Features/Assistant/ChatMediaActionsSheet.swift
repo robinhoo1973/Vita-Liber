@@ -21,7 +21,6 @@ struct ChatMediaActionsSheet: View {
     @Environment(DocumentExportState.self) private var exportState
     @Environment(\.dismiss) private var dismiss
 
-    @State private var showOriginal = false
     @State private var storagePath: String?
     @State private var storageLoaded = false
     @State private var exporting = false
@@ -57,23 +56,17 @@ struct ChatMediaActionsSheet: View {
                     .padding(.vertical, 4)
                 }
                 Section {
-                    Button {
-                        showOriginal = true
-                    } label: {
-                        Label(L10n.docViewOriginal, systemImage: "photo")
-                    }
-                    NavigationLink {
-                        DocumentReviewRouteView(documentId: documentId, patientId: patientId,
-                                                reprocess: true, suppressAutoMirror: true)
-                    } label: {
-                        Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
-                    }
                     NavigationLink {
                         ChatMediaInfoView(documentId: documentId, patientId: patientId,
                                           title: title, pageCount: pageCount)
                     } label: {
                         Label(L10n.docTitleSection, systemImage: "info.circle")
                     }
+                }
+                Section {
+                    Text(L10n.chatMediaExportCopyNote)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Button {
                         Task { await exportCopy() }
                     } label: {
@@ -99,10 +92,6 @@ struct ChatMediaActionsSheet: View {
                 }
             }
             .task { await loadStorage() }
-            .fullScreenCover(isPresented: $showOriginal) {
-                DocumentSourcePageView(documentId: documentId, patientId: patientId,
-                                       pageIndex: 0)
-            }
         }
     }
 

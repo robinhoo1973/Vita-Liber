@@ -32,9 +32,10 @@ struct HomeView: View {
     @Environment(ASRInstallCenter.self) private var installCenter
     /// 2026-10-21：后台健康同步周期提示（持久周期状态 + 后台任务回写）。
     @Environment(F16DeviceState.self) private var healthSyncState
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showMemberPicker = false
     @State private var showSOS = false
-    @State private var showAssistantChat = false
+    @State private var showAssistantChat = AssistantSessionStore.isOpen
     @State private var notifDenied = false
     /// FR2.1⑦ 首页滑动处置底部条（round2 U2/U3）：撤销（写成功）/ 重试（写失败）双态，
     /// 载荷 id 为动作代次——计时与撤销均以代次判「仍是同一条」。
@@ -320,6 +321,7 @@ struct HomeView: View {
                                 label: L10n.homeAssistant,
                                 identifier: "SP-04.home.assistant"
                             ) {
+                                AssistantSessionStore.open()
                                 showAssistantChat = true
                             }
                         }
@@ -352,6 +354,13 @@ struct HomeView: View {
             .sheet(isPresented: $showSOS) { SOSHelpView() }
             // AI 聊天入口（任务型助手；环境由根注入继承）
             .fullScreenCover(isPresented: $showAssistantChat) { TaskAssistantChatView() }
+            // 锁屏/切出时系统可能拆掉 fullScreenCover；回前台若聊天仍处
+            // 「打开」状态则重开，会话由 TaskAssistantChatView 按持久 ID 恢复。
+            .onChangeCompat(of: scenePhase) { _, phase in
+                if phase == .active, AssistantSessionStore.isOpen, !showAssistantChat {
+                    showAssistantChat = true
+                }
+            }
             .sheet(isPresented: $showQuickCapture) {
                 NavigationStack { QuickCaptureView(kind: nil) }
             }

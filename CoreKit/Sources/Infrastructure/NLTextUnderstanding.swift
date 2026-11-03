@@ -54,7 +54,14 @@ public actor NLTextUnderstanding: TextUnderstanding {
     private func classifyOCR(_ input: TextUnderstandingInput) async throws -> UnderstandingResult {
         let lines = input.lines ?? input.text.components(separatedBy: .newlines)
         let classification = DocumentTypeClassifierFallback.classify(lines: lines)
-        guard let target = classification.target else {
+        // 用户显式选定类型（稳定键）：跳过自动判定，直接按该类型抽取。
+        // 只认稳定键/旧标签键；自由标签不猜（保持自动判定）。
+        let forcedTarget: String? = {
+            guard case .ocr(let hint) = input.source, let hint,
+                  let key = DocumentTypeKey(legacyLabelKey: hint) else { return nil }
+            return key.rawValue
+        }()
+        guard let target = forcedTarget ?? classification.target else {
             // 零命中：无法判定——调用方引导用户选择类型（§5 不预选数据去向）；
             // 全部行视为 line_N 草稿已认领（调用方不再补兜底行）
             return UnderstandingResult(suggestedTarget: nil, targetConfidence: 0,
@@ -131,7 +138,8 @@ public actor NLTextUnderstanding: TextUnderstanding {
             }
         }
         return UnderstandingResult(suggestedTarget: target,
-                                   targetConfidence: classification.confidence,
+                                   targetConfidence: forcedTarget == nil
+                                       ? classification.confidence : max(classification.confidence, 0.9),
                                    secondaryTargets: classification.secondary,
                                    fields: fields,
                                    claimedLineIndices: claimed)

@@ -31,12 +31,13 @@ struct ChatMediaDetailView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
-    /// 2026-11-02 真机：缩略图在上，下面两个 tab——数据信息元 / 医疗信息卡片。
+    /// 2026-11-03 真机：缩略图在上，下面三个 tab——识别原文 / 数据信息元 / 医疗信息卡片。
     private enum Tab: String, CaseIterable, Identifiable {
-        case elements, cards
+        case text, elements, cards
         var id: String { rawValue }
         var label: String {
             switch self {
+            case .text: return L10n.chatMediaTabText
             case .elements: return L10n.chatMediaTabElements
             case .cards: return L10n.chatMediaTabCards
             }
@@ -114,6 +115,8 @@ struct ChatMediaDetailView: View {
 
     @State private var tab: Tab = .elements
     @State private var textState: TextState = .loading
+    /// 识别原文页签的当前页（按页显示，底部翻页）。
+    @State private var textPageIndex = 0
     @State private var cardsState: CardsState = .loading
     @State private var pendingState: PendingState = .loading
     @State private var docState: DocState = .loading
@@ -161,30 +164,24 @@ struct ChatMediaDetailView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        NavigationLink {
-                            DocumentReviewRouteView(documentId: documentId, patientId: patientId,
-                                                    reprocess: true, suppressAutoMirror: true)
+                        Button {
+                            if dirtyCards.isEmpty { dismiss() }
+                            else { showDiscardEdits = true }
                         } label: {
-                            Image(systemName: "arrow.triangle.2.circlepath")
+                            Image(systemName: "chevron.left")
                         }
-                        .accessibilityLabel(L10n.chatMediaReRecognize)
-                        .accessibilityIdentifier("chat.mediaDetail.reprocess.toolbar")
+                        .accessibilityLabel(L10n.commonBack)
+                        .accessibilityIdentifier("chat.mediaDetail.back")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             dismissRefresh = .all
                             detailSheet = .actions
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: "info.circle")
                         }
                         .accessibilityLabel(L10n.chatMediaMoreActions)
                         .accessibilityIdentifier("chat.mediaDetail.more")
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(L10n.assistantClose) {
-                            if dirtyCards.isEmpty { dismiss() }
-                            else { showDiscardEdits = true }
-                        }
                     }
                 }
                 .task(id: documentId) { await loadBasics() }
@@ -282,9 +279,13 @@ struct ChatMediaDetailView: View {
 
     private var mediaCard: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(2)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                documentStatusTag
+                Spacer(minLength: 0)
+            }
             Text(L10n.chatMediaSummary(thumbnailCount, totalPageCount))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -294,20 +295,33 @@ struct ChatMediaDetailView: View {
                 unavailableBlock { Task { await loadBasics() } }
                     .padding(.top, 6)
             }
-            HStack(spacing: 8) {
-                if case .loaded(let grade) = docState,
-                   grade == GradeBadge.gradeMachineUnconfirmed
-                    || grade == GradeBadge.gradeConfirmed {
-                    GradeBadge(grade: grade)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.top, 4)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.systemBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// 标题旁简化来源态：只留「待确认/已确认」，不再重复 D + 识别未确认 + 待确认。
+    @ViewBuilder
+    private var documentStatusTag: some View {
+        if case .loaded(let grade) = docState {
+            if grade == GradeBadge.gradeConfirmed {
+                Text(L10n.assistantMediaConfirmed)
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color("semantic-success", bundle: .main).opacity(0.16)))
+                    .foregroundStyle(Color("semantic-success", bundle: .main))
+            } else if grade == GradeBadge.gradeMachineUnconfirmed {
+                Text(L10n.gradeBadgePending)
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color("semantic-warning", bundle: .main).opacity(0.16)))
+                    .foregroundStyle(Color("semantic-warning", bundle: .main))
+            }
+        }
     }
 
     /// 文档真实页数（识别文本逐页数；读取完成前按 1）。
@@ -398,11 +412,101 @@ struct ChatMediaDetailView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
+        case .text:
+            textTab
         case .elements:
             elementsTab
         case .cards:
             cardsTab
         }
+    }
+
+    // MARK: - 识别原文（按页显示；2026-11-03 业主）
+
+    @ViewBuilder
+    private var textTab: some View {
+        switch textState {
+        case .loading:
+            ProgressView().frame(maxWidth: .infinity, minHeight: 160)
+        case .failed:
+            errorBlock { Task { await loadBasics() } }
+        case .empty:
+            emptyNote(L10n.assistantMediaTextEmpty)
+        case .legacy(let text):
+            textPageCard(text: text, index: 0, pageCount: 1, status: "ok")
+        case .pages(let pages):
+            if pages.isEmpty {
+                emptyNote(L10n.assistantMediaTextEmpty)
+            } else {
+                let index = min(max(textPageIndex, 0), pages.count - 1)
+                let page = pages[index]
+                textPageCard(text: page.text ?? "", index: index,
+                             pageCount: pages.count, status: page.status)
+                if pages.count > 1 {
+                    textPager(count: pages.count, index: index)
+                }
+            }
+        }
+    }
+
+    private func textPageCard(text: String, index: Int, pageCount: Int, status: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(L10n.entityCardHeaderPage(index + 1, pageCount))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if status == "no_text" {
+                    Text(L10n.assistantMediaPageNoText)
+                        .font(.caption2).foregroundStyle(.secondary)
+                } else if status == "failed" {
+                    Text(L10n.assistantMediaPageFailed)
+                        .font(.caption2).foregroundStyle(Color("semantic-danger", bundle: .main))
+                } else if status == "skipped" {
+                    Text(L10n.assistantMediaPageSkipped)
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            // 外层详情已是 ScrollView：原文直接铺开（长文本随页面滚动），
+            // 不再嵌套内层滚动视图（无固定高度时内层只会撑满、白增手势层）。
+            Text(text.isEmpty ? L10n.assistantMediaPageNoText : text)
+                .font(.footnote)
+                .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
+                .textSelection(.enabled)
+        }
+        .padding(12)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.mediaDetail.text.page")
+    }
+
+    private func textPager(count: Int, index: Int) -> some View {
+        HStack(spacing: 18) {
+            Button { textPageIndex = max(0, index - 1) } label: {
+                Image(systemName: "chevron.left")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(index <= 0)
+            .accessibilityLabel(L10n.chatMediaPreviousPage)
+            .accessibilityIdentifier("chat.mediaDetail.text.previous")
+
+            Text(L10n.entityCardHeaderPage(index + 1, count))
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Button { textPageIndex = min(count - 1, index + 1) } label: {
+                Image(systemName: "chevron.right")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .disabled(index >= count - 1)
+            .accessibilityLabel(L10n.chatMediaNextPage)
+            .accessibilityIdentifier("chat.mediaDetail.text.next")
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - 数据信息元（可修正的字段卡；确认仍走既有卡级）
@@ -428,7 +532,8 @@ struct ChatMediaDetailView: View {
             case .loaded(let cards):
                 let rows = elementRows(from: cards)
                 if rows.isEmpty {
-                    emptyWithReprocess(L10n.chatMediaElementsEmpty)
+                    // 空态只留说明；重新识别由底部固定动作行承担（不重复入口）。
+                    emptyNote(L10n.chatMediaElementsEmpty)
                 } else {
                     sectionHeader(L10n.chatMediaElementsGroupHeader)
                     ForEach(rows) { row in
@@ -454,18 +559,33 @@ struct ChatMediaDetailView: View {
                 .accessibilityIdentifier("chat.mediaDetail.elements.saveAll")
             }
 
-            Button {
-                Task {
-                    await saveAllElementCards()
-                    if dirtyCards.isEmpty { tab = .cards }
+            HStack(spacing: 10) {
+                NavigationLink {
+                    DocumentReviewRouteView(documentId: documentId, patientId: patientId,
+                                            reprocess: true, suppressAutoMirror: true) {
+                        Task { await loadBasics() }
+                    }
+                } label: {
+                    Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 48)
                 }
-            } label: {
-                Text(L10n.chatMediaElementsToCards)
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 48)
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("chat.mediaDetail.elements.reprocess")
+
+                Button {
+                    Task {
+                        await saveAllElementCards()
+                        if dirtyCards.isEmpty { tab = .cards }
+                    }
+                } label: {
+                    Text(L10n.chatMediaElementsToCards)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("chat.mediaDetail.elements.toCards")
             }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("chat.mediaDetail.elements.toCards")
 
             Text(L10n.chatMediaElementsFooter)
                 .font(.caption2)
@@ -1132,7 +1252,9 @@ struct ChatMediaDetailView: View {
             emptyNote(text)
             NavigationLink {
                 DocumentReviewRouteView(documentId: documentId, patientId: patientId,
-                                        reprocess: true, suppressAutoMirror: true)
+                                        reprocess: true, suppressAutoMirror: true) {
+                    Task { await loadBasics() }
+                }
             } label: {
                 Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
                     .font(.subheadline.weight(.semibold))

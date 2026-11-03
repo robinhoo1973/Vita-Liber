@@ -37,6 +37,55 @@ extension DocumentsState {
         DocumentTypeClassifierFallback.pageFields(lines: lines, understood: understood, confidence: confidence)
     }
 
+    /// 用户手选类型后按该类型重跑理解层（2026-11-03 真机：自动判定失败时
+    /// 页字段只剩 line_N，手选类型只换模板键、不补语义字段，数据信息元恒空）。
+    /// 只处理 status=ok 页；生成轨恒关闭（BR-003，D 级草稿）；失败页保持原样。
+    func reextractFields(for draft: ImportDraft, documentTypeKey: String) async -> ImportDraft {
+        var updated = draft
+        for index in updated.pages.indices where updated.pages[index].status == "ok" {
+            let page = updated.pages[index]
+            let input = TextUnderstandingInput(
+                text: page.lines.joined(separator: "\n"), lines: page.lines,
+                layout: page.layout, source: .ocr(documentTypeHint: documentTypeKey),
+                allowsGenerativeProcessing: false)
+            let understanding: UnderstandingResult
+            do { understanding = try await understand(input) }
+            catch { continue }
+            let confidence = page.confidence.isFinite ? min(1, max(0, page.confidence)) : 0
+            var fields = Self.extractPageFields(
+                lines: page.lines, understood: understanding.fields, confidence: confidence)
+            // 表格 OCR 常把「项目 / 结果 / 单位」拆成独立块，逐行正则失配；
+            // 无任何语义字段时按几何行拼回整行再抽一次（D 级，rawText 为拼行）。
+            if !fields.contains(where: { !$0.key.hasPrefix("line_") }),
+               let layout = page.layout {
+                let semantic = Self.tableRowFallbackFields(layout: layout, confidence: confidence)
+                if !semantic.isEmpty { fields += semantic }
+            }
+            updated.pages[index].fields = fields
+            updated.pages[index].documentTypeKey = documentTypeKey
+            updated.pages[index].typeConfidence = max(page.typeConfidence ?? 0, 0.9)
+        }
+        updated.previousCards = Self.matchPages(updated.pages, manualTypeKey: documentTypeKey)
+        updated.manualTypeReextracted = true
+        return updated
+    }
+
+    /// 表格行聚合回退：Vision 逐格观察 → 同视觉行按 x 拼回「项目 结果 单位」，
+    /// 再走通用字段文法。只在语义字段全空时启用；值仍是原文子串，D 级。
+    static func tableRowFallbackFields(layout: PageLayout, confidence: Double) -> [FieldDraft] {
+        var out: [FieldDraft] = []
+        for row in LayoutRowBuilder.rows(from: layout.blocks) where row.cells.count >= 2 {
+            let text = row.cells.map(\.text).joined(separator: " ")
+            for var draft in DocumentTypeClassifierFallback.guessFields(line: text) {
+                draft.rawText = text
+                draft.sourceLineIndex = row.cells.first?.lineIndex
+                draft.confidence = min(draft.confidence, max(0.3, min(0.6, confidence)))
+                out.append(draft)
+            }
+        }
+        return out
+    }
+
     /// 就诊卡的文档类型证据（v26）：用户手选 / 页判定的稳定键落在就诊卡许可集内（门诊病历 / 诊断证明 / 急诊病历）时原样
     /// 传给匹配器——`kind` 由该键派生（emergency_record → emergency，不再一律硬编码门诊）；住院族文档键
     ///（住院病案 / 出院小结 / 日间手术）上不产出就诊卡（就诊由 hospitalization 卡建，kind = inpatient / daySurgery）；

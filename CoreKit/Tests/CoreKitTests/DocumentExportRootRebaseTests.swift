@@ -156,6 +156,25 @@ struct DocumentExportRootRebaseTests {
             atPath: f.exports.appendingPathComponent("Vita Liber").path))
     }
 
+    @Test("删除会话按短 ID 兜底清 conversation/ 与扁平目录")
+    func removesConversationArtifactsByShortID() async throws {
+        let f = try await makeFixture()
+        let id = UUID()
+        let id6 = String(id.uuidString.lowercased().prefix(6))
+        let leaf = "20261102-1435-会话-\(id6)"
+        try writeFile(f.exports.appendingPathComponent("conversation/\(leaf)/a.jpg"))
+        // 同名消解后缀 `-2` 仍在短 ID 之后，必须一并清理。
+        try writeFile(f.exports.appendingPathComponent("conversation/\(leaf)-2/c.jpg"))
+        try writeFile(f.exports.appendingPathComponent("\(leaf)/b.jpg"))
+        await f.mirror.removeConversationArtifacts(conversationID: id)
+        #expect(!FileManager.default.fileExists(
+            atPath: f.exports.appendingPathComponent("conversation/\(leaf)").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: f.exports.appendingPathComponent("conversation/\(leaf)-2").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: f.exports.appendingPathComponent(leaf).path))
+    }
+
     @Test("空旧根无账本行也清理")
     func removesEmptyLegacyRoot() async throws {
         let f = try await makeFixture()

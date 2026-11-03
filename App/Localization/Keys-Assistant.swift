@@ -135,6 +135,7 @@ extension L10n {
     // 2026-10-30 业主（mock v4 第 4/5/6/8 帧）：缩略图直入原图、更多操作、
     // 待核对卡字段摘要、语音详情、导入前图片检查。
     static var chatMediaMoreActions: String { t("chat.mediaMoreActions") }
+    static var chatMediaExportCopyNote: String { t("chat.mediaExportCopyNote") }
     static var chatMediaReRecognize: String { t("chat.mediaReRecognize") }
     static var chatMediaStorageLocation: String { t("chat.mediaStorageLocation") }
     static var chatMediaStorageOnDevice: String { t("chat.mediaStorageOnDevice") }
@@ -235,6 +236,7 @@ extension L10n {
     static var chatImportStagingTooLarge: String { t("chat.importStaging.tooLarge") }
 
     static var chatMediaResultTitle: String { t("chat.mediaResultTitle") }
+    static var chatMediaTabText: String { t("chat.mediaTabText") }
     static var chatMediaTabElements: String { t("chat.mediaTabElements") }
     static var chatMediaTabCards: String { t("chat.mediaTabCards") }
     static var chatMediaViewSourceImage: String { t("chat.mediaViewSourceImage") }

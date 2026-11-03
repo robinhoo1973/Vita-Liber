@@ -150,6 +150,10 @@ final class AppState {
         if self.launchArgs.contains("-uitest-seed-finished") {
             onboardingFinished = true
             defaults.set(true, forKey: "onboardingFinished")
+            // 测试种子态必须与「聊天是否打开」无关：前序用例可能停在聊天页，
+            // 其余用例（冷启五 Tab 等）不带 -uitest-reset，持久打开态会把
+            // fullScreenCover 重新拉起、遮住 Tab。每个种子启动一律清位。
+            AssistantSessionStore.close()
         }
         // 门禁旁路：直接视为本会话已认证（非门禁用例避免遮罩；XCUITest 专用）
         if self.launchArgs.contains("-uitest-gate-bypass") {
@@ -600,6 +604,9 @@ final class AppState {
         defaults.removeObject(forKey: "currentPatientId")
         defaults.removeObject(forKey: "selfPatientId")
         defaults.removeObject(forKey: "disclosureProgress")
+        // 聊天恢复位不属于「偏好」，随身份数据一并清：否则清空后回首页
+        // 会被持久打开态重新拉起一个指向已删除会话的聊天 cover。
+        AssistantSessionStore.close()
         // 回到首启向导：onboardingFinished=false 是唯一的「重建档案」入口
         onboardingFinished = false
         defaults.set(false, forKey: "onboardingFinished")

@@ -577,6 +577,9 @@ struct DocumentReviewRouteView: View {
     var reprocess = false
     /// 重识别沿用聊天会话目录（显式导出），不让资料库月桶自动镜像再落一份。
     var suppressAutoMirror = false
+    /// 复核流程结束（提交/取消）回调：调用方据此刷新被覆盖期间的数据
+    /// （聊天详情重识别后原本停在旧文本/旧卡片）。
+    var onFinish: (() -> Void)? = nil
     @Environment(DocumentsState.self) private var docs
     @Environment(\.dismiss) private var dismiss
     @State private var failed = false
@@ -603,7 +606,10 @@ struct DocumentReviewRouteView: View {
             .padding()
             .navigationTitle(L10n.docConfirmTitle)
             .ocrImportReviewHost(enabled: reviewingSessionID != nil && docs.activeImport?.id == reviewingSessionID,
-                                 advanceQueuedImports: false) { _ in dismiss() }
+                                 advanceQueuedImports: false) { _ in
+                onFinish?()
+                dismiss()
+            }
             .task { await prepare() }
         }
     }

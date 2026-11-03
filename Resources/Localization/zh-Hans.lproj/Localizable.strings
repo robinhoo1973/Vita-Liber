@@ -2735,7 +2735,7 @@
 "assistant.mergedFilesFilename" = "文件速记";
 "assistant.mergedMixedFilename" = "图片与文件速记";
 "chat.mediaPageAccessibilityFmt" = "第 %d 张，共 %d 张";
-"chat.mediaMoreActions" = "更多操作";
+"chat.mediaMoreActions" = "资料信息";
 "chat.mediaReRecognize" = "重新识别";
 "chat.mediaStorageLocation" = "存储位置";
 "chat.mediaStorageOnDevice" = "本机存储（「文件」App 副本未生成，可在下方导出重试）";
@@ -2945,10 +2945,11 @@
 "chat.mediaElementSubtitleFmt" = "第 %d 页 · %d 项";
 "chat.mediaGoConfirm" = "去核对";
 "chat.mediaSourceText" = "原文";
-"chat.mediaElementsToCards" = "去卡片页查看";
+"chat.mediaElementsToCards" = "更新卡片";
 "chat.mediaElementsFooter" = "修改后仍需核对确认；确认前不进入事实链。";
 "chat.mediaCardsAssemblyNote" = "由已确认要素组装";
 
+"chat.mediaTabText" = "识别原文";
 "chat.mediaTabElements" = "数据信息元";
 
 "chat.mediaTabCards" = "医疗信息卡片";
@@ -2983,3 +2984,4 @@
 
 "chat.mediaPreviousPage" = "上一页";
 "chat.mediaNextPage" = "下一页";
+"chat.mediaExportCopyNote" = "导出副本会在「文件」App 的会话目录再存一份，便于分享；原件始终保留在本机，副本不属于医疗事实。";
