@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 import Perception
 import Domain
 import Infrastructure
+import Protocols
 
 /// 首页 OCR/ASR 入口旁的 AI 聊天入口（2026-10-18 业主指令）。
 ///
@@ -2093,16 +2094,23 @@ struct TaskAssistantChatView: View {
             conversationTitle: title ?? conversationTitle,
             generation: generation)
         await writeOCRDebugLog(session: session, generation: generation)
+        // 无论开关关闭/敏感/代次失败，导入收尾都释放整页 OCR 文本缓存。
+        if let documentID = session.source?.documentId {
+            docs.clearOCRDebugTraces(documentID: documentID)
+        }
     }
 
     /// 2026-11-03 调参批：把 PP-OCRv6 rec 影子逐行对照写入该会话目录。
+    /// **默认关闭**：只有用户在「帮助中心 → 系统诊断」显式开启后才写；
     /// 只写非敏感件；无影子轨迹/无导出目录时不写。内容为 JSONL：
     /// 首行会话/抽取摘要，其后每页一行 OCRDebugTrace。绝不包含图片字节。
     private func writeOCRDebugLog(session: DocumentsState.ImportSession, generation: UUID) async {
-        guard generation == conversationGeneration,
+        guard OCRShadowDiagnostics.isEnabled,
+              generation == conversationGeneration,
               let source = session.source,
               let draft = session.draft,
               !draft.isSensitive else { return }
+        defer { docs.clearOCRDebugTraces(documentID: source.documentId) }
         let traces = docs.ocrDebugTraces(documentID: source.documentId)
         guard !traces.isEmpty else { return }
         let formatter = DateFormatter()

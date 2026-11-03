@@ -47,6 +47,16 @@ public final class ONNXRuntimeSession: @unchecked Sendable {
 
     public func run(input: [Float], height: Int, width: Int) throws -> Output {
         guard let handle else { throw SessionError.unavailable("session closed") }
+        // C 桥按 3*h*w 读输入指针；任何不一致都必须在进入 C 前拒绝。
+        guard height > 0, width > 0 else {
+            throw SessionError.runFailed("invalid input shape \(height)x\(width)")
+        }
+        let plane = height.multipliedReportingOverflow(by: width)
+        let elements = plane.partialValue.multipliedReportingOverflow(by: 3)
+        guard !plane.overflow, !elements.overflow,
+              elements.partialValue == input.count else {
+            throw SessionError.runFailed("input count \(input.count) != 3*\(height)*\(width)")
+        }
         var output: UnsafeMutablePointer<Float>?
         var count = 0
         var timesteps: Int64 = 0
@@ -59,6 +69,10 @@ public final class ONNXRuntimeSession: @unchecked Sendable {
             throw SessionError.runFailed(String(cString: ocr_last_error()))
         }
         defer { ocr_buffer_free(output) }
+        guard timesteps > 0, classes > 0,
+              timesteps <= Int64(Int.max), classes <= Int64(Int.max) else {
+            throw SessionError.runFailed("invalid output shape \(timesteps)x\(classes)")
+        }
         let probabilities = Array(UnsafeBufferPointer(start: output, count: count))
         return Output(probabilities: probabilities, timesteps: Int(timesteps), classes: Int(classes))
     }

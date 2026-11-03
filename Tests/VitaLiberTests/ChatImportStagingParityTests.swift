@@ -174,4 +174,18 @@ struct ChatImportStagingParityTests {
             #expect(!key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
     }
+
+    @Test("识别原文页与资料操作行与契约一一对应")
+    func testTextAndActionsRowsMatchMock() {
+        let labels = [
+            L10n.chatMediaTabText,
+            L10n.assistantMediaTextPageHeader(1),
+            L10n.docExportCopy,
+            L10n.docTitleSection,
+        ]
+        for label in labels {
+            #expect(!label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        #expect(L10n.assistantMediaTextPageHeader(1).contains("1"))
+    }
 }

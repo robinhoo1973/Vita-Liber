@@ -605,6 +605,12 @@ extension L10n {
 
     static var helpDiagSystemHint: String { t("help.diag.systemHint") }
 
+    /// 2026-11-03 OCR 影子调参诊断（默认关；开启即显式同意日志写入文件 App）。
+    static var helpOcrShadowTitle: String { t("help.ocrShadow.title") }
+    static var helpOcrShadowToggle: String { t("help.ocrShadow.toggle") }
+    static var helpOcrShadowHint: String { t("help.ocrShadow.hint") }
+    static var helpOcrShadowConfirm: String { t("help.ocrShadow.confirm") }
+
     static var helpAboutLegal: String { t("help.about.legal") }
 
     static var helpPermSection: String { t("help.perm.section") }

@@ -22,6 +22,8 @@ public actor PaddleRecShadowRecognizer: ImageTextRecognizing {
     public func recognize(_ imageData: Data) async throws -> ImageInputRules.Recognition {
         let base = try await primary.recognize(imageData)
         try Task.checkCancellation()
+        // 诊断默认关闭：不加载模型、不跑 ONNX、不产生 trace。
+        guard OCRShadowDiagnostics.isEnabled else { return base }
         guard !base.lines.isEmpty, let layout = base.layout, !layout.blocks.isEmpty else { return base }
         guard let model = await OCRModelStore.shared.load() else {
             return Self.annotated(base, engine: "paddle-unavailable", reason: "model-missing")

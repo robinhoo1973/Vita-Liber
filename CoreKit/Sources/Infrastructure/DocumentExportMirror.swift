@@ -2,6 +2,7 @@
 // linux-blind: FileManager 文件协调/Files 面语义在 macOS CI 真跑；Linux 编译空单元
 import Foundation
 import Domain
+import Protocols
 
 /// 导出副本镜像（2026-10-27 存储边界委员会 D1/D7/D8/E1/E2）。
 ///
@@ -259,7 +260,10 @@ public actor DocumentExportMirror {
     /// 只写已存在的导出会话目录；不建账本行、不触碰 canonical；敏感件由
     /// 调用方拦截。`.completeFileProtection` + 排除备份。
     public func appendDebugLog(documentID: UUID, fileName: String, contents: String) async {
-        guard let record = await ledger.record(documentID: documentID),
+        // 开关可能在导入收尾后才被关闭；写盘前复查，防「关闭后仍新增」。
+        guard OCRShadowDiagnostics.isEnabled,
+              let record = await ledger.record(documentID: documentID),
+              record.state == "active",
               !record.directoryName.isEmpty,
               let data = contents.data(using: .utf8) else { return }
         let directory = exportsBase.appendingPathComponent(record.directoryName, isDirectory: true)
@@ -268,6 +272,7 @@ public actor DocumentExportMirror {
         do {
             try data.write(to: target, options: [.atomic, .completeFileProtection])
             try? Self.excludeFromBackup(target)   // try?-ok: 调试日志排除备份失败不影响可读
+            pruneDebugLogs(in: directory, keeping: 10)
         } catch {
             // 诊断日志是尽力而为，不影响 OCR/导入主链路。
         }
@@ -275,11 +280,53 @@ public actor DocumentExportMirror {
 
     /// 单条副本删除（2026-10-28 业主：记录转敏感时副本必须离开用户面）。
     /// 只删副本文件与账本行（置 removed），绝不触碰 canonical。
+    /// 2026-11-03：同时清理同目录 OCR 调参日志（含识别原文/字段值），
+    /// 防止「转敏感只删副本、日志仍留在 Files」。
     public func removeCopy(documentID: UUID) async {
         guard let record = await ledger.record(documentID: documentID) else { return }
+        // 先置 removed 再删文件/日志：晚到的 appendDebugLog 见到 removed 即跳过；
+        // 若 append 在置位前启动，随后的 removeDebugLogs 会清掉它。
+        try? await ledger.setState(documentID: documentID, state: "removed")   // try?-ok: tombstone 尽力而为
         let url = exportsBase.appendingPathComponent(record.relativePath)
         try? fileManager.removeItem(at: url)   // try?-ok: 副本删除尽力而为
-        try? await ledger.setState(documentID: documentID, state: "removed")   // try?-ok: tombstone 尽力而为
+        if !record.directoryName.isEmpty {
+            removeDebugLogs(in: exportsBase.appendingPathComponent(record.directoryName,
+                                                                   isDirectory: true))
+        }
+    }
+
+    /// 只保留最近 `keeping` 份 `ocr-debug-*.jsonl`，防日志无限增长。
+    private func pruneDebugLogs(in directory: URL, keeping: Int) {
+        guard keeping > 0 else { return }
+        let entries = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [] // try?-ok: 清理尽力而为
+        let logs = entries.filter { $0.hasPrefix("ocr-debug-") && $0.hasSuffix(".jsonl") }
+            .sorted()
+        guard logs.count > keeping else { return }
+        for entry in logs.prefix(logs.count - keeping) {
+            try? fileManager.removeItem(at: directory.appendingPathComponent(entry)) // try?-ok: 清理尽力而为
+        }
+    }
+
+    private func removeDebugLogs(in directory: URL) {
+        let entries = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [] // try?-ok: 清理尽力而为
+        for entry in entries where entry.hasPrefix("ocr-debug-") && entry.hasSuffix(".jsonl") {
+            try? fileManager.removeItem(at: directory.appendingPathComponent(entry)) // try?-ok: 清理尽力而为
+        }
+    }
+
+    /// 关闭诊断开关时清除全部会话目录中的 OCR 调试日志（含旧日志），
+    /// 避免「关闭后不再新增」但旧 PHI 仍留在 Files 的歧义。
+    public func removeAllDebugLogs() {
+        // 递归：日志在 exportsBase/<会话目录> 或旧层 exportsBase/Vita Liber/<会话目录>，
+        // 只扫一层会把嵌套目录里的 PHI 日志留在 Files。
+        guard let enumerator = fileManager.enumerator(   // try?-ok: 枚举失败跳过
+            at: exportsBase, includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]) else { return }
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            guard name.hasPrefix("ocr-debug-"), name.hasSuffix(".jsonl") else { continue }
+            try? fileManager.removeItem(at: url)   // try?-ok: 清理尽力而为
+        }
     }
 
     /// 会话删除前快照（E2）：会话行删除后账本外键 `ON DELETE SET NULL`，

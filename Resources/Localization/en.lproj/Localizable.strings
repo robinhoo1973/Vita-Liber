@@ -762,6 +762,10 @@
 "help.diag.dataHealth" = "Data & Storage Health";
 "help.diag.system" = "System Diagnostics";
 "help.diag.systemHint" = "Check permission status, reminder scheduling, and storage health";
+"help.ocrShadow.title" = "OCR tuning diagnostics";
+"help.ocrShadow.toggle" = "Write OCR comparison logs";
+"help.ocrShadow.confirm" = "Enable and write";
+"help.ocrShadow.hint" = "Enable only while tuning. When on, non-sensitive chat imports write OCR text, field values, and card summaries to the session folder in Files. Sensitive items are never written. Turning it off stops new logs.";
 "help.about.legal" = "Version & Legal";
 "help.perm.section" = "Permission Status";
 "help.perm.camera" = "Camera";
@@ -2727,6 +2731,7 @@
 "assistant.mediaCardsEmpty" = "No info cards for this item yet";
 "assistant.mediaOpenOriginal" = "Tap to view original";
 "assistant.mediaPageFailed" = "Recognition failed on this page";
+"assistant.mediaTextPageHeaderFmt" = "Page %1$ld · Recognized text";
 "assistant.mediaPageNoText" = "No text on this page";
 "assistant.mediaPageSkipped" = "Page not recognized (skipped)";
 "assistant.mediaEgressNote" = "Originals stay on this device; external copies are created only when export settings are on or you export explicitly";
