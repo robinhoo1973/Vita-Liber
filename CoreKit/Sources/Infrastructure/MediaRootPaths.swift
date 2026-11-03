@@ -15,6 +15,9 @@ public enum MediaRootPaths {
 
     /// meta_json / asset.relative_path 的相对前缀（相对 mediaBase）。
     public static let relativePrefix = "MedicalNotes"
+    /// 「文件」App 用户面：AI 聊天会话目录的固定一级（2026-11-03 业主：
+    /// 会话目录与资料库直接导入分居，Files 第二层一眼可辨）。
+    public static let conversationFolderName = "conversation"
 
     // MARK: - 基址
 

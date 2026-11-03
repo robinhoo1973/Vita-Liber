@@ -148,30 +148,37 @@ final class DocumentExportState {
         let directory: String
         let frozen = await ledger.record(documentID: row.id)?.directoryName
         let legacyPrefix = DocumentExportMirror.legacyExportFolderName + "/"
+        let conversationPrefix = MediaRootPaths.conversationFolderName + "/"
         var reuseFrozen = false
         if let frozen, !frozen.isEmpty {
-            if frozen.hasPrefix(legacyPrefix) {
-                // 旧版「Vita Liber/」前缀已撤销：目录已被迁移/删除时不得按
-                // 旧账本复活 wrapper；旧目录仍在则继续复用，避免会话内拆树。
-                reuseFrozen = await mirror.hasDirectory(named: frozen)
-            } else {
-                reuseFrozen = true
-            }
+            // 旧 wrapper / 扁平会话目录只在磁盘仍存在时复用（迁移未跑/冲突），
+            // 否则按新布局重算，避免复活废弃路径。
+            let needsDiskCheck = frozen.hasPrefix(legacyPrefix)
+                || (conversationID != nil && !frozen.hasPrefix(conversationPrefix))
+            reuseFrozen = needsDiskCheck
+                ? await mirror.hasDirectory(named: frozen)
+                : true
         }
         if let frozen, reuseFrozen {
             directory = frozen
             if let conversationID { conversationDirectories[conversationID] = frozen }
         } else if let conversationID {
             // 同一会话内后续资料复用首条资料的会话目录（日期前缀不随导入次数漂移）。
-            // 内存缓存先命中；冷启动首份才回落账本扫描。
+            // 内存缓存/账本里的旧布局只在目录仍存在时复用，迁移后自然收敛到 conversation/。
+            var reused: String?
             if let cached = conversationDirectories[conversationID] {
-                directory = cached
-            } else if let existingConversation = await ledger.records(conversationID: conversationID)
+                if await mirror.hasDirectory(named: cached) { reused = cached }
+            }
+            if reused == nil,
+               let existing = await ledger.records(conversationID: conversationID)
                 .first(where: { !$0.directoryName.isEmpty })?.directoryName {
-                conversationDirectories[conversationID] = existingConversation
-                directory = existingConversation
+                if await mirror.hasDirectory(named: existing) { reused = existing }
+            }
+            if let reused {
+                conversationDirectories[conversationID] = reused
+                directory = reused
             } else {
-                directory = DocumentExportNaming.directoryName(
+                directory = conversationPrefix + DocumentExportNaming.directoryName(
                     conversationTitle: conversationTitle,
                     conversationID: conversationID,
                     datePrefix: Self.timestampText(now))

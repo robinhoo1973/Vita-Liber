@@ -46,6 +46,8 @@ struct TaskAssistantChatView: View {
     /// 已读到真值的文档：开关就绪前禁用，避免「未知=false」被用户误读为
     /// 当前资料不敏感（BR-007/008 对外边界不能靠默认值猜）。
     @State private var sensitiveLoaded: Set<UUID> = []
+    /// 文档级确认态（气泡右侧图标）：nil=未读到（按待确认），C=全部确认。
+    @State private var mediaGrades: [UUID: String] = [:]
     @State private var input = ""
     @State private var confirmSet: OcrConfirmationSet?
     @State private var pendingPlan: VoiceActionPlan?
@@ -281,7 +283,11 @@ struct TaskAssistantChatView: View {
                 .onChangeCompat(of: activeSheet == nil) { _, closed in
                     if closed {
                         syncCardSnapshots()
+                        Task { await refreshMediaGrades() }
                     }
+                }
+                .onChangeCompat(of: docs.pendingVersion) { _, _ in
+                    Task { await refreshMediaGrades() }
                 }
                 .onDisappear {
                     routeMonitor.stop()
@@ -429,6 +435,7 @@ struct TaskAssistantChatView: View {
                 if let doc = await docs.documentRow(id: documentId) {
                     sensitiveByDocument[documentId] = doc.isSensitive
                     sensitiveLoaded.insert(documentId)
+                    mediaGrades[documentId] = doc.grade
                 }
             }
         } else if media.status == .failed {
@@ -477,6 +484,9 @@ struct TaskAssistantChatView: View {
                 }
             }
             Spacer(minLength: 4)
+            // 右侧识别/确认态：失败=红叹号；全确认=C 绿勾；其余=编辑铅笔
+            // （提示进入信息元核对）。识别中显示 spinner，不抢确认语义。
+            mediaStatusIcon(media, documentId: media.documentId)
             // 可点进详情时给前向箭头（与语音气泡同语义）；无文档引用时不给。
             if showsDisclosure {
                 Image(systemName: "chevron.right")
@@ -491,6 +501,44 @@ struct TaskAssistantChatView: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("assistant.media")
+    }
+
+    /// 气泡右侧状态：失败 / 识别中 / 待核对 / 全部确认（业主 2026-11-03）。
+    /// 「全部确认」以文档级 C 为准：所有信息元确认后最后一张卡才抬 C。
+    @ViewBuilder
+    private func mediaStatusIcon(_ media: MediaInfo, documentId: UUID?) -> some View {
+        if media.status == .failed {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.body)
+                .foregroundStyle(Color("semantic-danger", bundle: .main))
+                .accessibilityLabel(L10n.assistantMediaFailed)
+                .accessibilityIdentifier("assistant.media.status.failed")
+        } else if media.status == .processing {
+            ProgressView().controlSize(.small)
+                .accessibilityLabel(L10n.assistantMediaProcessing)
+        } else if let documentId, mediaGrades[documentId] == "C" {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.body)
+                .foregroundStyle(Color("semantic-success", bundle: .main))
+                .accessibilityLabel(L10n.assistantMediaConfirmed)
+                .accessibilityIdentifier("assistant.media.status.confirmed")
+        } else if documentId != nil {
+            Image(systemName: "square.and.pencil")
+                .font(.body)
+                .foregroundStyle(Color("brand-primary", bundle: .main))
+                .accessibilityLabel(L10n.assistantMediaNeedsConfirm)
+                .accessibilityIdentifier("assistant.media.status.pending")
+        }
+    }
+
+    private func refreshMediaGrades() async {
+        var seen = Set<UUID>()
+        for media in messages.compactMap(\.media) {
+            guard let documentId = media.documentId, seen.insert(documentId).inserted else { continue }
+            if let doc = await docs.documentRow(id: documentId) {
+                mediaGrades[documentId] = doc.grade
+            }
+        }
     }
 
     /// 卡片头图标 = 来源类型（2026-10-29 批三）：拍照相机 / 相册相片 /
@@ -1465,7 +1513,12 @@ struct TaskAssistantChatView: View {
                 titleCaptured = true
                 // 旧版本落库的卡片消息不再渲染（业主 2026-10-29：卡片只在
                 // 媒体详情）；过滤在解码后，历史数据保留可回溯。
-                messages = stored.compactMap(decode).filter { $0.card == nil }
+                // 旧版本把自动副本失败写成常驻聊天消息；升级后不再产生，
+                // 历史里的旧错误也一并隐藏（非医疗事实，删除展示安全）。
+                messages = stored.compactMap(decode).filter {
+                    $0.card == nil
+                        && !($0.role == .assistant && $0.text == L10n.assistantExportCopyFailed)
+                }
                 resetTransient()
                 activeSheet = nil
             }
@@ -1983,19 +2036,36 @@ struct TaskAssistantChatView: View {
         guard generation == conversationGeneration else { return }
         guard let conversationID = await ensureConversationID(expectedGeneration: generation),
               generation == conversationGeneration else { return }
-        await exportCopyWithFeedback(
+        await autoExportCopy(
             documentID: source.documentId,
             conversationID: conversationID,
             conversationTitle: title ?? conversationTitle,
-            allowSensitive: false,
-            expectedGeneration: generation)
+            generation: generation)
+    }
+
+    /// 自动副本：失败不在聊天流刷错误气泡（识别已成功，副本可在详情重试）；
+    /// `.writeFailed` 多为瞬时 IO/账本锁，退避 0.5s 再试一次。
+    private func autoExportCopy(documentID: UUID, conversationID: UUID?,
+                                conversationTitle: String?, generation: UUID) async {
+        let first = await exportState.exportCopy(
+            documentID: documentID, conversationID: conversationID,
+            conversationTitle: conversationTitle, allowSensitive: false)
+        guard generation == conversationGeneration else { return }
+        if first == DocumentExportState.ExportFailure.writeFailed {
+            try? await Task.sleep(nanoseconds: 500_000_000)   // try?-ok: 取消即放弃重试
+            guard generation == conversationGeneration else { return }
+            _ = await exportState.exportCopy(
+                documentID: documentID, conversationID: conversationID,
+                conversationTitle: conversationTitle, allowSensitive: false)
+        }
     }
 
     /// 显式导出统一反馈（2026-10-30 登记遗留）：失败不得静默——
     /// 用户会以为「文件」App 已有副本。切换会话后迟到失败不写入新会话。
     private func exportCopyWithFeedback(documentID: UUID, conversationID: UUID?,
                                         conversationTitle: String?, allowSensitive: Bool,
-                                        expectedGeneration: UUID? = nil) async {
+                                        expectedGeneration: UUID? = nil,
+                                        reportFailure: Bool = true) async {
         let generation = expectedGeneration ?? conversationGeneration
         let failure = await exportState.exportCopy(
             documentID: documentID, conversationID: conversationID,
@@ -2004,7 +2074,7 @@ struct TaskAssistantChatView: View {
         // 旧实现把 `.sensitiveNeedsConsent` 也当失败弹「副本未生成」，
         // 与「已识别」回执同屏出现，误导用户以为识别/导出出错。
         if failure == DocumentExportState.ExportFailure.sensitiveNeedsConsent, !allowSensitive { return }
-        guard failure != nil, generation == conversationGeneration else { return }
+        guard failure != nil, reportFailure, generation == conversationGeneration else { return }
         append(.init(role: .assistant, text: L10n.assistantExportCopyFailed, isRefusal: true))
     }
 

@@ -118,6 +118,10 @@ struct ChatMediaActionsSheet: View {
             documentID: documentId, conversationID: conversationID,
             conversationTitle: conversationTitle, allowSensitive: true)
         exportNote = failure == nil ? L10n.chatMediaExportDone : L10n.exportFailed
+        if failure == nil {
+            storagePath = await exportState.exportedRelativePath(documentID: documentId)
+            storageLoaded = true
+        }
         await loadStorage()
     }
 }

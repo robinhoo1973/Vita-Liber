@@ -167,7 +167,7 @@ public enum DocumentExportNaming {
         return sanitizeComponent(monthText)
     }
 
-    static let directImportPrefix = "直接导入"
+    public static let directImportPrefix = "直接导入"
 
     // MARK: - 净化（E3 采纳 I4 不变量）
 

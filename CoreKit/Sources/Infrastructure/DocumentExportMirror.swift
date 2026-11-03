@@ -164,56 +164,41 @@ public actor DocumentExportMirror {
     @discardableResult
     public func migrateLegacyExportRootIfNeeded() async -> Bool {
         let legacy = exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)
-        let oldDirectories = await ledger.legacyDirectories(prefix: Self.legacyExportFolderName)
+        let conversationRoot = MediaRootPaths.conversationFolderName
+        let conversationPrefix = conversationRoot + "/"
+        let legacyPrefix = Self.legacyExportFolderName + "/"
+        let directories = await ledger.directories()
         var changed = false
-        for oldDirectory in oldDirectories {
-            let leaf = String(oldDirectory.dropFirst(Self.legacyExportFolderName.count + 1))
-            guard !leaf.isEmpty, !leaf.contains("/") else { continue }
-            let oldURL = exportsBase.appendingPathComponent(oldDirectory, isDirectory: true)
-            let newURL = exportsBase.appendingPathComponent(leaf, isDirectory: true)
-            let oldExists = fileManager.fileExists(atPath: oldURL.path)
-            let newExists = fileManager.fileExists(atPath: newURL.path)
-            if oldExists && !newExists {
-                do {
-                    try fileManager.moveItem(at: oldURL, to: newURL)
-                } catch {
-                    continue
-                }
-                do {
-                    try await ledger.relocateDirectory(from: oldDirectory, to: leaf)
-                    changed = true
-                } catch {
-                    try? fileManager.moveItem(at: newURL, to: oldURL)   // try?-ok: 回滚尽力而为，下次启动重试
-                }
-            } else if !oldExists && newExists {
-                // 上次搬移后账本未改（崩溃/回滚失败）：只有账本登记的每个
-                // 文件都能在新目录找到，才认领新目录，绝不吞用户自建目录。
-                let records = await ledger.records(directoryName: oldDirectory)
-                let verified = !records.isEmpty && records.allSatisfy {
-                    fileManager.fileExists(atPath: newURL.appendingPathComponent($0.displayName).path)
-                }
-                if verified {
-                    do {
-                        try await ledger.relocateDirectory(from: oldDirectory, to: leaf)
-                        changed = true
-                    } catch { /* 下次启动重试 */ }
-                }
+        for (name, conversationID) in directories {
+            let desired: String
+            if name.hasPrefix(legacyPrefix) {
+                let leaf = String(name.dropFirst(legacyPrefix.count))
+                guard !leaf.isEmpty, !leaf.contains("/") else { continue }
+                desired = conversationID == nil ? leaf : conversationPrefix + leaf
+            } else if conversationID != nil, !name.hasPrefix(conversationPrefix) {
+                desired = conversationPrefix + name
+            } else {
+                continue
             }
-            // 新旧同时存在 / 两边都不存在：保留旧账本，交给 reconcile。
+            if await rebaseDirectory(from: name, to: desired) { changed = true }
         }
         // 无账本行的孤儿目录（导出写盘成功但记账失败）：wrapper 是 App 专用树，
-        // 目标不冲突时一并搬到根，避免旧层因孤儿文件永久残留。
-        let known = Set(oldDirectories)
+        // 目标不冲突时一并搬到 conversation/ 或根（直接导入月桶），避免旧层残留。
+        let known = Set(directories.map(\.name))
         let diskEntries = (try? fileManager.contentsOfDirectory(   // try?-ok: 枚举失败按无孤儿
             at: legacy, includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles])) ?? []
         for entry in diskEntries {
             guard (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }   // try?-ok: 资源读取失败跳过
             let name = entry.lastPathComponent
-            guard !known.contains("\(Self.legacyExportFolderName)/\(name)") else { continue }
-            let target = exportsBase.appendingPathComponent(name, isDirectory: true)
+            guard !known.contains("\(legacyPrefix)\(name)") else { continue }
+            let isDirectImport = name.hasPrefix(DocumentExportNaming.directImportPrefix)
+            let targetName = isDirectImport ? name : conversationPrefix + name
+            let target = exportsBase.appendingPathComponent(targetName, isDirectory: true)
             guard !fileManager.fileExists(atPath: target.path) else { continue }
             do {
+                try fileManager.createDirectory(at: target.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
                 try fileManager.moveItem(at: entry, to: target)
                 changed = true
             } catch { continue }
@@ -222,6 +207,44 @@ public actor DocumentExportMirror {
             try? fileManager.removeItem(at: legacy)   // try?-ok: 空旧根删除尽力而为
         }
         return changed
+    }
+
+    /// 单目录 rebase：旧在新不在→搬+改账本；旧不在新在→校验后补账；
+    /// 新旧同在/皆无→跳过（绝不覆盖/认领用户目录）。返回是否改了账本/文件。
+    private func rebaseDirectory(from old: String, to new: String) async -> Bool {
+        guard old != new else { return false }
+        let oldURL = exportsBase.appendingPathComponent(old, isDirectory: true)
+        let newURL = exportsBase.appendingPathComponent(new, isDirectory: true)
+        let oldExists = fileManager.fileExists(atPath: oldURL.path)
+        let newExists = fileManager.fileExists(atPath: newURL.path)
+        if oldExists && !newExists {
+            do {
+                try fileManager.createDirectory(at: newURL.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+                try fileManager.moveItem(at: oldURL, to: newURL)
+            } catch { return false }
+            do {
+                try await ledger.relocateDirectory(from: old, to: new)
+                return true
+            } catch {
+                try? fileManager.moveItem(at: newURL, to: oldURL)   // try?-ok: 回滚尽力而为，下次启动重试
+                return false
+            }
+        }
+        if !oldExists && newExists {
+            // 上次搬移后账本未改（崩溃/回滚失败）：只有账本登记的每个文件
+            // 都能在新目录找到，才认领新目录，绝不吞用户自建目录。
+            let records = await ledger.records(directoryName: old)
+            let verified = !records.isEmpty && records.allSatisfy {
+                fileManager.fileExists(atPath: newURL.appendingPathComponent($0.displayName).path)
+            }
+            guard verified else { return false }
+            do {
+                try await ledger.relocateDirectory(from: old, to: new)
+                return true
+            } catch { return false }
+        }
+        return false
     }
 
     public static let legacyExportFolderName = "Vita Liber"

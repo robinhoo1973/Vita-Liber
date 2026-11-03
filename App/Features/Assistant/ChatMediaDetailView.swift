@@ -160,6 +160,16 @@ struct ChatMediaDetailView: View {
                 .navigationTitle(L10n.chatMediaResultTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        NavigationLink {
+                            DocumentReviewRouteView(documentId: documentId, patientId: patientId,
+                                                    reprocess: true, suppressAutoMirror: true)
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath")
+                        }
+                        .accessibilityLabel(L10n.chatMediaReRecognize)
+                        .accessibilityIdentifier("chat.mediaDetail.reprocess.toolbar")
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             dismissRefresh = .all
@@ -418,7 +428,7 @@ struct ChatMediaDetailView: View {
             case .loaded(let cards):
                 let rows = elementRows(from: cards)
                 if rows.isEmpty {
-                    emptyNote(L10n.chatMediaElementsEmpty)
+                    emptyWithReprocess(L10n.chatMediaElementsEmpty)
                 } else {
                     sectionHeader(L10n.chatMediaElementsGroupHeader)
                     ForEach(rows) { row in
@@ -976,7 +986,7 @@ struct ChatMediaDetailView: View {
                 // 只在待核对区确认「已读且为空」时显示空态；待核对区仍在读取
                 // 或读取失败时不得先画「还没有信息卡片」的误导结论。
                 if case .loaded(let pending) = pendingState, pending.isEmpty {
-                    emptyNote(L10n.assistantMediaCardsEmpty)
+                    emptyWithReprocess(L10n.assistantMediaCardsEmpty)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -1114,6 +1124,24 @@ struct ChatMediaDetailView: View {
     }
 
     // MARK: - 块级状态件
+
+    /// 空态必须给出重新识别入口：OCR 可能识别成功但未抽出结构化信息元，
+    /// 或整页识别失败；只写「没有待核对要素」会让用户无路可走（2026-11-03）。
+    private func emptyWithReprocess(_ text: String) -> some View {
+        VStack(spacing: 10) {
+            emptyNote(text)
+            NavigationLink {
+                DocumentReviewRouteView(documentId: documentId, patientId: patientId,
+                                        reprocess: true, suppressAutoMirror: true)
+            } label: {
+                Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("chat.mediaDetail.reprocess")
+        }
+    }
 
     private func emptyNote(_ text: String) -> some View {
         VStack(spacing: 8) {

@@ -2738,7 +2738,7 @@
 "chat.mediaMoreActions" = "More actions";
 "chat.mediaReRecognize" = "Re-recognize";
 "chat.mediaStorageLocation" = "Storage location";
-"chat.mediaStorageOnDevice" = "On-device storage";
+"chat.mediaStorageOnDevice" = "Stored on this device (no Files app copy yet; export below to retry)";
 "chat.mediaStorageLoading" = "Loading…";
 "chat.mediaStorageExportedFmt" = "Files app / %@";
 "chat.mediaPageCount" = "Pages";

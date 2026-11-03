@@ -155,6 +155,22 @@ public actor DocumentExportStore {
         }
     }
 
+    /// 全部账本目录及其会话语义（迁移扫描用；一个目录任一行有会话即视为
+    /// 会话目录）。返回顺序稳定（目录名升序）。
+    public func directories() async -> [(name: String, conversationID: UUID?)] {
+        (try? await writer.read { db in        // try?-ok: 读取失败按无目录
+            try Row.fetchAll(db, sql: """
+                SELECT directory_name, MAX(conversation_id) AS conversation_id
+                  FROM document_user_export
+                 GROUP BY directory_name
+                 ORDER BY directory_name
+                """).compactMap { row in
+                    guard let name: String = row["directory_name"], !name.isEmpty else { return nil }
+                    return (name, (row["conversation_id"] as String?).flatMap(UUID.init(uuidString:)))
+                }
+        }) ?? []
+    }
+
     /// 旧根前缀下的目录名（迁移扫描用；精确前缀匹配，不用 LIKE 通配）。
     public func legacyDirectories(prefix: String) async -> [String] {
         (try? await writer.read { db in        // try?-ok: 读取失败按无旧目录

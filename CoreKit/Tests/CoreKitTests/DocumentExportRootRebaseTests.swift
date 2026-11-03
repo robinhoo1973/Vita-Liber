@@ -50,7 +50,7 @@ struct DocumentExportRootRebaseTests {
     }
 
     private func addDocumentAndRecord(_ f: Fixture, directory: String,
-                                      fileName: String) async throws {
+                                      fileName: String, conversationID: UUID? = nil) async throws {
         let documentID = UUID()
         try await f.queue.write { db in
             try db.execute(sql: """
@@ -59,7 +59,7 @@ struct DocumentExportRootRebaseTests {
                 """, arguments: [documentID.uuidString])
         }
         _ = try await f.ledger.upsert(.init(
-            documentID: documentID, conversationID: nil,
+            documentID: documentID, conversationID: conversationID,
             directoryName: directory, displayName: fileName,
             relativePath: "\(directory)/\(fileName)", nameSource: "auto",
             createdAt: Date(timeIntervalSince1970: 1),
@@ -72,21 +72,22 @@ struct DocumentExportRootRebaseTests {
         try Data(bytes.utf8).write(to: url)
     }
 
-    @Test("旧在、新不在：搬目录并改写账本")
+    @Test("旧在、新不在：会话目录搬到 conversation/ 并改写账本")
     func movesLegacyDirectory() async throws {
         let f = try await makeFixture()
         let leaf = "20261102-1435-会话-abcdef"
         let old = f.exports.appendingPathComponent("Vita Liber/\(leaf)", isDirectory: true)
         try writeFile(old.appendingPathComponent("report.jpg"))
-        try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg")
+        try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg",
+                                       conversationID: UUID())
 
         let changed = await f.mirror.migrateLegacyExportRootIfNeeded()
         #expect(changed)
-        let new = f.exports.appendingPathComponent(leaf, isDirectory: true)
+        let new = f.exports.appendingPathComponent("conversation/\(leaf)", isDirectory: true)
         #expect(FileManager.default.fileExists(atPath: new.appendingPathComponent("report.jpg").path))
         #expect(!FileManager.default.fileExists(atPath: old.path))
-        let row = await f.ledger.records(directoryName: leaf).first
-        #expect(row?.relativePath == "\(leaf)/report.jpg")
+        let row = await f.ledger.records(directoryName: "conversation/\(leaf)").first
+        #expect(row?.relativePath == "conversation/\(leaf)/report.jpg")
         #expect(!FileManager.default.fileExists(atPath: f.exports.appendingPathComponent("Vita Liber").path),
                 "空的旧根应删除")
     }
@@ -96,12 +97,13 @@ struct DocumentExportRootRebaseTests {
         let f = try await makeFixture()
         let leaf = "20261102-1435-会话-abcdef"
         try writeFile(f.exports.appendingPathComponent("\(leaf)/report.jpg"))
-        try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg")
+        try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg",
+                                       conversationID: UUID())
 
         let changed = await f.mirror.migrateLegacyExportRootIfNeeded()
         #expect(changed)
-        let row = await f.ledger.records(directoryName: leaf).first
-        #expect(row?.relativePath == "\(leaf)/report.jpg")
+        let row = await f.ledger.records(directoryName: "conversation/\(leaf)").first
+        #expect(row?.relativePath == "conversation/\(leaf)/report.jpg")
     }
 
     @Test("新旧同在：跳过，不改账本也不覆盖")
@@ -109,18 +111,39 @@ struct DocumentExportRootRebaseTests {
         let f = try await makeFixture()
         let leaf = "20261102-1435-会话-abcdef"
         try writeFile(f.exports.appendingPathComponent("Vita Liber/\(leaf)/report.jpg"))
-        try writeFile(f.exports.appendingPathComponent("\(leaf)/other.jpg"))
-        try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg")
+        try writeFile(f.exports.appendingPathComponent("conversation/\(leaf)/other.jpg"))
+        try await addDocumentAndRecord(f, directory: "Vita Liber/\(leaf)", fileName: "report.jpg",
+                                       conversationID: UUID())
 
         let changed = await f.mirror.migrateLegacyExportRootIfNeeded()
         #expect(!changed)
         let row = await f.ledger.records(directoryName: "Vita Liber/\(leaf)").first
         #expect(row?.relativePath == "Vita Liber/\(leaf)/report.jpg")
         #expect(FileManager.default.fileExists(
-            atPath: f.exports.appendingPathComponent("\(leaf)/other.jpg").path))
+            atPath: f.exports.appendingPathComponent("conversation/\(leaf)/other.jpg").path))
     }
 
-    @Test("无账本行的孤儿目录也搬到根")
+    @Test("扁平会话目录补进 conversation/；直接导入月桶留在根")
+    func movesFlatSessionButKeepsDirectImport() async throws {
+        let f = try await makeFixture()
+        let leaf = "20261102-1435-会话-abcdef"
+        try writeFile(f.exports.appendingPathComponent("\(leaf)/report.jpg"))
+        try await addDocumentAndRecord(f, directory: leaf, fileName: "report.jpg",
+                                       conversationID: UUID())
+        try writeFile(f.exports.appendingPathComponent("直接导入-2026-11/direct.jpg"))
+        try await addDocumentAndRecord(f, directory: "直接导入-2026-11", fileName: "direct.jpg")
+
+        let changed = await f.mirror.migrateLegacyExportRootIfNeeded()
+        #expect(changed)
+        #expect(FileManager.default.fileExists(
+            atPath: f.exports.appendingPathComponent("conversation/\(leaf)/report.jpg").path))
+        #expect(!FileManager.default.fileExists(
+            atPath: f.exports.appendingPathComponent("\(leaf)/report.jpg").path))
+        #expect(FileManager.default.fileExists(
+            atPath: f.exports.appendingPathComponent("直接导入-2026-11/direct.jpg").path))
+    }
+
+    @Test("无账本行的孤儿目录也搬到 conversation/")
     func movesOrphanDirectory() async throws {
         let f = try await makeFixture()
         let leaf = "20261102-1435-孤儿-abcdef"
@@ -128,7 +151,7 @@ struct DocumentExportRootRebaseTests {
         let changed = await f.mirror.migrateLegacyExportRootIfNeeded()
         #expect(changed)
         #expect(FileManager.default.fileExists(
-            atPath: f.exports.appendingPathComponent("\(leaf)/orphan.jpg").path))
+            atPath: f.exports.appendingPathComponent("conversation/\(leaf)/orphan.jpg").path))
         #expect(!FileManager.default.fileExists(
             atPath: f.exports.appendingPathComponent("Vita Liber").path))
     }

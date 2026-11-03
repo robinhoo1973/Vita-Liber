@@ -2738,7 +2738,7 @@
 "chat.mediaMoreActions" = "更多操作";
 "chat.mediaReRecognize" = "重新識別";
 "chat.mediaStorageLocation" = "儲存位置";
-"chat.mediaStorageOnDevice" = "本機儲存";
+"chat.mediaStorageOnDevice" = "本機儲存（「檔案」App 副本未產生，可在下方匯出重試）";
 "chat.mediaStorageLoading" = "讀取中…";
 "chat.mediaStorageExportedFmt" = "「檔案」App / %@";
 "chat.mediaPageCount" = "頁數";
