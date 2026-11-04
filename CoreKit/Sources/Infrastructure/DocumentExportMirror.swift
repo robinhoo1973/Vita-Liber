@@ -288,10 +288,16 @@ public actor DocumentExportMirror {
         // 若 append 在置位前启动，随后的 removeDebugLogs 会清掉它。
         try? await ledger.setState(documentID: documentID, state: "removed")   // try?-ok: tombstone 尽力而为
         let url = exportsBase.appendingPathComponent(record.relativePath)
-        try? fileManager.removeItem(at: url)   // try?-ok: 副本删除尽力而为
+        let existed = fileManager.fileExists(atPath: url.path)
+        let deleted = !existed || ((try? fileManager.removeItem(at: url)) != nil)   // try?-ok: 副本删除尽力而为
         if !record.directoryName.isEmpty {
             removeDebugLogs(in: exportsBase.appendingPathComponent(record.directoryName,
                                                                    isDirectory: true))
+        }
+        // 文件删不掉（文件协调/File Provider 错误）时恢复 active：否则账本已
+        // removed，reconcile 不再报告，敏感副本永久留在 Files 且无重试。
+        if !deleted {
+            try? await ledger.setState(documentID: documentID, state: "active")   // try?-ok: 恢复重试尽力而为
         }
     }
 
