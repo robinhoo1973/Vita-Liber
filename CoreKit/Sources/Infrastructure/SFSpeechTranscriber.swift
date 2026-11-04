@@ -27,12 +27,23 @@ struct SpeechRecognitionEvent: Sendable {
     var isFinal = false
     var confidence: Double = 0
     var failure: SpeechRecognitionFailure? = nil
+    /// round3 P0-B：引擎原生证据，只随 final 事件下发；词元时间相对本识别请求的音频起点。
+    var evidence: TranscriptionSegmentEvidence? = nil
+}
+
+/// round3 P0-B：哪个引擎、按哪个 locale 产出了本次按压的原生证据。
+struct SpeechEvidenceIdentity: Sendable, Equatable {
+    let engineID: String
+    /// 引擎实际使用的 locale；模型自判语种（混说、无语言输入的模型）时为 nil。
+    let localeIdentifier: String?
 }
 
 /// All methods except asynchronous authorization/capture callbacks run on the speech control queue.
 protocol SpeechSessionDriver: AnyObject, Sendable {
     associatedtype Audio: Sendable
     var resolvedLocale: String { get }
+    /// 本驱动的证据身份（会话收尾时读取）；nil = 不产出 `TranscriptionHypothesis`。
+    var evidenceIdentity: SpeechEvidenceIdentity? { get }
     func authorize(_ completion: @escaping @Sendable (Bool) -> Void,
                    isStopped: @escaping @Sendable () -> Bool)
     func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<Audio>) -> Void,
@@ -52,6 +63,7 @@ protocol SpeechSessionDriver: AnyObject, Sendable {
 extension SpeechSessionDriver {
     func endSession() {}
     var preparationFailure: TranscriptionError? { nil }
+    var evidenceIdentity: SpeechEvidenceIdentity? { nil }
 }
 
 private final class SpeechStopSignal: @unchecked Sendable {
@@ -279,6 +291,11 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
     private var completion: TranscriptionCompletion = .final
     private var confidences: [Double] = []
     private var lastPublished = ""
+    /// round3 P0-B：逐段证据（段与 `accumulator.committed` 一一对应）与音频时间轴——
+    /// `fedSeconds` = 已交给各识别请求的音频总时长，`segmentStartSeconds` = 当前请求在本次按压中的起点。
+    private var evidence = TranscriptionEvidenceAccumulator()
+    private var fedSeconds: TimeInterval = 0
+    private var segmentStartSeconds: TimeInterval = 0
 
     init(driver: Driver, queue: DispatchQueue, queueKey: DispatchSpecificKey<UUID>, queueID: UUID,
          limits: SpeechSessionLimits, signal: SpeechStopSignal,
@@ -392,6 +409,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             if signal.intent == .finish, !finishing { driver.stopCapture() }
             if let current, !waitingForFinal {
                 driver.append(chunk.buffer, to: current)
+                fedSeconds += chunk.duration
             } else {
                 guard handoffSeconds + chunk.duration <= limits.maximumBufferedSeconds,
                       chunk.byteCount <= limits.maximumBufferedBytes - handoffBytes,
@@ -412,6 +430,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         if signal.intent == .cancel { cancel(); return }
         let id = UUID()
         current = id
+        segmentStartSeconds = fedSeconds
         waitingForFinal = false
         do {
             try driver.startRecognition(id: id) { [weak self] event in
@@ -431,6 +450,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             if signal.intent == .cancel { cancel(); return }
             if signal.intent == .finish, !finishing { driver.stopCapture() }
             driver.append(chunk.buffer, to: id)
+            fedSeconds += chunk.duration
         }
         if finishing {
             endCurrentSegment()
@@ -459,7 +479,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             if !self.finishing, self.recoveryAttempts > self.limits.maximumRecoveryAttempts {
                 self.settle(error: TranscriptionError.timedOut)
             } else {
-                self.completeSegment(text: nil, confidence: nil, restartDelay: self.limits.restartDelay)
+                self.completeSegment(text: nil, confidence: nil, evidence: nil, restartDelay: self.limits.restartDelay)
             }
         }
         drainTimer = timer
@@ -485,6 +505,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
                     settle(error: TranscriptionError.noSpeechDetected)
                 } else {
                     completeSegment(text: event.isFinal ? event.text : nil, confidence: nil,
+                                    evidence: event.isFinal ? event.evidence : nil,
                                     restartDelay: limits.restartDelay)
                 }
             case .unauthorized, .unavailable:
@@ -496,7 +517,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             }
         } else if event.isFinal {
             let emptyFinal = event.text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true
-            completeSegment(text: event.text, confidence: event.confidence,
+            completeSegment(text: event.text, confidence: event.confidence, evidence: event.evidence,
                             restartDelay: emptyFinal ? limits.restartDelay : 0)
         } else {
             if let text = event.text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -507,7 +528,8 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         }
     }
 
-    private func completeSegment(text: String?, confidence: Double?, restartDelay: TimeInterval) {
+    private func completeSegment(text: String?, confidence: Double?, evidence segmentEvidence: TranscriptionSegmentEvidence?,
+                                 restartDelay: TimeInterval) {
         guard let id = current else { return }
         let final = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if final.isEmpty || confidence == nil {
@@ -517,7 +539,7 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             recoveryAttempts = 0
             noSpeechRestarts = 0
         }
-        accumulator.commit(final)
+        commit(final, evidence: final.isEmpty ? nil : segmentEvidence)
         rotationTimer?.cancel()
         drainTimer?.cancel()
         rotationTimer = nil
@@ -541,6 +563,15 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         } else {
             startSegment()
         }
+    }
+
+    /// 文本与证据同一入口提交：证据段必须与 `accumulator.committed` 一一对应（含只保留了部分结果、
+    /// 没有证据的段），会话级 n-best 才拼得回交付文本的形状。
+    private func commit(_ text: String, evidence segmentEvidence: TranscriptionSegmentEvidence?) {
+        let before = accumulator.committed.count
+        accumulator.commit(text)
+        guard accumulator.committed.count > before, let committed = accumulator.committed.last else { return }
+        evidence.commit(text: committed, evidence: segmentEvidence, offset: segmentStartSeconds)
     }
 
     private func publish() {
@@ -567,7 +598,12 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
         driver.endSession()
         current = nil
         handoff.removeAll()
+        let committedBefore = accumulator.committed.count
         let segments = accumulator.finish()
+        if segments.count > committedBefore, let tail = segments.last {
+            // 松手时未提交的部分结果成为最后一段：只有文本，没有 final 证据。
+            evidence.commit(text: tail, evidence: nil, offset: segmentStartSeconds)
+        }
         let continuation = continuation
         self.continuation = nil
         onSettled()
@@ -580,10 +616,15 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             publish()
             let confidence = completion == .final && !confidences.isEmpty
                 ? confidences.reduce(0, +) / Double(confidences.count) : 0
+            let text = TranscriptJoiner.join(segments)
+            // round3 P0-B：每个驱动恰好一个假设，`text` = 交付文本（引擎 1-best，润色前）。
+            let hypotheses = driver.evidenceIdentity.map {
+                [evidence.hypothesis(engineID: $0.engineID, localeIdentifier: $0.localeIdentifier, text: text)]
+            } ?? []
             continuation?.resume(returning: TranscriptionResult(
-                text: TranscriptJoiner.join(segments), confidence: confidence,
+                text: text, confidence: confidence,
                 resolvedLocale: driver.resolvedLocale, segmented: segments.count > 1,
-                segments: segments, completion: completion))
+                segments: segments, completion: completion, hypotheses: hypotheses))
         }
     }
 }
@@ -668,6 +709,12 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
     private var ended: Set<UUID> = []
     private(set) var resolvedLocale = ""
 
+    /// 基线轨恒为单一 locale 识别（无自判语种）；尚未建立识别器时 locale 未知。
+    var evidenceIdentity: SpeechEvidenceIdentity? {
+        SpeechEvidenceIdentity(engineID: VoiceEngineChoice.classic.rawValue,
+                               localeIdentifier: resolvedLocale.isEmpty ? nil : resolvedLocale)
+    }
+
     init(request: TranscriptionRequest, queue: DispatchQueue, capability: TranscriptionCapability,
          recordingURL: URL? = nil) {
         self.request = request
@@ -735,9 +782,27 @@ private final class NativeSpeechSessionDriver: SpeechSessionDriver, @unchecked S
             }
             onEvent(SpeechRecognitionEvent(text: result?.bestTranscription.formattedString,
                                            isFinal: result?.isFinal ?? false,
-                                           confidence: confidence, failure: failure))
+                                           confidence: confidence, failure: failure,
+                                           evidence: result.flatMap { NativeSpeechSessionDriver.finalEvidence(from: $0) }))
         }
         if requests[id] != nil { tasks[id] = started } else { started.cancel() }
+    }
+
+    /// round3 P0-B：基线轨原生证据——段（词）的时间/置信度/`alternativeSubstrings` 与请求级 n-best。
+    /// 只取 final：非 final 结果的段置信度恒为 0、时间未定。时间相对本识别请求的音频起点。
+    private static func finalEvidence(from result: SFSpeechRecognitionResult) -> TranscriptionSegmentEvidence? {
+        guard result.isFinal else { return nil }
+        let best = result.bestTranscription
+        let segments: [TranscriptionTokenAssembly.PlatformSegment] = best.segments.map { segment in
+            TranscriptionTokenAssembly.PlatformSegment(text: segment.substring, start: segment.timestamp,
+                                                       duration: segment.duration,
+                                                       confidence: Double(segment.confidence),
+                                                       alternatives: segment.alternativeSubstrings)
+        }
+        return TranscriptionSegmentEvidence(
+            tokens: TranscriptionTokenAssembly.platformTokens(segments),
+            alternativeTexts: TranscriptionTokenAssembly.alternativeTexts(
+                best: best.formattedString, candidates: result.transcriptions.map(\.formattedString)))
     }
 
     func startCapture(onAudio: @escaping @Sendable (SpeechAudioChunk<NativeSpeechAudio>) -> Void,

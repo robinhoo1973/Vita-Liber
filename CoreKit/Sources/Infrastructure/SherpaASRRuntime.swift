@@ -28,6 +28,8 @@ final class SherpaASRRuntime {
     private var samplesSeen = 0
     private var lastPreviewAt = 0
     private var preview = ""
+    /// round3 P0-B：本识别请求（Job）内已提交各段的引擎原生证据（段内时间已加段起点）。
+    private var evidence = TranscriptionEvidenceAccumulator()
 
     /// `language` 仅 whisper 消费（config.language 走 ISO 码）；qwen3/dolphin/zipformer 忽略。
     init(choice: VoiceEngineChoice, language: String, assets: ASRModelAssets.Validated) throws {
@@ -156,6 +158,7 @@ final class SherpaASRRuntime {
         if let vad { SherpaOnnxVoiceActivityDetectorReset(vad) }
         committed = []; recent = []; recentStart = 0; samplesSeen = 0; lastPreviewAt = 0; preview = ""
         lastPreviewSeconds = 0
+        evidence = TranscriptionEvidenceAccumulator()
     }
 
     /// `allowPreview` 为假时跳过本轮预览解码（调用方在 final 待处理/积压过大时让位，round2 A-N3）。
@@ -175,8 +178,13 @@ final class SherpaASRRuntime {
             }
             guard let result = SherpaOnnxGetOnlineStreamResult(online, stream) else { throw TranscriptionError.engineUnavailable }
             let text = result.pointee.text.map { String(cString: $0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+            let endpoint = !final && SherpaOnnxOnlineStreamIsEndpoint(online, stream) != 0
+            // round3 P0-B：只在段落定（端点 / 收尾）时取证，预览中的部分结果不取；须在销毁结果前读。
+            if endpoint || final, !text.isEmpty {
+                evidence.commit(text: text, evidence: Self.onlineEvidence(result.pointee), offset: 0)
+            }
             SherpaOnnxDestroyOnlineRecognizerResult(result)
-            if !final, SherpaOnnxOnlineStreamIsEndpoint(online, stream) != 0 {
+            if endpoint {
                 if !text.isEmpty { committed.append(text) }
                 SherpaOnnxOnlineStreamReset(online, stream)
                 return TranscriptJoiner.join(committed)
@@ -200,8 +208,12 @@ final class SherpaASRRuntime {
             let audio = Array(UnsafeBufferPointer(start: pointer, count: count))
             SherpaOnnxDestroySpeechSegment(segment)
             SherpaOnnxVoiceActivityDetectorPop(vad)
-            let text = try decode(audio)
-            if !text.isEmpty { committed.append(text) }
+            let decoded = try decode(audio, collectEvidence: true)
+            if !decoded.text.isEmpty {
+                committed.append(decoded.text)
+                // VAD 段起点（样本序号，自 begin() 复位起计）→ 段内词元时间的偏移。
+                evidence.commit(text: decoded.text, evidence: decoded.evidence, offset: Double(end - count) / 16_000)
+            }
             let discard = max(0, min(recent.count, end - recentStart))
             recent.removeFirst(discard); recentStart += discard
             preview = ""; lastPreviewAt = samplesSeen
@@ -214,7 +226,7 @@ final class SherpaASRRuntime {
             if samplesSeen - lastPreviewAt >= interval, recent.count >= 8_000, allowPreview() {
                 guard !cancelled() else { throw CancellationError() }
                 let started = DispatchTime.now().uptimeNanoseconds
-                preview = try decode(recent)
+                preview = try decode(recent).text
                 lastPreviewSeconds = Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9
                 lastPreviewAt = samplesSeen
             }
@@ -227,8 +239,10 @@ final class SherpaASRRuntime {
         return TranscriptJoiner.join(committed + (final || preview.isEmpty ? [] : [preview]))
     }
 
-    private func decode(_ samples: [Float]) throws -> String {
-        guard !samples.isEmpty else { return "" }
+    /// `collectEvidence` 只在提交段时为真（round3 P0-B）：预览解码不取证，省掉逐词拷贝。
+    private func decode(_ samples: [Float], collectEvidence: Bool = false) throws
+        -> (text: String, evidence: TranscriptionSegmentEvidence?) {
+        guard !samples.isEmpty else { return ("", nil) }
         guard let offline, let stream = SherpaOnnxCreateOfflineStream(offline) else { throw TranscriptionError.engineUnavailable }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
         // qwen3 识别器按 per-stream 选项注入：`language` 原样编码为 "language <Name>" 提示
@@ -242,7 +256,50 @@ final class SherpaASRRuntime {
         SherpaOnnxDecodeOfflineStream(offline, stream)
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else { throw TranscriptionError.engineUnavailable }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
-        return result.pointee.text.map { String(cString: $0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        let text = result.pointee.text.map { String(cString: $0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        guard collectEvidence, !text.isEmpty else { return (text, nil) }
+        return (text, Self.offlineEvidence(result.pointee))
+    }
+
+    /// 本识别请求内已提交各段的证据；收尾 final 后由驱动取走（下一请求 `begin` 时清空）。
+    func finalEvidence() -> TranscriptionSegmentEvidence { evidence.segmentEvidence }
+
+    /// 离线结果 → 段证据（时间相对该 VAD 段起点）。钉版 C API 约定 `timestamps` / `durations` /
+    /// `ys_log_probs` 与 `count` 等长或为 NULL；`lang` 只有 SenseVoice / whisper 填。
+    private static func offlineEvidence(_ result: SherpaOnnxOfflineRecognizerResult) -> TranscriptionSegmentEvidence {
+        let count = Int(max(0, result.count))
+        let tokens = TranscriptionTokenAssembly.sherpaTokens(tokenBytes(result.tokens_arr, count: count),
+                                                            timestamps: values(result.timestamps, count: count),
+                                                            durations: values(result.durations, count: count),
+                                                            logProbabilities: values(result.ys_log_probs, count: count))
+        return TranscriptionSegmentEvidence(tokens: tokens,
+                                            languageTag: TranscriptionTokenAssembly.languageTag(sherpa: result.lang.map { String(cString: $0) }))
+    }
+
+    /// 在线结果 → 段证据。C 结构的 `timestamps` 从端点复位处重新计，段起点与逐词 log 概率只在
+    /// `json` 里（见 `SherpaOnlineMetadata`）；读不出段起点就弃用时间戳，不猜原点。
+    private static func onlineEvidence(_ result: SherpaOnnxOnlineRecognizerResult) -> TranscriptionSegmentEvidence {
+        let count = Int(max(0, result.count))
+        let metadata = TranscriptionTokenAssembly.SherpaOnlineMetadata(json: result.json.map { String(cString: $0) })
+        let tokens = TranscriptionTokenAssembly.sherpaTokens(tokenBytes(result.tokens_arr, count: count),
+                                                            timestamps: metadata.startTime == nil ? nil : values(result.timestamps, count: count),
+                                                            logProbabilities: metadata.logProbabilities,
+                                                            offset: metadata.startTime ?? 0)
+        return TranscriptionSegmentEvidence(tokens: tokens)
+    }
+
+    /// `tokens_arr` 逐项读原始字节，不经 `String(cString:)`——拆开的多字节字符要留给 Domain 拼回。
+    private static func tokenBytes(_ array: UnsafePointer<UnsafePointer<CChar>?>?, count: Int) -> [[UInt8]] {
+        guard let array, count > 0 else { return [] }
+        return (0..<min(count, TranscriptionTokenAssembly.sessionTokenLimit)).map { index in
+            guard let token = array[index] else { return [] }
+            return Array(UnsafeRawBufferPointer(start: token, count: strlen(token)))
+        }
+    }
+
+    private static func values(_ pointer: UnsafeMutablePointer<Float>?, count: Int) -> [Double]? {
+        guard let pointer, count > 0 else { return nil }
+        return UnsafeBufferPointer(start: pointer, count: count).map { Double($0) }
     }
 
     private func setOption(_ stream: OpaquePointer, _ key: String, _ value: String) {

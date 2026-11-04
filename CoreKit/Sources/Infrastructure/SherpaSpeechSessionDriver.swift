@@ -53,6 +53,16 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
     /// nil = 未失败或为系统麦克风授权拒绝（协调器回落 unauthorized）。round2 A-N5。
     var preparationFailure: TranscriptionError? { readinessLock.withLock { failure } }
 
+    /// round3 P0-B 证据身份：引擎 = 档位；locale 只在解码确实带语言提示时给出（qwen3 / whisper 单语），
+    /// 混说与无语言输入的模型（zipformer / SenseVoice / CTC 家族）由模型自判语种 → nil。
+    /// 只读不可变的 `request`/`choice` 与目录，不读推理队列写入的 `language`（避免跨队列读写竞争）。
+    var evidenceIdentity: SpeechEvidenceIdentity? {
+        let hint = ASRModelCatalog.model(for: choice, in: ASRFamilyIndexStore.routingIndex())?
+            .decoderLanguage(for: request.localeIdentifier, mode: request.languageMode)
+        return SpeechEvidenceIdentity(engineID: choice.rawValue,
+                                      localeIdentifier: (hint ?? "").isEmpty ? nil : resolvedLocale)
+    }
+
     init(request: TranscriptionRequest, choice: VoiceEngineChoice, assets: ASRModelAssets,
          recordingURL: URL? = nil) {
         self.recordingURL = recordingURL
@@ -187,7 +197,9 @@ final class SherpaSpeechSessionDriver: SpeechSessionDriver, @unchecked Sendable 
                 let text = try runtime.accept(batch.samples, final: batch.final, cancelled: { job.cancelled },
                                               allowPreview: { !job.finishRequested && job.backlogSamples < 2 * 16_000 })
                 guard !job.cancelled else { return }
-                job.onEvent(.init(text: text, isFinal: batch.final, confidence: 0))
+                // round3 P0-B：final 事件携带本请求内已提交各段的原生证据（预览/部分结果不带）。
+                job.onEvent(.init(text: text, isFinal: batch.final, confidence: 0,
+                                  evidence: batch.final ? runtime.finalEvidence() : nil))
             } catch is CancellationError {
                 // 取消只停本代计算；coordinator负责只完成一次，禁止迟到文字。
             } catch {

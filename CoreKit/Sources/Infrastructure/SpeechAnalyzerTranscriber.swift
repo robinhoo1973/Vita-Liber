@@ -86,16 +86,27 @@ public enum SpeechAnalyzerSupport {
         }
     }
 
+    /// round3 P0-B：两族模块都请求逐段时间（`.audioTimeRange`）、置信度（`.transcriptionConfidence`）
+    /// 与 n-best（`.alternativeTranscriptions`）——只多带属性，不改 1-best 文本；听写族其余选项
+    /// 沿用 `.progressiveLongDictation` 预设原值。安装与识别共用本工厂，资产请求与实际配置一致。
     @available(iOS 26.0, macOS 26.0, *)
     static func makeModule(flavor: SpeechAnalyzerFlavor, locale: Locale) -> any SpeechModule {
         switch flavor {
         case .standard:
             return SpeechTranscriber(locale: locale,
                                      transcriptionOptions: [],
-                                     reportingOptions: [.volatileResults],
-                                     attributeOptions: [])
+                                     reportingOptions: [.volatileResults, .alternativeTranscriptions],
+                                     attributeOptions: [.audioTimeRange, .transcriptionConfidence])
         case .dictation:
-            return DictationTranscriber(locale: locale, preset: .progressiveLongDictation)
+            let preset = DictationTranscriber.Preset.progressiveLongDictation
+            var reporting = preset.reportingOptions
+            reporting.insert(.alternativeTranscriptions)
+            var attributes = preset.attributeOptions
+            attributes.insert(.audioTimeRange)
+            attributes.insert(.transcriptionConfidence)
+            return DictationTranscriber(locale: locale, contentHints: preset.contentHints,
+                                        transcriptionOptions: preset.transcriptionOptions,
+                                        reportingOptions: reporting, attributeOptions: attributes)
         }
     }
 }
@@ -317,6 +328,9 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
         sessions[id] = session
         defer { sessions[id] = nil; intents[id] = nil; session.stopCapture() }
 
+        // FR17.15 识别词表（2026-11-03 补接：此前本轨从不读 contextualStrings，药名热词到不了识别器）：
+        // 采集与分析开始前注入分析上下文；await 期间到达的 finish/cancel 由下方意图检查兑现。
+        await session.applyContextualStrings(request.contextualStrings)
         if intents[id] == .cancel { throw CancellationError() }
         if intents[id] == .finish {
             return TranscriptionResult(text: "", confidence: 0,
@@ -401,6 +415,8 @@ final class AnalyzerSession: @unchecked Sendable {
         var end: Double
         var text: String
         var isFinal: Bool
+        /// round3 P0-B：final 结果的引擎原生证据（volatile 结果不带）。
+        var evidence: TranscriptionSegmentEvidence? = nil
     }
 
     let id: UUID
@@ -457,6 +473,21 @@ final class AnalyzerSession: @unchecked Sendable {
 
     func finishInput() { builder.finish() }
 
+    /// FR17.15 识别词表（`MixedSpeechVocabulary` 已去重截断）→ `AnalysisContext.contextualStrings`
+    /// 的 `.general` 标签（Apple：所有标签合计不超过 100 条）。词表只是识别偏置：上下文被拒时
+    /// 按无词表继续，与注入前行为一致，不让按压失败。
+    func applyContextualStrings(_ strings: [String]) async {
+        let phrases = Array(strings.filter { !$0.isEmpty }.prefix(MixedSpeechVocabulary.limit))
+        guard !phrases.isEmpty else { return }
+        let context = AnalysisContext()
+        context.contextualStrings = [.general: phrases]
+        do {
+            try await analyzer.setContext(context)
+        } catch {
+            // 见上：词表缺席不构成识别失败。
+        }
+    }
+
     // MARK: 分析
 
     func analyze() async throws -> CMTime? {
@@ -485,12 +516,18 @@ final class AnalyzerSession: @unchecked Sendable {
                 if let module = self.standardModule {
                     for try await result in module.results {
                         self.handle(text: String(result.text.characters), isFinal: result.isFinal,
-                                    range: result.range)
+                                    range: result.range,
+                                    evidence: result.isFinal
+                                        ? AnalyzerSession.evidence(text: result.text, alternatives: result.alternatives)
+                                        : nil)
                     }
                 } else if let module = self.dictationModule {
                     for try await result in module.results {
                         self.handle(text: String(result.text.characters), isFinal: result.isFinal,
-                                    range: result.range)
+                                    range: result.range,
+                                    evidence: result.isFinal
+                                        ? AnalyzerSession.evidence(text: result.text, alternatives: result.alternatives)
+                                        : nil)
                     }
                 }
             } catch is CancellationError {
@@ -504,13 +541,31 @@ final class AnalyzerSession: @unchecked Sendable {
         }
     }
 
+    /// round3 P0-B：final 结果的原生证据——每个 run 的 `audioTimeRange`（分析器音频时间轴，
+    /// 即本次按压的相对时间）与 `transcriptionConfidence`，加本结果的 n-best（`alternatives`）。
+    static func evidence(text: AttributedString, alternatives: [AttributedString]) -> TranscriptionSegmentEvidence {
+        var segments: [TranscriptionTokenAssembly.PlatformSegment] = []
+        for run in text.runs {
+            let range = run.audioTimeRange
+            segments.append(TranscriptionTokenAssembly.PlatformSegment(
+                text: String(text[run.range].characters),
+                start: range?.start.seconds,
+                duration: range?.duration.seconds,
+                confidence: run.transcriptionConfidence.map { Double($0) }))
+        }
+        return TranscriptionSegmentEvidence(
+            tokens: TranscriptionTokenAssembly.platformTokens(segments),
+            alternativeTexts: TranscriptionTokenAssembly.alternativeTexts(
+                best: String(text.characters), candidates: alternatives.map { String($0.characters) }))
+    }
+
     func awaitResultsEnd() async {
         await resultsTask?.value
     }
 
     /// 重叠区间被新结果取代（volatile → final 的替换语义），按时间序拼接。
     /// 乱序/重复投递由区间去重保证幂等——与基线轨 `PartialGate` 同一取向。
-    private func handle(text: String, isFinal: Bool, range: CMTimeRange) {
+    private func handle(text: String, isFinal: Bool, range: CMTimeRange, evidence: TranscriptionSegmentEvidence?) {
         let start = range.start.seconds
         let end = range.end.seconds
         lock.lock()
@@ -518,7 +573,8 @@ final class AnalyzerSession: @unchecked Sendable {
             pieces.removeAll { $0.start < end && start < $0.end }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                pieces.append(Piece(start: start, end: end, text: trimmed, isFinal: isFinal))
+                pieces.append(Piece(start: start, end: end, text: trimmed, isFinal: isFinal,
+                                    evidence: isFinal ? evidence : nil))
                 pieces.sort { $0.start < $1.start }
             }
         }
@@ -558,16 +614,28 @@ final class AnalyzerSession: @unchecked Sendable {
 
     // MARK: 结果
 
+    /// round3 P0-B：置信度 = final 段各词元引擎原生置信度的字数加权均值（删除写死的 0.85）；
+    /// 没有任何词元带置信度 → `confidence: 0, confidenceIsAvailable: false`。仍有 volatile 段 =
+    /// 部分结果 → 置信度 0（与旧行为一致）。每次按压恰好一个假设，`text` 即交付文本。
     func makeResult(localeIdentifier: String) -> TranscriptionResult {
         lock.lock()
-        let hasVolatile = pieces.contains { !$0.isFinal }
+        let snapshot = pieces
         lock.unlock()
-        return TranscriptionResult(text: displayText,
-                                   confidence: hasVolatile ? 0 : 0.85,
+        let hasVolatile = snapshot.contains { !$0.isFinal }
+        let text = TranscriptJoiner.join(snapshot.map(\.text))
+        var accumulator = TranscriptionEvidenceAccumulator()
+        for piece in snapshot { accumulator.commit(text: piece.text, evidence: piece.evidence, offset: 0) }
+        let engineID = standardModule != nil ? VoiceEngineChoice.advanced.rawValue : VoiceEngineChoice.dictation.rawValue
+        let hypothesis = accumulator.hypothesis(engineID: engineID, localeIdentifier: localeIdentifier, text: text)
+        let measured = TranscriptionTokenAssembly.characterWeightedConfidence(of: hypothesis.tokens)
+        return TranscriptionResult(text: text,
+                                   confidence: hasVolatile ? 0 : (measured ?? 0),
                                    resolvedLocale: localeIdentifier,
                                    segmented: false,
-                                   segments: displayText.isEmpty ? [] : [displayText],
-                                   completion: hasVolatile ? .partial : .final)
+                                   segments: text.isEmpty ? [] : [text],
+                                   completion: hasVolatile ? .partial : .final,
+                                   confidenceIsAvailable: measured != nil,
+                                   hypotheses: [hypothesis])
     }
 }
 
