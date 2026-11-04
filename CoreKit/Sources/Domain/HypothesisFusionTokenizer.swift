@@ -237,6 +237,13 @@ extension HypothesisFusionLexicon {
         while index < characters.count {
             switch kinds[index] {
             case .digit:
+                // 紧邻数字的正负号并入数字词元：否则 '-' 落进 separator 被丢弃，
+                // 「-5」与「5」得到同一个键，符号分歧不产生受保护数值争议。
+                // 但 `120-80` 的连字符是范围分隔（血压/区间），前面紧邻数字时不算符号。
+                let hasSign = index > 0 && kinds[index - 1] == .separator
+                    && Self.numberSigns.contains(characters[index - 1])
+                    && (index < 2 || kinds[index - 2] != .digit)
+                let start = hasSign ? index - 1 : index
                 var end = index + 1
                 var seenPoint = false
                 while end < characters.count {
@@ -248,8 +255,8 @@ extension HypothesisFusionLexicon {
                     }
                     break
                 }
-                let literal = characters[index..<end].map(Self.nfkc).joined()
-                emit(index..<end, key: Self.numberKey(literal), script: .digit, tokenClass: .number)
+                let literal = characters[start..<end].map(Self.nfkc).joined()
+                emit(start..<end, key: Self.numberKey(literal), script: .digit, tokenClass: .number)
                 index = end
             case .numeral:
                 let end = numeralRunEnd(characters, from: index)
@@ -359,6 +366,9 @@ extension HypothesisFusionLexicon {
         character.isASCII ? String(character) : String(character).precomposedStringWithCompatibilityMapping
     }
 
+    /// 可紧贴数字的正负号（ASCII / 全角 / Unicode minus）。
+    static let numberSigns: Set<Character> = ["-", "+", "\u{FF0D}", "\u{FF0B}", "\u{2212}"]
+
     /// CJK 统一表意文字（基本区、扩展 A–H、兼容区）。
     static func isHan(_ scalar: Unicode.Scalar) -> Bool {
         switch scalar.value {
@@ -389,7 +399,10 @@ extension HypothesisFusionLexicon {
 
     /// 数值键：同值同键（「500」「500.0」「五百」→ `#500`），只用于判定一致，不改主轨写法。
     static func numberKey(_ literal: String) -> String {
-        guard let value = Decimal(string: literal) else { return "#" + literal }
+        // U+2212 无 NFKC 折叠，Decimal 不认；先折成 ASCII 再求值。
+        var normalized = literal.replacingOccurrences(of: "\u{2212}", with: "-")
+        if normalized.hasPrefix("+") { normalized.removeFirst() }
+        guard let value = Decimal(string: normalized) else { return "#" + normalized }
         return "#" + value.description
     }
 

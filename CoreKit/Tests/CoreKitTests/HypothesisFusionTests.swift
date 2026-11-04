@@ -30,7 +30,8 @@ struct HypothesisFusionTests {
             let result = HypothesisFusion.fuse(
                 primary: F.hypothesis(F.primaryID, "我不发热"),
                 secondaries: [F.hypothesis(F.appleZh, "我没发热"), F.hypothesis(F.sense, "我发热")],
-                calibration: F.standard, options: HypothesisFusionOptions(mode: mode))
+                calibration: F.standard,
+                options: HypothesisFusionOptions(mode: mode))
             Self.expectNegationDispute(result)
         }
     }
@@ -56,7 +57,8 @@ struct HypothesisFusionTests {
             let result = HypothesisFusion.fuse(
                 primary: primary,
                 secondaries: [F.hypothesis(F.appleZh, "阿莫西林500毫克"), F.hypothesis(F.sense, "阿莫西林 500 mg")],
-                calibration: F.standard, options: HypothesisFusionOptions(mode: mode))
+                calibration: F.standard,
+                options: HypothesisFusionOptions(mode: mode))
             #expect(result.text == primary.text)
             #expect(result.edits.isEmpty)
             let numberRange = 4..<6
@@ -105,7 +107,8 @@ struct HypothesisFusionTests {
             let result = HypothesisFusion.fuse(
                 primary: F.hypothesis(F.primaryID, "他是岁"),
                 secondaries: [F.hypothesis(F.appleZh, "他十岁"), F.hypothesis(F.sense, "他十岁")],
-                calibration: F.standard, options: HypothesisFusionOptions(mode: mode))
+                calibration: F.standard,
+                options: HypothesisFusionOptions(mode: mode))
             #expect(result.text == "他是岁")
             #expect(result.edits.isEmpty)
             #expect(result.disputes.count == 1)
@@ -114,6 +117,25 @@ struct HypothesisFusionTests {
             #expect(alternative?.surface == "十")
             #expect(alternative?.engineIDs == [F.appleZh, F.sense])
         }
+    }
+
+    @Test("正负号并入数字键：-2.50 与 2.50 不同键；120-80 的连字符仍是范围分隔")
+    func signIsPartOfNumberKey() {
+        func keys(_ text: String) -> [String] { HypothesisFusionTokenizer.tokenize(text).map(\.key) }
+        #expect(keys("近视-2.50D") != keys("近视2.50D"))
+        #expect(keys("血压120-80") == keys("血压120 80"))
+        #expect(keys("血压−80").last == keys("血压-80").last)
+    }
+
+    @Test("符号分歧（-2.50 对 2.50）是受保护数值争议，绝不自动改")
+    func signDisagreementIsProtected() {
+        let result = HypothesisFusion.fuse(
+            primary: F.hypothesis(F.primaryID, "近视-2.50D"),
+            secondaries: [F.hypothesis(F.appleZh, "近视2.50D"), F.hypothesis(F.sense, "近视2.50D")],
+            calibration: F.standard, options: F.rewrite)
+        #expect(result.text == "近视-2.50D")
+        #expect(result.edits.isEmpty)
+        #expect(result.disputes.contains { $0.reason == .protected })
     }
 
     @Test("难例 7：英文药名 ibuprofen 与音译「艾布洛芬」——音译余字作为单引擎插入被丢弃")
@@ -250,6 +272,36 @@ struct HypothesisFusionTests {
         #expect(bothWrong == HypothesisFusionEvaluation(fixes: 0, harms: 0))
     }
 
+    @Test("同槽插入候选并入同一列：受保护词元冻结整列，异词元不能另建兄弟列绕过")
+    func protectedInsertionColumnCoversSiblingCandidates() {
+        let calibration = F.calibration([(F.primaryID, 0.85), ("a", 0.80), ("b", 0.98), ("c", 0.98)])
+        let result = HypothesisFusion.fuse(
+            primary: F.hypothesis(F.primaryID, "血压"),
+            secondaries: [F.hypothesis("a", "血50压"), F.hypothesis("b", "血是压"),
+                          F.hypothesis("c", "血是压")],
+            calibration: calibration,
+            options: HypothesisFusionOptions(mode: .gatedRewrite, tau: 0))
+        #expect(result.text == "血压")
+        #expect(result.edits.isEmpty)
+        #expect(result.disputes.contains { $0.reason == .protected })
+    }
+
+    @Test("校准表重复格子整表拒收（各 Cell 是互斥计数桶）")
+    func duplicateCalibrationCellsAreMalformed() {
+        var calibration = F.standard
+        calibration.cells.append(calibration.cells[0])
+        #expect(!calibration.isWellFormed)
+    }
+
+    @Test("调试占位校准（corpusSize=0）打不开生产门控的任何入口")
+    func debugUniformCalibrationNeverOpensGate() {
+        let uniform = RecognitionDebugCapture.uniformCalibration(engineIDs: [F.primaryID, F.appleZh])
+        #expect(uniform.releasePassed && !uniform.cells.isEmpty)
+        #expect(!HypothesisFusionGate.isEnabled(labSwitch: true, calibration: uniform))
+        let report = HypothesisFusionDriftMonitor.assess(calibration: uniform, currentOSBuild: nil, observations: [])
+        #expect(!HypothesisFusionGate.isEnabled(labSwitch: true, calibration: uniform, drift: report))
+    }
+
     @Test("evaluate 便捷重载与融合结果对接")
     func evaluationOverloadUsesFusedText() {
         let primary = F.hypothesis(F.primaryID, "今天头疼得历害")
@@ -300,11 +352,14 @@ enum HypothesisFusionFixtures {
     static let modes: [HypothesisFusionOptions.Mode] = [.reviewOnly, .gatedRewrite]
 
     /// 门控改写模式（§3.3 难例按改写语义验证；默认模式是只提示）。
-    static var rewrite: HypothesisFusionOptions { HypothesisFusionOptions(mode: .gatedRewrite) }
+    static var rewrite: HypothesisFusionOptions {
+        HypothesisFusionOptions(mode: .gatedRewrite)
+    }
 
     /// 门控改写 + 脚本声明：Apple 中文只产汉字/数字/符号；Apple 英文只产拉丁/数字/符号；其余引擎全脚本。
     static var scriptOptions: HypothesisFusionOptions {
-        HypothesisFusionOptions(mode: .gatedRewrite, producibleScripts: [appleZh: [.han, .digit, .other],
+        HypothesisFusionOptions(mode: .gatedRewrite,
+                                producibleScripts: [appleZh: [.han, .digit, .other],
                                                                          appleEn: [.latin, .digit, .other]])
     }
 }

@@ -115,11 +115,21 @@ public struct HypothesisFusionCalibration: Sendable, Equatable, Codable {
     /// 结构自检：计数非负、correct ≤ total、档位在界内、引擎名非空；基线分歧率在 [0,1] 且引擎对不重复。
     /// 任何一条不满足 ⟹ 整表不可用（fail-closed）。
     public var isWellFormed: Bool {
-        guard (1...1_000).contains(confidenceBinCount), corpusSize >= 0,
+        // 计数上限同时是溢出保险：索引构建把多个 Cell 相加，接近 Int.max 的计数会在
+        // 校验通过后溢出崩溃；语料规模不可能接近 10^9。
+        let countCeiling = 1_000_000_000
+        guard (1...1_000).contains(confidenceBinCount), (0...countCeiling).contains(corpusSize),
               (0...corpusSize).contains(codeSwitchedCount) else { return false }
+        var cellKeys = Set<[String]>()
         let cellsValid = cells.allSatisfy { cell in
-            !cell.engineID.isEmpty && cell.correct >= 0 && cell.total >= 0 && cell.correct <= cell.total
-                && (cell.confidenceBin.map { (0..<confidenceBinCount).contains($0) } ?? true)
+            guard !cell.engineID.isEmpty, cell.correct >= 0, cell.total >= 0, cell.correct <= cell.total,
+                  cell.correct <= countCeiling, cell.total <= countCeiling,
+                  cell.confidenceBin.map({ (0..<confidenceBinCount).contains($0) }) ?? true else { return false }
+            // 各 Cell 是互斥计数桶：重复维度会在精确档首条命中、在上级回退求和，
+            // 同一计数被两种口径重复解释。生成器契约要求汇总由消费方求和，整表拒收。
+            let key = [cell.engineID, cell.script.rawValue, cell.tokenClass.rawValue,
+                       cell.confidenceBin.map(String.init) ?? "-"]
+            return cellKeys.insert(key).inserted
         }
         var pairs = Set<[String]>()
         let baselinesValid = baselineDisagreementRates.allSatisfy { baseline in
@@ -140,7 +150,9 @@ public struct HypothesisFusionCalibration: Sendable, Equatable, Codable {
 
     /// 置信度 → 档位（[0,1] 等宽 `binCount` 档；非有限值或档数非法 = nil）。
     public static func confidenceBin(for confidence: Double, binCount: Int) -> Int? {
-        guard binCount >= 1, confidence.isFinite else { return nil }
+        // 档数上限同时防 `Int(clamped * binCount)` 在极端 binCount 下溢出崩溃；
+        // 正常校准包 10 档，1000 已是 isWellFormed 的上限。
+        guard (1...10_000).contains(binCount), confidence.isFinite else { return nil }
         let clamped = min(1, max(0, confidence))
         return min(binCount - 1, Int(clamped * Double(binCount)))
     }
@@ -181,13 +193,15 @@ public enum HypothesisFusionGate {
     public static func isEnabled(labSwitch: Bool, calibration: HypothesisFusionCalibration?) -> Bool {
         guard labSwitch, let calibration else { return false }
         return calibration.releasePassed && calibration.osBuild == nil
+            && calibration.corpusSize > 0 && !calibration.cells.isEmpty && calibration.isWellFormed
     }
 
     /// 带无标签漂移监测的门控：放行线通过 ∧ 漂移报告出自同一校准包（版本一致）∧ 系统版本一致 ∧ 无引擎对漂移。
     /// 任一不满足即回落主轨。
     public static func isEnabled(labSwitch: Bool, calibration: HypothesisFusionCalibration?,
                                  drift: HypothesisFusionDriftReport) -> Bool {
-        guard labSwitch, let calibration, calibration.releasePassed else { return false }
+        guard labSwitch, let calibration, calibration.releasePassed,
+              calibration.corpusSize > 0, !calibration.cells.isEmpty, calibration.isWellFormed else { return false }
         return drift.calibrationVersion == calibration.version && !drift.requiresFallback
     }
 }

@@ -38,8 +38,10 @@ enum HypothesisFusionAligner {
     static let substitutionCost = 100
     /// 副轨跳过主轨列（此处投 ∅）或多出一个词元（建插入列）。
     static let gapCost = 90
-    /// 副轨跳过既有插入列：主轨在此本就为 ∅，不计代价。
-    static let skipInsertionCost = 0
+    /// 副轨跳过既有插入列。不能为 0：0 + gap(90) < substitution(100)，
+    /// 会让「与插入列不同的词元」另建同槽兄弟列，绕过按列的保护/极性冻结。
+    /// 取 20 保证 substitution(100) < 20 + 90，异词元并入同列投票。
+    static let skipInsertionCost = 20
 
     private enum Step: UInt8 {
         case none = 0
