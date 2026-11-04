@@ -174,12 +174,12 @@ int ocr_session_run(void *handle,
     }
     size_t count = 0;
     size_t dim_count = 0;
-    int64_t dims[3] = {0, 0, 0};
+    int64_t dims[4] = {0, 0, 0, 0};
     ONNXTensorElementDataType element_type = ONNX_TENSOR_ELEMENT_DATA_TYPE_UNDEFINED;
     if (ocr_check(api, api->GetTensorShapeElementCount(info, &count), "GetTensorShapeElementCount") != 0 ||
         ocr_check(api, api->GetDimensionsCount(info, &dim_count), "GetDimensionsCount") != 0 ||
-        dim_count != 3 ||
-        ocr_check(api, api->GetDimensions(info, dims, 3), "GetDimensions") != 0 ||
+        dim_count < 2 || dim_count > 4 ||
+        ocr_check(api, api->GetDimensions(info, dims, 4), "GetDimensions") != 0 ||
         ocr_check(api, api->GetTensorElementType(info, &element_type), "GetTensorElementType") != 0 ||
         element_type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
         api->ReleaseTensorTypeAndShapeInfo(info);
@@ -188,12 +188,24 @@ int ocr_session_run(void *handle,
     }
     api->ReleaseTensorTypeAndShapeInfo(info);
 
-    if (dims[0] != 1 || dims[1] <= 0 || dims[2] <= 0 ||
-        (uint64_t)dims[1] > SIZE_MAX / (uint64_t)dims[2] ||
-        (uint64_t)dims[1] * (uint64_t)dims[2] != (uint64_t)count ||
+    // rec 输出 [1,T,C]，det 输出 [1,1,H,W]：统一取最后两维为行×列，
+    // 其余维度必须为 1（batch/channel）。rank 2 的 [H,W] 也接受。
+    for (size_t i = 0; i + 2 < dim_count; i++) {
+        if (dims[i] != 1) {
+            snprintf(g_error, sizeof(g_error), "invalid output leading dim %zu = %lld",
+                     i, (long long)dims[i]);
+            api->ReleaseValue(output);
+            return -1;
+        }
+    }
+    const int64_t rows = dims[dim_count - 2];
+    const int64_t cols = dims[dim_count - 1];
+    if (rows <= 0 || cols <= 0 ||
+        (uint64_t)rows > SIZE_MAX / (uint64_t)cols ||
+        (uint64_t)rows * (uint64_t)cols != (uint64_t)count ||
         count > SIZE_MAX / sizeof(float)) {
-        snprintf(g_error, sizeof(g_error), "invalid output shape %lldx%lldx%lld (count=%zu)",
-                 (long long)dims[0], (long long)dims[1], (long long)dims[2], count);
+        snprintf(g_error, sizeof(g_error), "invalid output shape %lldx%lld (rank %zu, count=%zu)",
+                 (long long)rows, (long long)cols, dim_count, count);
         api->ReleaseValue(output);
         return -1;
     }
@@ -214,8 +226,8 @@ int ocr_session_run(void *handle,
 
     *out_buffer = copy;
     *out_count = count;
-    *out_timesteps = dims[1];
-    *out_classes = dims[2];
+    *out_timesteps = rows;
+    *out_classes = cols;
     return 0;
 }
 

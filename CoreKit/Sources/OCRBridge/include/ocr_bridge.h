@@ -16,9 +16,10 @@ void *ocr_session_create(const void *model_data, size_t model_len,
 
 void ocr_session_free(void *handle);
 
-/// 同步推理一张 48×width 的 BGR 归一化浮点张量。
+/// 同步推理一张 [1,3,height,width] 浮点张量（rec 48×width / det 检测图）。
 /// 成功返回 0；输出 buffer 由本库 malloc，调用方用 ocr_buffer_free() 释放。
-/// out_count = timesteps * classes；out_timesteps/out_classes 回填形状。
+/// 输出 rank 2–4，leading dims 必须为 1；最后两维为行×列：
+/// out_count = rows * cols；out_timesteps/out_classes 回填行/列（rec=T,C；det=H,W）。
 int ocr_session_run(void *handle,
                     const float *input,
                     int64_t height,
