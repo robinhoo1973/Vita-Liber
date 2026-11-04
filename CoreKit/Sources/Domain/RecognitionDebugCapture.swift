@@ -288,13 +288,17 @@ public enum RecognitionDebugCapture {
     }
 
     /// 对采集输入做融合：只提示（交付语义）+ 门控改写 what-if（不交付）。
-    public static func fuse(_ input: Input, tau: Double = 1.0, protectedTerms: [String] = []) -> Output {
+    ///
+    /// `policy` 由调用方注入：App 传入 `HypothesisFusionMedicalPolicy.standard`（Infrastructure）
+    /// 保持既有医疗保护；默认空词表策略，Domain 不含任何医学词表。
+    public static func fuse(_ input: Input, tau: Double = 1.0, protectedTerms: [String] = [],
+                            policy: HypothesisFusionPolicy = .generic) -> Output {
         let engineIDs = input.segments.flatMap(\.hypotheses).map(\.engineID)
         let calibration = uniformCalibration(engineIDs: engineIDs)
         let scripts = producibleScripts(for: input.segments)
         let results = input.segments.map {
             fuse(segment: $0, calibration: calibration, scripts: scripts, tau: tau,
-                 protectedTerms: protectedTerms)
+                 protectedTerms: protectedTerms, policy: policy)
         }
         let separator = input.modality == .ocr ? "\n" : ""
         return Output(
@@ -310,7 +314,7 @@ public enum RecognitionDebugCapture {
 
     static func fuse(segment: Segment, calibration: HypothesisFusionCalibration,
                      scripts: [String: Set<HypothesisFusionScript>], tau: Double,
-                     protectedTerms: [String]) -> SegmentResult {
+                     protectedTerms: [String], policy: HypothesisFusionPolicy) -> SegmentResult {
         let usable = segment.hypotheses.filter(\.isUsable)
         let normalized = Set(usable.map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) })
         let unanimous = usable.count >= 2 && normalized.count == 1
@@ -322,16 +326,21 @@ public enum RecognitionDebugCapture {
                                  fallback: nil, note: "primary-unavailable", pairObservations: [])
         }
         let secondaries = usable.filter { $0.role == .secondary && $0.engineID != primary.engineID }
-        let primaryHypothesis = primary.transcriptionHypothesis
-        let secondaryHypotheses = secondaries.map(\.transcriptionHypothesis)
+        // 采集层已带来源组：ASR 生产轨 + Apple 中/英、OCR Paddle + Vision 共用同一多源契约。
+        let sources = ([primary] + secondaries).map { hypothesis in
+            HypothesisFusionSource(
+                hypothesis: hypothesis.transcriptionHypothesis, sourceGroup: hypothesis.sourceGroup,
+                role: hypothesis.role == .primary ? .primary : .secondary,
+                producibleScripts: scripts[hypothesis.engineID])
+        }
         let review = HypothesisFusion.fuse(
-            primary: primaryHypothesis, secondaries: secondaryHypotheses, calibration: calibration,
+            sources: sources, calibration: calibration,
             options: HypothesisFusionOptions(mode: .reviewOnly, tau: tau, protectedTerms: protectedTerms,
-                                             producibleScripts: scripts))
+                                             producibleScripts: scripts, policy: policy))
         let whatIf = HypothesisFusion.fuse(
-            primary: primaryHypothesis, secondaries: secondaryHypotheses, calibration: calibration,
+            sources: sources, calibration: calibration,
             options: HypothesisFusionOptions(mode: .gatedRewrite, tau: tau, protectedTerms: protectedTerms,
-                                             producibleScripts: scripts))
+                                             producibleScripts: scripts, policy: policy))
         return SegmentResult(
             index: segment.index, primaryEngineID: primary.engineID,
             secondaryEngineIDs: secondaries.map(\.engineID), unanimous: unanimous,

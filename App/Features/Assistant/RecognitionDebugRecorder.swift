@@ -198,7 +198,7 @@ enum RecognitionDebugRecorder {
                               exportState: DocumentExportState) async {
         let output = await Task.detached(priority: .utility) { () -> RecognitionDebugCapture.Output in
             let started = Date()
-            var output = RecognitionDebugCapture.fuse(input)
+            var output = RecognitionDebugCapture.fuse(input, policy: HypothesisFusionMedicalPolicy.standard)
             output.elapsedMs = Date().timeIntervalSince(started) * 1000
             return output
         }.value
