@@ -391,7 +391,7 @@ public actor DocumentExportMirror {
     /// 关闭诊断开关时清除全部会话目录中的 OCR 调试日志（含旧日志），
     /// 避免「关闭后不再新增」但旧 PHI 仍留在 Files 的歧义。
     /// 2026-11-04：同时清除各会话目录下的 `recognition-debug/` 采集（含旧布局目录）。
-    public func removeAllDebugLogs() {
+    public func removeAllDebugLogs() async {
         for root in [exportsBase.appendingPathComponent(MediaRootPaths.conversationFolderName, isDirectory: true),
                      exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)] {
             for conversation in directoryChildren(of: root) {
@@ -402,16 +402,20 @@ public actor DocumentExportMirror {
                 }
             }
         }
-        // 递归：日志在 exportsBase/<会话目录> 或旧层 exportsBase/Vita Liber/<会话目录>，
-        // 只扫一层会把嵌套目录里的 PHI 日志留在 Files。
-        guard let enumerator = fileManager.enumerator(   // try?-ok: 枚举失败跳过
-            at: exportsBase, includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]) else { return }
-        for case let url as URL in enumerator {
-            let name = url.lastPathComponent
-            guard name.hasPrefix("ocr-debug-"), name.hasSuffix(".jsonl") else { continue }
-            try? fileManager.removeItem(at: url)   // try?-ok: 清理尽力而为
+        // 只扫账本目录 + 精确文件名：Files 是用户面，按前缀扫全树会误删用户文件。
+        for name in Set(await ledger.directories().map(\.name)) {
+            guard !name.isEmpty, !name.hasPrefix("/"), !name.contains("..") else { continue }
+            let directory = exportsBase.appendingPathComponent(name, isDirectory: true)
+            let entries = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [] // try?-ok: 清理尽力而为
+            for entry in entries where Self.isDebugLogName(entry) {
+                try? fileManager.removeItem(at: directory.appendingPathComponent(entry)) // try?-ok: 清理尽力而为
+            }
         }
+    }
+
+    /// 仅 App 生成名 `ocr-debug-yyyyMMdd-HHmmss.jsonl`，用户改名/自建同名文件不动。
+    private static func isDebugLogName(_ name: String) -> Bool {
+        name.range(of: #"^ocr-debug-\d{8}-\d{6}\.jsonl$"#, options: .regularExpression) != nil
     }
 
     /// 会话删除前快照（E2）：会话行删除后账本外键 `ON DELETE SET NULL`，
