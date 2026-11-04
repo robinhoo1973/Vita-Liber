@@ -244,7 +244,7 @@ public actor ASRModelDownloadService {
         let candidates = index.models
             .filter { $0.id == choice.rawValue && $0.isPublished && $0.variant != nil
                       && $0.isCompatible(appVersion: appVersion)
-                      && ModelCatalogTrustStore.shared.isAuthorized($0) }
+                      && ModelCatalogTrustStore.shared.isAuthorized($0) && $0.runtime == ModelResourcePolicy.runtime && ($0.expandedBytes ?? 0) > 0 && ($0.expandedBytes ?? 0) <= ModelResourcePolicy.expandedBytes }
         var newest: [String: ASRModelRelease] = [:]
         for release in candidates {
             guard let key = release.variant else { continue }
