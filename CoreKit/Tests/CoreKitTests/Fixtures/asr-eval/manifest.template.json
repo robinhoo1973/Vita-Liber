@@ -1,0 +1,43 @@
+{
+  "_comment": "ASR 杀手实验清单模板（round3 §8 P0-A）。全部为合成示例句，非真实录音或转写——真实清单与音频只放业主本机，绝不入库。audioPath 相对 VITALIBER_ASR_EVAL_AUDIO_DIR（缺省=清单所在目录）；tags 取值 mixed / numeric / negation / drug / emergencyPositive / emergencyNegative（可省略）；protectedTerms 可选，每个词必须出现在 reference 中（中文数字如「三次」需显式列入才按保护类计）。用法见 CoreKit/Tests/CoreKitTests/ASREvaluationHarnessTests.swift 文件头。",
+  "schemaVersion": 1,
+  "utterances": [
+    {
+      "utteranceID": "mixed-001",
+      "audioPath": "mixed/mixed-001.wav",
+      "reference": "Yes，你说的很对",
+      "tags": ["mixed"]
+    },
+    {
+      "utteranceID": "mixed-002",
+      "audioPath": "mixed/mixed-002.m4a",
+      "reference": "我昨天做了 CT，结果 OK",
+      "tags": ["mixed"]
+    },
+    {
+      "utteranceID": "numeric-001",
+      "audioPath": "numeric/numeric-001.wav",
+      "reference": "阿莫西林每次500毫克，一天三次",
+      "tags": ["numeric", "drug"],
+      "protectedTerms": ["阿莫西林", "三次"]
+    },
+    {
+      "utteranceID": "negation-001",
+      "audioPath": "negation/negation-001.wav",
+      "reference": "我不发热，也没有咳嗽",
+      "tags": ["negation"]
+    },
+    {
+      "utteranceID": "emergency-positive-001",
+      "audioPath": "emergency/positive-001.wav",
+      "reference": "我胸痛得厉害，快叫救护车",
+      "tags": ["emergencyPositive"]
+    },
+    {
+      "utteranceID": "emergency-negative-001",
+      "audioPath": "emergency/negative-001.wav",
+      "reference": "我没有胸痛，只是有点累",
+      "tags": ["emergencyNegative", "negation"]
+    }
+  ]
+}
