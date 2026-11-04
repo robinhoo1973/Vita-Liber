@@ -32,6 +32,32 @@ public actor OCRModelStore {
         public var version: String
         public var license: String
         public var assets: [String: Asset]
+        /// det（Paddle-primary）为顶层键，与 `assets.rec` 分离；缺省 = 不支持检测。
+        public var det: DetectorAsset?
+    }
+
+    /// PP-OCRv6 det 资产（无字典；检测后处理参数随 catalog 冻结）。
+    public struct DetectorAsset: Codable, Sendable {
+        public var file: String
+        public var bytes: Int
+        public var sha256: String
+        public var inputName: String
+        public var outputName: String
+        public var maxSide: Int
+        public var thresh: Double
+        public var boxThresh: Double
+        public var unclipRatio: Double
+        public var maxCandidates: Int
+        public var mean: [Double]
+        public var std: [Double]
+        public var channelOrder: String
+    }
+
+    public struct Detector: Sendable {
+        public var modelData: Data
+        public var asset: DetectorAsset
+        public var modelSHA256: String
+        public var displayName: String
     }
 
     public struct Loaded: Sendable {
@@ -47,6 +73,8 @@ public actor OCRModelStore {
 
     private var cached: Loaded?
     private var attempted = false
+    private var cachedDetector: Detector?
+    private var detectorAttempted = false
 
     public init() {}
 
@@ -81,6 +109,33 @@ public actor OCRModelStore {
                             displayName: "\(catalog.family)@\(catalog.version)")
         cached = loaded
         return loaded
+    }
+
+    /// 加载 det 模型（Paddle-primary）。与 rec 同样做字节数/sha256 校验；
+    /// det 无字典，任一项缺失/不符返回 nil（调用方回退 Vision）。
+    public func loadDetector() -> Detector? {
+        if detectorAttempted { return cachedDetector }
+        detectorAttempted = true
+        guard let directory = Bundle.main.url(forResource: "OCRModels", withExtension: nil),
+              let catalogURL = Bundle.main.url(forResource: "catalog", withExtension: "json",
+                                               subdirectory: "OCRModels"),
+              let catalogData = try? Data(contentsOf: catalogURL),   // try?-ok: 缺件按模型不可用降级
+              let catalog = try? JSONDecoder().decode(Catalog.self, from: catalogData),   // try?-ok: 目录损坏按不可用降级
+              let asset = catalog.det,
+              !asset.inputName.isEmpty, !asset.outputName.isEmpty,
+              asset.maxSide > 0, asset.maxCandidates > 0,
+              asset.mean.count == 3, asset.std.count == 3,
+              let modelData = try? Data(contentsOf: directory.appendingPathComponent(asset.file)),   // try?-ok: 缺件降级
+              modelData.count == asset.bytes,
+              Self.sha256Hex(modelData) == asset.sha256.lowercased() else {
+            cachedDetector = nil
+            return nil
+        }
+        let detector = Detector(modelData: modelData, asset: asset,
+                                modelSHA256: asset.sha256.lowercased(),
+                                displayName: "\(catalog.family)@\(catalog.version)-det")
+        cachedDetector = detector
+        return detector
     }
 
     private static func sha256Hex(_ data: Data) -> String {
