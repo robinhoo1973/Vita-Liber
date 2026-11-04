@@ -63,7 +63,8 @@ final class VoiceDictationModel {
 
     private let engine: any TranscriptionEngine
     var preferredLocale: String?
-    /// FR17.15 混说词表（主语言 + 混说开关 + 已确认药名 → contextualStrings；空 = 不注入）
+    /// FR17.15 识别词表（主语言 + 混说开关 + 已确认药名 → contextualStrings / sherpa hotwords）：
+    /// 混说开 = 药名 + 单位 +（选英语时）英文医学词；混说关 = 只含已确认药名；空 = 不注入。
     var contextualStrings: [String] = []
     /// FR17.15 语言模式：混说开关开 = `.mixed`（不强制解码语言，启用模型自带语种识别）；
     /// 关 = `.single`（强制主语言）。round2 A-N1：此前开关只改词表、语言仍被强制。
@@ -98,8 +99,10 @@ final class VoiceDictationModel {
         self.preferredLocale = preferredLocale
     }
 
-    /// FR17.15 V3.61：按设置装配主语言与混说词表（设置页保序：首位 = 主语言；
-    /// 混说开关关 = 不注入词表；已确认药名来自药箱库存摘要）
+    /// FR17.15 V3.61：按设置装配主语言与识别词表（设置页保序：首位 = 主语言；
+    /// 已确认药名来自药箱库存摘要）。round3 P0-B：药名热词与混说开关解绑——
+    /// 混说开关关 = 只注入已确认药名（此前整表清空，Apple contextualStrings 与 sherpa
+    /// hotwords 同时失去药名）；混说开关开 = 词表不变。`languageMode` 仍只由开关决定。
     func applyLanguageSettings(storedLocales: String?, mixedInput: Bool, recentDrugNames: [String]) {
         let locales = SettingsRules.voiceLocales(storedLocales)
         preferredLocale = locales.first
@@ -107,11 +110,11 @@ final class VoiceDictationModel {
         // 引擎选择层按「覆盖方言+外语并集」选模型（此前只传主语言，其余语种
         // 从不参与引擎选择，方言+外语混说在选择层即被判定为不支持）。
         selectedLocales = locales
-        contextualStrings = mixedInput
-            ? MixedSpeechVocabulary.terms(primaryLocale: locales.first ?? TranscriptionSegmentation.fallbackLocale,
-                                          otherLocales: Array(locales.dropFirst()),
-                                          recentDrugNames: recentDrugNames)
-            : []
+        contextualStrings = MixedSpeechVocabulary.contextualStrings(
+            mixedInput: mixedInput,
+            primaryLocale: locales.first ?? TranscriptionSegmentation.fallbackLocale,
+            otherLocales: Array(locales.dropFirst()),
+            recentDrugNames: recentDrugNames)
         languageMode = mixedInput ? .mixed : .single
     }
 
@@ -310,9 +313,12 @@ final class VoiceDictationModel {
                 resolvedEngineID = result.engineID
                 hasIncompleteTranscript = result.completion != .final
                 let empty = result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                phase = empty ? .failed : .idle
-                failureReason = empty ? .noSpeech : nil
-                if empty { Haptics.notice(.warning) }
+                // BR-012（round3 P0-B）：交付文本为空、但原始假设命中急救词时，这次按压
+                // 要走急救，不是「没听到声音」——不得同时渲染失败态和警告触觉。
+                let failed = empty && TranscriptionSafety.emergencyText(in: result) == nil
+                phase = failed ? .failed : .idle
+                failureReason = failed ? .noSpeech : nil
+                if failed { Haptics.notice(.warning) }
             case .failure(let error):
                 resolvedLocale = nil
                 if error is CancellationError {
@@ -342,16 +348,19 @@ final class VoiceDictationModel {
             deliveryOrder.removeFirst()
             guard let original = contexts.removeValue(forKey: next) else { continue }
             if case .success(let transcript) = result,
-               !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+               let emergencyHit = TranscriptionSafety.emergencyText(in: transcript) {
+                // BR-012（round3 P0-B）：交付文本 ∪ 各引擎原生 1-best 任一命中即急救，且先于
+                // 空文本判定——主轨为空而副引擎听到「胸痛」也必须跳急救卡。交付文本命中时
+                // 回传交付文本（与引入假设前一致），否则回传命中的原始假设文本。
+                Haptics.notice(.success)
+                original.onEmergency?(emergencyHit)
+            } else if case .success(let transcript) = result,
+                      !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // 交付成功触觉（§5.15「完成时触觉冲击」）：文字上屏与手感同时到达，
                 // 不必盯着屏幕确认「说完了没有」
                 Haptics.notice(.success)
-                if EmergencyKeywordRules.match(transcript.text) {
-                    original.onEmergency?(transcript.text)
-                } else {
-                    original.onTranscript?(transcript.text, transcript.completion == .final ? transcript.confidence : 0)
-                    original.onTranscriptResult?(next, transcript)
-                }
+                original.onTranscript?(transcript.text, transcript.completion == .final ? transcript.confidence : 0)
+                original.onTranscriptResult?(next, transcript)
             } else {
                 original.onFailure?(next, failureReason)
             }

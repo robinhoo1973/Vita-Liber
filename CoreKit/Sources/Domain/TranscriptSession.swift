@@ -50,8 +50,10 @@ public struct TranscriptSessionAccumulator: Sendable, Equatable {
     }
 }
 
-/// FR17.15 混说词表（`contextualStrings`，≤100 条）：主语言识别 + 高频混说词注入——
-/// 用户已确认的药名优先，其后是医疗单位与（选择了英语时的）常见英文医学词。
+/// FR17.15 识别词表（`contextualStrings` / sherpa hotwords，≤100 条）：主语言识别 + 领域词注入。
+/// 混说开关开：用户已确认的药名优先，其后是医疗单位与（选择了英语时的）常见英文医学词。
+/// 混说开关关：只注入已确认药名（round3 P0-B 解绑：药名是 OOV 主因、药箱库存是最强先验，
+/// 不应随混说开关一起消失；单位与英文医学词仍只属于混说）。
 /// 词表是识别偏置，不是医学结论；不含任何阈值/剂量数字。
 public enum MixedSpeechVocabulary {
     /// Apple contextualStrings 建议上限
@@ -65,21 +67,37 @@ public enum MixedSpeechVocabulary {
         "Vitamin D", "ibuprofen", "amoxicillin", "metformin", "insulin", "aspirin",
     ]
 
+    /// 混说词表：已确认药名 → 医疗单位 →（选择了英语时）英文医学词。
     public static func terms(primaryLocale: String, otherLocales: [String],
                               recentDrugNames: [String], limit: Int = limit) -> [String] {
+        let locales = [primaryLocale] + otherLocales
+        let english = locales.contains(where: { $0.hasPrefix("en") }) ? englishMedical : []
+        return capped(recentDrugNames + units + english, limit: limit)
+    }
+
+    /// 单语词表：只含已确认药名（不含单位、英文医学词）；与 `terms` 同一去重与上限口径。
+    public static func drugNameTerms(recentDrugNames: [String], limit: Int = limit) -> [String] {
+        capped(recentDrugNames, limit: limit)
+    }
+
+    /// 按混说开关选词表（装配入口单点；`languageMode` 仍只由开关决定，与本函数无关）。
+    public static func contextualStrings(mixedInput: Bool, primaryLocale: String, otherLocales: [String],
+                                         recentDrugNames: [String], limit: Int = limit) -> [String] {
+        mixedInput
+            ? terms(primaryLocale: primaryLocale, otherLocales: otherLocales,
+                    recentDrugNames: recentDrugNames, limit: limit)
+            : drugNameTerms(recentDrugNames: recentDrugNames, limit: limit)
+    }
+
+    /// 保序：去首尾空白、丢空串、按去空白后的原文去重，截到 min(调用方上限, SDK 上限)。
+    private static func capped(_ candidates: [String], limit: Int) -> [String] {
         let limit = min(Self.limit, max(0, limit))
         var seen = Set<String>()
         var out: [String] = []
-        func add(_ term: String) {
+        for term in candidates where out.count < limit {
             let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, out.count < limit, seen.insert(trimmed).inserted else { return }
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
             out.append(trimmed)
-        }
-        recentDrugNames.forEach(add)
-        units.forEach(add)
-        let locales = [primaryLocale] + otherLocales
-        if locales.contains(where: { $0.hasPrefix("en") }) {
-            englishMedical.forEach(add)
         }
         return out
     }

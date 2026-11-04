@@ -4,7 +4,7 @@ import Domain
 import Protocols
 @testable import VitaLiber
 
-// binds: SU-M15-VOICE (FR17.1, FR17.15)
+// binds: SU-M15-VOICE (FR17.1, FR17.15, BR-012)
 @MainActor
 final class VoiceDictationModelTests: XCTestCase {
     /// Deliberately ignores cancellation so late native callbacks remain testable.
@@ -50,11 +50,13 @@ final class VoiceDictationModelTests: XCTestCase {
         }
 
         func complete(_ request: TranscriptionRequest, text: String,
-                      locale: String? = nil, completion: TranscriptionCompletion = .final) {
+                      locale: String? = nil, completion: TranscriptionCompletion = .final,
+                      hypotheses: [TranscriptionHypothesis] = []) {
             continuations.removeValue(forKey: request.sessionID)?.resume(returning:
                 TranscriptionResult(text: text, confidence: 0.9,
                                     resolvedLocale: locale ?? request.localeIdentifier,
-                                    segmented: false, segments: [text], completion: completion))
+                                    segmented: false, segments: [text], completion: completion,
+                                    hypotheses: hypotheses))
         }
 
         func fail(_ request: TranscriptionRequest) {
@@ -227,5 +229,73 @@ final class VoiceDictationModelTests: XCTestCase {
         model.setAuthorization(false)
         XCTAssertEqual(activity, [true, false], "Revocation must not leave the manual-input path disabled")
         await engine.complete(request, text: "late")
+    }
+
+    /// round3 P0-B · BR-012: a raw engine 1-best hit routes to emergency even when the delivered text missed it.
+    func test_rawHypothesisEmergencyRoutesInsteadOfDraft() async {
+        let engine = ControlledEngine()
+        let model = VoiceDictationModel(engine: engine, preferredLocale: "zh-Hans-CN")
+        var delivered: [String] = []
+        var emergencies: [String] = []
+        model.onTranscript = { text, _ in delivered.append(text) }
+        model.onEmergency = { text in emergencies.append(text) }
+        model.start()
+        let request = await engine.request(at: 0)
+        await engine.complete(request, text: "我兄通得厉害", hypotheses: [
+            TranscriptionHypothesis(engineID: "qwen3", text: "我兄通得厉害"),
+            TranscriptionHypothesis(engineID: "classic", text: "我胸痛得厉害"),
+        ])
+        await eventually { emergencies == ["我胸痛得厉害"] && !model.hasPendingTranscriptions }
+        XCTAssertTrue(delivered.isEmpty, "An emergency hit must not also become a draft")
+    }
+
+    /// round3 P0-B · BR-012: an empty primary with an emergency hypothesis is an emergency, not "no speech".
+    func test_emptyDeliveredTextWithEmergencyHypothesisIsNotNoSpeech() async {
+        let engine = ControlledEngine()
+        let model = VoiceDictationModel(engine: engine, preferredLocale: "zh-Hans-CN")
+        var emergencies: [String] = []
+        var failures = 0
+        model.onEmergency = { text in emergencies.append(text) }
+        model.onFailure = { _, _ in failures += 1 }
+        model.start()
+        let request = await engine.request(at: 0)
+        await engine.complete(request, text: "", hypotheses: [
+            TranscriptionHypothesis(engineID: "sensevoice", text: "救命"),
+        ])
+        await eventually { emergencies == ["救命"] && !model.hasPendingTranscriptions }
+        XCTAssertEqual(failures, 0)
+        XCTAssertNotEqual(model.phase, .failed)
+        XCTAssertNil(model.failureReason)
+    }
+
+    /// round3 P0-B · BR-012: lower-ranked n-best of the same engine never triggers emergency.
+    func test_nBestOnlyEmergencyStillDeliversDraft() async {
+        let engine = ControlledEngine()
+        let model = VoiceDictationModel(engine: engine, preferredLocale: "zh-Hans-CN")
+        var delivered: [String] = []
+        var emergencies: [String] = []
+        model.onTranscript = { text, _ in delivered.append(text) }
+        model.onEmergency = { text in emergencies.append(text) }
+        model.start()
+        let request = await engine.request(at: 0)
+        await engine.complete(request, text: "我兄通得厉害", hypotheses: [
+            TranscriptionHypothesis(engineID: "classic", text: "我兄通得厉害", alternativeTexts: ["我胸痛得厉害"]),
+        ])
+        await eventually { delivered == ["我兄通得厉害"] && !model.hasPendingTranscriptions }
+        XCTAssertTrue(emergencies.isEmpty)
+    }
+
+    /// round3 P0-B · FR17.15: mixed input off still injects confirmed drug names (only), single-language decode.
+    func test_singleLanguageModeStillInjectsConfirmedDrugNamesOnly() async {
+        let engine = ControlledEngine()
+        let model = VoiceDictationModel(engine: engine)
+        model.applyLanguageSettings(storedLocales: "zh-Hans-CN,en-US", mixedInput: false,
+                                    recentDrugNames: ["阿莫西林胶囊", "阿莫西林胶囊", "Metformin"])
+        model.start()
+        let request = await engine.request(at: 0)
+        XCTAssertEqual(request.languageMode, .single)
+        XCTAssertEqual(request.contextualStrings, ["阿莫西林胶囊", "Metformin"])
+        await engine.complete(request, text: "done")
+        await eventually { !model.hasPendingTranscriptions }
     }
 }

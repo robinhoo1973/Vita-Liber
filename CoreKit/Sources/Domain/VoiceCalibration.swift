@@ -20,7 +20,7 @@ public enum VoiceCalibration {
         public var transcript: String
         /// 语料类别（metric/reminder/profile），决定走哪套文法
         public var kind: String
-        /// 语种标识（FR17.15 六语种矩阵配额；混说样本用 "mixed"）
+        /// 语种标识（FR17.15 六语种矩阵配额；混说样本用 `mixedQuotaKey`，即 "mixed"）
         public var locale: String
         /// 是否真人录制语料。**只有 true 才计入 FR17.4 的 ≥500 配额**——
         /// 手写样例可以验证文法正确性，但不能代表真人口音与语流。
@@ -46,6 +46,11 @@ public enum VoiceCalibration {
     public static let requiredHumanSamples = 500
     public static let requiredNumericAccuracy = 0.90
     public static let requiredStructureRate = 0.85
+    /// FR17.4 / FR17.15 混说真人语料配额（2026-11-03 round3 P0-B 业主默认值）：500 条里
+    /// 至少 150 条混说。混说错误率此前从未度量，B2 放行不能只靠单语语料撑起总数。
+    public static let requiredMixedSamples = 150
+    /// 混说样本的 `Sample.locale` 取值，也是 `Report.localeQuota` 的键。
+    public static let mixedQuotaKey = "mixed"
 
     public struct Report: Sendable, Equatable {
         public var humanSampleCount: Int
@@ -53,14 +58,18 @@ public enum VoiceCalibration {
         public var numericAccuracy: Double
         /// 完整结构率（全部期望字段都抽对的样本占比）
         public var structureRate: Double
-        /// 六语种/混说配额分布（locale → 真人语料条数）
+        /// 六语种/混说配额分布（locale → 真人语料条数；`evaluate` 只统计 `isHumanRecorded`）
         public var localeQuota: [String: Int]
 
-        /// 是否达到放行线——**三条全中才算过**，缺语料一律不过
+        /// 混说真人语料条数（缺键按 0 计）
+        public var mixedSampleCount: Int { localeQuota[mixedQuotaKey, default: 0] }
+
+        /// 是否达到放行线——**四条全中才算过**，缺语料一律不过
         public var passesReleaseLine: Bool {
             humanSampleCount >= requiredHumanSamples
                 && numericAccuracy >= requiredNumericAccuracy
                 && structureRate >= requiredStructureRate
+                && mixedSampleCount >= requiredMixedSamples
         }
 
         /// 未达标原因（人类可读，进 CI Step Summary 与台账）
@@ -74,6 +83,9 @@ public enum VoiceCalibration {
             }
             if structureRate < requiredStructureRate {
                 out.append(String(format: "完整结构率 %.1f%% < 85%%", structureRate * 100))
+            }
+            if mixedSampleCount < requiredMixedSamples {
+                out.append("混说真人语料 \(mixedSampleCount)/\(requiredMixedSamples) 条")
             }
             return out
         }
@@ -164,14 +176,14 @@ public enum VoiceCalibration {
 ///
 /// 2026-10-18 委员会裁决：结构化路径拆双 flag——
 /// - `voiceDeterministicEnabled`（B1 确定性规则轨）：脚本金样定标驱动；
-/// - `voiceModelEnabled`（B2 模型轨）：≥500 条真人语料定标驱动。
+/// - `voiceModelEnabled`（B2 模型轨）：≥500 条真人语料（其中混说 ≥150 条）定标驱动。
 /// 二者都只由定标结果回写，**不是**可手工打开的开关（不变量不变）。
 public enum FeatureFlags {
     /// B1 确定性结构化路径（文法抽取 → 字段草案）。
     /// 定标未过时必须为 false —— 此时语音/文本仅作纯转写，用户走触屏录入。
     public static var voiceDeterministicEnabled: Bool { deterministicCalibrationPassed }
 
-    /// B2 模型结构化路径（意图/槽位模型）。真人语料未达 500 条时必须为 false。
+    /// B2 模型结构化路径（意图/槽位模型）。真人语料未达 500 条或混说不足 150 条时必须为 false。
     public static var voiceModelEnabled: Bool { modelCalibrationPassed }
 
     /// 由定标结果驱动，**不是**可以手工打开的开关——
@@ -186,7 +198,7 @@ public enum FeatureFlags {
         deterministicCalibrationPassed = report.passesReleaseLine
     }
 
-    /// 仅供定标流程回写（CI 跑完 ≥500 条真人金样后置位）。
+    /// 仅供定标流程回写（CI 跑完 ≥500 条真人金样、其中混说 ≥150 条后置位）。
     public static func applyModelCalibration(_ report: VoiceCalibration.Report) {
         modelCalibrationPassed = report.passesReleaseLine
     }

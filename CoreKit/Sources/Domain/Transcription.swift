@@ -145,15 +145,20 @@ public struct TranscriptionResult: Sendable, Equatable {
     public var engineID: String?
     /// nil表明引擎没有给出可用置信度；confidence保留为0以兼容低置信复核。
     public var confidenceIsAvailable: Bool
+    /// 本次按压各引擎的原生输出（润色/融合之前，2026-11-03 P0-B）；空 = 引擎未提供证据。
+    /// BR-012：急救扫描覆盖 `text` ∪ 各假设 `text`——任何改写环节都不得让原始输出里的急救词失效。
+    public var hypotheses: [TranscriptionHypothesis]
     public init(text: String, confidence: Double, resolvedLocale: String, segmented: Bool,
                 segments: [String] = [], completion: TranscriptionCompletion = .final,
-                engineID: String? = nil, confidenceIsAvailable: Bool = true) {
+                engineID: String? = nil, confidenceIsAvailable: Bool = true,
+                hypotheses: [TranscriptionHypothesis] = []) {
         self.text = text; self.confidence = confidence
         self.resolvedLocale = resolvedLocale; self.segmented = segmented
         self.segments = segments
         self.completion = completion
         self.engineID = engineID
         self.confidenceIsAvailable = confidenceIsAvailable
+        self.hypotheses = hypotheses
     }
 }
 

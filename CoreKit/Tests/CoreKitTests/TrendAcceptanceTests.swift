@@ -461,9 +461,12 @@ struct SUM15CalibrationTests {
             FeatureFlags.applyModelCalibration(VoiceCalibration.evaluate(
                 corpus: VoiceCalibration.Corpus(version: "reset", samples: [])) { _ in [:] })
         }
-        let samples = (0..<VoiceCalibration.requiredHumanSamples).map {
-            VoiceCalibration.Sample(id: "h-\($0)", transcript: "血糖6.2", kind: "metric",
-                                    locale: "zh-Hans-CN", isHumanRecorded: true,
+        // round3 P0-B：放行线追加混说配额（≥150），满配语料须含足额混说样本。
+        let samples = (0..<VoiceCalibration.requiredHumanSamples).map { index in
+            VoiceCalibration.Sample(id: "h-\(index)", transcript: "血糖6.2", kind: "metric",
+                                    locale: index < VoiceCalibration.requiredMixedSamples
+                                        ? VoiceCalibration.mixedQuotaKey : "zh-Hans-CN",
+                                    isHumanRecorded: true,
                                     expected: ["glucose": "6.2"])
         }
         let report = VoiceCalibration.evaluate(
@@ -475,7 +478,8 @@ struct SUM15CalibrationTests {
         #expect(report.numericAccuracy == 1.0)
         #expect(report.structureRate == 1.0)
         #expect(report.passesReleaseLine, "满配全对必须能放行，否则门禁是坏的")
-        #expect(report.localeQuota["zh-Hans-CN"] == 500, "六语种配额账必须如实统计")
+        #expect(report.localeQuota["zh-Hans-CN"] == 350, "六语种配额账必须如实统计")
+        #expect(report.localeQuota[VoiceCalibration.mixedQuotaKey] == 150, "混说配额单独统计")
         #expect(FeatureFlags.voiceModelEnabled)
     }
 }
