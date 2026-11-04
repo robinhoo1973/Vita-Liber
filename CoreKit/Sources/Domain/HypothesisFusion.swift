@@ -161,10 +161,12 @@ public struct FusedTranscript: Sendable, Equatable {
     public var fallback: HypothesisFusionFallback?
     /// 本次主轨 × 各副轨的分歧计数（无标签漂移监测的输入，见 `HypothesisFusionDriftMonitor`）；回退时为空。
     public var pairObservations: [HypothesisFusionPairObservation]
+    /// 各源来源组（与 `sources` 一一对应）；旧入口（无组信息）为空。
+    public var sourceGroups: [String]
 
     public init(text: String, edits: [HypothesisFusionEdit], disputes: [HypothesisFusionDispute],
                 engineID: String, sources: [String], fallback: HypothesisFusionFallback?,
-                pairObservations: [HypothesisFusionPairObservation] = []) {
+                pairObservations: [HypothesisFusionPairObservation] = [], sourceGroups: [String] = []) {
         self.text = text
         self.edits = edits
         self.disputes = disputes
@@ -172,6 +174,7 @@ public struct FusedTranscript: Sendable, Equatable {
         self.sources = sources
         self.fallback = fallback
         self.pairObservations = pairObservations
+        self.sourceGroups = sourceGroups
     }
 }
 
@@ -184,6 +187,10 @@ public enum HypothesisFusionFallback: String, Sendable, Equatable, Codable {
     case primaryUncalibrated
     case noSecondaries
     case inputTooLong
+    /// 多源入口：没有任何源声明为 `.primary`。
+    case noPrimarySource
+    /// 多源入口：多于一个源声明为 `.primary`（调用方契约错误，fail-closed）。
+    case ambiguousPrimary
 }
 
 /// 一处已应用的修改。
