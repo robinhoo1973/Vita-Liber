@@ -79,4 +79,12 @@ struct CTCDecoderContractTests {
         #expect(out.text.isEmpty)
         #expect(out.emittedCharacters == 0)
     }
+
+    @Test("形状非法必须抛错，影子机不能把解码失败记成识别为空")
+    func invalidShapeThrows() {
+        #expect(throws: CTCDecoder.DecodeError.self) {
+            try CTCDecoder.validate(probabilitiesCount: 3, timesteps: 2, classes: 2,
+                                    vocabularyCount: 1, blankIndex: 0)
+        }
+    }
 }

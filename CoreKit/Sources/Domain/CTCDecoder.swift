@@ -19,11 +19,34 @@ public enum CTCDecoder {
         }
     }
 
+    /// 输入形状错误（词表/类别/概率数不匹配）。`decode` 为兼容返回空结果；
+    /// 影子诊断必须用 `validate` 把它记成错误，而不是当成「识别为空」。
+    public enum DecodeError: Error, Sendable, Equatable {
+        case invalidShape(timesteps: Int, classes: Int, probabilities: Int, vocabulary: Int, blankIndex: Int)
+    }
+
+    public static func isValid(probabilitiesCount: Int, timesteps: Int, classes: Int,
+                               vocabularyCount: Int, blankIndex: Int) -> Bool {
+        let (product, overflow) = timesteps.multipliedReportingOverflow(by: classes)
+        return !overflow && timesteps > 0 && classes > 0 && blankIndex >= 0 && blankIndex < classes
+            && vocabularyCount == classes && probabilitiesCount >= product
+    }
+
+    public static func validate(probabilitiesCount: Int, timesteps: Int, classes: Int,
+                                vocabularyCount: Int, blankIndex: Int) throws {
+        guard isValid(probabilitiesCount: probabilitiesCount, timesteps: timesteps, classes: classes,
+                      vocabularyCount: vocabularyCount, blankIndex: blankIndex) else {
+            throw DecodeError.invalidShape(timesteps: timesteps, classes: classes,
+                                           probabilities: probabilitiesCount,
+                                           vocabulary: vocabularyCount, blankIndex: blankIndex)
+        }
+    }
+
     public static func decode(probabilities: [Float], timesteps: Int, classes: Int,
                               vocabulary: [String], blankIndex: Int = 0) -> Output {
-        guard timesteps > 0, classes > 0, blankIndex >= 0, blankIndex < classes,
-              vocabulary.count == classes,
-              probabilities.count >= timesteps * classes else {
+        guard isValid(probabilitiesCount: probabilities.count, timesteps: timesteps,
+                      classes: classes, vocabularyCount: vocabulary.count,
+                      blankIndex: blankIndex) else {
             return Output(text: "", confidence: 0, emittedCharacters: 0)
         }
         var text = ""

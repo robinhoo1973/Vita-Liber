@@ -67,6 +67,12 @@ public actor PaddleRecShadowRecognizer: ImageTextRecognizing {
                 let output = try session.run(input: prepared.tensor,
                                              height: loaded.asset.height,
                                              width: prepared.width)
+                // 先验形状：`decode` 对坏输入返回空文本，影子机会把「解码失败」误记成
+                // 「识别为空」；抛错才能进下面的 error 轨迹。
+                try CTCDecoder.validate(probabilitiesCount: output.probabilities.count,
+                                        timesteps: output.timesteps, classes: output.classes,
+                                        vocabularyCount: loaded.vocabulary.count,
+                                        blankIndex: loaded.asset.blankIndex)
                 let decoded = CTCDecoder.decode(
                     probabilities: output.probabilities, timesteps: output.timesteps,
                     classes: output.classes, vocabulary: loaded.vocabulary,
