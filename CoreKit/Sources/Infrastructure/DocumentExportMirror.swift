@@ -335,11 +335,43 @@ public actor DocumentExportMirror {
             return false
         }
         try? Self.excludeFromBackup(target)   // try?-ok: 调试文件排除备份失败不影响可读
-        let names = directoryChildren(of: debugRoot).map(\.lastPathComponent)
-        for stale in RecognitionDebugCapture.capturesToPrune(names) {
-            try? fileManager.removeItem(at: debugRoot.appendingPathComponent(stale))   // try?-ok: 裁剪尽力而为
-        }
+        pruneRecognitionDebug(at: debugRoot)
         return true
+    }
+
+    /// 启动/回前台清扫（2026-11-04 业主：调试目录不得存录音/图片）：各会话
+    /// `recognition-debug/` 立即删除旧布局采集目录（曾含录音/原件）并执行保留上限。
+    /// 与诊断开关无关——升级后首次启动即清，不等下一次采集写入。只删本布局命名条目。
+    @discardableResult
+    public func sweepRecognitionDebug() -> Int {
+        var removed = 0
+        for root in [exportsBase.appendingPathComponent(MediaRootPaths.conversationFolderName, isDirectory: true),
+                     exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)] {
+            for conversation in directoryChildren(of: root) {
+                let debug = conversation.appendingPathComponent(RecognitionDebugCapture.folderName,
+                                                                isDirectory: true)
+                guard fileManager.fileExists(atPath: debug.path) else { continue }
+                removed += pruneRecognitionDebug(at: debug)
+            }
+        }
+        return removed
+    }
+
+    /// 必须列全部子项（文件 + 目录）：`directoryChildren` 只返回目录，会让 `.json`
+    /// 采集文件永远不进保留上限计数。
+    @discardableResult
+    private func pruneRecognitionDebug(at debugRoot: URL) -> Int {
+        let names = (try? fileManager.contentsOfDirectory(atPath: debugRoot.path)) ?? []   // try?-ok: 枚举失败跳过
+        var removed = 0
+        for stale in RecognitionDebugCapture.capturesToPrune(names) {
+            do {
+                try fileManager.removeItem(at: debugRoot.appendingPathComponent(stale))
+                removed += 1
+            } catch {
+                // 裁剪尽力而为；下次启动/写入重试。
+            }
+        }
+        return removed
     }
 
     /// 按会话短 ID 找磁盘上已存在的会话目录（`conversation/*-<id6>[-n]`），

@@ -118,6 +118,9 @@ final class DocumentExportState {
     /// 先迁移旧「Vita Liber」根再对账：顺序反了会把刚搬走的旧账本行误标 missing。
     func reconcile() async {
         await migrateLegacyExportRootIfNeeded()
+        // 迁移之后清扫：旧根会话目录已搬到 conversation/ 下，一次扫到。
+        await mirror.sweepRecognitionDebug()
+        RecognitionDebugRecorder.purgeStagingAudio()
         driftCount = await mirror.reconcile()
     }
 

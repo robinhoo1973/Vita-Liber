@@ -23,6 +23,18 @@ enum RecognitionDebugRecorder {
     static let appleReplayLocales = ["zh-CN", "en-US"]
 
     private static let stagingFolder = "recognition-debug-staging"
+    private static var stagingPurged = false
+
+    /// 进程内首次（冷启动首个 .active）清除暂存残留：采集中途被杀时 `defer` 删不到。
+    /// 只做一次——之后回前台可能正有 Apple 重放在读暂存录音。
+    static func purgeStagingAudio() {
+        guard !stagingPurged else { return }
+        stagingPurged = true
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(stagingFolder, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try? FileManager.default.removeItem(at: directory)   // try?-ok: 暂存清理尽力而为
+    }
 
     // MARK: - 语音
 

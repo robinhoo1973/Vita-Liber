@@ -184,5 +184,34 @@ struct DocumentExportRootRebaseTests {
         #expect(!changed)
         #expect(!FileManager.default.fileExists(atPath: legacy.path))
     }
+
+    /// 2026-11-04 业主：调试目录不得存录音/图片——升级后启动即清旧布局采集目录，
+    /// 不等下一次写入；同时保留上限必须数到 `.json` 文件（曾只列目录而失效）。
+    @Test("识别调试清扫：启动即删旧布局媒体目录，JSON 保留最近 50 份，不碰用户文件")
+    func sweepsRecognitionDebug() async throws {
+        let f = try await makeFixture()
+        let fm = FileManager.default
+        let debug = f.exports.appendingPathComponent("conversation/20261104-会话-abcdef/recognition-debug",
+                                                     isDirectory: true)
+        let legacyCapture = debug.appendingPathComponent("20261104-120000-asr-aaaaaa", isDirectory: true)
+        try fm.createDirectory(at: legacyCapture, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: legacyCapture.appendingPathComponent("audio.caf"))
+        try Data("{}".utf8).write(to: legacyCapture.appendingPathComponent("input.json"))
+        for index in 0..<52 {
+            let name = String(format: "20261104-13%04d-ocr-%06x.json", index, index)
+            try Data("{}".utf8).write(to: debug.appendingPathComponent(name))
+        }
+        try Data("keep".utf8).write(to: debug.appendingPathComponent("notes.txt"))
+
+        let removed = await f.mirror.sweepRecognitionDebug()
+
+        #expect(removed == 3)
+        #expect(!fm.fileExists(atPath: legacyCapture.path))
+        let remaining = try fm.contentsOfDirectory(atPath: debug.path)
+        #expect(remaining.filter { $0.hasSuffix(".json") }.count == 50)
+        #expect(!remaining.contains("20261104-130000-ocr-000000.json"))
+        #expect(!remaining.contains("20261104-130001-ocr-000001.json"))
+        #expect(remaining.contains("notes.txt"))
+    }
 }
 #endif
