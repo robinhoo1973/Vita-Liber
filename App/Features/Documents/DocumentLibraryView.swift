@@ -995,7 +995,7 @@ final class DocumentsState {
                         cards: review.all, reviewedFields: payload.reviewedFields, docTypeKey: persistedKey)
                 }
                 session.source = ImportSource(documentId: documentID, patientId: draft.patientId, pages: draft.pages)
-                if !draft.ocrDebugTraces.isEmpty {
+                if !draft.isSensitive, !draft.ocrDebugTraces.isEmpty {
                     // 仅诊断开启时产生；上限 8 份文档，防资料库路径长期导入无界增长。
                     if ocrDebugTracesByDocument.count >= 8 {
                         ocrDebugTracesByDocument.removeAll()
