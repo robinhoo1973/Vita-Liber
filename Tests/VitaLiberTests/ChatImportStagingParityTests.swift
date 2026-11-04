@@ -178,7 +178,7 @@ struct ChatImportStagingParityTests {
     @Test("识别原文页与资料操作行与契约一一对应")
     func testTextAndActionsRowsMatchMock() {
         let labels = [
-            L10n.chatMediaTabText,
+            L10n.pendingCardRawText,
             L10n.assistantMediaTextPageHeader(1),
             L10n.docExportCopy,
             L10n.docTitleSection,
