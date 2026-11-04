@@ -66,6 +66,18 @@ struct TranscriptionTokenAssemblyTests {
         #expect(near(tokens.first?.duration, 0.6))
     }
 
+    @Test func emptyPlaceholderBetweenSplitBytesContributesNoEvidence() {
+        // 拼回字符时只允许并入真正参与拼接的原始下标；空占位的时长/概率不得算进来。
+        let tokens = TranscriptionTokenAssembly.sherpaTokens(
+            [[0xE4, 0xBD], [], [0xA0]],
+            timestamps: [0.5, 0.7, 0.9],
+            durations: [0.1, 5.0, 0.3],
+            logProbabilities: [log(0.9), log(0.5), log(0.8)])
+        #expect(tokens.map(\.text) == ["你"])
+        #expect(near(tokens.first?.duration, 0.4))
+        #expect(near(tokens.first?.confidence, 0.72))
+    }
+
     @Test func fourByteCharacterSplitInHalfIsReassembled() {
         let tokens = TranscriptionTokenAssembly.sherpaTokens([[0xF0, 0x9F], [0x98, 0x80], Array("ok".utf8)])
         #expect(tokens.map(\.text) == ["😀", "ok"])

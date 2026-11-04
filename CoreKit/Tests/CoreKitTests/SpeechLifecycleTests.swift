@@ -180,6 +180,25 @@ struct SpeechLifecycleTests {
         #expect(updates.values.last == "first second")
     }
 
+    @Test func evidenceIdentityProducesHypothesisForDeliveredText() async throws {
+        let driver = ManualSpeechDriver(
+            evidenceIdentity: SpeechEvidenceIdentity(engineID: "classic:en-US", localeIdentifier: "en-US"))
+        let engine = SpeechSessionCoordinator { _ in driver }
+        let request = TranscriptionRequest(localeIdentifier: "en-US")
+        let work = Task { try await engine.transcribe(request, onPartial: nil) }
+        await driver.waitFor("authorize")
+        driver.approve()
+        await driver.waitFor("capture")
+        await engine.finish(sessionID: request.sessionID)
+        driver.emit(segment: 0, text: "hello", isFinal: true, evidence: TranscriptionSegmentEvidence(
+            tokens: [TranscriptionToken(text: "hello", start: 0, duration: 1, confidence: 0.9)]))
+        let result = try await work.value
+        #expect(result.text == "hello")
+        #expect(result.hypotheses.map(\.engineID) == ["classic:en-US"])
+        #expect(result.hypotheses.first?.text == "hello")
+        #expect(result.hypotheses.first?.tokens.map(\.text) == ["hello"])
+    }
+
     @Test func initialNoSpeechDoesNotEndHeldCaptureAndRecoveryKeepsPartial() async throws {
         let driver = ManualSpeechDriver()
         var limits = SpeechSessionLimits()
@@ -291,6 +310,7 @@ private final class SpeechTextLog: @unchecked Sendable {
 private final class ManualSpeechDriver: SpeechSessionDriver, @unchecked Sendable {
     typealias Audio = Int
     let resolvedLocale = "en-US"
+    let evidenceIdentity: SpeechEvidenceIdentity?
     private let pauseBeforeCapture: Bool
     private let pauseDuringAppend: Bool
     private let lock = NSLock()
@@ -307,9 +327,11 @@ private final class ManualSpeechDriver: SpeechSessionDriver, @unchecked Sendable
     private var events: [String] = []
     private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
-    init(pauseBeforeCapture: Bool = false, pauseDuringAppend: Bool = false) {
+    init(pauseBeforeCapture: Bool = false, pauseDuringAppend: Bool = false,
+         evidenceIdentity: SpeechEvidenceIdentity? = nil) {
         self.pauseBeforeCapture = pauseBeforeCapture
         self.pauseDuringAppend = pauseDuringAppend
+        self.evidenceIdentity = evidenceIdentity
     }
 
     private func waitForStop(_ isStopped: @Sendable () -> Bool) {
@@ -423,8 +445,10 @@ private final class ManualSpeechDriver: SpeechSessionDriver, @unchecked Sendable
     }
 
     func emit(segment index: Int, text: String? = nil, isFinal: Bool = false,
-              failure: SpeechRecognitionFailure? = nil) {
+              failure: SpeechRecognitionFailure? = nil,
+              evidence: TranscriptionSegmentEvidence? = nil) {
         lock.lock(); let callback = handlers[segments[index]]; lock.unlock()
-        callback?(SpeechRecognitionEvent(text: text, isFinal: isFinal, confidence: 0.9, failure: failure))
+        callback?(SpeechRecognitionEvent(text: text, isFinal: isFinal, confidence: 0.9,
+                                         failure: failure, evidence: evidence))
     }
 }

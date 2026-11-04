@@ -614,17 +614,21 @@ private final class ContinuousRecognition<Driver: SpeechSessionDriver>: @uncheck
             continuation?.resume(throwing: error)
         } else {
             publish()
-            let confidence = completion == .final && !confidences.isEmpty
-                ? confidences.reduce(0, +) / Double(confidences.count) : 0
+            let measured = completion == .final && !confidences.isEmpty
+                ? confidences.reduce(0, +) / Double(confidences.count) : nil
+            // Apple 段置信度 0 = 「无置信度」（`platformTokens` 同口径）：全 0 均值不是测量值，
+            // 否则下游会把占位 0 当低置信度转写触发不必要的复核。
+            let confidence = (measured ?? 0) > 0 ? measured : nil
             let text = TranscriptJoiner.join(segments)
             // round3 P0-B：每个驱动恰好一个假设，`text` = 交付文本（引擎 1-best，润色前）。
             let hypotheses = driver.evidenceIdentity.map {
                 [evidence.hypothesis(engineID: $0.engineID, localeIdentifier: $0.localeIdentifier, text: text)]
             } ?? []
             continuation?.resume(returning: TranscriptionResult(
-                text: text, confidence: confidence,
+                text: text, confidence: confidence ?? 0,
                 resolvedLocale: driver.resolvedLocale, segmented: segments.count > 1,
-                segments: segments, completion: completion, hypotheses: hypotheses))
+                segments: segments, completion: completion,
+                confidenceIsAvailable: confidence != nil, hypotheses: hypotheses))
         }
     }
 }

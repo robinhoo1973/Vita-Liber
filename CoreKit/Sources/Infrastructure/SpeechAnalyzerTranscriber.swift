@@ -261,7 +261,8 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
         if intents[id] == .finish {
             intents[id] = nil
             return TranscriptionResult(text: "", confidence: 0,
-                                       resolvedLocale: request.localeIdentifier, segmented: false)
+                                       resolvedLocale: request.localeIdentifier, segmented: false,
+                                       confidenceIsAvailable: false)
         }
         switch await resolve(locale: request.localeIdentifier) {
         case .delegate:
@@ -274,7 +275,8 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
             if intents[id] == .finish {
                 intents[id] = nil
                 return TranscriptionResult(text: "", confidence: 0,
-                                           resolvedLocale: request.localeIdentifier, segmented: false)
+                                           resolvedLocale: request.localeIdentifier, segmented: false,
+                                           confidenceIsAvailable: false)
             }
             intents[id] = nil
             delegated.insert(id)
@@ -328,14 +330,16 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
         sessions[id] = session
         defer { sessions[id] = nil; intents[id] = nil; session.stopCapture() }
 
-        // FR17.15 识别词表（2026-11-03 补接：此前本轨从不读 contextualStrings，药名热词到不了识别器）：
-        // 采集与分析开始前注入分析上下文；await 期间到达的 finish/cancel 由下方意图检查兑现。
-        await session.applyContextualStrings(request.contextualStrings)
+        // 开麦前已松手/取消：不启动麦克风，保持旧语义（没有音频可交付）。
         if intents[id] == .cancel { throw CancellationError() }
         if intents[id] == .finish {
             return TranscriptionResult(text: "", confidence: 0,
-                                       resolvedLocale: locale.identifier, segmented: false)
+                                       resolvedLocale: locale.identifier, segmented: false,
+                                       confidenceIsAvailable: false)
         }
+        // 先开麦再注入识别词表（FR17.15）：setContext 是外部 await，若放在开麦前，
+        // 它变慢/卡住时麦克风根本没启动，用户先说的几个字直接丢失。
+        // 采集已启动后 await 的这段时间，音频进入 AsyncStream 缓冲，分析尚未开始。
         do {
             try session.startCapture()
             onCaptureStarted()
@@ -343,6 +347,12 @@ public actor SpeechAnalyzerTranscriber: TranscriptionCaptureReporting, Transcrip
             throw error
         }
         session.startResultPump()
+        // 词表只是识别偏置；await 期间到达的 finish/cancel 在下方兑现，且已采集音频不丢弃。
+        await session.applyContextualStrings(request.contextualStrings)
+        if intents[id] == .cancel {
+            await session.abort()
+            throw CancellationError()
+        }
 
         async let analysis: CMTime? = session.analyze()
         // 松手/finish/cancel 均由外部意图驱动等待（与基线轨同一控制模型）。
@@ -634,7 +644,8 @@ final class AnalyzerSession: @unchecked Sendable {
                                    segmented: false,
                                    segments: text.isEmpty ? [] : [text],
                                    completion: hasVolatile ? .partial : .final,
-                                   confidenceIsAvailable: measured != nil,
+                                   // 有 volatile 段时 confidence 是占位 0，不能同时宣称「有测量值」。
+                                   confidenceIsAvailable: measured != nil && !hasVolatile,
                                    hypotheses: [hypothesis])
     }
 }

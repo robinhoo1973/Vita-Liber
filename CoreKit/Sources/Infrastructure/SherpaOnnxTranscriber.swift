@@ -78,8 +78,17 @@ public final class SherpaOnnxTranscriber: TranscriptionCaptureReporting, Transcr
             .languageCode(for: request.localeIdentifier) != nil else { throw TranscriptionError.engineUnavailable }
         var result = try await coordinator.transcribe(request, onPartial: onPartial, onCaptureStarted: onCaptureStarted)
         result.engineID = choice.rawValue
-        result.confidence = 0
-        result.confidenceIsAvailable = false
+        // 结果级置信度与证据面保持一致：在线 transducer 已能给出逐词原生置信度
+        // （`SherpaASRRuntime.onlineEvidence` 的 ys_probs），不能再一律清零；
+        // 离线非 transducer 模型没有任何置信度时仍如实 0 / false。
+        let nativeTokens = result.hypotheses.flatMap(\.tokens)
+        if let measured = TranscriptionTokenAssembly.characterWeightedConfidence(of: nativeTokens) {
+            result.confidence = measured
+            result.confidenceIsAvailable = true
+        } else {
+            result.confidence = 0
+            result.confidenceIsAvailable = false
+        }
         return result
         #else
         throw TranscriptionError.engineUnavailable

@@ -267,7 +267,9 @@ final class SherpaASRRuntime {
     /// 离线结果 → 段证据（时间相对该 VAD 段起点）。钉版 C API 约定 `timestamps` / `durations` /
     /// `ys_log_probs` 与 `count` 等长或为 NULL；`lang` 只有 SenseVoice / whisper 填。
     private static func offlineEvidence(_ result: SherpaOnnxOfflineRecognizerResult) -> TranscriptionSegmentEvidence {
-        let count = Int(max(0, result.count))
+        // 先截到词元上限再读并行数组：`tokenBytes` 内部也会截断，但 timestamps/durations/log_probs
+        // 若仍按原始 count 读取会与词元数不等长，装配层只能整体丢弃时间/置信度列。
+        let count = min(Int(max(0, result.count)), TranscriptionTokenAssembly.sessionTokenLimit)
         let tokens = TranscriptionTokenAssembly.sherpaTokens(tokenBytes(result.tokens_arr, count: count),
                                                             timestamps: values(result.timestamps, count: count),
                                                             durations: values(result.durations, count: count),
@@ -279,7 +281,7 @@ final class SherpaASRRuntime {
     /// 在线结果 → 段证据。C 结构的 `timestamps` 从端点复位处重新计，段起点与逐词 log 概率只在
     /// `json` 里（见 `SherpaOnlineMetadata`）；读不出段起点就弃用时间戳，不猜原点。
     private static func onlineEvidence(_ result: SherpaOnnxOnlineRecognizerResult) -> TranscriptionSegmentEvidence {
-        let count = Int(max(0, result.count))
+        let count = min(Int(max(0, result.count)), TranscriptionTokenAssembly.sessionTokenLimit)
         let metadata = TranscriptionTokenAssembly.SherpaOnlineMetadata(json: result.json.map { String(cString: $0) })
         let tokens = TranscriptionTokenAssembly.sherpaTokens(tokenBytes(result.tokens_arr, count: count),
                                                             timestamps: metadata.startTime == nil ? nil : values(result.timestamps, count: count),

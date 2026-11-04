@@ -69,14 +69,16 @@ public enum TranscriptionTokenAssembly {
         let cap = max(0, limit)
         var tokens: [TranscriptionToken] = []
         var pending: [UInt8] = []
-        var first = 0
-        var last = 0
+        // 只记真正并入 pending 的原始下标：空占位词元被跳过，若按 first...last 连续区间求和，
+        // 会把它们的时长/对数概率算进拼回的字符（捏造证据）。
+        var indices: [Int] = []
 
         func flush() {
-            defer { pending.removeAll(keepingCapacity: true) }
+            defer { pending.removeAll(keepingCapacity: true); indices.removeAll(keepingCapacity: true) }
             guard !pending.isEmpty, tokens.count < cap,
                   let text = cleanedText(String(decoding: pending, as: UTF8.self)) else { return }
-            let pieces = Array(first...last)
+            let pieces = indices
+            guard let first = pieces.first else { return }
             let start = starts.flatMap { time($0[first], offset: offset) }
             let length = lengths.flatMap { values in summedDuration(pieces.map { values[$0] }) }
             let score = logs.flatMap { values in
@@ -89,8 +91,7 @@ public enum TranscriptionTokenAssembly {
             guard tokens.count < cap else { break }
             let bytes = byteFallbackValue(piece).map { [$0] } ?? piece
             guard !bytes.isEmpty else { continue }
-            if pending.isEmpty { first = index }
-            last = index
+            indices.append(index)
             pending.append(contentsOf: bytes)
             if !endsWithIncompleteUTF8(pending) || pending.count >= pendingByteLimit { flush() }
         }

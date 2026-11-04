@@ -84,10 +84,13 @@ public enum AppleSpeechFileTranscriber {
                                                        confidence: Double($0.confidence),
                                                        alternatives: $0.alternativeSubstrings)
         }
+        let tokens = TranscriptionTokenAssembly.platformTokens(segments)
         return TranscriptionHypothesis(
             engineID: engineID, localeIdentifier: locale, text: best.formattedString,
-            tokens: TranscriptionTokenAssembly.platformTokens(segments),
-            confidenceKind: .engineNative,
+            tokens: tokens,
+            // 置信度种类按实际装配结果判定：段全无置信度时 `platformTokens` 会清空逐词置信度，
+            // 此时仍写 `.engineNative` 会让下游把「无置信度」误当原生置信度。
+            confidenceKind: TranscriptionTokenAssembly.confidenceKind(of: tokens),
             alternativeTexts: TranscriptionTokenAssembly.alternativeTexts(
                 best: best.formattedString, candidates: result.transcriptions.map(\.formattedString)))
     }
