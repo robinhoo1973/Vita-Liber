@@ -941,6 +941,7 @@ struct TaskAssistantChatView: View {
         }
         model.onTranscript = nil
         model.onTranscriptResult = { sessionID, result in
+            captureRecognitionDebug(sessionID: sessionID, result: result)
             receiveChatTranscript(sessionID: sessionID, result.text,
                                   incomplete: result.completion != .final)
         }
@@ -954,6 +955,34 @@ struct TaskAssistantChatView: View {
         model.applyLanguageSettings(settings: settingsStore,
                                     recentDrugNames: hub.inventoryItems.map(\.medicationName))
         if chatDictation == nil { chatDictation = model }
+    }
+
+    /// 真机识别调试采集（系统诊断开关开启时）：录音须在 `adopt` 移走前同步暂存，
+    /// 之后后台跑 Apple 中/英重放、写 input.json → 融合 → output.json；交付文本不变。
+    private func captureRecognitionDebug(sessionID: UUID, result: TranscriptionResult) {
+        guard RecognitionDebugRecorder.isEnabled,
+              !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let staged = RecognitionDebugRecorder.stageAudio(pendingVoiceURLs[sessionID])
+        let context = RecognitionDebugRecorder.ASRContext(
+            result: result,
+            contextualStrings: chatDictation?.contextualStrings ?? [],
+            languageMode: String(describing: chatDictation?.languageMode ?? .single),
+            voiceLanguages: settingsStore.values[.voiceInputLanguages] ?? "",
+            engineSetting: settingsStore.values[.voiceEngine] ?? "",
+            resolvedEngineID: chatDictation?.resolvedEngineID)
+        let generation = conversationGeneration
+        Task {
+            await RecognitionDebugRecorder.captureASR(context, stagedAudio: staged, exportState: exportState) {
+                await recognitionDebugDirectory(generation: generation)
+            }
+        }
+    }
+
+    /// 采集目录：当前会话目录（必要时懒建会话）；会话已切换/建不出 → 「无会话」兜底目录。
+    private func recognitionDebugDirectory(generation: UUID) async -> String {
+        let id = generation == conversationGeneration
+            ? await ensureConversationID(expectedGeneration: generation) : nil
+        return await exportState.recognitionDebugDirectory(conversationID: id, conversationTitle: conversationTitle)
     }
 
     /// 语音识别完成：语音气泡立即入聊天（音频可选），转写文本回填输入框供编辑发送。
@@ -2113,6 +2142,11 @@ struct TaskAssistantChatView: View {
         defer { docs.clearOCRDebugTraces(documentID: source.documentId) }
         let traces = docs.ocrDebugTraces(documentID: source.documentId)
         guard !traces.isEmpty else { return }
+        // 多引擎文本采集：原件 + input.json（Paddle 主 / Vision 副）+ output.json。
+        await RecognitionDebugRecorder.captureOCR(documentID: source.documentId, traces: traces,
+                                                  exportState: exportState) {
+            await recognitionDebugDirectory(generation: generation)
+        }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current

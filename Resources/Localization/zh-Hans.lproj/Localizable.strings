@@ -762,10 +762,10 @@
 "help.diag.dataHealth" = "数据与存储健康";
 "help.diag.system" = "系统诊断";
 "help.diag.systemHint" = "检查权限状态、提醒调度和存储健康状况";
-"help.ocrShadow.title" = "OCR 调参诊断";
-"help.ocrShadow.toggle" = "写入 OCR 对照日志";
+"help.ocrShadow.title" = "识别调参诊断";
+"help.ocrShadow.toggle" = "写入识别对照数据";
 "help.ocrShadow.confirm" = "开启并写入";
-"help.ocrShadow.hint" = "仅调参时开启。开启后，非敏感聊天导入会把 OCR 识别原文、字段值与卡片摘要写入“文件”App 的会话目录；敏感资料不写入。关闭后不再新增日志。";
+"help.ocrShadow.hint" = "仅调参时开启。开启后，聊天里的语音和非敏感图片导入会把原始录音/原件、各识别模型的原文与融合结果写入“文件”App 的会话目录（recognition-debug），并附 OCR 字段与卡片摘要；敏感资料不写入，显示给你的识别文本不变。关闭时会删除全部已写入的诊断数据，请先拷出。";
 "help.about.legal" = "版本与法律";
 "help.perm.section" = "权限状态";
 "help.perm.camera" = "相机";
@@ -2954,6 +2954,7 @@
 "chat.mediaElementsFooter" = "修改后仍需核对确认；确认前不进入事实链。";
 "chat.mediaCardsAssemblyNote" = "由已确认要素组装";
 
+"chat.mediaTabText" = "识别原文";
 "chat.mediaTabElements" = "数据信息元";
 
 "chat.mediaTabCards" = "医疗信息卡片";

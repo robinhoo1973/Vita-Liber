@@ -54,6 +54,7 @@ extension L10n {
     "chat.importStaging.tooManyPages",
     "chat.importStaging.tooLarge",
     "chat.mediaResultTitle",
+    "chat.mediaTabText",
     "chat.mediaTabElements",
     "chat.mediaTabCards",
     "chat.mediaViewSourceImage",

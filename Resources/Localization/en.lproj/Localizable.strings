@@ -762,10 +762,10 @@
 "help.diag.dataHealth" = "Data & Storage Health";
 "help.diag.system" = "System Diagnostics";
 "help.diag.systemHint" = "Check permission status, reminder scheduling, and storage health";
-"help.ocrShadow.title" = "OCR tuning diagnostics";
-"help.ocrShadow.toggle" = "Write OCR comparison logs";
+"help.ocrShadow.title" = "Recognition tuning diagnostics";
+"help.ocrShadow.toggle" = "Write recognition comparison data";
 "help.ocrShadow.confirm" = "Enable and write";
-"help.ocrShadow.hint" = "Enable only while tuning. When on, non-sensitive chat imports write OCR text, field values, and card summaries to the session folder in Files. Sensitive items are never written. Turning it off stops new logs.";
+"help.ocrShadow.hint" = "Enable only while tuning. When on, chat voice input and non-sensitive image imports save the original recording or file, each recognition model's raw text, and the fusion result to the session folder in Files (recognition-debug), plus OCR field and card summaries. Sensitive items are never written, and the recognized text shown to you does not change. Turning it off deletes all diagnostic data written so far, so copy it out first.";
 "help.about.legal" = "Version & Legal";
 "help.perm.section" = "Permission Status";
 "help.perm.camera" = "Camera";
@@ -2954,6 +2954,7 @@
 "chat.mediaElementsFooter" = "Saved edits are still unconfirmed and do not enter the fact chain until reviewed.";
 "chat.mediaCardsAssemblyNote" = "Assembled from confirmed elements";
 
+"chat.mediaTabText" = "Recognized text";
 "chat.mediaTabElements" = "Data elements";
 
 "chat.mediaTabCards" = "Medical cards";

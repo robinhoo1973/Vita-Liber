@@ -60,7 +60,6 @@ final class DocumentExportState {
         }
     }
 
-    /// 已导出的用户面相对路径（聊天详情「存储位置」展示；nil=本机无副本）。
     /// 会话目录调试日志（2026-11-03 调参批）：镜像层只写已存在的导出目录。
     func appendDebugLog(documentID: UUID, fileName: String, contents: String) async {
         await mirror.appendDebugLog(documentID: documentID, fileName: fileName, contents: contents)
@@ -71,6 +70,64 @@ final class DocumentExportState {
         await mirror.removeAllDebugLogs()
     }
 
+    /// 识别调试采集的会话目录（2026-11-04 业主：调试数据落到该会话对应的文件夹）。
+    /// 与导出副本同一解析顺序：内存缓存 → 账本首目录 → 磁盘已有 `conversation/*-<id6>` →
+    /// 新建同名规则目录（并缓存，之后的副本导出复用同一目录）。无会话 → 固定兜底目录。
+    func recognitionDebugDirectory(conversationID: UUID?, conversationTitle: String?,
+                                   now: Date = Date()) async -> String {
+        guard let conversationID else {
+            return MediaRootPaths.conversationFolderName + "/" + Self.unboundDebugDirectoryName
+        }
+        if let cached = conversationDirectories[conversationID], await mirror.hasDirectory(named: cached) {
+            return cached
+        }
+        if let existing = await ledger.records(conversationID: conversationID)
+            .first(where: { !$0.directoryName.isEmpty })?.directoryName,
+           await mirror.hasDirectory(named: existing) {
+            conversationDirectories[conversationID] = existing
+            return existing
+        }
+        if let onDisk = await mirror.existingConversationDirectory(conversationID: conversationID) {
+            conversationDirectories[conversationID] = onDisk
+            return onDisk
+        }
+        let directory = MediaRootPaths.conversationFolderName + "/" + DocumentExportNaming.directoryName(
+            conversationTitle: conversationTitle, conversationID: conversationID,
+            datePrefix: Self.timestampText(now))
+        conversationDirectories[conversationID] = directory
+        return directory
+    }
+
+    /// 无会话归属时的兜底目录名（理论上聊天采集总有会话；防御性保留）。
+    static let unboundDebugDirectoryName = "no-conversation-recognition-debug"
+
+    @discardableResult
+    func writeRecognitionDebug(directoryName: String, captureFolder: String,
+                               fileName: String, data: Data) async -> Bool {
+        await mirror.writeRecognitionDebug(directoryName: directoryName, captureFolder: captureFolder,
+                                           fileName: fileName, data: data)
+    }
+
+    @discardableResult
+    func copyRecognitionDebug(directoryName: String, captureFolder: String,
+                              fileName: String, from source: URL) async -> Bool {
+        await mirror.copyRecognitionDebug(directoryName: directoryName, captureFolder: captureFolder,
+                                          fileName: fileName, from: source)
+    }
+
+    /// 把资料原件复制进采集目录；返回落地文件名（nil = 无原件/复制失败）。
+    func copyOriginalForRecognitionDebug(documentID: UUID, directoryName: String,
+                                         captureFolder: String) async -> String? {
+        guard let row = try? await store.fetch(id: documentID) else { return nil }   // try?-ok: 读失败不复制原件
+        let meta = (row.metaJSON.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String: Any])   // try?-ok: meta 损坏按缺路径处理
+        guard let sourcePath = meta?["original_path"] as? String, !sourcePath.isEmpty else { return nil }
+        let fileName = "original." + (Self.fileExtension(forMime: row.mimeType) ?? "bin")
+        let copied = await mirror.copyOriginalToRecognitionDebug(
+            sourcePath: sourcePath, directoryName: directoryName, captureFolder: captureFolder, fileName: fileName)
+        return copied ? fileName : nil
+    }
+
+    /// 已导出的用户面相对路径（聊天详情「存储位置」展示；nil=本机无副本）。
     func exportedRelativePath(documentID: UUID) async -> String? {
         guard let record = await ledger.record(documentID: documentID),
               record.state == "active" else { return nil }

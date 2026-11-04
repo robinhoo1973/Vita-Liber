@@ -314,9 +314,104 @@ public actor DocumentExportMirror {
         }
     }
 
+    /// 会话目录内识别调试采集（2026-11-04 业主：多模型识别文本后处理调参数据）。
+    /// 写入 `<会话目录>/recognition-debug/<采集目录>/<文件>`；与 `appendDebugLog` 同一开关、
+    /// 同一保护（写前复查开关、`.completeFileProtection`、排除备份）。会话目录不存在时
+    /// 按需创建（语音采集没有导出副本，不能依赖副本先建目录）。新采集目录落地后
+    /// 只保留最近 `RecognitionDebugCapture.retainedCapturesPerConversation` 份。
+    @discardableResult
+    public func writeRecognitionDebug(directoryName: String, captureFolder: String,
+                                      fileName: String, data: Data) -> Bool {
+        guard let target = recognitionDebugTarget(directoryName: directoryName, captureFolder: captureFolder,
+                                                  fileName: fileName) else { return false }
+        do {
+            try data.write(to: target, options: [.atomic, .completeFileProtection])
+            try? Self.excludeFromBackup(target)   // try?-ok: 调试文件排除备份失败不影响可读
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 复制媒体（录音/页图）到采集目录；源文件不动。
+    @discardableResult
+    public func copyRecognitionDebug(directoryName: String, captureFolder: String,
+                                     fileName: String, from source: URL) -> Bool {
+        guard let target = recognitionDebugTarget(directoryName: directoryName, captureFolder: captureFolder,
+                                                  fileName: fileName) else { return false }
+        do {
+            if fileManager.fileExists(atPath: target.path) { try fileManager.removeItem(at: target) }
+            try fileManager.copyItem(at: source, to: target)
+            try? fileManager.setAttributes([.protectionKey: FileProtectionType.complete],   // try?-ok: 保护级别尽力而为
+                                           ofItemAtPath: target.path)
+            try? Self.excludeFromBackup(target)   // try?-ok: 调试文件排除备份失败不影响可读
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// 复制资料原件（canonical，按 `original_path` 解析）到采集目录；原件不动。
+    @discardableResult
+    public func copyOriginalToRecognitionDebug(sourcePath: String, directoryName: String,
+                                               captureFolder: String, fileName: String) -> Bool {
+        guard let source = MediaRootPaths.resolve(path: sourcePath, mediaBase: originalsDir) else { return false }
+        return copyRecognitionDebug(directoryName: directoryName, captureFolder: captureFolder,
+                                    fileName: fileName, from: source)
+    }
+
+    /// 按会话短 ID 找磁盘上已存在的会话目录（`conversation/*-<id6>[-n]`），
+    /// 供无副本的语音采集复用同一会话目录，避免重启后另建一份。
+    public func existingConversationDirectory(conversationID: UUID) -> String? {
+        let id6 = String(conversationID.uuidString.lowercased().prefix(6))
+        let root = exportsBase.appendingPathComponent(MediaRootPaths.conversationFolderName, isDirectory: true)
+        let pattern = try? NSRegularExpression(pattern: #"-\#(id6)(?:-\d+)?$"#)   // try?-ok: 静态模式
+        let names = directoryChildren(of: root).map(\.lastPathComponent).sorted()
+        let match = names.first { name in
+            let lower = name.lowercased()
+            return pattern?.firstMatch(in: lower, range: NSRange(lower.startIndex..<lower.endIndex, in: lower)) != nil
+        }
+        return match.map { MediaRootPaths.conversationFolderName + "/" + $0 }
+    }
+
+    private func recognitionDebugTarget(directoryName: String, captureFolder: String,
+                                        fileName: String) -> URL? {
+        guard OCRShadowDiagnostics.isEnabled,
+              !directoryName.isEmpty, !directoryName.hasPrefix("/"), !directoryName.contains(".."),
+              RecognitionDebugCapture.isCaptureFolderName(captureFolder),
+              !fileName.isEmpty, !fileName.contains("/"), !fileName.contains("..") else { return nil }
+        let debugRoot = exportsBase.appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(RecognitionDebugCapture.folderName, isDirectory: true)
+        let capture = debugRoot.appendingPathComponent(captureFolder, isDirectory: true)
+        let isNew = !fileManager.fileExists(atPath: capture.path)
+        do {
+            try fileManager.createDirectory(at: capture, withIntermediateDirectories: true)
+        } catch {
+            return nil
+        }
+        if isNew {
+            let names = directoryChildren(of: debugRoot).map(\.lastPathComponent)
+            for stale in RecognitionDebugCapture.capturesToPrune(names) {
+                try? fileManager.removeItem(at: debugRoot.appendingPathComponent(stale, isDirectory: true))   // try?-ok: 裁剪尽力而为
+            }
+        }
+        return capture.appendingPathComponent(fileName)
+    }
+
     /// 关闭诊断开关时清除全部会话目录中的 OCR 调试日志（含旧日志），
     /// 避免「关闭后不再新增」但旧 PHI 仍留在 Files 的歧义。
+    /// 2026-11-04：同时清除各会话目录下的 `recognition-debug/` 采集（含录音/页图）。
     public func removeAllDebugLogs() {
+        for root in [exportsBase.appendingPathComponent(MediaRootPaths.conversationFolderName, isDirectory: true),
+                     exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)] {
+            for conversation in directoryChildren(of: root) {
+                let debug = conversation.appendingPathComponent(RecognitionDebugCapture.folderName,
+                                                                isDirectory: true)
+                if fileManager.fileExists(atPath: debug.path) {
+                    try? fileManager.removeItem(at: debug)   // try?-ok: 清理尽力而为
+                }
+            }
+        }
         // 递归：日志在 exportsBase/<会话目录> 或旧层 exportsBase/Vita Liber/<会话目录>，
         // 只扫一层会把嵌套目录里的 PHI 日志留在 Files。
         guard let enumerator = fileManager.enumerator(   // try?-ok: 枚举失败跳过

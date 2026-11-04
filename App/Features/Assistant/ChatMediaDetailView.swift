@@ -37,7 +37,7 @@ struct ChatMediaDetailView: View {
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .text: return L10n.pendingCardRawText
+            case .text: return L10n.chatMediaTabText
             case .elements: return L10n.chatMediaTabElements
             case .cards: return L10n.chatMediaTabCards
             }
