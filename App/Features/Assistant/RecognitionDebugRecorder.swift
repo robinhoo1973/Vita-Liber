@@ -71,7 +71,6 @@ enum RecognitionDebugRecorder {
         let captureID = UUID()
         let now = Date()
         let fileName = RecognitionDebugCapture.captureFileName(modality: .asr, date: now, captureID: captureID)
-        let directoryName = await directory()
 
         var hypotheses = productionHypotheses(context)
         for locale in appleReplayLocales {
@@ -108,6 +107,9 @@ enum RecognitionDebugRecorder {
             ],
             deliveredText: context.result.text,
             segments: [RecognitionDebugCapture.Segment(index: 0, hypotheses: hypotheses)])
+        // Apple 重放可能耗时数十秒：目录在重放**之后**再解析，期间会话被删除/切换时
+        // 不会把已删除会话的转写重新写回 Files 树（闭包内仍复核代次）。
+        let directoryName = await directory()
         await write(input: input, directoryName: directoryName, fileName: fileName, exportState: exportState)
     }
 

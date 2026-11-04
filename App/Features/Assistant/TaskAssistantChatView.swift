@@ -2150,7 +2150,8 @@ struct TaskAssistantChatView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone.current
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        // 毫秒 + 短随机后缀：同一秒内两次导入不再互相原子覆盖（旧格式整秒重名即丢前一份）。
+        formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
         let stamp = formatter.string(from: Date())
         let iso = ISO8601DateFormatter().string(from: Date())
         let header: [String: Any] = [
@@ -2217,7 +2218,7 @@ struct TaskAssistantChatView: View {
         let contents = output.joined(separator: "\n") + "\n"
         await exportState.appendDebugLog(
             documentID: source.documentId,
-            fileName: "ocr-debug-\(stamp).jsonl",
+            fileName: "ocr-debug-\(stamp)-\(UUID().uuidString.prefix(8)).jsonl",
             contents: contents)
     }
 

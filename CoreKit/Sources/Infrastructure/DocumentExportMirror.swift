@@ -282,23 +282,40 @@ public actor DocumentExportMirror {
     /// 只删副本文件与账本行（置 removed），绝不触碰 canonical。
     /// 2026-11-03：同时清理同目录 OCR 调参日志（含识别原文/字段值），
     /// 防止「转敏感只删副本、日志仍留在 Files」。
-    public func removeCopy(documentID: UUID) async {
-        guard let record = await ledger.record(documentID: documentID) else { return }
+    /// 2026-11-04：副本删不掉时**恢复原状态**而不是谎报 removed——否则 Files 里
+    /// 的 PHI 副本失去账本可见性，reconcile 也不会再处理它。
+    @discardableResult
+    public func removeCopy(documentID: UUID) async -> Bool {
+        guard let record = await ledger.record(documentID: documentID) else {
+            // 无账本行也必须按 documentID 清扫识别采集（语音采集没有副本行）。
+            removeRecognitionDebug(documentID: documentID)
+            return true
+        }
         // 先置 removed 再删文件/日志：晚到的 appendDebugLog 见到 removed 即跳过；
         // 若 append 在置位前启动，随后的 removeDebugLogs 会清掉它。
         try? await ledger.setState(documentID: documentID, state: "removed")   // try?-ok: tombstone 尽力而为
         let url = exportsBase.appendingPathComponent(record.relativePath)
-        let existed = fileManager.fileExists(atPath: url.path)
-        let deleted = !existed || ((try? fileManager.removeItem(at: url)) != nil)   // try?-ok: 副本删除尽力而为
+        var copyGone = true
+        if fileManager.fileExists(atPath: url.path) {
+            do {
+                try fileManager.removeItem(at: url)
+            } catch {
+                copyGone = false
+            }
+            // removeItem 不抛错也可能没删掉（竞态/挂载点），以磁盘状态为准。
+            copyGone = copyGone && !fileManager.fileExists(atPath: url.path)
+        }
         if !record.directoryName.isEmpty {
             removeDebugLogs(in: exportsBase.appendingPathComponent(record.directoryName,
                                                                    isDirectory: true))
         }
-        // 文件删不掉（文件协调/File Provider 错误）时恢复 active：否则账本已
-        // removed，reconcile 不再报告，敏感副本永久留在 Files 且无重试。
-        if !deleted {
-            try? await ledger.setState(documentID: documentID, state: "active")   // try?-ok: 恢复重试尽力而为
-        }
+        removeRecognitionDebug(documentID: documentID)
+        guard !copyGone else { return true }
+        // 删除失败：把账本恢复成原状态，让 UI/reconcile 仍能看到这份用户面副本，
+        // 下一次转敏感或对账可继续处理；绝不留下「账本 removed、文件还在」的静默泄漏。
+        try? await ledger.setState(documentID: documentID, state: record.state,   // try?-ok: 恢复尽力而为
+                                   sizeBytes: record.sizeBytes)
+        return false
     }
 
     /// 只保留最近 `keeping` 份 `ocr-debug-*.jsonl`，防日志无限增长。
@@ -317,6 +334,28 @@ public actor DocumentExportMirror {
         let entries = (try? fileManager.contentsOfDirectory(atPath: directory.path)) ?? [] // try?-ok: 清理尽力而为
         for entry in entries where entry.hasPrefix("ocr-debug-") && entry.hasSuffix(".jsonl") {
             try? fileManager.removeItem(at: directory.appendingPathComponent(entry)) // try?-ok: 清理尽力而为
+        }
+    }
+
+    /// 删除某文档的识别调试采集（2026-11-04：记录转敏感时必须把它从用户面移除）。
+    /// 采集 JSON 的 `request.documentID` 记录了来源文档；目录里只存在本功能的
+    /// `*.json` 采集，按文本匹配即可，无需解析结构。没有账本行的会话也能扫到。
+    public func removeRecognitionDebug(documentID: UUID) {
+        let needle = documentID.uuidString.lowercased()
+        for root in [exportsBase.appendingPathComponent(MediaRootPaths.conversationFolderName, isDirectory: true),
+                     exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)] {
+            for conversation in directoryChildren(of: root) {
+                let debug = conversation.appendingPathComponent(RecognitionDebugCapture.folderName,
+                                                                isDirectory: true)
+                let entries = (try? fileManager.contentsOfDirectory(atPath: debug.path)) ?? []   // try?-ok: 枚举失败跳过
+                for entry in entries where entry.hasSuffix(".json") {
+                    let url = debug.appendingPathComponent(entry)
+                    guard let data = try? Data(contentsOf: url),   // try?-ok: 读失败跳过
+                          let text = String(data: data, encoding: .utf8),
+                          text.lowercased().contains(needle) else { continue }
+                    try? fileManager.removeItem(at: url)   // try?-ok: 清理尽力而为
+                }
+            }
         }
     }
 

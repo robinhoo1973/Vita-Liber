@@ -161,6 +161,9 @@ final class DocumentExportState {
         }
         if sensitive {
             await mirror.removeCopy(documentID: documentID)
+            // 识别调试采集（Paddle/Vision 原文 + documentID）同样属于对外可见文本：
+            // 无账本行时 removeCopy 会提前返回，必须独立按 documentID 清扫。
+            await mirror.removeRecognitionDebug(documentID: documentID)
             // 在途自动导出（导入收尾 allowSensitive:false 路径）可能已取到旧的
             // isSensitive=false 行，正卡在 mirror 内写副本——上面这次删除会先执行，
             // 副本随后重新落盘并 upsert 回 active（BR-007 对外边界竞态）。
