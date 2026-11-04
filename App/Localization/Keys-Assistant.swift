@@ -120,6 +120,10 @@ extension L10n {
     static var assistantMediaOpenOriginal: String { t("assistant.mediaOpenOriginal") }
     static var assistantMediaPageFailed: String { t("assistant.mediaPageFailed") }
     static var assistantMediaPageNoText: String { t("assistant.mediaPageNoText") }
+    /// 2026-11-03 真机轮：识别原文页卡头必须显式写「识别原文」，与 mock 1:1。
+    static func assistantMediaTextPageHeader(_ page: Int) -> String {
+        String(format: t("assistant.mediaTextPageHeaderFmt"), page)
+    }
     /// 页级状态三值：failed / no_text / skipped（未授权、超页数上限或被取消）。
     static var assistantMediaPageSkipped: String { t("assistant.mediaPageSkipped") }
     static var assistantMediaEgressNote: String { t("assistant.mediaEgressNote") }

@@ -15,8 +15,12 @@ public enum ImageInputRules {
         /// FR5.5 版面（子项目 E1）：块 bbox / 表格 / 段落；`blocks[i].lineIndex == i` 对应 `lines[i]`。
         /// 桩与旧引擎不给版面 → nil；消费方以 `PageLayout.linesOnly(lines)` 退化。
         public var layout: PageLayout?
-        public init(lines: [String], confidence: Double, layout: PageLayout? = nil) {
+        /// 影子引擎诊断（2026-11-03）：nil = 未启用/无模型；不参与确认与事实链。
+        public var debugTrace: OCRDebugTrace?
+        public init(lines: [String], confidence: Double, layout: PageLayout? = nil,
+                    debugTrace: OCRDebugTrace? = nil) {
             self.lines = lines; self.confidence = confidence; self.layout = layout
+            self.debugTrace = debugTrace
         }
         public var text: String { lines.joined(separator: "\n") }
         public var isEmpty: Bool { text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }

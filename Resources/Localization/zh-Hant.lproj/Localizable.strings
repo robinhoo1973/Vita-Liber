@@ -762,6 +762,10 @@
 "help.diag.dataHealth" = "數據與存儲健康";
 "help.diag.system" = "系統診斷";
 "help.diag.systemHint" = "檢查權限狀態、提醒調度和存儲健康狀況";
+"help.ocrShadow.title" = "OCR 調參診斷";
+"help.ocrShadow.toggle" = "寫入 OCR 對照日誌";
+"help.ocrShadow.confirm" = "開啟並寫入";
+"help.ocrShadow.hint" = "僅調參時開啟。開啟後，非敏感聊天匯入會把 OCR 辨識原文、欄位值與卡片摘要寫入「檔案」App 的會話目錄；敏感資料不寫入。關閉後不再新增日誌。";
 "help.about.legal" = "版本與法律";
 "help.perm.section" = "權限狀態";
 "help.perm.camera" = "相機";
@@ -2727,6 +2731,7 @@
 "assistant.mediaCardsEmpty" = "這份資料還沒有資訊卡片";
 "assistant.mediaOpenOriginal" = "點按看原圖";
 "assistant.mediaPageFailed" = "本頁辨識失敗";
+"assistant.mediaTextPageHeaderFmt" = "第 %1$ld 頁 · 辨識原文";
 "assistant.mediaPageNoText" = "本頁沒有文字";
 "assistant.mediaPageSkipped" = "本頁未辨識（已略過）";
 "assistant.mediaEgressNote" = "原件保存在本機；對外副本只在匯出設定開啟或你明確匯出時產生";

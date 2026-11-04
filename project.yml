@@ -32,7 +32,13 @@ targets:
         # 信任锚目录迁至 Resources/LLMCatalog（仅 catalog.json 入包，见下）。
         # L0 [20] 对两处形态做机械断言。
         excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**",
-                   "LLMModels", "LLMModels/**", "LLMCatalog", "LLMCatalog/**"]
+                   "LLMModels", "LLMModels/**", "LLMCatalog", "LLMCatalog/**",
+                   "OCRModels", "OCRModels/**"]
+      # 2026-11-03 真机参数调优批：PP-OCRv6 small rec-only 影子引擎随包。
+      # 仅识别模型（Vision 出框/版面），22MB；catalog 钉 sha256/bytes，运行时校验。
+      - path: Resources/OCRModels
+        type: folder
+        buildPhase: resources
       - path: Resources/ASRModels
         type: folder
         buildPhase: resources

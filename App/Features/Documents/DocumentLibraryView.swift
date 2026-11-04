@@ -51,6 +51,17 @@ final class DocumentsState {
     /// 第九轮审查修复（BR-001 同族）：loadPending 的在途请求成员集——
     /// 与 load() 的代次守卫对齐，乱序晚到的旧集合响应不得覆盖新投影。
     private var pendingRequestPatientIds: [UUID] = []
+    /// 影子诊断按文档缓存（仅本次进程；不落库、不入复核快照）。
+    private var ocrDebugTracesByDocument: [UUID: [OCRDebugTrace]] = [:]
+
+    func ocrDebugTraces(documentID: UUID) -> [OCRDebugTrace] {
+        (ocrDebugTracesByDocument[documentID] ?? []).sorted { $0.pageIndex < $1.pageIndex }
+    }
+
+    /// 诊断日志写完/放弃后立即释放该文档的整页 OCR 文本，防长期导入内存只增不减。
+    func clearOCRDebugTraces(documentID: UUID) {
+        ocrDebugTracesByDocument.removeValue(forKey: documentID)
+    }
 
     /// 手选类型重抽（`DocumentsState+EntityCards` 扩展）入口：`understandingEngine`
     /// 是 private，跨文件扩展不可直接访问。
@@ -185,6 +196,9 @@ final class DocumentsState {
         var previousCards: [MatchedCard] = []
         /// 用户手选类型后是否已按该类型重跑理解层（避免 commit 重复抽取）。
         var manualTypeReextracted = false
+        /// 2026-11-03 调参批：PP-OCRv6 rec 影子逐页诊断，按页号索引；
+        /// 不参与落库/确认，只在非敏感聊天导入后写入会话目录。
+        var ocrDebugTraces: [Int: OCRDebugTrace] = [:]
 
         var isPrescription: Bool { docType == L10n.docTypePrescription }
         var allFields: [FieldDraft] { pages.flatMap(\.fields) }
@@ -740,14 +754,15 @@ final class DocumentsState {
                 if ocrAuthorized() {
                     do {
                         try await decoder.decodePDFPages(input.originalData, scale: 2, maxPages: limit) { page in
-                            let analysis = await self.analyze(imageData: page.bitmapData, index: page.pageIndex, hint: hintKey)
-                            await results.append(analysis)
+                            let (analysis, trace) = await self.analyze(imageData: page.bitmapData, index: page.pageIndex, hint: hintKey)
+                            await results.append(analysis, trace: trace)
                         }
                     } catch {
                         // Previously rendered pages survive a later render failure.
                     }
                 }
                 let recognized = await results.pages
+                let debugTraces = await results.traces
                 let byIndex = Dictionary(recognized.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
                 pages = (0..<count).map { index in
                     byIndex[index] ?? PageAnalysis(index: index, lines: [],
@@ -756,14 +771,19 @@ final class DocumentsState {
                 // 审查修复（A8）：PDF 逐页质量标签此前被丢弃——`tags` 只在
                 // 单图分支赋值，多页 PDF 的模糊/反光页提示（FR5.3）永不呈现。
                 tags = recognized.flatMap(\.qualityTags)
+                var draft = assembleDraft(input, pages: pages, qualityTags: tags)
+                draft.ocrDebugTraces = debugTraces
+                session.draft = draft
+                return draft
             } else {
-                let page = await analyze(imageData: input.processedData, index: 0, hint: hintKey)
+                let (page, trace) = await analyze(imageData: input.processedData, index: 0, hint: hintKey)
                 pages = [page]
                 tags = page.qualityTags
+                var draft = assembleDraft(input, pages: pages, qualityTags: tags)
+                if let trace { draft.ocrDebugTraces = [trace.pageIndex: trace] }
+                session.draft = draft
+                return draft
             }
-            let draft = assembleDraft(input, pages: pages, qualityTags: tags)
-            session.draft = draft
-            return draft
         } catch {
             session.errorMessage = L10n.docImportFailed; lastImportError = session.errorMessage
             return nil
@@ -772,20 +792,31 @@ final class DocumentsState {
 
     private actor PDFAnalyses {
         var pages: [PageAnalysis] = []
-        func append(_ page: PageAnalysis) { pages.append(page) }
+        var traces: [Int: OCRDebugTrace] = [:]
+        func append(_ page: PageAnalysis, trace: OCRDebugTrace?) {
+            pages.append(page)
+            if let trace { traces[page.index] = trace }
+        }
     }
 
-    private func analyze(imageData: Data, index: Int, hint: String?) async -> PageAnalysis {
-        guard ocrAuthorized() else { return .init(index: index, lines: [], status: "skipped", fields: []) }
+    private func analyze(imageData: Data, index: Int,
+                         hint: String?) async -> (page: PageAnalysis, trace: OCRDebugTrace?) {
+        guard ocrAuthorized() else {
+            return (.init(index: index, lines: [], status: "skipped", fields: []), nil)
+        }
         do {
             let result = try await pipeline.run(imageData: imageData)
+            var trace = result.debugTrace
+            trace?.pageIndex = index
             // 审查修复（E3，FR6 边界「纯影像页无有效文字 → 提示未识别到文字」）：
             // hasText 此前零消费方——无文字页被当「ok 空字段」静默入库，与
             // 引擎失败（failed）不可区分。无文字页保留行数组（空）但以
             // no_text 状态显式标记，确认页如实提示。
-            guard !result.failed else { return .init(index: index, lines: result.lines, status: "failed", fields: []) }
+            guard !result.failed else {
+                return (.init(index: index, lines: result.lines, status: "failed", fields: []), trace)
+            }
             if !result.hasText {
-                return .init(index: index, lines: [], status: "no_text", fields: [], layout: result.layout)
+                return (.init(index: index, lines: [], status: "no_text", fields: [], layout: result.layout), trace)
             }
             let authorization = aiAuthorization()
             let input = TextUnderstandingInput(text: result.lines.joined(separator: "\n"), lines: result.lines,
@@ -810,17 +841,19 @@ final class DocumentsState {
             fields = await finalizePageFields(fields, lines: result.lines, layout: result.layout,
                                               confidence: confidence,
                                               documentTypeKey: understanding.suggestedTarget)
-            guard ocrAuthorized(), !Task.isCancelled else { return .init(index: index, lines: result.lines, status: "skipped", fields: []) }
-            return .init(index: index, lines: result.lines, fields: fields,
-                         documentTypeKey: understanding.suggestedTarget, confidence: confidence,
-                         qualityTags: result.qualityTags, typeConfidence: understanding.targetConfidence,
-                         layout: result.layout)
+            guard ocrAuthorized(), !Task.isCancelled else {
+                return (.init(index: index, lines: result.lines, status: "skipped", fields: []), trace)
+            }
+            return (.init(index: index, lines: result.lines, fields: fields,
+                          documentTypeKey: understanding.suggestedTarget, confidence: confidence,
+                          qualityTags: result.qualityTags, typeConfidence: understanding.targetConfidence,
+                          layout: result.layout), trace)
         } catch is CancellationError {
             // 审查修复（E2，取消透明性）：用户取消必须可区分——旧实现把
             // 取消当引擎失败（status "failed" 走 FR6.6 引擎崩溃 UI）。
-            return .init(index: index, lines: [], status: "skipped", fields: [])
+            return (.init(index: index, lines: [], status: "skipped", fields: []), nil)
         } catch {
-            return .init(index: index, lines: [], status: "failed", fields: [])
+            return (.init(index: index, lines: [], status: "failed", fields: []), nil)
         }
     }
 
@@ -962,6 +995,14 @@ final class DocumentsState {
                         cards: review.all, reviewedFields: payload.reviewedFields, docTypeKey: persistedKey)
                 }
                 session.source = ImportSource(documentId: documentID, patientId: draft.patientId, pages: draft.pages)
+                if !draft.ocrDebugTraces.isEmpty {
+                    // 仅诊断开启时产生；上限 8 份文档，防资料库路径长期导入无界增长。
+                    if ocrDebugTracesByDocument.count >= 8 {
+                        ocrDebugTracesByDocument.removeAll()
+                    }
+                    ocrDebugTracesByDocument[documentID] = draft.ocrDebugTraces.values
+                        .sorted { $0.pageIndex < $1.pageIndex }
+                }
             }
             guard session.source != nil else { throw ImportError.unreadableMedia }
             let cards = session.preparedCards ?? []
