@@ -537,12 +537,15 @@ public actor DocumentExportMirror {
             }
         }
         // Documents 根的 App 命名目录：`直接导入-YYYY-MM` 月桶与扁平会话目录。
+        // 只匹配精确形状；Files 用户自建目录即使同前缀也不当副本删除。
         let flatPattern = try? NSRegularExpression(   // try?-ok: 静态模式
             pattern: #"^\d{8}-\d{4}-.+-(?:[0-9a-f]{6})(?:-\d+)?$"#)
+        let directPattern = try? NSRegularExpression(   // try?-ok: 静态模式
+            pattern: #"^直接导入-\d{4}-\d{2}$"#)
         for entry in directoryChildren(of: exportsBase) {
             let name = entry.lastPathComponent
-            let isDirectImport = name.hasPrefix(DocumentExportNaming.directImportPrefix)
             let range = NSRange(name.startIndex..<name.endIndex, in: name)
+            let isDirectImport = directPattern?.firstMatch(in: name, range: range) != nil
             let isFlat = flatPattern?.firstMatch(in: name, range: range) != nil
             guard isDirectImport || isFlat else { continue }
             try? fileManager.removeItem(at: entry)   // try?-ok: 尽力而为
