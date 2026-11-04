@@ -3,9 +3,10 @@ import Foundation
 /// 真机识别调试采集（2026-11-04 业主：多模型识别文本后处理调参数据）。
 ///
 /// 处理对象是**文本**：ASR 与 OCR 共用同一结构——每个「段」（ASR 一次按压 = 1 段；
-/// OCR 一行 = 1 段）挂多个引擎的原生假设。采集分两步落盘到会话目录
-/// `recognition-debug/<采集目录>/`：融合前写 `input.json`（各引擎原文 + 原生证据），
-/// 融合后写 `output.json`（只提示结果 + 门控改写 what-if）。
+/// OCR 一行 = 1 段）挂多个引擎的原生假设。每次采集落**一个** JSON 文件
+/// `recognition-debug/<时间-模态-id6>.json`（业主 2026-11-04 第二批：便于拷贝），内含
+/// `input`（融合前各引擎原文 + 原生证据）与 `output`（只提示结果 + 门控改写 what-if）。
+/// **只存文本**：调试目录绝不写录音、原件或页图。
 ///
 /// 安全边界：只用于调试回传，**不改变交付文本**（交付恒为生产主轨原文，P2a 只提示）；
 /// what-if 改写只落文件、永不进入聊天/抽取/事实链（BR-003）。校准使用统一先验
@@ -13,6 +14,7 @@ import Foundation
 public enum RecognitionDebugCapture {
     public static let inputSchema = "vitaliber.recognition-debug.input/v1"
     public static let outputSchema = "vitaliber.recognition-debug.output/v1"
+    public static let recordSchema = "vitaliber.recognition-debug/v2"
     public static let calibrationLabel = "uniform-debug-prior"
     /// 会话目录下的调试子目录名。
     public static let folderName = "recognition-debug"
@@ -140,7 +142,7 @@ public enum RecognitionDebugCapture {
         }
     }
 
-    /// 融合前快照（`input.json`）。
+    /// 融合前快照（采集文件的 `input` 部分）。
     public struct Input: Sendable, Equatable, Codable {
         public var schema: String
         public var captureID: String
@@ -150,22 +152,19 @@ public enum RecognitionDebugCapture {
         public var environment: [String: String]
         /// 请求参数（语言集、混说模式、热词数、页序号等）。
         public var request: [String: String]
-        /// 同目录内的媒体文件名（音频 / 页图）。
-        public var mediaFiles: [String]
         /// 生产实际交付给用户的文本（主轨原文；调试采集绝不改变它）。
         public var deliveredText: String
         public var segments: [Segment]
 
         public init(captureID: String, modality: Modality, createdAt: String,
                     environment: [String: String] = [:], request: [String: String] = [:],
-                    mediaFiles: [String] = [], deliveredText: String, segments: [Segment]) {
+                    deliveredText: String, segments: [Segment]) {
             self.schema = RecognitionDebugCapture.inputSchema
             self.captureID = captureID
             self.modality = modality
             self.createdAt = createdAt
             self.environment = environment
             self.request = request
-            self.mediaFiles = mediaFiles
             self.deliveredText = deliveredText
             self.segments = segments
         }
@@ -221,7 +220,7 @@ public enum RecognitionDebugCapture {
         public var pairObservations: [PairObservation]
     }
 
-    /// 融合后结果（`output.json`）。
+    /// 融合后结果（采集文件的 `output` 部分）。
     public struct Output: Sendable, Equatable, Codable {
         public var schema: String
         public var captureID: String
@@ -238,6 +237,25 @@ public enum RecognitionDebugCapture {
         public var editCount: Int
         public var segments: [SegmentResult]
         public var elapsedMs: Double?
+    }
+
+    /// 一次采集 = 一个 JSON 文件：各模型识别原文（input）+ 后处理结果（output）。
+    public struct Record: Sendable, Equatable, Codable {
+        public var schema: String
+        public var captureID: String
+        public var modality: Modality
+        public var createdAt: String
+        public var input: Input
+        public var output: Output
+
+        public init(input: Input, output: Output) {
+            self.schema = RecognitionDebugCapture.recordSchema
+            self.captureID = input.captureID
+            self.modality = input.modality
+            self.createdAt = input.createdAt
+            self.input = input
+            self.output = output
+        }
     }
 
     // MARK: - 融合
@@ -346,9 +364,9 @@ public enum RecognitionDebugCapture {
 
     // MARK: - 布局与编码
 
-    /// 采集目录名：`yyyyMMdd-HHmmss-<asr|ocr>-<id6>`（字典序 = 时间序，便于裁剪最旧）。
-    public static func captureFolderName(modality: Modality, date: Date, captureID: UUID,
-                                         timeZone: TimeZone = .current) -> String {
+    /// 采集名：`yyyyMMdd-HHmmss-<asr|ocr>-<id6>`（字典序 = 时间序，便于裁剪最旧）。
+    public static func captureName(modality: Modality, date: Date, captureID: UUID,
+                                   timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
@@ -357,8 +375,14 @@ public enum RecognitionDebugCapture {
         return "\(formatter.string(from: date))-\(modality.rawValue)-\(id6)"
     }
 
-    /// 是否本布局的采集目录名（裁剪时只删本布局目录，绝不误删用户文件）。
-    public static func isCaptureFolderName(_ name: String) -> Bool {
+    /// 采集文件名：`<采集名>.json`。
+    public static func captureFileName(modality: Modality, date: Date, captureID: UUID,
+                                       timeZone: TimeZone = .current) -> String {
+        captureName(modality: modality, date: date, captureID: captureID, timeZone: timeZone) + ".json"
+    }
+
+    /// 是否本布局的采集名（裁剪时只删本布局条目，绝不误删用户文件）。
+    public static func isCaptureName(_ name: String) -> Bool {
         let parts = name.split(separator: "-", omittingEmptySubsequences: false)
         guard parts.count == 4, parts[0].count == 8, parts[1].count == 6, parts[3].count == 6,
               parts[0].allSatisfy(\.isNumber), parts[1].allSatisfy(\.isNumber),
@@ -366,12 +390,18 @@ public enum RecognitionDebugCapture {
         return parts[3].allSatisfy { $0.isHexDigit }
     }
 
-    /// 超出保留数时应删除的最旧采集目录（输入为子目录名全集）。
+    public static func isCaptureFileName(_ name: String) -> Bool {
+        name.hasSuffix(".json") && isCaptureName(String(name.dropLast(5)))
+    }
+
+    /// 应删除的条目（输入为 `recognition-debug/` 下子项名全集）：
+    /// 旧布局采集目录（无扩展名，曾含录音/原件）一律删除；采集文件超出保留数时删最旧。
     public static func capturesToPrune(_ names: [String],
                                        keeping: Int = retainedCapturesPerConversation) -> [String] {
-        let captures = names.filter(isCaptureFolderName).sorted()
-        guard keeping >= 0, captures.count > keeping else { return [] }
-        return Array(captures.prefix(captures.count - keeping))
+        let legacyFolders = names.filter(isCaptureName).sorted()
+        let captures = names.filter(isCaptureFileName).sorted()
+        guard keeping >= 0, captures.count > keeping else { return legacyFolders }
+        return legacyFolders + captures.prefix(captures.count - keeping)
     }
 
     /// 稳定 JSON 编码（排序键、缩进，便于人工对比与 diff）。

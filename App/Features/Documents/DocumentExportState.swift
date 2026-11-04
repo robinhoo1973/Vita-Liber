@@ -101,30 +101,10 @@ final class DocumentExportState {
     /// 无会话归属时的兜底目录名（理论上聊天采集总有会话；防御性保留）。
     static let unboundDebugDirectoryName = "no-conversation-recognition-debug"
 
+    /// 写一次采集的 JSON 文件（只文本：各模型原文 + 后处理结果）。
     @discardableResult
-    func writeRecognitionDebug(directoryName: String, captureFolder: String,
-                               fileName: String, data: Data) async -> Bool {
-        await mirror.writeRecognitionDebug(directoryName: directoryName, captureFolder: captureFolder,
-                                           fileName: fileName, data: data)
-    }
-
-    @discardableResult
-    func copyRecognitionDebug(directoryName: String, captureFolder: String,
-                              fileName: String, from source: URL) async -> Bool {
-        await mirror.copyRecognitionDebug(directoryName: directoryName, captureFolder: captureFolder,
-                                          fileName: fileName, from: source)
-    }
-
-    /// 把资料原件复制进采集目录；返回落地文件名（nil = 无原件/复制失败）。
-    func copyOriginalForRecognitionDebug(documentID: UUID, directoryName: String,
-                                         captureFolder: String) async -> String? {
-        guard let row = try? await store.fetch(id: documentID) else { return nil }   // try?-ok: 读失败不复制原件
-        let meta = (row.metaJSON.flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) } as? [String: Any])   // try?-ok: meta 损坏按缺路径处理
-        guard let sourcePath = meta?["original_path"] as? String, !sourcePath.isEmpty else { return nil }
-        let fileName = "original." + (Self.fileExtension(forMime: row.mimeType) ?? "bin")
-        let copied = await mirror.copyOriginalToRecognitionDebug(
-            sourcePath: sourcePath, directoryName: directoryName, captureFolder: captureFolder, fileName: fileName)
-        return copied ? fileName : nil
+    func writeRecognitionDebug(directoryName: String, fileName: String, data: Data) async -> Bool {
+        await mirror.writeRecognitionDebug(directoryName: directoryName, fileName: fileName, data: data)
     }
 
     /// 已导出的用户面相对路径（聊天详情「存储位置」展示；nil=本机无副本）。

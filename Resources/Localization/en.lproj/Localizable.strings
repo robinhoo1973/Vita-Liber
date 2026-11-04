@@ -765,7 +765,7 @@
 "help.ocrShadow.title" = "Recognition tuning diagnostics";
 "help.ocrShadow.toggle" = "Write recognition comparison data";
 "help.ocrShadow.confirm" = "Enable and write";
-"help.ocrShadow.hint" = "Enable only while tuning. When on, chat voice input and non-sensitive image imports save the original recording or file, each recognition model's raw text, and the fusion result to the session folder in Files (recognition-debug), plus OCR field and card summaries. Sensitive items are never written, and the recognized text shown to you does not change. Turning it off deletes all diagnostic data written so far, so copy it out first.";
+"help.ocrShadow.hint" = "Enable only while tuning. When on, every chat voice input and every non-sensitive image import writes one JSON file with each recognition model's raw text and the post-processing result to the session folder in Files (recognition-debug), plus OCR field and card summaries. Only text is saved, never recordings or images, but the text may contain names or health details as spoken or printed, so test with fictional content. Images marked sensitive are never written, and the recognized text shown to you does not change. Turning it off deletes all diagnostic data written so far, so copy it out first.";
 "help.about.legal" = "Version & Legal";
 "help.perm.section" = "Permission Status";
 "help.perm.camera" = "Camera";

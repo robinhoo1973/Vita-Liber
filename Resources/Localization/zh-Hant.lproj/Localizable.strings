@@ -765,7 +765,7 @@
 "help.ocrShadow.title" = "辨識調參診斷";
 "help.ocrShadow.toggle" = "寫入辨識對照資料";
 "help.ocrShadow.confirm" = "開啟並寫入";
-"help.ocrShadow.hint" = "僅調參時開啟。開啟後，聊天裡的語音和非敏感圖片匯入會把原始錄音/原件、各辨識模型的原文與融合結果寫入「檔案」App 的會話目錄（recognition-debug），並附 OCR 欄位與卡片摘要；敏感資料不寫入，顯示給你的辨識文字不變。關閉時會刪除全部已寫入的診斷資料，請先拷出。";
+"help.ocrShadow.hint" = "僅調參時開啟。開啟後，聊天裡的每段語音和每次非敏感圖片匯入，都會把各辨識模型的原文與後處理結果寫成一個 JSON 檔案，存到「檔案」App 的會話目錄（recognition-debug），並附 OCR 欄位與卡片摘要。只存文字，不存錄音和圖片；但文字可能含姓名、病情等原話，請用虛構內容測試。標為敏感的圖片不寫入，顯示給你的辨識文字不變。關閉時會刪除全部已寫入的診斷資料，請先拷出。";
 "help.about.legal" = "版本與法律";
 "help.perm.section" = "權限狀態";
 "help.perm.camera" = "相機";

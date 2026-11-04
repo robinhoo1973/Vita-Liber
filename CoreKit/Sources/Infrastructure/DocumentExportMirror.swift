@@ -315,49 +315,31 @@ public actor DocumentExportMirror {
     }
 
     /// 会话目录内识别调试采集（2026-11-04 业主：多模型识别文本后处理调参数据）。
-    /// 写入 `<会话目录>/recognition-debug/<采集目录>/<文件>`；与 `appendDebugLog` 同一开关、
+    /// 写入 `<会话目录>/recognition-debug/<采集名>.json`——**一次采集一个文件、只存文本**
+    /// （业主 2026-11-04 第二批：调试目录不存录音/图片）。与 `appendDebugLog` 同一开关、
     /// 同一保护（写前复查开关、`.completeFileProtection`、排除备份）。会话目录不存在时
-    /// 按需创建（语音采集没有导出副本，不能依赖副本先建目录）。新采集目录落地后
-    /// 只保留最近 `RecognitionDebugCapture.retainedCapturesPerConversation` 份。
+    /// 按需创建（语音采集没有导出副本）。写入后清除旧布局采集目录（曾含录音/原件），
+    /// 并只保留最近 `RecognitionDebugCapture.retainedCapturesPerConversation` 份。
     @discardableResult
-    public func writeRecognitionDebug(directoryName: String, captureFolder: String,
-                                      fileName: String, data: Data) -> Bool {
-        guard let target = recognitionDebugTarget(directoryName: directoryName, captureFolder: captureFolder,
-                                                  fileName: fileName) else { return false }
+    public func writeRecognitionDebug(directoryName: String, fileName: String, data: Data) -> Bool {
+        guard OCRShadowDiagnostics.isEnabled,
+              !directoryName.isEmpty, !directoryName.hasPrefix("/"), !directoryName.contains(".."),
+              RecognitionDebugCapture.isCaptureFileName(fileName) else { return false }
+        let debugRoot = exportsBase.appendingPathComponent(directoryName, isDirectory: true)
+            .appendingPathComponent(RecognitionDebugCapture.folderName, isDirectory: true)
+        let target = debugRoot.appendingPathComponent(fileName)
         do {
+            try fileManager.createDirectory(at: debugRoot, withIntermediateDirectories: true)
             try data.write(to: target, options: [.atomic, .completeFileProtection])
-            try? Self.excludeFromBackup(target)   // try?-ok: 调试文件排除备份失败不影响可读
-            return true
         } catch {
             return false
         }
-    }
-
-    /// 复制媒体（录音/页图）到采集目录；源文件不动。
-    @discardableResult
-    public func copyRecognitionDebug(directoryName: String, captureFolder: String,
-                                     fileName: String, from source: URL) -> Bool {
-        guard let target = recognitionDebugTarget(directoryName: directoryName, captureFolder: captureFolder,
-                                                  fileName: fileName) else { return false }
-        do {
-            if fileManager.fileExists(atPath: target.path) { try fileManager.removeItem(at: target) }
-            try fileManager.copyItem(at: source, to: target)
-            try? fileManager.setAttributes([.protectionKey: FileProtectionType.complete],   // try?-ok: 保护级别尽力而为
-                                           ofItemAtPath: target.path)
-            try? Self.excludeFromBackup(target)   // try?-ok: 调试文件排除备份失败不影响可读
-            return true
-        } catch {
-            return false
+        try? Self.excludeFromBackup(target)   // try?-ok: 调试文件排除备份失败不影响可读
+        let names = directoryChildren(of: debugRoot).map(\.lastPathComponent)
+        for stale in RecognitionDebugCapture.capturesToPrune(names) {
+            try? fileManager.removeItem(at: debugRoot.appendingPathComponent(stale))   // try?-ok: 裁剪尽力而为
         }
-    }
-
-    /// 复制资料原件（canonical，按 `original_path` 解析）到采集目录；原件不动。
-    @discardableResult
-    public func copyOriginalToRecognitionDebug(sourcePath: String, directoryName: String,
-                                               captureFolder: String, fileName: String) -> Bool {
-        guard let source = MediaRootPaths.resolve(path: sourcePath, mediaBase: originalsDir) else { return false }
-        return copyRecognitionDebug(directoryName: directoryName, captureFolder: captureFolder,
-                                    fileName: fileName, from: source)
+        return true
     }
 
     /// 按会话短 ID 找磁盘上已存在的会话目录（`conversation/*-<id6>[-n]`），
@@ -374,33 +356,9 @@ public actor DocumentExportMirror {
         return match.map { MediaRootPaths.conversationFolderName + "/" + $0 }
     }
 
-    private func recognitionDebugTarget(directoryName: String, captureFolder: String,
-                                        fileName: String) -> URL? {
-        guard OCRShadowDiagnostics.isEnabled,
-              !directoryName.isEmpty, !directoryName.hasPrefix("/"), !directoryName.contains(".."),
-              RecognitionDebugCapture.isCaptureFolderName(captureFolder),
-              !fileName.isEmpty, !fileName.contains("/"), !fileName.contains("..") else { return nil }
-        let debugRoot = exportsBase.appendingPathComponent(directoryName, isDirectory: true)
-            .appendingPathComponent(RecognitionDebugCapture.folderName, isDirectory: true)
-        let capture = debugRoot.appendingPathComponent(captureFolder, isDirectory: true)
-        let isNew = !fileManager.fileExists(atPath: capture.path)
-        do {
-            try fileManager.createDirectory(at: capture, withIntermediateDirectories: true)
-        } catch {
-            return nil
-        }
-        if isNew {
-            let names = directoryChildren(of: debugRoot).map(\.lastPathComponent)
-            for stale in RecognitionDebugCapture.capturesToPrune(names) {
-                try? fileManager.removeItem(at: debugRoot.appendingPathComponent(stale, isDirectory: true))   // try?-ok: 裁剪尽力而为
-            }
-        }
-        return capture.appendingPathComponent(fileName)
-    }
-
     /// 关闭诊断开关时清除全部会话目录中的 OCR 调试日志（含旧日志），
     /// 避免「关闭后不再新增」但旧 PHI 仍留在 Files 的歧义。
-    /// 2026-11-04：同时清除各会话目录下的 `recognition-debug/` 采集（含录音/页图）。
+    /// 2026-11-04：同时清除各会话目录下的 `recognition-debug/` 采集（含旧布局目录）。
     public func removeAllDebugLogs() {
         for root in [exportsBase.appendingPathComponent(MediaRootPaths.conversationFolderName, isDirectory: true),
                      exportsBase.appendingPathComponent(Self.legacyExportFolderName, isDirectory: true)] {

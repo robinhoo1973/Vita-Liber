@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Domain
 
-// binds: SU-M15-RECDEBUG — 真机识别调试采集（2026-11-04）：多引擎文本 → input/output 结构、交付不变、what-if 不交付
+// binds: SU-M15-RECDEBUG — 真机识别调试采集（2026-11-04）：多引擎文本 → 单文件 input+output、只存文本、交付不变、what-if 不交付
 /// 识别调试采集纯 Domain：ASR/OCR 共用文本层结构，确定性，Linux 可跑。
 @Suite("SU-M15-RECDEBUG · 真机识别调试采集（多引擎文本 → 只提示结果 + what-if）")
 struct RecognitionDebugCaptureTests {
@@ -109,29 +109,34 @@ struct RecognitionDebugCaptureTests {
         #expect(output.segments[0].unanimous)
     }
 
-    @Test("采集目录名：时间序 + 模态 + id6；裁剪只动本布局目录")
-    func folderLayoutAndPrune() {
+    @Test("采集文件名：时间序 + 模态 + id6 + .json；裁剪只动本布局条目，旧布局目录一律清除")
+    func fileLayoutAndPrune() {
         let id = UUID(uuidString: "ABCDEF12-0000-0000-0000-000000000000")!
-        let name = C.captureFolderName(modality: .asr, date: Date(timeIntervalSince1970: 0), captureID: id,
-                                       timeZone: TimeZone(identifier: "UTC")!)
-        #expect(name == "19700101-000000-asr-abcdef")
-        #expect(C.isCaptureFolderName(name))
-        #expect(!C.isCaptureFolderName("我的文件"))
-        #expect(!C.isCaptureFolderName("19700101-000000-png-abcdef"))
-        let names = ["19700101-000002-ocr-aaaaaa", "19700101-000001-asr-bbbbbb", "notes.txt",
-                     "19700101-000003-asr-cccccc"]
-        #expect(C.capturesToPrune(names, keeping: 2) == ["19700101-000001-asr-bbbbbb"])
-        #expect(C.capturesToPrune(names, keeping: 5).isEmpty)
+        let name = C.captureFileName(modality: .asr, date: Date(timeIntervalSince1970: 0), captureID: id,
+                                     timeZone: TimeZone(identifier: "UTC")!)
+        #expect(name == "19700101-000000-asr-abcdef.json")
+        #expect(C.isCaptureFileName(name))
+        #expect(!C.isCaptureFileName("19700101-000000-asr-abcdef"))
+        #expect(!C.isCaptureFileName("我的文件.json"))
+        #expect(!C.isCaptureFileName("19700101-000000-png-abcdef.json"))
+        let names = ["19700101-000002-ocr-aaaaaa.json", "19700101-000001-asr-bbbbbb.json", "notes.txt",
+                     "19700101-000003-asr-cccccc.json", "19700101-000000-asr-dddddd", "audio.caf"]
+        #expect(C.capturesToPrune(names, keeping: 2)
+                == ["19700101-000000-asr-dddddd", "19700101-000001-asr-bbbbbb.json"])
+        #expect(C.capturesToPrune(names, keeping: 5) == ["19700101-000000-asr-dddddd"])
     }
 
-    @Test("input/output JSON 往返稳定")
-    func jsonRoundTrip() throws {
+    @Test("单文件记录：input + output 同一 JSON，往返稳定，且不含媒体字段")
+    func recordRoundTrip() throws {
         let input = Self.asrInput(primary: "Yes 你说得对", zh: "也是你说得对", en: "Yes")
-        let decodedInput = try JSONDecoder().decode(C.Input.self, from: C.encode(input))
-        #expect(decodedInput == input)
-        let output = C.fuse(input)
-        let decodedOutput = try JSONDecoder().decode(C.Output.self, from: C.encode(output))
-        #expect(decodedOutput == output)
+        let record = C.Record(input: input, output: C.fuse(input))
+        #expect(record.schema == C.recordSchema)
+        #expect(record.captureID == "cap")
+        let data = try C.encode(record)
+        #expect(try JSONDecoder().decode(C.Record.self, from: data) == record)
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(!text.contains("mediaFiles"))
+        #expect(text.contains("\"input\"") && text.contains("\"output\""))
     }
 
     @Test("TranscriptionHypothesis 往返保留逐词证据")

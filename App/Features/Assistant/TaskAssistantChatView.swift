@@ -958,7 +958,7 @@ struct TaskAssistantChatView: View {
     }
 
     /// 真机识别调试采集（系统诊断开关开启时）：录音须在 `adopt` 移走前同步暂存，
-    /// 之后后台跑 Apple 中/英重放、写 input.json → 融合 → output.json；交付文本不变。
+    /// 之后后台跑 Apple 中/英重放 → 融合 → 写一个只含文本的采集 JSON（录音用完即删）；交付文本不变。
     private func captureRecognitionDebug(sessionID: UUID, result: TranscriptionResult) {
         guard RecognitionDebugRecorder.isEnabled,
               !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -2142,7 +2142,7 @@ struct TaskAssistantChatView: View {
         defer { docs.clearOCRDebugTraces(documentID: source.documentId) }
         let traces = docs.ocrDebugTraces(documentID: source.documentId)
         guard !traces.isEmpty else { return }
-        // 多引擎文本采集：原件 + input.json（Paddle 主 / Vision 副）+ output.json。
+        // 多引擎文本采集：一个 JSON（Paddle 主 / Vision 副原文 + 后处理结果），不复制原件。
         await RecognitionDebugRecorder.captureOCR(documentID: source.documentId, traces: traces,
                                                   exportState: exportState) {
             await recognitionDebugDirectory(generation: generation)

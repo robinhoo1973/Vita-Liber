@@ -765,7 +765,7 @@
 "help.ocrShadow.title" = "识别调参诊断";
 "help.ocrShadow.toggle" = "写入识别对照数据";
 "help.ocrShadow.confirm" = "开启并写入";
-"help.ocrShadow.hint" = "仅调参时开启。开启后，聊天里的语音和非敏感图片导入会把原始录音/原件、各识别模型的原文与融合结果写入“文件”App 的会话目录（recognition-debug），并附 OCR 字段与卡片摘要；敏感资料不写入，显示给你的识别文本不变。关闭时会删除全部已写入的诊断数据，请先拷出。";
+"help.ocrShadow.hint" = "仅调参时开启。开启后，聊天里的每段语音和每次非敏感图片导入，都会把各识别模型的原文与后处理结果写成一个 JSON 文件，存到“文件”App 的会话目录（recognition-debug），并附 OCR 字段与卡片摘要。只存文本，不存录音和图片；但文本可能含姓名、病情等原话，请用虚构内容测试。标为敏感的图片不写入，显示给你的识别文本不变。关闭时会删除全部已写入的诊断数据，请先拷出。";
 "help.about.legal" = "版本与法律";
 "help.perm.section" = "权限状态";
 "help.perm.camera" = "相机";

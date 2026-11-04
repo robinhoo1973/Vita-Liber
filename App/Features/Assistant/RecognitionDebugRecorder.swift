@@ -11,9 +11,10 @@ import Protocols
 ///   Apple 中文（zh-CN）、Apple 英文（en-US）各离线识别一遍作第二、第三模型；
 /// - **图片**：主轨 = PP-OCRv6（内置），第二模型 = Apple Vision（同一行框逐行对照）。
 ///
-/// 每次采集落一个目录 `<会话目录>/recognition-debug/<时间-模态-id6>/`：
-/// 先写媒体（录音/原件）与 `input.json`（融合前各引擎原文与证据），再融合并写
-/// `output.json`（只提示结果 + 门控改写 what-if）。**交付给用户的文本不变**。
+/// 每次采集落**一个**文件 `<会话目录>/recognition-debug/<时间-模态-id6>.json`，内含
+/// `input`（融合前各引擎原文与证据）与 `output`（只提示结果 + 门控改写 what-if）。
+/// **只存文本**（业主 2026-11-04 第二批）：录音只在系统临时目录暂存供 Apple 重放，
+/// 用完即删；原件/页图从不复制。**交付给用户的文本不变**。
 @MainActor
 enum RecognitionDebugRecorder {
     static var isEnabled: Bool { OCRShadowDiagnostics.isEnabled }
@@ -34,7 +35,8 @@ enum RecognitionDebugRecorder {
         var resolvedEngineID: String?
     }
 
-    /// 同步复制录音到临时暂存：聊天随后 `ChatAudioStore.adopt` 会移走原临时文件。
+    /// 同步复制录音到系统临时目录（仅供 Apple 中/英重放，`captureASR` 结束即删，
+    /// 绝不进入调试目录）：聊天随后 `ChatAudioStore.adopt` 会移走原临时文件。
     static func stageAudio(_ url: URL?) -> URL? {
         guard isEnabled, let url, FileManager.default.fileExists(atPath: url.path) else { return nil }
         let directory = FileManager.default.temporaryDirectory
@@ -56,17 +58,8 @@ enum RecognitionDebugRecorder {
         guard isEnabled else { return }
         let captureID = UUID()
         let now = Date()
-        let folder = RecognitionDebugCapture.captureFolderName(modality: .asr, date: now, captureID: captureID)
+        let fileName = RecognitionDebugCapture.captureFileName(modality: .asr, date: now, captureID: captureID)
         let directoryName = await directory()
-
-        var mediaFiles: [String] = []
-        if let stagedAudio {
-            let name = "audio." + (stagedAudio.pathExtension.isEmpty ? "caf" : stagedAudio.pathExtension)
-            if await exportState.copyRecognitionDebug(directoryName: directoryName, captureFolder: folder,
-                                                      fileName: name, from: stagedAudio) {
-                mediaFiles.append(name)
-            }
-        }
 
         var hypotheses = productionHypotheses(context)
         for locale in appleReplayLocales {
@@ -101,9 +94,9 @@ enum RecognitionDebugRecorder {
                 "contextualStringCount": String(context.contextualStrings.count),
                 "replayLocales": appleReplayLocales.joined(separator: ","),
             ],
-            mediaFiles: mediaFiles, deliveredText: context.result.text,
+            deliveredText: context.result.text,
             segments: [RecognitionDebugCapture.Segment(index: 0, hypotheses: hypotheses)])
-        await write(input: input, directoryName: directoryName, folder: folder, exportState: exportState)
+        await write(input: input, directoryName: directoryName, fileName: fileName, exportState: exportState)
     }
 
     /// 生产主轨（及同一引擎内的辅轨，如双语基线轨的第二个 locale 实例）。
@@ -146,19 +139,14 @@ enum RecognitionDebugRecorder {
 
     // MARK: - 图片
 
-    /// 一次聊天导入（单图或多页 PDF）= 一个采集目录；段序号 = 页序 × 1000 + 行序。
+    /// 一次聊天导入（单图或多页 PDF）= 一个采集文件；段序号 = 页序 × 1000 + 行序。
     static func captureOCR(documentID: UUID, traces: [OCRDebugTrace], exportState: DocumentExportState,
                            directory: @MainActor () async -> String) async {
         guard isEnabled, !traces.isEmpty else { return }
         let captureID = UUID()
         let now = Date()
-        let folder = RecognitionDebugCapture.captureFolderName(modality: .ocr, date: now, captureID: captureID)
+        let fileName = RecognitionDebugCapture.captureFileName(modality: .ocr, date: now, captureID: captureID)
         let directoryName = await directory()
-        var mediaFiles: [String] = []
-        if let original = await exportState.copyOriginalForRecognitionDebug(
-            documentID: documentID, directoryName: directoryName, captureFolder: folder) {
-            mediaFiles.append(original)
-        }
         var segments: [RecognitionDebugCapture.Segment] = []
         var delivered: [String] = []
         var paddleNotes: [String] = []
@@ -185,27 +173,24 @@ enum RecognitionDebugRecorder {
                 "deliveredBy": "apple-vision (production still delivers Vision text; PP-OCRv6 is primary only in this capture until the owner rules on device data)",
                 "paddleNotes": paddleNotes.joined(separator: ";"),
             ],
-            mediaFiles: mediaFiles, deliveredText: delivered.joined(separator: "\n"), segments: segments)
-        await write(input: input, directoryName: directoryName, folder: folder, exportState: exportState)
+            deliveredText: delivered.joined(separator: "\n"), segments: segments)
+        await write(input: input, directoryName: directoryName, fileName: fileName, exportState: exportState)
     }
 
     // MARK: - 落盘
 
-    /// 先写 input.json（融合前），再后台融合，最后写 output.json（融合后）。
-    private static func write(input: RecognitionDebugCapture.Input, directoryName: String, folder: String,
+    /// 后台融合后，把 input（融合前）+ output（融合后）合成一个 JSON 一次写出。
+    private static func write(input: RecognitionDebugCapture.Input, directoryName: String, fileName: String,
                               exportState: DocumentExportState) async {
-        guard let inputData = try? RecognitionDebugCapture.encode(input) else { return }   // try?-ok: 编码失败放弃本次采集
-        guard await exportState.writeRecognitionDebug(directoryName: directoryName, captureFolder: folder,
-                                                      fileName: "input.json", data: inputData) else { return }
         let output = await Task.detached(priority: .utility) { () -> RecognitionDebugCapture.Output in
             let started = Date()
             var output = RecognitionDebugCapture.fuse(input)
             output.elapsedMs = Date().timeIntervalSince(started) * 1000
             return output
         }.value
-        guard let outputData = try? RecognitionDebugCapture.encode(output) else { return }   // try?-ok: 编码失败只缺 output.json
-        await exportState.writeRecognitionDebug(directoryName: directoryName, captureFolder: folder,
-                                                fileName: "output.json", data: outputData)
+        let record = RecognitionDebugCapture.Record(input: input, output: output)
+        guard let data = try? RecognitionDebugCapture.encode(record) else { return }   // try?-ok: 编码失败放弃本次采集
+        await exportState.writeRecognitionDebug(directoryName: directoryName, fileName: fileName, data: data)
     }
 
     private static func environment() -> [String: String] {
