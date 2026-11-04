@@ -113,9 +113,11 @@ struct ASREvaluationHarnessTests {
         let manifest = try ASREvaluation.decodeManifest(from: manifestData)
         let audioDirectory = Self.value("VITALIBER_ASR_EVAL_AUDIO_DIR").map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? manifestURL.deletingLastPathComponent()
-        let missingAudio = manifest.utterances
-            .filter { !FileManager.default.fileExists(atPath: audioDirectory.appendingPathComponent($0.audioPath).path) }
-            .map { $0.utteranceID }
+        let missingAudio = manifest.utterances.compactMap { utterance -> String? in
+            guard let audioPath = utterance.audioPath else { return nil }
+            return FileManager.default.fileExists(
+                atPath: audioDirectory.appendingPathComponent(audioPath).path) ? nil : utterance.utteranceID
+        }
 
         var runs: [ASREvaluation.SystemRun] = []
         let authorizationProblem = await Self.speechAuthorizationProblem()
@@ -231,7 +233,12 @@ struct ASREvaluationHarnessTests {
         var results: [ASREvaluation.UtteranceResult] = []
         for utterance in manifest.utterances {
             if Task.isCancelled { break }
-            let url = audioDirectory.appendingPathComponent(utterance.audioPath)
+            // 纯文本语料（无 audioPath）没有可重放的音频：该引擎如实跳过这一句。
+            guard let audioPath = utterance.audioPath else {
+                results.append(.skipped(utterance.utteranceID, reason: "纯文本语料（无 audioPath）"))
+                continue
+            }
+            let url = audioDirectory.appendingPathComponent(audioPath)
             guard FileManager.default.fileExists(atPath: url.path) else {
                 results.append(.skipped(utterance.utteranceID, reason: "音频文件缺失"))
                 continue

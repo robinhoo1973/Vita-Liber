@@ -32,15 +32,16 @@ public enum ASREvaluation {
     /// 清单中的一句。
     public struct Utterance: Sendable, Equatable, Codable {
         public var utteranceID: String
-        /// 音频相对路径（相对运行器的音频目录；禁止绝对路径与 `..`）。
-        public var audioPath: String
+        /// 音频相对路径（相对运行器的音频目录；禁止绝对路径与 `..`）。nil = 纯文本语料
+        /// （round5 §6 T1：融合核心只消费文本假设 + 参考文本，不要求每条都有音频）。
+        public var audioPath: String?
         /// 人工参考转写（评测口径见 `MixedErrorRate`）。
         public var reference: String
         public var tags: [Tag]
         /// 需原样保留的词（药名等，可选）；每个词必须出现在参考中。
         public var protectedTerms: [String]?
 
-        public init(utteranceID: String, audioPath: String, reference: String, tags: [Tag] = [],
+        public init(utteranceID: String, audioPath: String? = nil, reference: String, tags: [Tag] = [],
                     protectedTerms: [String]? = nil) {
             self.utteranceID = utteranceID
             self.audioPath = audioPath
@@ -59,7 +60,8 @@ public enum ASREvaluation {
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             utteranceID = try container.decode(String.self, forKey: .utteranceID)
-            audioPath = try container.decode(String.self, forKey: .audioPath)
+            // 缺省 = 纯文本语料（引擎输出在 SystemRun 里，参考在 reference 里）。
+            audioPath = try container.decodeIfPresent(String.self, forKey: .audioPath)
             reference = try container.decode(String.self, forKey: .reference)
             tags = try container.decodeIfPresent([Tag].self, forKey: .tags) ?? []
             protectedTerms = try container.decodeIfPresent([String].self, forKey: .protectedTerms)
@@ -112,7 +114,9 @@ public enum ASREvaluation {
             }
             let referenceTokens = MixedErrorRate.tokenize(utterance.reference)
             if referenceTokens.isEmpty { issues.append(.emptyReference(id)) }
-            if !isValidRelativePath(utterance.audioPath) { issues.append(.invalidAudioPath(id)) }
+            if let audioPath = utterance.audioPath, !isValidRelativePath(audioPath) {
+                issues.append(.invalidAudioPath(id))
+            }
             if utterance.has(.emergencyPositive) && utterance.has(.emergencyNegative) {
                 issues.append(.conflictingEmergencyTags(id))
             }

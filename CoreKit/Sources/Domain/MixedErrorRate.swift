@@ -160,7 +160,10 @@ public enum MixedErrorRate {
     }
 
     static func tokenizeWithRanges(_ text: String) -> RangedTokens {
-        let scalars = Array(normalize(text).unicodeScalars)
+        // NFKC 会把全角逗号 U+FF0C 折成 ASCII ','，使「血压120，800」被千分位规则并成「120800」。
+        // 中文全角逗号永远只是分隔符：分词前折成等长空格（标量区间仍与 normalize(text) 对齐）。
+        let tokenizationInput = text.replacingOccurrences(of: "\u{FF0C}", with: " ")
+        let scalars = Array(normalize(tokenizationInput).unicodeScalars)
         var tokens: [Token] = []
         var ranges: [Range<Int>] = []
         var buffer = String.UnicodeScalarView()

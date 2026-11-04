@@ -518,8 +518,9 @@ public struct ASREvaluationVerdict: Sendable, Equatable, Codable {
 
     static func measureEmergencySampleAdequacy(report: ASREvaluation.Report, configuration: Configuration,
                                                regressions: [Regression]) -> EmergencySampleAdequacy {
-        let samples = regressions.map { $0.emergencyPairs }.min()
-            ?? report.system(configuration.primaryEngineID)?.emergency.positiveCount ?? 0
+        // 只统计真正比对过的候选（regressions）。没有任何候选回归时不能拿主轨自己的
+        // 急救阳性数冒充「已验证的急救样本」——那会在「零候选」时渲染出 n≥60 的安全结论。
+        let samples = regressions.map { $0.emergencyPairs }.min() ?? 0
         let minimum = Thresholds.minimumEmergencyPositiveSamples
         return EmergencySampleAdequacy(positiveSamples: samples, minimumForSafetyClaim: minimum,
                                        missRateUpperBound: zeroEventMissRateUpperBound(samples: samples),

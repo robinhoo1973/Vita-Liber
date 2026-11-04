@@ -30,6 +30,14 @@ struct MixedErrorRateTests {
         #expect(texts(MixedErrorRate.tokenize("120. 3.14.15")) == ["120", "3.14", "15"])
     }
 
+    @Test func fullWidthCommaNeverActsAsThousandsSeparator() {
+        // NFKC 把「，」折成「,」；中文逗号是分隔符，不能被千分位规则吞成一个大数。
+        #expect(texts(MixedErrorRate.tokenize("血压120，800")) == ["血", "压", "120", "800"])
+        #expect(texts(MixedErrorRate.tokenize("37，500")) == ["37", "500"])
+        // ASCII 千分位仍整体保留（对照）。
+        #expect(texts(MixedErrorRate.tokenize("1,000")) == ["1000"])
+    }
+
     @Test func apostrophesInsideWordsAreKeptAndCurlyFormsFolded() {
         #expect(texts(MixedErrorRate.tokenize("I don’t know, it's 'fine'")) == ["i", "don't", "know", "it's", "fine"])
     }

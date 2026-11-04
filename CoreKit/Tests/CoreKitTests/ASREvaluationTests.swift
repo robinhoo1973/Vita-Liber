@@ -316,6 +316,9 @@ struct ASREvaluationTests {
         #expect(negations("阿莫西林非常好，是否性别特别").isEmpty)
         #expect(negations("我没有发热，不咳嗽，未见异常，无过敏史，否认胸痛，别吃") == ["没", "不", "未", "无", "否", "别"])
         #expect(negations("I don't have chest pain and never smoked; patient denies fever") == ["don't", "never", "denies"])
+        // 繁体/粤语：NFKC 不做繁简折叠，否定词表必须并列繁体形。
+        #expect(negations("我沒有發燒，無過敏史，別吃這個，冇咳嗽") == ["沒", "無", "別", "冇"])
+        #expect(negations("非常特別，無論如何，未來再談").isEmpty)
     }
 
     // MARK: - 急救（BR-012 词表）
@@ -881,8 +884,9 @@ struct ASREvaluationTests {
         #expect(lines.contains { $0.hasPrefix("| Apple-en 边际增益 | 证据不足（advisory） | 暂不删除（待 token 级证据） |") })
         #expect(lines.contains { $0.hasPrefix("| 置信度区分度 AUROC | 未评估 | 只保留不一致提示 |") })
         #expect(lines.contains("- 自动改写：不放行（只保留不一致提示 / 候选点选）"))
+        // 未配置候选引擎 → 没有任何候选比对过急救样本：不得拿主轨自身的阳性数冒充已核样本。
         #expect(lines.contains(
-            "- 急救样本量：急救阳性样本 n=1 < 60：急救结论只能发现回归、不能证明安全（零漏报时漏报率 95% 置信上限 ≈ 95.0%）"))
+            "- 急救样本量：急救阳性样本 n=0 < 60：急救结论只能发现回归、不能证明安全（零漏报时漏报率 95% 置信上限 ≈ 100.0%）"))
         // Markdown 只有指标，不带参考/假设原文
         #expect(!markdown.contains("你说的很对"))
     }
