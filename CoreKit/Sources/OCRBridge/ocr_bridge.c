@@ -23,6 +23,8 @@ typedef struct {
     OrtEnv *env;
     OrtSession *session;
     OrtMemoryInfo *memory_info;
+    char *input_name;
+    char *output_name;
 } OCRSession;
 
 static char g_error[1024];
@@ -44,14 +46,30 @@ static int ocr_check(const OrtApi *api, OrtStatus *status, const char *where) {
     return -1;
 }
 
-void *ocr_session_create(const void *model_data, size_t model_len, int intra_threads) {
+void *ocr_session_create(const void *model_data, size_t model_len,
+                         const char *input_name, const char *output_name,
+                         int intra_threads) {
     g_error[0] = '\0';
     const OrtApi *api = ocr_api();
     if (api == NULL) { snprintf(g_error, sizeof(g_error), "OrtGetApiBase returned no API"); return NULL; }
     if (model_data == NULL || model_len == 0) { snprintf(g_error, sizeof(g_error), "empty model"); return NULL; }
+    if (input_name == NULL || input_name[0] == '\0' ||
+        output_name == NULL || output_name[0] == '\0') {
+        snprintf(g_error, sizeof(g_error), "empty tensor name");
+        return NULL;
+    }
 
     OCRSession *ctx = (OCRSession *)calloc(1, sizeof(OCRSession));
     if (ctx == NULL) { snprintf(g_error, sizeof(g_error), "out of memory"); return NULL; }
+    ctx->input_name = strdup(input_name);
+    ctx->output_name = strdup(output_name);
+    if (ctx->input_name == NULL || ctx->output_name == NULL) {
+        snprintf(g_error, sizeof(g_error), "out of memory");
+        free(ctx->input_name);
+        free(ctx->output_name);
+        free(ctx);
+        return NULL;
+    }
 
     if (ocr_check(api, api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "vitalocr", &ctx->env), "CreateEnv") != 0) goto fail;
 
@@ -76,6 +94,8 @@ fail:
     if (ctx->memory_info != NULL) api->ReleaseMemoryInfo(ctx->memory_info);
     if (ctx->session != NULL) api->ReleaseSession(ctx->session);
     if (ctx->env != NULL) api->ReleaseEnv(ctx->env);
+    free(ctx->input_name);
+    free(ctx->output_name);
     free(ctx);
     return NULL;
 }
@@ -89,6 +109,8 @@ void ocr_session_free(void *handle) {
         if (ctx->session != NULL) api->ReleaseSession(ctx->session);
         if (ctx->env != NULL) api->ReleaseEnv(ctx->env);
     }
+    free(ctx->input_name);
+    free(ctx->output_name);
     free(ctx);
 }
 
@@ -132,8 +154,8 @@ int ocr_session_run(void *handle,
                           shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &input_tensor),
                   "CreateTensor") != 0) return -1;
 
-    const char *input_names[] = {"x"};
-    const char *output_names[] = {"fetch_name_0"};
+    const char *input_names[] = {ctx->input_name};
+    const char *output_names[] = {ctx->output_name};
     OrtValue *output = NULL;
     int failed = ocr_check(api, api->Run(ctx->session, NULL, input_names,
                                          (const OrtValue *const *)&input_tensor, 1,
@@ -205,8 +227,11 @@ const char *ocr_last_error(void) { return g_error; }
 
 static const char *k_unavailable = "ONNX Runtime bridge is only available on Apple platforms";
 
-void *ocr_session_create(const void *model_data, size_t model_len, int intra_threads) {
-    (void)model_data; (void)model_len; (void)intra_threads;
+void *ocr_session_create(const void *model_data, size_t model_len,
+                         const char *input_name, const char *output_name,
+                         int intra_threads) {
+    (void)model_data; (void)model_len; (void)input_name; (void)output_name;
+    (void)intra_threads;
     return NULL;
 }
 void ocr_session_free(void *handle) { (void)handle; }

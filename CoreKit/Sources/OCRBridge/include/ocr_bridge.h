@@ -10,7 +10,9 @@ extern "C" {
 
 /// 创建 PP-OCRv6 rec ONNX 会话。成功返回非 NULL；失败返回 NULL，
 /// 错误文本由 ocr_last_error() 读取。model_data 在调用期间必须有效。
-void *ocr_session_create(const void *model_data, size_t model_len, int intra_threads);
+void *ocr_session_create(const void *model_data, size_t model_len,
+                         const char *input_name, const char *output_name,
+                         int intra_threads);
 
 void ocr_session_free(void *handle);
 

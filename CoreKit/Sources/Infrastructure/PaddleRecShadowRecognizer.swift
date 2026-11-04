@@ -30,7 +30,9 @@ public actor PaddleRecShadowRecognizer: ImageTextRecognizing {
         }
         if session == nil, !sessionUnavailable {
             do {
-                session = try ONNXRuntimeSession(modelData: model.modelData)
+                session = try ONNXRuntimeSession(modelData: model.modelData,
+                                                 inputName: model.asset.inputName,
+                                                 outputName: model.asset.outputName)
                 loaded = model
             } catch {
                 sessionUnavailable = true

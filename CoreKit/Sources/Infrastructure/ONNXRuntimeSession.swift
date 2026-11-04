@@ -29,11 +29,17 @@ public final class ONNXRuntimeSession: @unchecked Sendable {
     private let handle: UnsafeMutableRawPointer?
     private let modelData: Data
 
-    public init(modelData: Data, intraThreads: Int = 2) throws {
+    public init(modelData: Data, intraThreads: Int = 2,
+                inputName: String, outputName: String) throws {
         self.modelData = modelData
         var created: UnsafeMutableRawPointer?
-        modelData.withUnsafeBytes { raw in
-            created = ocr_session_create(raw.baseAddress, modelData.count, Int32(intraThreads))
+        inputName.withCString { input in
+            outputName.withCString { output in
+                modelData.withUnsafeBytes { raw in
+                    created = ocr_session_create(raw.baseAddress, modelData.count,
+                                                 input, output, Int32(intraThreads))
+                }
+            }
         }
         guard let created else {
             throw SessionError.unavailable(String(cString: ocr_last_error()))
