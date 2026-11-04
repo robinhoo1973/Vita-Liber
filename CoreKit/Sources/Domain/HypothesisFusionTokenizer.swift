@@ -15,53 +15,21 @@ public enum HypothesisFusionScript: String, Sendable, Equatable, Hashable, Codab
     case other
 }
 
-/// 词类：校准表维度 + 保护判定（round3 §6.1 步骤 7；极性类为 2026-11-03 反方辩论核验追加）。
+/// 词类：校准表维度 + 保护判定（round3 §6.1 步骤 7）。哪些类受保护、哪些类冻结子句由调用方
+/// `HypothesisFusionPolicy` 注入；词类本身只表达通用语言形态，不含任何领域词表。
 /// 判定优先级：number > unit > negation > polarity > word。
 public enum HypothesisFusionTokenClass: String, Sendable, Equatable, Hashable, Codable, CaseIterable {
     case word
     case number
     case unit
+    /// 否定词（由调用方词表标出）。
     case negation
-    /// 临床极性/方位/时序/剂量动作词（`HypothesisFusionVocabulary.polarity`）。
+    /// 对立语义词（左右/正负/增减等，由调用方词表标出）。
     case polarity
 
-    /// 数字/单位/否定词/极性词——列内任一候选属此类即整列不自动改（round3 §3.3「保护必须对称」）。
+    /// 非普通词类默认视为保护类——列内任一候选属此类即整列不自动改（「保护必须对称」）。
+    /// 内核实际以 `HypothesisFusionPolicy.protectedTokenClasses` 为准。
     public var isProtectedClass: Bool { self != .word }
-}
-
-/// 保护词表（公开常量，便于审计）。全部按与假设**同一分词**的键序列整段匹配（大小写、全半角不敏感），
-/// 单字条目匹配该字的每一次出现。宁多勿少：误保护只少一次自动改，漏保护会翻转医疗语义。
-public enum HypothesisFusionVocabulary {
-    /// 通用单位（round3 §6.1 步骤 7）：「毫克」= 毫+克，「mmol/L」= mmol+l。
-    public static let units: [String] = [
-        "mg", "g", "kg", "ml", "mL", "L", "dL", "μg", "mcg", "IU", "U", "mmHg", "mmol/L", "μmol/L",
-        "mg/dL", "g/L", "bpm", "cm", "mm", "%", "‰", "℃", "℉", "°",
-        "毫克", "克", "千克", "公斤", "斤", "毫升", "升", "微克", "毫米汞柱", "毫摩尔", "微摩尔",
-        "厘米", "毫米", "度", "片", "粒", "单位", "單位",
-    ]
-
-    /// 否定词（另认以 n't 结尾的拉丁缩约）。含否定词候选的列不自动改，且冻结其所在子句（否定辖域）。
-    public static let negations: [String] = [
-        "不", "没", "沒", "无", "無", "未", "非", "否", "别", "別", "勿", "莫", "毋", "甭", "冇",
-        "no", "not", "never", "without", "none", "nor", "neither", "nobody", "nothing", "nowhere",
-        "cannot", "deny", "denies", "denied", "absent",
-        "dont", "doesnt", "didnt", "isnt", "arent", "wasnt", "werent", "cant", "couldnt", "wont",
-        "wouldnt", "shouldnt", "havent", "hasnt", "hadnt", "aint", "mustnt", "neednt",
-    ]
-
-    /// 临床极性/方位/时序/剂量动作词：列内任一候选含此类词且候选间不一致 ⟹ 不自动改、记 `.polarity` 待核
-    /// （与否定词同等的列级保护；不扩展为子句辖域）。「上/下」刻意不纳入（单字方位过宽）。
-    /// 繁体变体（陰/陽/雙側/後/減/飯）为 zh-Hant 对等追加。
-    public static let polarity: [String] = [
-        "阴性", "阳性", "阴", "阳", "陰性", "陽性", "陰", "陽",
-        "左", "右", "双侧", "雙側", "前", "后", "後",
-        "饭前", "饭后", "飯前", "飯後", "餐前", "餐后", "餐後", "睡前", "空腹",
-        "早", "中", "晚",
-        "增", "减", "減", "加", "停",
-        "left", "right", "bilateral", "positive", "negative", "before", "after",
-        "increase", "increases", "increased", "increasing", "decrease", "decreases", "decreased", "decreasing",
-        "stop", "stops", "stopped", "stopping",
-    ]
 }
 
 /// 融合词元：原字符串中的一个投票单位。标点/空白不成词元（不投票，只在主轨原样保留）。
@@ -104,11 +72,14 @@ public struct HypothesisFusionToken: Sendable, Equatable {
 /// 成熟实现优先（FR0.1 / ADR-025）：NFKC、拼音（`applyingTransform(.mandarinToLatin)`）、
 /// 中文数字求值全部取自 Foundation，不手写拼音表或数字文法。
 public enum HypothesisFusionTokenizer {
-    /// 对单段文本分词；`protectedTerms` 按同一分词的键序列整段匹配（命中词元标 `isProtectedTerm`）。
-    public static func tokenize(_ text: String, protectedTerms: [String] = []) -> [HypothesisFusionToken] {
-        let lexicon = HypothesisFusionLexicon()
+    /// 对单段文本分词；`protectedTerms` 与策略内词条按同一分词的键序列整段匹配
+    /// （命中词元标 `isProtectedTerm`）。默认空词表策略，不假设任何领域。
+    public static func tokenize(_ text: String, protectedTerms: [String] = [],
+                                policy: HypothesisFusionPolicy = .generic) -> [HypothesisFusionToken] {
+        let lexicon = HypothesisFusionLexicon(policy: policy)
         lexicon.prefetchPinyin([text])
-        return lexicon.tokenize(text, protectedTerms: lexicon.termKeySequences(protectedTerms))
+        let terms = lexicon.termKeySequences(policy.protectedTerms + protectedTerms)
+        return lexicon.tokenize(text, protectedTerms: terms)
     }
 
     /// 中文数字串求值；nil = 不是可靠的数字（交回普通汉字处理）。
@@ -127,11 +98,16 @@ public enum HypothesisFusionTokenizer {
 /// （ci-lessons「测试资源双布局族」坑中坑）；且 NumberFormatter 非线程安全——每次调用自建、惰性构造、
 /// 只在本调用栈内使用。
 final class HypothesisFusionLexicon {
+    let policy: HypothesisFusionPolicy
     private var hansSpellOut: NumberFormatter?
     private var hantSpellOut: NumberFormatter?
     private var numeralCache: [String: Double?] = [:]
     private var pinyinCache: [Character: String] = [:]
     private var vocabularySequences: (units: [[String]], negations: [[String]], polarity: [[String]])?
+
+    init(policy: HypothesisFusionPolicy = .generic) {
+        self.policy = policy
+    }
 
     // MARK: 词表（纯字面量，无 Foundation 调用）
 
@@ -144,9 +120,12 @@ final class HypothesisFusionLexicon {
     /// 单位符号的 NFKC 小写键（℃ 经 NFKC 为「°C」）。
     static let unitSymbolKeys: Set<String> = ["%", "‰", "°c", "°f", "°"]
 
-    /// 拉丁否定缩约（don't / can't …；撇号已归一为 ASCII）。
-    static func isNegationContraction(_ token: HypothesisFusionToken) -> Bool {
-        token.script == .latin && token.key.count > 3 && token.key.hasSuffix("n't")
+    /// 拉丁否定缩约（策略注入后缀，如 don't / can't；撇号已归一为 ASCII）。
+    func isNegationContraction(_ token: HypothesisFusionToken) -> Bool {
+        guard token.script == .latin else { return false }
+        return policy.vocabulary.negationContractionSuffixes.contains { suffix in
+            !suffix.isEmpty && token.key.count > suffix.count && token.key.hasSuffix(suffix)
+        }
     }
 }
 
@@ -168,7 +147,7 @@ extension HypothesisFusionLexicon {
             if token.tokenClass == .word { token.tokenClass = .negation }
         }
         for index in tokens.indices where tokens[index].tokenClass == .word {
-            if Self.isNegationContraction(tokens[index]) { tokens[index].tokenClass = .negation }
+            if isNegationContraction(tokens[index]) { tokens[index].tokenClass = .negation }
         }
         mark(&tokens, sequences: vocabulary.polarity) { token in
             if token.tokenClass == .word { token.tokenClass = .polarity }
@@ -184,9 +163,9 @@ extension HypothesisFusionLexicon {
 
     private func vocabularyKeySequences() -> (units: [[String]], negations: [[String]], polarity: [[String]]) {
         if let cached = vocabularySequences { return cached }
-        let sequences = (units: termKeySequences(HypothesisFusionVocabulary.units),
-                         negations: termKeySequences(HypothesisFusionVocabulary.negations),
-                         polarity: termKeySequences(HypothesisFusionVocabulary.polarity))
+        let sequences = (units: termKeySequences(policy.vocabulary.unitTerms),
+                         negations: termKeySequences(policy.vocabulary.negationTerms),
+                         polarity: termKeySequences(policy.vocabulary.polarityTerms))
         vocabularySequences = sequences
         return sequences
     }
@@ -225,13 +204,14 @@ extension HypothesisFusionLexicon {
         func emit(_ range: Range<Int>, key: String, script: HypothesisFusionScript,
                   tokenClass: HypothesisFusionTokenClass) {
             let surface = String(characters[range])
-            let phonetic = phonetics && script == .han ? pinyin(of: surface) : key
+            let phonetic = phonetics && script == .han && policy.normalization.usesPhoneticAlignment
+                ? pinyin(of: surface) : key
             tokens.append(HypothesisFusionToken(surface: surface, key: key, phonetic: phonetic, script: script,
                                                 tokenClass: tokenClass,
                                                 utf16Range: offsets[range.lowerBound]..<offsets[range.upperBound]))
         }
         func emitHan(_ index: Int) {
-            emit(index..<(index + 1), key: Self.nfkc(characters[index]), script: .han, tokenClass: .word)
+            emit(index..<(index + 1), key: normalized(characters[index]), script: .han, tokenClass: .word)
         }
         var index = 0
         while index < characters.count {
@@ -255,10 +235,15 @@ extension HypothesisFusionLexicon {
                     }
                     break
                 }
-                let literal = characters[start..<end].map(Self.nfkc).joined()
+                let literal = characters[start..<end].map(normalized).joined()
                 emit(start..<end, key: Self.numberKey(literal), script: .digit, tokenClass: .number)
                 index = end
             case .numeral:
+                guard policy.normalization.evaluatesChineseNumerals else {
+                    emitHan(index)
+                    index += 1
+                    continue
+                }
                 let end = numeralRunEnd(characters, from: index)
                 guard end > index else {
                     emitHan(index)
@@ -292,16 +277,15 @@ extension HypothesisFusionLexicon {
                     }
                     break
                 }
-                let folded = characters[index..<end].map(Self.nfkc).joined()
-                    .replacingOccurrences(of: "\u{2019}", with: "'").lowercased()
+                let folded = foldLatin(characters[index..<end].map(normalized).joined())
                 emit(index..<end, key: folded, script: .latin, tokenClass: .word)
                 index = end
             case .unitSymbol:
-                emit(index..<(index + 1), key: Self.nfkc(characters[index]).lowercased(), script: .other,
+                emit(index..<(index + 1), key: normalized(characters[index]).lowercased(), script: .other,
                      tokenClass: .unit)
                 index += 1
             case .otherLetter:
-                emit(index..<(index + 1), key: Self.nfkc(characters[index]).lowercased(), script: .other,
+                emit(index..<(index + 1), key: foldLatin(normalized(characters[index])), script: .other,
                      tokenClass: .word)
                 index += 1
             case .decimalPoint, .apostrophe, .separator:
@@ -352,7 +336,7 @@ extension HypothesisFusionLexicon {
         }
         if Self.numeralCharacters.contains(character) { return .numeral }
         if let first = scalars.first, Self.isHan(first) { return .han }
-        let folded = Self.nfkc(character)
+        let folded = normalized(character)
         if Self.unitSymbolKeys.contains(folded.lowercased()) { return .unitSymbol }
         if Self.isLatinWord(folded) { return .latin }
         return character.isLetter ? .otherLetter : .separator
@@ -364,6 +348,21 @@ extension HypothesisFusionLexicon {
 extension HypothesisFusionLexicon {
     static func nfkc(_ character: Character) -> String {
         character.isASCII ? String(character) : String(character).precomposedStringWithCompatibilityMapping
+    }
+
+    /// 兼容归一（策略关闭时原样返回）。
+    func normalized(_ character: Character) -> String {
+        policy.normalization.appliesCompatibilityNormalization ? Self.nfkc(character) : String(character)
+    }
+
+    /// 拉丁键折叠：弯撇号 → ASCII、小写（按策略逐项开关）。
+    func foldLatin(_ text: String) -> String {
+        var folded = text
+        if policy.normalization.foldsApostrophes {
+            folded = folded.replacingOccurrences(of: "\u{2019}", with: "'")
+        }
+        if policy.normalization.foldsLatinCase { folded = folded.lowercased() }
+        return folded
     }
 
     /// 可紧贴数字的正负号（ASCII / 全角 / Unicode minus）。
@@ -448,6 +447,7 @@ extension HypothesisFusionLexicon {
     /// 批量预取拼音：一次 transform 处理本次调用涉及的全部汉字（逐字调用 ICU 转写器开销大）。
     /// 分隔符换行在转写中保持不变；若切分条数不符即放弃批量结果、回落逐字。
     func prefetchPinyin(_ texts: [String]) {
+        guard policy.normalization.usesPhoneticAlignment else { return }
         var pending = Set<Character>()
         for text in texts {
             for character in text where pinyinCache[character] == nil {

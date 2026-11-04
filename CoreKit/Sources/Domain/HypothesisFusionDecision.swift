@@ -23,11 +23,12 @@ struct HypothesisFusionDecider {
         var calibrated: [Int] = []
         var score: Double = 0
         var surfaces: [(engine: Int, surface: String, weight: Double)] = []
-        /// 含数字/单位/否定词/调用方词条的票（→ `.protected`）。
+        /// 含受保护词类/调用方词条的票（→ `.protected`；词类由策略注入）。
         var isProtected = false
-        /// 含临床极性/方位/时序/剂量动作词的票（→ `.polarity`）。
+        /// 含对立语义词的票（→ `.polarity`）。
         var hasPolarity = false
-        var hasNegation = false
+        /// 命中冻结子句的词类（否定辖域；词类由策略注入）。
+        var freezesClause = false
     }
 
     struct Tally {
@@ -50,7 +51,7 @@ struct HypothesisFusionDecider {
         let clauseOfToken = Self.clauseIndices(text: primaryText, tokens: primaryTokens)
         let tallies = columns.map { tally($0) }
         var frozen = Set<Int>()
-        for (index, tally) in tallies.enumerated() where tally.candidates.contains(where: { $0.hasNegation }) {
+        for (index, tally) in tallies.enumerated() where tally.candidates.contains(where: { $0.freezesClause }) {
             frozen.formUnion(clauses(of: index, slots: slots, clauseOfToken: clauseOfToken))
         }
         var edits: [PendingEdit] = []
@@ -142,10 +143,12 @@ struct HypothesisFusionDecider {
     func tally(_ column: HypothesisFusionColumn) -> Tally {
         var result = Tally()
         for (engine, vote) in column.votes.enumerated() where canVote(engine, column: column, vote: vote) {
-            let weight = calibration.reliability(engineID: engineIDs[engine], script: column.anchor.script,
-                                                 tokenClass: column.anchor.tokenClass,
-                                                 confidence: vote.token?.confidence)?.weight
-            if engine == 0, weight == nil { result.primaryUncalibrated = true }
+            let calibrated = calibration.reliability(engineID: engineIDs[engine], script: column.anchor.script,
+                                                     tokenClass: column.anchor.tokenClass,
+                                                     confidence: vote.token?.confidence)?.weight
+            if engine == 0, calibrated == nil { result.primaryUncalibrated = true }
+            // 源权重只缩放校准得分；缺校准数据的引擎仍整体弃权（不因权重复活）。
+            let weight = calibrated.map { $0 * options.policy.effectiveSourceWeight(for: engineIDs[engine]) }
             let key = vote.token?.key
             let slot: Int
             if let existing = result.candidates.firstIndex(where: { $0.key == key }) {
@@ -161,16 +164,14 @@ struct HypothesisFusionDecider {
             }
             if let token = vote.token {
                 result.candidates[slot].surfaces.append((engine, token.surface, weight ?? -1))
-                switch token.tokenClass {
-                case .number, .unit, .negation:
+                if options.policy.protectedTokenClasses.contains(token.tokenClass) {
                     result.candidates[slot].isProtected = true
-                case .polarity:
-                    result.candidates[slot].hasPolarity = true
-                case .word:
-                    break
                 }
+                if token.tokenClass == .polarity { result.candidates[slot].hasPolarity = true }
                 if token.isProtectedTerm { result.candidates[slot].isProtected = true }
-                if token.tokenClass == .negation { result.candidates[slot].hasNegation = true }
+                if options.policy.clauseFreezingTokenClasses.contains(token.tokenClass) {
+                    result.candidates[slot].freezesClause = true
+                }
             }
         }
         return result

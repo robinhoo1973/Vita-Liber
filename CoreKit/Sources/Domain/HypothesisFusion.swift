@@ -9,8 +9,9 @@ import Foundation
 /// **只选不生成**：输出中每个不同于主轨的片段都是某个副轨的原样词元；在主轨原字符串上按
 /// UTF-16 区间就地替换，分隔符/标点逐字节保留（round3 §3.3：重新拼接曾把「120 80」写成「12080」）。
 ///
-/// **医疗红线**：数字/单位/否定词/临床极性词/调用方受保护词条（药名）与否定辖域内的列一律不自动改，只标
-/// 「待核」并附候选（BR-003 未确认数据不作事实、BR-006 不得翻转否定/数值语义）。融合不等于确认：
+/// **保护策略由调用方注入**：数字/单位等受保护词类、调用方词表标出的否定/对立语义词与受保护词条，
+/// 以及冻结子句内的列一律不自动改，只标「待核」并附候选。内核不做领域判断——医疗语义由
+/// `HypothesisFusionPolicy`（Infrastructure 的医疗预设 / App 调用方）提供。融合不等于确认：
 /// 结果仍是 D 级识别草稿，须经人工确认才进 D→C 流程。
 public enum HypothesisFusion {
     /// 融合输出 engineID 的版本段。
@@ -42,9 +43,9 @@ public enum HypothesisFusion {
         guard index.knows(primary.engineID) else { return unchanged(.primaryUncalibrated) }
         guard !others.isEmpty else { return unchanged(.noSecondaries) }
 
-        let lexicon = HypothesisFusionLexicon()
+        let lexicon = HypothesisFusionLexicon(policy: options.policy)
         lexicon.prefetchPinyin(([primary] + others).map(\.text))
-        let terms = lexicon.termKeySequences(options.protectedTerms)
+        let terms = lexicon.termKeySequences(options.policy.protectedTerms + options.protectedTerms)
         let primaryTokens = lexicon.tokens(for: primary, protectedTerms: terms)
         // 没有任何词元的副轨（空文本/只有标点 ≈ 引擎失败）整体弃权：否则其 ∅ 票会投向删除主轨内容。
         let voters = others.map { (hypothesis: $0, tokens: lexicon.tokens(for: $0, protectedTerms: terms)) }
@@ -115,20 +116,24 @@ public struct HypothesisFusionOptions: Sendable, Equatable {
     public var deletionMargin: Double
     /// 插入所需的最少不同引擎数（下限 2，只能调严：单引擎多出的词元永不插入）。
     public var minimumInsertionEngines: Int
-    /// 调用方受保护词条（药名等）：命中区段不自动改。
+    /// 调用方受保护词条（药名等）：命中区段不自动改（与 `policy.protectedTerms` 合并）。
     public var protectedTerms: [String]
     /// 各引擎可产出的脚本（键 = engineID）；未声明 = 全部脚本。引擎在不能产出的脚本上弃权。
     public var producibleScripts: [String: Set<HypothesisFusionScript>]
+    /// 调用方语言/领域策略（词表、保护类、归一化、源权重）。默认空词表，不假设任何领域。
+    public var policy: HypothesisFusionPolicy
 
     public init(mode: Mode = .reviewOnly, tau: Double = 1.0, deletionMargin: Double = 1.0,
                 minimumInsertionEngines: Int = 2, protectedTerms: [String] = [],
-                producibleScripts: [String: Set<HypothesisFusionScript>] = [:]) {
+                producibleScripts: [String: Set<HypothesisFusionScript>] = [:],
+                policy: HypothesisFusionPolicy = .generic) {
         self.mode = mode
         self.tau = tau
         self.deletionMargin = deletionMargin
         self.minimumInsertionEngines = minimumInsertionEngines
         self.protectedTerms = protectedTerms
         self.producibleScripts = producibleScripts
+        self.policy = policy
     }
 
     var effectiveTau: Double { tau.isNaN ? .infinity : max(0, tau) }
@@ -217,7 +222,7 @@ public struct HypothesisFusionDispute: Sendable, Equatable {
     public enum Reason: String, Sendable, Equatable, Codable {
         /// 列内任一候选（含主轨）为数字/单位/否定词或命中受保护词条。
         case protected
-        /// 列内任一候选（含主轨）为临床极性/方位/时序/剂量动作词（`HypothesisFusionVocabulary.polarity`）。
+        /// 列内任一候选（含主轨）为调用方词表标出的对立语义词（左右/正负/增减等）。
         case polarity
         /// 所在子句（按主轨句读切分）任一列含否定词候选。
         case negationScope
