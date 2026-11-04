@@ -35,6 +35,32 @@ struct OCRPipelineParagraphTests {
         #expect(layout.paragraphs[0].text == result.lines[0])
     }
 
+    @Test func debugTraceFollowsMergedDeliveredLines() async throws {
+        let lines = ["主诉：发热3天，最高39.2℃，伴咳嗽、流涕，服用布洛芬后", "体温可暂退。"]
+        let blocks = [block(lines[0], line: 0, y: 0.10, width: 0.90), block(lines[1], line: 1, y: 0.135, width: 0.20)]
+        let paragraphs = [Paragraph(text: lines.joined(separator: "\n"), bbox: blocks[0].bbox.union(blocks[1].bbox),
+                                    lineIndices: [0, 1])]
+        func traceLine(_ index: Int, _ paddle: String) -> OCRDebugTrace.Line {
+            .init(lineIndex: index, bbox: [0.05, Double(index) / 10, 0.9, 0.03],
+                  visionText: lines[index], paddleText: paddle,
+                  visionConfidence: 0.9, paddleConfidence: 0.8,
+                  cropWidth: 100, cropHeight: 20, recWidth: 96, timesteps: 10, latencyMs: 5)
+        }
+        let trace = OCRDebugTrace(model: "m", modelSHA256: "sha", engine: "e", totalLatencyMs: 10,
+                                  lines: [traceLine(0, "甲"), traceLine(1, "乙")])
+        let recognizer = StubImageTextRecognizer(scripted: .init(
+            lines: lines, confidence: 0.9, layout: PageLayout(blocks: blocks, paragraphs: paragraphs),
+            debugTrace: trace))
+        let result = try await OCRPipeline(recognizer: recognizer, grayscaleDecoder: Decoder()).run(imageData: Data([1]))
+        #expect(result.lines.count == 1)
+        let remapped = try #require(result.debugTrace?.lines)
+        #expect(remapped.count == 1)
+        #expect(remapped[0].lineIndex == 0)
+        #expect(remapped[0].visionText == result.lines[0])
+        #expect(remapped[0].paddleText == "甲乙")
+        #expect(remapped[0].timesteps == 20)
+    }
+
     @Test func derivesParagraphsGeometricallyWhenVisionGivesNone() async throws {
         let lines = ["现病史：患儿3天前受凉后出现发热，无抽搐，精神尚可，食欲", "减退，大小便正常。", "诊断：急性上呼吸道感染"]
         let blocks = [block(lines[0], line: 0, y: 0.10, width: 0.90), block(lines[1], line: 1, y: 0.135, width: 0.30),

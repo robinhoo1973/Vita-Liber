@@ -61,7 +61,7 @@ public struct OCRPipeline: Sendable {
             let normalized = normalizeAndMerge(recognition)
             return Result(lines: normalized.lines, hasText: !normalized.lines.isEmpty,
                           qualityTags: tags, confidence: recognition.confidence,
-                          layout: normalized.layout, debugTrace: recognition.debugTrace)
+                          layout: normalized.layout, debugTrace: normalized.debugTrace)
         } catch is CancellationError {
             // 审查修复（取消透明性）：用户取消 ≠ 引擎崩溃——旧实现吞掉
             // CancellationError 并落 failed=true（FR6.6 引擎失败 UI），
@@ -79,7 +79,7 @@ public struct OCRPipeline: Sendable {
     /// （iOS 26 段落 ∥ `ParagraphBuilder` 几何派生）、表格块不合；无几何 → 纯文本归并。
     /// ③ 版面重映射：块 bbox 并集/置信均值、表格格与段落 `lineIndices` 按旧→新行号重写。
     private func normalizeAndMerge(_ recognition: ImageInputRules.Recognition)
-        -> (lines: [String], layout: PageLayout?) {
+        -> (lines: [String], layout: PageLayout?, debugTrace: OCRDebugTrace?) {
         var lines: [String] = []
         var flattened = false
         for line in recognition.lines {
@@ -89,17 +89,76 @@ public struct OCRPipeline: Sendable {
         }
         // 几何可用 = 未展平 ∧ 块数与行数一致（展平后块/行错位，几何不可信 → fail-closed 退纯文本）
         guard !flattened, let layout = recognition.layout, layout.blocks.count == lines.count else {
-            let degraded = flattened ? PageLayout.linesOnly(lines) : recognition.layout
+            let degraded = flattened || recognition.layout != nil ? PageLayout.linesOnly(lines) : recognition.layout
             let merged = TextLineMerger.merge(lines)
-            guard merged.count != lines.count else { return (lines, degraded) }
-            return (merged.map(\.text), rebuildBlocks(merged: merged, original: degraded))
+            // 展平后 trace 的 lineIndex 对应原始 Vision 观察，已与交付行错位；不能原样透传。
+            guard !flattened else {
+                return (merged.map(\.text), rebuildBlocks(merged: merged, original: degraded), nil)
+            }
+            guard merged.count != lines.count else { return (lines, degraded, recognition.debugTrace) }
+            return (merged.map(\.text), rebuildBlocks(merged: merged, original: degraded),
+                    remapTrace(recognition.debugTrace, merged: merged))
         }
         let tableLines = layout.tableLineIndices   // 单源 PageLayout.tableLineIndices（round4 P-3）
         let paragraphs = Self.effectiveParagraphs(for: layout, excluding: tableLines)
         let merged = TextLineMerger.merge(blocks: layout.blocks, paragraphs: paragraphs, tableLineIndices: tableLines)
         let withParagraphs = PageLayout(blocks: layout.blocks, tables: layout.tables, paragraphs: paragraphs)
-        guard merged.count != lines.count else { return (lines, withParagraphs) }
-        return (merged.map(\.text), rebuildLayout(merged: merged, original: withParagraphs))
+        guard merged.count != lines.count else { return (lines, withParagraphs, recognition.debugTrace) }
+        return (merged.map(\.text), rebuildLayout(merged: merged, original: withParagraphs),
+                remapTrace(recognition.debugTrace, merged: merged))
+    }
+
+    /// 调试轨迹跟随交付行重映射（2026-11-04）：归并后 `lineIndex` 必须指向交付行数组，
+    /// `visionText` 必须等于交付文本；Paddle 侧把被合并各行的原文按同一拼接规则合并，
+    /// 否则调参数据会把「未归并原文」误当成生产交付文本。
+    private func remapTrace(_ trace: OCRDebugTrace?, merged: [TextLineMerger.MergedLine]) -> OCRDebugTrace? {
+        guard let trace else { return nil }
+        var byIndex: [Int: OCRDebugTrace.Line] = [:]
+        for line in trace.lines where line.lineIndex >= 0 { byIndex[line.lineIndex] = line }
+        let notes = trace.lines.filter { $0.lineIndex < 0 }
+        var lines: [OCRDebugTrace.Line] = []
+        for (newIndex, group) in merged.enumerated() {
+            let sources = group.sourceIndices.compactMap { byIndex[$0] }
+            guard !sources.isEmpty else {
+                lines.append(.init(lineIndex: newIndex, bbox: [], visionText: group.text, paddleText: "",
+                                   visionConfidence: 0, paddleConfidence: 0, cropWidth: 0, cropHeight: 0,
+                                   recWidth: 0, timesteps: 0, latencyMs: 0, error: "no-source-trace"))
+                continue
+            }
+            let bbox = Self.unionBBox(sources.map(\.bbox))
+            let paddleTexts = sources.map(\.paddleText).filter { !$0.isEmpty }
+            let paddleSet = sources.filter { !$0.paddleText.isEmpty }
+            let errors = sources.compactMap(\.error)
+            lines.append(.init(
+                lineIndex: newIndex, bbox: bbox, visionText: group.text,
+                paddleText: TranscriptJoiner.join(paddleTexts),
+                visionConfidence: sources.map(\.visionConfidence).reduce(0, +) / Double(sources.count),
+                paddleConfidence: paddleSet.isEmpty ? 0
+                    : paddleSet.map(\.paddleConfidence).reduce(0, +) / Double(paddleSet.count),
+                cropWidth: sources.map(\.cropWidth).reduce(0, +),
+                cropHeight: sources.map(\.cropHeight).reduce(0, +),
+                recWidth: sources.map(\.recWidth).reduce(0, +),
+                timesteps: sources.map(\.timesteps).reduce(0, +),
+                latencyMs: sources.map(\.latencyMs).reduce(0, +),
+                error: errors.isEmpty ? nil : errors.joined(separator: "; ")))
+        }
+        return OCRDebugTrace(pageIndex: trace.pageIndex, model: trace.model, modelSHA256: trace.modelSHA256,
+                             engine: trace.engine, totalLatencyMs: trace.totalLatencyMs,
+                             lines: notes + lines)
+    }
+
+    private static func unionBBox(_ boxes: [[Double]]) -> [Double] {
+        let rects = boxes.compactMap { values -> (Double, Double, Double, Double)? in
+            guard values.count == 4 else { return nil }
+            return (values[0], values[1], values[0] + values[2], values[1] + values[3])
+        }
+        guard let first = rects.first else { return [] }
+        var (minX, minY, maxX, maxY) = first
+        for rect in rects.dropFirst() {
+            minX = min(minX, rect.0); minY = min(minY, rect.1)
+            maxX = max(maxX, rect.2); maxY = max(maxY, rect.3)
+        }
+        return [minX, minY, maxX - minX, maxY - minY]
     }
 
     /// iOS 26 段落 ∥ ParagraphBuilder 几何派生。
