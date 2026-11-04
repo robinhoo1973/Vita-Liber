@@ -112,7 +112,7 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
         //    已 settle 的死引擎，麦克风不关；
         // ③ 回落档必须 ≠ 失败档（delegate 按 choice 缓存，同档重试必再抛）。
         // 结果 engineID 由回落引擎自设（诚实性：不冒充所选档）。
-        var current = choice
+        var current = choice, tried: Set<String> = [choice.rawValue]
         while true {
             try Task.checkCancellation()
             let engine = delegate(for: current)
@@ -141,7 +141,7 @@ actor SwitchableTranscriptionEngine: TranscriptionCaptureReporting, Transcribing
                     return .init(text: "", confidence: 0, resolvedLocale: request.localeIdentifier, segmented: false)
                 }
                 guard let next = fallbackResolver(current, request.localeIdentifier),
-                      next != current else { throw error }
+                      next != current, tried.insert(next.rawValue).inserted else { throw error }
                 Self.recordFallback(from: current, to: next)
                 current = next
             }
