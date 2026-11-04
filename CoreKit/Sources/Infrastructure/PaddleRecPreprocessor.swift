@@ -98,21 +98,11 @@ public enum PaddleRecPreprocessor {
                         cropWidth: Double(cropped.width), cropHeight: Double(cropped.height))
     }
 
-    /// 用缩略图 API 应用 EXIF 方向；maxPixelSize 取原图长边，不主动放大。
+    /// 原样解码，**不应用 EXIF 旋转**：生产 Vision 走 `VNImageRequestHandler(data:)`
+    /// （orientation 缺省 `.up`），行框是未旋转原始像素坐标；影子机若先旋转再按同一归一化
+    /// 行框裁剪，手机竖拍照片会裁到错误区域却仍记录高概率文本。两端必须共用同一坐标系。
     private static func orientedImage(source: CGImageSource) -> CGImage? {
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.doubleValue,
-              let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.doubleValue else {
-            return CGImageSourceCreateImageAtIndex(source, 0, nil)
-        }
-        let maxPixel = max(width, height)
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-            ?? CGImageSourceCreateImageAtIndex(source, 0, nil)
+        CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 }
 #endif
