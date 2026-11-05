@@ -262,6 +262,13 @@ public actor ASRModelDownloadService {
         }
     }
 
+    /// 下载/解压所需剩余空间的单一口径（安装前检查与「启动推荐」前置过滤共用）：
+    /// 下载包按两倍 `bytes` 预留（临时 zip + 系统解压流），加展开体积与固定余量。
+    public nonisolated static func hasSpaceForDownload(_ release: ASRModelRelease,
+                                                       freeBytes: Int64) -> Bool {
+        freeBytes >= 2 * (release.bytes ?? 0) + (release.expandedBytes ?? 0) + 268_435_456
+    }
+
     /// 是否存在可更新版本（已装版本由 active.json 记录）。
     /// 未安装时不视为「可更新」——新装走独立的下载按钮分支（否则新装
     /// 恒显示「更新到 X」且下载按钮/失败提示分支永远不可达）。
@@ -488,7 +495,7 @@ public actor ASRModelDownloadService {
         var values = URLResourceValues(); values.isExcludedFromBackup = true
         try excludedRoot.setResourceValues(values)
         let free = try staging.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage
-        if let free, free < 2 * (release.bytes ?? 0) + expanded + 268_435_456 { throw Failure.installFailed }
+        if let free, !Self.hasSpaceForDownload(release, freeBytes: free) { throw Failure.installFailed }
 
         let zipURL = staging.appendingPathComponent("package.zip")
         onPhase?(.downloading)

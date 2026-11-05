@@ -18,6 +18,7 @@ struct AppRootView: View {
     @Environment(F16DeviceState.self) private var deviceState
     @Environment(DocumentExportState.self) private var exportState
     @Environment(ASRInstallCenter.self) private var installCenter
+    @Environment(DownloadNetworkGate.self) private var networkGate
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var systemDynamicType
 
@@ -44,6 +45,8 @@ struct AppRootView: View {
     @State private var previousPhase: ScenePhase = .active
     /// 2026-11-05 业主：启动按硬件推荐 ASR 模型；只有用户点「下载模型」才联网。
     @State private var asrStartupOffer: ASRStartupOffer?
+    /// 启动推荐点击下载时的网络/线路拦截说明（与设置页 `downloadsAllowed()` 同策略）。
+    @State private var networkBlockedShown = false
     @AppStorage("asrStartupOfferDeferredUntil") private var asrOfferDeferredUntil: Double = 0
 
     var body: some View {
@@ -105,20 +108,47 @@ struct AppRootView: View {
             // privacySensitive 让系统在非 active 相位对快照做隐私遮罩（redact），
             // 与宽限锁独立：不改变宽限锁的正式锁定时刻，只遮快照。
             .privacySensitive(scenePhase != .active)
-            .alert(L10n.asrStartupOfferTitle,
-                   isPresented: Binding(get: { asrStartupOffer != nil },
-                                        set: { if !$0 { asrStartupOffer = nil } }),
-                   presenting: asrStartupOffer) { offer in
-                Button(L10n.asrModelDownload) {
-                    installCenter.start(offer.release, baseURL: offer.baseURL)
-                    asrStartupOffer = nil
+            // 同一视图链只能挂一个 `.alert`（SwiftUI 只呈现最后一个）；启动推荐与
+            // 时区变更共用本 presenter，否则推荐卡永远被时区 alert 遮蔽。
+            .alert(rootAlertTitle,
+                   isPresented: Binding(
+                    get: { asrStartupOffer != nil || timezoneChanged || networkBlockedShown },
+                    set: { presented in
+                        if !presented {
+                            asrStartupOffer = nil; timezoneChanged = false; networkBlockedShown = false
+                        }
+                    })) {
+                if networkBlockedShown {
+                    if networkGate.blockReason()?.suggestsSystemSettings == true {
+                        Button(L10n.helpPermOpenSettings) { SystemLinks.openSettings() }
+                    }
+                    Button(L10n.onboard_gotIt, role: .cancel) { networkBlockedShown = false }
+                } else if let offer = asrStartupOffer {
+                    Button(L10n.asrModelDownload) {
+                        // 与设置页下载同一网络/线路门：wifiOnly 策略或离线不得静默走蜂窝。
+                        if networkGate.blockReason() != nil {
+                            asrStartupOffer = nil
+                            networkBlockedShown = true
+                        } else {
+                            installCenter.start(offer.release, baseURL: offer.baseURL)
+                            asrStartupOffer = nil
+                        }
+                    }
+                    Button(L10n.asrStartupOfferLater, role: .cancel) {
+                        asrOfferDeferredUntil = Date().addingTimeInterval(7 * 24 * 60 * 60).timeIntervalSince1970
+                        asrStartupOffer = nil
+                    }
+                } else {
+                    Button(L10n.onboard_gotIt, role: .cancel) { timezoneChanged = false }
                 }
-                Button(L10n.asrStartupOfferLater, role: .cancel) {
-                    asrOfferDeferredUntil = Date().addingTimeInterval(7 * 24 * 60 * 60).timeIntervalSince1970
-                    asrStartupOffer = nil
+            } message: {
+                if networkBlockedShown {
+                    Text(L10n.downloadNetworkBlockedBody)
+                } else if let offer = asrStartupOffer {
+                    Text(L10n.asrStartupOfferMessage(name: offer.displayName, size: offer.sizeText))
+                } else {
+                    Text(L10n.timezoneChangedBody)
                 }
-            } message: { offer in
-                Text(L10n.asrStartupOfferMessage(name: offer.displayName, size: offer.sizeText))
             }
             // FR14.4 主题注入（tech-spec §5.28.1）：nil = 跟随系统；@Observable 读值即时生效
             .preferredColorScheme(currentTheme.colorScheme)
@@ -178,11 +208,6 @@ struct AppRootView: View {
                     // FR9.6 第 3 层：时区变化即时对账不得被 500ms 去抖吞掉（force）
                     await reminderStore.refreshTriggered(patientId: appState.currentPatientId, force: true)
                 }
-            }
-            .alert(L10n.timezoneChangedTitle, isPresented: $timezoneChanged) {
-                Button(L10n.onboard_gotIt, role: .cancel) {}
-            } message: {
-                Text(L10n.timezoneChangedBody)
             }
             .onChangeCompat(of: scenePhase) { _, phase in
                 handlePhaseChange(phase)
@@ -249,16 +274,32 @@ struct AppRootView: View {
         }
         // 启动推荐（2026-11-05 业主）：auto 档且本机无可加载外部主轨时，按硬件推荐
         // 一个已发布模型；只弹确认，用户点「下载模型」才联网。7 天内点「稍后」不再打扰。
+        // 独立后台 Task：探针含目录/资产磁盘扫描，不得拖住启动链完成标记
+        // （门禁生物验证要等 `markStartupWorkFinished`）。
+        // 与设置页同一解析口径：非法/备份注入值按 default 处理，不能拿字面量比 "false"。
         if appState.onboardingFinished,
+           SettingsRules.resolved(settingsStore.values[.voiceEntryVisible],
+                                  key: .voiceEntryVisible) == "true",
+           SettingsRules.resolved(settingsStore.values[.authVoiceDictation],
+                                  key: .authVoiceDictation) == "true",
            Date().timeIntervalSince1970 >= asrOfferDeferredUntil {
-            let engineRaw = settingsStore.values[.voiceEngine]
-            let languagesRaw = settingsStore.values[.voiceInputLanguages]
-            let offer = await Task.detached(priority: .utility) {
-                ASRStartupOfferProbe.recommendation(engineRaw: engineRaw,
-                                                    languagesRaw: languagesRaw)
-            }.value
-            if let offer, appState.onboardingFinished, asrStartupOffer == nil {
-                asrStartupOffer = offer
+            Task(priority: .utility) { @MainActor in
+                let engineRaw = settingsStore.values[.voiceEngine]
+                let languagesRaw = settingsStore.values[.voiceInputLanguages]
+                let mixedRaw = settingsStore.values[.voiceMixedInput]
+                let offer = await Task.detached(priority: .utility) {
+                    ASRStartupOfferProbe.recommend(engineRaw: engineRaw,
+                                                   languagesRaw: languagesRaw,
+                                                   mixedRaw: mixedRaw)
+                }.value
+                // 探针期间用户可能已关闭语音入口/语音听写：offer 不得再弹。
+                if let offer, appState.onboardingFinished, asrStartupOffer == nil,
+                   SettingsRules.resolved(settingsStore.values[.voiceEntryVisible],
+                                          key: .voiceEntryVisible) == "true",
+                   SettingsRules.resolved(settingsStore.values[.authVoiceDictation],
+                                          key: .authVoiceDictation) == "true" {
+                    asrStartupOffer = offer
+                }
             }
         }
     }
@@ -406,6 +447,12 @@ struct AppRootView: View {
     private var currentTheme: AppTheme {
         AppTheme(rawValue: settingsStore.values[.appearance]
                  ?? AppSettingKey.appearance.defaultValue) ?? .system
+    }
+
+    /// 根级唯一 alert 的标题：网络拦截 > 启动推荐（只出现一次）> 时区变更。
+    private var rootAlertTitle: String {
+        if networkBlockedShown { return L10n.downloadNetworkBlockedTitle }
+        return asrStartupOffer == nil ? L10n.timezoneChangedTitle : L10n.asrStartupOfferTitle
     }
 
     /// FR14.5 当前显示语言：body 顶层读值注册 @Observable 观察，
