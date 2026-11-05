@@ -119,13 +119,13 @@ struct AppleSecondaryTranscriptionEngineTests {
         let engine = AppleSecondaryTranscriptionEngine(primary: primary, apples: apples,
                                                        appleDeadlineSeconds: 0.05)
 
-        let started = Date()
         let result = try await engine.transcribe(Self.request, onPartial: nil)
-        let elapsed = Date().timeIntervalSince(started)
 
         #expect(result.text == "primary")
         #expect(result.hypotheses.map(\.engineID) == ["qwen3"])
-        #expect(elapsed < 0.8)
+        // 不认壁钟上界（ci-lessons 抖动族）：断言截止真的取消了各副源。
+        let cancelled = await apples.cancelledCalls()
+        #expect(cancelled.count == 2)
     }
 
     @Test func failedAppleSourceDoesNotAffectPrimaryDelivery() async throws {
@@ -217,6 +217,7 @@ private actor FakeApple: ASRAppleSourceRunning {
     private var facts: ASRAppleSourceAvailabilityFacts
     private var callsStorage: [ASRAppleSource] = []
     private var authorizationRequestCount = 0
+    private var cancelledStorage: [ASRAppleSource] = []
     private let failAll: Bool
     private let delaySeconds: Double
 
@@ -243,7 +244,10 @@ private actor FakeApple: ASRAppleSourceRunning {
         callsStorage.append(source)
         if delaySeconds > 0 {
             try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))   // try?-ok: 超时测试
-            if Task.isCancelled { return .failed(source, reason: "cancelled") }
+            if Task.isCancelled {
+                cancelledStorage.append(source)
+                return .failed(source, reason: "cancelled")
+            }
         }
         if failAll {
             return .failed(source, reason: "test-failure")
@@ -256,5 +260,6 @@ private actor FakeApple: ASRAppleSourceRunning {
     }
 
     func calls() -> [ASRAppleSource] { callsStorage }
+    func cancelledCalls() -> [ASRAppleSource] { cancelledStorage }
     func authorizationRequests() -> Int { authorizationRequestCount }
 }

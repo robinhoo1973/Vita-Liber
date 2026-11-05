@@ -31,7 +31,11 @@ public actor AppleSecondaryTranscriptionEngine: TranscriptionEngine,
                 appleDeadlineSeconds: Double = 3) {
         self.primary = primary
         self.apples = apples
-        self.appleDeadlineSeconds = max(0.01, appleDeadlineSeconds)
+        // 非有限值（±inf/NaN）或超大值会让超时任务的 `UInt64(deadline * 1e9)` 在运行时
+        // 陷入；上限收口到 1 小时（远超任何合法副源预算），默认 3s。
+        self.appleDeadlineSeconds = appleDeadlineSeconds.isFinite
+            ? min(max(0.01, appleDeadlineSeconds), 3600)
+            : 3
         _ = Self.purgeOnce
     }
 
@@ -133,7 +137,13 @@ public actor AppleSecondaryTranscriptionEngine: TranscriptionEngine,
             try? await Task.sleep(nanoseconds: UInt64(deadline * 1_000_000_000))   // try?-ok: 超时取消副源
             appleTask.cancel()
         }
-        let outcomes = await appleTask.value
+        // 调用方取消（切页/销毁/新按压）必须立刻传到副源：`await appleTask.value`
+        // 不会因父任务取消而结束，无 handler 时 Apple 识别与临时录音最长拖到超时/单源 90s。
+        let outcomes = await withTaskCancellationHandler {
+            await appleTask.value
+        } onCancel: {
+            appleTask.cancel()
+        }
         timeoutTask.cancel()
         guard !Task.isCancelled else { return result }
 
