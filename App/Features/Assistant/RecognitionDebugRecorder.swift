@@ -74,6 +74,13 @@ enum RecognitionDebugRecorder {
 
         var hypotheses = productionHypotheses(context)
         for locale in appleReplayLocales {
+            // 生产编排已在采集后跑过 Apple 副源（2026-11-05）：同一 locale 的文本假设
+            // 已在 result.hypotheses 里，不再文件重放一遍；否则同一引擎出现两份假设。
+            if hypotheses.contains(where: {
+                baseEngineID($0.engineID) == AppleSpeechFileTranscriber.engineID(locale: locale)
+            }) {
+                continue
+            }
             if let duplicate = duplicateReason(locale: locale, production: hypotheses) {
                 hypotheses.append(.init(engineID: AppleSpeechFileTranscriber.engineID(locale: locale),
                                         sourceGroup: "apple-speech", role: .secondary, status: .skipped,
