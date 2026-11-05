@@ -69,6 +69,40 @@ public enum CTCDecoder {
         return output
     }
 
+    /// 直接对 logits 做 CTC argmax 解码，不做 softmax 归一。
+    ///
+    /// 第三源只需要文本，不需要置信度；对每帧 6683 类做 exp/softmax 会为每行
+    /// 多分配一份 [T,C] 数组并做数万次 exp，纯属浪费。argmax 与 softmax 后
+    /// 的 argmax 完全等价，故文本一致；`confidence` 置 0（未校准）。
+    public static func decodeArgmax(logits: [Float], timesteps: Int, classes: Int,
+                                    vocabulary: [String], blankIndex: Int = 0) -> Output {
+        guard isValid(probabilitiesCount: logits.count, timesteps: timesteps,
+                      classes: classes, vocabularyCount: vocabulary.count,
+                      blankIndex: blankIndex) else {
+            return Output(text: "", confidence: 0, emittedCharacters: 0)
+        }
+        var text = ""
+        var emitted = 0
+        var previousIndex = -1
+        for t in 0..<timesteps {
+            let offset = t * classes
+            var bestIndex = 0
+            var bestValue = logits[offset]
+            if classes > 1 {
+                for c in 1..<classes where logits[offset + c] > bestValue {
+                    bestValue = logits[offset + c]
+                    bestIndex = c
+                }
+            }
+            let collapsed = bestIndex == previousIndex
+            previousIndex = bestIndex
+            guard !collapsed, bestIndex != blankIndex else { continue }
+            text += vocabulary[bestIndex]
+            emitted += 1
+        }
+        return Output(text: text, confidence: 0, emittedCharacters: emitted)
+    }
+
     public static func decode(probabilities: [Float], timesteps: Int, classes: Int,
                               vocabulary: [String], blankIndex: Int = 0) -> Output {
         guard isValid(probabilitiesCount: probabilities.count, timesteps: timesteps,
