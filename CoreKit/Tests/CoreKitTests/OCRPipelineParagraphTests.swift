@@ -43,10 +43,14 @@ struct OCRPipelineParagraphTests {
         func traceLine(_ index: Int, _ paddle: String) -> OCRDebugTrace.Line {
             .init(lineIndex: index, bbox: [0.05, Double(index) / 10, 0.9, 0.03],
                   visionText: lines[index], paddleText: paddle,
+                  rawPaddleText: "原" + paddle, cnocrText: "识" + paddle,
                   visionConfidence: 0.9, paddleConfidence: 0.8,
                   cropWidth: 100, cropHeight: 20, recWidth: 96, timesteps: 10, latencyMs: 5)
         }
-        let trace = OCRDebugTrace(model: "m", modelSHA256: "sha", engine: "e", totalLatencyMs: 10,
+        let trace = OCRDebugTrace(model: "m", modelSHA256: "sha",
+                                  thirdModel: "CnOCR-doc-densenet_lite_136-gru@2.3",
+                                  thirdModelSHA256: "thirdsha",
+                                  engine: "e", totalLatencyMs: 10,
                                   lines: [traceLine(0, "甲"), traceLine(1, "乙")])
         let recognizer = StubImageTextRecognizer(scripted: .init(
             lines: lines, confidence: 0.9, layout: PageLayout(blocks: blocks, paragraphs: paragraphs),
@@ -58,6 +62,11 @@ struct OCRPipelineParagraphTests {
         #expect(remapped[0].lineIndex == 0)
         #expect(remapped[0].visionText == result.lines[0])
         #expect(remapped[0].paddleText == "甲乙")
+        // schema v3：归并后原文与第三源证据不得丢失（回归：remapTrace 曾按旧参数重建）。
+        #expect(remapped[0].rawPaddleText == "原甲原乙")
+        #expect(remapped[0].cnocrText == "识甲识乙")
+        #expect(result.debugTrace?.thirdModel == "CnOCR-doc-densenet_lite_136-gru@2.3")
+        #expect(result.debugTrace?.thirdModelSHA256 == "thirdsha")
         #expect(remapped[0].timesteps == 20)
     }
 

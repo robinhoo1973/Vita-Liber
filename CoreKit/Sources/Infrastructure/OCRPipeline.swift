@@ -109,9 +109,11 @@ public struct OCRPipeline: Sendable {
     }
 
     /// 调试轨迹跟随交付行重映射（2026-11-04）：归并后 `lineIndex` 必须指向交付行数组；
-    /// `visionText` / `paddleText` 分别保留**各自引擎原文**并按同一拼接规则合并。
-    /// 交付文本由 App 采集层从实际页面行传入，不能从 `visionText` 反推（Paddle 主轨后
-    /// 它不再是 Vision 文本，旧契约会让调试 JSON 把副轨原文当成交付基线）。
+    /// `visionText` / `rawPaddleText` / `cnocrText` 分别保留**各自引擎原文**并按同一拼接
+    /// 规则合并（`paddleText` 为共识后的交付文本，不能当原文）。页面级 schema v3 身份
+    /// （`thirdModel`/`thirdModelSHA256`）必须原样透传：旧实现重建 trace 时丢字段，归并页
+    /// 的调试 JSON 会退化成「只有 Paddle 一个假设」。交付文本由 App 采集层从实际页面行
+    /// 传入，不能从 `visionText` 反推（Paddle 主轨后它不再是 Vision 文本）。
     private func remapTrace(_ trace: OCRDebugTrace?, merged: [TextLineMerger.MergedLine]) -> OCRDebugTrace? {
         guard let trace else { return nil }
         var byIndex: [Int: OCRDebugTrace.Line] = [:]
@@ -128,12 +130,16 @@ public struct OCRPipeline: Sendable {
             }
             let bbox = Self.unionBBox(sources.map(\.bbox))
             let visionTexts = sources.map(\.visionText).filter { !$0.isEmpty }
+            let rawPaddleTexts = sources.compactMap(\.rawPaddleText).filter { !$0.isEmpty }
+            let cnocrTexts = sources.compactMap(\.cnocrText).filter { !$0.isEmpty }
             let paddleTexts = sources.map(\.paddleText).filter { !$0.isEmpty }
             let paddleSet = sources.filter { !$0.paddleText.isEmpty }
             let errors = sources.compactMap(\.error)
             lines.append(.init(
                 lineIndex: newIndex, bbox: bbox, visionText: TranscriptJoiner.join(visionTexts),
                 paddleText: TranscriptJoiner.join(paddleTexts),
+                rawPaddleText: rawPaddleTexts.isEmpty ? nil : TranscriptJoiner.join(rawPaddleTexts),
+                cnocrText: cnocrTexts.isEmpty ? nil : TranscriptJoiner.join(cnocrTexts),
                 visionConfidence: sources.map(\.visionConfidence).reduce(0, +) / Double(sources.count),
                 paddleConfidence: paddleSet.isEmpty ? 0
                     : paddleSet.map(\.paddleConfidence).reduce(0, +) / Double(paddleSet.count),
@@ -146,6 +152,7 @@ public struct OCRPipeline: Sendable {
         }
         return OCRDebugTrace(pageIndex: trace.pageIndex, model: trace.model, modelSHA256: trace.modelSHA256,
                              detModel: trace.detModel, detModelSHA256: trace.detModelSHA256,
+                             thirdModel: trace.thirdModel, thirdModelSHA256: trace.thirdModelSHA256,
                              engine: trace.engine, totalLatencyMs: trace.totalLatencyMs,
                              lines: notes + lines)
     }

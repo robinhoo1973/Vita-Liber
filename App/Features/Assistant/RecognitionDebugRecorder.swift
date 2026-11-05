@@ -237,6 +237,9 @@ enum RecognitionDebugRecorder {
             }
             return "page\(trace.pageIndex):\(trace.engine):\(identity)"
         }.joined(separator: ";")
+        // 第三源缺件/加载失败时不得声称 CnOCR 参与共识（fail-closed 是正常降级，
+        // 但采集元数据必须与真实运行面一致，否则回传数据无法复盘第三源效果）。
+        let thirdVote = traces.contains { $0.thirdModel != nil }
         let input = RecognitionDebugCapture.Input(
             captureID: captureID.uuidString, modality: .ocr,
             createdAt: RecognitionDebugCapture.isoTimestamp(now),
@@ -249,7 +252,9 @@ enum RecognitionDebugRecorder {
                 "primaryModel": traces.first.map { "\($0.model) sha256=\($0.modelSHA256)" } ?? "",
                 "pageModels": pageModels,
                 // Paddle 主轨 + Vision/CnOCR 双副源共识：仅两副源同键且非受保护类时替换。
-                "deliveredBy": "paddle-ppocrv6-rec; Vision layout/fallback; CnOCR third vote (Vision+CnOCR must agree)",
+                "deliveredBy": thirdVote
+                    ? "paddle-ppocrv6-rec; Vision layout/fallback; CnOCR third vote (Vision+CnOCR must agree)"
+                    : "paddle-ppocrv6-rec (Vision supplies layout; lines without Paddle text keep Vision)",
                 "paddleNotes": paddleNotes.joined(separator: ";"),
             ],
             deliveredText: delivered.joined(separator: "\n"), segments: segments)

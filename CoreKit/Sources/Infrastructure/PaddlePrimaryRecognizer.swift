@@ -42,12 +42,11 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var recWidth: Int
         var timesteps: Int
         var latencyMs: Double
-        /// 选择器之前的 Paddle 原文（调试 JSON 用；交付文本见 `selectedText`）。
+        /// 选择器之前的 Paddle 原文（调试 JSON 用；共识后的交付文本见合并结果的
+        /// `blockPaddleText`）。
         var rawText: String = ""
         /// CnOCR 第三源原文；nil = 第三源缺件/该行失败。
         var cnocrText: String?
-        /// 共识选择后的交付文本。
-        var selectedText: String = ""
     }
 
     /// 第三识别源（CnOCR）运行态。缺件/加载失败只关闭第三票，不影响 Paddle/Vision。
@@ -89,8 +88,6 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         }
 
         let runtime = await recRuntime()
-        // 第三源与主轨独立加载：CnOCR 缺件/失败只少一票，不关闭 Paddle/Vision。
-        let thirdRuntime = await self.thirdRuntime()
         var detection: PaddleTextDetector.Detection?
         var fallbackNote: String?
         if runtime != nil {
@@ -104,7 +101,11 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var stats: [String: RecStat] = [:]
         var failedLines = 0
         var recLatencyMs = 0.0
+        // 第三源与主轨独立加载：只有确实有行要识别时才载入 12.5 MB 模型（含 SHA-256
+        // 校验）；CnOCR 缺件/失败只少一票，不关闭 Paddle/Vision。
+        var thirdRuntime: ThirdRuntime?
         if let detection, let runtime, !detection.boxes.isEmpty {
+            thirdRuntime = await self.thirdRuntime()
             for box in detection.boxes {
                 try Task.checkCancellation()
                 let rect = LayoutRect(x: box.x, y: box.y, width: box.width, height: box.height)
@@ -130,6 +131,10 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                         classes: output.classes, vocabulary: runtime.vocabulary,
                         blankIndex: runtime.asset.blankIndex)
                     guard !decoded.text.isEmpty else { continue }
+                    // 逐行 latency 归因到 Paddle rec：必须在第三源之前截断，否则调试 JSON
+                    // 把整段 CnOCR 耗时记到 Paddle 头上（调参时 Paddle 被虚增、第三源显示为 0）。
+                    // 页面级 `recLatencyMs` 仍按循环全量累计（含 CnOCR），保持总耗时口径。
+                    let paddleLatencyMs = Date().timeIntervalSince(started) * 1000
                     // 第三票：同一 det 行框跑 CnOCR；失败只记 nil，不影响 Paddle 交付。
                     var thirdText: String?
                     if let thirdRuntime,
@@ -143,25 +148,16 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                                 height: thirdRuntime.asset.height,
                                 width: thirdPrepared.width,
                                 length: thirdPrepared.width)
-                            if let probabilities = CTCDecoder.softmax(
+                            // 只解码文本：第三源置信度不参与交付；直接 argmax，
+                            // 避免每行多分配一份 softmax 概率矩阵。
+                            let thirdDecoded = CTCDecoder.decodeArgmax(
                                 logits: thirdOutput.probabilities,
                                 timesteps: thirdOutput.timesteps,
-                                classes: thirdOutput.classes) {
-                                try CTCDecoder.validate(
-                                    probabilitiesCount: probabilities.count,
-                                    timesteps: thirdOutput.timesteps,
-                                    classes: thirdOutput.classes,
-                                    vocabularyCount: thirdRuntime.vocabulary.count,
-                                    blankIndex: thirdRuntime.asset.blankIndex)
-                                let thirdDecoded = CTCDecoder.decode(
-                                    probabilities: probabilities,
-                                    timesteps: thirdOutput.timesteps,
-                                    classes: thirdOutput.classes,
-                                    vocabulary: thirdRuntime.vocabulary,
-                                    blankIndex: thirdRuntime.asset.blankIndex)
-                                let cleaned = Self.cleanThirdText(thirdDecoded.text)
-                                thirdText = cleaned.isEmpty ? nil : cleaned
-                            }
+                                classes: thirdOutput.classes,
+                                vocabulary: thirdRuntime.vocabulary,
+                                blankIndex: thirdRuntime.asset.blankIndex)
+                            let cleaned = OCRLineConsensus.cleanText(thirdDecoded.text)
+                            thirdText = cleaned.isEmpty ? nil : cleaned
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
@@ -173,9 +169,8 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                     stats[Self.geometryKey(rect)] = RecStat(
                         cropWidth: prepared.cropWidth, cropHeight: prepared.cropHeight,
                         recWidth: prepared.width, timesteps: output.timesteps,
-                        latencyMs: Date().timeIntervalSince(started) * 1000,
-                        rawText: decoded.text, cnocrText: thirdText,
-                        selectedText: decoded.text)
+                        latencyMs: paddleLatencyMs,
+                        rawText: decoded.text, cnocrText: thirdText)
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
@@ -186,7 +181,7 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
 
         // 第三源共识：只有 Vision 与 CnOCR 两条副轨都可用且同键才替换该行词元。
         // 单票（Vision 缺失或 CnOCR 失败）一律不改写，保持 Paddle 原文。
-        Self.applyLineConsensus(&lines, stats: &stats, visionLayout: vision?.layout)
+        Self.applyLineConsensus(&lines, stats: stats, visionLayout: vision?.layout)
 
         // Paddle 没出字：副轨交付（缺件/失败/空页都是可解释的降级，不是识别失败）。
         guard !lines.isEmpty else {
@@ -226,7 +221,7 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
     /// 行级第三源共识。`minimumAgreement` 默认 2：Vision 与 CnOCR 都在场才可能改写；
     /// 受保护类（数字/单位/否定/极性/词表）由选择器统一跳过。置信度仍保留 Paddle 原值。
     private static func applyLineConsensus(_ lines: inout [PaddleLayoutMerge.Line],
-                                           stats: inout [String: RecStat],
+                                           stats: [String: RecStat],
                                            visionLayout: PageLayout?) {
         let visionTexts = PaddleLayoutMerge.visionTextByLine(paddleLines: lines,
                                                              visionLayout: visionLayout)
@@ -234,39 +229,12 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         for index in lines.indices {
             let key = geometryKey(lines[index].bbox)
             guard let cnocr = stats[key]?.cnocrText, !cnocr.isEmpty else { continue }
-            var secondaries: [TranscriptionHypothesis] = []
-            if let vision = visionTexts[index], !vision.isEmpty {
-                secondaries.append(TranscriptionHypothesis(engineID: "apple-vision",
-                                                           localeIdentifier: "zh-Hans-CN",
-                                                           text: vision))
-            }
-            secondaries.append(TranscriptionHypothesis(engineID: "cnocr",
-                                                       localeIdentifier: "zh-Hans-CN",
-                                                       text: cnocr))
-            guard secondaries.count >= TranscriptionConsensusSelector.minimumAgreement else { continue }
-            let primary = TranscriptionHypothesis(engineID: "paddle",
-                                                  localeIdentifier: "zh-Hans-CN",
-                                                  text: lines[index].text)
-            let result = TranscriptionConsensusSelector.select(primary: primary,
-                                                               secondaries: secondaries,
-                                                               policy: policy)
-            guard !result.edits.isEmpty else { continue }
-            lines[index].text = result.text
-            if var stat = stats[key] {
-                stat.selectedText = result.text
-                stats[key] = stat
-            }
+            guard let selected = OCRLineConsensus.select(primary: lines[index].text,
+                                                         vision: visionTexts[index],
+                                                         cnocr: cnocr,
+                                                         policy: policy) else { continue }
+            lines[index].text = selected
         }
-    }
-
-    /// CnOCR 词表里的控制占位：`<space>` 还原为空格，`<unusedN>` 丢弃。
-    private static func cleanThirdText(_ text: String) -> String {
-        var value = text.replacingOccurrences(of: "<space>", with: " ")
-        while let start = value.range(of: "<unused") {
-            guard let end = value[start.lowerBound...].firstIndex(of: ">") else { break }
-            value.removeSubrange(start.lowerBound..<value.index(after: end))
-        }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// 第三源模型/会话惰性加载；失败一次即锁定，绝不重试拖慢每页识别。
@@ -372,7 +340,11 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                              modelSHA256: recModelSHA256 ?? detection.modelSHA256,
                              detModel: detection.model, detModelSHA256: detection.modelSHA256,
                              thirdModel: thirdModel, thirdModelSHA256: thirdModelSHA256,
-                             engine: "PP-OCRv6 det+rec+CnOCR/onnxruntime",
+                             // 第三源缺件/加载失败时不得声称 CnOCR 参与（fail-closed 是
+                             // 正常降级，但身份串必须与真实运行面一致，否则调参数据失真）。
+                             engine: thirdModel == nil
+                                 ? "PP-OCRv6 det+rec/onnxruntime"
+                                 : "PP-OCRv6 det+rec+CnOCR/onnxruntime",
                              totalLatencyMs: totalLatencyMs, lines: lines)
     }
 
