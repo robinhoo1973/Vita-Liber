@@ -95,30 +95,39 @@ public enum TranscriptionEngineBuilder {
     /// FR17.17「资产缺失即回落降级轨、绝不痞痪」）。此处补两级闸门：
     /// ① 随包模型文件齐备才选用；② 缺件时回落平台升级轨（iOS 26 且标准轨可用）——
     /// 平台轨自身在语言资产未装时按会话回落基线轨；③ 均不可用则经典基线轨（零资产恒可用）。
-    public static func automaticChoice(locale: String) -> VoiceEngineChoice {
+    /// 本次按压的完整选择建议（硬件事实 + 已安装资产 + 签名目录）。
+    /// 纯策略本体在 Domain `ASRModelAdvisor`；本函数只做探针取数，无网络、不下载。
+    public static func advice(locale: String,
+                              mode: TranscriptionLanguageMode = .single) -> ASRModelAdvice {
+        advice(locales: [locale], mode: mode)
+    }
+
+    public static func advice(locales: [String],
+                              mode: TranscriptionLanguageMode = .single) -> ASRModelAdvice {
         let index = ASRFamilyIndexStore.routingIndex()
-        let preferred = ASRModelCatalog.automaticChoice(locale: locale, in: index)
-        guard preferred.isBundledModel else { return preferred }
-        guard !ASRModelAssets.resolve(for: preferred).isPresent(preferred) else { return preferred }
-        // 能力表与候选选择同源：已有离线基线不能被缺件 Qwen 遮蔽。
-        // P0-①（2026-10-19 委员会）：回落环同走 canExpress 判据，缺件扫描不复活 R4。
-        for model in ASRModelCatalog.descriptors(from: index) where model.canExpress(locale: locale, mode: .single) {
-            if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
-        }
-        return fallbackForMissingBundledModel()
+        let inputs = ASRAdvisorInputsProbe.capture(index: index)
+        return ASRModelAdvisor.advise(locales: locales, mode: mode,
+                                      hardware: inputs.hardware,
+                                      installed: inputs.installed, index: index)
+    }
+
+    /// 业主裁决 2026-11-04：主轨先按硬件能力过滤（内存档位/可用内存/已安装字节），
+    /// 再按签名目录 families 发布序取首个候选；「已安装」是硬条件——本函数绝不触发下载。
+    /// 无硬件可用候选时保持旧降级语义：目录无可表达模型 → `.classic`；
+    /// 有可表达模型但缺件/硬件不足 → 平台轨回落（`fallbackForMissingBundledModel`）。
+    public static func automaticChoice(locale: String) -> VoiceEngineChoice {
+        let advice = advice(locale: locale)
+        if let primary = advice.primary { return primary.choice }
+        return advice.hasExpressibleCatalogCandidate ? fallbackForMissingBundledModel() : .classic
     }
 
     /// FR17.15（2026-10-05 业主反馈修复批）：混说模式的**多语种过闸**引擎选择——
-    /// 目录多语种选择（覆盖全部已选语种）+ 随包资产 isPresent 闸门。混说关
-    /// （single）或调用方未带附加语种时退回既有单语种路径（行为零变）。
+    /// 覆盖全部已选语种 ∧ 已安装 ∧ 硬件可载；无全量候选时回落主语言单语种路径。
     public static func automaticChoice(locales: [String], mixed: Bool) -> VoiceEngineChoice {
         let primary = locales.first ?? TranscriptionSegmentation.fallbackLocale
         guard mixed else { return automaticChoice(locale: primary) }
-        let index = ASRFamilyIndexStore.routingIndex()
-        // P0-①（2026-10-19 委员会）：混说过闸环同走 canExpress(.mixed)。
-        for model in ASRModelCatalog.descriptors(from: index) where locales.allSatisfy({ model.canExpress(locale: $0, mode: .mixed) }) {
-            if ASRModelAssets.resolve(for: model.choice).isPresent(model.choice) { return model.choice }
-        }
+        let advice = advice(locales: locales, mode: .mixed)
+        if let candidate = advice.primary { return candidate.choice }
         return automaticChoice(locale: primary)
     }
 
