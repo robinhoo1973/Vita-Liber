@@ -31,7 +31,9 @@ struct PaddleLayoutMergeTests {
         #expect(result.appended == 0)
         #expect(result.layout.blocks.map(\.lineIndex) == [0, 1])
         #expect(result.layout.blocks[0].bbox == rect(0.05, 0.05, 0.40, 0.05))
-        #expect(abs(result.confidence - 0.925) < 0.001)
+        // 页级置信沿用 Vision 口径（0.6 卡级确认门槛按该口径标定），不混入 Paddle CTC。
+        #expect(result.visionPageConfidence == 0.75)
+        #expect(abs(result.confidence - 0.75) < 0.001)
     }
 
     @Test("Paddle 空文本 → 保留 Vision 原文")
@@ -87,6 +89,9 @@ struct PaddleLayoutMergeTests {
         #expect(result.layout.tables.count == 1)
         #expect(result.layout.paragraphs.count == 1)
         #expect(result.layout.tableLineIndices.contains(0))
+        // 格内/段落文字必须跟随 Paddle（RuleExtractor 直接读 TableCell.text）。
+        #expect(result.layout.tables[0].rows[0].cells[0].text == "新一")
+        #expect(result.layout.paragraphs[0].text == "新一")
     }
 
     @Test("一个 Vision 块命中多行 → 按几何行内左右拼接")
@@ -100,7 +105,7 @@ struct PaddleLayoutMergeTests {
         ]
         let result = PaddleLayoutMerge.merge(paddleLines: lines, visionLines: ["整块"],
                                              visionLayout: layout, visionConfidences: [0.6])
-        #expect(result.lines == ["左 右"])
+        #expect(result.lines == ["左右"])
         #expect(result.layout.blocks.count == 1)
     }
 }

@@ -14,8 +14,8 @@ public enum LayoutRemapper {
         let remap = { (indices: [Int]) -> [Int] in remapIndices(indices, by: newIndex) }
         let tables = original.tables.map { table in
             TableRegion(id: table.id, bbox: table.bbox,
-                        rows: table.rows.map { remapRow($0, remap) },
-                        header: table.header.map { remapRow($0, remap) })
+                        rows: table.rows.map { remapRow($0, merged: merged, remap) },
+                        header: table.header.map { remapRow($0, merged: merged, remap) })
         }
         let paragraphs = original.paragraphs.map { paragraph in
             let indices = remap(paragraph.lineIndices)
@@ -49,9 +49,15 @@ public enum LayoutRemapper {
         return out
     }
 
-    private static func remapRow(_ row: TableRow, _ remap: ([Int]) -> [Int]) -> TableRow {
-        TableRow(cells: row.cells.map {
-            TableCell(text: $0.text, bbox: $0.bbox, columnIndex: $0.columnIndex, lineIndices: remap($0.lineIndices))
+    /// 格文字随新行号重取（归并后原文可能已拼接；Paddle 主轨下旧格文字还是副轨 Vision 原文）。
+    /// 无行号可映射时保留原文字（不猜）。
+    private static func remapRow(_ row: TableRow, merged: [TextLineMerger.MergedLine],
+                                 _ remap: ([Int]) -> [Int]) -> TableRow {
+        TableRow(cells: row.cells.map { cell in
+            let indices = remap(cell.lineIndices)
+            let texts = indices.compactMap { merged.indices.contains($0) ? merged[$0].text : nil }
+            return TableCell(text: texts.isEmpty ? cell.text : TranscriptJoiner.join(texts),
+                             bbox: cell.bbox, columnIndex: cell.columnIndex, lineIndices: indices)
         })
     }
 }

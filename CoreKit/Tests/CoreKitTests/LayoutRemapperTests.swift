@@ -42,6 +42,9 @@ struct LayoutRemapperTests {
         let out = LayoutRemapper.remap(merged: merged, original: original)
         #expect(out.tables[0].rows.flatMap { $0.cells.flatMap(\.lineIndices) } == [2, 3])
         #expect(out.tables[0].header?.cells.flatMap(\.lineIndices) == [0])
+        // 格文字随新行号重取（旧实现保留合并前的 "c3" 原文）。
+        #expect(out.tables[0].rows.flatMap { $0.cells.map(\.text) } == ["r1", "r2"])
+        #expect(out.tables[0].header?.cells.map(\.text) == ["t"])
         #expect(out.paragraphs.map(\.lineIndices) == [[1]])
         #expect(out.paragraphs[0].text == "ab")
     }

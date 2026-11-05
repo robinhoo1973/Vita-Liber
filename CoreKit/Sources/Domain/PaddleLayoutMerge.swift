@@ -39,21 +39,37 @@ public enum PaddleLayoutMerge {
         public var blockPaddleText: [String?]
         public var blockPaddleConfidence: [Double?]
         public var blockPaddleBBox: [LayoutRect?]
+        /// 每块消费的 Paddle 行原始框（逐行，不合并）；诊断按单行框查裁剪/rec 指标。
+        public var blockPaddleRects: [[LayoutRect]]
         public var blockVisionText: [String]
+        /// Vision 副轨的页级置信（0..1）；无 Vision 版面 = nil。
+        public var visionPageConfidence: Double?
 
         public init(lines: [String], layout: PageLayout, replaced: Int, keptVision: Int,
                     appended: Int, consumed: Int, blockPaddleText: [String?],
                     blockPaddleConfidence: [Double?], blockPaddleBBox: [LayoutRect?],
-                    blockVisionText: [String]) {
+                    blockPaddleRects: [[LayoutRect]], blockVisionText: [String],
+                    visionPageConfidence: Double? = nil) {
             self.lines = lines; self.layout = layout; self.replaced = replaced
             self.keptVision = keptVision; self.appended = appended; self.consumed = consumed
             self.blockPaddleText = blockPaddleText
             self.blockPaddleConfidence = blockPaddleConfidence
             self.blockPaddleBBox = blockPaddleBBox
+            self.blockPaddleRects = blockPaddleRects
             self.blockVisionText = blockVisionText
+            self.visionPageConfidence = visionPageConfidence
         }
 
+        /// 页级置信：**沿用 Vision 口径**（有 Vision 版面时）。
+        ///
+        /// 0.6 卡级确认门槛（`CardConfirmationRules.confirmAllConfidenceFloor`）是按
+        /// Vision 置信标定的；Paddle CTC 与 Vision 的置信不可比（同为模型自评，量纲/校准
+        /// 不同）。若把两种量纲平均进页级置信，交付文字换主轨会静默平移安全门槛
+        /// （Paddle 偏高 → 更多字段一键升 C；偏低 → 全部逐项复核）。逐块置信仍记录
+        /// 产出该块文字引擎的原生值，供调试对照；纯 Paddle 页（无 Vision 版面）才用
+        /// Paddle 均值。
         public var confidence: Double {
+            if let visionPageConfidence { return visionPageConfidence }
             guard !layout.blocks.isEmpty else { return 0 }
             return layout.blocks.map(\.confidence).reduce(0, +) / Double(layout.blocks.count)
         }
@@ -82,8 +98,12 @@ public enum PaddleLayoutMerge {
                           blockPaddleText: blocks.map(\.text),
                           blockPaddleConfidence: blocks.map(\.confidence),
                           blockPaddleBBox: blocks.map(\.bbox),
-                          blockVisionText: blocks.map { _ in "" })
+                          blockPaddleRects: ordered.map { [$0.bbox] },
+                          blockVisionText: blocks.map { _ in "" },
+                          visionPageConfidence: nil)
         }
+        let visionPageConfidence = visionConfidences.isEmpty ? nil
+            : visionConfidences.reduce(0, +) / Double(visionConfidences.count)
 
         // 已经归属某个 Vision 块的 Paddle 行下标。
         var claimed = Set<Int>()
@@ -93,6 +113,7 @@ public enum PaddleLayoutMerge {
         var blockPaddleText: [String?] = []
         var blockPaddleConfidence: [Double?] = []
         var blockPaddleBBox: [LayoutRect?] = []
+        var blockPaddleRects: [[LayoutRect]] = []
         var blockVisionText: [String] = []
 
         for block in visionLayout.blocks {
@@ -107,6 +128,7 @@ public enum PaddleLayoutMerge {
             }
             let text: String
             let confidence: Double
+            var orderedInside: [Int] = []
             if inside.isEmpty {
                 // 块内没有 Paddle 行：Vision 原文兜底（副轨不是失败态）。
                 let index = block.lineIndex
@@ -116,11 +138,12 @@ public enum PaddleLayoutMerge {
                 keptVision += 1
             } else {
                 inside.forEach { claimed.insert($0) }
-                let ordered = DBTextPostprocess.readingOrder(inside) { box(for: usable[$0]) }
-                let texts = ordered.map { usable[$0].text }
-                text = texts.joined(separator: " ")
-                let sum = ordered.reduce(0.0) { $0 + usable[$1].confidence }
-                confidence = sum / Double(ordered.count)
+                orderedInside = DBTextPostprocess.readingOrder(inside) { box(for: usable[$0]) }
+                let texts = orderedInside.map { usable[$0].text }
+                // 全仓唯一 CJK 边界规则：中日韩字符之间不插空格，拉丁词之间补一个空格。
+                text = TranscriptJoiner.join(texts)
+                let sum = orderedInside.reduce(0.0) { $0 + usable[$1].confidence }
+                confidence = sum / Double(orderedInside.count)
                 replaced += 1
             }
             let visionText = block.lineIndex >= 0 && block.lineIndex < visionLines.count
@@ -129,11 +152,12 @@ public enum PaddleLayoutMerge {
                 blockPaddleText.append(nil)
                 blockPaddleConfidence.append(nil)
                 blockPaddleBBox.append(nil)
+                blockPaddleRects.append([])
             } else {
-                let ordered = DBTextPostprocess.readingOrder(inside) { box(for: usable[$0]) }
-                blockPaddleText.append(ordered.map { usable[$0].text }.joined(separator: " "))
+                blockPaddleText.append(TranscriptJoiner.join(orderedInside.map { usable[$0].text }))
                 blockPaddleConfidence.append(confidence)
-                blockPaddleBBox.append(LayoutRect.union(of: ordered.map { usable[$0].bbox }))
+                blockPaddleBBox.append(LayoutRect.union(of: orderedInside.map { usable[$0].bbox }))
+                blockPaddleRects.append(orderedInside.map { usable[$0].bbox })
             }
             blockVisionText.append(visionText)
             blocks.append(TextBlock(text: text, bbox: block.bbox, lineIndex: blocks.count,
@@ -148,20 +172,52 @@ public enum PaddleLayoutMerge {
             blockPaddleText.append(line.text)
             blockPaddleConfidence.append(line.confidence)
             blockPaddleBBox.append(line.bbox)
+            blockPaddleRects.append([line.bbox])
             blockVisionText.append("")
             blocks.append(TextBlock(text: line.text, bbox: line.bbox,
                                     lineIndex: blocks.count, confidence: line.confidence))
         }
 
-        let layout = PageLayout(blocks: blocks, tables: visionLayout.tables,
-                                paragraphs: visionLayout.paragraphs)
+        // 版式结构保留 Vision 的几何，但**格内/段落文字必须跟随块文字**（Paddle 主轨）：
+        // `RuleExtractor` 直接从 `TableCell.text` 抽字段，若只替换块文字而格文字仍是
+        // Vision 原文，表格类单据（化验单等）会继续交付副轨文本，与「文字以 Paddle 为准」
+        // 的契约分叉。`lineIndices` 索引的是合并前 Vision 块号，而 `blocks` 前 N 项与
+        // Vision 块一一对应（追加项不影响既有索引），可直接按号取新文字。
+        let tables = visionLayout.tables.map { table in
+            TableRegion(id: table.id, bbox: table.bbox,
+                        rows: table.rows.map { remapText($0, blocks: blocks) },
+                        header: table.header.map { remapText($0, blocks: blocks) })
+        }
+        let paragraphs = visionLayout.paragraphs.map { paragraph in
+            var paragraph = paragraph
+            let texts = paragraph.lineIndices.compactMap { text(at: $0, blocks: blocks) }
+            if !texts.isEmpty { paragraph.text = TranscriptJoiner.join(texts) }
+            return paragraph
+        }
+        let layout = PageLayout(blocks: blocks, tables: tables, paragraphs: paragraphs)
         return Result(lines: blocks.map(\.text), layout: layout, replaced: replaced,
                       keptVision: keptVision, appended: orderedLeftovers.count,
                       consumed: claimed.count + orderedLeftovers.count,
                       blockPaddleText: blockPaddleText,
                       blockPaddleConfidence: blockPaddleConfidence,
                       blockPaddleBBox: blockPaddleBBox,
-                      blockVisionText: blockVisionText)
+                      blockPaddleRects: blockPaddleRects,
+                      blockVisionText: blockVisionText,
+                      visionPageConfidence: visionPageConfidence)
+    }
+
+    /// 格文字跟随合并后的块文字；`lineIndices` 为空（Vision 未映射到行）时保留原文。
+    private static func remapText(_ row: TableRow, blocks: [TextBlock]) -> TableRow {
+        TableRow(cells: row.cells.map { cell in
+            var cell = cell
+            let texts = cell.lineIndices.compactMap { text(at: $0, blocks: blocks) }
+            if !texts.isEmpty { cell.text = TranscriptJoiner.join(texts) }
+            return cell
+        })
+    }
+
+    private static func text(at index: Int, blocks: [TextBlock]) -> String? {
+        blocks.indices.contains(index) ? blocks[index].text : nil
     }
 
     private static func box(for line: Line) -> DBTextPostprocess.Box {
