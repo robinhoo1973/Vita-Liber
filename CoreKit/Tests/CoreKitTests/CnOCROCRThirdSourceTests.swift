@@ -18,27 +18,58 @@ struct CnOCROCRThirdSourceTests {
         #expect(CTCDecoder.softmax(logits: [0, 1], timesteps: 2, classes: 3) == nil)
     }
 
-    @Test func argmaxDecoderMatchesSoftmaxTextAndSkipsBlank() {
-        // 2 帧 × 3 类，blank=2：帧 0 取类 1（甲），帧 1 重复类 1 后接 blank。
+    @Test func argmaxDecoderMatchesSoftmaxTextAndSkipsBlank() throws {
+        // 2 帧 × 3 类，blank=2：两帧都取类 1（甲），相邻重复折叠成一个字。
         let logits: [Float] = [0, 5, -1, 0, 4, -1]
+        // blank 槽故意放非空字符：解码器若漏跳 blank，文本里就会出现 "!"。
+        let vocabulary = ["乙", "甲", "!"]
         let output = CTCDecoder.decodeArgmax(logits: logits, timesteps: 2, classes: 3,
-                                             vocabulary: ["乙", "甲", ""], blankIndex: 2)
+                                             vocabulary: vocabulary, blankIndex: 2)
         #expect(output.text == "甲")
         #expect(output.emittedCharacters == 1)
         #expect(output.confidence == 0)
+        // 「省去 softmax 不改变文本」是保留两条解码路径的唯一理由，必须对拍而不是写死字面量。
+        let probabilities = try #require(CTCDecoder.softmax(logits: logits, timesteps: 2, classes: 3))
+        let softmaxOutput = CTCDecoder.decode(probabilities: probabilities, timesteps: 2, classes: 3,
+                                              vocabulary: vocabulary, blankIndex: 2)
+        #expect(output.text == softmaxOutput.text)
+        // 甲 / blank / 甲：blank 必须被跳过，且不得把隔开的两个甲折叠成一个。
+        let blankSeparated: [Float] = [0, 5, -1, -1, -1, 5, 0, 4, -1]
+        let withBlank = CTCDecoder.decodeArgmax(logits: blankSeparated, timesteps: 3, classes: 3,
+                                                vocabulary: vocabulary, blankIndex: 2)
+        #expect(withBlank.text == "甲甲")
+        #expect(withBlank.emittedCharacters == 2)
+        let blankProbabilities = try #require(
+            CTCDecoder.softmax(logits: blankSeparated, timesteps: 3, classes: 3))
+        let blankSoftmax = CTCDecoder.decode(probabilities: blankProbabilities, timesteps: 3, classes: 3,
+                                             vocabulary: vocabulary, blankIndex: 2)
+        #expect(withBlank.text == blankSoftmax.text)
         let invalid = CTCDecoder.decodeArgmax(logits: [0, 1], timesteps: 3, classes: 3,
                                               vocabulary: ["a", "b", ""], blankIndex: 2)
         #expect(invalid.text.isEmpty)
     }
 
     @Test func lineConsensusNeedsBothSecondariesAndKeepsNumbers() {
-        let policy = HypothesisFusionPolicy.generic
+        // 生产注入的是医疗预设（PaddlePrimaryRecognizer.applyLineConsensus），
+        // 必须用同一策略验证单位/否定保护，不能拿空词表 generic 代替。
+        let policy = HypothesisFusionMedicalPolicy.standard
         #expect(OCRLineConsensus.select(primary: "今天头通", vision: "今天头痛",
                                         cnocr: "今天头痛", policy: policy) == "今天头痛")
         #expect(OCRLineConsensus.select(primary: "今天头通", vision: nil,
                                         cnocr: "今天头痛", policy: policy) == nil)
         #expect(OCRLineConsensus.select(primary: "血压120", vision: "血压130",
                                         cnocr: "血压130", policy: policy) == nil)
+        // 单位词（非数字符号）与否定词同样整列拒绝改写：这两条只有医疗词表能识别。
+        #expect(OCRLineConsensus.select(primary: "剂量毫克", vision: "剂量毫兑",
+                                        cnocr: "剂量毫兑", policy: policy) == nil)
+        #expect(OCRLineConsensus.select(primary: "无胸痛", vision: "有胸痛",
+                                        cnocr: "有胸痛", policy: policy) == nil)
+        // 反证：同一对文本在空词表 generic 下会被改写——上面的 nil 确实来自医疗词表保护，
+        // 不是选择器对该文本本就无编辑。
+        #expect(OCRLineConsensus.select(primary: "剂量毫克", vision: "剂量毫兑",
+                                        cnocr: "剂量毫兑", policy: .generic) == "剂量毫兑")
+        #expect(OCRLineConsensus.select(primary: "无胸痛", vision: "有胸痛",
+                                        cnocr: "有胸痛", policy: .generic) == "有胸痛")
     }
 
     @Test func cleanTextStripsCnOCRControlPlaceholders() {
@@ -100,14 +131,14 @@ struct CnOCROCRThirdSourceTests {
         #expect(third.height == 32)
         let modelURL = root.appendingPathComponent("Resources/OCRModels/\(third.file)")
         let dictURL = root.appendingPathComponent("Resources/OCRModels/\(third.dictFile)")
-        #expect(FileManager.default.fileExists(atPath: modelURL.path))
-        #expect(FileManager.default.fileExists(atPath: dictURL.path))
         // 随包资产必须与 catalog 的字节数/字典计数一致——这是 `loadThird` 的 fail-closed
         // 前置条件；只查「文件在」无法阻止资产与目录脱钩（运行时第三源静默消失）。
         // sha256 由运行时校验；Linux 测试环境无 CryptoKit，不在纯 Domain 测试重复。
-        let modelData = try Data(contentsOf: modelURL)
+        // 模型只查文件大小：12.5 MB 读进内存仅做 count 断言没有意义。
+        let attributes = try FileManager.default.attributesOfItem(atPath: modelURL.path)
+        let modelSize = try #require(attributes[.size] as? Int)
         let dictData = try Data(contentsOf: dictURL)
-        #expect(modelData.count == third.bytes)
+        #expect(modelSize == third.bytes)
         #expect(dictData.count == third.dictBytes)
         let entries = try JSONDecoder().decode([String].self, from: dictData)
         #expect(entries.count == third.dictCount)

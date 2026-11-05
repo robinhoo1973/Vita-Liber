@@ -43,8 +43,8 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var timesteps: Int
         var latencyMs: Double
         /// 选择器之前的 Paddle 原文（调试 JSON 用；共识后的交付文本见合并结果的
-        /// `blockPaddleText`）。
-        var rawText: String = ""
+        /// `blockPaddleText`）；nil = 该行没有 Paddle 文本。
+        var rawText: String?
         /// CnOCR 第三源原文；nil = 第三源缺件/该行失败。
         var cnocrText: String?
     }
@@ -103,8 +103,12 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var recLatencyMs = 0.0
         // 第三源与主轨独立加载：只有确实有行要识别时才载入 12.5 MB 模型（含 SHA-256
         // 校验）；CnOCR 缺件/失败只少一票，不关闭 Paddle/Vision。
+        // 另外，无 Vision 版式时两副源永远凑不齐（select 要求 ≥2 副源），除诊断采集
+        // 外没有任何消费方——不要为不可能发生的共识付模型加载与逐行推理。
         var thirdRuntime: ThirdRuntime?
-        if let detection, let runtime, !detection.boxes.isEmpty {
+        let thirdCanVote = vision?.layout.map { !$0.blocks.isEmpty } ?? false
+        if let detection, let runtime, !detection.boxes.isEmpty,
+           thirdCanVote || OCRShadowDiagnostics.isEnabled {
             thirdRuntime = await self.thirdRuntime()
             for box in detection.boxes {
                 try Task.checkCancellation()
@@ -228,10 +232,11 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         let policy = HypothesisFusionMedicalPolicy.standard
         for index in lines.indices {
             let key = geometryKey(lines[index].bbox)
-            guard let cnocr = stats[key]?.cnocrText, !cnocr.isEmpty else { continue }
+            // select 自身拒绝 nil / 纯空白的 cnocr，无需在这里再判一次（两处对空白的
+            // 定义还不一致：raw isEmpty vs trimmed）。
             guard let selected = OCRLineConsensus.select(primary: lines[index].text,
                                                          vision: visionTexts[index],
-                                                         cnocr: cnocr,
+                                                         cnocr: stats[key]?.cnocrText,
                                                          policy: policy) else { continue }
             lines[index].text = selected
         }
@@ -309,17 +314,16 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
             func sumInt(_ keyPath: KeyPath<RecStat, Int>) -> Int {
                 blockStats.reduce(0) { $0 + $1[keyPath: keyPath] }
             }
-            let rawTexts = blockRects.compactMap { stats[geometryKey($0)]?.rawText }
-                .filter { !$0.isEmpty }
-            let cnTexts = blockRects.compactMap { stats[geometryKey($0)]?.cnocrText }
-                .filter { !$0.isEmpty }
+            // blockStats 已按 blockRects 顺序取好 RecStat，无需再按几何键回查。
+            let rawTexts = blockStats.map(\.rawText)
+            let cnTexts = blockStats.map(\.cnocrText)
             lines.append(.init(
                 lineIndex: index,
                 bbox: [block.bbox.x, block.bbox.y, block.bbox.width, block.bbox.height],
                 visionText: merged.blockVisionText[index],
                 paddleText: merged.blockPaddleText[index] ?? "",
-                rawPaddleText: rawTexts.isEmpty ? nil : TranscriptJoiner.join(rawTexts),
-                cnocrText: cnTexts.isEmpty ? nil : TranscriptJoiner.join(cnTexts),
+                rawPaddleText: TranscriptJoiner.joinNonEmpty(rawTexts),
+                cnocrText: TranscriptJoiner.joinNonEmpty(cnTexts),
                 visionConfidence: index < visionConfidences.count ? visionConfidences[index] : 0,
                 paddleConfidence: merged.blockPaddleConfidence[index] ?? 0,
                 cropWidth: sum(\.cropWidth), cropHeight: sum(\.cropHeight),
@@ -336,15 +340,18 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
             paddleText: "", visionConfidence: 0, paddleConfidence: 0,
             cropWidth: 0, cropHeight: 0, recWidth: 0, timesteps: 0,
             latencyMs: totalLatencyMs, error: note))
+        // 只有真的产出了第三源文本（至少一行 cnocrText 非空）才声称 CnOCR 参与；
+        // 模型仅加载成功、但逐行预处理/推理全失败时 identity 不得虚增一票。
+        let thirdEvidenced = lines.contains { !($0.cnocrText ?? "").isEmpty }
         return OCRDebugTrace(model: recModel ?? detection.model,
                              modelSHA256: recModelSHA256 ?? detection.modelSHA256,
                              detModel: detection.model, detModelSHA256: detection.modelSHA256,
                              thirdModel: thirdModel, thirdModelSHA256: thirdModelSHA256,
-                             // 第三源缺件/加载失败时不得声称 CnOCR 参与（fail-closed 是
-                             // 正常降级，但身份串必须与真实运行面一致，否则调参数据失真）。
-                             engine: thirdModel == nil
-                                 ? "PP-OCRv6 det+rec/onnxruntime"
-                                 : "PP-OCRv6 det+rec+CnOCR/onnxruntime",
+                             // 第三源缺件/加载失败/零产出时不得声称 CnOCR 参与
+                             // （fail-closed 是正常降级，但身份串必须与真实运行面一致）。
+                             engine: thirdEvidenced
+                                 ? "PP-OCRv6 det+rec+CnOCR/onnxruntime"
+                                 : "PP-OCRv6 det+rec/onnxruntime",
                              totalLatencyMs: totalLatencyMs, lines: lines)
     }
 
@@ -379,9 +386,12 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                            paddleConfidence: 0, cropWidth: 0,
                            cropHeight: 0, recWidth: 0, timesteps: 0,
                            latencyMs: 0, error: note))
+        // note == "paddle-empty" 表示 det/rec 实际跑过、只是没出字，不能记成
+        // paddle-unavailable；否则排查空白页会被误导去找缺失资产。
         let trace = OCRDebugTrace(model: "PP-OCRv6", modelSHA256: "",
-                                  engine: "paddle-unavailable", totalLatencyMs: 0,
-                                  lines: lines)
+                                  engine: note == "paddle-empty"
+                                      ? "PP-OCRv6 det+rec/onnxruntime" : "paddle-unavailable",
+                                  totalLatencyMs: 0, lines: lines)
         return ImageInputRules.Recognition(lines: base.lines, confidence: base.confidence,
                                            layout: base.layout, debugTrace: trace)
     }

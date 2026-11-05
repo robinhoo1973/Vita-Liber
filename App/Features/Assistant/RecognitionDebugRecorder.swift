@@ -209,7 +209,8 @@ enum RecognitionDebugRecorder {
         var segments: [RecognitionDebugCapture.Segment] = []
         var delivered: [String] = []
         var paddleNotes: [String] = []
-        for trace in traces.sorted(by: { $0.pageIndex < $1.pageIndex }) {
+        let orderedTraces = traces.sorted { $0.pageIndex < $1.pageIndex }
+        for trace in orderedTraces {
             for line in trace.lines where line.lineIndex < 0 {
                 paddleNotes.append("page\(trace.pageIndex):\(trace.engine):\(line.error ?? "")")
             }
@@ -227,7 +228,7 @@ enum RecognitionDebugRecorder {
                 }
             }
         }
-        let pageModels = traces.sorted(by: { $0.pageIndex < $1.pageIndex }).map { trace -> String in
+        let pageModels = orderedTraces.map { trace -> String in
             var identity = "\(trace.model) sha256=\(trace.modelSHA256)"
             if let det = trace.detModel {
                 identity += " det=\(det) sha256=\(trace.detModelSHA256 ?? "")"
@@ -237,9 +238,14 @@ enum RecognitionDebugRecorder {
             }
             return "page\(trace.pageIndex):\(trace.engine):\(identity)"
         }.joined(separator: ";")
-        // 第三源缺件/加载失败时不得声称 CnOCR 参与共识（fail-closed 是正常降级，
-        // 但采集元数据必须与真实运行面一致，否则回传数据无法复盘第三源效果）。
-        let thirdVote = traces.contains { $0.thirdModel != nil }
+        // 第三源参与与否以**逐行证据**为准：thirdModel 只证明 12.5 MB 会话加载成功，
+        // 逐行预处理/推理全失败时没有任何 cnocrText，实际没有第三票。同理，Paddle
+        // 完全不可用的采集（annotated 轨迹无 det 身份）交付的是 Vision，不能声称
+        // paddle-ppocrv6-rec 交付。元数据必须与真实运行面一致，否则无法复盘。
+        let thirdVote = orderedTraces.contains { trace in
+            trace.lines.contains { !($0.cnocrText ?? "").isEmpty }
+        }
+        let paddleDelivered = orderedTraces.contains { $0.detModel != nil }
         let input = RecognitionDebugCapture.Input(
             captureID: captureID.uuidString, modality: .ocr,
             createdAt: RecognitionDebugCapture.isoTimestamp(now),
@@ -252,9 +258,11 @@ enum RecognitionDebugRecorder {
                 "primaryModel": traces.first.map { "\($0.model) sha256=\($0.modelSHA256)" } ?? "",
                 "pageModels": pageModels,
                 // Paddle 主轨 + Vision/CnOCR 双副源共识：仅两副源同键且非受保护类时替换。
-                "deliveredBy": thirdVote
-                    ? "paddle-ppocrv6-rec; Vision layout/fallback; CnOCR third vote (Vision+CnOCR must agree)"
-                    : "paddle-ppocrv6-rec (Vision supplies layout; lines without Paddle text keep Vision)",
+                "deliveredBy": !paddleDelivered
+                    ? "Vision fallback (Paddle unavailable or produced no lines); lines come from Vision"
+                    : thirdVote
+                        ? "paddle-ppocrv6-rec; Vision layout/fallback; CnOCR third vote (Vision+CnOCR must agree)"
+                        : "paddle-ppocrv6-rec (Vision supplies layout; lines without Paddle text keep Vision)",
                 "paddleNotes": paddleNotes.joined(separator: ";"),
             ],
             deliveredText: delivered.joined(separator: "\n"), segments: segments)
