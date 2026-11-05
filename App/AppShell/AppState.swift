@@ -101,7 +101,19 @@ final class AppState {
         EngineRegistry.shared.registerDefaultEngines()
         self.speechSynthesizer = speech ?? EngineRegistry.shared.resolve(SpeechSynthesisFactory.self)
         self.imageRecognizer = imageRecognizer ?? EngineRegistry.shared.resolve(OCRRecognizerFactory.self)
-        self.transcriptionEngine = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
+        // 业主 2026-11-05 修正：主轨实时识别；采集结束后再把录音交给 Apple 中文/英文
+        // 作第二/第三假设（不是三源实时并行）。只在生产装配时包一层；测试注入的桩保持原样。
+        let resolvedTranscription = transcription ?? EngineRegistry.shared.resolve(TranscriptionEngineFactory.self)
+        #if os(iOS) || os(macOS)
+        if transcription == nil {
+            self.transcriptionEngine = AppleSecondaryTranscriptionEngine(
+                primary: resolvedTranscription, apples: AppleSpeechSourceAdapter())
+        } else {
+            self.transcriptionEngine = resolvedTranscription
+        }
+        #else
+        self.transcriptionEngine = resolvedTranscription
+        #endif
         self.textRefiner = textRefiner ?? EngineRegistry.shared.resolve(TextRefinerFactory.self)
         self.persistor = persistor
         self.gateUnlocker = gateUnlocker ?? LocalAuthGateUnlocker()
