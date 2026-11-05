@@ -169,7 +169,7 @@ struct HypothesisFusionPropertyTests {
         ("吃阿莫西临", "吃阿莫西林"),
     ])
     func protectionIsSymmetric(_ pair: (String, String)) {
-        let options = HypothesisFusionOptions(mode: .gatedRewrite, protectedTerms: ["阿莫西林"])
+        let options = HypothesisFusionOptions(mode: .gatedRewrite, protectedTerms: ["阿莫西林"], policy: F.medicalPolicy)
         let result = HypothesisFusion.fuse(
             primary: F.hypothesis(F.primaryID, pair.0),
             secondaries: [F.hypothesis(F.appleZh, pair.1), F.hypothesis(F.sense, pair.1)],
@@ -221,12 +221,12 @@ struct HypothesisFusionPropertyTests {
         #expect(two.edits.first?.kind == .insertion)
         #expect(two.edits.first?.supportingEngineIDs == [F.appleZh, F.sense])
         let one = Self.run(("今天血压", [(F.appleZh, "今天的血压"), (F.sense, "今天血压")]),
-                           options: HypothesisFusionOptions(mode: .gatedRewrite, minimumInsertionEngines: 1))
+                           options: HypothesisFusionOptions(mode: .gatedRewrite, minimumInsertionEngines: 1, policy: F.medicalPolicy))
         #expect(one.text == "今天血压")
         #expect(one.edits.isEmpty)
         #expect(one.disputes.isEmpty)
         let strict = Self.run(("今天血压", [(F.appleZh, "今天的血压"), (F.sense, "今天的血压")]),
-                              options: HypothesisFusionOptions(mode: .gatedRewrite, minimumInsertionEngines: 3))
+                              options: HypothesisFusionOptions(mode: .gatedRewrite, minimumInsertionEngines: 3, policy: F.medicalPolicy))
         #expect(strict.text == "今天血压")
         #expect(strict.disputes.map { $0.reason } == [.belowGate])
     }
@@ -237,7 +237,7 @@ struct HypothesisFusionPropertyTests {
         #expect(deleted.text == "今天血压")
         #expect(deleted.edits.first?.kind == .deletion)
         let kept = Self.run(("今天嗯血压", [(F.appleZh, "今天血压"), (F.sense, "今天血压")]),
-                            options: HypothesisFusionOptions(mode: .gatedRewrite, deletionMargin: 5))
+                            options: HypothesisFusionOptions(mode: .gatedRewrite, deletionMargin: 5, policy: F.medicalPolicy))
         #expect(kept.text == "今天嗯血压")
         #expect(kept.disputes.map { $0.reason } == [.belowGate])
     }
@@ -245,7 +245,7 @@ struct HypothesisFusionPropertyTests {
     @Test("τ = ∞ 或 NaN：永远保留主轨（只标待核）", arguments: [Double.infinity, Double.nan])
     func infiniteTauNeverEdits(_ tau: Double) {
         let result = Self.run(("今天头疼得历害", [(F.appleZh, "今天头疼得厉害"), (F.sense, "今天头疼得厉害")]),
-                              options: HypothesisFusionOptions(mode: .gatedRewrite, tau: tau))
+                              options: HypothesisFusionOptions(mode: .gatedRewrite, tau: tau, policy: F.medicalPolicy))
         #expect(result.text == "今天头疼得历害")
         #expect(result.disputes.map { $0.reason } == [.belowGate])
     }
@@ -346,7 +346,8 @@ struct HypothesisFusionPropertyTests {
                           F.hypothesis(F.sense, "near show the hen dui")],
             calibration: F.standard,
             options: HypothesisFusionOptions(producibleScripts: [F.appleEn: [.latin, .digit, .other],
-                                                                 F.sense: [.latin, .digit, .other]]))
+                                                                 F.sense: [.latin, .digit, .other]],
+                                     policy: F.medicalPolicy))
         #expect(result.text == "你说的很对")
         #expect(result.edits.isEmpty)
         #expect(result.disputes.isEmpty)
@@ -402,7 +403,7 @@ struct HypothesisFusionPropertyTests {
             primary: F.hypothesis(F.primaryID, "今天头疼得历害"),
             secondaries: [F.hypothesis(F.appleZh, "今天头疼得厉害")],
             calibration: F.standard,
-            options: HypothesisFusionOptions(mode: .gatedRewrite, tau: -100, deletionMargin: -100))
+            options: HypothesisFusionOptions(mode: .gatedRewrite, tau: -100, deletionMargin: -100, policy: F.medicalPolicy))
         #expect(result.text == "今天头疼得历害")
         #expect(result.disputes.map { $0.reason } == [.belowGate])
     }

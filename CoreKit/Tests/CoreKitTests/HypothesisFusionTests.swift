@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import Domain
+import Infrastructure
 
 // binds: SU-M15-ASRFUSION — round3 §3.3 七个难例 + 门控 fail-closed + 极性保护 + 评测 fixes/harms
 /// 多假设融合实验室模块（round3 §6「主轨默认 · 语言感知 · 校准加权 · 带保护的 ROVER」）。
@@ -31,7 +32,7 @@ struct HypothesisFusionTests {
                 primary: F.hypothesis(F.primaryID, "我不发热"),
                 secondaries: [F.hypothesis(F.appleZh, "我没发热"), F.hypothesis(F.sense, "我发热")],
                 calibration: F.standard,
-                options: HypothesisFusionOptions(mode: mode))
+                options: F.options(mode))
             Self.expectNegationDispute(result)
         }
     }
@@ -58,7 +59,7 @@ struct HypothesisFusionTests {
                 primary: primary,
                 secondaries: [F.hypothesis(F.appleZh, "阿莫西林500毫克"), F.hypothesis(F.sense, "阿莫西林 500 mg")],
                 calibration: F.standard,
-                options: HypothesisFusionOptions(mode: mode))
+                options: F.options(mode))
             #expect(result.text == primary.text)
             #expect(result.edits.isEmpty)
             let numberRange = 4..<6
@@ -108,7 +109,7 @@ struct HypothesisFusionTests {
                 primary: F.hypothesis(F.primaryID, "他是岁"),
                 secondaries: [F.hypothesis(F.appleZh, "他十岁"), F.hypothesis(F.sense, "他十岁")],
                 calibration: F.standard,
-                options: HypothesisFusionOptions(mode: mode))
+                options: F.options(mode))
             #expect(result.text == "他是岁")
             #expect(result.edits.isEmpty)
             #expect(result.disputes.count == 1)
@@ -215,7 +216,7 @@ struct HypothesisFusionTests {
         let result = HypothesisFusion.fuse(
             primary: F.hypothesis(F.primaryID, "左腿疼得历害"),
             secondaries: [F.hypothesis(F.appleZh, "右腿疼得厉害"), F.hypothesis(F.sense, "右腿疼得厉害")],
-            calibration: F.standard)
+            calibration: F.standard, options: F.options(.reviewOnly))
         #expect(result.text == "左腿疼得历害")
         #expect(result.edits.isEmpty)
         #expect(result.disputes.map { $0.reason } == [.polarity, .reviewOnly])
@@ -280,7 +281,7 @@ struct HypothesisFusionTests {
             secondaries: [F.hypothesis("a", "血50压"), F.hypothesis("b", "血是压"),
                           F.hypothesis("c", "血是压")],
             calibration: calibration,
-            options: HypothesisFusionOptions(mode: .gatedRewrite, tau: 0))
+            options: HypothesisFusionOptions(mode: .gatedRewrite, tau: 0, policy: F.medicalPolicy))
         #expect(result.text == "血压")
         #expect(result.edits.isEmpty)
         #expect(result.disputes.contains { $0.reason == .protected })
@@ -348,18 +349,27 @@ enum HypothesisFusionFixtures {
         calibration([(primaryID, 0.94), (appleZh, 0.92), (appleEn, 0.93), (sense, 0.93)])
     }
 
+    /// 既有医疗预设（原 Domain 词表已外移到 Infrastructure）；既有套件验证行为不变。
+    static let medicalPolicy = HypothesisFusionMedicalPolicy.standard
+
     /// 两种模式（只提示 / 门控改写）——保护类结论在两种模式下必须一致。
     static let modes: [HypothesisFusionOptions.Mode] = [.reviewOnly, .gatedRewrite]
 
+    /// 既有模式 + 医疗预设。
+    static func options(_ mode: HypothesisFusionOptions.Mode) -> HypothesisFusionOptions {
+        HypothesisFusionOptions(mode: mode, policy: medicalPolicy)
+    }
+
     /// 门控改写模式（§3.3 难例按改写语义验证；默认模式是只提示）。
     static var rewrite: HypothesisFusionOptions {
-        HypothesisFusionOptions(mode: .gatedRewrite)
+        options(.gatedRewrite)
     }
 
     /// 门控改写 + 脚本声明：Apple 中文只产汉字/数字/符号；Apple 英文只产拉丁/数字/符号；其余引擎全脚本。
     static var scriptOptions: HypothesisFusionOptions {
         HypothesisFusionOptions(mode: .gatedRewrite,
                                 producibleScripts: [appleZh: [.han, .digit, .other],
-                                                                         appleEn: [.latin, .digit, .other]])
+                                                                         appleEn: [.latin, .digit, .other]],
+                                policy: medicalPolicy)
     }
 }

@@ -1,12 +1,18 @@
 import Foundation
 import Testing
 @testable import Domain
+import Infrastructure
 
 // binds: SU-M15-RECDEBUG — 真机识别调试采集（2026-11-04）：多引擎文本 → 单文件 input+output、只存文本、交付不变、what-if 不交付
 /// 识别调试采集纯 Domain：ASR/OCR 共用文本层结构，确定性，Linux 可跑。
 @Suite("SU-M15-RECDEBUG · 真机识别调试采集（多引擎文本 → 只提示结果 + what-if）")
 struct RecognitionDebugCaptureTests {
     typealias C = RecognitionDebugCapture
+
+    /// 既有调用方语义（App 注入医疗预设）；Domain 默认策略为空词表。
+    static func medicalFuse(_ input: C.Input) -> C.Output {
+        C.fuse(input, policy: HypothesisFusionMedicalPolicy.standard)
+    }
 
     static func asrInput(primary: String, zh: String, en: String) -> C.Input {
         C.Input(captureID: "cap", modality: .asr, createdAt: "2026-11-04T00:00:00Z",
@@ -24,7 +30,7 @@ struct RecognitionDebugCaptureTests {
     @Test("只提示文本恒等于主轨原文（交付不变），两副轨一致反对时 what-if 才改写")
     func reviewOnlyKeepsPrimaryWhatIfMayRewrite() {
         let input = Self.asrInput(primary: "今天头通", zh: "今天头痛", en: "")
-        let output = C.fuse(input)
+        let output = Self.medicalFuse(input)
         #expect(output.reviewOnlyText == "今天头通")
         #expect(output.deliveredText == "今天头通")
         #expect(output.segments.first?.whatIfEdits.allSatisfy { $0.original != $0.replacement } == true)
@@ -34,7 +40,7 @@ struct RecognitionDebugCaptureTests {
 
     @Test("否定词分歧永不在 what-if 中自动改写，只进争议")
     func negationNeverRewritten() {
-        let output = C.fuse(Self.asrInput(primary: "我不发热", zh: "我没发热", en: ""))
+        let output = Self.medicalFuse(Self.asrInput(primary: "我不发热", zh: "我没发热", en: ""))
         #expect(output.whatIfText == "我不发热")
         #expect(output.editCount == 0)
         #expect(output.disputedSegmentCount == 1)
@@ -47,7 +53,7 @@ struct RecognitionDebugCaptureTests {
                                 C.Hypothesis(engineID: "a", sourceGroup: "a", role: .primary, text: "血压正常"),
                                 C.Hypothesis(engineID: "b", sourceGroup: "b", role: .secondary, text: "血压正常 "),
                             ])])
-        let segment = C.fuse(input).segments[0]
+        let segment = Self.medicalFuse(input).segments[0]
         #expect(segment.unanimous)
         #expect(segment.disputes.isEmpty)
     }
@@ -60,7 +66,7 @@ struct RecognitionDebugCaptureTests {
                                              reason: "crop-failed", text: ""),
                                 C.Hypothesis(engineID: "v", sourceGroup: "v", role: .secondary, text: "白细胞"),
                             ])])
-        let segment = C.fuse(input).segments[0]
+        let segment = Self.medicalFuse(input).segments[0]
         #expect(segment.note == "primary-unavailable")
         #expect(segment.reviewOnlyText.isEmpty)
         #expect(segment.whatIfText.isEmpty)
@@ -103,7 +109,7 @@ struct RecognitionDebugCaptureTests {
         #expect(segments.map(\.index) == [0, 1])
         #expect(segments[0].hypotheses.map(\.role) == [.primary, .secondary])
         #expect(segments[0].bbox == [0.1, 0.1, 0.5, 0.05])
-        let output = C.fuse(C.Input(captureID: "o", modality: .ocr, createdAt: "t",
+        let output = Self.medicalFuse(C.Input(captureID: "o", modality: .ocr, createdAt: "t",
                                     deliveredText: "白细胞计数\n血红蛋白", segments: segments))
         #expect(output.reviewOnlyText == "白细胞计数\n血红蛋自")
         #expect(output.segments[0].unanimous)
@@ -129,7 +135,7 @@ struct RecognitionDebugCaptureTests {
     @Test("单文件记录：input + output 同一 JSON，往返稳定，且不含媒体字段")
     func recordRoundTrip() throws {
         let input = Self.asrInput(primary: "Yes 你说得对", zh: "也是你说得对", en: "Yes")
-        let record = C.Record(input: input, output: C.fuse(input))
+        let record = C.Record(input: input, output: Self.medicalFuse(input))
         #expect(record.schema == C.recordSchema)
         #expect(record.captureID == "cap")
         let data = try C.encode(record)

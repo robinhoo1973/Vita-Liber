@@ -47,6 +47,8 @@ public enum HypothesisFusionMedicalPolicy {
             negationTerms: HypothesisFusionVocabulary.negations,
             polarityTerms: HypothesisFusionVocabulary.polarity,
             negationContractionSuffixes: ["n't"]),
-        protectedTokenClasses: [.number, .unit, .negation, .polarity],
+        // 极性词走 `hasPolarity` 的独立 `.polarity` 待核路径；若同时列入 protectedTokenClasses，
+        // 决策器会先判 `.protected`，丢失既有「极性」原因（2026-11-05 复活回归）。
+        protectedTokenClasses: [.number, .unit, .negation],
         clauseFreezingTokenClasses: [.negation])
 }

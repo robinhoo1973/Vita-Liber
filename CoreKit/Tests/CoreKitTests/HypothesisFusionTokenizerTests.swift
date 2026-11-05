@@ -1,28 +1,36 @@
 import Foundation
 import Testing
 @testable import Domain
+import Infrastructure
 
 // binds: SU-M15-ASRFUSION — 分词、严格等价键（数值等价/拼音不等价）、UTF-16 区间、词类、置信度映射、对齐
 @Suite("SU-M15-ASRFUSION · 融合分词与等价键（汉字逐字/拉丁成词/数字整体/拼音只作软代价）")
 struct HypothesisFusionTokenizerTests {
+    /// 既有医疗预设（原 Domain 词表已外移到 Infrastructure）；本套件验证既有行为不变。
+    static let medicalPolicy = HypothesisFusionMedicalPolicy.standard
+
+    static func medicalTokens(_ text: String, protectedTerms: [String] = []) -> [HypothesisFusionToken] {
+        HypothesisFusionTokenizer.tokenize(text, protectedTerms: protectedTerms, policy: medicalPolicy)
+    }
+
     static func keys(_ text: String) -> [String] {
-        HypothesisFusionTokenizer.tokenize(text).map { $0.key }
+        Self.medicalTokens(text).map { $0.key }
     }
 
     static func classes(_ text: String) -> [HypothesisFusionTokenClass] {
-        HypothesisFusionTokenizer.tokenize(text).map { $0.tokenClass }
+        Self.medicalTokens(text).map { $0.tokenClass }
     }
 
     @Test("汉字逐字、拉丁成词、数字整体；标点/空白不成词元；区间为 UTF-16")
     func tokenizesByScriptWithUTF16Ranges() {
-        let tokens = HypothesisFusionTokenizer.tokenize("今天血压120 80，Yes！")
+        let tokens = Self.medicalTokens("今天血压120 80，Yes！")
         let surfaces = tokens.map { $0.surface }
         let ranges = tokens.map { $0.utf16Range }
         let scripts = tokens.map { $0.script }
         #expect(surfaces == ["今", "天", "血", "压", "120", "80", "Yes"])
         #expect(ranges == [0..<1, 1..<2, 2..<3, 3..<4, 4..<7, 8..<10, 11..<14])
         #expect(scripts == [.han, .han, .han, .han, .digit, .digit, .latin])
-        let emoji = HypothesisFusionTokenizer.tokenize("a😀b")
+        let emoji = Self.medicalTokens("a😀b")
         let emojiRanges = emoji.map { $0.utf16Range }
         #expect(emojiRanges == [0..<1, 3..<4])
     }
@@ -64,16 +72,16 @@ struct HypothesisFusionTokenizerTests {
 
     @Test("拼音只作对齐软代价，绝不作等价键：是/十、历/厉 是不同候选")
     func pinyinIsNeverAnEquivalenceKey() {
-        let shi = HypothesisFusionTokenizer.tokenize("是")[0]
-        let ten = HypothesisFusionTokenizer.tokenize("十")[0]
+        let shi = Self.medicalTokens("是")[0]
+        let ten = Self.medicalTokens("十")[0]
         #expect(shi.key != ten.key)
         #expect(shi.phonetic == ten.phonetic)
         #expect(HypothesisFusionAligner.cost(shi, ten) == HypothesisFusionAligner.homophoneCost)
-        let yes = HypothesisFusionTokenizer.tokenize("Yes")[0]
-        let ye = HypothesisFusionTokenizer.tokenize("耶")[0]
+        let yes = Self.medicalTokens("Yes")[0]
+        let ye = Self.medicalTokens("耶")[0]
         #expect(HypothesisFusionAligner.cost(yes, ye) == HypothesisFusionAligner.crossScriptPrefixCost)
-        let li = HypothesisFusionTokenizer.tokenize("历")[0]
-        let fierce = HypothesisFusionTokenizer.tokenize("厉")[0]
+        let li = Self.medicalTokens("历")[0]
+        let fierce = Self.medicalTokens("厉")[0]
         #expect(li.key != fierce.key)
         #expect(HypothesisFusionAligner.cost(li, li) == HypothesisFusionAligner.matchCost)
     }
@@ -99,7 +107,7 @@ struct HypothesisFusionTokenizerTests {
 
     @Test("受保护词条按同一分词的键序列整段匹配（大小写不敏感）")
     func protectedTermsMatchWholeKeySequences() {
-        let tokens = HypothesisFusionTokenizer.tokenize("吃阿莫西林和IBUPROFEN，阿莫", protectedTerms: ["阿莫西林", "ibuprofen"])
+        let tokens = Self.medicalTokens("吃阿莫西林和IBUPROFEN，阿莫", protectedTerms: ["阿莫西林", "ibuprofen"])
         let flags = tokens.map { $0.isProtectedTerm }
         #expect(flags == [false, true, true, true, true, false, true, false, false])
     }
@@ -111,7 +119,7 @@ struct HypothesisFusionTokenizerTests {
             tokens: [TranscriptionToken(text: "今天", confidence: 0.9), TranscriptionToken(text: "血压", confidence: 0.4),
                      TranscriptionToken(text: "12", confidence: 0.8), TranscriptionToken(text: "0")],
             confidenceKind: .engineNative)
-        let lexicon = HypothesisFusionLexicon()
+        let lexicon = HypothesisFusionLexicon(policy: Self.medicalPolicy)
         let mapped = lexicon.tokens(for: hypothesis, protectedTerms: []).map { $0.confidence }
         #expect(mapped == [0.9, 0.9, 0.4, 0.4, nil])
         let missing = TranscriptionHypothesis(engineID: "e", text: "今天", tokens: [TranscriptionToken(text: "明天", confidence: 0.9)],
@@ -126,7 +134,7 @@ struct HypothesisFusionTokenizerTests {
 
     @Test("对齐：单引擎插入另成插入列，后续副轨匹配同一插入列")
     func alignmentBuildsInsertionColumns() {
-        let lexicon = HypothesisFusionLexicon()
+        let lexicon = HypothesisFusionLexicon(policy: Self.medicalPolicy)
         let primary = lexicon.tokenize("今天血压", protectedTerms: [])
         var columns = HypothesisFusionAligner.skeleton(primary)
         columns = HypothesisFusionAligner.merge(columns, engineIndex: 1, tokens: lexicon.tokenize("今天嗯血压", protectedTerms: []))
