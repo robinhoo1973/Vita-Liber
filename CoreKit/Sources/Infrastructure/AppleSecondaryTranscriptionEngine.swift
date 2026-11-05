@@ -21,12 +21,17 @@ public actor AppleSecondaryTranscriptionEngine: TranscriptionEngine,
                                                 TranscriptionAudioRecording {
     private nonisolated let primary: any TranscriptionEngine
     private nonisolated let apples: any ASRAppleSourceRunning
+    /// Apple 副源整体预算：主轨结果已就绪后最多再等这么久；超时/取消即只交付主轨。
+    /// 不能让副源把交付、BR-012 急救扫描和聊天气泡拖到 Apple 单源 90s 超时。
+    private nonisolated let appleDeadlineSeconds: Double
     /// 调用方在本次按压前设置的目标；nil = 调用方不录音，由本类型临时承接。
     private var recordingURL: URL?
 
-    public init(primary: any TranscriptionEngine, apples: any ASRAppleSourceRunning) {
+    public init(primary: any TranscriptionEngine, apples: any ASRAppleSourceRunning,
+                appleDeadlineSeconds: Double = 3) {
         self.primary = primary
         self.apples = apples
+        self.appleDeadlineSeconds = max(0.01, appleDeadlineSeconds)
         _ = Self.purgeOnce
     }
 
@@ -99,30 +104,37 @@ public actor AppleSecondaryTranscriptionEngine: TranscriptionEngine,
     private func attachAppleHypotheses(to result: TranscriptionResult,
                                        request: TranscriptionRequest,
                                        audioURL: URL) async -> TranscriptionResult {
-        var plan = await apples.plan(primaryEngineID: result.engineID,
+        let plan = await apples.plan(primaryEngineID: result.engineID,
                                      primaryLocale: result.resolvedLocale)
-        if plan.requiresAuthorizationPrompt {
-            _ = await apples.requestAuthorization()
-            plan = await apples.plan(primaryEngineID: result.engineID,
-                                     primaryLocale: result.resolvedLocale)
-        }
+        // 授权未决定时**不在采集后弹框**：用户刚说完话，弹系统权限会打断交付/急救路径。
+        // 没有既有授权就直接只交付主轨；授权入口应在语音面板出现前显式处理（后续批次）。
+        guard !plan.requiresAuthorizationPrompt else { return result }
         let existing = Set(result.hypotheses.map(\.engineID))
         let sources = plan.runs.filter { !existing.contains($0.engineID) }
         guard !sources.isEmpty, !Task.isCancelled else { return result }
 
         let appleRunner = apples
         let contextualStrings = request.contextualStrings
-        let outcomes = await withTaskGroup(of: ASRAppleSourceResult.self) { group in
-            for source in sources {
-                group.addTask {
-                    await appleRunner.transcribe(audioURL: audioURL, source: source,
-                                                contextualStrings: contextualStrings)
+        let deadline = appleDeadlineSeconds
+        let appleTask = Task {
+            await withTaskGroup(of: ASRAppleSourceResult.self) { group in
+                for source in sources {
+                    group.addTask {
+                        await appleRunner.transcribe(audioURL: audioURL, source: source,
+                                                    contextualStrings: contextualStrings)
+                    }
                 }
+                var values: [ASRAppleSourceResult] = []
+                for await outcome in group { values.append(outcome) }
+                return values
             }
-            var values: [ASRAppleSourceResult] = []
-            for await outcome in group { values.append(outcome) }
-            return values
         }
+        let timeoutTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(deadline * 1_000_000_000))   // try?-ok: 超时取消副源
+            appleTask.cancel()
+        }
+        let outcomes = await appleTask.value
+        timeoutTask.cancel()
         guard !Task.isCancelled else { return result }
 
         var enriched = result

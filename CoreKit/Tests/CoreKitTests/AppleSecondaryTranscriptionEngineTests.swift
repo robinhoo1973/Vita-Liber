@@ -98,7 +98,7 @@ struct AppleSecondaryTranscriptionEngineTests {
         #expect(!FileManager.default.fileExists(atPath: ownedURL.path))
     }
 
-    @Test func authorizationPromptHappensOnceAfterPrimaryThenBothSourcesRun() async throws {
+    @Test func authorizationNotDeterminedSkipsPromptAfterCapture() async throws {
         let primary = FakePrimary(result: Self.primaryResult(engineID: "qwen3"))
         let apples = FakeApple(authorization: .notDetermined)
         let engine = AppleSecondaryTranscriptionEngine(primary: primary, apples: apples)
@@ -107,9 +107,25 @@ struct AppleSecondaryTranscriptionEngineTests {
 
         let authorizationRequests = await apples.authorizationRequests()
         let calls = await apples.calls()
-        #expect(authorizationRequests == 1)
-        #expect(calls.count == 2)
-        #expect(result.hypotheses.filter { $0.engineID.hasPrefix("apple-") }.count == 2)
+        #expect(authorizationRequests == 0)
+        #expect(calls.isEmpty)
+        #expect(result.text == "primary")
+        #expect(result.hypotheses.map(\.engineID) == ["qwen3"])
+    }
+
+    @Test func slowAppleSourceIsBoundedByDeadlineAndDoesNotDelayPrimary() async throws {
+        let primary = FakePrimary(result: Self.primaryResult(engineID: "qwen3"))
+        let apples = FakeApple(delaySeconds: 1)
+        let engine = AppleSecondaryTranscriptionEngine(primary: primary, apples: apples,
+                                                       appleDeadlineSeconds: 0.05)
+
+        let started = Date()
+        let result = try await engine.transcribe(Self.request, onPartial: nil)
+        let elapsed = Date().timeIntervalSince(started)
+
+        #expect(result.text == "primary")
+        #expect(result.hypotheses.map(\.engineID) == ["qwen3"])
+        #expect(elapsed < 0.8)
     }
 
     @Test func failedAppleSourceDoesNotAffectPrimaryDelivery() async throws {
@@ -202,13 +218,16 @@ private actor FakeApple: ASRAppleSourceRunning {
     private var callsStorage: [ASRAppleSource] = []
     private var authorizationRequestCount = 0
     private let failAll: Bool
+    private let delaySeconds: Double
 
-    init(authorization: ASRAppleAuthorization = .authorized, failAll: Bool = false) {
+    init(authorization: ASRAppleAuthorization = .authorized, failAll: Bool = false,
+         delaySeconds: Double = 0) {
         self.facts = ASRAppleSourceAvailabilityFacts(
             authorization: authorization,
             recognizerAvailableLocales: ["zh-CN", "en-US"],
             onDeviceCapableLocales: ["zh-CN", "en-US"])
         self.failAll = failAll
+        self.delaySeconds = delaySeconds
     }
 
     func availability() async -> ASRAppleSourceAvailabilityFacts { facts }
@@ -222,6 +241,10 @@ private actor FakeApple: ASRAppleSourceRunning {
     func transcribe(audioURL: URL, source: ASRAppleSource,
                     contextualStrings: [String]) async -> ASRAppleSourceResult {
         callsStorage.append(source)
+        if delaySeconds > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))   // try?-ok: 超时测试
+            if Task.isCancelled { return .failed(source, reason: "cancelled") }
+        }
         if failAll {
             return .failed(source, reason: "test-failure")
         }
