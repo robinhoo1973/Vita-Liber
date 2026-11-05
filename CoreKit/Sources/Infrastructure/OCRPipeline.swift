@@ -108,9 +108,10 @@ public struct OCRPipeline: Sendable {
                 remapTrace(recognition.debugTrace, merged: merged))
     }
 
-    /// 调试轨迹跟随交付行重映射（2026-11-04）：归并后 `lineIndex` 必须指向交付行数组，
-    /// `visionText` 必须等于交付文本；Paddle 侧把被合并各行的原文按同一拼接规则合并，
-    /// 否则调参数据会把「未归并原文」误当成生产交付文本。
+    /// 调试轨迹跟随交付行重映射（2026-11-04）：归并后 `lineIndex` 必须指向交付行数组；
+    /// `visionText` / `paddleText` 分别保留**各自引擎原文**并按同一拼接规则合并。
+    /// 交付文本由 App 采集层从实际页面行传入，不能从 `visionText` 反推（Paddle 主轨后
+    /// 它不再是 Vision 文本，旧契约会让调试 JSON 把副轨原文当成交付基线）。
     private func remapTrace(_ trace: OCRDebugTrace?, merged: [TextLineMerger.MergedLine]) -> OCRDebugTrace? {
         guard let trace else { return nil }
         var byIndex: [Int: OCRDebugTrace.Line] = [:]
@@ -120,17 +121,18 @@ public struct OCRPipeline: Sendable {
         for (newIndex, group) in merged.enumerated() {
             let sources = group.sourceIndices.compactMap { byIndex[$0] }
             guard !sources.isEmpty else {
-                lines.append(.init(lineIndex: newIndex, bbox: [], visionText: group.text, paddleText: "",
+                lines.append(.init(lineIndex: newIndex, bbox: [], visionText: "", paddleText: "",
                                    visionConfidence: 0, paddleConfidence: 0, cropWidth: 0, cropHeight: 0,
                                    recWidth: 0, timesteps: 0, latencyMs: 0, error: "no-source-trace"))
                 continue
             }
             let bbox = Self.unionBBox(sources.map(\.bbox))
+            let visionTexts = sources.map(\.visionText).filter { !$0.isEmpty }
             let paddleTexts = sources.map(\.paddleText).filter { !$0.isEmpty }
             let paddleSet = sources.filter { !$0.paddleText.isEmpty }
             let errors = sources.compactMap(\.error)
             lines.append(.init(
-                lineIndex: newIndex, bbox: bbox, visionText: group.text,
+                lineIndex: newIndex, bbox: bbox, visionText: TranscriptJoiner.join(visionTexts),
                 paddleText: TranscriptJoiner.join(paddleTexts),
                 visionConfidence: sources.map(\.visionConfidence).reduce(0, +) / Double(sources.count),
                 paddleConfidence: paddleSet.isEmpty ? 0
@@ -143,6 +145,7 @@ public struct OCRPipeline: Sendable {
                 error: errors.isEmpty ? nil : errors.joined(separator: "; ")))
         }
         return OCRDebugTrace(pageIndex: trace.pageIndex, model: trace.model, modelSHA256: trace.modelSHA256,
+                             detModel: trace.detModel, detModelSHA256: trace.detModelSHA256,
                              engine: trace.engine, totalLatencyMs: trace.totalLatencyMs,
                              lines: notes + lines)
     }

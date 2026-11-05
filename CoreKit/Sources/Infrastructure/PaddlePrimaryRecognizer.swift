@@ -31,6 +31,9 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var session: ONNXRuntimeSession
         var asset: OCRModelStore.Catalog.Asset
         var vocabulary: [String]
+        /// 产出交付文字的 rec 模型身份（调试 JSON 的 model/modelSHA256）。
+        var displayName: String
+        var modelSHA256: String
     }
 
     private struct RecStat {
@@ -81,6 +84,7 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var lines: [PaddleLayoutMerge.Line] = []
         var stats: [String: RecStat] = [:]
         var failedLines = 0
+        var recLatencyMs = 0.0
         if let detection, let runtime, !detection.boxes.isEmpty {
             for box in detection.boxes {
                 try Task.checkCancellation()
@@ -92,6 +96,7 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                     continue
                 }
                 let started = Date()
+                defer { recLatencyMs += Date().timeIntervalSince(started) * 1000 }
                 do {
                     let output = try runtime.session.run(input: prepared.tensor,
                                                          height: runtime.asset.height,
@@ -141,6 +146,8 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var trace: OCRDebugTrace?
         if OCRShadowDiagnostics.isEnabled, let detection {
             trace = Self.trace(merged: merged, detection: detection, stats: stats,
+                               recModel: runtime?.displayName, recModelSHA256: runtime?.modelSHA256,
+                               recLatencyMs: recLatencyMs,
                                visionConfidences: visionConfidences,
                                failedLines: failedLines, note: fallbackNote)
         }
@@ -164,7 +171,9 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                                                  inputName: loaded.asset.inputName,
                                                  outputName: loaded.asset.outputName)
             let runtime = RecRuntime(session: session, asset: loaded.asset,
-                                     vocabulary: loaded.vocabulary)
+                                     vocabulary: loaded.vocabulary,
+                                     displayName: loaded.displayName,
+                                     modelSHA256: loaded.modelSHA256)
             rec = runtime
             return runtime
         } catch {
@@ -174,14 +183,24 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
     }
 
     /// 诊断轨迹：逐块对照 + 一行汇总；不参与交付。
+    ///
+    /// 每个块可能消费多行 Paddle；逐行指标按 `blockPaddleRects` 的**单行框**查，
+    /// 不能用块级 union bbox 查（union 与任何单行框都不相等，指标会全为 0）。
     private static func trace(merged: PaddleLayoutMerge.Result,
                               detection: PaddleTextDetector.Detection,
-                              stats: [String: RecStat], visionConfidences: [Double],
+                              stats: [String: RecStat],
+                              recModel: String?, recModelSHA256: String?, recLatencyMs: Double,
+                              visionConfidences: [Double],
                               failedLines: Int, note: String?) -> OCRDebugTrace {
         var lines: [OCRDebugTrace.Line] = []
         for (index, block) in merged.layout.blocks.enumerated() {
-            let paddleBBox = merged.blockPaddleBBox[index]
-            let stat = paddleBBox.flatMap { stats[geometryKey($0)] }
+            let blockStats = merged.blockPaddleRects[index].compactMap { stats[geometryKey($0)] }
+            func sum(_ keyPath: KeyPath<RecStat, Double>) -> Double {
+                blockStats.reduce(0) { $0 + $1[keyPath: keyPath] }
+            }
+            func sumInt(_ keyPath: KeyPath<RecStat, Int>) -> Int {
+                blockStats.reduce(0) { $0 + $1[keyPath: keyPath] }
+            }
             lines.append(.init(
                 lineIndex: index,
                 bbox: [block.bbox.x, block.bbox.y, block.bbox.width, block.bbox.height],
@@ -189,11 +208,12 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                 paddleText: merged.blockPaddleText[index] ?? "",
                 visionConfidence: index < visionConfidences.count ? visionConfidences[index] : 0,
                 paddleConfidence: merged.blockPaddleConfidence[index] ?? 0,
-                cropWidth: stat?.cropWidth ?? 0, cropHeight: stat?.cropHeight ?? 0,
-                recWidth: stat?.recWidth ?? 0, timesteps: stat?.timesteps ?? 0,
-                latencyMs: stat?.latencyMs ?? 0,
+                cropWidth: sum(\.cropWidth), cropHeight: sum(\.cropHeight),
+                recWidth: sumInt(\.recWidth), timesteps: sumInt(\.timesteps),
+                latencyMs: sum(\.latencyMs),
                 error: merged.blockPaddleText[index] == nil ? "vision-fallback" : nil))
         }
+        let totalLatencyMs = detection.latencyMs + recLatencyMs
         lines.append(.init(
             lineIndex: -1, bbox: [],
             visionText: "det=\(detection.boxes.count) replaced=\(merged.replaced) "
@@ -201,22 +221,48 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
                 + "recFailed=\(failedLines)",
             paddleText: "", visionConfidence: 0, paddleConfidence: 0,
             cropWidth: 0, cropHeight: 0, recWidth: 0, timesteps: 0,
-            latencyMs: detection.latencyMs, error: note))
-        return OCRDebugTrace(model: detection.model, modelSHA256: detection.modelSHA256,
-                             engine: "PP-OCRv6_det+rec/onnxruntime",
-                             totalLatencyMs: detection.latencyMs, lines: lines)
+            latencyMs: totalLatencyMs, error: note))
+        return OCRDebugTrace(model: recModel ?? detection.model,
+                             modelSHA256: recModelSHA256 ?? detection.modelSHA256,
+                             detModel: detection.model, detModelSHA256: detection.modelSHA256,
+                             engine: "PP-OCRv6 det+rec/onnxruntime",
+                             totalLatencyMs: totalLatencyMs, lines: lines)
     }
 
     /// 诊断开启时把「为什么没走 Paddle」写进轨迹，交付结果不变。
+    ///
+    /// 降级页仍逐行写入 **Vision 实际交付文本**：旧实现只写一条汇总行
+    /// （lineIndex -1），采集层按 lineIndex ≥ 0 过滤后得到空页/空 deliveredText，
+    /// 恰好把「Paddle 缺件」这一最需要诊断的失败模式记成「整页无字」。
     private static func annotated(_ base: ImageInputRules.Recognition,
                                   note: String) -> ImageInputRules.Recognition {
-        let trace = OCRDebugTrace(model: "PP-OCRv6_det+rec", modelSHA256: "",
+        var lines: [OCRDebugTrace.Line] = []
+        if let layout = base.layout, layout.blocks.count == base.lines.count {
+            lines = zip(layout.blocks, base.lines).enumerated().map { index, pair in
+                let (block, text) = pair
+                return OCRDebugTrace.Line(
+                    lineIndex: index,
+                    bbox: [block.bbox.x, block.bbox.y, block.bbox.width, block.bbox.height],
+                    visionText: text, paddleText: "", visionConfidence: block.confidence,
+                    paddleConfidence: 0, cropWidth: 0, cropHeight: 0, recWidth: 0,
+                    timesteps: 0, latencyMs: 0, error: "vision-fallback")
+            }
+        } else {
+            lines = base.lines.enumerated().map { index, text in
+                OCRDebugTrace.Line(
+                    lineIndex: index, bbox: [], visionText: text, paddleText: "",
+                    visionConfidence: 0, paddleConfidence: 0, cropWidth: 0, cropHeight: 0,
+                    recWidth: 0, timesteps: 0, latencyMs: 0, error: "vision-fallback")
+            }
+        }
+        lines.append(.init(lineIndex: -1, bbox: [], visionText: "",
+                           paddleText: "", visionConfidence: 0,
+                           paddleConfidence: 0, cropWidth: 0,
+                           cropHeight: 0, recWidth: 0, timesteps: 0,
+                           latencyMs: 0, error: note))
+        let trace = OCRDebugTrace(model: "PP-OCRv6", modelSHA256: "",
                                   engine: "paddle-unavailable", totalLatencyMs: 0,
-                                  lines: [.init(lineIndex: -1, bbox: [], visionText: "",
-                                                paddleText: "", visionConfidence: 0,
-                                                paddleConfidence: 0, cropWidth: 0,
-                                                cropHeight: 0, recWidth: 0, timesteps: 0,
-                                                latencyMs: 0, error: note)])
+                                  lines: lines)
         return ImageInputRules.Recognition(lines: base.lines, confidence: base.confidence,
                                            layout: base.layout, debugTrace: trace)
     }
