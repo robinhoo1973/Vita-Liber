@@ -73,6 +73,39 @@ public enum PaddleLayoutMerge {
         }
     }
 
+    /// 逐 Paddle 行取 Vision 副轨文本，供第三源 token 共识使用。
+    ///
+    /// 只有「该 Vision 块恰好只归属这一条 Paddle 行」且块文本不含换行时才返回文本；
+    /// 一块多行（Vision 合体观察）返回 nil——把整块文本当单行副源会产生跨行噪声，
+    /// 宁可放弃该行的 Vision 票，只保留 CnOCR 一票（不足两票即不改写）。
+    /// 归属顺序与 `merge` 完全一致：Vision 块按顺序认领尚未归属的行。
+    public static func visionTextByLine(paddleLines: [Line], visionLayout: PageLayout?,
+                                        centerTolerance: Double = 0.004) -> [String?] {
+        var result = [String?](repeating: nil, count: paddleLines.count)
+        guard let visionLayout, !visionLayout.blocks.isEmpty else { return result }
+        let usable = paddleLines.indices.filter {
+            !paddleLines[$0].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        var claimed = Set<Int>()
+        for block in visionLayout.blocks {
+            let inside = usable.filter { index in
+                guard !claimed.contains(index) else { return false }
+                let rect = paddleLines[index].bbox
+                let cx = rect.midX, cy = rect.midY
+                return block.bbox.x - centerTolerance <= cx
+                    && cx <= block.bbox.maxX + centerTolerance
+                    && block.bbox.y - centerTolerance <= cy
+                    && cy <= block.bbox.maxY + centerTolerance
+            }
+            guard !inside.isEmpty else { continue }
+            inside.forEach { claimed.insert($0) }
+            let text = block.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard inside.count == 1, !text.isEmpty, !text.contains("\n") else { continue }
+            result[inside[0]] = text
+        }
+        return result
+    }
+
     /// 合并。`visionLayout == nil` 时直接用 Paddle 行构建版面。
     ///
     /// - Parameter centerTolerance: 判定「Paddle 行属于该块」的中心点容差（归一化）。

@@ -433,22 +433,34 @@ public enum RecognitionDebugCapture {
         return formatter.string(from: date)
     }
 
-    /// OCR：把 Paddle（主轨）与 Vision（副轨）逐行对照转为采集段。
+    /// OCR：把 Paddle（主轨）、Vision、CnOCR（第三源）逐行对照转为采集段。
     /// 行由同一 Vision 行框裁剪识别，天然一一对齐，无需再做框匹配。
+    /// Paddle 假设记录**选择器之前**的原文（`rawPaddleText`）；交付/后处理文本在
+    /// `Input.deliveredText`，两者不可混用。
     public static func ocrSegments(from trace: OCRDebugTrace) -> [Segment] {
         trace.lines.filter { $0.lineIndex >= 0 }.map { line in
             let paddleStatus: Hypothesis.Status = line.error == nil ? .recognized : .failed
-            return Segment(index: line.lineIndex, bbox: line.bbox, hypotheses: [
+            var hypotheses: [Hypothesis] = [
                 Hypothesis(engineID: "paddle-ppocrv6-rec", sourceGroup: "paddle", role: .primary,
                            status: paddleStatus, reason: line.error, elapsedMs: line.latencyMs,
                            modelVersion: trace.model,
-                           text: line.paddleText, confidence: line.paddleConfidence,
+                           text: line.rawPaddleText ?? line.paddleText,
+                           confidence: line.paddleConfidence,
                            confidenceKind: TranscriptionConfidenceKind.engineNative.rawValue),
                 Hypothesis(engineID: "apple-vision", sourceGroup: "apple-vision", role: .secondary,
                            modelVersion: "apple-vision source=system",
                            text: line.visionText, confidence: line.visionConfidence,
                            confidenceKind: TranscriptionConfidenceKind.engineNative.rawValue),
-            ])
+            ]
+            if let cnocr = line.cnocrText, !cnocr.isEmpty {
+                hypotheses.append(Hypothesis(
+                    engineID: "cnocr-doc-densenet-lite-136-gru", sourceGroup: "cnocr",
+                    role: .secondary,
+                    modelVersion: trace.thirdModel ?? "CnOCR-doc-densenet_lite_136-gru@2.3",
+                    text: cnocr,
+                    confidenceKind: TranscriptionConfidenceKind.engineNative.rawValue))
+            }
+            return Segment(index: line.lineIndex, bbox: line.bbox, hypotheses: hypotheses)
         }
     }
 }

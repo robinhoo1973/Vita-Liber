@@ -12,7 +12,12 @@ public struct OCRDebugTrace: Codable, Sendable, Equatable {
         public var lineIndex: Int
         public var bbox: [Double]
         public var visionText: String
+        /// 交付文本（第三源共识选择之后）。原文见 `rawPaddleText`。
         public var paddleText: String
+        /// 选择器之前的 Paddle rec 原文；nil = 旧轨迹/降级页。
+        public var rawPaddleText: String?
+        /// CnOCR 第三源原文；nil = 第三源缺件或该行失败。
+        public var cnocrText: String?
         public var visionConfidence: Double
         public var paddleConfidence: Double
         public var cropWidth: Double
@@ -23,6 +28,7 @@ public struct OCRDebugTrace: Codable, Sendable, Equatable {
         public var error: String?
 
         public init(lineIndex: Int, bbox: [Double], visionText: String, paddleText: String,
+                    rawPaddleText: String? = nil, cnocrText: String? = nil,
                     visionConfidence: Double, paddleConfidence: Double,
                     cropWidth: Double, cropHeight: Double, recWidth: Int,
                     timesteps: Int, latencyMs: Double, error: String? = nil) {
@@ -30,6 +36,8 @@ public struct OCRDebugTrace: Codable, Sendable, Equatable {
             self.bbox = bbox
             self.visionText = visionText
             self.paddleText = paddleText
+            self.rawPaddleText = rawPaddleText
+            self.cnocrText = cnocrText
             self.visionConfidence = visionConfidence
             self.paddleConfidence = paddleConfidence
             self.cropWidth = cropWidth
@@ -50,12 +58,16 @@ public struct OCRDebugTrace: Codable, Sendable, Equatable {
     /// det 模型身份（Paddle 主轨）；Vision-only 降级时为 nil。
     public var detModel: String?
     public var detModelSHA256: String?
+    /// 第三识别源身份（CnOCR）；未随包/未启用时为 nil。
+    public var thirdModel: String?
+    public var thirdModelSHA256: String?
     public var engine: String
     public var totalLatencyMs: Double
     public var lines: [Line]
 
-    public init(schemaVersion: Int = 2, pageIndex: Int = 0, model: String, modelSHA256: String,
+    public init(schemaVersion: Int = 3, pageIndex: Int = 0, model: String, modelSHA256: String,
                 detModel: String? = nil, detModelSHA256: String? = nil,
+                thirdModel: String? = nil, thirdModelSHA256: String? = nil,
                 engine: String, totalLatencyMs: Double, lines: [Line]) {
         self.schemaVersion = schemaVersion
         self.pageIndex = pageIndex
@@ -63,6 +75,8 @@ public struct OCRDebugTrace: Codable, Sendable, Equatable {
         self.modelSHA256 = modelSHA256
         self.detModel = detModel
         self.detModelSHA256 = detModelSHA256
+        self.thirdModel = thirdModel
+        self.thirdModelSHA256 = thirdModelSHA256
         self.engine = engine
         self.totalLatencyMs = totalLatencyMs
         self.lines = lines

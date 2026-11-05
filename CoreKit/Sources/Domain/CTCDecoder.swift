@@ -42,6 +42,33 @@ public enum CTCDecoder {
         }
     }
 
+    /// 原始 logits → 逐帧 softmax 概率（同形状）。
+    ///
+    /// CnOCR 的 ONNX 输出是 logits；Paddle 的 ONNX 输出已是概率。CTC 解码的
+    /// argmax 不受影响，但置信度必须用概率，否则会把 logit 当 0..1 记录。
+    public static func softmax(logits: [Float], timesteps: Int, classes: Int) -> [Float]? {
+        guard timesteps > 0, classes > 0 else { return nil }
+        let (product, overflow) = timesteps.multipliedReportingOverflow(by: classes)
+        guard !overflow, product == logits.count else { return nil }
+        var output = [Float](repeating: 0, count: logits.count)
+        for t in 0..<timesteps {
+            let offset = t * classes
+            var maxValue = logits[offset]
+            for c in 1..<classes where logits[offset + c] > maxValue {
+                maxValue = logits[offset + c]
+            }
+            var sum: Float = 0
+            for c in 0..<classes {
+                let value = Float(Foundation.exp(Double(logits[offset + c] - maxValue)))
+                output[offset + c] = value
+                sum += value
+            }
+            guard sum > 0, sum.isFinite else { return nil }
+            for c in 0..<classes { output[offset + c] /= sum }
+        }
+        return output
+    }
+
     public static func decode(probabilities: [Float], timesteps: Int, classes: Int,
                               vocabulary: [String], blankIndex: Int = 0) -> Output {
         guard isValid(probabilitiesCount: probabilities.count, timesteps: timesteps,
