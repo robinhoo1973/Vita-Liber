@@ -93,6 +93,9 @@ public enum TranscriptionConsensusSelector {
         for secondary in uniqueSecondaries {
             let tokens = HypothesisFusionTokenizer.tokenize(secondary.text, policy: policy)
             guard !tokens.isEmpty else { continue }
+            guard (columns.count + 1) * (tokens.count + 1) <= HypothesisFusion.maximumAlignmentCells else {
+                return TranscriptionConsensusResult(text: primary.text, edits: [], protectedColumns: 0)
+            }
             columns = HypothesisFusionAligner.merge(columns, engineIndex: voters.count + 1, tokens: tokens)
             voters.append(secondary.engineID)
         }
