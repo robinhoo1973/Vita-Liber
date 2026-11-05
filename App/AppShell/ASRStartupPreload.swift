@@ -14,9 +14,18 @@ enum ASRStartupPreload {
     private static let logger = Logger(subsystem: "com.vitaliber", category: "asr-preload")
 
     static func run(engine: any TranscriptionEngine, settings: AppSettingsStore) async {
-        let locales = SettingsRules.voiceLocales(settings.values[.voiceInputLanguages])
+        // 只有 auto 档按硬件选主轨；显式档位由用户在语音面板/按压路径决定，
+        // 启动期不替用户换模型（warmUp 对显式档也无预热语义）。
+        guard VoiceEngineChoice.resolve(settings.values[.voiceEngine]) == .auto else {
+            logger.debug("ASR 启动预载跳过: explicit-engine")
+            return
+        }
+        let allLocales = SettingsRules.voiceLocales(settings.values[.voiceInputLanguages])
         let mixed = SettingsRules.resolved(settings.values[.voiceMixedInput],
                                            key: .voiceMixedInput) == "true"
+        // 单语只按首语言选主轨；把全部已选语言一起喂给单语 advisor 会
+        // 误判「无候选」（实际按压只用首语言）。
+        let locales = mixed ? allLocales : Array(allLocales.prefix(1))
         let hardware = ASRAdvisorInputsProbe.hardwareFacts()
         let advice = TranscriptionEngineBuilder.advice(
             locales: locales, mode: mixed ? .mixed : .single)
