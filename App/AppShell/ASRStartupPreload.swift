@@ -26,11 +26,17 @@ enum ASRStartupPreload {
         // 单语只按首语言选主轨；把全部已选语言一起喂给单语 advisor 会
         // 误判「无候选」（实际按压只用首语言）。
         let locales = mixed ? allLocales : Array(allLocales.prefix(1))
-        let hardware = ASRAdvisorInputsProbe.hardwareFacts()
-        let advice = TranscriptionEngineBuilder.advice(
-            locales: locales, mode: mixed ? .mixed : .single)
+        let mode: TranscriptionLanguageMode = mixed ? .mixed : .single
+        // 硬件/资产探针是磁盘与系统调用，不能放在 MainActor 首个 await 前；
+        // 一次取 hardware 后复用给 advisor，避免 startup 路径重复探针。
+        let decision = await Task.detached(priority: .utility) {
+            let hardware = ASRAdvisorInputsProbe.hardwareFacts()
+            let advice = TranscriptionEngineBuilder.advice(
+                locales: locales, mode: mode, hardware: hardware)
+            return ASRStartupPreloadPolicy.decide(advice: advice, hardware: hardware)
+        }.value
 
-        switch ASRStartupPreloadPolicy.decide(advice: advice, hardware: hardware) {
+        switch decision {
         case .skip(let reason):
             logger.debug("ASR 启动预载跳过: \(reason.rawValue, privacy: .public)")
         case .preload(let choice, let locale):

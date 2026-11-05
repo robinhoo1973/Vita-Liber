@@ -111,6 +111,17 @@ public enum TranscriptionEngineBuilder {
                                       installed: inputs.installed, index: index)
     }
 
+    /// 调用方已取过硬件事实时复用，避免启动预载重复做磁盘/内存/热/低电探针。
+    /// 仍会重新读已安装资产（资产可能刚下载完成）。
+    public static func advice(locales: [String], mode: TranscriptionLanguageMode,
+                              hardware: ASRHardwareFacts) -> ASRModelAdvice {
+        let index = ASRFamilyIndexStore.routingIndex()
+        let installed = ASRAdvisorInputsProbe.installedAssets(index: index)
+        return ASRModelAdvisor.advise(locales: locales, mode: mode,
+                                      hardware: hardware,
+                                      installed: installed, index: index)
+    }
+
     /// 业主裁决 2026-11-04：主轨先按硬件能力过滤（内存档位/可用内存/已安装字节），
     /// 再按签名目录 families 发布序取首个候选；「已安装」是硬条件——本函数绝不触发下载。
     /// 无硬件可用候选时保持旧降级语义：目录无可表达模型 → `.classic`；
