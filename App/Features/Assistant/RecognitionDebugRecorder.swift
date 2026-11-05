@@ -232,6 +232,9 @@ enum RecognitionDebugRecorder {
             if let det = trace.detModel {
                 identity += " det=\(det) sha256=\(trace.detModelSHA256 ?? "")"
             }
+            if let third = trace.thirdModel {
+                identity += " third=\(third) sha256=\(trace.thirdModelSHA256 ?? "")"
+            }
             return "page\(trace.pageIndex):\(trace.engine):\(identity)"
         }.joined(separator: ";")
         let input = RecognitionDebugCapture.Input(
@@ -245,8 +248,8 @@ enum RecognitionDebugRecorder {
                 "bbox": "Vision line box, normalized [x,y,w,h], top-left origin, relative to the processed page image",
                 "primaryModel": traces.first.map { "\($0.model) sha256=\($0.modelSHA256)" } ?? "",
                 "pageModels": pageModels,
-                // Paddle 主轨：交付文字来自 rec；Vision 只供版式与未命中行的兜底。
-                "deliveredBy": "paddle-ppocrv6-rec (Vision supplies layout; lines without Paddle text keep Vision)",
+                // Paddle 主轨 + Vision/CnOCR 双副源共识：仅两副源同键且非受保护类时替换。
+                "deliveredBy": "paddle-ppocrv6-rec; Vision layout/fallback; CnOCR third vote (Vision+CnOCR must agree)",
                 "paddleNotes": paddleNotes.joined(separator: ";"),
             ],
             deliveredText: delivered.joined(separator: "\n"), segments: segments)

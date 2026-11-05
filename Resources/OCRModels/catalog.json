@@ -37,9 +37,36 @@
     "boxThresh": 0.45,
     "unclipRatio": 1.4,
     "maxCandidates": 3000,
-    "mean": [0.485, 0.456, 0.406],
-    "std": [0.229, 0.224, 0.225],
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ],
     "channelOrder": "BGR"
   },
-  "notes": "Paddle primary track: det outputs text boxes, rec outputs text (both bundled, Apache-2.0). Apple Vision is the secondary track for layout/tables and the fallback when any Paddle asset is missing or fails. No network access; model bytes verified at load."
+  "notes": "Paddle primary track: det outputs text boxes, rec outputs text (both bundled, Apache-2.0). Apple Vision is the secondary track for layout/tables and the fallback when any Paddle asset is missing or fails. No network access; model bytes verified at load. Third source: CnOCR doc-densenet_lite_136-gru (Apache-2.0) runs on the Paddle det boxes as an independent recognition vote; bundled, no runtime download.",
+  "third": {
+    "file": "cnocr_doc_136_gru.onnx",
+    "bytes": 12571242,
+    "sha256": "3cbf49a45dbc85c20efc63a9170b442ebb3dc8b8b2db2f5ab00cee477bbd6667",
+    "dictFile": "cnocr_doc_136_gru_dict.json",
+    "dictBytes": 39937,
+    "dictSha256": "d809be0178ad981c39e0e49208a61aacb56fa6b6d435fb8376ae96d35b9d11f8",
+    "dictCount": 6682,
+    "classes": 6683,
+    "blankIndex": 6682,
+    "height": 32,
+    "maxWidth": 4096,
+    "inputName": "x",
+    "lengthInputName": "input_lengths",
+    "outputName": "logits",
+    "source": "CnOCR doc-densenet_lite_136-gru v2.3 (epoch 4), https://github.com/breezedeus/CnOCR",
+    "license": "Apache-2.0",
+    "version": "2.3"
+  }
 }

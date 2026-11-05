@@ -14,6 +14,12 @@ void *ocr_session_create(const void *model_data, size_t model_len,
                          const char *input_name, const char *output_name,
                          int intra_threads);
 
+/// 创建双输入 ONNX 会话（CnOCR：`x` [1,1,32,W] + `input_lengths` [1]）。
+/// 与单输入会话相互独立；任一名称空串即失败。
+void *ocr_session_create2(const void *model_data, size_t model_len,
+                          const char *input_name, const char *lengths_input_name,
+                          const char *output_name, int intra_threads);
+
 void ocr_session_free(void *handle);
 
 /// 同步推理一张 [1,3,height,width] 浮点张量（rec 48×width / det 检测图）。
@@ -28,6 +34,18 @@ int ocr_session_run(void *handle,
                     size_t *out_count,
                     int64_t *out_timesteps,
                     int64_t *out_classes);
+
+/// 双输入推理：`input` 为 [1,1,height,width] 灰度张量，`length` 回填
+/// `input_lengths`（CnOCR 传缩放后宽度）。输出解析与单输入一致。
+int ocr_session_run2(void *handle,
+                     const float *input,
+                     int64_t height,
+                     int64_t width,
+                     int64_t length,
+                     float **out_buffer,
+                     size_t *out_count,
+                     int64_t *out_timesteps,
+                     int64_t *out_classes);
 
 void ocr_buffer_free(float *buffer);
 

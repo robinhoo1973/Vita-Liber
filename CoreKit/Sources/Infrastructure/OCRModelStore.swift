@@ -34,6 +34,37 @@ public actor OCRModelStore {
         public var assets: [String: Asset]
         /// det（Paddle-primary）为顶层键，与 `assets.rec` 分离；缺省 = 不支持检测。
         public var det: DetectorAsset?
+        /// 第三识别源（CnOCR）：复用 Paddle det 的行框，独立 rec 投票；缺省 = 未随包。
+        public var third: ThirdAsset?
+    }
+
+    /// CnOCR 行识别资产。字典按 `label_cn.txt` 顺序，blank 恒在末尾
+    ///（`blankIndex == dictCount`，classes = dictCount + 1）。
+    public struct ThirdAsset: Codable, Sendable {
+        public var file: String
+        public var bytes: Int
+        public var sha256: String
+        public var version: String
+        public var dictFile: String
+        public var dictBytes: Int
+        public var dictSha256: String
+        public var dictCount: Int
+        public var classes: Int
+        public var blankIndex: Int
+        public var height: Int
+        public var maxWidth: Int
+        public var inputName: String
+        public var lengthInputName: String
+        public var outputName: String
+    }
+
+    public struct Third: Sendable {
+        public var modelData: Data
+        /// 完整词表：`dict` + 末尾 blank 占位（`CTCDecoder` 要求 count == classes）。
+        public var vocabulary: [String]
+        public var asset: ThirdAsset
+        public var modelSHA256: String
+        public var displayName: String
     }
 
     /// PP-OCRv6 det 资产（无字典；检测后处理参数随 catalog 冻结）。
@@ -75,6 +106,8 @@ public actor OCRModelStore {
     private var attempted = false
     private var cachedDetector: Detector?
     private var detectorAttempted = false
+    private var cachedThird: Third?
+    private var thirdAttempted = false
 
     public init() {}
 
@@ -136,6 +169,41 @@ public actor OCRModelStore {
                                 displayName: "\(catalog.family)@\(catalog.version)-det")
         cachedDetector = detector
         return detector
+    }
+
+    /// 加载第三识别源（CnOCR doc-densenet_lite_136-gru）。
+    ///
+    /// 与 rec/det 同样 fail-closed：字节数/sha256/字典计数/blank 位置任一不符即 nil，
+    /// 调用方保持「Paddle + Vision」两源，绝不因第三源缺件降低现有识别能力。
+    public func loadThird() -> Third? {
+        if thirdAttempted { return cachedThird }
+        thirdAttempted = true
+        guard let directory = Bundle.main.url(forResource: "OCRModels", withExtension: nil),
+              let catalogURL = Bundle.main.url(forResource: "catalog", withExtension: "json",
+                                               subdirectory: "OCRModels"),
+              let catalogData = try? Data(contentsOf: catalogURL),   // try?-ok: 缺件按第三源不可用降级
+              let catalog = try? JSONDecoder().decode(Catalog.self, from: catalogData),   // try?-ok: 目录损坏降级
+              let asset = catalog.third,
+              asset.classes == asset.dictCount + 1,
+              asset.blankIndex == asset.dictCount,
+              asset.height > 0, asset.maxWidth > 0,
+              !asset.inputName.isEmpty, !asset.lengthInputName.isEmpty, !asset.outputName.isEmpty,
+              let modelData = try? Data(contentsOf: directory.appendingPathComponent(asset.file)),   // try?-ok: 缺件降级
+              let dictData = try? Data(contentsOf: directory.appendingPathComponent(asset.dictFile)),   // try?-ok: 缺件降级
+              let dict = try? JSONDecoder().decode([String].self, from: dictData),   // try?-ok: 字典损坏降级
+              modelData.count == asset.bytes, dictData.count == asset.dictBytes,
+              Self.sha256Hex(modelData) == asset.sha256.lowercased(),
+              Self.sha256Hex(dictData) == asset.dictSha256.lowercased(),
+              dict.count == asset.dictCount else {
+            cachedThird = nil
+            return nil
+        }
+        // CTCDecoder 用同一索引空间：词表第 blankIndex 项必须是空占位。
+        let third = Third(modelData: modelData, vocabulary: dict + [""], asset: asset,
+                          modelSHA256: asset.sha256.lowercased(),
+                          displayName: "CnOCR-doc-densenet_lite_136-gru@\(asset.version)")
+        cachedThird = third
+        return third
     }
 
     private static func sha256Hex(_ data: Data) -> String {
