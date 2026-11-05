@@ -28,6 +28,7 @@ struct ChatMediaDetailView: View {
     var conversationTitle: String?
 
     @Environment(DocumentsState.self) private var docs
+    @Environment(DocumentExportState.self) private var exportState
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
 
@@ -560,7 +561,7 @@ struct ChatMediaDetailView: View {
                 NavigationLink {
                     DocumentReviewRouteView(documentId: documentId, patientId: patientId,
                                             reprocess: true, suppressAutoMirror: true) {
-                        Task { await loadBasics() }
+                        Task { await captureOCRDebugAfterReprocess(); await loadBasics() }
                     }
                 } label: {
                     Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
@@ -1246,7 +1247,7 @@ struct ChatMediaDetailView: View {
             NavigationLink {
                 DocumentReviewRouteView(documentId: documentId, patientId: patientId,
                                         reprocess: true, suppressAutoMirror: true) {
-                    Task { await loadBasics() }
+                    Task { await captureOCRDebugAfterReprocess(); await loadBasics() }
                 }
             } label: {
                 Label(L10n.chatMediaReRecognize, systemImage: "arrow.triangle.2.circlepath")
@@ -1256,6 +1257,29 @@ struct ChatMediaDetailView: View {
             .buttonStyle(.bordered)
             .accessibilityIdentifier("chat.mediaDetail.reprocess")
         }
+    }
+
+    /// 重新识别结束后把本次 OCR 证据写入当前聊天会话目录（开关关闭/敏感件不写）。
+    ///
+    /// 聊天详情重识别不走 TaskAssistantChatView 的导入收尾，旧实现因此没有
+    /// `recognition-debug/*.json`；这里在 route 关闭前用 activeImport 的草稿快照
+    /// 取实际交付行，写完即清缓存（与导入路径同纪律）。
+    private func captureOCRDebugAfterReprocess() async {
+        guard OCRShadowDiagnostics.isEnabled,
+              let session = docs.activeImport,
+              session.draft?.existingDocumentId == documentId,
+              let draft = session.draft, !draft.isSensitive else { return }
+        let traces = docs.ocrDebugTraces(documentID: documentId)
+        guard !traces.isEmpty else { return }
+        let deliveredPages = Dictionary(draft.pages.map { ($0.index, $0.lines) },
+                                        uniquingKeysWith: { first, _ in first })
+        await RecognitionDebugRecorder.captureOCR(
+            documentID: documentId, traces: traces, deliveredPages: deliveredPages,
+            exportState: exportState) {
+            await exportState.recognitionDebugDirectory(conversationID: conversationID,
+                                                         conversationTitle: conversationTitle)
+        }
+        docs.clearOCRDebugTraces(documentID: documentId)
     }
 
     private func emptyNote(_ text: String) -> some View {
