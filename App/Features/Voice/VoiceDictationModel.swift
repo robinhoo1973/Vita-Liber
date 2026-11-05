@@ -1,5 +1,6 @@
 import SwiftUI
 import Domain
+import Infrastructure
 import Protocols
 import Perception
 
@@ -282,7 +283,10 @@ final class VoiceDictationModel {
                 })
             } else { result = try await engine.transcribe(context.request, onPartial: partial) }
             try Task.checkCancellation()
-            outcome = .success(result)
+            // 业主 2026-11-05 裁决：生产保守选择器（两副源同键才替换；数字/单位/否定/极性保护）。
+            // 只改交付文本，不改 hypotheses；仍为 D 级草稿，BR-003/004/006 不变。
+            outcome = .success(TranscriptionConsensusSelector.select(
+                result, policy: HypothesisFusionMedicalPolicy.standard))
         } catch {
             outcome = .failure(error)
         }
