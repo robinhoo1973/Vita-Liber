@@ -1630,6 +1630,8 @@ extension L10n {
         // 2026-09-16 传输形态（诊断「下载慢」）：分段 N 路 / 单流退化。
         "asr.model.modeSegmentedFmt", "asr.model.modeSingle", "asr.model.introSizeFmt",
         "asr.preparing",
+        // 2026-11-05 业主：启动按硬件推荐 ASR 模型，显式同意后才下载。
+        "asr.startupOffer.title", "asr.startupOffer.message", "asr.startupOffer.later",
         "ocr.cards.overview", "ocr.cards.none", "ocr.cards.hint", "ocr.cards.begin", "ocr.fieldActions",
         "ocr.cards.previous", "ocr.cards.next", "ocr.cards.remaining", "ocr.cards.fieldCount",
         "ocr.extraction.model", "ocr.extraction.rules", "ocr.association.title", "ocr.association.none",
