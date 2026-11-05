@@ -123,7 +123,8 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
     func test_reprocessReusesPendingCardIdentityAndCommits() async throws {
         let f = try await fixture(pages: [lab])
         let draft = try await imageDraft(f)
-        XCTAssertTrue(await f.docs.commitDraft(draft))
+        let saved = await f.docs.commitDraft(draft)
+        XCTAssertTrue(saved)
         let documentID = try XCTUnwrap(f.docs.activeImport?.source?.documentId)
         let before = try await f.pending.list(patientId: f.patient)
             .filter { $0.sourceDocId == documentID }
@@ -137,11 +138,13 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
             decoder: PDFKitDecoder(), originalsDir: f.directory,
             understandingEngine: NLTextUnderstanding(), pendingCards: f.pending,
             scheduler: f.scheduler, cardStore: OCRCardStore(writer: f.database.writer))
-        let reprocessed = try XCTUnwrap(await docs2.prepareStoredDocument(
-            id: documentID, patientId: f.patient, reuseSnapshot: false))
+        let prepared = await docs2.prepareStoredDocument(
+            id: documentID, patientId: f.patient, reuseSnapshot: false)
+        let reprocessed = try XCTUnwrap(prepared)
         XCTAssertEqual(Set(reprocessed.previousCards.map(\.id)),
                        Set(before.compactMap { UUID(uuidString: $0.id) }))
-        XCTAssertTrue(await docs2.commitDraft(reprocessed))
+        let savedAgain = await docs2.commitDraft(reprocessed)
+        XCTAssertTrue(savedAgain)
         let after = try await f.pending.list(patientId: f.patient)
             .filter { $0.sourceDocId == documentID }
         XCTAssertEqual(Set(after.map(\.id)), Set(before.map(\.id)),
