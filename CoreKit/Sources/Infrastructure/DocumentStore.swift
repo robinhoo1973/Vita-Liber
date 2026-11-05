@@ -321,7 +321,7 @@ public actor DocumentStore {
     public func updateReview(id: UUID, patientId: UUID, docType: String, isSensitive: Bool,
                              metaJSON: String?, ocrText: String?, grade: String, pages: [Page],
                              cards: [MatchedCard] = [], reviewedFields: [Int: [CandidateField]] = [:],
-                             docTypeKey: String? = nil) async throws {
+                             docTypeKey: String? = nil, replacePendingCard: Bool = false) async throws {
         try Self.validateDocTypeKey(docTypeKey)
         try await writer.write { db in
             guard !docType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -413,14 +413,17 @@ public actor DocumentStore {
                         """, arguments: [page.status, id.uuidString, page.index])
                 }
             }
-            try Self.stageReview(db, documentId: id, patientId: patientId, cards: cards, reviewedFields: reviewedFields, now: Date())
+            try Self.stageReview(db, documentId: id, patientId: patientId, cards: cards,
+                                 reviewedFields: reviewedFields, replacePendingCard: replacePendingCard,
+                                 now: Date())
             try OCRCardStore.refreshDocumentProjection(documentId: id, patientId: patientId, db: db, now: Date())
         }
     }
 
     /// A document is not committed without its resumable cards. Re-review never replaces a newer draft.
     private static func stageReview(_ db: Database, documentId: UUID, patientId: UUID, cards: [MatchedCard],
-                                    reviewedFields: [Int: [CandidateField]], now: Date) throws {
+                                    reviewedFields: [Int: [CandidateField]],
+                                    replacePendingCard: Bool = false, now: Date) throws {
         guard Set(cards.map(\.id)).count == cards.count,
               Set(cards.map { "\($0.pageIndex):\($0.kind)" }).count == cards.count else { throw StoreError.invalidPage }
         for card in cards {
@@ -431,7 +434,19 @@ public actor DocumentStore {
             guard existing.count <= 1 else { throw StoreError.reviewConflict }
             if let row = existing.first {
                 let pending = try PendingCardStore.decode(row)
-                guard pending.patientId == patientId, try pending.matchedCard() == card else { throw StoreError.reviewConflict }
+                guard pending.patientId == patientId else { throw StoreError.reviewConflict }
+                if try pending.matchedCard() != card {
+                    // 显式重新识别：新 OCR 卡替换同一 pending 卡的快照，卡/行 UUID
+                    // 由 App 层 reconcile 保持；已提交行由 upsert 的 mergeDraft 保留。
+                    // 普通复核仍拒绝，避免旧草稿覆盖新编辑。
+                    guard replacePendingCard else { throw StoreError.reviewConflict }
+                    let raw = try String.fetchOne(db, sql: "SELECT ocr_text FROM document_page WHERE document_file_id = ? AND page_index = ?",
+                                                  arguments: [documentId.uuidString, card.pageIndex]) ?? ""
+                    _ = try PendingCardStore.upsert(.init(patientId: patientId, sourceType: "ocr",
+                        sourceDocId: documentId, sourcePage: card.pageIndex, cardKind: card.kind,
+                        incompleteFields: [], partialData: .init(card: card), rawText: raw),
+                        db: db, now: now)
+                }
                 continue
             }
             let committed = Set(try String.fetchAll(db, sql: "SELECT row_id FROM ocr_card_commit WHERE card_id = ?",

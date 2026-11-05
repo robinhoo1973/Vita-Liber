@@ -196,6 +196,8 @@ final class DocumentsState {
         var existingDocumentId: UUID?
         var retainedMeta: [String: Any] = [:]
         var previousCards: [MatchedCard] = []
+        /// 显式「重新识别」：提交时允许用新 OCR 卡更新同一待核对卡（保留卡/行 UUID）。
+        var isReprocess = false
         /// 用户手选类型后是否已按该类型重跑理解层（避免 commit 重复抽取）。
         var manualTypeReextracted = false
         /// 2026-11-03 调参批：PP-OCRv6 rec 影子逐页诊断，按页号索引；
@@ -987,7 +989,7 @@ final class DocumentsState {
                     try await store.updateReview(id: existing, patientId: draft.patientId, docType: draft.docType,
                         isSensitive: draft.isSensitive, metaJSON: payload.metaJSON, ocrText: payload.ocrText,
                         grade: draft.allReviewed ? "C" : "D", pages: payload.pages, cards: review.all, reviewedFields: payload.reviewedFields,
-                        docTypeKey: persistedKey)
+                        docTypeKey: persistedKey, replacePendingCard: draft.isReprocess)
                     documentID = existing
                 } else {
                     documentID = try await store.save(patientId: draft.patientId, docType: draft.docType,
@@ -1182,6 +1184,7 @@ final class DocumentsState {
                 // 命中的旧卡内容不会丢失，旧 OCR 字段被新识别替换。
                 draft.previousCards = await pendingCardsForReprocess(
                     patientId: patientId, documentId: id)
+                draft.isReprocess = true
             }
             draft.existingDocumentId = id
             draft.retainedMeta = meta
