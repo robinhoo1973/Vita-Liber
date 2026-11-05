@@ -85,31 +85,26 @@ public enum ASRHardwarePolicy {
     /// 外部模型主轨的物理内存下限。低于此值不选外部模型（fail-closed），
     /// 由路由层回落到零资产 Apple 轨；避免 GB 级模型加载被 jetsam 终止。
     public static let externalModelMinimumPhysicalMemoryBytes: UInt64 = 4 * 1_024 * 1_024 * 1_024
-    /// 6GB 档分界（仅用于档位报告；4–6GB 与 6–8GB 都只允许 Apple 副源顺序执行）。
+    /// 6GB 档分界（仅用于档位报告）。
     public static let largeTierMinimumPhysicalMemoryBytes: UInt64 = 6 * 1_024 * 1_024 * 1_024
-    /// 三源并行的物理内存下限（业主裁决：8GB+ 才允许主轨 + Apple 中文 + Apple 英文并行）。
-    public static let parallelMinimumPhysicalMemoryBytes: UInt64 = 8 * 1_024 * 1_024 * 1_024
-    /// 并行时给两个 Apple 识别器/音频缓冲预留的额外内存。
-    /// 保守起点，须在 8GB 真机上用 jetsam 计数标定（L2）。
-    public static let parallelSourceHeadroomBytes: Int64 = 768 * 1_024 * 1_024
     /// 低存储水位（仅告警，不切换服务引擎的原因见 `ASRModelAdvice` 注释）。
     public static let minimumFreeStorageBytes: Int64 = 256 * 1_024 * 1_024
 }
 
-/// 物理内存档位（4GB/6GB/8GB 三档；未知按最保守的 compact 处理）。
+/// 物理内存档位（4GB/6GB 两档；未知按最保守的 compact 处理）。
+///
+/// 档位只描述**主轨外部模型**能否安全加载；Apple 第二/第三源在采集结束后才运行，
+/// 不参与「三源实时并行」编排（业主 2026-11-05 修正）。
 public enum ASRHardwareTier: String, Sendable, Equatable, Codable {
     /// < 4GB：不选外部模型（fail-closed）。
     case compact
-    /// 4GB–<6GB：外部模型可作主轨；Apple 第二/第三源只顺序执行。
+    /// 4GB–<6GB：外部模型可作主轨。
     case standard
-    /// 6GB–<8GB：外部模型可作主轨；Apple 第二/第三源仍只顺序执行。
+    /// >= 6GB：外部模型可作主轨（更大的内存余量，利于主轨预热）。
     case large
-    /// >= 8GB：满足热/电量/内存余量时允许三源并行。
-    case parallel
 
     public static func resolve(physicalMemoryBytes: UInt64?) -> ASRHardwareTier {
         guard let bytes = physicalMemoryBytes else { return .compact }
-        if bytes >= ASRHardwarePolicy.parallelMinimumPhysicalMemoryBytes { return .parallel }
         if bytes >= ASRHardwarePolicy.externalModelMinimumPhysicalMemoryBytes {
             return bytes >= ASRHardwarePolicy.largeTierMinimumPhysicalMemoryBytes ? .large : .standard
         }
@@ -167,16 +162,6 @@ public struct ASRModelRejection: Sendable, Equatable {
     }
 }
 
-/// Apple 第二/第三源顺序执行的原因（4–8GB 或热/电量受限时的安全回落）。
-public enum ASRSequentialReason: String, Sendable, Equatable, Codable {
-    case belowParallelHardwareTier
-    case thermalConstrained
-    case thermalUnknown
-    case lowPowerMode
-    case lowPowerModeUnknown
-    case insufficientMemoryForParallel
-}
-
 /// 无外部主轨时，Apple 零资产轨接管的分类原因。
 public enum ASRPrimaryOnlyReason: String, Sendable, Equatable, Codable {
     /// 目录没有任何模型声明覆盖该 locale（语言不支持；旧路由等价回落 `.classic`）。
@@ -187,13 +172,16 @@ public enum ASRPrimaryOnlyReason: String, Sendable, Equatable, Codable {
     case hardwareIneligible
 }
 
-/// 主轨 + Apple 第二/第三源的执行编排。
+/// 主轨与 Apple 第二/第三源的执行编排。
+///
+/// 业主 2026-11-05 修正：**没有三源实时并行要求**。主轨在按压期间实时识别；
+/// 松手后若存在录音缓冲，再把同一段音频交给 Apple 中文（zh-CN）、Apple 英文（en-US）
+/// 做文件识别，结果作为第二/第三假设参与文本后处理。
 public enum ASRExecutionMode: Sendable, Equatable {
-    /// 主轨 + Apple 中文 + Apple 英文并行（仅 8GB+ 且热/电量/内存余量允许）。
-    case parallelThreeSources
-    /// 主轨先跑，Apple 中文、Apple 英文随后顺序执行（4–8GB 或受限状态的保守回落）。
-    case sequentialAppleSecondaries(reason: ASRSequentialReason)
-    /// 没有可用的外部主轨：由路由层回落到平台/基线 Apple 轨；不启动三源对照。
+    /// 主轨实时识别；采集结束后运行 Apple 第二/第三源（是否需要音频由运行时决定）。
+    case appleSecondariesAfterCapture
+    /// 没有可用的外部主轨：由路由层回落到平台/基线 Apple 轨。采集后仍可运行另一语种
+    /// 的 Apple 文件识别；同源同语种副源由运行时 plan 自动跳过。
     case primaryOnly(reason: ASRPrimaryOnlyReason)
 }
 
@@ -203,7 +191,7 @@ public enum ASRAdviceWarning: String, Sendable, Hashable, Codable {
     /// 可用存储低于水位：提示用户清理；**不切换服务引擎**（已安装模型不因剩余空间少而失效，
     /// 静默换引擎会违反「不静默换语言/引擎」合同）。
     case lowFreeStorage
-    /// 热状态 serious/critical：只关闭并行，不切换主轨。
+    /// 热状态 serious/critical：只提示，不切换主轨，也不改写采集后的 Apple 副源编排。
     case thermalConstrained
     case lowPowerMode
     /// 主轨可加载但预热余量不足（tight）：按压时再载。
@@ -330,8 +318,8 @@ public enum ASRModelAdvisor {
 
         let primary = ranked.first
         let execution: ASRExecutionMode
-        if let primary {
-            execution = executionMode(primary: primary, tier: tier, hardware: hardware)
+        if primary != nil {
+            execution = .appleSecondariesAfterCapture
         } else {
             let reason: ASRPrimaryOnlyReason
             if !hasExpressible { reason = .noExpressibleCatalogCandidate }
@@ -351,33 +339,4 @@ public enum ASRModelAdvisor {
             hasExpressibleCatalogCandidate: hasExpressible)
     }
 
-    private static func executionMode(primary: ASRModelCandidate, tier: ASRHardwareTier,
-                                      hardware: ASRHardwareFacts) -> ASRExecutionMode {
-        guard tier == .parallel else {
-            return .sequentialAppleSecondaries(reason: .belowParallelHardwareTier)
-        }
-        switch hardware.thermal {
-        case .serious, .critical:
-            return .sequentialAppleSecondaries(reason: .thermalConstrained)
-        case .unknown:
-            // 热探针不可用：并行是可选加速，未知按不安全处理。
-            return .sequentialAppleSecondaries(reason: .thermalUnknown)
-        case .nominal, .fair:
-            break
-        }
-        switch hardware.lowPowerMode {
-        case .some(true): return .sequentialAppleSecondaries(reason: .lowPowerMode)
-        case .none: return .sequentialAppleSecondaries(reason: .lowPowerModeUnknown)
-        case .some(false): break
-        }
-        guard let available = hardware.availableMemoryBytes else {
-            return .sequentialAppleSecondaries(reason: .insufficientMemoryForParallel)
-        }
-        let modelPeak = ModelMemoryBudget.peakBytes(modelBytes: primary.installedBytes)
-        guard available >= modelPeak,
-              available - modelPeak >= ASRHardwarePolicy.parallelSourceHeadroomBytes else {
-            return .sequentialAppleSecondaries(reason: .insufficientMemoryForParallel)
-        }
-        return .parallelThreeSources
-    }
 }

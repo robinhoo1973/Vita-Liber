@@ -38,7 +38,7 @@ struct ASRModelAdvisorTests {
         #expect(advice.primary?.choice == .qwen3)
         #expect(advice.primary?.catalogPosition == 0)
         #expect(advice.ranked.map(\.choice) == [.qwen3, .zipformer, .dolphin])
-        #expect(advice.execution == .parallelThreeSources)
+        #expect(advice.execution == .appleSecondariesAfterCapture)
         #expect(advice.hasExpressibleCatalogCandidate)
     }
 
@@ -67,30 +67,30 @@ struct ASRModelAdvisorTests {
         #expect(advice.rejected.contains { $0.reason == .notInstalled && $0.requiresUserInitiatedDownload })
     }
 
-    @Test func fourGiBAllowsExternalModelButOnlySequentialAppleSources() {
+    @Test func fourGiBAllowsExternalModelAndPostCaptureAppleSources() {
         let advice = ASRModelAdvisor.advise(
             locale: "zh-Hans-CN", hardware: Self.facts(physicalGiB: 4, availableGiB: 3),
             installed: Self.installed([.zipformer]), index: Self.index)
         #expect(advice.hardwareTier == .standard)
         #expect(advice.primary?.choice == .zipformer)
-        #expect(advice.execution == .sequentialAppleSecondaries(reason: .belowParallelHardwareTier))
+        #expect(advice.execution == .appleSecondariesAfterCapture)
     }
 
-    @Test func sixGiBIsLargeTierStillSequential() {
+    @Test func sixGiBIsLargeTierAndStillPostCapture() {
         let advice = ASRModelAdvisor.advise(
             locale: "zh-Hans-CN", hardware: Self.facts(physicalGiB: 6, availableGiB: 5),
             installed: Self.installed([.zipformer]), index: Self.index)
         #expect(advice.hardwareTier == .large)
         #expect(advice.primary?.choice == .zipformer)
-        #expect(advice.execution == .sequentialAppleSecondaries(reason: .belowParallelHardwareTier))
+        #expect(advice.execution == .appleSecondariesAfterCapture)
     }
 
-    @Test func eightGiBWithHeadroomAllowsParallelThreeSources() {
+    @Test func eightGiBIsLargeTierAndStillPostCapture() {
         let advice = ASRModelAdvisor.advise(
             locale: "zh-Hans-CN", hardware: Self.facts(physicalGiB: 8, availableGiB: 8),
             installed: Self.installed([.zipformer]), index: Self.index)
-        #expect(advice.hardwareTier == .parallel)
-        #expect(advice.execution == .parallelThreeSources)
+        #expect(advice.hardwareTier == .large)
+        #expect(advice.execution == .appleSecondariesAfterCapture)
     }
 
     @Test func belowFourGiBIsCompactAndFailClosed() {
@@ -200,20 +200,20 @@ struct ASRModelAdvisorTests {
         #expect(advice.warnings.contains(.lowFreeStorage))
     }
 
-    @Test func thermalPressureDisablesParallelOnly() {
+    @Test func thermalPressureWarnsWithoutChangingPostCapturePlan() {
         let advice = ASRModelAdvisor.advise(
             locale: "zh-Hans-CN", hardware: Self.facts(thermal: .serious),
             installed: Self.installed([.zipformer]), index: Self.index)
         #expect(advice.primary?.choice == .zipformer)
-        #expect(advice.execution == .sequentialAppleSecondaries(reason: .thermalConstrained))
+        #expect(advice.execution == .appleSecondariesAfterCapture)
         #expect(advice.warnings.contains(.thermalConstrained))
     }
 
-    @Test func unknownLowPowerModeDisablesParallel() {
+    @Test func unknownLowPowerModeDoesNotChangePostCapturePlan() {
         let advice = ASRModelAdvisor.advise(
             locale: "zh-Hans-CN", hardware: Self.facts(lowPower: nil),
             installed: Self.installed([.zipformer]), index: Self.index)
-        #expect(advice.execution == .sequentialAppleSecondaries(reason: .lowPowerModeUnknown))
+        #expect(advice.execution == .appleSecondariesAfterCapture)
     }
 
     @Test func appleSourcesAreFixedSecondAndThird() {
