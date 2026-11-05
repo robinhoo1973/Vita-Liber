@@ -222,6 +222,12 @@ struct AppRootView: View {
         } else {
             _ = await (seed, reconcile, backfill)
         }
+        // 启动预载：后台执行，不阻塞启动/门禁；设置已加载，硬件/安装过滤在
+        // advisor，warmUp 只对已安装资产生效（不联网、不下载、不采音）。
+        Task(priority: .utility) { @MainActor in
+            await ASRStartupPreload.run(engine: appState.transcriptionEngine,
+                                        settings: settingsStore)
+        }
     }
 
     /// scenePhase 状态机（body 提取：FR1.4 退后台即锁 / FR1.7 宽限锁 /
