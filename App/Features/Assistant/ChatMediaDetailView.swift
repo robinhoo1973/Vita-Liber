@@ -1,6 +1,7 @@
 import SwiftUI
 import Domain
 import Infrastructure
+import Protocols
 import Perception
 
 /// 聊天媒体详情（2026-10-29 批三 · mock v4 对照落地；2026-10-30 业主五点复核后）。
