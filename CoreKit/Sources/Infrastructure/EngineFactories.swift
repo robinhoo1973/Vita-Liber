@@ -104,11 +104,7 @@ public enum TranscriptionEngineBuilder {
 
     public static func advice(locales: [String],
                               mode: TranscriptionLanguageMode = .single) -> ASRModelAdvice {
-        let index = ASRFamilyIndexStore.routingIndex()
-        let inputs = ASRAdvisorInputsProbe.capture(index: index)
-        return ASRModelAdvisor.advise(locales: locales, mode: mode,
-                                      hardware: inputs.hardware,
-                                      installed: inputs.installed, index: index)
+        advice(locales: locales, mode: mode, hardware: ASRAdvisorInputsProbe.hardwareFacts())
     }
 
     /// 调用方已取过硬件事实时复用，避免启动预载重复做磁盘/内存/热/低电探针。

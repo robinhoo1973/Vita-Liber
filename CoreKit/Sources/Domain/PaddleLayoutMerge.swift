@@ -38,7 +38,6 @@ public enum PaddleLayoutMerge {
         /// 逐块来源（诊断用）：与 `layout.blocks` 等长；nil = 该块保留 Vision 原文。
         public var blockPaddleText: [String?]
         public var blockPaddleConfidence: [Double?]
-        public var blockPaddleBBox: [LayoutRect?]
         /// 每块消费的 Paddle 行原始框（逐行，不合并）；诊断按单行框查裁剪/rec 指标。
         public var blockPaddleRects: [[LayoutRect]]
         public var blockVisionText: [String]
@@ -47,14 +46,13 @@ public enum PaddleLayoutMerge {
 
         public init(lines: [String], layout: PageLayout, replaced: Int, keptVision: Int,
                     appended: Int, consumed: Int, blockPaddleText: [String?],
-                    blockPaddleConfidence: [Double?], blockPaddleBBox: [LayoutRect?],
+                    blockPaddleConfidence: [Double?],
                     blockPaddleRects: [[LayoutRect]], blockVisionText: [String],
                     visionPageConfidence: Double? = nil) {
             self.lines = lines; self.layout = layout; self.replaced = replaced
             self.keptVision = keptVision; self.appended = appended; self.consumed = consumed
             self.blockPaddleText = blockPaddleText
             self.blockPaddleConfidence = blockPaddleConfidence
-            self.blockPaddleBBox = blockPaddleBBox
             self.blockPaddleRects = blockPaddleRects
             self.blockVisionText = blockVisionText
             self.visionPageConfidence = visionPageConfidence
@@ -97,7 +95,6 @@ public enum PaddleLayoutMerge {
                           consumed: blocks.count,
                           blockPaddleText: blocks.map(\.text),
                           blockPaddleConfidence: blocks.map(\.confidence),
-                          blockPaddleBBox: blocks.map(\.bbox),
                           blockPaddleRects: ordered.map { [$0.bbox] },
                           blockVisionText: blocks.map { _ in "" },
                           visionPageConfidence: nil)
@@ -112,7 +109,6 @@ public enum PaddleLayoutMerge {
         var keptVision = 0
         var blockPaddleText: [String?] = []
         var blockPaddleConfidence: [Double?] = []
-        var blockPaddleBBox: [LayoutRect?] = []
         var blockPaddleRects: [[LayoutRect]] = []
         var blockVisionText: [String] = []
 
@@ -151,12 +147,10 @@ public enum PaddleLayoutMerge {
             if inside.isEmpty {
                 blockPaddleText.append(nil)
                 blockPaddleConfidence.append(nil)
-                blockPaddleBBox.append(nil)
                 blockPaddleRects.append([])
             } else {
-                blockPaddleText.append(TranscriptJoiner.join(orderedInside.map { usable[$0].text }))
+                blockPaddleText.append(text)
                 blockPaddleConfidence.append(confidence)
-                blockPaddleBBox.append(LayoutRect.union(of: orderedInside.map { usable[$0].bbox }))
                 blockPaddleRects.append(orderedInside.map { usable[$0].bbox })
             }
             blockVisionText.append(visionText)
@@ -171,7 +165,6 @@ public enum PaddleLayoutMerge {
             let line = usable[index]
             blockPaddleText.append(line.text)
             blockPaddleConfidence.append(line.confidence)
-            blockPaddleBBox.append(line.bbox)
             blockPaddleRects.append([line.bbox])
             blockVisionText.append("")
             blocks.append(TextBlock(text: line.text, bbox: line.bbox,
@@ -200,7 +193,6 @@ public enum PaddleLayoutMerge {
                       consumed: claimed.count + orderedLeftovers.count,
                       blockPaddleText: blockPaddleText,
                       blockPaddleConfidence: blockPaddleConfidence,
-                      blockPaddleBBox: blockPaddleBBox,
                       blockPaddleRects: blockPaddleRects,
                       blockVisionText: blockVisionText,
                       visionPageConfidence: visionPageConfidence)
