@@ -9,9 +9,9 @@ public enum OCRRecognizerFactory: EngineFactory {
     public static var onDeviceOnly: Bool { true }
     public static func make(_ context: EngineContext) -> any ImageTextRecognizing {
         #if os(iOS) || os(macOS)
-        // 2026-11-03 调参批：Vision 仍是唯一生产输出；PP-OCRv6 rec 影子
-        // 只在模型就绪时生成对照诊断，失败/缺件自动退回 Vision。
-        PaddleRecShadowRecognizer(primary: VisionImageRecognizer())
+        // 2026-11-04 业主裁决：PP-OCRv6 det+rec 为主轨（内置资产），
+        // Vision 为副轨（版式/表格 + 兜底），缺件或失败整体回退 Vision。
+        PaddlePrimaryRecognizer(secondary: VisionImageRecognizer())
         #else
         // Linux 包测试：契约桩（EAL 注册表验收经 registerDefaultEngines 全量装配）
         StubImageTextRecognizer(scripted: .init(lines: [], confidence: 0))
