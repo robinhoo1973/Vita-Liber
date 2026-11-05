@@ -334,6 +334,13 @@ extension L10n {
 
     static var asrModelDownload: String { t("asr.model.download") }
 
+    // 启动推荐卡（2026-11-05 业主：按硬件推荐，显式同意后才联网下载）
+    static var asrStartupOfferTitle: String { t("asr.startupOffer.title") }
+    static func asrStartupOfferMessage(name: String, size: String) -> String {
+        String(format: t("asr.startupOffer.message"), name, size)
+    }
+    static var asrStartupOfferLater: String { t("asr.startupOffer.later") }
+
     static var asrModelVariantTitle: String { t("asr.model.variantTitle") }
     /// 切换档位提示(业主 2026-10-05 裁定:每家族最多保留一个已装档,切回需重下)。
     static var asrModelVariantReplaces: String { t("asr.model.variantReplaces") }

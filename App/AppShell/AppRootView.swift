@@ -17,6 +17,7 @@ struct AppRootView: View {
     @Environment(AppRouter.self) private var router
     @Environment(F16DeviceState.self) private var deviceState
     @Environment(DocumentExportState.self) private var exportState
+    @Environment(ASRInstallCenter.self) private var installCenter
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var systemDynamicType
 
@@ -41,6 +42,9 @@ struct AppRootView: View {
     @State private var graceDeadline: Date?
     /// 场景方向感知（区分「离开应用」与「返回应用」的 inactive）
     @State private var previousPhase: ScenePhase = .active
+    /// 2026-11-05 业主：启动按硬件推荐 ASR 模型；只有用户点「下载模型」才联网。
+    @State private var asrStartupOffer: ASRStartupOffer?
+    @AppStorage("asrStartupOfferDeferredUntil") private var asrOfferDeferredUntil: Double = 0
 
     var body: some View {
         WithPerceptionTracking {
@@ -101,6 +105,21 @@ struct AppRootView: View {
             // privacySensitive 让系统在非 active 相位对快照做隐私遮罩（redact），
             // 与宽限锁独立：不改变宽限锁的正式锁定时刻，只遮快照。
             .privacySensitive(scenePhase != .active)
+            .alert(L10n.asrStartupOfferTitle,
+                   isPresented: Binding(get: { asrStartupOffer != nil },
+                                        set: { if !$0 { asrStartupOffer = nil } }),
+                   presenting: asrStartupOffer) { offer in
+                Button(L10n.asrModelDownload) {
+                    installCenter.start(offer.release, baseURL: offer.baseURL)
+                    asrStartupOffer = nil
+                }
+                Button(L10n.asrStartupOfferLater, role: .cancel) {
+                    asrOfferDeferredUntil = Date().addingTimeInterval(7 * 24 * 60 * 60).timeIntervalSince1970
+                    asrStartupOffer = nil
+                }
+            } message: { offer in
+                Text(L10n.asrStartupOfferMessage(name: offer.displayName, size: offer.sizeText))
+            }
             // FR14.4 主题注入（tech-spec §5.28.1）：nil = 跟随系统；@Observable 读值即时生效
             .preferredColorScheme(currentTheme.colorScheme)
             // FR14.4 高对比度初始实现 = 环境对比度增强（§5.28.1 记录为偏差：HC Token 集归 L2）
@@ -227,6 +246,20 @@ struct AppRootView: View {
         Task(priority: .utility) { @MainActor in
             await ASRStartupPreload.run(engine: appState.transcriptionEngine,
                                         settings: settingsStore)
+        }
+        // 启动推荐（2026-11-05 业主）：auto 档且本机无可加载外部主轨时，按硬件推荐
+        // 一个已发布模型；只弹确认，用户点「下载模型」才联网。7 天内点「稍后」不再打扰。
+        if appState.onboardingFinished,
+           Date().timeIntervalSince1970 >= asrOfferDeferredUntil {
+            let engineRaw = settingsStore.values[.voiceEngine]
+            let languagesRaw = settingsStore.values[.voiceInputLanguages]
+            let offer = await Task.detached(priority: .utility) {
+                ASRStartupOfferProbe.recommendation(engineRaw: engineRaw,
+                                                    languagesRaw: languagesRaw)
+            }.value
+            if let offer, appState.onboardingFinished, asrStartupOffer == nil {
+                asrStartupOffer = offer
+            }
         }
     }
 

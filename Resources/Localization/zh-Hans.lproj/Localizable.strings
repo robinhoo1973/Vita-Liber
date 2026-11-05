@@ -2169,6 +2169,9 @@
 "asr.missingAssets" = "此构建的模型资源缺失或不完整";
 "asr.downloadable" = "尚未下载：下载后即可离线使用";
 "asr.model.download" = "下载模型";
+"asr.startupOffer.title" = "下载语音识别模型";
+"asr.startupOffer.message" = "检测到适合本机的离线模型 %@（%@）。下载后可离线识别，音频不上传。";
+"asr.startupOffer.later" = "稍后";
 "asr.model.variantTitle" = "模型大小";
 "asr.model.variantSmall" = "小";
 "asr.model.variantMedium" = "中";

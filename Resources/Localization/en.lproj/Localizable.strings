@@ -2169,6 +2169,9 @@
 "asr.missingAssets" = "Model resources in this build are missing or incomplete";
 "asr.downloadable" = "Not downloaded yet — download it to use offline";
 "asr.model.download" = "Download model";
+"asr.startupOffer.title" = "Download a speech model";
+"asr.startupOffer.message" = "An offline model for this device is available: %@ (%@). Download it to recognize speech offline; audio is never uploaded.";
+"asr.startupOffer.later" = "Later";
 "asr.model.variantTitle" = "Model size";
 "asr.model.variantSmall" = "Small";
 "asr.model.variantMedium" = "Medium";

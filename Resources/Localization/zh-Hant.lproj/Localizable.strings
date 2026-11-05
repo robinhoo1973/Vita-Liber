@@ -2169,6 +2169,9 @@
 "asr.missingAssets" = "此組建的模型資源缺失或不完整";
 "asr.downloadable" = "尚未下載：下載後即可離線使用";
 "asr.model.download" = "下載模型";
+"asr.startupOffer.title" = "下載語音辨識模型";
+"asr.startupOffer.message" = "偵測到適合本機的離線模型 %@（%@）。下載後可離線辨識，音訊不上傳。";
+"asr.startupOffer.later" = "稍後";
 "asr.model.variantTitle" = "模型大小";
 "asr.model.variantSmall" = "小";
 "asr.model.variantMedium" = "中";
