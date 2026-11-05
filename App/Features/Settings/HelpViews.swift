@@ -35,10 +35,6 @@ private enum AuthorizationStatusLabel {
 /// F22 帮助中心入口：按功能提供诊断工具、教程、FAQ 和关于页。
 struct HelpRootView: View {
     @Environment(AppState.self) private var app
-    @Environment(DocumentExportState.self) private var exportState
-    /// 2026-11-03 安全复审：OCR 影子调参默认关闭；只有显式开启才写诊断日志。
-    @AppStorage(OCRShadowDiagnostics.defaultsKey) private var ocrShadowEnabled = false
-    @State private var showOcrShadowConsent = false
 
     var body: some View {
         WithPerceptionTracking {
@@ -76,38 +72,6 @@ struct HelpRootView: View {
                     Text(L10n.helpDiagSystem)
                 } footer: {
                     Text(L10n.helpDiagSystemHint)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
-                    Toggle(isOn: Binding(
-                        get: { ocrShadowEnabled },
-                        set: { enabled in
-                            if enabled {
-                                // 单次点按不构成 PHI 出界同意：先确认，取消即保持关闭。
-                                showOcrShadowConsent = true
-                            } else {
-                                ocrShadowEnabled = false
-                                Task { await exportState.removeAllDebugLogs() }
-                            }
-                        })) {
-                        Label(L10n.helpOcrShadowToggle, systemImage: "doc.text.magnifyingglass")
-                    }
-                    .accessibilityHint(L10n.helpOcrShadowHint)
-                    .accessibilityIdentifier("FR22.2.ocrShadowDiagnostics")
-                    .alert(L10n.helpOcrShadowTitle, isPresented: $showOcrShadowConsent) {
-                        Button(L10n.helpOcrShadowConfirm, role: .destructive) {
-                            ocrShadowEnabled = true
-                        }
-                        Button(L10n.commonCancel, role: .cancel) {}
-                    } message: {
-                        Text(L10n.helpOcrShadowHint)
-                    }
-                } header: {
-                    Text(L10n.helpOcrShadowTitle)
-                } footer: {
-                    Text(L10n.helpOcrShadowHint)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -360,6 +324,11 @@ struct HelpDataHealth: View {
 
 /// F22 关于页（FR22.8）：版本三部件 + 开源许可 + 法律声明 + 产品定位。
 struct HelpAboutView: View {
+    @Environment(DocumentExportState.self) private var exportState
+    /// 2026-11-05 业主：识别调参诊断开关移到「关于」页（原帮助中心根页）。
+    @AppStorage(OCRShadowDiagnostics.defaultsKey) private var ocrShadowEnabled = false
+    @State private var showOcrShadowConsent = false
+
     /// 三部件版本（FR22.8）：Version <GitHub Release> Build <CI 构建序号> Code Hash <提交哈希>
     private var buildInfo: String {
         let info = Bundle.main.infoDictionary
@@ -378,6 +347,37 @@ struct HelpAboutView: View {
                         .accessibilityIdentifier("SP-48.about.version")
                     Text(L10n.help_tagline)
                 }
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { ocrShadowEnabled },
+                        set: { enabled in
+                            if enabled {
+                                showOcrShadowConsent = true
+                            } else {
+                                ocrShadowEnabled = false
+                                Task { await exportState.removeAllDebugLogs() }
+                            }
+                        })) {
+                        Label(L10n.helpOcrShadowToggle, systemImage: "doc.text.magnifyingglass")
+                    }
+                    .accessibilityHint(L10n.helpOcrShadowHint)
+                    .accessibilityIdentifier("SP-48.about.ocrShadowDiagnostics")
+                    .alert(L10n.helpOcrShadowTitle, isPresented: $showOcrShadowConsent) {
+                        Button(L10n.helpOcrShadowConfirm, role: .destructive) {
+                            ocrShadowEnabled = true
+                        }
+                        Button(L10n.commonCancel, role: .cancel) {}
+                    } message: {
+                        Text(L10n.helpOcrShadowHint)
+                    }
+                } header: {
+                    Text(L10n.helpOcrShadowTitle)
+                } footer: {
+                    Text(L10n.helpOcrShadowHint)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 Section(L10n.helpLegalSection) {
                     Text(L10n.help_disclaimer)
                         .font(.footnote)
