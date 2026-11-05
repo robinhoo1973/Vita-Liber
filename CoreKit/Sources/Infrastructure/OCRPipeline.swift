@@ -130,16 +130,14 @@ public struct OCRPipeline: Sendable {
             }
             let bbox = Self.unionBBox(sources.map(\.bbox))
             let visionTexts = sources.map(\.visionText).filter { !$0.isEmpty }
-            let rawPaddleTexts = sources.compactMap(\.rawPaddleText).filter { !$0.isEmpty }
-            let cnocrTexts = sources.compactMap(\.cnocrText).filter { !$0.isEmpty }
             let paddleTexts = sources.map(\.paddleText).filter { !$0.isEmpty }
             let paddleSet = sources.filter { !$0.paddleText.isEmpty }
             let errors = sources.compactMap(\.error)
             lines.append(.init(
                 lineIndex: newIndex, bbox: bbox, visionText: TranscriptJoiner.join(visionTexts),
                 paddleText: TranscriptJoiner.join(paddleTexts),
-                rawPaddleText: rawPaddleTexts.isEmpty ? nil : TranscriptJoiner.join(rawPaddleTexts),
-                cnocrText: cnocrTexts.isEmpty ? nil : TranscriptJoiner.join(cnocrTexts),
+                rawPaddleText: TranscriptJoiner.joinNonEmpty(sources.map(\.rawPaddleText)),
+                cnocrText: TranscriptJoiner.joinNonEmpty(sources.map(\.cnocrText)),
                 visionConfidence: sources.map(\.visionConfidence).reduce(0, +) / Double(sources.count),
                 paddleConfidence: paddleSet.isEmpty ? 0
                     : paddleSet.map(\.paddleConfidence).reduce(0, +) / Double(paddleSet.count),
@@ -150,11 +148,12 @@ public struct OCRPipeline: Sendable {
                 latencyMs: sources.map(\.latencyMs).reduce(0, +),
                 error: errors.isEmpty ? nil : errors.joined(separator: "; ")))
         }
-        return OCRDebugTrace(pageIndex: trace.pageIndex, model: trace.model, modelSHA256: trace.modelSHA256,
-                             detModel: trace.detModel, detModelSHA256: trace.detModelSHA256,
-                             thirdModel: trace.thirdModel, thirdModelSHA256: trace.thirdModelSHA256,
-                             engine: trace.engine, totalLatencyMs: trace.totalLatencyMs,
-                             lines: notes + lines)
+        // 值语义：整体复制后只替换 lines。逐字段重建会静默丢掉未列出的页面级字段
+        // （schema v3 的 thirdModel/thirdModelSHA256 已丢过一次，本函数也没转发
+        // schemaVersion），且漏字段既无编译错误也无测试失败。
+        var remapped = trace
+        remapped.lines = notes + lines
+        return remapped
     }
 
     private static func unionBBox(_ boxes: [[Double]]) -> [Double] {

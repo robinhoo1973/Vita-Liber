@@ -31,4 +31,11 @@ public enum TranscriptJoiner {
         }
         return output
     }
+
+    /// 拼接可选证据段：nil 与空段一律丢弃；全部为空/缺失时返回 nil（不是 ""）。
+    /// 调试轨迹用 nil 表示「没有该引擎的证据」，与「证据恰好是空串」区分。
+    public static func joinNonEmpty(_ segments: [String?]) -> String? {
+        let joined = join(segments.compactMap { $0 })
+        return joined.isEmpty ? nil : joined
+    }
 }
