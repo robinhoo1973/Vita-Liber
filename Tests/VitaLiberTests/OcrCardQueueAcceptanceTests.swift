@@ -118,6 +118,36 @@ final class OcrCardQueueAcceptanceTests: XCTestCase {
         return card
     }
 
+    /// 重新识别必须复用既有待核对卡的 UUID：否则 `OCRCardStore.reviewState`
+    /// 以 pendingIdentityMismatch 拒绝，保存只会报「资料导入失败」。
+    func test_reprocessReusesPendingCardIdentityAndCommits() async throws {
+        let f = try await fixture(pages: [lab])
+        let draft = try await imageDraft(f)
+        XCTAssertTrue(await f.docs.commitDraft(draft))
+        let documentID = try XCTUnwrap(f.docs.activeImport?.source?.documentId)
+        let before = try await f.pending.list(patientId: f.patient)
+            .filter { $0.sourceDocId == documentID }
+        XCTAssertFalse(before.isEmpty, "first commit must stage at least one pending card")
+
+        // 新的 DocumentsState：模拟离开复核页后从聊天详情重新识别（无 in-flight 会话）。
+        let docs2 = DocumentsState(
+            store: f.documents,
+            pipeline: OCRPipeline(recognizer: PageRecognizer(pages: [lab], confidence: 0.9),
+                                  grayscaleDecoder: GrayscaleImageDecoder()),
+            decoder: PDFKitDecoder(), originalsDir: f.directory,
+            understandingEngine: NLTextUnderstanding(), pendingCards: f.pending,
+            scheduler: f.scheduler, cardStore: OCRCardStore(writer: f.database.writer))
+        let reprocessed = try XCTUnwrap(await docs2.prepareStoredDocument(
+            id: documentID, patientId: f.patient, reuseSnapshot: false))
+        XCTAssertEqual(Set(reprocessed.previousCards.map(\.id)),
+                       Set(before.compactMap { UUID(uuidString: $0.id) }))
+        XCTAssertTrue(await docs2.commitDraft(reprocessed))
+        let after = try await f.pending.list(patientId: f.patient)
+            .filter { $0.sourceDocId == documentID }
+        XCTAssertEqual(Set(after.map(\.id)), Set(before.map(\.id)),
+                       "reprocess must keep pending card identities")
+    }
+
     func test_documentPagesArePersistedWithFailedPlaceholder() async throws {
         let f = try await fixture(pages: [[]])
         let documentID = try await f.documents.save(patientId: f.patient, docType: "Report", sha256: "pdf:pages",

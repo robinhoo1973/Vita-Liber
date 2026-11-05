@@ -381,9 +381,18 @@ public actor DocumentStore {
                                  Date().timeIntervalSince1970, docTypeKey, id.uuidString, patientId.uuidString])
             if previousPages != orderedPages {
                 if receiptCount == 0 {
-                    // Existing page identities survive; omitted/changed historical pages are not silently erased.
-                    guard previousPages.allSatisfy({ old in orderedPages.contains { $0.index == old.index && $0.text == old.text } }) else {
-                        throw StoreError.invalidPage
+                    // 无提交凭据时允许「重新识别」改写既有页文本；页面身份
+                    //（index）仍不得消失——缺页仍拒绝，避免静默蒸发。
+                    guard previousPages.allSatisfy({ old in
+                        orderedPages.contains { $0.index == old.index }
+                    }) else { throw StoreError.invalidPage }
+                    for page in orderedPages {
+                        guard let old = previousPages.first(where: { $0.index == page.index }),
+                              old.text != page.text || old.status != page.status else { continue }
+                        try db.execute(sql: """
+                            UPDATE document_page SET ocr_text = ?, status = ?
+                            WHERE document_file_id = ? AND page_index = ?
+                            """, arguments: [page.text, page.status, id.uuidString, page.index])
                     }
                 }
                 for page in orderedPages where !previousPages.contains(where: { $0.index == page.index }) {

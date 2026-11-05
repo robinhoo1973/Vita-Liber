@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
+import os
 import Domain
 import Infrastructure
 import Protocols
@@ -10,6 +11,7 @@ import Perception
 @MainActor
 @Perceptible
 final class DocumentsState {
+    private let logger = Logger(subsystem: "com.vitaliber", category: "documents")
     private(set) var documents: [DocumentStore.DocumentRow] = []
     private(set) var pendingDocuments: [DocumentStore.DocumentRow] = []
     private(set) var lastImportError: String?
@@ -1027,6 +1029,9 @@ final class DocumentsState {
             finishEntityQueueIfNeeded()
             return true
         } catch {
+            // 泛化文案对用户可见；底层错误只进日志，供 5WHY 定位（reviewConflict /
+            // pendingIdentityMismatch / invalidPage 的处置完全不同）。
+            logger.error("导入提交失败: \(String(describing: error), privacy: .public)")
             session.errorMessage = L10n.docImportFailed; lastImportError = session.errorMessage
             return false
         }
@@ -1170,6 +1175,13 @@ final class DocumentsState {
             } else {
                 guard let prepared = await prepare(input, in: session, checkDuplicates: false) else { return nil }
                 draft = prepared
+                // 重新识别：新 OCR 卡的 UUID 必须继承既有待核对卡，否则
+                // `OCRCardStore.reviewState` 以 pendingIdentityMismatch 拒绝，
+                // 用户只看到「资料导入失败」。reconcileCards 会按
+                // (pageIndex, kind, rawText) 复用旧 id/行 id/用户已改值；
+                // 命中的旧卡内容不会丢失，旧 OCR 字段被新识别替换。
+                draft.previousCards = await pendingCardsForReprocess(
+                    patientId: patientId, documentId: id)
             }
             draft.existingDocumentId = id
             draft.retainedMeta = meta
@@ -1178,6 +1190,26 @@ final class DocumentsState {
         } catch {
             session.errorMessage = L10n.sensitiveMedia_loadFailed; lastImportError = session.errorMessage
             return nil
+        }
+    }
+
+    /// 重新识别前读取同一文档的全部待核对卡（含已 resolved/archived 的旧身份）。
+    ///
+    /// 只用于把旧 `MatchedCard` 传给 `reconcileCards` 复用卡/行 UUID；任何读取失败
+    /// 返回空（重新识别仍可继续，只是可能退回新 UUID——save 时若与旧 pending 冲突
+    /// 会由 `reviewState` 拒绝，绝不静默覆盖用户已提交行）。
+    private func pendingCardsForReprocess(patientId: UUID, documentId: UUID) async -> [MatchedCard] {
+        guard let pendingCardStore else { return [] }
+        do {
+            let cards = try await pendingCardStore.list(
+                patientId: patientId,
+                statuses: ["pending", "in_progress", "expired", "resolved", "archived"])
+            return cards.compactMap { card in
+                guard card.sourceType == "ocr", card.sourceDocId == documentId else { return nil }
+                return try? card.matchedCard()   // try?-ok: 损坏的旧卡不阻断重新识别
+            }
+        } catch {
+            return []
         }
     }
 
