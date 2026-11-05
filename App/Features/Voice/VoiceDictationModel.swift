@@ -285,8 +285,16 @@ final class VoiceDictationModel {
             try Task.checkCancellation()
             // 业主 2026-11-05 裁决：生产保守选择器（两副源同键才替换；数字/单位/否定/极性保护）。
             // 只改交付文本，不改 hypotheses；仍为 D 级草稿，BR-003/004/006 不变。
-            outcome = .success(TranscriptionConsensusSelector.select(
-                result, policy: HypothesisFusionMedicalPolicy.standard))
+            // 分词/对齐是 CPU 密集（词表+拼音缓存+DP）：单假设无副源直接跳过；
+            // 有副源时移到后台，避免在主线程上卡住交付与急救扫描。
+            if result.hypotheses.count <= 1 {
+                outcome = .success(result)
+            } else {
+                let policy = HypothesisFusionMedicalPolicy.standard
+                outcome = .success(await Task.detached(priority: .userInitiated) {
+                    TranscriptionConsensusSelector.select(result, policy: policy)
+                }.value)
+            }
         } catch {
             outcome = .failure(error)
         }

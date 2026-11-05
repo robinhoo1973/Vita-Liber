@@ -221,8 +221,9 @@ enum RecognitionDebugRecorder {
                 if lineIndex >= 0, lineIndex < pageLines.count {
                     delivered.append(pageLines[lineIndex])
                 } else {
-                    // 交付行缺失（不应发生）：退回主轨原文，至少保持与 segments 对齐。
-                    delivered.append(segment.hypotheses.first?.text ?? "")
+                    // 交付行缺失（不应发生）：退回首个非空假设原文（Paddle 兜底行
+                    // 的主轨文本为空，实际交付是 Vision 副轨），保持与 segments 对齐。
+                    delivered.append(segment.hypotheses.first { !$0.text.isEmpty }?.text ?? "")
                 }
             }
         }
