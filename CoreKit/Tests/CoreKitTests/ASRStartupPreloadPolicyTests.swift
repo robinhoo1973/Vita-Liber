@@ -19,7 +19,7 @@ struct ASRStartupPreloadPolicyTests {
             appleSources: ASRAppleSourceCatalog.sources,
             execution: primary == nil
                 ? .primaryOnly(reason: .noInstalledExpressibleModel)
-                : .sequentialAppleSecondaries(reason: .belowParallelHardwareTier),
+                : .appleSecondariesAfterCapture,
             warnings: [],
             hasExpressibleCatalogCandidate: primary != nil)
     }
