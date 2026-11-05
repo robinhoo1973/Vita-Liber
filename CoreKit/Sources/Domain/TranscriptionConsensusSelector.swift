@@ -56,18 +56,12 @@ public enum TranscriptionConsensusSelector {
                 engineID: result.engineID ?? "primary",
                 localeIdentifier: result.resolvedLocale, text: result.text)
         }
-        var seen = Set<String>([primary.engineID])
-        let secondaries = result.hypotheses.filter { hypothesis in
-            guard hypothesis.engineID != primary.engineID,
-                  !hypothesis.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  seen.insert(hypothesis.engineID).inserted else { return false }
-            return true
-        }.prefix(maximumSecondaries)
-        let consensus = select(primary: primary, secondaries: Array(secondaries),
+        // 去重/空文本/上限由纯函数层统一处理（单一去重口径），此处只传全部假设。
+        let consensus = select(primary: primary, secondaries: result.hypotheses,
                                policy: policy, minimumAgreement: minimumAgreement)
-        // 没有实际替换就原样返回：`primary.text` 未必等于 `result.text`（引擎可能只把
-        // 最佳假设写进 `hypotheses`），无编辑时不得用假设文本覆盖交付文本。
-        guard !consensus.edits.isEmpty, consensus.text != result.text else { return result }
+        // 编辑区间以 `primary.text` 为锚：两者不一致时（引擎可能只把最佳假设写进
+        // `hypotheses`），把 consensus.text 当交付文本会连带覆盖区间之外的交付内容。
+        guard !consensus.edits.isEmpty, primary.text == result.text else { return result }
         var selected = result
         selected.text = consensus.text
         // 契约：`confidence`/`segments`/`completion` 仍来自主轨原文，不因替换重算。
@@ -83,31 +77,38 @@ public enum TranscriptionConsensusSelector {
                               policy: HypothesisFusionPolicy,
                               minimumAgreement: Int = minimumAgreement) -> TranscriptionConsensusResult {
         let threshold = max(2, minimumAgreement)
-        let primaryTokens = HypothesisFusionTokenizer.tokenize(primary.text, policy: policy)
-        guard !primaryTokens.isEmpty, !secondaries.isEmpty else {
-            return TranscriptionConsensusResult(text: primary.text, edits: [], protectedColumns: 0)
-        }
+        let unchanged = TranscriptionConsensusResult(text: primary.text, edits: [], protectedColumns: 0)
+        guard !secondaries.isEmpty else { return unchanged }
 
         var seen = Set<String>([primary.engineID])
-        let uniqueSecondaries = secondaries.filter { hypothesis in
+        let uniqueSecondaries = Array(secondaries.filter { hypothesis in
             guard !hypothesis.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   seen.insert(hypothesis.engineID).inserted else { return false }
             return true
-        }.prefix(maximumSecondaries)
+        }.prefix(maximumSecondaries))
+        guard uniqueSecondaries.count >= threshold else { return unchanged }
+
+        // 同一次选择共享一个词法器：避免每个假设各重建一次受保护词表与拼音缓存
+        // （`HypothesisFusion.fuse` 的同一做法）。
+        let lexicon = HypothesisFusionLexicon(policy: policy)
+        lexicon.prefetchPinyin([primary.text] + uniqueSecondaries.map(\.text))
+        let terms = lexicon.termKeySequences(policy.protectedTerms)
+        let primaryTokens = lexicon.tokenize(primary.text, protectedTerms: terms)
+        guard !primaryTokens.isEmpty else { return unchanged }
+        let primaryUTF16Count = primary.text.utf16.count
+
         var voters: [String] = []
         var columns = HypothesisFusionAligner.skeleton(primaryTokens)
         for secondary in uniqueSecondaries {
-            let tokens = HypothesisFusionTokenizer.tokenize(secondary.text, policy: policy)
+            let tokens = lexicon.tokenize(secondary.text, protectedTerms: terms)
             guard !tokens.isEmpty else { continue }
             guard (columns.count + 1) * (tokens.count + 1) <= HypothesisFusion.maximumAlignmentCells else {
-                return TranscriptionConsensusResult(text: primary.text, edits: [], protectedColumns: 0)
+                return unchanged
             }
             columns = HypothesisFusionAligner.merge(columns, engineIndex: voters.count + 1, tokens: tokens)
             voters.append(secondary.engineID)
         }
-        guard voters.count >= threshold else {
-            return TranscriptionConsensusResult(text: primary.text, edits: [], protectedColumns: 0)
-        }
+        guard voters.count >= threshold else { return unchanged }
 
         var edits: [TranscriptionConsensusEdit] = []
         var protectedColumns = 0
@@ -115,7 +116,7 @@ public enum TranscriptionConsensusSelector {
             guard let primaryIndex = column.primaryIndex,
                   primaryTokens.indices.contains(primaryIndex) else { continue }
             let anchor = column.anchor
-            guard !anchor.isProtected, anchor.tokenClass != .polarity else {
+            guard !anchor.isProtected else {
                 protectedColumns += 1
                 continue
             }
@@ -123,12 +124,14 @@ public enum TranscriptionConsensusSelector {
             var columnProtected = false
             for (offset, vote) in column.votes.dropFirst().enumerated() {
                 guard let token = vote.token else { continue }
-                if token.isProtected || token.tokenClass == .polarity {
+                if token.isProtected {
                     columnProtected = true
                     break
                 }
                 guard token.key != anchor.key else { continue }
-                let engine = offset < voters.count ? voters[offset] : "secondary-\(offset)"
+                // votes 与 voters 等长（每次合并给所有既有列追加一票，插入列按
+                // engineIndex 预置空票），offset 恒有对应 engine。
+                let engine = voters[offset]
                 if var entry = counts[token.key] {
                     entry.count += 1
                     if !entry.supporters.contains(engine) { entry.supporters.append(engine) }
@@ -150,7 +153,7 @@ public enum TranscriptionConsensusSelector {
                 .first else { continue }
             guard winner.surface != anchor.surface else { continue }
             let range = anchor.utf16Range
-            guard range.lowerBound >= 0, range.upperBound <= primary.text.utf16.count else { continue }
+            guard range.lowerBound >= 0, range.upperBound <= primaryUTF16Count else { continue }
             edits.append(TranscriptionConsensusEdit(range: range, original: anchor.surface,
                                                     replacement: winner.surface,
                                                     supporters: winner.supporters))
