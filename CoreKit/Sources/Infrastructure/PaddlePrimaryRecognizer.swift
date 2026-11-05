@@ -264,7 +264,7 @@ public actor PaddlePrimaryRecognizer: ImageTextRecognizing {
         var value = text.replacingOccurrences(of: "<space>", with: " ")
         while let start = value.range(of: "<unused") {
             guard let end = value[start.lowerBound...].firstIndex(of: ">") else { break }
-            value.removeSubrange(start.lowerBound...end)
+            value.removeSubrange(start.lowerBound..<value.index(after: end))
         }
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
