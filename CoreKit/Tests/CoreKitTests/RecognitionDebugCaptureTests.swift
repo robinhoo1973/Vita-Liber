@@ -108,6 +108,8 @@ struct RecognitionDebugCaptureTests {
         let segments = C.ocrSegments(from: trace)
         #expect(segments.map(\.index) == [0, 1])
         #expect(segments[0].hypotheses.map(\.role) == [.primary, .secondary])
+        #expect(segments[0].hypotheses[0].modelVersion == "m")
+        #expect(segments[0].hypotheses[1].modelVersion == "apple-vision source=system")
         #expect(segments[0].bbox == [0.1, 0.1, 0.5, 0.05])
         let output = Self.medicalFuse(C.Input(captureID: "o", modality: .ocr, createdAt: "t",
                                     deliveredText: "白细胞计数\n血红蛋白", segments: segments))

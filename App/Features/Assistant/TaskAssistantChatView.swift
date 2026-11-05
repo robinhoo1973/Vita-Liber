@@ -2143,7 +2143,10 @@ struct TaskAssistantChatView: View {
         let traces = docs.ocrDebugTraces(documentID: source.documentId)
         guard !traces.isEmpty else { return }
         // 多引擎文本采集：一个 JSON（Paddle 主 / Vision 副原文 + 后处理结果），不复制原件。
+        let deliveredPages = Dictionary(source.pages.map { ($0.index, $0.lines) },
+                                        uniquingKeysWith: { first, _ in first })
         await RecognitionDebugRecorder.captureOCR(documentID: source.documentId, traces: traces,
+                                                  deliveredPages: deliveredPages,
                                                   exportState: exportState) {
             await recognitionDebugDirectory(generation: generation)
         }
@@ -2167,8 +2170,8 @@ struct TaskAssistantChatView: View {
             "fieldCount": draft.allFields.count,
             "cardCount": session.cards.count,
             "isSensitive": false,
-            "engine": "PP-OCRv6_small_rec/onnxruntime shadow",
-            "vision": "VNRecognizeTextRequest accurate / RecognizeDocumentsRequest",
+            "engine": "PP-OCRv6 det+rec/onnxruntime (primary)",
+            "vision": "VNRecognizeTextRequest accurate / RecognizeDocumentsRequest (layout + fallback)",
         ]
         var output: [String] = []
         if let data = try? JSONSerialization.data(withJSONObject: header, options: [.sortedKeys]),   // try?-ok: 摘要编码失败只丢首行，轨迹行仍写

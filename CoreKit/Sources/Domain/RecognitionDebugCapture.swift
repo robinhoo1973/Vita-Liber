@@ -61,6 +61,10 @@ public enum RecognitionDebugCapture {
         }
 
         public var engineID: String
+        /// 实际产出该文本的模型身份/版本（如 `PP-OCRv6-small@2026-11-04 sha256=…`、
+        /// `qwen3 version=… source=download`、`apple-zh-CN source=system`）。
+        /// 只写 engineID 时无法复盘同档位不同模型版本的输出；nil = 采集层未提供。
+        public var modelVersion: String?
         /// 相关组：同组假设不是独立投票（同一 Apple 识别栈的不同语言实例仍记各自组）。
         public var sourceGroup: String
         public var role: Role
@@ -78,9 +82,11 @@ public enum RecognitionDebugCapture {
 
         public init(engineID: String, sourceGroup: String, role: Role, status: Status = .recognized,
                     reason: String? = nil, locale: String? = nil, elapsedMs: Double? = nil,
+                    modelVersion: String? = nil,
                     text: String, confidence: Double? = nil, confidenceKind: String? = nil,
                     languageTag: String? = nil, tokens: [Token] = [], alternativeTexts: [String] = []) {
             self.engineID = engineID
+            self.modelVersion = modelVersion
             self.sourceGroup = sourceGroup
             self.role = role
             self.status = status
@@ -97,10 +103,11 @@ public enum RecognitionDebugCapture {
 
         /// 由引擎证据面（`TranscriptionHypothesis`）转换。
         public init(_ hypothesis: TranscriptionHypothesis, sourceGroup: String, role: Role,
-                    elapsedMs: Double? = nil) {
+                    elapsedMs: Double? = nil, modelVersion: String? = nil) {
             let confidences = hypothesis.tokens.compactMap(\.confidence)
             self.init(engineID: hypothesis.engineID, sourceGroup: sourceGroup, role: role,
-                      locale: hypothesis.localeIdentifier, elapsedMs: elapsedMs, text: hypothesis.text,
+                      locale: hypothesis.localeIdentifier, elapsedMs: elapsedMs,
+                      modelVersion: modelVersion, text: hypothesis.text,
                       confidence: confidences.isEmpty ? nil : confidences.reduce(0, +) / Double(confidences.count),
                       confidenceKind: hypothesis.confidenceKind.rawValue,
                       languageTag: hypothesis.languageTag,
@@ -434,9 +441,11 @@ public enum RecognitionDebugCapture {
             return Segment(index: line.lineIndex, bbox: line.bbox, hypotheses: [
                 Hypothesis(engineID: "paddle-ppocrv6-rec", sourceGroup: "paddle", role: .primary,
                            status: paddleStatus, reason: line.error, elapsedMs: line.latencyMs,
+                           modelVersion: trace.model,
                            text: line.paddleText, confidence: line.paddleConfidence,
                            confidenceKind: TranscriptionConfidenceKind.engineNative.rawValue),
                 Hypothesis(engineID: "apple-vision", sourceGroup: "apple-vision", role: .secondary,
+                           modelVersion: "apple-vision source=system",
                            text: line.visionText, confidence: line.visionConfidence,
                            confidenceKind: TranscriptionConfidenceKind.engineNative.rawValue),
             ])

@@ -93,8 +93,10 @@ enum RecognitionDebugRecorder {
                                         reason: "no-audio", locale: locale, text: ""))
                 continue
             }
-            hypotheses.append(await AppleSpeechFileTranscriber.transcribe(
-                audioURL: stagedAudio, locale: locale, contextualStrings: context.contextualStrings))
+            var replay = await AppleSpeechFileTranscriber.transcribe(
+                audioURL: stagedAudio, locale: locale, contextualStrings: context.contextualStrings)
+            replay.modelVersion = "apple-\(locale) source=system"
+            hypotheses.append(replay)
         }
 
         let input = RecognitionDebugCapture.Input(
@@ -107,6 +109,9 @@ enum RecognitionDebugRecorder {
                 "engineSetting": context.engineSetting,
                 "resolvedEngineID": context.resolvedEngineID ?? "",
                 "resultEngineID": context.result.engineID ?? "",
+                // 模型身份（2026-11-05 审查补充）：只写 engineID 时无法区分「同档位不同
+                // 模型版本」——调参数据回传后无法复盘是随包版本还是下载版本。
+                "primaryModelVersion": modelIdentity(context.result.engineID ?? context.resolvedEngineID),
                 "resolvedLocale": context.result.resolvedLocale,
                 "completion": String(describing: context.result.completion),
                 "contextualStringCount": String(context.contextualStrings.count),
@@ -131,15 +136,20 @@ enum RecognitionDebugRecorder {
         // 同一引擎多 locale 实例（如 classic zh+en）engineID 相同——融合以 engineID 为键，必须区分。
         let counts = Dictionary(raw.map { ($0.engineID, 1) }, uniquingKeysWith: +)
         let primaryIndex = raw.firstIndex { $0.engineID == result.engineID } ?? 0
+        var identities: [String: String] = [:]
         return raw.enumerated().map { index, hypothesis in
             var hypothesis = hypothesis
             if counts[hypothesis.engineID, default: 0] > 1 {
                 hypothesis.engineID += ":" + (hypothesis.localeIdentifier ?? String(index))
             }
             let isApple = !(VoiceEngineChoice(rawValue: baseEngineID(hypothesis.engineID))?.isBundledModel ?? false)
+            let version = identities[hypothesis.engineID]
+                ?? modelIdentity(hypothesis.engineID)
+            identities[hypothesis.engineID] = version
             return RecognitionDebugCapture.Hypothesis(
                 hypothesis, sourceGroup: isApple ? "apple-speech-live" : "sherpa",
-                role: index == primaryIndex ? .primary : .secondary)
+                role: index == primaryIndex ? .primary : .secondary,
+                modelVersion: version)
         }
     }
 
@@ -158,10 +168,38 @@ enum RecognitionDebugRecorder {
         String(engineID.split(separator: ":").first ?? Substring(engineID))
     }
 
+    /// 主轨模型身份字符串（调试 JSON）：随包/下载档给出目录版本与实际生效来源；
+    /// 平台档（classic/advanced/dictation）由系统提供，版本随 `systemVersion` 即可。
+    private static func modelIdentity(_ engineID: String?) -> String {
+        guard let engineID, !engineID.isEmpty else { return "" }
+        let base = baseEngineID(engineID)
+        guard let choice = VoiceEngineChoice(rawValue: base), choice.isBundledModel else {
+            return "\(base) source=system"
+        }
+        let installed = ASRModelDownloadService.installedVersion(for: choice)
+        let catalog = ASRModelCatalog.model(for: choice,
+                                            in: ASRFamilyIndexStore.routingIndex())?.version
+        switch (installed, catalog) {
+        case let (installed?, catalog?):
+            return "\(base) version=\(installed) source=download catalog=\(catalog)"
+        case let (installed?, nil):
+            return "\(base) version=\(installed) source=download"
+        case let (nil, catalog?):
+            return "\(base) version=\(catalog) source=bundled"
+        case (nil, nil):
+            return "\(base) version=unknown source=bundled"
+        }
+    }
+
     // MARK: - 图片
 
     /// 一次聊天导入（单图或多页 PDF）= 一个采集文件；段序号 = 页序 × 1000 + 行序。
-    static func captureOCR(documentID: UUID, traces: [OCRDebugTrace], exportState: DocumentExportState,
+    ///
+    /// `deliveredPages` = 各页**实际交付行**（`PageAnalysis.lines`，页号 → 行数组）。
+    /// 交付文本必须由调用方传入：Paddle 主轨后 `apple-vision` 假设已不是交付基线，
+    /// 旧实现拿它拼 `deliveredText`，调试 JSON 会把副轨原文记成交付文本。
+    static func captureOCR(documentID: UUID, traces: [OCRDebugTrace], deliveredPages: [Int: [String]],
+                           exportState: DocumentExportState,
                            directory: @MainActor () async -> String) async {
         guard isEnabled, !traces.isEmpty else { return }
         let captureID = UUID()
@@ -175,12 +213,26 @@ enum RecognitionDebugRecorder {
             for line in trace.lines where line.lineIndex < 0 {
                 paddleNotes.append("page\(trace.pageIndex):\(trace.engine):\(line.error ?? "")")
             }
+            let pageLines = deliveredPages[trace.pageIndex] ?? []
             for var segment in RecognitionDebugCapture.ocrSegments(from: trace) {
-                segment.index = trace.pageIndex * 1000 + segment.index
+                let lineIndex = segment.index
+                segment.index = trace.pageIndex * 1000 + lineIndex
                 segments.append(segment)
-                delivered.append(segment.hypotheses.first { $0.engineID == "apple-vision" }?.text ?? "")
+                if lineIndex >= 0, lineIndex < pageLines.count {
+                    delivered.append(pageLines[lineIndex])
+                } else {
+                    // 交付行缺失（不应发生）：退回主轨原文，至少保持与 segments 对齐。
+                    delivered.append(segment.hypotheses.first?.text ?? "")
+                }
             }
         }
+        let pageModels = traces.sorted(by: { $0.pageIndex < $1.pageIndex }).map { trace -> String in
+            var identity = "\(trace.model) sha256=\(trace.modelSHA256)"
+            if let det = trace.detModel {
+                identity += " det=\(det) sha256=\(trace.detModelSHA256 ?? "")"
+            }
+            return "page\(trace.pageIndex):\(trace.engine):\(identity)"
+        }.joined(separator: ";")
         let input = RecognitionDebugCapture.Input(
             captureID: captureID.uuidString, modality: .ocr,
             createdAt: RecognitionDebugCapture.isoTimestamp(now),
@@ -191,7 +243,9 @@ enum RecognitionDebugRecorder {
                 "segmentIndex": "pageIndex*1000+lineIndex",
                 "bbox": "Vision line box, normalized [x,y,w,h], top-left origin, relative to the processed page image",
                 "primaryModel": traces.first.map { "\($0.model) sha256=\($0.modelSHA256)" } ?? "",
-                "deliveredBy": "apple-vision (production still delivers Vision text; PP-OCRv6 is primary only in this capture until the owner rules on device data)",
+                "pageModels": pageModels,
+                // Paddle 主轨：交付文字来自 rec；Vision 只供版式与未命中行的兜底。
+                "deliveredBy": "paddle-ppocrv6-rec (Vision supplies layout; lines without Paddle text keep Vision)",
                 "paddleNotes": paddleNotes.joined(separator: ";"),
             ],
             deliveredText: delivered.joined(separator: "\n"), segments: segments)
