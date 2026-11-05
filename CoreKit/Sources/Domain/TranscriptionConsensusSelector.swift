@@ -65,9 +65,15 @@ public enum TranscriptionConsensusSelector {
         }.prefix(maximumSecondaries)
         let consensus = select(primary: primary, secondaries: Array(secondaries),
                                policy: policy, minimumAgreement: minimumAgreement)
-        guard consensus.text != result.text else { return result }
+        // 没有实际替换就原样返回：`primary.text` 未必等于 `result.text`（引擎可能只把
+        // 最佳假设写进 `hypotheses`），无编辑时不得用假设文本覆盖交付文本。
+        guard !consensus.edits.isEmpty, consensus.text != result.text else { return result }
         var selected = result
         selected.text = consensus.text
+        // 契约：`confidence`/`segments`/`completion` 仍来自主轨原文，不因替换重算。
+        // 各引擎置信度不可跨源比较（与 PaddleLayoutMerge 页级置信同口径理由）；
+        // 下游需要逐段对齐时应使用 `hypotheses` + 编辑证据，而不是拿旧 segments 对
+        // 新 text 做下标匹配。
         return selected
     }
 

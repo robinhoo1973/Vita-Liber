@@ -66,6 +66,17 @@ struct TranscriptionConsensusSelectorTests {
         #expect(result.edits.isEmpty)
     }
 
+    @Test func wrapperWithoutEditsLeavesDeliveredTextAlone() {
+        // 引擎可能只把最佳假设写进 hypotheses；无替换时不得用假设文本覆盖交付文本。
+        let result = TranscriptionResult(
+            text: "交付文本", confidence: 0.8, resolvedLocale: "zh-Hans-CN", segmented: false,
+            completion: .final, engineID: "qwen3",
+            hypotheses: [Self.hypothesis("qwen3", "假设文本")])
+        let selected = TranscriptionConsensusSelector.select(result, policy: Self.policy)
+        #expect(selected.text == "交付文本")
+        #expect(selected.confidence == 0.8)
+    }
+
     @Test func resultWrapperPreservesHypothesesAndSelectedText() {
         let primary = Self.hypothesis("qwen3", "今天头通")
         let result = TranscriptionResult(
