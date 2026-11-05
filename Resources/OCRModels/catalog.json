@@ -1,8 +1,8 @@
 {
   "formatVersion": 1,
   "family": "PP-OCRv6-small",
-  "version": "pp-ocrv6-small-2026-06-18",
-  "source": "PaddlePaddle/PaddleOCR v3.7.0 official ONNX inference bundle",
+  "version": "pp-ocrv6-small-2026-11-04",
+  "source": "PaddlePaddle/PP-OCRv6 {small_det,small_rec}_onnx official inference bundles",
   "runtime": "onnxruntime",
   "license": "Apache-2.0",
   "assets": {
@@ -26,5 +26,20 @@
       "pad": "right-zero"
     }
   },
-  "notes": "Recognition-only shadow engine. Vision remains the primary OCR and layout source. No network access; model bytes verified at load."
+  "det": {
+    "file": "ppocrv6_small_det.onnx",
+    "bytes": 9880512,
+    "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e",
+    "inputName": "x",
+    "outputName": "fetch_name_0",
+    "maxSide": 736,
+    "thresh": 0.2,
+    "boxThresh": 0.45,
+    "unclipRatio": 1.4,
+    "maxCandidates": 3000,
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225],
+    "channelOrder": "BGR"
+  },
+  "notes": "Paddle primary track: det outputs text boxes, rec outputs text (both bundled, Apache-2.0). Apple Vision is the secondary track for layout/tables and the fallback when any Paddle asset is missing or fails. No network access; model bytes verified at load."
 }

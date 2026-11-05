@@ -34,8 +34,8 @@ targets:
         excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**",
                    "LLMModels", "LLMModels/**", "LLMCatalog", "LLMCatalog/**",
                    "OCRModels", "OCRModels/**"]
-      # 2026-11-03 真机参数调优批：PP-OCRv6 small rec-only 影子引擎随包。
-      # 仅识别模型（Vision 出框/版面），22MB；catalog 钉 sha256/bytes，运行时校验。
+      # 2026-11-04 业主裁决：PP-OCRv6 small det+rec **主轨**随包（约 30MB）。
+      # det 出框、rec 出字；Vision 退为副轨（版式/表格 + 兜底）。catalog 钉 sha256/bytes，运行时校验。
       - path: Resources/OCRModels
         type: folder
         buildPhase: resources
