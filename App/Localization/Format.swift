@@ -210,10 +210,6 @@ extension L10n {
         String(format: t("helpcard.remaining"), v, unit)   // %1$@ %2$@
     }
 
-    static func helpDataStorageSize(_ mb: String) -> String {
-        String(format: t("help.data.storageSizeFmt"), mb)   // %@
-    }
-
     static func caregiverPending(_ time: String) -> String { String(format: t("caregiver.pendingFmt"), time) }
 
     static func caregiverAlertBody(patient: String, medication: String) -> String {

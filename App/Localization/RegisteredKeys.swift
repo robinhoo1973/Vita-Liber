@@ -1050,7 +1050,6 @@ extension L10n {
         "help.reminder.permission", "help.reminder.todaySection", "help.reminder.pendingDoses",
         "help.reminder.todaySlots", "help.reminder.deniedHint", "help.data.dbSection", "help.data.integrity",
         "help.data.normal", "help.data.storageSection", "help.data.dbSize", "help.data.calculating",
-        "help.data.storageSizeFmt",
         "help.data.backupSection", "help.data.lastBackup", "help.data.noBackup", "help.data.title",
         "help.about.licenses",
         "help.about.anatomyAttribution", "help.about.section", "help.legal.section", "help.terms.title", "help.section",
@@ -1661,7 +1660,7 @@ extension L10n {
         // 业主 2026-09-17 定：折叠标签计数（多项目处方单 / 检验数值定性分段 / 体检检测检查项）
         "prescription.lineCountFmt", "labReport.samplesCountFmt", "labReport.resultsCountFmt",
         "prescriptionLine.unavailable", "prescriptionLine.header", "prescriptionLine.noSource",
-        "entityCard.addField", "entityCard.pickValue", "encounter.narrative",
+        "entityCard.addField", "entityCard.changeField", "entityCard.pickValue", "encounter.narrative",
         // 动态键 prescriptionTypeName(_:)：prescription_type CHECK 枚举七值
         "prescription.type.general", "prescription.type.emergency", "prescription.type.pediatric",
         "prescription.type.narcotic", "prescription.type.psychotropic", "prescription.type.tcm", "prescription.type.other",

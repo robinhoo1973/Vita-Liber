@@ -103,6 +103,8 @@ struct EntityCardConfirmView: View {
                         // 才出（同 [原文] 诚实纪律——续办模式无原件不冒充）
                         onViewScan: canViewScan ? { openScanSheet(lines: lines, field: field, rowId: rowId) } : nil,
                         onRevise: { revise(index: index, rowID: rowId, value: $0) },
+                        fieldKeyOptions: fieldKeyOptions(for: field, rowID: rowId),
+                        onChangeFieldKey: { changeFieldKey(index: index, rowID: rowId, to: $0) },
                         // round5 Q4：值类型单源——日期字段渲染选择器、数值字段数字键盘
                         valueKind: EntityCardProjection.valueKind(kind: card.kind, key: field.key))
             .id(CardConfirmationRules.anchorId(key: field.key, rowId: rowId))
@@ -525,6 +527,28 @@ struct EntityCardConfirmView: View {
         guard !saving, rowID != nil || !sharedCommitted else { return }
         var current = card
         current.reviseField(at: index, rowId: rowID, to: value)
+        card = current
+    }
+
+    /// 字段映射目录：当前卡类必填/可选键 − 同组已占用键（当前键保留用于勾选）。
+    private func fieldKeyOptions(for field: FieldDraft, rowID: UUID?) -> [CardFieldKeyOption] {
+        let present: Set<String>
+        if let rowID, let row = card.rows.first(where: { $0.id == rowID }) {
+            present = Set(row.fields.map(\.key))
+        } else if rowID == nil {
+            present = Set(card.shared.map(\.key))
+        } else {
+            return []
+        }
+        return CardFieldMapping.options(kind: card.kind, present: present,
+                                        rowLevel: rowID != nil, currentKey: field.key)
+    }
+
+    /// 改字段键：同组不得重键；Domain 负责目录校验、冲突拒绝与旧确认失效。
+    private func changeFieldKey(index: Int, rowID: UUID?, to newKey: String) {
+        guard !saving, rowID != nil || !sharedCommitted else { return }
+        var current = card
+        guard CardFieldMapping.rename(in: &current, rowID: rowID, index: index, to: newKey) else { return }
         card = current
     }
 

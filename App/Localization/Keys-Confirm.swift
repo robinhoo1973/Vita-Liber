@@ -90,6 +90,9 @@ extension L10n {
 
     static var entityCardAddField: String { t("entityCard.addField") }
 
+    /// 字段映射菜单（业主 2026-11-06：改值的同时可改文本对应的字段）
+    static var entityCardChangeField: String { t("entityCard.changeField") }
+
     static var entityCardPickValue: String { t("entityCard.pickValue") }
 
     static var entityCardConfirmAllHint: String { t("entityCard.confirmAllHint") }

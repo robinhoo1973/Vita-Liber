@@ -174,6 +174,10 @@ struct FieldConfirmRow: View {
     /// nil = 无原件可看（如待办续办模式的旧数据）→ 不渲染。
     var onViewScan: (() -> Void)?
     var onRevise: ((String) -> Void)?
+    /// 可改的字段键目录（业主 2026-11-06：改值的同时可改文本对应的字段）。
+    /// 空 = 不显示映射入口（文档级字段 / 其他调用点零改）。
+    var fieldKeyOptions: [CardFieldKeyOption] = []
+    var onChangeFieldKey: ((String) -> Void)?
     /// 值类型（round5 Q4：Domain 单源 `EntityCardProjection.valueKind`）——日期走 `DateFieldEditor`、
     /// 数值走数字键盘、枚举走 Picker；缺省 `.text`。文档级字段（SP-11）不知卡种时传缺省。
     var valueKind: FieldValueKind = .text
@@ -198,8 +202,33 @@ struct FieldConfirmRow: View {
     var body: some View {
         WithPerceptionTracking {
             VStack(alignment: .leading, spacing: 8) {
-                HStack {
+                HStack(spacing: 6) {
                     Text(label).font(.caption).foregroundStyle(.secondary)
+                    if !readOnly, !rejected, !field.isConfirmed,
+                       let onChangeFieldKey, !fieldKeyOptions.isEmpty {
+                        Menu {
+                            ForEach(fieldKeyOptions) { option in
+                                Button {
+                                    onChangeFieldKey(option.key)
+                                } label: {
+                                    if option.key == field.key {
+                                        Label(DocumentsDisplay.fieldLabel(forKey: option.key),
+                                              systemImage: "checkmark")
+                                    } else {
+                                        Text(DocumentsDisplay.fieldLabel(forKey: option.key))
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "arrow.left.arrow.right.circle")
+                                .font(.caption)
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(L10n.entityCardChangeField)
+                        .accessibilityValue(label)
+                        .accessibilityIdentifier("OCR.field.changeKey.\(field.key)")
+                    }
                     Spacer()
                     if rejected { Text(L10n.docConfirmReject).font(.caption) }
                     else { GradeBadge(grade: field.isConfirmed ? "C" : "D") }

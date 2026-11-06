@@ -787,7 +787,6 @@
 "help.data.storageSection" = "存儲";
 "help.data.dbSize" = "數據庫大小";
 "help.data.calculating" = "計算中...";
-"help.data.storageSizeFmt" = "%@ MB";
 "help.data.backupSection" = "備份";
 "help.data.lastBackup" = "最近備份";
 "help.data.noBackup" = "無備份記錄";
@@ -2335,6 +2334,7 @@
 "prescriptionLine.header" = "所屬處方";
 "prescriptionLine.noSource" = "無來源頁紀錄";
 "entityCard.addField" = "新增欄位";
+"entityCard.changeField" = "更改欄位";
 "entityCard.pickValue" = "請選擇";
 "encounter.narrative" = "病歷紀錄";
 "prescription.type.general" = "普通處方";

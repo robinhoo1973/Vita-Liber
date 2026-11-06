@@ -787,7 +787,6 @@
 "help.data.storageSection" = "Storage";
 "help.data.dbSize" = "Database Size";
 "help.data.calculating" = "Calculating...";
-"help.data.storageSizeFmt" = "%@ MB";
 "help.data.backupSection" = "Backup";
 "help.data.lastBackup" = "Last Backup";
 "help.data.noBackup" = "No backup yet";
@@ -2335,6 +2334,7 @@
 "prescriptionLine.header" = "Prescription";
 "prescriptionLine.noSource" = "No source page recorded";
 "entityCard.addField" = "Add field";
+"entityCard.changeField" = "Change field";
 "entityCard.pickValue" = "Select";
 "encounter.narrative" = "Clinical notes";
 "prescription.type.general" = "General";

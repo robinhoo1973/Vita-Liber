@@ -787,7 +787,6 @@
 "help.data.storageSection" = "存储";
 "help.data.dbSize" = "数据库大小";
 "help.data.calculating" = "计算中...";
-"help.data.storageSizeFmt" = "%@ MB";
 "help.data.backupSection" = "备份";
 "help.data.lastBackup" = "最近备份";
 "help.data.noBackup" = "无备份记录";
@@ -2335,6 +2334,7 @@
 "prescriptionLine.header" = "所属处方";
 "prescriptionLine.noSource" = "无来源页记录";
 "entityCard.addField" = "添加字段";
+"entityCard.changeField" = "更改字段";
 "entityCard.pickValue" = "请选择";
 "encounter.narrative" = "病历记录";
 "prescription.type.general" = "普通处方";
