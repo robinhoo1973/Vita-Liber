@@ -195,6 +195,10 @@ struct SettingsView: View {
                         Label(L10n.resourceManagementTitle, systemImage: "shippingbox")
                     }
                     .accessibilityIdentifier("SP-64.settings.resources")
+                    NavigationLink(value: AppRoute.attributionReview) {
+                        Label(L10n.attributionReviewTitle, systemImage: "arrow.triangle.branch")
+                    }
+                    .accessibilityIdentifier("SP-65.settings.attributionReview")
                     // 同步间隔已并入 Apple 健康数据二级页（2026-10-23 业主）。
                     // FR13.1/13.2 导出向导
                     NavigationLink {

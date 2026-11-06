@@ -220,6 +220,15 @@
 "hub.helpCardOpen" = "Help card";
 "settings.authTitle" = "Permissions (independent toggles)";
 "settings.resourceManagement" = "Medical Data & Offline Resources";
+"settings.attributionReview" = "Record Attribution";
+"attributionReview.hint" = "Confirmed records that are not yet linked to a visit. Review each one; nothing is linked automatically.";
+"attributionReview.source" = "Record";
+"attributionReview.target" = "Visit";
+"attributionReview.evidence" = "Evidence";
+"attributionReview.link" = "Link";
+"attributionReview.dismiss" = "Not this visit";
+"attributionReview.empty" = "No unlinked records.";
+"attributionReview.failed" = "Could not load attribution candidates.";
 "settings.downloadNetwork.title" = "Download network";
 "settings.downloadNetwork.any" = "Cellular and Wi-Fi (default)";
 "settings.downloadNetwork.wifiOnly" = "Wi-Fi only";

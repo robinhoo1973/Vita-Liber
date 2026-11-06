@@ -72,6 +72,16 @@ extension L10n {
     static var settings_habits: String { t("settings.habits") }
     // SP-64 统一「模型与数据资源」管理页（2026-09-27 业主定案）
     static var resourceManagementTitle: String { t("settings.resourceManagement") }
+    /// 孤儿卡/文档批量归属（2026-11-06）
+    static var attributionReviewTitle: String { t("settings.attributionReview") }
+    static var attributionReviewHint: String { t("attributionReview.hint") }
+    static var attributionReviewSource: String { t("attributionReview.source") }
+    static var attributionReviewTarget: String { t("attributionReview.target") }
+    static var attributionReviewEvidence: String { t("attributionReview.evidence") }
+    static var attributionReviewLink: String { t("attributionReview.link") }
+    static var attributionReviewDismiss: String { t("attributionReview.dismiss") }
+    static var attributionReviewEmpty: String { t("attributionReview.empty") }
+    static var attributionReviewFailed: String { t("attributionReview.failed") }
     // 2026-10-29 下载线路（业主：默认蜂窝与 Wi-Fi 均可；我的内可限制）
     static var downloadNetworkPolicyTitle: String { t("settings.downloadNetwork.title") }
     static var downloadNetworkPolicyAny: String { t("settings.downloadNetwork.any") }

@@ -195,6 +195,8 @@ struct RouteDestinationView: View {
                 HelpDataHealth()
             case .helpTopic(let topicID):
                 HelpTopicRouteView(topicID: topicID)
+            case .attributionReview:
+                AttributionReviewView()
             case .termsAndPrivacy:
                 HelpAboutView()
 

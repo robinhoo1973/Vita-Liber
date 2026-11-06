@@ -129,6 +129,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case helpReminderDiagnostics         // SP-44 提醒诊断
     case helpDataHealth                  // SP-45 数据与存储健康
     case helpTopic(String)               // SP-42 教程主题页（载荷 = HelpTopic 稳定 id）
+    case attributionReview               // 孤儿卡/文档批量归属（2026-11-06）
     case termsAndPrivacy                 // SP-47/48 条款与关于
 
     // ---- 商业化 ----
@@ -164,7 +165,7 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
              .voiceReminderDraft, .helpCenter, .feedbackReport, .resourceManagement,
              .exportWizard, .backupRestore, .paywall,
              .helpPermissionDiagnostics, .helpReminderDiagnostics, .helpDataHealth,
-             .helpTopic,
+             .helpTopic, .attributionReview,
              .termsAndPrivacy:
             return .me
         }

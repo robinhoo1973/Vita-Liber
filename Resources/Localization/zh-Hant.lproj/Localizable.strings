@@ -220,6 +220,15 @@
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授權（獨立開關，關掉即停）";
 "settings.resourceManagement" = "醫療資料與離線資源";
+"settings.attributionReview" = "記錄歸屬";
+"attributionReview.hint" = "已確認但尚未關聯到就診的記錄。逐條確認；不會自動關聯。";
+"attributionReview.source" = "記錄";
+"attributionReview.target" = "關聯到";
+"attributionReview.evidence" = "證據";
+"attributionReview.link" = "確認關聯";
+"attributionReview.dismiss" = "不是這次";
+"attributionReview.empty" = "沒有需要歸屬的記錄。";
+"attributionReview.failed" = "歸屬候選載入失敗。";
 "settings.downloadNetwork.title" = "下載線路";
 "settings.downloadNetwork.any" = "行動網路與 Wi-Fi（預設）";
 "settings.downloadNetwork.wifiOnly" = "僅 Wi-Fi";

@@ -67,6 +67,7 @@ struct ReadyAppRoot: View {
             // 医疗档案 → 用药时段、提醒页 SP-15.slots.entry、提醒表单时段选择
             // 全部拿 nil 而永久转圈（预览通过掩盖了生产断链）。
             .environment(\.medicationScheduleStore, session.container.scheduleTemplates)
+            .environment(\.attributionReview, session.container.attributionReview)
             .environment(session.settingsStore)
             .environment(session.avatarState)
             .environment(session.observationState)

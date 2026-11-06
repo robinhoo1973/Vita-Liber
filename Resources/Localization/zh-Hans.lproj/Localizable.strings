@@ -220,6 +220,15 @@
 "hub.helpCardOpen" = "求助卡";
 "settings.authTitle" = "授权（独立开关，关掉即停）";
 "settings.resourceManagement" = "医疗数据与离线资源";
+"settings.attributionReview" = "记录归属";
+"attributionReview.hint" = "已确认但尚未关联到就诊的记录。逐条确认；不会自动关联。";
+"attributionReview.source" = "记录";
+"attributionReview.target" = "关联到";
+"attributionReview.evidence" = "证据";
+"attributionReview.link" = "确认关联";
+"attributionReview.dismiss" = "不是这次";
+"attributionReview.empty" = "没有需要归属的记录。";
+"attributionReview.failed" = "归属候选加载失败。";
 "settings.downloadNetwork.title" = "下载线路";
 "settings.downloadNetwork.any" = "蜂窝网络与 Wi-Fi（默认）";
 "settings.downloadNetwork.wifiOnly" = "仅 Wi-Fi";

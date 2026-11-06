@@ -66,6 +66,8 @@ struct AppContainer {
     let messages: MessageDeliveryStore
     /// F4 就诊事件（SP-08）
     let encounters: EncounterStore
+    /// 孤儿归属只读候选 + 用户确认后的现有 FK 写入（2026-11-06）
+    let attributionReview: AttributionReviewService
     /// v27 体检主卡只读读面（子项目 J · healthExamDetail 路由）
     let healthExams: HealthExamStore
     /// F11 时间轴联合查询 + FR11.4 健康问题 + FR10.5 问诊问题
@@ -286,6 +288,7 @@ struct AppContainer {
         let immunizations = ImmunizationStore(writer: store.writer)
         let messages = MessageDeliveryStore(writer: store.writer)
         let encounters = EncounterStore(writer: store.writer)
+        let attributionReview = AttributionReviewService(writer: store.writer)
         let healthExams = HealthExamStore(writer: store.writer)
         let timelineQuery = TimelineQueryStore(writer: store.writer)
         let healthProblems = HealthProblemStore(writer: store.writer)
@@ -359,6 +362,7 @@ struct AppContainer {
                             immunizations: immunizations,
                             messages: messages,
                             encounters: encounters,
+                            attributionReview: attributionReview,
                             healthExams: healthExams,
                             timelineQuery: timelineQuery,
                             healthProblems: healthProblems,
