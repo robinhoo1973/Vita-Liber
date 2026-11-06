@@ -107,9 +107,10 @@ struct SettingsView: View {
                 // §5.12 通知中心与提醒偏好组（V3.72 补：此前设置中心无通知中心入口，
                 // 首页铃铛是唯一路径；提醒触达设置页亦缺失）
                 Section(L10n.settings_notificationsGroup) {
-                    NavigationLink {
-                        NotificationCenterView()
-                    } label: {
+                    // §5.45：通知中心内含 router.navigate(to: .alertEvidence)
+                    // 的 value 推入，入口必须同样走 value 路由，否则 L1 证据卡
+                    // 从设置入口点行无反应（与帮助中心同一栈/路径错位族）。
+                    NavigationLink(value: AppRoute.notificationCenter) {
                         Label(L10n.ncTitle, systemImage: "bell")
                     }
                     .accessibilityIdentifier("SP-26.notificationCenter")
@@ -264,16 +265,18 @@ struct SettingsView: View {
                     .accessibilityIdentifier("SP-25.settings.restorePurchases")
                 }
                 Section(L10n.settings_about) {
-                    NavigationLink {
-                        HelpRootView()
-                    } label: {
+                    // §5.45 / tech V3.126 纪律：帮助中心必须走 value 路由。
+                    // 闭包目的地推入不进 mePath，而帮助页内「权限诊断/提醒诊断/
+                    // 反馈」均以 value 推入——可见栈与 path 描述不一致时点行
+                    // 无反应、目的地插到当前页下方（业主实测：两项诊断进不去）。
+                    NavigationLink(value: AppRoute.helpCenter) {
                         Label(L10n.settings_help, systemImage: "questionmark.circle")
                     }
                     .accessibilityIdentifier("SP-25.settings.help")
                     // 2026-10-22 业主：参考范围/信源库从健康档案移到关于。
-                    NavigationLink {
-                        GuidelineHubView()
-                    } label: {
+                    // §5.45：信源库内含 guidelineSourceDetail value 推入——
+                    // 容器必须同样走 value 路由（与帮助中心同族）。
+                    NavigationLink(value: AppRoute.guidelineHub) {
                         Label(L10n.hub_guidelines, systemImage: "book")
                     }
                     .accessibilityIdentifier("SP-25.settings.guidelines")

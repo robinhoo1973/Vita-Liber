@@ -127,9 +127,10 @@ struct EncounterListView: View {
                         .accessibilityIdentifier("SP-08.encounter.empty")
                 } else {
                     ForEach(filteredEncounters) { enc in
-                        NavigationLink {
-                            EncounterDetailView(encounter: enc)
-                        } label: {
+                        // §5.45：详情页内关联卡/预约均为 value 推入——列表入口
+                        // 必须同样走 value 路由，否则详情页是 path 外的闭包推入，
+                        // 其内部 value 行点按无反应（tech V3.126 同族）。
+                        NavigationLink(value: AppRoute.encounterDetail(enc.id)) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(enc.hospital ?? L10n.encounterUntitled)

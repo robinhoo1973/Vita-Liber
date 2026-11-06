@@ -191,6 +191,8 @@ struct RouteDestinationView: View {
                 HelpPermissionDiagnostics()
             case .helpReminderDiagnostics:
                 HelpReminderDiagnostics()
+            case .helpDataHealth:
+                HelpDataHealth()
             case .termsAndPrivacy:
                 HelpAboutView()
 
@@ -243,6 +245,8 @@ struct RouteDestinationView: View {
 
             // ---- FR16.3/16.4 信源原文详情（V3.66 实装：B 级徽章 + 完整阈值表
             //      + 原文链接 + 准入说明）----
+            case .guidelineHub:
+                GuidelineHubView()
             case .guidelineSourceDetail(let id):
                 GuidelineSourceDetailView(entryId: id)
             }

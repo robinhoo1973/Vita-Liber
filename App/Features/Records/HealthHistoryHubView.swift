@@ -90,9 +90,9 @@ struct HealthHistoryHubView: View {
                     }
                     .accessibilityIdentifier("SP-49.hub.emergency")
 
-                    NavigationLink {
-                        InventoryHubView()
-                    } label: {
+                    // §5.45：InventoryHubView 内含批次 value 推入（stockLotDetail）——
+                    // 容器必须同样走 value 路由，否则从本页进药箱后点批次行无反应。
+                    NavigationLink(value: AppRoute.medicationCabinet) {
                         row(title: L10n.inventory_title,
                             subtitle: L10n.healthHistoryInventoryHint,
                             systemImage: "shippingbox")

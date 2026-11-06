@@ -97,6 +97,7 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case healthImportedData(kind: HealthDataKind, patientId: UUID)
     case alertHistory                    // SP-30
     case alertEvidence(patientId: UUID, eventId: UUID, severity: AlertSeverity)
+    case guidelineHub                    // F16 参考范围/信源库
     case guidelineSourceDetail(UUID)     // 信源原文
 
     // ---- F18 关怀 ----
@@ -124,8 +125,9 @@ public enum AppRoute: Hashable, Sendable, Codable {
     case healthHistoryHub                // 健康档案总览（慢性病/手术史/过敏/用药）
     case healthProblemList               // SP-49 健康问题列表
     case immunizationList                // SP-54 疫苗记录列表
-    case helpPermissionDiagnostics       // SP-45 权限诊断
-    case helpReminderDiagnostics         // SP-45 提醒诊断
+    case helpPermissionDiagnostics       // SP-43 权限诊断
+    case helpReminderDiagnostics         // SP-44 提醒诊断
+    case helpDataHealth                  // SP-45 数据与存储健康
     case termsAndPrivacy                 // SP-47/48 条款与关于
 
     // ---- 商业化 ----
@@ -157,10 +159,11 @@ public enum MainModuleID: String, Sendable, Hashable, Codable {
         case .settingsRoot, .preferences, .notificationCenter, .auditLog,
              .privacyAuthorization, .languageSettings,
              .voiceLanguageSettings, .voiceEngineLab, .emergencyCardConfig, .deviceConnection,
-              .alertHistory, .alertEvidence, .guidelineSourceDetail, .careModeConfig,
+              .alertHistory, .alertEvidence, .guidelineHub, .guidelineSourceDetail, .careModeConfig,
              .voiceReminderDraft, .helpCenter, .feedbackReport, .resourceManagement,
              .exportWizard, .backupRestore, .paywall,
-             .helpPermissionDiagnostics, .helpReminderDiagnostics, .termsAndPrivacy:
+             .helpPermissionDiagnostics, .helpReminderDiagnostics, .helpDataHealth,
+             .termsAndPrivacy:
             return .me
         }
     }
