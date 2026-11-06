@@ -82,7 +82,7 @@ public actor CoreMLElementMatcher: InformationElementMatching {
             let line = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !line.isEmpty else { continue }
             let input = try MLDictionaryFeatureProvider(dictionary: [catalog.inputName: line])
-            let output = try model.prediction(from: input)
+            let output = try await model.prediction(from: input)
             guard let label = output.featureValue(for: catalog.labelOutputName)?.stringValue,
                   allowed.contains(label),
                   let probabilityMap = output.featureValue(for: catalog.probabilityOutputName)?.dictionaryValue
