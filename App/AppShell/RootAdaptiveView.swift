@@ -328,10 +328,15 @@ private struct PreviewRoot: View {
         settingsStore = AppSettingsStore(store: assembled.settings)
         avatarState = AvatarState(settings: settingsStore)
         // 与 AppSession 同构：单一导出镜像实例，会话删除清理与导出状态共用。
+        // 目录必须与下方 DocumentsState 的预览注入同源用临时目录——预览禁触
+        // 生产目录（容器 mediaBaseDir 已是临时目录）；曾误接生产 Documents/
+        // 原件目录，预览里触发导出/清日志会读写真实容器路径。
+        let previewExportsBase = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PreviewDocumentExports", isDirectory: true)
         let exportMirror = DocumentExportMirror(
             ledger: assembled.documentExports,
-            exportsBase: MediaRootPaths.documentsBase(),
-            originalsDir: AppContainer.defaultOriginalsDir())
+            exportsBase: previewExportsBase,
+            originalsDir: FileManager.default.temporaryDirectory)
         chatHistoryState = ChatHistoryState(store: assembled.chatHistory,
                                             exportMirror: exportMirror)
         documentExportState = DocumentExportState(

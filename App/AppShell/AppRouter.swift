@@ -156,9 +156,20 @@ final class AppRouter {
         }
     }
 
-    /// §5.48：目的地视图自弹回根（已删除实体降级）——移除该路由在其所属
-    /// Tab 栈中的条目并持久化。RouteDestinationView 的 NotFound 降级落点调用。
+    /// §5.48：目的地视图自弹回根（已删除实体降级）——移除该路由在**当前可见
+    /// 栈**中的条目并持久化；可见栈不含该路由时才回落到它所属 Tab 的栈。
+    /// 只按注册 Tab 出栈会与 value 路由的实际栈不一致：value 推入落在发起
+    /// Tab 的 path（如设置 → 医疗档案 → 药箱把 `.medicationCabinet` 推进
+    /// mePath，而它的注册 Tab 是提醒），关怀模式常驻返回钮（careTopRoute
+    /// 取可见栈顶）调用本方法时就弹错栈、按钮看起来失灵。
+    /// RouteDestinationView 的 NotFound 降级落点同样受益（自弹发生在可见栈）。
     func pop(_ route: AppRoute) {
+        let visible = Self.row(for: selection)
+        if self[keyPath: visible.keyPath].contains(route) {
+            self[keyPath: visible.keyPath].removeAll { $0 == route }
+            persist(path: visible.key, visible.keyPath)
+            return
+        }
         let row = Self.row(for: MainModuleID.tab(of: route))
         self[keyPath: row.keyPath].removeAll { $0 == route }
         persist(path: row.key, row.keyPath)

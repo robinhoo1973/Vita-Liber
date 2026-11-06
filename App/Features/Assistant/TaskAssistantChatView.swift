@@ -2130,7 +2130,8 @@ struct TaskAssistantChatView: View {
     }
 
     /// 2026-11-03 调参批：把 PP-OCRv6 rec 影子逐行对照写入该会话目录。
-    /// **默认关闭**：只有用户在「帮助中心 → 系统诊断」显式开启后才写；
+    /// **默认关闭**：只有用户在 SP-48 关于页（设置 → 关于与帮助 → 版本与法律）
+    /// 显式开启后才写；
     /// 只写非敏感件；无影子轨迹/无导出目录时不写。内容为 JSONL：
     /// 首行会话/抽取摘要，其后每页一行 OCRDebugTrace。绝不包含图片字节。
     private func writeOCRDebugLog(session: DocumentsState.ImportSession, generation: UUID) async {

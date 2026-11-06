@@ -193,6 +193,8 @@ struct RouteDestinationView: View {
                 HelpReminderDiagnostics()
             case .helpDataHealth:
                 HelpDataHealth()
+            case .helpTopic(let topicID):
+                HelpTopicRouteView(topicID: topicID)
             case .termsAndPrivacy:
                 HelpAboutView()
 

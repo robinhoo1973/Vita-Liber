@@ -29,5 +29,13 @@ final class HelpCenterNavigationUITests: XCTestCase {
         UITestSupport.tapWhenHittable(reminderRow)
         XCTAssertTrue(app.navigationBars["提醒诊断"].waitForExistence(timeout: 10),
                       "Tapping 提醒诊断 must push SP-44")
+
+        // 数据与存储健康（SP-45，本次新登记路由）
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let dataHealthRow = app.descendants(matching: .any)["FR22.4.dataHealth"].firstMatch
+        XCTAssertTrue(dataHealthRow.waitForExistence(timeout: 10))
+        UITestSupport.tapWhenHittable(dataHealthRow)
+        XCTAssertTrue(app.navigationBars["数据健康"].waitForExistence(timeout: 10),
+                      "Tapping 数据与存储健康 must push SP-45")
     }
 }

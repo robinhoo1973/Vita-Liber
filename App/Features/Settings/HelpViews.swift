@@ -38,6 +38,9 @@ private enum DiagnosticStatus: Equatable {
 
     /// 绿色仅限明确的「已授权 / 正常」。
     var isPositive: Bool { self == .authorized || self == .normal }
+
+    /// 底色与文案同源（诊断行不得各写一份 `semantic-success` 判定）。
+    var tint: Color { isPositive ? Color("semantic-success", bundle: .main) : .secondary }
 }
 
 /// 系统权限状态 → 诊断状态（权限诊断与提醒诊断共用口径，两处六分支复制收敛）。
@@ -64,6 +67,49 @@ private enum AuthorizationStatusLabel {
     }
 }
 
+/// §5.20 教程条目目录（SP-42）：入口与路由目的地共用同一份稳定 id。
+/// 用 computed 而非 `static let`：应用内切换语言后重新取词，标题不得冻结在
+/// 首次访问的语言。
+enum HelpTopicCatalog {
+    struct Topic: Identifiable {
+        static let voiceID = "voice"
+        let id: String
+        let title: String
+        let icon: String
+        let bullets: [String]
+    }
+
+    static var all: [Topic] {
+        [
+            Topic(id: "gettingStarted", title: L10n.helpTopicGettingStarted,
+                  icon: "person.crop.circle.badge.plus",
+                  bullets: [L10n.helpGettingStarted1, L10n.helpGettingStarted2]),
+            Topic(id: "importOcr", title: L10n.helpTopicImportOcr,
+                  icon: "doc.viewfinder",
+                  bullets: [L10n.helpImportOcr1, L10n.helpImportOcr2]),
+            Topic(id: "reminders", title: L10n.helpTopicReminders,
+                  icon: "bell.badge",
+                  bullets: [L10n.helpReminders1, L10n.helpReminders2]),
+            Topic(id: "privacy", title: L10n.helpTopicPrivacy,
+                  icon: "lock.shield",
+                  bullets: [L10n.helpPrivacy1, L10n.helpPrivacy2]),
+            Topic(id: "care", title: L10n.helpTopicCare,
+                  icon: "figure.walk",
+                  bullets: [L10n.helpCare1, L10n.helpCare2]),
+            Topic(id: "backup", title: L10n.helpTopicBackup,
+                  icon: "externaldrive",
+                  bullets: [L10n.helpBackup1, L10n.helpBackup2]),
+            Topic(id: Topic.voiceID, title: L10n.helpTopicVoice,
+                  icon: "mic",
+                  bullets: [L10n.helpVoice1, L10n.helpVoice2]),
+        ]
+    }
+
+    static func topic(id: String) -> Topic? {
+        all.first { $0.id == id }
+    }
+}
+
 /// F22 帮助中心入口：按功能提供诊断工具、教程、FAQ 和关于页。
 struct HelpRootView: View {
     var body: some View {
@@ -71,11 +117,11 @@ struct HelpRootView: View {
             Form {
                 // §5.20 七类教程入口（V3.72 补：此前只有三项诊断 + 关于页）
                 Section(L10n.helpTutorialTitle) {
-                    ForEach(helpTopics) { topic in
-                        NavigationLink {
-                            HelpTopicView(title: topic.title, bullets: topic.bullets,
-                                          isVoiceTopic: topic.id == HelpTopic.voiceID)
-                        } label: {
+                    ForEach(HelpTopicCatalog.all) { topic in
+                        // §5.45：教程页也走 value 路由——闭包目的地不在 path 里，
+                        // 关怀模式常驻返回钮按 path 栈顶（帮助中心）出栈，一次跨
+                        // 两级跳回设置；改为 value 后返回钮恰好弹一级。
+                        NavigationLink(value: AppRoute.helpTopic(topic.id)) {
                             Label(topic.title, systemImage: topic.icon)
                         }
                     }
@@ -125,43 +171,6 @@ struct HelpRootView: View {
 .navigationTitle(L10n.helpCenterTitle)
         }
     }
-
-    /// 教程条目用稳定 id 作身份/行为条件——此前以本地化标题作 ForEach id
-    /// 且以 `title == L10n.helpTopicVoice` 决定是否显示朗读按钮：改词条文案
-    /// 即丢朗读入口，标题撞车即触发重复 id。
-    private struct HelpTopic: Identifiable {
-        static let voiceID = "voice"
-        let id: String
-        let title: String
-        let icon: String
-        let bullets: [String]
-    }
-
-    private var helpTopics: [HelpTopic] {
-        [
-            HelpTopic(id: "gettingStarted", title: L10n.helpTopicGettingStarted,
-                      icon: "person.crop.circle.badge.plus",
-                      bullets: [L10n.helpGettingStarted1, L10n.helpGettingStarted2]),
-            HelpTopic(id: "importOcr", title: L10n.helpTopicImportOcr,
-                      icon: "doc.viewfinder",
-                      bullets: [L10n.helpImportOcr1, L10n.helpImportOcr2]),
-            HelpTopic(id: "reminders", title: L10n.helpTopicReminders,
-                      icon: "bell.badge",
-                      bullets: [L10n.helpReminders1, L10n.helpReminders2]),
-            HelpTopic(id: "privacy", title: L10n.helpTopicPrivacy,
-                      icon: "lock.shield",
-                      bullets: [L10n.helpPrivacy1, L10n.helpPrivacy2]),
-            HelpTopic(id: "care", title: L10n.helpTopicCare,
-                      icon: "figure.walk",
-                      bullets: [L10n.helpCare1, L10n.helpCare2]),
-            HelpTopic(id: "backup", title: L10n.helpTopicBackup,
-                      icon: "externaldrive",
-                      bullets: [L10n.helpBackup1, L10n.helpBackup2]),
-            HelpTopic(id: HelpTopic.voiceID, title: L10n.helpTopicVoice,
-                      icon: "mic",
-                      bullets: [L10n.helpVoice1, L10n.helpVoice2]),
-        ]
-    }
 }
 
 /// 教程主题页（静态条目 + 语音输入主题附带 [🔊 朗读] 出口）
@@ -192,6 +201,21 @@ struct HelpTopicView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// §5.45 教程主题页路由落点：载荷只带稳定 id，文案从目录实时解析（应用内
+/// 切换语言后重建即取新词）；未知 id 按 §5.48 已删除实体降级并自弹回根。
+struct HelpTopicRouteView: View {
+    let topicID: String
+
+    var body: some View {
+        if let topic = HelpTopicCatalog.topic(id: topicID) {
+            HelpTopicView(title: topic.title, bullets: topic.bullets,
+                          isVoiceTopic: topic.id == HelpTopicCatalog.Topic.voiceID)
+        } else {
+            RouteFallbackView(route: .helpTopic(topicID))
         }
     }
 }
@@ -276,7 +300,7 @@ private struct PermissionRow: View {
             // T3 呈现评审:手写 Text+Spacer+值 行 → LabeledContent(标准行形态)
             LabeledContent {
                 Text(status.text)
-                    .foregroundStyle(status.isPositive ? Color("semantic-success", bundle: .main) : .secondary)
+                    .foregroundStyle(status.tint)
             } label: {
                 Label(name, systemImage: icon)
             }
@@ -301,7 +325,7 @@ struct HelpReminderDiagnostics: View {
                 Section(L10n.helpReminderSection) {
                     LabeledContent(L10n.helpReminderPermission) {
                         Text(notificationStatus.text)
-                            .foregroundStyle(notificationStatus.isPositive ? Color("semantic-success", bundle: .main) : .secondary)
+                            .foregroundStyle(notificationStatus.tint)
                     }
                 }
                 Section(L10n.helpReminderTodaySection) {
@@ -348,7 +372,7 @@ struct HelpDataHealth: View {
                 Section(L10n.helpDataDbSection) {
                     LabeledContent(L10n.helpDataIntegrity) {
                         Text(dbIntegrity.text)
-                            .foregroundStyle(dbIntegrity.isPositive ? Color("semantic-success", bundle: .main) : .secondary)
+                            .foregroundStyle(dbIntegrity.tint)
                     }
                 }
                 Section(L10n.helpDataStorageSection) {
