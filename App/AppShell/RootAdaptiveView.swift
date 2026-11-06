@@ -289,6 +289,12 @@ private struct PreviewRoot: View {
     /// 设置仓（业主 2026-09-17：F16DeviceState 构造与环境注入共用同一实例——
     /// 此前 body 内联新建 AppSettingsStore，F16DeviceState 拿不到同一仓）。
     private let settingsStore: AppSettingsStore
+    /// 会话历史/Avatar/导出副本：SettingsView 头像头读 AvatarState、.task 读
+    /// ChatHistoryState，HelpAboutView 的识别调参开关读 DocumentExportState——
+    /// 缺注入即预览里切「我的」或进关于页直接崩（"No Observable object ... found"）。
+    private let avatarState: AvatarState
+    private let chatHistoryState: ChatHistoryState
+    private let documentExportState: DocumentExportState
     /// 三切片目录状态（2026-10-28 切片-only；预览与生产同构注入）。
     private let catalogSlicesState: CatalogSlicesState
     /// P3（2026-10-07）：预览同构——provider 缺省（preview 装配默认 nil）→
@@ -320,6 +326,18 @@ private struct PreviewRoot: View {
                                  isDirectory: true))
         appState = AppState(persistor: assembled.persistor)
         settingsStore = AppSettingsStore(store: assembled.settings)
+        avatarState = AvatarState(settings: settingsStore)
+        // 与 AppSession 同构：单一导出镜像实例，会话删除清理与导出状态共用。
+        let exportMirror = DocumentExportMirror(
+            ledger: assembled.documentExports,
+            exportsBase: MediaRootPaths.documentsBase(),
+            originalsDir: AppContainer.defaultOriginalsDir())
+        chatHistoryState = ChatHistoryState(store: assembled.chatHistory,
+                                            exportMirror: exportMirror)
+        documentExportState = DocumentExportState(
+            store: assembled.documents,
+            ledger: assembled.documentExports,
+            mirror: exportMirror)
         let adviceState = UpdateAdviceState(provider: assembled.updateAdvice)
         updateAdviceState = adviceState
         // 统一更新中心批（2026-10-07）：ASR 检查态 + 中心编排（与生产同构）。
@@ -335,6 +353,7 @@ private struct PreviewRoot: View {
         WithPerceptionTracking {
             RootAdaptiveView()
                 .environment(appState)
+                .environment(avatarState)
                 .environment(ReminderStore(meds: container.meds, apts: container.apts,
                                            reconciler: container.reconciler,
                                            // 预览与生产同构：统一经组装根单实例调度器
@@ -347,6 +366,8 @@ private struct PreviewRoot: View {
                 // actor 非 Observable，走自定义 EnvironmentKey 注入。
                 .environment(\.medicationScheduleStore, container.scheduleTemplates)
                 .environment(settingsStore)
+                .environment(chatHistoryState)
+                .environment(documentExportState)
                 .environment(catalogSlicesState)
                 .environment(updateAdviceState)
                 .environment(asrCheckState)
