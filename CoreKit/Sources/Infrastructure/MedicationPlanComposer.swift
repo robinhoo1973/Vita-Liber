@@ -90,7 +90,7 @@ public actor MedicationPlanComposer {
                     SELECT p.id AS plan_id, p.medication_id AS medication_id, l.prescription_id AS prescription_id,
                            (SELECT s.id FROM stock_lot s
                             WHERE s.prescription_line_id = ? AND s.patient_id = ? AND s.status = 'active'
-                            ORDER BY s.created_at DESC LIMIT 1) AS lot_id
+                            ORDER BY s.rowid DESC LIMIT 1) AS lot_id
                     FROM medication_plan p
                     JOIN prescription_line l ON l.id = p.prescription_line_id
                     WHERE p.patient_id = ? AND p.prescription_line_id = ? AND p.status <> 'ended'
