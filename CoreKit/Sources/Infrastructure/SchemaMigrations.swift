@@ -1104,6 +1104,15 @@ public enum SchemaMigrations {
         ALTER TABLE patient_profile ADD COLUMN height_cm REAL;
         ALTER TABLE patient_profile ADD COLUMN weight_kg REAL;
         """),
+        // v51（2026-11-06 三轮/红队结论）：处方行 → 计划行级链接。
+        // 只加可空列 + 状态感知部分唯一索引；同一行只允许一个未结束计划，
+        // ended 后允许从同一行重建。不建 ledger/关系表。
+        Step(version: 51, name: "medication-plan-prescription-line", sql: """
+        ALTER TABLE medication_plan ADD COLUMN prescription_line_id TEXT REFERENCES prescription_line(id);
+        CREATE UNIQUE INDEX idx_medication_plan_prescription_line
+          ON medication_plan(prescription_line_id)
+          WHERE prescription_line_id IS NOT NULL AND status <> 'ended';
+        """),
     ]
 
     /// 全新库建库后应落到的版本号

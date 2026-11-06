@@ -46,6 +46,8 @@ public actor MedicationPlanComposer {
         case invalidTransition(UUID, from: String, to: String)
         /// v25：显式传入的处方行不存在 / 不属于该成员 / 不属于该处方（成员隔离，整事务回滚）。
         case lineNotFound(UUID)
+        /// v51：同一处方行已有未结束计划但找不到可用批次（不应发生；双击/重试时给出可解释错误）。
+        case planAlreadyExists(UUID)
         public var errorDescription: String? {
             switch self {
             case .prescriptionNotConfirmed: return "处方未确认——不得生成正式用药计划（BR-003）"
@@ -53,6 +55,7 @@ public actor MedicationPlanComposer {
             case .planNotActive(let id): return "计划非 active 状态: \(id.uuidString)"
             case .invalidTransition(let id, let from, let to): return "计划状态迁移非法: \(id.uuidString) \(from)→\(to)"
             case .lineNotFound(let id): return "处方行不存在或不属于该成员/处方: \(id.uuidString)"
+            case .planAlreadyExists(let id): return "该处方行已有未结束计划: \(id.uuidString)"
             }
         }
     }
@@ -80,6 +83,27 @@ public actor MedicationPlanComposer {
                     SELECT COUNT(*) FROM prescription_line WHERE id = ? AND patient_id = ? AND prescription_id = ?
                     """, arguments: [prescriptionLineId.uuidString, prescription.patientId.uuidString, prescription.id.uuidString]) == 1 else {
                     throw ComposerError.lineNotFound(prescriptionLineId)
+                }
+                // v51 行级幂等：同 line 已有 active/paused 计划 → 直接返回原计划/批次，
+                // 双击/重试不重复建药、不重复扣库存。ended 后允许重建（部分唯一索引同口径）。
+                if let existing = try Row.fetchOne(db, sql: """
+                    SELECT p.id AS plan_id, p.medication_id AS medication_id, l.prescription_id AS prescription_id,
+                           (SELECT s.id FROM stock_lot s
+                            WHERE s.prescription_line_id = ? AND s.patient_id = ? AND s.status = 'active'
+                            ORDER BY s.created_at DESC LIMIT 1) AS lot_id
+                    FROM medication_plan p
+                    JOIN prescription_line l ON l.id = p.prescription_line_id
+                    WHERE p.patient_id = ? AND p.prescription_line_id = ? AND p.status <> 'ended'
+                    ORDER BY p.created_at DESC LIMIT 1
+                    """, arguments: [prescriptionLineId.uuidString, prescription.patientId.uuidString,
+                                     prescription.patientId.uuidString, prescriptionLineId.uuidString]),
+                   let planId = (existing["plan_id"] as String?).flatMap(UUID.init(uuidString:)),
+                   let medId = (existing["medication_id"] as String?).flatMap(UUID.init(uuidString:)),
+                   let rxId = (existing["prescription_id"] as String?).flatMap(UUID.init(uuidString:)) {
+                    guard let lotId = (existing["lot_id"] as String?).flatMap(UUID.init(uuidString:)) else {
+                        throw ComposerError.planAlreadyExists(planId)
+                    }
+                    return (medId, rxId, planId, lotId)
                 }
             }
             // ① 药品定义（§4.2 upsertReturningId：同成员 generic_name+spec 复用既有行）。
@@ -134,8 +158,8 @@ public actor MedicationPlanComposer {
                 INSERT INTO medication_plan
                   (id, patient_id, medication_id, schedule_id, slot_keys_json,
                    status, schedule_json, start_date, end_date, dose_plan_units,
-                   created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   created_at, updated_at, prescription_line_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, arguments: [planId.uuidString, prescription.patientId.uuidString,
                                  medId.uuidString, scheduleId?.uuidString,
                                  slotKeysJSON,
@@ -146,7 +170,8 @@ public actor MedicationPlanComposer {
                                  // 单剂基线，data-flow-spec line 463）——此前误写
                                  // initialLot.totalUnits（整盒数量），且无任何读取方
                                  plan.dosePerTake,
-                                 now.timeIntervalSince1970, now.timeIntervalSince1970])
+                                 now.timeIntervalSince1970, now.timeIntervalSince1970,
+                                 prescriptionLineId?.uuidString])
             // ④ 初始库存批次（处方 OCR 回填数量/效期/位置；FR9.10）
             let lotId = UUID()
             try db.execute(sql: """

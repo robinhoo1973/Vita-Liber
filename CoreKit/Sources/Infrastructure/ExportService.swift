@@ -290,6 +290,9 @@ public actor ExportService {
             public var dosePlanUnits: Double?
             public var endedReason: String?
             public var pausedAt: Date?
+            /// v51：处方行来源；旧包缺键 → nil。恢复时因行表晚于计划表落库，
+            /// 先记 deferred，处方行恢复后再回填（避免 FK 失败）。
+            public var prescriptionLineId: UUID? = nil
         }
         public struct AppointmentExport: Sendable, Codable, Equatable {
             public var id: UUID
@@ -656,7 +659,8 @@ public actor ExportService {
             }
             let plans = try Row.fetchAll(db, sql: """
                 SELECT p.id, p.patient_id, p.status, p.start_date, p.end_date, p.schedule_json,
-                       p.dose_plan_units, p.ended_reason, p.paused_at, m.generic_name, m.spec, m.unit_kind
+                       p.dose_plan_units, p.ended_reason, p.paused_at, p.prescription_line_id,
+                       m.generic_name, m.spec, m.unit_kind
                 FROM medication_plan p JOIN medication m ON m.id = p.medication_id
                 """).compactMap { row -> Envelope.PlanExport? in
                 guard let json = (row["schedule_json"] as String?)?.data(using: .utf8) else { return nil }
@@ -675,7 +679,8 @@ public actor ExportService {
                     unitKind: row["unit_kind"] as String?,
                     dosePlanUnits: row["dose_plan_units"] as Double?,
                     endedReason: row["ended_reason"] as String?,
-                    pausedAt: (row["paused_at"] as Double?).map { Date(timeIntervalSince1970: $0) })
+                    pausedAt: (row["paused_at"] as Double?).map { Date(timeIntervalSince1970: $0) },
+                    prescriptionLineId: (row["prescription_line_id"] as String?).flatMap(UUID.init(uuidString:)))
             }
             let appointments = try Row.fetchAll(db, sql: "SELECT * FROM appointment").map { row in
                 Envelope.AppointmentExport(
@@ -1700,6 +1705,8 @@ private struct ImportSession {
     var cardMap: [UUID: UUID] = [:]
     var docEncounterLinks: [String: UUID?] = [:]
     var appointmentEncounterLinks: [(appointmentId: String, encounterId: UUID?)] = []
+    /// v51：处方行表晚于计划表恢复，计划行链接先记 deferred，行恢复后回填。
+    var deferredPlanLineLinks: [(planId: String, patientId: String, lineId: UUID)] = []
     var existingAudits: [OCRCardStore.AuditRecord] = []
 
     init(db: Database, envelope: ExportService.Envelope, resolutions: [UUID: ExportService.ConflictResolution]) {
@@ -1743,6 +1750,7 @@ private struct ImportSession {
         try verifyKeptDocumentPages()
         try restoreMedications()
         try restorePrescriptionLines()
+        try backfillPlanLineLinks()
         try restoreClaims()
         try restoreClaimLines()
         try restoreExamReports()
@@ -2102,9 +2110,9 @@ private struct ImportSession {
 
     // MARK: - 阶段 3：用药计划（medication → medication_plan）
 
-    func restorePlans() throws {
+    mutating func restorePlans() throws {
         for p in envelope.plans {
-            if try adoptOrSkip(planConflicts, p.id, adopt: {
+            let adopted = try adoptOrSkip(planConflicts, p.id, adopt: {
                 let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
                 // 审查修复（ADR-019 采纳语义）：采纳 = 以备份版本为准——
                 // 旧 UPDATE 只改 4 列，备份的 dose_plan_units（安全线单剂
@@ -2119,7 +2127,14 @@ private struct ImportSession {
                                      p.endDate?.timeIntervalSince1970,
                                      p.dosePlanUnits, p.endedReason,
                                      p.pausedAt?.timeIntervalSince1970, p.id.uuidString])
-            }) { continue }
+            })
+            if adopted {
+                if resolution(p.id) == .adopt, let lineId = p.prescriptionLineId {
+                    deferredPlanLineLinks.append((planId: (remap(p.id) ?? p.id).uuidString,
+                                                  patientId: patientID(p.patientId), lineId: lineId))
+                }
+                continue
+            }
             // 药品行先落（medication_plan.medication_id 外键，ERR#35）
             let planPatient = remap(p.patientId) ?? p.patientId ?? profileId
             let medId = UUID()
@@ -2130,15 +2145,38 @@ private struct ImportSession {
                                    p.medicationName, p.spec, p.unitKind ?? "tablet",
                                    p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
             let scheduleJSON = String(data: try JSONEncoder().encode(p.schedule), encoding: .utf8) ?? "{}"
+            let targetPlanId = (remap(p.id) ?? p.id).uuidString
             try db.execute(sql: """
                 INSERT INTO medication_plan
                   (id, patient_id, medication_id, status, schedule_json, start_date, end_date,
-                   dose_plan_units, ended_reason, paused_at, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, arguments: [(remap(p.id) ?? p.id).uuidString, planPatient?.uuidString ?? "", medId.uuidString, p.status.rawValue, scheduleJSON,
+                   dose_plan_units, ended_reason, paused_at, created_at, updated_at,
+                   prescription_line_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                """, arguments: [targetPlanId, planPatient?.uuidString ?? "", medId.uuidString, p.status.rawValue, scheduleJSON,
                                  p.startDate.timeIntervalSince1970, p.endDate?.timeIntervalSince1970,
                                  p.dosePlanUnits, p.endedReason, p.pausedAt?.timeIntervalSince1970,
                                  p.startDate.timeIntervalSince1970, p.startDate.timeIntervalSince1970])
+            if let lineId = p.prescriptionLineId {
+                deferredPlanLineLinks.append((planId: targetPlanId,
+                                              patientId: patientID(p.patientId), lineId: lineId))
+            }
+        }
+    }
+
+    /// v51：处方行恢复后再回填计划行链接；行缺失/同线已有未结束计划 → 跳过，不伪造 FK。
+    func backfillPlanLineLinks() throws {
+        for link in deferredPlanLineLinks {
+            let targetLine = (remap(link.lineId) ?? link.lineId).uuidString
+            let patient = link.patientId
+            guard try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM prescription_line WHERE id = ? AND patient_id = ?",
+                                   arguments: [targetLine, patient]) == 1 else { continue }
+            let conflict = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM medication_plan
+                WHERE patient_id = ? AND prescription_line_id = ? AND id <> ? AND status <> 'ended'
+                """, arguments: [patient, targetLine, link.planId]) ?? 0
+            guard conflict == 0 else { continue }
+            try db.execute(sql: "UPDATE medication_plan SET prescription_line_id = ? WHERE id = ? AND patient_id = ?",
+                           arguments: [targetLine, link.planId, patient])
         }
     }
 

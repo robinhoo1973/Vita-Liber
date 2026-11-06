@@ -280,9 +280,15 @@ public enum SchemaV2 {
       start_date REAL NOT NULL, end_date REAL,
       dose_plan_units REAL,
       paused_at REAL, ended_at REAL, ended_reason TEXT,
-      created_at REAL NOT NULL, updated_at REAL NOT NULL);
+      created_at REAL NOT NULL, updated_at REAL NOT NULL,
+      -- v51：处方行来源（行级幂等/溯源）；NULL = 手工计划/旧数据。
+      prescription_line_id TEXT REFERENCES prescription_line(id));
     CREATE INDEX idx_plan_patient_status ON medication_plan(patient_id, status);
     CREATE INDEX idx_plan_schedule ON medication_plan(schedule_id);
+    -- 同一处方行只允许一个未结束计划（ended 后可重建）；部分索引避免旧数据/手工计划冲突。
+    CREATE UNIQUE INDEX idx_medication_plan_prescription_line
+      ON medication_plan(prescription_line_id)
+      WHERE prescription_line_id IS NOT NULL AND status <> 'ended';
 
     -- 计划生命周期历史（FR9.15：append-only，与状态变更同事务）
     CREATE TABLE plan_lifecycle_event (

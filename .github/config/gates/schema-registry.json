@@ -1,7 +1,7 @@
 {
   "authority": "code: SchemaMigrations.swift + SchemaV2.swift（本文件为只读派生视图，不驱动任何决策）",
   "generated_by": "scripts/gates/generate-schema-registry.py",
-  "latest_version": 50,
+  "latest_version": 51,
   "relocations": [
     {
       "executor": "DatabaseFileMigration.migrate",
@@ -537,6 +537,17 @@
       "name": "patient-profile-body-metrics",
       "transactional": false,
       "version": 50
+    },
+    {
+      "definition_sha256": null,
+      "executor": null,
+      "fk_check_table": null,
+      "has_code": false,
+      "irreversible": false,
+      "kind": "sql",
+      "name": "medication-plan-prescription-line",
+      "transactional": false,
+      "version": 51
     }
   ]
 }

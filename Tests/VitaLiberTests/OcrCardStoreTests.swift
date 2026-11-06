@@ -792,6 +792,12 @@ final class OcrCardStoreTests: XCTestCase {
                                                           initialLot: StockLotDraft(totalUnits: 12, unitKind: "capsule"), prescriptionLineId: lineId)
         let linked = try await db.writer.read { try String.fetchOne($0, sql: "SELECT prescription_line_id FROM stock_lot WHERE id = ?", arguments: [ids.3.uuidString]) }
         XCTAssertEqual(linked, lineId.uuidString)
+        let planLinked = try await db.writer.read { try String.fetchOne($0, sql: "SELECT prescription_line_id FROM medication_plan WHERE id = ?", arguments: [ids.2.uuidString]) }
+        XCTAssertEqual(planLinked, lineId.uuidString)
+        let again = try await composer.createMedicationPlan(prescription: prescription, plan: plan,
+                                                            initialLot: StockLotDraft(totalUnits: 12, unitKind: "capsule"), prescriptionLineId: lineId)
+        XCTAssertEqual(again.2, ids.2)
+        XCTAssertEqual(again.3, ids.3)
         do {
             _ = try await composer.createMedicationPlan(prescription: prescription, plan: plan,
                                                         initialLot: StockLotDraft(totalUnits: 12, unitKind: "capsule"), prescriptionLineId: UUID())
