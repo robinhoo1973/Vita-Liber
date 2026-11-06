@@ -37,7 +37,7 @@ class SchemaIntegrityTests(unittest.TestCase):
         text = (ROOT / "CoreKit/Sources/Infrastructure/SchemaMigrations.swift").read_text()
         expected = [1] + [int(v) for v in re.findall(r"Step\(version: (\d+),", text)]
         self.assertEqual(seeded, expected, "历史库种子版本序列与 SchemaMigrations.steps 不一致")
-        self.assertEqual(seeded[-1], 50)
+        self.assertEqual(seeded[-1], expected[-1])
     def test_schema_registry_generator_consistent(self):
         """B2 门禁（2026-10-29 转换登记表批）：种子与 schema-registry.json 必须
         等于生成器从代码全量派生的产物。
