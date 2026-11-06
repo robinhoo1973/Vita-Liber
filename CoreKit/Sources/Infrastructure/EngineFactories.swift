@@ -360,6 +360,11 @@ public enum CardExtractionFactory: EngineFactory {
             engines.append(FoundationModelsExtractionEngine())
         }
         #endif
+        // 判别式 Core ML 轨：只有 catalog + 编译模型都在包内才注册；缺件不占轨、
+        // 不产生“不可用”噪声。规则轨仍是恒可用兜底（2026-11-06 业主）。
+        if CoreMLElementMatcher.hasBundledModel() {
+            engines.append(CoreMLExtractionEngine(matcher: CoreMLElementMatcher()))
+        }
         #if canImport(llama)
         // 业主 2026-09-17 恢复 T2（llama 模型随包内置）：自建切片下限 = 应用基线
         // iOS 16.0（上游默认 16.4 已改——llama.cpp 无 16.4 专属 API，见

@@ -104,7 +104,7 @@ struct ExtractedCardTests {
         let card = ExtractedCard(kind: "encounter", pageIndex: 0, shared: [:], rows: [],
                                  provenance: ExtractionProvenance(track: .rules, specVersion: 1, modelId: nil, durationMs: 0), diagnostics: diagnostics)
         #expect(card.continuationHint.isEmpty)
-        #expect(ExtractionTrack.allCases.map(\.rawValue) == ["foundationModels", "localLLM", "rules"])
+        #expect(ExtractionTrack.allCases.map(\.rawValue) == ["foundationModels", "localLLM", "coreML", "rules"])
     }
 }
 

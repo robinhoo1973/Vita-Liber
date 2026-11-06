@@ -9,6 +9,7 @@ public enum FieldDraftAdapter {
         switch track {
         case .foundationModels: return .foundationModels
         case .localLLM: return .localLLM
+        case .coreML: return .nlModel
         case .rules: return .heuristic
         }
     }

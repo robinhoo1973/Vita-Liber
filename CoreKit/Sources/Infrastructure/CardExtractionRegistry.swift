@@ -69,7 +69,7 @@ public actor CardExtractionRegistry {
         var contributors: [ExtractionTrack] = []
         var regionDone = false
         for engine in engines where !disabled.contains(engine.track) && !regionDone {
-            let generative = engine.track != .rules
+            let generative = engine.track.requiresGenerativeAuthorization
             if generative, !request.allowsGenerativeProcessing { degrade(.notAuthorized, in: &card); continue }
             if generative, let budget = request.pageBudget, ContinuousClock.now - pageStarted > budget { degrade(.timeout, in: &card); continue }
             let availability = await engine.availability(for: request)
@@ -103,7 +103,11 @@ public actor CardExtractionRegistry {
                         if !used.contains(engine.track) { used.append(engine.track) }
                         contributors.append(engine.track)
                     }
-                    if ratio >= Self.groundingThreshold || !generative {
+                    // 判别式非生成轨（Core ML）不因「有产出」终止链：产出全部
+                    // 未过 grounding（ratio == 0）时若结束区域，模型漏检会把
+                    // 规则轨一起挡掉。只有「有产出且锚定达标」或恒兜底的规则轨
+                    // 才终止链；低锚定率的 Core ML 结果保留并交下一轨补键。
+                    if ratio >= Self.groundingThreshold || engine.track == .rules {
                         regionDone = true
                     } else if raw.valueCount > 0 {
                         card.diagnostics.degradedReason = .lowGrounding
@@ -180,14 +184,23 @@ public actor CardExtractionRegistry {
         }
     }
 
-    /// 两轨并集（design §5.3「按 (row, key) 并集」）：共享先到先得；行按 rowAnchor 值合并（同药名 / 同项目补键不重复成行），
-    /// 无锚或锚值未见者追加。
+    /// 两轨并集（design §5.3「按 (row, key) 并集」）：共享先到先得；同一物理行
+    /// 先按 `TextAnchor.rowId` 对齐（规则轨与 Core ML 轨都带区域行 id；不同轨对
+    /// 同一行的文本取舍可能不同——整行 vs 拆出的药名/项目名——只比锚值会把
+    /// 同一行并成两行），无 rowId 时回落 rowAnchor 值合并（同药名 / 同项目补键
+    /// 不重复成行），无锚或锚值未见者追加。
     private func union(_ a: RegionExtraction, _ b: RegionExtraction, anchor: String?) -> RegionExtraction {
         var out = a
         out.shared.merge(b.shared) { first, _ in first }
         for row in b.rows {
-            if let anchor, let key = row[anchor]?.value,
-               let index = out.rows.firstIndex(where: { $0[anchor]?.value == key }) {
+            let rowID = row.values.compactMap(\.anchor.rowId).first
+            if let rowID,
+               let index = out.rows.firstIndex(where: { candidate in
+                   candidate.values.contains { $0.anchor.rowId == rowID }
+               }) {
+                out.rows[index].merge(row) { first, _ in first }
+            } else if let anchor, let key = row[anchor]?.value,
+                      let index = out.rows.firstIndex(where: { $0[anchor]?.value == key }) {
                 out.rows[index].merge(row) { first, _ in first }
             } else {
                 out.rows.append(row)

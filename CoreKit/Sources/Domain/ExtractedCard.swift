@@ -6,7 +6,13 @@ import Foundation
 
 /// 产出轨（design §5.1）：T1 Foundation Models / T2 本机文本 LLM（子项目 F）/ T3 规则。
 public enum ExtractionTrack: String, Codable, Sendable, CaseIterable {
-    case foundationModels, localLLM, rules
+    case foundationModels, localLLM, coreML, rules
+
+    /// 需要生成式授权/页预算的轨（T1/T2）；Core ML 是判别式端侧模型，
+    /// 不应因 `allowsGenerativeProcessing == false` 被跳过（OCR 导入的默认路径）。
+    public var requiresGenerativeAuthorization: Bool {
+        self == .foundationModels || self == .localLLM
+    }
 }
 
 /// 降级原因（UI 诚实标注，design §5.5；`none` = 未降级）。
