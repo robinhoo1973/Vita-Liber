@@ -62,7 +62,9 @@ public actor CoreMLModelDownloadService {
         if FileManager.default.fileExists(atPath: direct.path) { return root }
         let children = (try? FileManager.default.contentsOfDirectory(at: root,   // try?-ok: 空目录=失败
                                                                      includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-        let directories = children.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }   // try?-ok: 判定失败=忽略
+        let directories = children.filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true   // try?-ok: 判定失败=忽略
+        }
         guard directories.count == 1,
               FileManager.default.fileExists(atPath: directories[0].appendingPathComponent("catalog.json").path)
         else { throw Failure.unzipFailed }
