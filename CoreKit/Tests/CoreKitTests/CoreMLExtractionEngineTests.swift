@@ -153,6 +153,27 @@ struct CoreMLExtractionEngineTests {
         #expect(card.shared["hospital"]?.value == "市第二医院")
     }
 
+    @Test("unknown Core ML label is collected as a zero-weight candidate")
+    func unknownLabelIsCollected() async throws {
+        let recorder = RecordingRuleCatalog()
+        let matcher = StubInformationElementMatching { _, _ in
+            [InformationElementMatch(key: "department", value: "申请科室：骨科门诊",
+                                     confidence: 0.9, sourceLineIndex: 0)]
+        }
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
+        let line = "申请科室：骨科门诊"
+        let region = ExtractionRegion(
+            pageIndex: 0, id: "g0", kind: .paragraph, columnHeader: nil,
+            rows: [ExtractionRow(id: "r0", cells: [ExtractionCell(text: line, lineIndices: [0], columnIndex: 0)])])
+        let request = ExtractionRequest(pageIndex: 0, lines: [line], regions: [region], specs: [spec],
+                                        allowsGenerativeProcessing: false, pageConfidence: 0.9)
+        _ = try await CoreMLExtractionEngine(matcher: matcher, rules: recorder)
+            .extract(region: region, spec: spec, request: request)
+        let seen = await recorder.seen
+        #expect(seen.contains(ExtractionRuleObservation(kind: "encounter", key: "department",
+                                                       alias: "申请科室")))
+    }
+
     @Test("learned aliases cap the value confidence at 0.5")
     func learnedAliasCapsConfidence() async throws {
         struct Learned: ExtractionRuleCataloging {
@@ -315,4 +336,11 @@ struct CoreMLExtractionEngineTests {
         #expect(card.rows[0]["drug_name"]?.value == "阿莫西林")
         #expect(card.rows[0]["dosage"]?.value == "0.5g")
     }
+}
+
+private actor RecordingRuleCatalog: ExtractionRuleCataloging {
+    private(set) var seen: [ExtractionRuleObservation] = []
+    func activeOverlay() async -> ExtractionRuleOverlay { ExtractionRuleOverlay() }
+    func observe(_ observations: [ExtractionRuleObservation]) async { seen += observations }
+    func confirm(kind: String, key: String, alias: String, documentPseudonym: String) async {}
 }
