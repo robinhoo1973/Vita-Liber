@@ -47,6 +47,14 @@ struct ExtractionRuleOverlayTests {
         #expect(!overlay.hasLearnedAlias(kind: "prescription", key: "spec"))
     }
 
+    @Test("source raw values match the rule database columns")
+    func sourceRawValues() {
+        #expect(ExtractionRuleSource.specSeed.rawValue == "spec_seed")
+        #expect(ExtractionRuleSource.scanMined.rawValue == "scan_mined")
+        #expect(ExtractionRuleSource.coreMLObserved.rawValue == "coreml_observed")
+        #expect(ExtractionRuleSource.userConfirmed.rawValue == "user_confirmed")
+    }
+
     @Test("generic labeled value only accepts label-like prefixes")
     func genericLabel() {
         #expect(RuleExtractor.genericLabeledValue(in: "申请科室：骨科门诊")?.label == "申请科室")

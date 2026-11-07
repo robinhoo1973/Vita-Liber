@@ -13,10 +13,12 @@ import Foundation
 /// - `userConfirmed`：用户在确认页确认了该模型字段 → `confirmedCount += 1`；
 ///   满足证据门槛后才转 `active`。
 public enum ExtractionRuleSource: String, Codable, Sendable, CaseIterable {
-    case specSeed
-    case scanMined
-    case coreMLObserved
-    case userConfirmed
+    // rawValue 与规则库 `source_kind` 列严格同名（snake_case）——不要改回 camelCase，
+    // 否则 seed 读出会被静默降级为 specSeed。
+    case specSeed = "spec_seed"
+    case scanMined = "scan_mined"
+    case coreMLObserved = "coreml_observed"
+    case userConfirmed = "user_confirmed"
 }
 
 public enum ExtractionRuleStatus: String, Codable, Sendable, CaseIterable {
