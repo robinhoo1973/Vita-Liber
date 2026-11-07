@@ -72,6 +72,7 @@ public enum CoreMLModelInstallation {
               let catalog = try? JSONDecoder().decode(CoreMLElementMatcher.Catalog.self, from: data),   // try?-ok: 损坏=无效
               catalog.formatVersion == 1,
               catalog.modelFile.hasSuffix(".mlmodelc"),
+              catalog.sha256?.count == 64,
               catalog.featureVersion == nil || catalog.featureVersion == CharNGramVectorizer.version
         else { return false }
         let modelURL = package.appendingPathComponent(catalog.modelFile)
