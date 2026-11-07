@@ -71,7 +71,9 @@ public enum CoreMLModelInstallation {
         guard let data = try? Data(contentsOf: package.appendingPathComponent("catalog.json")),   // try?-ok: 缺件=无效
               let catalog = try? JSONDecoder().decode(CoreMLElementMatcher.Catalog.self, from: data),   // try?-ok: 损坏=无效
               catalog.formatVersion == 1,
-              catalog.modelFile.hasSuffix(".mlmodelc") else { return false }
+              catalog.modelFile.hasSuffix(".mlmodelc"),
+              catalog.featureVersion == nil || catalog.featureVersion == CharNGramVectorizer.version
+        else { return false }
         let modelURL = package.appendingPathComponent(catalog.modelFile)
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: modelURL.path, isDirectory: &isDirectory),
