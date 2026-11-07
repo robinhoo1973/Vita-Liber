@@ -1,10 +1,12 @@
 {
-  "bytes": 557743,
+  "bytes": 820135,
   "cardKinds": [
     "encounter",
     "exam_report",
+    "health_exam",
     "hospitalization",
-    "metric_sample"
+    "metric_sample",
+    "prescription"
   ],
   "featureDimension": 4096,
   "featureVersion": "char-ngram-fnv1a-v1",
@@ -12,19 +14,27 @@
   "hashFile": "",
   "inputName": "features",
   "keys": [
+    "advice_text",
+    "allergy_history",
+    "chief_complaint",
     "clinical_diagnosis",
     "collected_at",
     "department",
+    "diagnosis_text",
     "doctor",
     "exam_at",
+    "exam_method",
     "exam_part",
     "findings",
     "hospital",
     "impression",
     "measured_at",
+    "past_history",
+    "present_illness",
     "raw_label",
     "report_doctor",
     "report_no",
+    "report_type",
     "reported_at",
     "review_doctor",
     "specimen_type"
@@ -33,11 +43,11 @@
   "license": "proprietary",
   "minimumConfidence": 0.5,
   "modelFile": "field_linerole.mlmodel",
-  "modelID": "field-linerole-0e384f975846",
+  "modelID": "field-linerole-81cbead3ecc9",
   "phiWarning": "trained only on value-masked lines; still derived from local scans",
   "probabilityOutputName": "labelProbs",
-  "sha256": "0e384f975846efda5dad8f4a0625ed94c0c32c7a9f1fde62097a39f69570ca87",
+  "sha256": "81cbead3ecc9288babe5dc190580bf29216cbcaae6a5e07d6a4df1e5a1244806",
   "sourceURL": "",
-  "trainingRunID": "run-20261107T061345Z",
+  "trainingRunID": "run-20261107T081050Z",
   "version": "1.0.0"
 }
