@@ -95,7 +95,7 @@ public actor ExtractionRuleStore: ExtractionRuleCataloging {
         if let cache { return cache }
         var entries: [ExtractionRuleAlias] = []
         if let base {
-            let rows = (try? base.read { db in   // try?-ok: 读失败=该层丢弃
+            let rows = (try? await base.read { db in   // try?-ok: 读失败=该层丢弃
                 try Row.fetchAll(db, sql: """
                     SELECT card_kind, field_key, alias, source_kind, status
                     FROM rule_alias WHERE status = 'active'
@@ -111,7 +111,7 @@ public actor ExtractionRuleStore: ExtractionRuleCataloging {
             }
         }
         if let overlay {
-            let rows = (try? overlay.read { db in   // try?-ok: 读失败=该层丢弃
+            let rows = (try? await overlay.read { db in   // try?-ok: 读失败=该层丢弃
                 try Row.fetchAll(db, sql: """
                     SELECT card_kind, field_key, value, evidence_count, distinct_doc_count
                     FROM rule_candidate
@@ -135,7 +135,7 @@ public actor ExtractionRuleStore: ExtractionRuleCataloging {
     public func observe(_ observations: [ExtractionRuleObservation]) async {
         guard let overlay else { return }
         let timestamp = now.string(from: Date())
-        try? overlay.write { db in   // try?-ok: 收集失败不影响抽取
+        try? await overlay.write { db in   // try?-ok: 收集失败不影响抽取
             for item in observations {
                 guard Self.isLearnableAlias(item.alias) else { continue }
                 try db.execute(sql: """
@@ -153,7 +153,7 @@ public actor ExtractionRuleStore: ExtractionRuleCataloging {
     public func confirm(kind: String, key: String, alias: String, documentPseudonym: String) async {
         guard let overlay, Self.isLearnableAlias(alias) else { return }
         let timestamp = now.string(from: Date())
-        try? overlay.write { db in   // try?-ok: 确认失败不影响抽取
+        try? await overlay.write { db in   // try?-ok: 确认失败不影响抽取
             // 同别名已绑定到另一个键 → 冲突，abstain（不落库、不猜）。
             let conflict = try Bool.fetchOne(db, sql: """
                 SELECT EXISTS(SELECT 1 FROM rule_candidate
