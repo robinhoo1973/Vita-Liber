@@ -1,5 +1,5 @@
 {
-  "bytes": 393758,
+  "bytes": 557743,
   "cardKinds": [
     "encounter",
     "exam_report",
@@ -12,12 +12,17 @@
   "hashFile": "",
   "inputName": "features",
   "keys": [
+    "clinical_diagnosis",
     "collected_at",
     "department",
     "doctor",
     "exam_at",
+    "exam_part",
+    "findings",
     "hospital",
+    "impression",
     "measured_at",
+    "raw_label",
     "report_doctor",
     "report_no",
     "reported_at",
@@ -28,11 +33,11 @@
   "license": "proprietary",
   "minimumConfidence": 0.5,
   "modelFile": "field_linerole.mlmodel",
-  "modelID": "field-linerole-e5a041e48b81",
+  "modelID": "field-linerole-0e384f975846",
   "phiWarning": "trained only on value-masked lines; still derived from local scans",
   "probabilityOutputName": "labelProbs",
-  "sha256": "e5a041e48b81c66157792b2b6be589e602c0b42266d4990fb8eb149e5eec5d49",
+  "sha256": "0e384f975846efda5dad8f4a0625ed94c0c32c7a9f1fde62097a39f69570ca87",
   "sourceURL": "",
-  "trainingRunID": "run-20261107T003742Z",
+  "trainingRunID": "run-20261107T061345Z",
   "version": "1.0.0"
 }
