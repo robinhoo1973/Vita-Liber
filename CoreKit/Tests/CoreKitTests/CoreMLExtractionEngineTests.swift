@@ -90,6 +90,134 @@ struct CoreMLExtractionEngineTests {
         #expect(cards.first?.shared["hospital"]?.value == "市一医院")
     }
 
+    @Test("partial Core ML coverage still lets rules fill missing keys")
+    func partialCoverageUnionsRules() async throws {
+        // 2026-11-07 审计 P0：Core ML 半覆盖（ratio >= 0.5）此前终止区域，
+        // 规则轨被挡掉，卡片静默缺 drug_name。Core ML 轨必须永不终止链。
+        let matcher = StubInformationElementMatching { _, _ in
+            [InformationElementMatch(key: "hospital", value: "市一医院", confidence: 0.95, sourceLineIndex: 0)]
+        }
+        let rules = StubCardExtractionEngine(track: .rules, regionTimeout: nil) { _, _ in
+            RegionExtraction(shared: [:], rows: [[
+                "drug_name": GroundedValue(value: "阿莫西林",
+                    anchor: TextAnchor(pageIndex: 0, lineIndex: 1, blockId: nil, rowId: "r0", utf16Range: 0..<0),
+                    confidence: 0.6),
+            ]])
+        }
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "prescription"))
+        let lines = ["市一医院", "阿莫西林"]
+        let region = ExtractionRegion(
+            pageIndex: 0, id: "g0", kind: .paragraph, columnHeader: nil,
+            rows: [ExtractionRow(id: "r0", cells: [
+                ExtractionCell(text: "市一医院", lineIndices: [0], columnIndex: 0),
+                ExtractionCell(text: "阿莫西林", lineIndices: [1], columnIndex: 1),
+            ])])
+        let request = ExtractionRequest(pageIndex: 0, lines: lines, regions: [region], specs: [spec],
+                                        allowsGenerativeProcessing: false, pageConfidence: 0.9)
+        let card = try #require(try await CardExtractionRegistry(engines: [
+            CoreMLExtractionEngine(matcher: matcher),
+            rules,
+        ]).extract(request).first)
+        #expect(card.shared["hospital"]?.value == "市一医院")
+        #expect(card.rows.first?["drug_name"]?.value == "阿莫西林")
+        #expect(card.provenance.track == .coreML)
+    }
+
+    @Test("higher-confidence rules value wins a shared-key conflict")
+    func rulesConfidenceWinsSharedConflict() async throws {
+        // Core ML 恒 0.6；规则轨 0.9。同一 shared 键两轨都给值时，规则值
+        // 不得被模型误值按轨序顶掉（审计 2026-11-07）。
+        let matcher = StubInformationElementMatching { _, _ in
+            [InformationElementMatch(key: "hospital", value: "市一医院", confidence: 0.99, sourceLineIndex: 0)]
+        }
+        let rules = StubCardExtractionEngine(track: .rules, regionTimeout: nil) { _, _ in
+            RegionExtraction(shared: ["hospital": GroundedValue(
+                value: "市第二医院",
+                anchor: TextAnchor(pageIndex: 0, lineIndex: 1, blockId: nil, rowId: nil, utf16Range: 0..<5),
+                confidence: 0.9)], rows: [])
+        }
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
+        let lines = ["市一医院", "市第二医院"]
+        let region = ExtractionRegion(
+            pageIndex: 0, id: "g0", kind: .paragraph, columnHeader: nil,
+            rows: [ExtractionRow(id: "r0", cells: [
+                ExtractionCell(text: "市一医院", lineIndices: [0], columnIndex: 0),
+                ExtractionCell(text: "市第二医院", lineIndices: [1], columnIndex: 1),
+            ])])
+        let request = ExtractionRequest(pageIndex: 0, lines: lines, regions: [region], specs: [spec],
+                                        allowsGenerativeProcessing: false, pageConfidence: 0.9)
+        let card = try #require(try await CardExtractionRegistry(engines: [
+            CoreMLExtractionEngine(matcher: matcher),
+            rules,
+        ]).extract(request).first)
+        #expect(card.shared["hospital"]?.value == "市第二医院")
+    }
+
+    @Test("learned aliases cap the value confidence at 0.5")
+    func learnedAliasCapsConfidence() async throws {
+        struct Learned: ExtractionRuleCataloging {
+            func activeOverlay() async -> ExtractionRuleOverlay {
+                ExtractionRuleOverlay(aliases: [
+                    ExtractionRuleAlias(kind: "encounter", key: "hospital", alias: "就诊医院",
+                                        source: .coreMLObserved, status: .active),
+                ])
+            }
+            func observe(_ observations: [ExtractionRuleObservation]) async {}
+            func confirm(kind: String, key: String, alias: String, documentPseudonym: String) async {}
+        }
+        let matcher = StubInformationElementMatching { _, _ in
+            [InformationElementMatch(key: "hospital", value: "市一医院", confidence: 0.95, sourceLineIndex: 0)]
+        }
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
+        let lines = ["市一医院"]
+        let region = ExtractionRegion(
+            pageIndex: 0, id: "g0", kind: .paragraph, columnHeader: nil,
+            rows: [ExtractionRow(id: "r0", cells: [ExtractionCell(text: "市一医院", lineIndices: [0], columnIndex: 0)])])
+        let request = ExtractionRequest(pageIndex: 0, lines: lines, regions: [region], specs: [spec],
+                                        allowsGenerativeProcessing: false, pageConfidence: 0.9)
+        let result = try await CoreMLExtractionEngine(matcher: matcher, rules: Learned())
+            .extract(region: region, spec: spec, request: request)
+        #expect(result.shared["hospital"]?.confidence == 0.5)
+    }
+
+    @Test("whole prescription line is narrowed to the value span")
+    func wholeLineIsNarrowedToSpan() async throws {
+        // 行级模型只给键；值必须收敛。否则整行（药名+规格+用法）冒充 drug_name，
+        // grounding 只查子串无法拦截（审计 P0）。
+        let line = "药品名称：阿莫西林胶囊"
+        let matcher = StubInformationElementMatching { _, _ in
+            [InformationElementMatch(key: "drug_name", value: line, confidence: 0.9, sourceLineIndex: 0)]
+        }
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "prescription"))
+        let region = ExtractionRegion(
+            pageIndex: 0, id: "g0", kind: .paragraph, columnHeader: nil,
+            rows: [ExtractionRow(id: "r0", cells: [ExtractionCell(text: line, lineIndices: [0], columnIndex: 0)])])
+        let request = ExtractionRequest(pageIndex: 0, lines: [line], regions: [region], specs: [spec],
+                                        allowsGenerativeProcessing: false, pageConfidence: 0.9)
+        let result = try await CoreMLExtractionEngine(matcher: matcher)
+            .extract(region: region, spec: spec, request: request)
+        #expect(result.rows.first?["drug_name"]?.value == "阿莫西林胶囊")
+    }
+
+    @Test("multi-label lines abstain instead of emitting one whole-line key")
+    func multiLabelLineAbstains() async throws {
+        // 单标签模型无法拆 `科室：骨科 医生：张三` 两键；整行当一个值会被
+        // 规则轨的 first-wins 挡住（审计 2026-11-07）。必须弃权。
+        let line = "科室：骨科门诊 医生：张三"
+        let matcher = StubInformationElementMatching { _, _ in
+            [InformationElementMatch(key: "department", value: line, confidence: 0.9, sourceLineIndex: 0)]
+        }
+        let spec = try #require(ExtractionSpecRegistry.spec(for: "encounter"))
+        let region = ExtractionRegion(
+            pageIndex: 0, id: "g0", kind: .paragraph, columnHeader: nil,
+            rows: [ExtractionRow(id: "r0", cells: [ExtractionCell(text: line, lineIndices: [0], columnIndex: 0)])])
+        let request = ExtractionRequest(pageIndex: 0, lines: [line], regions: [region], specs: [spec],
+                                        allowsGenerativeProcessing: false, pageConfidence: 0.9)
+        let result = try await CoreMLExtractionEngine(matcher: matcher)
+            .extract(region: region, spec: spec, request: request)
+        #expect(result.shared["department"] == nil)
+    }
+
     @Test("ungrounded Core ML output does not block the rules track")
     func ungroundedCoreMLOutputFallsBackToRules() async throws {
         // 模型有产出（raw.valueCount > 0）但值不在锚定行 → 产出率 0。

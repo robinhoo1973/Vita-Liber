@@ -1,0 +1,38 @@
+{
+  "bytes": 393758,
+  "cardKinds": [
+    "encounter",
+    "exam_report",
+    "hospitalization",
+    "metric_sample"
+  ],
+  "featureDimension": 4096,
+  "featureVersion": "char-ngram-fnv1a-v1",
+  "formatVersion": 1,
+  "hashFile": "",
+  "inputName": "features",
+  "keys": [
+    "collected_at",
+    "department",
+    "doctor",
+    "exam_at",
+    "hospital",
+    "measured_at",
+    "report_doctor",
+    "report_no",
+    "reported_at",
+    "review_doctor",
+    "specimen_type"
+  ],
+  "labelOutputName": "label",
+  "license": "proprietary",
+  "minimumConfidence": 0.5,
+  "modelFile": "field_linerole.mlmodel",
+  "modelID": "field-linerole-e5a041e48b81",
+  "phiWarning": "trained only on value-masked lines; still derived from local scans",
+  "probabilityOutputName": "labelProbs",
+  "sha256": "e5a041e48b81c66157792b2b6be589e602c0b42266d4990fb8eb149e5eec5d49",
+  "sourceURL": "",
+  "trainingRunID": "run-20261107T003742Z",
+  "version": "1.0.0"
+}

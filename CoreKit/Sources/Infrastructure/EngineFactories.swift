@@ -360,10 +360,14 @@ public enum CardExtractionFactory: EngineFactory {
             engines.append(FoundationModelsExtractionEngine())
         }
         #endif
+        // 规则库（2026-11-07 业主）：随包只读种子 + 端侧可写覆盖；Core ML 未知
+        // 标签的观察也写这里。缺库/损坏 → 空覆盖，码内 spec 兜底。
+        // 与确认页共用同一 store，保证「观察到 → 用户确认」写同一条候选。
+        let rules = RuleLearningCenter.store
         // 判别式 Core ML 轨：只有 catalog + 编译模型都在包内才注册；缺件不占轨、
         // 不产生“不可用”噪声。规则轨仍是恒可用兜底（2026-11-06 业主）。
         if CoreMLElementMatcher.hasBundledModel() {
-            engines.append(CoreMLExtractionEngine(matcher: CoreMLElementMatcher()))
+            engines.append(CoreMLExtractionEngine(matcher: CoreMLElementMatcher(), rules: rules))
         }
         #if canImport(llama)
         // 业主 2026-09-17 恢复 T2（llama 模型随包内置）：自建切片下限 = 应用基线
@@ -371,7 +375,7 @@ public enum CardExtractionFactory: EngineFactory {
         // build-llama-xcframework.yml）；macOS 13.3 切片由 CoreKit .macOS(.v14) 兜住。
         engines.append(LlamaCppExtractionEngine())
         #endif
-        engines.append(RuleExtractionEngine())
+        engines.append(RuleExtractionEngine(rules: rules))
         return CardExtractionRegistry(engines: engines)
     }
 }

@@ -16,8 +16,15 @@ public enum ExtractionEngineError: Error, Sendable { case unavailable, modelBusy
 public protocol CardExtractionEngine: Sendable {
     var track: ExtractionTrack { get }
     var regionTimeout: Duration? { get }
+    /// 判别式模型身份（`catalog.modelID + version`）；规则/生成轨为 nil。
+    /// 注册表把首个贡献轨的模型身份写入 `ExtractionProvenance.modelId`（审计 2026-11-07）。
+    var modelID: String? { get }
     func availability(for request: ExtractionRequest) async -> EngineAvailability
     func extract(region: ExtractionRegion, spec: ExtractionSpec, request: ExtractionRequest) async throws -> RegionExtraction
+}
+
+public extension CardExtractionEngine {
+    var modelID: String? { nil }
 }
 
 /// 契约桩（测试 / Linux）：脚本化区域结果；恒可用。

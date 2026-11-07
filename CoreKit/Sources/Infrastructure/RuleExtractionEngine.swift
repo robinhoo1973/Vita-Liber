@@ -8,10 +8,31 @@ import Protocols
 public struct RuleExtractionEngine: CardExtractionEngine {
     public let track: ExtractionTrack = .rules
     public let regionTimeout: Duration? = nil
-    public init() {}
+    private let rules: any ExtractionRuleCataloging
+
+    /// `rules` 缺省为空覆盖：内置 spec 仍是唯一兜底；规则库损坏/缺失不阻断导入。
+    public init(rules: any ExtractionRuleCataloging = EmptyExtractionRuleCatalog()) {
+        self.rules = rules
+    }
     public func availability(for request: ExtractionRequest) async -> EngineAvailability { .available }
     public func extract(region: ExtractionRegion, spec: ExtractionSpec, request: ExtractionRequest) async throws -> RegionExtraction {
-        let (shared, rows) = RuleExtractor.extract(region: region, spec: spec, lines: request.lines)
+        // 规则库只追加 active 别名；键/类型/顺序仍由 Swift spec 单一事实源决定。
+        let overlay = await rules.activeOverlay()
+        let effective = overlay.applied(to: spec)
+        var (shared, rows) = RuleExtractor.extract(region: region, spec: effective, lines: request.lines)
+        // 端侧学习别名命中键：置信度压到 0.5（低于 0.6 批量确认门槛）。
+        for key in shared.keys where overlay.hasLearnedAlias(kind: spec.kind, key: key) {
+            guard var value = shared[key] else { continue }
+            value.confidence = min(0.5, value.confidence)
+            shared[key] = value
+        }
+        for index in rows.indices {
+            for key in rows[index].keys where overlay.hasLearnedAlias(kind: spec.kind, key: key) {
+                guard var value = rows[index][key] else { continue }
+                value.confidence = min(0.5, value.confidence)
+                rows[index][key] = value
+            }
+        }
         return RegionExtraction(shared: shared, rows: rows)
     }
 }

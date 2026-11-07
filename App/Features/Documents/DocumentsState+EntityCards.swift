@@ -292,7 +292,11 @@ extension DocumentsState {
         defer { session.isSaving = false }
         do {
             let result = try await cardStore.save(card: confirmed, patientId: source.patientId, documentId: source.documentId)
-            if result.writtenCount > 0 { session.committedCards.insert(card.id) }
+            if result.writtenCount > 0 {
+                session.committedCards.insert(card.id)
+                // 2026-11-07：用户确认后的 Core ML 未知标签 → 规则库强证据。
+                await RuleLearningCenter.recordConfirmed(card: confirmed, documentId: source.documentId)
+            }
             pendingDidChange()
             if result.writtenCount > 0, card.kind == "metric_sample" { dataChange?.metricsChanged() }
             if let remaining = result.remainingCard, let index = session.cards.firstIndex(where: { $0.id == card.id }) { session.cards[index] = remaining }

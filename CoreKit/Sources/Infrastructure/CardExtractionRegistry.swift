@@ -101,15 +101,21 @@ public actor CardExtractionRegistry {
                     merged = union(merged, result, anchor: spec.rowAnchor)
                     if !result.isEmpty {
                         if !used.contains(engine.track) { used.append(engine.track) }
+                        // 首个贡献轨的模型身份进 provenance（诊断/回滚可追溯）。
+                        if card.provenance.modelId == nil, let id = engine.modelID {
+                            card.provenance.modelId = id
+                        }
                         contributors.append(engine.track)
                     }
-                    // 判别式非生成轨（Core ML）不因「有产出」终止链：产出全部
-                    // 未过 grounding（ratio == 0）时若结束区域，模型漏检会把
-                    // 规则轨一起挡掉。只有「有产出且锚定达标」或恒兜底的规则轨
-                    // 才终止链；低锚定率的 Core ML 结果保留并交下一轨补键。
-                    if ratio >= Self.groundingThreshold || engine.track == .rules {
+                    // 判别式非生成轨（Core ML）**永不**终止区域链：它按行给键，
+                    // 漏检/锚定失败是常态。2026-11-07 审计：此前 ratio >= 0.5
+                    // 即结束区域，模型半覆盖（如只命中 hospital）会让规则轨不再
+                    // 补 drug_name 等键，卡片静默缺字段。Core ML 结果保留并与规则
+                    // 并集（同键先到先得）；只有规则轨（恒兜底）与生成轨达标才终止。
+                    if engine.track == .rules
+                        || (engine.track != .coreML && ratio >= Self.groundingThreshold) {
                         regionDone = true
-                    } else if raw.valueCount > 0 {
+                    } else if raw.valueCount > 0, ratio < Self.groundingThreshold {
                         card.diagnostics.degradedReason = .lowGrounding
                     }
                 }
@@ -190,18 +196,27 @@ public actor CardExtractionRegistry {
     /// 同一行并成两行），无 rowId 时回落 rowAnchor 值合并（同药名 / 同项目补键
     /// 不重复成行），无锚或锚值未见者追加。
     private func union(_ a: RegionExtraction, _ b: RegionExtraction, anchor: String?) -> RegionExtraction {
+        // 同键冲突取**更高置信度**，不按轨序 first-wins：Core ML 值恒 ≤0.6，
+        // 规则轨 0.9/0.7/0.6——规则命中的键不会被模型误值顶掉；同分仍先到
+        // 先得（Core ML 在前，保留其主轨判定）。2026-11-07 审计修复。
         var out = a
-        out.shared.merge(b.shared) { first, _ in first }
+        out.shared.merge(b.shared) { first, second in
+            first.confidence >= second.confidence ? first : second
+        }
         for row in b.rows {
             let rowID = row.values.compactMap(\.anchor.rowId).first
             if let rowID,
                let index = out.rows.firstIndex(where: { candidate in
                    candidate.values.contains { $0.anchor.rowId == rowID }
                }) {
-                out.rows[index].merge(row) { first, _ in first }
+                out.rows[index].merge(row) { first, second in
+                    first.confidence >= second.confidence ? first : second
+                }
             } else if let anchor, let key = row[anchor]?.value,
                       let index = out.rows.firstIndex(where: { $0[anchor]?.value == key }) {
-                out.rows[index].merge(row) { first, _ in first }
+                out.rows[index].merge(row) { first, second in
+                    first.confidence >= second.confidence ? first : second
+                }
             } else {
                 out.rows.append(row)
             }

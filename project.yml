@@ -33,7 +33,13 @@ targets:
         # L0 [20] 对两处形态做机械断言。
         excludes: ["ASRModels", "ASRModels/**", "ASRModelUpdates", "ASRModelUpdates/**",
                    "LLMModels", "LLMModels/**", "LLMCatalog", "LLMCatalog/**",
-                   "OCRModels", "OCRModels/**"]
+                   "OCRModels", "OCRModels/**",
+                   # 2026-11-07：CoreML 字段模型由 postBuild 用 coremlcompiler 编译后
+                   # 嵌入，源 `.mlmodel` 不入包（避免把未编译原型与编译产物双拷贝）。
+                   "CoreMLModels", "CoreMLModels/**",
+                   # 2026-11-07 业主：规则库随 App 上线。种子库单列文件夹引用，
+                   # 通用 Resources 组排除，避免双拷贝。
+                   "ExtractionRules", "ExtractionRules/**"]
       # 2026-11-04 业主裁决：PP-OCRv6 small det+rec **主轨**随包（约 30MB）。
       # det 出框、rec 出字；Vision 退为副轨（版式/表格 + 兜底）。catalog 钉 sha256/bytes，运行时校验。
       - path: Resources/OCRModels
@@ -46,6 +52,11 @@ targets:
       # 目录随签名二进制发布，URL+sha256+bytes 构建期钉死；App 不信任任何网络目录，
       # 见 LlamaModelManager/LLMModelCatalog 头注）。
       - path: Resources/LLMCatalog
+        type: folder
+        buildPhase: resources
+      # 2026-11-07 业主：抽取规则库只读种子（别名/状态/证据计数；键与类型仍
+      # 由 Swift ExtractionSpecRegistry 单一事实源定义）。
+      - path: Resources/ExtractionRules
         type: folder
         buildPhase: resources
     preBuildScripts:
@@ -65,6 +76,29 @@ targets:
           set -eu
           install -m 0644 "$DERIVED_FILE_DIR/TrustedModelHashes.json" \
             "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/TrustedModelHashes.json"
+        basedOnDependencyAnalysis: false
+      # 2026-11-07 业主：CoreML 字段模型随包跑起来。源 `.mlmodel` 在
+      # Resources/CoreMLModels（不入 Resources 组），此处用 Xcode 自带
+      # coremlcompiler 编译成 `.mlmodelc` 并生成带 sha256 的运行时 catalog。
+      - name: Compile bundled Core ML field model
+        script: |
+          set -eu
+          SRC="$SRCROOT/Resources/CoreMLModels"
+          DST="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/CoreMLModels"
+          if [ ! -d "$SRC" ]; then
+            echo "CoreMLModels source not present; skipping"
+            exit 0
+          fi
+          rm -rf "$DST"
+          mkdir -p "$DST"
+          for MODEL in "$SRC"/*.mlmodel; do
+            [ -e "$MODEL" ] || continue
+            xcrun coremlcompiler compile "$MODEL" "$DST"
+          done
+          python3 "$SRCROOT/.github/actions/release/coreml-catalog.py" \
+            --model-dir "$DST/field_linerole.mlmodelc" \
+            --source "$SRC/catalog.json" \
+            --output "$DST/catalog.json"
         basedOnDependencyAnalysis: false
       - name: Reconcile embedded framework minimum OS
         script: python3 "$SRCROOT/.github/actions/release/reconcile-frameworks.py" --app "$TARGET_BUILD_DIR/$WRAPPER_NAME" --repair

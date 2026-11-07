@@ -44,6 +44,31 @@ public enum RuleExtractor {
         ExtractionPatterns.dateToken(in: text)
     }
 
+    /// Core ML 行级分类后的**值域提取**（2026-11-07 审计 P0）：
+    /// 去掉行首标签与冒号，并截断到下一个标签位。标签独占行 / 未命中标签 → nil，
+    /// 调用方保留原行兜底。此前 Core ML 把**整行**当值（如
+    /// `drug_name = "阿莫西林胶囊 0.5g×24 口服 一日三次"`），grounding 只查子串
+    /// 无法拦截；行级模型必须交给本函数收敛值域。
+    public static func labeledValue(in line: String, aliases: [String]) -> String? {
+        guard let value = split(label: line, aliases: aliases), !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// 未知标签的通用「标签：值」切分（Core ML 发现新规则的入口）：
+    /// 冒号前 2–12 个非数字字符、冒号后有值，值截断到下一个标签位。
+    /// 只返回**标签文本**，不猜测键；调用方（CoreMLExtractionEngine）用模型
+    /// 预测的键配对，并作为 `proposed` 规则收集，绝不直接激活。
+    public static func genericLabeledValue(in line: String) -> (label: String, value: String)? {
+        let text = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let colon = text.firstIndex(where: { $0 == ":" || $0 == "：" }) else { return nil }
+        let label = String(text[..<colon]).trimmingCharacters(in: .whitespaces)
+        guard (2...12).contains(label.count),
+              !label.contains(where: { $0.isNumber || $0.isWhitespace }) else { return nil }
+        let rest = String(text[text.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        guard let value = ExtractionPatterns.truncatingAtLabelBoundary(rest), !value.isEmpty else { return nil }
+        return (label, value)
+    }
+
     // MARK: 共享字段
 
     static func sharedFields(region: ExtractionRegion, spec: ExtractionSpec, lines: [String]) -> [String: GroundedValue] {
