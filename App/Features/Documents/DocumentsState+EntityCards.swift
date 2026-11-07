@@ -450,6 +450,10 @@ extension DocumentsState {
         do {
             let result = try await cardStore.save(card: confirmed, patientId: pending.patientId,
                                                  documentId: documentID, pendingCardId: pending.id)
+            if result.writtenCount > 0 {
+                // 续办路径同样收集 Core ML 未知标签强证据（与队列路径同源）。
+                await RuleLearningCenter.recordConfirmed(card: confirmed, documentId: documentID)
+            }
             if let remaining = result.remainingCard { review.card = remaining }
             review.writtenCount += result.writtenCount
             review.sharedCommitted = review.sharedCommitted || (result.writtenCount > 0 && !result.resolved)
