@@ -364,9 +364,12 @@ public enum CardExtractionFactory: EngineFactory {
         // 标签的观察也写这里。缺库/损坏 → 空覆盖，码内 spec 兜底。
         // 与确认页共用同一 store，保证「观察到 → 用户确认」写同一条候选。
         let rules = RuleLearningCenter.store
-        // 判别式 Core ML 轨：只有 catalog + 编译模型都在包内才注册；缺件不占轨、
-        // 不产生“不可用”噪声。规则轨仍是恒可用兜底（2026-11-06 业主）。
-        if CoreMLElementMatcher.hasBundledModel() {
+        // 判别式 Core ML 轨：端侧显式安装的模型优先，否则随包模型；两者都缺
+        // 才不注册（不产生“不可用”噪声）。规则轨仍是恒可用兜底。
+        if let installed = CoreMLModelInstallation.installedDirectory() {
+            engines.append(CoreMLExtractionEngine(
+                matcher: CoreMLElementMatcher(directory: installed), rules: rules))
+        } else if CoreMLElementMatcher.hasBundledModel() {
             engines.append(CoreMLExtractionEngine(matcher: CoreMLElementMatcher(), rules: rules))
         }
         #if canImport(llama)

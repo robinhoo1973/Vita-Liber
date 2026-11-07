@@ -63,7 +63,11 @@ public actor CoreMLElementMatcher: InformationElementMatching {
     #endif
 
     public init(bundle: Bundle = .main) {
-        let directory = bundle.url(forResource: "CoreMLModels", withExtension: nil)
+        self.init(directory: bundle.url(forResource: "CoreMLModels", withExtension: nil))
+    }
+
+    /// 指定模型目录（随包或端侧安装目录）；catalog/模型缺失 → 不可用。
+    public init(directory: URL?) {
         let catalogURL = directory?.appendingPathComponent("catalog.json")
         let data = catalogURL.flatMap { try? Data(contentsOf: $0) }   // try?-ok: 缺件按不可用降级
         let catalog = data.flatMap { try? JSONDecoder().decode(Catalog.self, from: $0) }   // try?-ok: 目录损坏降级

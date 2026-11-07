@@ -14,6 +14,23 @@ struct CoreMLElementMatcherTests {
                                                template: nil) == "科室：骨科")
     }
 
+    @Test("directory initializer selects an installed model source")
+    func installedDirectorySource() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("coreml-source-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }   // try?-ok: 测试清理
+        let json = """
+        {"formatVersion":1,"modelFile":"m.mlmodelc","version":"2.0.0",
+         "inputName":"features","labelOutputName":"label","probabilityOutputName":"labelProbs",
+         "keys":["hospital"],"minimumConfidence":0.5,"modelID":"installed-model",
+         "featureVersion":"char-ngram-fnv1a-v1","featureDimension":8,"hashFile":"","sha256":null}
+        """
+        try Data(json.utf8).write(to: directory.appendingPathComponent("catalog.json"))
+        let matcher = CoreMLElementMatcher(directory: directory)
+        #expect(matcher.modelID == "installed-model")
+    }
+
     @Test("catalog decodes identity, feature and integrity fields")
     func catalogDecodes() throws {
         let json = """
