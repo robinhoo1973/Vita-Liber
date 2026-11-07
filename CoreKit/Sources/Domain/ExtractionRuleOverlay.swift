@@ -78,7 +78,10 @@ public struct ExtractionRuleOverlay: Codable, Sendable, Equatable {
     /// 该 (kind,key) 是否含端侧学习别名：命中即把置信度压到 0.5，
     /// 低于批量确认门槛 0.6，强制用户逐项确认（BR-003）。
     public func hasLearnedAlias(kind: String, key: String) -> Bool {
-        aliases.contains { $0.kind == kind && $0.key == key && $0.source == .coreMLObserved }
+        aliases.contains {
+            $0.kind == kind && $0.key == key
+                && ($0.source == .coreMLObserved || $0.source == .userConfirmed)
+        }
     }
 
     /// 把覆盖层应用到 spec：只追加别名，不改键/类型/顺序；未命中键原样。

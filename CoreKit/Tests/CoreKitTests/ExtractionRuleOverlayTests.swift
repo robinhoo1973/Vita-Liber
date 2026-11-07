@@ -42,8 +42,11 @@ struct ExtractionRuleOverlayTests {
                                 source: .coreMLObserved, status: .active),
             ExtractionRuleAlias(kind: "prescription", key: "spec", alias: "包装",
                                 source: .scanMined, status: .active),
+            ExtractionRuleAlias(kind: "prescription", key: "frequency", alias: "服药频次",
+                                source: .userConfirmed, status: .active),
         ])
         #expect(overlay.hasLearnedAlias(kind: "prescription", key: "drug_name"))
+        #expect(overlay.hasLearnedAlias(kind: "prescription", key: "frequency"))
         #expect(!overlay.hasLearnedAlias(kind: "prescription", key: "spec"))
     }
 

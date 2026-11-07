@@ -113,7 +113,7 @@ public actor ExtractionRuleStore: ExtractionRuleCataloging {
         if let overlay {
             let rows = (try? await overlay.read { db in   // try?-ok: 读失败=该层丢弃
                 try Row.fetchAll(db, sql: """
-                    SELECT card_kind, field_key, value, evidence_count, distinct_doc_count
+                    SELECT card_kind, field_key, value, source_kind, evidence_count, distinct_doc_count
                     FROM rule_candidate
                     WHERE candidate_kind = 'alias' AND status = 'active'
                     """)
@@ -121,8 +121,10 @@ public actor ExtractionRuleStore: ExtractionRuleCataloging {
             entries += rows.compactMap { row in
                 guard let kind: String = row["card_kind"], let key: String = row["field_key"],
                       let value: String = row["value"] else { return nil }
+                let sourceKind: String = row["source_kind"] ?? "coreml_observed"
                 return ExtractionRuleAlias(kind: kind, key: key, alias: value,
-                                           source: .coreMLObserved, status: .active,
+                                           source: ExtractionRuleSource(rawValue: sourceKind) ?? .coreMLObserved,
+                                           status: .active,
                                            evidenceCount: row["evidence_count"] ?? 0,
                                            confirmedCount: row["distinct_doc_count"] ?? 0)
             }
