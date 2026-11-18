@@ -165,12 +165,16 @@ public struct MedicalCatalogDrugSection: Sendable, Equatable, Identifiable {
     public let kind: String
     public let charStart: Int
     public let charEnd: Int
+    /// 说明书原文标题（catalog-v9 的 `heading`，含【】）；旧布局为 nil。
+    public let heading: String?
 
-    public init(ordinal: Int, kind: String, charStart: Int, charEnd: Int) {
+    public init(ordinal: Int, kind: String, charStart: Int, charEnd: Int,
+                heading: String? = nil) {
         self.ordinal = ordinal
         self.kind = kind
         self.charStart = charStart
         self.charEnd = charEnd
+        self.heading = heading
     }
 }
 

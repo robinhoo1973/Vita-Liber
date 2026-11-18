@@ -122,11 +122,18 @@ struct MedicalCatalogDetailView: View {
                     ForEach(bundles) { bundle in
                         DisclosureGroup {
                             ForEach(bundle.sections) { section in
-                                if let text = sectionText(section, bundle: bundle) {
-                                    Text(text)
-                                        .font(.footnote)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    if let heading = section.heading, !heading.isEmpty {
+                                        Text(heading)
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if let text = sectionText(section, bundle: bundle) {
+                                        Text(text)
+                                            .font(.footnote)
+                                            .textSelection(.enabled)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
                                 }
                             }
                         } label: {

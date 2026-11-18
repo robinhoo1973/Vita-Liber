@@ -406,7 +406,7 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
         if isV9Layout {
             return try await pool.read { db in
                 let sections = try Row.fetchAll(db, sql: """
-                    SELECT field, ordinal, value FROM drug_sections
+                    SELECT field, ordinal, value, heading FROM drug_sections
                     WHERE kind = 'span'
                       AND drug_id = (SELECT id FROM drug WHERE document_sha256 = ? LIMIT 1)
                     """, arguments: [docSHA256]).compactMap { row -> MedicalCatalogDrugSection? in
@@ -415,7 +415,8 @@ public final class CatalogSliceDrugStore: MedicalCatalogReading, @unchecked Send
                     let end = value.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
                     return MedicalCatalogDrugSection(ordinal: row["ordinal"], kind: row["field"],
                                                         charStart: Int(UInt32(littleEndian: start)),
-                                                        charEnd: Int(UInt32(littleEndian: end)))
+                                                        charEnd: Int(UInt32(littleEndian: end)),
+                                                        heading: row["heading"])
                 }
                 return sections.sorted { lhs, rhs in
                     if lhs.charStart != rhs.charStart { return lhs.charStart < rhs.charStart }
