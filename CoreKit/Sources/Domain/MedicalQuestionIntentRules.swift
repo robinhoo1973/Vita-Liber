@@ -15,7 +15,8 @@ public enum MedicalQuestionIntentRules {
                                  "加大剂量", "减少剂量", "一天吃", "一次吃"]
     private static let stopSwitch = ["停药", "换药", "可以停", "能停", "换一种", "换成"]
     private static let interaction = ["一起吃", "合用", "同服", "相互作用", "冲突", "能一起"]
-    private static let comparison = ["哪个好", "该吃哪个", "能替代", "替代吗", "换哪个", "哪个更"]
+    private static let comparison = ["哪个好", "哪个药更", "哪个药好", "哪个更", "该吃哪个",
+                                     "能替代", "替代吗", "换哪个", "更好"]
 
     /// 文本归一：全半角折叠 + 去空白 + 小写；只用于匹配。
     public static func normalize(_ text: String) -> String {

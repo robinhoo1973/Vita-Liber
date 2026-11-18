@@ -21,6 +21,11 @@ final class MedicalQuestionIntentRulesTests: XCTestCase {
         XCTAssertEqual(MedicalQuestionIntentRules.classify("换成另一种可以吗"), .stopOrSwitch)
         XCTAssertEqual(MedicalQuestionIntentRules.classify("这两种药能一起吃吗"), .interaction)
         XCTAssertEqual(MedicalQuestionIntentRules.classify("哪个药更好"), .comparison)
+        XCTAssertEqual(MedicalQuestionIntentRules.classify("这个药比那个更好吗"), .comparison)
+    }
+
+    func test_comparisonKeywordDoesNotSwallowFieldQuestions() {
+        XCTAssertEqual(MedicalQuestionIntentRules.classify("哪个药的不良反应有哪些"), .none)
     }
 
     func test_widthAndSpaceFolding() {
